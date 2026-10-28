@@ -299,7 +299,7 @@ Text actions preserve an existing index BOM; use whole-file actions to stage an
 encoding change.
 
 The current-change popup (`Space i`) also offers `s` to stage the cursor's hunk,
-`u` to unstage it, and `n` to stage and select the next unstaged hunk. These actions
+`u` to unstage it, and `S` to stage and select the next unstaged hunk. These actions
 compare with the index even though the preview compares `HEAD` with the buffer.
 The footer labels each comparison. Actions close the popup; inspect again to
 review the resulting state. Remap them under `[keys.diff]` using `stage`, `unstage`,

@@ -309,7 +309,7 @@ impl Default for ComponentKeymaps {
                 ("r", DiffAction::Restore),
                 ("s", DiffAction::Stage),
                 ("u", DiffAction::Unstage),
-                ("n", DiffAction::StageAndNext),
+                ("S", DiffAction::StageAndNext),
             ]),
             blame: bindings(&[
                 ("y", BlameAction::CopyCommitId),
