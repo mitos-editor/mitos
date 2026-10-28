@@ -10,7 +10,8 @@ use std::{
     },
 };
 use vcs::operations::{
-    FileOperation, GitRepository, PartialSelection, PartialSource, PreparedOperation, StashEntry,
+    CommitSnapshot, FileOperation, GitRepository, PartialSelection, PartialSource,
+    PreparedOperation, StashEntry,
 };
 
 pub mod partial;
@@ -48,6 +49,7 @@ pub enum GitAction {
     File(vcs::FileStatus, FileOperation),
     Stash(PathBuf),
     Apply(GitRepository, StashEntry, bool),
+    Commit(CommitSnapshot, String),
 }
 
 pub struct GitRequest {
@@ -176,6 +178,7 @@ impl GitRequest {
                     GitRepository::discover(status.path())?.prepare_file(status, *kind, true)?
                 }
                 GitAction::Apply(repo, entry, index) => repo.prepare_apply(entry, *index, true)?,
+                GitAction::Commit(snapshot, message) => snapshot.prepare(message, true)?,
             };
             Ok(PreparedGitAction {
                 operation,
@@ -229,7 +232,7 @@ impl PreparedGitAction {
                 continue;
             }
             ensure!(
-                !changes_worktree || !doc.is_modified(),
+                !self.operation.requires_clean_buffers() || !doc.is_modified(),
                 "Save or close unsaved buffer '{}' before changing its file on disk",
                 doc.display_name()
             );
@@ -325,7 +328,7 @@ impl GitCompletion {
                 "{} complete{}",
                 self.state.label,
                 if preserved {
-                    "; newer buffer edits were preserved"
+                    "; buffer edits were preserved"
                 } else {
                     ""
                 }

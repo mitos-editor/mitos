@@ -274,6 +274,136 @@ fn committed_file() -> anyhow::Result<(tempfile::TempDir, std::path::PathBuf)> {
     Ok((dir, path))
 }
 
+async fn ready_commit_message(app: &mut Application) -> anyhow::Result<()> {
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let ready = current_ref!(app.editor)
+                .1
+                .commit_message()
+                .is_some_and(|commit| {
+                    app.editor
+                        .document(commit.review())
+                        .and_then(|doc| doc.project_review())
+                        .is_some_and(|review| review.is_complete())
+                });
+            if ready {
+                break;
+            }
+            run_event_loop_until_idle(app).await;
+        }
+    })
+    .await?;
+    Ok(())
+}
+
+async fn finish_commit(app: &mut Application) -> anyhow::Result<()> {
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            run_event_loop_until_idle(app).await;
+            if !app.editor.handlers().git_operations.busy()
+                && app
+                    .editor
+                    .get_status()
+                    .is_some_and(|(message, _)| !message.starts_with("Preparing commit"))
+            {
+                break;
+            }
+        }
+    })
+    .await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn commit_composer_submits_the_index_and_preserves_unsaved_source_edits() -> anyhow::Result<()>
+{
+    let (dir, path) = committed_file()?;
+    git(dir.path(), &["config", "user.name", "Test Author"]);
+    git(dir.path(), &["config", "user.email", "test@example.com"]);
+    git(dir.path(), &["config", "commit.gpgsign", "false"]);
+    std::fs::write(&path, "staged\n")?;
+    git(dir.path(), &["add", "."]);
+    std::fs::write(&path, "working tree\n")?;
+    let mut app = AppBuilder::new().with_file(&path, None).build()?;
+    let source = current_ref!(app.editor).1.id();
+    press_keys(&mut app, "Iunsaved-<esc>:vcs-commit<ret>").await?;
+    ready_commit_message(&mut app).await?;
+    let composer = current_ref!(app.editor).1.id();
+    assert!(current_ref!(app.editor)
+        .1
+        .display_name()
+        .contains("commit message"));
+    assert!(!current_ref!(app.editor).1.is_readonly());
+    press_keys(&mut app, "iFocused commit<esc>:vcs-commit-submit<ret>").await?;
+    finish_commit(&mut app).await?;
+    let doc = app.editor.document(composer).unwrap();
+    assert!(
+        doc.commit_message().unwrap().submitted(),
+        "{:?}",
+        app.editor.get_status()
+    );
+    assert!(!doc.is_modified());
+    let committed = Command::new("git")
+        .arg("-C")
+        .arg(dir.path())
+        .args(["show", "HEAD:file.txt"])
+        .output()?;
+    assert!(committed.status.success());
+    assert_eq!(committed.stdout, b"staged\n");
+    assert_eq!(std::fs::read_to_string(&path)?, "working tree\n");
+    assert_eq!(
+        app.editor.document(source).unwrap().text().to_string(),
+        "unsaved-working tree\n"
+    );
+    assert!(app.editor.close_document(source, true).is_ok());
+    assert!(app.close().await.is_empty());
+    Ok(())
+}
+
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn failed_commit_keeps_the_message_and_reopening_reuses_the_draft() -> anyhow::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    let (dir, path) = committed_file()?;
+    git(dir.path(), &["config", "user.name", "Test Author"]);
+    git(dir.path(), &["config", "user.email", "test@example.com"]);
+    git(dir.path(), &["config", "commit.gpgsign", "false"]);
+    std::fs::write(&path, "staged\n")?;
+    git(dir.path(), &["add", "."]);
+    let hook = dir.path().join(".git/hooks/pre-commit");
+    std::fs::write(&hook, "#!/bin/sh\necho 'hook rejected' >&2\nexit 1\n")?;
+    std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755))?;
+    let mut app = AppBuilder::new().with_file(&path, None).build()?;
+    press_keys(&mut app, ":vcs-commit<ret>").await?;
+    ready_commit_message(&mut app).await?;
+    let composer = current_ref!(app.editor).1.id();
+    press_keys(&mut app, "iKeep my message<esc>:vcs-commit-submit<ret>").await?;
+    finish_commit(&mut app).await?;
+    assert!(app.editor.get_status().unwrap().0.contains("hook rejected"));
+    assert_eq!(
+        current_ref!(app.editor).1.text().to_string(),
+        "Keep my message\n"
+    );
+    assert!(current_ref!(app.editor).1.is_modified());
+    std::fs::remove_file(hook)?;
+    press_keys(&mut app, ":vcs-commit<ret>").await?;
+    ready_commit_message(&mut app).await?;
+    assert_eq!(current_ref!(app.editor).1.id(), composer);
+    assert_eq!(
+        current_ref!(app.editor).1.text().to_string(),
+        "Keep my message\n"
+    );
+    press_keys(&mut app, ":vcs-commit-submit<ret>").await?;
+    finish_commit(&mut app).await?;
+    assert!(current_ref!(app.editor)
+        .1
+        .commit_message()
+        .unwrap()
+        .submitted());
+    assert!(app.close().await.is_empty());
+    Ok(())
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn blame_popup_copies_the_full_id_and_message_from_both_command_surfaces(
 ) -> anyhow::Result<()> {
