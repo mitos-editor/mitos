@@ -4,13 +4,16 @@ use stdx::rope::RopeExt as _;
 use anyhow::Context as _;
 use editor_core::{Selection, Transaction};
 use serde_json::Value;
-use term::application::Application;
+use term::{
+    application::Application,
+    ui::{Menu, Popup},
+};
 use tokio::sync::mpsc;
 use view::{
     callbacks::EditorCallback,
     current, current_ref,
     editor::Action,
-    features::code_lenses::{self, DocumentCodeLensesHandler, ResolvedCodeLenses},
+    features::code_lenses::{self, CodeLensCommand, DocumentCodeLensesHandler, ResolvedCodeLenses},
     DocumentId,
 };
 
@@ -116,6 +119,32 @@ impl Fixture {
             [(0, doc.text().len_chars(), Some(text.into()))].into_iter(),
         );
         view::editing::apply(doc, &transaction, view.id).unwrap();
+    }
+
+    async fn open_menu(&mut self) -> anyhow::Result<()> {
+        self.keys("<space>l").await?;
+        // Idle can fire while the background resolution job is still running.
+        tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                let (tx, rx) = tokio::sync::oneshot::channel();
+                self.app
+                    .job_sender()
+                    .send(move |_, compositor| {
+                        let open = compositor
+                            .find_id::<Popup<Menu<CodeLensCommand>>>("code-lens")
+                            .is_some();
+                        let _ = tx.send(open);
+                    })
+                    .await;
+                self.keys("").await?;
+                if rx.await? {
+                    break;
+                }
+            }
+            anyhow::Ok(())
+        })
+        .await
+        .context("code-lens menu did not open")?
     }
 
     async fn keys(&mut self, input: &str) -> anyhow::Result<()> {
@@ -380,7 +409,7 @@ async fn renaming_document_invalidates_resolution_and_refreshes_its_lenses() -> 
 #[tokio::test(flavor = "multi_thread")]
 async fn space_l_menu_executes_commands_on_the_selected_server() -> anyhow::Result<()> {
     let mut fixture = Fixture::new(&["alpha", "beta"], &[]).await?;
-    fixture.keys("<space>l").await?;
+    fixture.open_menu().await?;
     fixture.keys("<down><down><ret>").await?;
     // Commands are sent asynchronously; wait for the selected server to receive it.
     let command = tokio::time::timeout(Duration::from_secs(10), async {
@@ -410,7 +439,7 @@ async fn space_l_menu_executes_commands_on_the_selected_server() -> anyhow::Resu
 #[tokio::test(flavor = "multi_thread")]
 async fn menu_does_not_execute_after_its_document_selection_changes() -> anyhow::Result<()> {
     let mut fixture = Fixture::new(&["alpha"], &[]).await?;
-    fixture.keys("<space>l").await?;
+    fixture.open_menu().await?;
     let (view, doc) = current!(fixture.app.editor);
     doc.set_selection(view.id, Selection::point(3));
     fixture.keys("<ret>").await?;
