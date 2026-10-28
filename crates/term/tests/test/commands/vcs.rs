@@ -1463,6 +1463,11 @@ async fn partial_staging_popup_and_next_affects_only_the_cursor_hunk() -> anyhow
     wait_for_review_screen(&mut app, "Current change", "stage: index").await?;
     press_keys(&mut app, "n").await?;
     finish_partial(&mut app).await?;
+    assert_eq!(partial_index(&path), "first\nkeep\nlast\n");
+    press_keys(&mut app, "<space>i").await?;
+    wait_for_review_screen(&mut app, "Current change", "stage: index").await?;
+    press_keys(&mut app, "S").await?;
+    finish_partial(&mut app).await?;
     assert_eq!(partial_index(&path), "new first\nkeep\nlast\n");
     let (view, doc) = current_ref!(app.editor);
     assert_eq!(doc.cursor_line(view.id), 2);
