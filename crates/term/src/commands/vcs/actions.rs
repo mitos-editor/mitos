@@ -119,9 +119,8 @@ fn dispatch(
             Ok(picker) => compositor.push(picker),
             Err(error) => cx.editor.set_error(|| error.to_string()),
         },
-        Command::Run(action @ GitAction::File(..)) | Command::Confirmed(action) => {
-            start(cx, workspace, action)
-        }
+        Command::Run(action @ (GitAction::File(..) | GitAction::Partial { .. }))
+        | Command::Confirmed(action) => start(cx, workspace, action),
         Command::Run(action) => {
             let (message, label) = match &action {
                 GitAction::Stash(path) => (
@@ -145,7 +144,7 @@ fn dispatch(
                     ),
                     "Apply and keep stash",
                 ),
-                GitAction::File(..) => unreachable!(),
+                GitAction::File(..) | GitAction::Partial { .. } => unreachable!(),
             };
             compositor.push(menu(
                 message,

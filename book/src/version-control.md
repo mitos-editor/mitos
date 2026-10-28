@@ -263,6 +263,39 @@ blocked. Mitos updates open buffers afterwards. Edits you make during the
 operation are kept; saving them may require `:w!` because Git changed the file
 on disk.
 
+### Staging individual changes
+
+Use these commands in a file buffer or a live review buffer. They change Git's
+staging area and preserve the file on disk and unsaved buffer edits.
+
+| Command | Action |
+| --- | --- |
+| `:vcs-stage-hunk` | Stage complete hunks intersecting the selections |
+| `:vcs-stage-lines` | Stage only selected lines |
+| `:vcs-unstage-hunk` | Unstage complete hunks intersecting the selections |
+| `:vcs-unstage-lines` | Unstage only selected lines |
+| `:vcs-stage-and-next` | Stage the selected hunks and select the next unstaged hunk |
+
+Stage commands compare the index with the current buffer, including unsaved
+text. They do not save the file. To select changes from the file on disk, use
+`:vcs-stage-hunk-disk` or `:vcs-stage-lines-disk` in a saved file buffer.
+
+Unstage commands compare `HEAD` with the index. Buffer selections are mapped
+back to the staged lines, including when unstaged edits shifted their positions.
+The gutter and `:show-change` still show `HEAD` against the buffer, so a displayed
+change may contain both staged and unstaged text.
+
+In `:diff buffer` or `:diff unstaged`, selecting removed and added rows lets
+`:vcs-stage-lines` remove and add those rows independently. Use `:diff staged`
+with `:vcs-unstage-lines` to select exactly which staged rows to remove or restore.
+Historical comparisons cannot change the index. Refresh a review if its source
+or index changed before running an action.
+
+Partial staging supports UTF-8 text, Git's line-ending conversions, and trusted
+clean filters that preserve line positions. Use whole-file actions for binary
+files, other encodings, submodules, symlinks, or filters that change line counts.
+Stage a working-tree rename as a whole file before selecting its text changes.
+
 ### Stashes
 
 Press `Alt-l` in the changed-file picker or choose `git_stash_picker` from the
