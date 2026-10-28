@@ -393,6 +393,8 @@ async fn changed_file_pickers_include_staged_only_files() -> anyhow::Result<()> 
     run_event_loop_until_idle(&mut app).await;
     for keys in [
         "<space>gc",
+        "<space>gs",
+        "<space>gachanges<ret>",
         ":vcs-changes<ret>",
         ":vcs-repository-changes<ret>",
         "<space>?vcs-changes<ret>",

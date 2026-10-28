@@ -5,22 +5,27 @@ changed a line.
 
 | Key or command | Action |
 | --- | --- |
-| `Space g c`, `:vcs-changes` | Browse changed files |
+| `Space g s` / `Space g c`, `:vcs-changes` | Browse changed files (status) |
 | `Space g d`, `:vcs-diff` | Review changes in the current file, including unsaved edits |
 | `Space g i`, `:vcs-show-change` | Inspect the change at the cursor |
-| `Space g h`, `:vcs-file-history` | Browse commits that changed the current file |
-| `Space g H`, `:vcs-history` | Browse repository commits and their changed files |
+| `Space g f` / `Space g h`, `:vcs-file-history` | Browse commits that changed the current file |
+| `Space g l` / `Space g H`, `:vcs-history` | Browse repository commits and their changed files |
 | `Space g b`, `:vcs-blame` | Show the commit that last changed the current line |
 | `Space g t`, `:vcs-toggle-inline-blame` | Show or hide inline blame |
-| `Space g s`, `:vcs-stashes` | Browse stashes |
+| `Space g S`, `:vcs-stashes` | Browse stashes |
+| `Space g a` | Choose any version-control command with completion |
 
-Press `Space g` to open the Git menu. Search for `vcs-` in the command palette
+Press `Space g` to open the Git menu. `s` means status, `S` stashes, `f` file
+history, and `l` log. `Space g a` opens the command prompt with `vcs-` already
+entered, so completion lists the available version-control commands and their
+arguments. It does not run an action until you confirm it. You can also search
+for `vcs-` in the command palette
 (`Space ?`) to discover version-control commands. Existing command names such as
 `:diff`, `:file-history`, and `:git-history` still work. `Space i` and `Space B`
 remain shortcuts for inspecting a change and toggling inline blame.
 
 Previously, `Space g` opened changed files directly; that action is now
-`Space g c`. To restore the old binding in `config.toml`:
+`Space g s` (or `Space g c`). To restore the old binding in `config.toml`:
 
 ```toml
 [keys.normal.space]
