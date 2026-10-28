@@ -6,6 +6,7 @@ mod catalog;
 mod command_line;
 mod completion;
 mod config;
+mod conflicts;
 mod context;
 pub(crate) mod dap;
 mod diagnostics;

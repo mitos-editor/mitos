@@ -766,3 +766,57 @@ async fn review_refreshes_after_external_staging_and_edits_without_polling() -> 
     assert!(app.close().await.is_empty());
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn conflict_resolution_is_undoable_and_never_writes_disk_or_index() -> anyhow::Result<()> {
+    let (dir, path) = committed_file()?;
+    let original = "prefix\n<<<<<<< HEAD\ncurrent\n||||||| base\ncommitted\n=======\nincoming\n>>>>>>> topic\nsuffix\n";
+    std::fs::write(&path, original)?;
+    let mut app = AppBuilder::new().with_file(&path, None).build()?;
+    run_event_loop_until_idle(&mut app).await;
+    press_keys(&mut app, "]m").await?;
+    press_keys(&mut app, ":vcs-conflict-resolve both<ret>").await?;
+    assert_eq!(
+        current_ref!(app.editor).1.text().to_string(),
+        "prefix\ncurrent\nincoming\nsuffix\n"
+    );
+    assert_eq!(std::fs::read_to_string(&path)?, original);
+    git(dir.path(), &["diff", "--cached", "--exit-code"]);
+    press_keys(&mut app, "u").await?;
+    assert_eq!(current_ref!(app.editor).1.text().to_string(), original);
+    press_keys(&mut app, ":vcs-conflict-show<ret>").await?;
+    let inspected = current_ref!(app.editor).1;
+    assert!(inspected.is_readonly());
+    let text = inspected.text().to_string();
+    assert!(text.contains("Current: HEAD\ncurrent"));
+    assert!(text.contains("Base:\ncommitted"));
+    assert!(text.contains("Incoming: topic\nincoming"));
+    assert!(app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn conflict_navigation_wraps_and_resolution_leaves_other_conflicts_untouched(
+) -> anyhow::Result<()> {
+    let first = "<<<<<<< HEAD\none\n=======\ntwo\n>>>>>>> topic\n";
+    let second = "<<<<<<< HEAD\nthree\n=======\nfour\n>>>>>>> topic\n";
+    let text = format!("prefix\n{first}middle\n{second}");
+    let mut app = AppBuilder::new()
+        .with_input_text(&format!("#[|]#{text}"))
+        .build()?;
+    run_event_loop_until_idle(&mut app).await;
+    press_keys(&mut app, "]m]m").await?;
+    press_keys(&mut app, ":vcs-conflict-resolve incoming<ret>").await?;
+    assert_eq!(
+        current_ref!(app.editor).1.text().to_string(),
+        format!("prefix\n{first}middle\nfour\n")
+    );
+    press_keys(&mut app, "]m").await?;
+    press_keys(&mut app, ":vcs-conflict-resolve current<ret>").await?;
+    assert_eq!(
+        current_ref!(app.editor).1.text().to_string(),
+        "prefix\none\nmiddle\nfour\n"
+    );
+    assert!(app.close().await.is_empty());
+    Ok(())
+}

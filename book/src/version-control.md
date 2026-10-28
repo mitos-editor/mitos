@@ -366,3 +366,33 @@ Available placeholders are:
 | `{date}` / `{time-ago}` | Commit date / relative age |
 | `{title}` / `{body}` | Commit title / body |
 | `{commit}` | Abbreviated commit ID |
+
+## Resolving conflicts
+
+Use `[m` / `]m` to move between conflict regions. A count moves across several
+regions. Navigation wraps and reports the current conflict and remaining total.
+
+| Command | Action |
+| --- | --- |
+| `:vcs-conflict-next [next\|previous]` | Move between conflict regions |
+| `:vcs-conflict-show` | Inspect the conflict at the cursor in a read-only split |
+| `:vcs-conflict-source base` | Inspect the common ancestor from Git's index |
+| `:vcs-conflict-source current` | Inspect index stage 2 |
+| `:vcs-conflict-source incoming` | Inspect index stage 3 |
+| `:vcs-conflict-resolve current` | Keep the current side |
+| `:vcs-conflict-resolve incoming` | Keep the incoming side |
+| `:vcs-conflict-resolve both` | Keep current followed by incoming |
+
+Resolution changes only the buffer and can be undone with `u`. Review the result,
+save it, then stage the file. The status message reports how many conflict regions
+remain. Keeping both sides may require further editing to combine their logic.
+
+Inspection shows the labels written in the conflict markers. During a rebase,
+**current** means the new base and commits already replayed; **incoming** means
+the commit being replayed. Index-source buffers identify these roles explicitly.
+Missing stages (for example, an added file with no common ancestor) open as empty
+read-only buffers labeled absent. Index inspection requires the Git build feature.
+
+Standard, diff3, and zdiff3 conflict markers are supported, including custom
+marker widths and CRLF files. Incomplete or nested markers require manual
+resolution. Normal text editing remains available throughout.

@@ -23,6 +23,7 @@ use std::{
 mod git;
 
 mod blame;
+pub mod conflict;
 pub use blame::{FileBlame, LineBlame};
 
 mod diff;

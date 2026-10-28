@@ -94,6 +94,10 @@
 | `:pipe`, `:\|` | Pipe each selection to the shell command. |
 | `:pipe-to` | Pipe each selection to the shell command, ignoring output. |
 | `:run-shell-command`, `:sh`, `:!` | Run a shell command |
+| `:vcs-conflict-next` | Move to the next conflict; pass previous to move backwards. |
+| `:vcs-conflict-resolve` | Resolve the conflict at the cursor with current, incoming, or both. Undoable; save and stage separately. |
+| `:vcs-conflict-show` | Inspect current, base (when present), and incoming marker contents in a read-only split. |
+| `:vcs-conflict-source` | Inspect a complete base, current, or incoming file from unresolved Git index stages. |
 | `:blame`, `:vcs-blame` | Show commit details for the current line, with actions to copy the commit ID or message. |
 | `:show-change`, `:vcs-show-change` | Inspect the current change against HEAD, including deleted lines and unsaved edits. |
 | `:diff`, `:vcs-diff` | Review the current file. Choose head (all changes), staged (next commit), unstaged (saved changes), or buffer (unstaged and unsaved changes). |

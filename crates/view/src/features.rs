@@ -12,6 +12,7 @@ pub mod code_action_hint;
 pub mod code_actions;
 pub mod code_lenses;
 pub mod completion;
+pub mod conflicts;
 pub(crate) mod debounce;
 pub mod diagnostics;
 pub mod document_colors;
