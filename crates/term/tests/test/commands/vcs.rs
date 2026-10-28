@@ -405,6 +405,35 @@ async fn failed_commit_keeps_the_message_and_reopening_reuses_the_draft() -> any
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn commit_composer_from_project_review_keeps_its_repository_and_workspace(
+) -> anyhow::Result<()> {
+    let (dir, path) = committed_file()?;
+    std::fs::write(&path, "staged\n")?;
+    git(dir.path(), &["add", "file.txt"]);
+    let repository = vcs::operations::GitRepository::discover(dir.path())?;
+    let mut app = AppBuilder::new().with_file(&path, None).build()?;
+    let workspace = current_ref!(app.editor).1.workspace_root().to_owned();
+    app.editor.open_project_review(
+        repository.root().to_owned(),
+        workspace.clone(),
+        view::features::change_review::ReviewComparison::Staged,
+        view::editor::Action::Replace,
+    );
+    assert!(current_ref!(app.editor)
+        .1
+        .display_metadata()
+        .source_path
+        .is_none());
+    press_keys(&mut app, ":vcs-commit<ret>").await?;
+    ready_commit_message(&mut app).await?;
+    let composer = current_ref!(app.editor).1.commit_message().unwrap();
+    assert_eq!(composer.repository().root(), repository.root());
+    assert_eq!(composer.workspace(), workspace);
+    assert!(app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn blame_popup_copies_the_full_id_and_message_from_both_command_surfaces(
 ) -> anyhow::Result<()> {
     let (_dir, path) = committed_file()?;
