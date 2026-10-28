@@ -74,6 +74,7 @@ pub struct GitTask {
 pub struct GitCompletion {
     state: GitTaskState,
     result: Result<()>,
+    notice: Option<String>,
 }
 
 struct GitTaskState {
@@ -254,10 +255,14 @@ impl PreparedGitAction {
 impl GitTask {
     /// Frontends must retain this future until completion, including during shutdown.
     pub async fn execute(self) -> GitCompletion {
-        let result = self.operation.execute().await;
+        let (result, notice) = match self.operation.execute_with_notice().await {
+            Ok(notice) => (Ok(()), notice),
+            Err(error) => (Err(error), None),
+        };
         GitCompletion {
             state: self.state,
             result,
+            notice,
         }
     }
 }
@@ -325,13 +330,15 @@ impl GitCompletion {
         match self.result {
             Ok(()) if reload_error.is_some() => editor.set_error(|| reload_error.unwrap()),
             Ok(()) => editor.set_status(format!(
-                "{} complete{}",
+                "{} complete{}{}",
                 self.state.label,
                 if preserved {
                     "; buffer edits were preserved"
                 } else {
                     ""
-                }
+                },
+                self.notice
+                    .map_or_else(String::new, |notice| format!("; {notice}"))
             )),
             Err(error) => editor.set_error(|| format!("{error}")),
         }

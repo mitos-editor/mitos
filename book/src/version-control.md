@@ -337,6 +337,12 @@ Mitos submits the reviewed staging area. It does not stage files or save unsaved
 source buffers. Unsaved edits remain in memory. Git runs the commit
 with your configured hooks, identity, and signing settings.
 
+The commit uses a private copy of the reviewed index. If another Git process
+stages changes while hooks run, those changes stay outside this commit and remain
+in your staging area. Mitos reports that newer staging was kept so you can review
+it before committing again. When the real index is unchanged, it receives any
+updates made by the commit hooks.
+
 If Git rejects the commit, the message stays open for editing and retrying. Run
 `:vcs-commit` again to refresh the staged review while keeping the same message.
 This is also required if staged changes or `HEAD` changed while composing.
