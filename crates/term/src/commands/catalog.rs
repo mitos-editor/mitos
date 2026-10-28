@@ -1666,7 +1666,7 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
     TypableCommand {
         name: "vcs-stage-hunk",
         aliases: &[],
-        doc: "Stage complete index-to-buffer hunks intersecting the selections, including unsaved text. Does not save the file.",
+        doc: "Stage hunks touched by the selections, including unsaved edits. Does not save the file.",
         fun: super::vcs::typed::stage_hunk,
         completer: CommandCompleter::none(),
         signature: Signature { positionals: (0, Some(0)), ..Signature::DEFAULT },
@@ -1674,7 +1674,7 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
     TypableCommand {
         name: "vcs-stage-lines",
         aliases: &[],
-        doc: "Stage only selected index-to-buffer lines, including unsaved text. Does not save the file.",
+        doc: "Stage only selected lines, including unsaved edits. Does not save the file.",
         fun: super::vcs::typed::stage_lines,
         completer: CommandCompleter::none(),
         signature: Signature { positionals: (0, Some(0)), ..Signature::DEFAULT },
@@ -1682,7 +1682,7 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
     TypableCommand {
         name: "vcs-stage-hunk-disk",
         aliases: &[],
-        doc: "Stage complete index-to-disk hunks intersecting the selections. Requires a saved buffer.",
+        doc: "Stage hunks touched by the selections from the saved file. Save the buffer first.",
         fun: super::vcs::typed::stage_hunk_disk,
         completer: CommandCompleter::none(),
         signature: Signature { positionals: (0, Some(0)), ..Signature::DEFAULT },
@@ -1690,7 +1690,7 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
     TypableCommand {
         name: "vcs-stage-lines-disk",
         aliases: &[],
-        doc: "Stage only selected index-to-disk lines. Requires a saved buffer.",
+        doc: "Stage only selected lines from the saved file. Save the buffer first.",
         fun: super::vcs::typed::stage_lines_disk,
         completer: CommandCompleter::none(),
         signature: Signature { positionals: (0, Some(0)), ..Signature::DEFAULT },
@@ -1698,7 +1698,7 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
     TypableCommand {
         name: "vcs-unstage-hunk",
         aliases: &[],
-        doc: "Unstage complete HEAD-to-index hunks intersecting the selections, preserving buffer and disk edits.",
+        doc: "Unstage hunks touched by the selections, keeping saved and unsaved edits.",
         fun: super::vcs::typed::unstage_hunk,
         completer: CommandCompleter::none(),
         signature: Signature { positionals: (0, Some(0)), ..Signature::DEFAULT },
@@ -1706,7 +1706,7 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
     TypableCommand {
         name: "vcs-unstage-lines",
         aliases: &[],
-        doc: "Unstage selected HEAD-to-index lines, preserving buffer and disk edits.",
+        doc: "Unstage only selected lines, keeping saved and unsaved edits.",
         fun: super::vcs::typed::unstage_lines,
         completer: CommandCompleter::none(),
         signature: Signature { positionals: (0, Some(0)), ..Signature::DEFAULT },
@@ -1714,7 +1714,7 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
     TypableCommand {
         name: "vcs-stage-and-next",
         aliases: &[],
-        doc: "Stage the selected index-to-buffer hunks and select the next unstaged hunk.",
+        doc: "Stage the selected hunks and move to the next unstaged hunk.",
         fun: super::vcs::typed::stage_and_next,
         completer: CommandCompleter::none(),
         signature: Signature { positionals: (0, Some(0)), ..Signature::DEFAULT },
