@@ -294,6 +294,7 @@ impl GitCompletion {
         }
         // Errors can still change the index/worktree (notably conflicts during apply).
         super::auto_reload::reload_vcs(editor);
+        editor.refresh_project_reviews();
         editor
             .handlers()
             .git_operations

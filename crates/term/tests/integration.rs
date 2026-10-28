@@ -42,6 +42,8 @@ mod test {
     mod formatting;
     #[cfg(feature = "git")]
     mod git_diff;
+    #[cfg(feature = "git")]
+    mod git_project_review;
     mod inline_completion;
     mod language_features;
     mod lsp_alternatives;

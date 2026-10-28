@@ -1597,6 +1597,26 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
         signature: Signature { positionals: (1, Some(1)), ..Signature::DEFAULT },
     },
     TypableCommand {
+        name: "vcs-project-diff", aliases: &[], doc: "Review repository changes together: buffer (default), staged, or unstaged.",
+        fun: super::project_review::open, completer: CommandCompleter::none(),
+        signature: Signature { positionals: (0, Some(1)), ..Signature::DEFAULT },
+    },
+    TypableCommand {
+        name: "vcs-project-refresh", aliases: &[], doc: "Reload the current project review snapshot.",
+        fun: super::project_review::refresh, completer: CommandCompleter::none(),
+        signature: Signature { positionals: (0, Some(0)), ..Signature::DEFAULT },
+    },
+    TypableCommand {
+        name: "vcs-project-next", aliases: &[], doc: "Move to the next file or hunk; use file, previous-file, hunk, or previous-hunk.",
+        fun: super::project_review::navigate, completer: CommandCompleter::none(),
+        signature: Signature { positionals: (0, Some(1)), ..Signature::DEFAULT },
+    },
+    TypableCommand {
+        name: "vcs-project-open", aliases: &[], doc: "Open the selected file from a project review as a live file review.",
+        fun: super::project_review::open_file, completer: CommandCompleter::none(),
+        signature: Signature { positionals: (0, Some(0)), ..Signature::DEFAULT },
+    },
+    TypableCommand {
         name: "blame",
         aliases: &["vcs-blame"],
         doc: "Show commit details for the current line, with actions to copy the commit ID or message.",

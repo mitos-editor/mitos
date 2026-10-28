@@ -472,3 +472,32 @@ version. Each version opens in a read-only split. Close it with `:q`.
 
 If Mitos cannot recognize a conflict, edit the file and remove the marker lines
 yourself.
+
+## Project review
+
+Run `:vcs-project-diff` to review repository changes in one read-only buffer,
+including unsaved edits in open files. Choose `:vcs-project-diff staged` to review
+what the next commit will contain, or `:vcs-project-diff unstaged` to compare the
+index with files on disk.
+
+Each file has a heading followed by its diff. Source syntax highlighting and
+added/removed-line colors use the same comparison model as file reviews.
+Binary files and other unsupported comparisons show an explanation without
+preventing review of the remaining files.
+
+| Command | Action |
+| --- | --- |
+| `:vcs-project-next file` / `previous-file` | Move between files |
+| `:vcs-project-next hunk` / `previous-hunk` | Move between hunks |
+| `Enter`, `:vcs-project-open` | Open the selected file as a live review |
+| `:vcs-project-refresh` | Capture the repository and buffers again |
+
+Project reviews are snapshots. Git actions in Mitos refresh open project reviews
+automatically. Refresh after editing or running Git outside Mitos. Buffer text captured during loading must still match when results
+arrive; otherwise refresh to try again. Normal movement, selection, search, and
+yank work in the aggregate buffer. Opening a file review records the project
+review in the jumplist, so `Ctrl-o` returns to it.
+
+The review includes at most 500 files, 10 MiB of projected text, and 64 MiB of
+source snapshots. A notice explains when results are shortened. Review the
+remaining files through the changed-file picker.

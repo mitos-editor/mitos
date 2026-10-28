@@ -11,7 +11,7 @@ use vcs::{ComparisonKind, FileStatus, MAX_REVIEW_BYTES};
 use crate::{DocumentId, Editor};
 
 pub use language_config::DiffEngine;
-pub use text_diff::{Review, ReviewLineKind};
+pub use text_diff::{Review, ReviewLine, ReviewLineKind};
 
 mod document;
 mod engine;
@@ -78,6 +78,7 @@ pub struct ReviewRequest {
     trust_full: bool,
     buffer: Option<Rope>,
     document: Option<(DocumentId, i32)>,
+    document_path: Option<PathBuf>,
     encoding: Option<&'static Encoding>,
     workspace: std::path::PathBuf,
     settings: Settings,
@@ -153,7 +154,22 @@ impl ReviewRequest {
         comparison: ReviewComparison,
         workspace: &std::path::Path,
     ) -> Self {
-        let document = editor.document_by_path(status.path());
+        Self::for_document(
+            editor,
+            status,
+            comparison,
+            workspace,
+            editor.document_by_path(status.path()),
+        )
+    }
+
+    pub(super) fn for_document(
+        editor: &Editor,
+        status: &FileStatus,
+        comparison: ReviewComparison,
+        workspace: &std::path::Path,
+        document: Option<&crate::Document>,
+    ) -> Self {
         let workspace = document
             .map_or(workspace, |doc| doc.workspace_root())
             .to_owned();
@@ -173,9 +189,15 @@ impl ReviewRequest {
                 .then(|| document.map(|doc| doc.text().clone()))
                 .flatten(),
             document: document.map(|doc| (doc.id(), doc.version())),
+            document_path: document
+                .and_then(|doc| doc.path())
+                .map(std::path::Path::to_owned),
             encoding: document.map(|doc| doc.encoding()),
             workspace,
-            settings: Settings::capture(editor, status.path()),
+            settings: Settings::capture(
+                editor,
+                document.and_then(|doc| doc.path()).unwrap_or(status.path()),
+            ),
         }
     }
 
@@ -183,6 +205,10 @@ impl ReviewRequest {
     pub fn with_conflict_preview(mut self) -> Self {
         self.prefer_conflicts = true;
         self
+    }
+
+    pub(super) fn document_id(&self) -> Option<DocumentId> {
+        self.document.map(|(id, _)| id)
     }
 
     /// Re-resolve renames and conflicts when opening directly or refreshing.
@@ -196,11 +222,15 @@ impl ReviewRequest {
     }
 
     pub fn is_current(&self, editor: &Editor) -> bool {
-        self.settings.is_current(editor, self.status.path())
-            && self.encoding
-                == editor
-                    .document_by_path(self.status.path())
-                    .map(|doc| doc.encoding())
+        self.settings.is_current(
+            editor,
+            self.document_path.as_deref().unwrap_or(self.status.path()),
+        ) && self.encoding
+            == self
+                .document
+                .and_then(|(id, _)| editor.document(id))
+                .or_else(|| editor.document_by_path(self.status.path()))
+                .map(|doc| doc.encoding())
             && self.trust_full
                 == editor
                     .workspace_trust
@@ -209,7 +239,7 @@ impl ReviewRequest {
             && (!self.comparison.uses_buffer()
                 || match self.document {
                     Some((id, version)) => editor.document(id).is_some_and(|doc| {
-                        doc.version() == version && doc.path() == Some(self.status.path())
+                        doc.version() == version && doc.path() == self.document_path.as_deref()
                     }),
                     None => editor.document_by_path(self.status.path()).is_none(),
                 })
@@ -223,7 +253,8 @@ impl ReviewRequest {
             && self.settings.current(&other.settings)
             && self.comparison == other.comparison
             && self.trust_full == other.trust_full
-            && (!self.comparison.uses_buffer() || self.document == other.document)
+            && (!self.comparison.uses_buffer()
+                || (self.document == other.document && self.document_path == other.document_path))
     }
 
     fn stamp(&self) -> RepositoryStamp {

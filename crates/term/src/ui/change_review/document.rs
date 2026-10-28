@@ -12,9 +12,32 @@ use crate::ui::{
     text_decorations::Decoration,
 };
 
+fn row_info(
+    doc: &Document,
+    line: usize,
+) -> Option<(
+    &view::features::change_review::ReviewLine,
+    Option<&std::sync::Arc<view::features::change_review::ReviewSource>>,
+    usize,
+)> {
+    if let Some(review) = doc.review() {
+        return Some((review.row(line)?, review.source(), 0));
+    }
+    let section = doc.project_review()?.section(line)?;
+    Some((
+        section.row(line)?,
+        section.snapshot.as_ref().map(|snapshot| &snapshot.source),
+        1,
+    ))
+}
+
+fn has_review(doc: &Document) -> bool {
+    doc.review().is_some() || doc.project_review().is_some()
+}
+
 pub fn line_backgrounds<'a>(doc: &'a Document, theme: &'a Theme) -> impl Decoration + 'a {
     move |renderer: &mut TextRenderer, pos: LinePos| {
-        let Some(row) = doc.review().and_then(|review| review.row(pos.doc_line)) else {
+        let Some((row, _, _)) = row_info(doc, pos.doc_line) else {
             return;
         };
         if matches!(row.kind, ReviewLineKind::Added | ReviewLineKind::Removed) {
@@ -41,22 +64,21 @@ pub fn syntax_styles(
     layout: &ViewLayout,
     theme: &Theme,
 ) -> Option<Vec<(usize, Style)>> {
-    let review = doc.review()?;
-    let source = review.source()?;
-    let loader = source.syntax_loader();
-    // Captured reviews can outlive a language-loader reload. Keep that loader's
-    // highlight IDs aligned with the currently displayed theme too.
-    if loader.scopes().as_slice() != theme.scopes() {
-        loader.set_scopes(theme.scopes().to_vec());
+    if !has_review(doc) {
+        return None;
     }
     let text = doc.text();
     let mut styles = Vec::new();
     for index in visible_lines(layout) {
         let start = text.line_to_char_idx(index);
         styles.push((start, theme.get("ui.text")));
-        let Some(row) = review.row(index) else {
+        let Some((row, Some(source), prefix)) = row_info(doc, index) else {
             continue;
         };
+        let loader = source.syntax_loader();
+        if loader.scopes().as_slice() != theme.scopes() {
+            loader.set_scopes(theme.scopes().to_vec());
+        }
         let Some((original, syntax, line)) = source.syntax_for_row(row) else {
             continue;
         };
@@ -68,23 +90,25 @@ pub fn syntax_styles(
         styles.extend(
             super::super::highlights::syntax_styles(original.slice(..), Some(highlighter), theme)
                 .take_while(|(position, _)| *position <= char_end)
-                .map(|(position, style)| (start + position.saturating_sub(char_start), style)),
+                .map(|(position, style)| {
+                    (start + prefix + position.saturating_sub(char_start), style)
+                }),
         );
     }
     Some(styles)
 }
 
 pub fn highlights(doc: &Document, layout: &ViewLayout, theme: &Theme) -> Option<OverlayHighlights> {
-    let review = doc.review()?;
+    if !has_review(doc) {
+        return None;
+    }
     let text = doc.text();
     let mut highlights = Vec::new();
     for index in visible_lines(layout) {
-        let Some(row) = review.row(index) else {
+        let Some((row, source, prefix)) = row_info(doc, index) else {
             continue;
         };
-        let has_syntax = review
-            .source()
-            .is_some_and(|source| source.syntax_for_row(row).is_some());
+        let has_syntax = source.is_some_and(|source| source.syntax_for_row(row).is_some());
         let start = text.line_to_char_idx(index);
         let scope = match row.kind {
             ReviewLineKind::Added => "diff.plus",
@@ -93,12 +117,14 @@ pub fn highlights(doc: &Document, layout: &ViewLayout, theme: &Theme) -> Option<
             ReviewLineKind::Notice => "ui.text.inactive",
             ReviewLineKind::Context => continue,
         };
-        if let Some(ranges) = review.changes(index) {
+        if let Some(ranges) = &row.changes {
             let Some(highlight) = theme.find_highlight(&format!("{scope}.word")) else {
                 continue;
             };
             for range in ranges {
-                highlights.push((highlight, start + range.start..start + range.end));
+                let from = row.text[..range.start].chars().count();
+                let to = from + row.text[range.clone()].chars().count();
+                highlights.push((highlight, start + prefix + from..start + prefix + to));
             }
         } else if !has_syntax && let Some(highlight) = theme.find_highlight(scope) {
             highlights.push((

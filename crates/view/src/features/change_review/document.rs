@@ -161,7 +161,7 @@ impl Document {
     /// Derived content can be selected and searched but cannot be edited or saved.
     /// This is independent of filesystem write permissions and cannot be forced.
     pub fn is_content_readonly(&self) -> bool {
-        self.review.is_some() || self.historical.is_some()
+        self.review.is_some() || self.historical.is_some() || self.project_review.is_some()
     }
     pub fn review(&self) -> Option<&ReviewDocument> {
         self.review.as_deref()
