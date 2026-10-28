@@ -103,8 +103,8 @@
 | `:vcs-project-next` | Move to the next file or hunk; use file, previous-file, hunk, or previous-hunk. |
 | `:vcs-project-open` | Open the selected file's review. Use Ctrl-o to return to the project review. |
 | `:blame`, `:vcs-blame` | Show commit details for the current line, with actions to copy the commit ID or message. |
-| `:vcs-commit`, `:git-commit` | Review staged changes beside an editable commit message. Reopening refreshes staged inputs and keeps the message. |
-| `:vcs-commit-submit`, `:git-commit-submit` | Commit the reviewed staging area with this message. Hooks and signing use Git configuration; failures keep the message. |
+| `:vcs-commit`, `:git-commit` | Review staged changes and write a commit message. Run again to update the review and keep the message. |
+| `:vcs-commit-submit`, `:git-commit-submit` | Commit the reviewed changes with this message. If Git rejects the commit, the message stays open. |
 | `:show-change`, `:vcs-show-change` | Inspect the current change against HEAD, including deleted lines and unsaved edits. |
 | `:diff`, `:vcs-diff` | Review the current file. Choose head (all changes), staged (next commit), unstaged (saved changes), or buffer (unstaged and unsaved changes). |
 | `:git-history`, `:vcs-history` | Browse repository commits. Select a commit, then a file to review its changes. |

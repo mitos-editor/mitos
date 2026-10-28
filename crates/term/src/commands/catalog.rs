@@ -1630,7 +1630,7 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
     TypableCommand {
         name: "vcs-commit",
         aliases: &["git-commit"],
-        doc: "Review staged changes beside an editable commit message. Reopening refreshes staged inputs and keeps the message.",
+        doc: "Review staged changes and write a commit message. Run again to update the review and keep the message.",
         fun: super::vcs::typed::commit,
         completer: CommandCompleter::none(),
         signature: Signature { positionals: (0, Some(0)), ..Signature::DEFAULT },
@@ -1638,7 +1638,7 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
     TypableCommand {
         name: "vcs-commit-submit",
         aliases: &["git-commit-submit"],
-        doc: "Commit the reviewed staging area with this message. Hooks and signing use Git configuration; failures keep the message.",
+        doc: "Commit the reviewed changes with this message. If Git rejects the commit, the message stays open.",
         fun: super::vcs::typed::commit_submit,
         completer: CommandCompleter::none(),
         signature: Signature { positionals: (0, Some(0)), ..Signature::DEFAULT },

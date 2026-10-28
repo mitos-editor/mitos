@@ -328,28 +328,27 @@ See [Component keys](./remapping.md#component-keys).
 
 ## Committing staged changes
 
-Run `:vcs-commit` (alias `:git-commit`) to open a complete staged project review
-beside an editable commit-message buffer. The message buffer's name identifies
-the repository. Use ordinary editing commands to write the message, then run
-`:vcs-commit-submit` from that buffer.
+Stage the changes you want to commit, then:
 
-Mitos submits the reviewed staging area. It does not stage files or save unsaved
-source buffers. Unsaved edits remain in memory. Git runs the commit
-with your configured hooks, identity, and signing settings.
+1. Run `:vcs-commit` to open your staged changes beside a commit message.
+2. Review the changes and write your message using normal editing commands.
+3. Run `:vcs-commit-submit` from the message buffer to commit.
 
-The commit uses a private copy of the reviewed index. If another Git process
-stages changes while hooks run, those changes stay outside this commit and remain
-in your staging area. Mitos reports that newer staging was kept so you can review
-it before committing again. When the real index is unchanged, it receives any
-updates made by the commit hooks.
+The message buffer's name shows which repository you are committing to.
+Committing uses the reviewed staged changes and your Git settings for author,
+hooks, and signing. Unsaved edits in other buffers stay unsaved. A commit is
+stored locally; push it when you are ready to share it.
 
-If Git rejects the commit, the message stays open for editing and retrying. Run
-`:vcs-commit` again to refresh the staged review while keeping the same message.
-This is also required if staged changes or `HEAD` changed while composing.
-Submission waits for a complete staged review; failed or truncated reviews must
-be resolved first. If a staged file cannot be reviewed, inspect its notice in the
-project review and use Git on the command line if needed. Committing records a
-local commit and does not push it.
+If the staged changes or current commit change while you write, run `:vcs-commit`
+again. This updates the review and keeps your message. If Git rejects the commit,
+the message stays open so you can fix the problem and retry.
+
+If another Git command changes the staging area during a commit, Mitos keeps
+those changes and asks you to review them before committing again.
+
+Mitos requires a complete staged review before committing. If a file cannot be
+shown or the review is too large, read the notice in the review and use Git in
+your terminal if needed.
 
 ## Git history
 
