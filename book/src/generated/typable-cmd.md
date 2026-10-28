@@ -95,10 +95,10 @@
 | `:pipe-to` | Pipe each selection to the shell command, ignoring output. |
 | `:run-shell-command`, `:sh`, `:!` | Run a shell command |
 | `:blame`, `:vcs-blame` | Show commit details for the current line, with actions to copy the commit ID or message. |
-| `:vcs-copy-permalink`, `:git-copy-permalink` | Copy a commit-pinned link to the selected source lines. Append a remote name when several remotes are configured. |
-| `:vcs-open-permalink`, `:git-open-permalink` | Open a commit-pinned link to the selected source lines. Append a remote name when several remotes are configured. |
-| `:vcs-copy-commit-link` | Copy a link to a complete Git commit ID. Optionally append a remote name. |
-| `:vcs-open-commit-link` | Open a link to a complete Git commit ID. Optionally append a remote name. |
+| `:vcs-copy-permalink`, `:git-copy-permalink` | Copy a permanent link to the current line or selected lines. Append a remote name when several remotes are configured. |
+| `:vcs-open-permalink`, `:git-open-permalink` | Open a permanent link to the current line or selected lines. Append a remote name when several remotes are configured. |
+| `:vcs-copy-commit-link` | Copy a link to a commit. Pass the full commit ID and optionally a remote name. |
+| `:vcs-open-commit-link` | Open a link to a commit. Pass the full commit ID and optionally a remote name. |
 | `:show-change`, `:vcs-show-change` | Inspect the current change against HEAD, including deleted lines and unsaved edits. |
 | `:diff`, `:vcs-diff` | Review the current file. Choose head (all changes), staged (next commit), unstaged (saved changes), or buffer (unstaged and unsaved changes). |
 | `:git-history`, `:vcs-history` | Browse repository commits. Select a commit, then a file to review its changes. |

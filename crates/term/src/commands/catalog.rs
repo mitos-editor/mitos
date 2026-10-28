@@ -148,8 +148,8 @@ impl MappableCommand {
         lsp_or_syntax_symbol_picker => super::symbols::lsp_or_syntax_symbol_picker, "Open symbol picker from LSP or syntax information",
         show_change => super::vcs::show_change, "Show the current change against HEAD",
         blame_line => super::vcs::blame_line, "Show commit details for the current line",
-        copy_permalink => super::vcs::copy_permalink, "Copy a commit-pinned link to the selected source lines",
-        open_permalink => super::vcs::open_permalink, "Open a commit-pinned link to the selected source lines",
+        copy_permalink => super::vcs::copy_permalink, "Copy a permanent link to the current line or selected lines",
+        open_permalink => super::vcs::open_permalink, "Open a permanent link to the current line or selected lines",
         toggle_inline_blame => super::vcs::toggle_inline_blame, "Toggle inline Git blame",
         git_history => super::vcs::git_history, "Browse Git commits and their changed files in the current repository",
         git_file_history => super::vcs::git_file_history, "Browse the current file history across renames",
@@ -1562,7 +1562,7 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
     TypableCommand {
         name: "vcs-copy-permalink",
         aliases: &["git-copy-permalink"],
-        doc: "Copy a commit-pinned link to the selected source lines. Append a remote name when several remotes are configured.",
+        doc: "Copy a permanent link to the current line or selected lines. Append a remote name when several remotes are configured.",
         fun: super::vcs::typed::copy_permalink,
         completer: CommandCompleter::none(),
         signature: Signature { positionals: (0, Some(1)), ..Signature::DEFAULT },
@@ -1570,7 +1570,7 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
     TypableCommand {
         name: "vcs-open-permalink",
         aliases: &["git-open-permalink"],
-        doc: "Open a commit-pinned link to the selected source lines. Append a remote name when several remotes are configured.",
+        doc: "Open a permanent link to the current line or selected lines. Append a remote name when several remotes are configured.",
         fun: super::vcs::typed::open_permalink,
         completer: CommandCompleter::none(),
         signature: Signature { positionals: (0, Some(1)), ..Signature::DEFAULT },
@@ -1578,7 +1578,7 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
     TypableCommand {
         name: "vcs-copy-commit-link",
         aliases: &[],
-        doc: "Copy a link to a complete Git commit ID. Optionally append a remote name.",
+        doc: "Copy a link to a commit. Pass the full commit ID and optionally a remote name.",
         fun: super::vcs::typed::copy_commit_link,
         completer: CommandCompleter::none(),
         signature: Signature { positionals: (1, Some(2)), ..Signature::DEFAULT },
@@ -1586,7 +1586,7 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
     TypableCommand {
         name: "vcs-open-commit-link",
         aliases: &[],
-        doc: "Open a link to a complete Git commit ID. Optionally append a remote name.",
+        doc: "Open a link to a commit. Pass the full commit ID and optionally a remote name.",
         fun: super::vcs::typed::open_commit_link,
         completer: CommandCompleter::none(),
         signature: Signature { positionals: (1, Some(2)), ..Signature::DEFAULT },

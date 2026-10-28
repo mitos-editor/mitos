@@ -328,11 +328,10 @@ line range. Use `:vcs-open-permalink` to open the same link in your browser. Bot
 commands are also available in the command palette as `copy_permalink` and
 `open_permalink`.
 
-Links use a full commit ID, so they keep pointing to the same version after a
-branch changes. Current files link to `HEAD`; historical reviews and versions
-link to the selected revision. A removed line in a historical diff links to the
-original version. Unchanged lines are mapped around unsaved edits. If the
-selection contains uncommitted changes, commit them before creating a link.
+Links keep pointing to the same committed version after a branch changes.
+Current files link to `HEAD`; historical reviews and versions link to the
+selected revision. A removed line in a historical diff links to the original
+version. Commit any selected changes before creating a link.
 
 GitHub and GitLab remotes work with HTTPS, SSH URLs, and `git@host:owner/repo`
 addresses. If more than one supported remote is configured, append its name:
@@ -341,8 +340,8 @@ addresses. If more than one supported remote is configured, append its name:
 :vcs-copy-permalink upstream
 ```
 
-For a self-hosted service whose hostname does not identify the provider, set
-`remote.<name>.mitos-provider` to `github` or `gitlab` in Git configuration:
+For a self-hosted GitHub or GitLab server, set `remote.<name>.mitos-provider` to
+`github` or `gitlab` in your repository's Git configuration:
 
 ```sh
 git config remote.origin.mitos-provider gitlab
@@ -353,9 +352,9 @@ service before other people can open its link. Credentials from remote URLs are
 never included in links.
 
 In the blame popup, `l` copies a commit link and `o` opens it. History action menus
-(`Alt-a`) offer the same actions. These actions use the only supported remote;
-when several are configured, use `:vcs-copy-commit-link <full-commit-id> <remote>`
-or `:vcs-open-commit-link <full-commit-id> <remote>`.
+(`Alt-a`) offer the same actions. With several supported remotes, choose one with
+`:vcs-copy-commit-link <full-commit-id> <remote>` or
+`:vcs-open-commit-link <full-commit-id> <remote>`.
 
 ## Blame details
 

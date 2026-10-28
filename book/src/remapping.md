@@ -143,7 +143,7 @@ belong in `keys.normal`, `keys.insert`, and `keys.select`.
 | `keys.menu` | `accept`, `cancel`, `move_up`, `move_down`, `page_up`, `page_down` |
 | `keys.popup` | `cancel`, `scroll_up`, `scroll_down` |
 | `keys.hover`, `keys.signature-help` | `previous`, `next` |
-| `keys.blame` | `copy_commit_id`, `copy_message` |
+| `keys.blame` | `copy_commit_id`, `copy_message`, `copy_commit_link`, `open_commit_link` |
 | `keys.diff` | `scroll_left`, `scroll_right` |
 
 All component tables also accept `no_op` and `unbound`. Popup scrolling and menu
