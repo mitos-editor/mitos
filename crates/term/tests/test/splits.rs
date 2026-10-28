@@ -379,3 +379,70 @@ async fn shifted_arrows_swap_splits_in_both_window_prefixes() -> anyhow::Result<
     }
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn resize_mode_grows_shrinks_and_equalizes_splits_in_both_window_prefixes(
+) -> anyhow::Result<()> {
+    let widths = |app: &term::application::Application| {
+        let mut panes: Vec<_> = app
+            .editor
+            .tree
+            .views()
+            .map(|(view, _)| (view.area.x, view.area.width))
+            .collect();
+        panes.sort();
+        panes
+            .into_iter()
+            .map(|(_, width)| width)
+            .collect::<Vec<_>>()
+    };
+    let heights = |app: &term::application::Application| {
+        let mut panes: Vec<_> = app
+            .editor
+            .tree
+            .views()
+            .map(|(view, _)| (view.area.y, view.area.height))
+            .collect();
+        panes.sort();
+        panes
+            .into_iter()
+            .map(|(_, height)| height)
+            .collect::<Vec<_>>()
+    };
+
+    for prefix in ["<C-w>", "<space>w"] {
+        let mut app = AppBuilder::new().build()?;
+        app.editor.new_file(view::editor::Action::VerticalSplit);
+        let even = widths(&app);
+        let [left, right] = even[..] else {
+            panic!("two columns: {even:?}")
+        };
+
+        // The mode stays active for every key until escape.
+        keys(&mut app, &format!("{prefix}rlll<right><esc>")).await?;
+        assert_eq!(widths(&app), [left - 4, right + 4]);
+        keys(&mut app, &format!("{prefix}rhh<esc>")).await?;
+        assert_eq!(widths(&app), [left - 2, right + 2]);
+
+        // A count typed inside the mode multiplies the step.
+        keys(&mut app, &format!("{prefix}r3h<esc>")).await?;
+        assert_eq!(widths(&app), [left + 1, right - 1]);
+
+        keys(&mut app, &format!("{prefix}=")).await?;
+        assert_eq!(widths(&app), even);
+        helpers::assert_status_not_error(&app.editor);
+    }
+
+    let mut app = AppBuilder::new().build()?;
+    app.editor.new_file(view::editor::Action::HorizontalSplit);
+    let even = heights(&app);
+    let [top, bottom] = even[..] else {
+        panic!("two rows: {even:?}")
+    };
+    keys(&mut app, "<C-w>rkk<up>j<esc>").await?;
+    assert_eq!(heights(&app), [top - 2, bottom + 2]);
+    keys(&mut app, "<C-w>r=<esc>").await?;
+    assert_eq!(heights(&app), even);
+    helpers::assert_status_not_error(&app.editor);
+    Ok(())
+}

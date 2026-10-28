@@ -227,6 +227,8 @@
 | `` <C-w>v `` | Vertical right split | `` vsplit `` |
 | `` <C-w><C-t> `` | Transpose splits | `` transpose_view `` |
 | `` <C-w>t `` | Transpose splits | `` transpose_view `` |
+| `` <C-w>r `` | Resize split (sticky; Escape to exit) | Prefix |
+| `` <C-w>= `` | Make all splits the same size | `` equalize_views `` |
 | `` <C-w>f `` | Goto files in selections (hsplit) | `` goto_file_hsplit `` |
 | `` <C-w>F `` | Goto files in selections (vsplit) | `` goto_file_vsplit `` |
 | `` <C-w><C-q> `` | Close window | `` wclose `` |
@@ -254,6 +256,20 @@
 | `` <C-w>J `` | Swap with split below | `` swap_view_down `` |
 | `` <C-w><S-down> `` | Swap with split below | `` swap_view_down `` |
 | `` <C-w>n `` | New split scratch buffer | Prefix |
+
+#### `` <C-w>r `` — Resize split
+
+| Key | Description | Command |
+| --- | --- | --- |
+| `` <C-w>rh `` | Shrink split width | `` shrink_view_width `` |
+| `` <C-w>r<left> `` | Shrink split width | `` shrink_view_width `` |
+| `` <C-w>rl `` | Grow split width | `` grow_view_width `` |
+| `` <C-w>r<right> `` | Grow split width | `` grow_view_width `` |
+| `` <C-w>rj `` | Shrink split height | `` shrink_view_height `` |
+| `` <C-w>r<down> `` | Shrink split height | `` shrink_view_height `` |
+| `` <C-w>rk `` | Grow split height | `` grow_view_height `` |
+| `` <C-w>r<up> `` | Grow split height | `` grow_view_height `` |
+| `` <C-w>r= `` | Make all splits the same size | `` equalize_views `` |
 
 #### `` <C-w>n `` — New split scratch buffer
 
@@ -342,6 +358,8 @@
 | `` <space>wv `` | Vertical right split | `` vsplit `` |
 | `` <space>w<C-t> `` | Transpose splits | `` transpose_view `` |
 | `` <space>wt `` | Transpose splits | `` transpose_view `` |
+| `` <space>wr `` | Resize split (sticky; Escape to exit) | Prefix |
+| `` <space>w= `` | Make all splits the same size | `` equalize_views `` |
 | `` <space>wf `` | Goto files in selections (hsplit) | `` goto_file_hsplit `` |
 | `` <space>wF `` | Goto files in selections (vsplit) | `` goto_file_vsplit `` |
 | `` <space>w<C-q> `` | Close window | `` wclose `` |
@@ -369,6 +387,20 @@
 | `` <space>wL `` | Swap with right split | `` swap_view_right `` |
 | `` <space>w<S-right> `` | Swap with right split | `` swap_view_right `` |
 | `` <space>wn `` | New split scratch buffer | Prefix |
+
+##### `` <space>wr `` — Resize split
+
+| Key | Description | Command |
+| --- | --- | --- |
+| `` <space>wrh `` | Shrink split width | `` shrink_view_width `` |
+| `` <space>wr<left> `` | Shrink split width | `` shrink_view_width `` |
+| `` <space>wrl `` | Grow split width | `` grow_view_width `` |
+| `` <space>wr<right> `` | Grow split width | `` grow_view_width `` |
+| `` <space>wrj `` | Shrink split height | `` shrink_view_height `` |
+| `` <space>wr<down> `` | Shrink split height | `` shrink_view_height `` |
+| `` <space>wrk `` | Grow split height | `` grow_view_height `` |
+| `` <space>wr<up> `` | Grow split height | `` grow_view_height `` |
+| `` <space>wr= `` | Make all splits the same size | `` equalize_views `` |
 
 ##### `` <space>wn `` — New split scratch buffer
 

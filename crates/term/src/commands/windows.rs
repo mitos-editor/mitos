@@ -50,6 +50,31 @@ pub(super) fn transpose_view(cx: &mut Context) {
     cx.editor.transpose_view()
 }
 
+fn resize_view(cx: &mut Context, dimension: tree::Dimension, sign: isize) {
+    let cells = isize::try_from(cx.count()).unwrap_or(isize::MAX);
+    cx.editor.resize_view(dimension, sign.saturating_mul(cells));
+}
+
+pub(super) fn grow_view_width(cx: &mut Context) {
+    resize_view(cx, tree::Dimension::Width, 1)
+}
+
+pub(super) fn shrink_view_width(cx: &mut Context) {
+    resize_view(cx, tree::Dimension::Width, -1)
+}
+
+pub(super) fn grow_view_height(cx: &mut Context) {
+    resize_view(cx, tree::Dimension::Height, 1)
+}
+
+pub(super) fn shrink_view_height(cx: &mut Context) {
+    resize_view(cx, tree::Dimension::Height, -1)
+}
+
+pub(super) fn equalize_views(cx: &mut Context) {
+    cx.editor.equalize_views()
+}
+
 /// Open a new split in the given direction specified by the action.
 ///
 /// Maintain the current view (both the cursor's position and view in document).
