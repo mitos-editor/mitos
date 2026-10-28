@@ -107,15 +107,15 @@
 | `:vcs-commit-submit`, `:git-commit-submit` | Commit the reviewed changes with this message. If Git rejects the commit, the message stays open. |
 | `:vcs-branches`, `:git-branches` | Browse local branches. Enter switches to the selected branch without discarding changes. |
 | `:vcs-branch-create`, `:git-branch-create` | Create a local branch at HEAD without switching to it. |
-| `:vcs-branch-switch`, `:git-branch-switch` | Switch to an existing local branch, preserving working changes. Save modified buffers first. |
-| `:vcs-worktrees`, `:git-worktrees` | Browse registered worktrees. Enter changes directory and opens the worktree's file picker. |
-| `:vcs-worktree-create`, `:git-worktree-create` | Create a linked worktree at a new path. Optionally specify an existing branch; otherwise use detached HEAD. |
-| `:vcs-worktree-open`, `:git-worktree-open` | Change directory to a registered worktree and open its file picker, keeping existing buffers. |
-| `:vcs-worktree-remove`, `:git-worktree-remove` | Confirm removal of a clean linked worktree. Modified, untracked, ignored, current, main, and locked worktrees are kept. |
-| `:vcs-remotes`, `:git-remotes` | Choose a configured remote name, then explicitly fetch, pull, or push. Remote URLs are hidden. |
-| `:vcs-fetch`, `:git-fetch` | Fetch a remote without changing working files. Specify its name when several remotes exist. |
-| `:vcs-pull`, `:git-pull` | Pull the current branch by fast-forward only, without merging, rebasing, or autostashing. Optionally specify a remote name. |
-| `:vcs-push`, `:git-push` | Push only the current branch, without force, mirroring, or automatic tags. Optionally specify a remote name. |
+| `:vcs-branch-switch`, `:git-branch-switch` | Switch to an existing local branch. Save edited files first; Git refuses to overwrite changes. |
+| `:vcs-worktrees`, `:git-worktrees` | Browse worktrees. Enter opens the selected worktree's file picker. |
+| `:vcs-worktree-create`, `:git-worktree-create` | Create a worktree in a new folder. Give an existing branch name, or open the current commit without a branch. |
+| `:vcs-worktree-open`, `:git-worktree-open` | Change directory to a worktree and open its file picker, keeping your open files. |
+| `:vcs-worktree-remove`, `:git-worktree-remove` | Confirm removal of a clean worktree, keeping its branch. |
+| `:vcs-remotes`, `:git-remotes` | Choose a remote, then fetch, pull, or push. |
+| `:vcs-fetch`, `:git-fetch` | Download remote commits without changing your files. Give a remote name when several are configured. |
+| `:vcs-pull`, `:git-pull` | Download changes and move the current branch forward without creating a merge commit. Optionally give a remote name. |
+| `:vcs-push`, `:git-push` | Upload commits from the current branch. Optionally give a remote name. |
 | `:show-change`, `:vcs-show-change` | Inspect the current change against HEAD, including deleted lines and unsaved edits. |
 | `:diff`, `:vcs-diff` | Review the current file. Choose head (all changes), staged (next commit), unstaged (saved changes), or buffer (unstaged and unsaved changes). |
 | `:git-history`, `:vcs-history` | Browse repository commits. Select a commit, then a file to review its changes. |
