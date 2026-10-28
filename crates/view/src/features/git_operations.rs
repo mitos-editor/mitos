@@ -26,6 +26,18 @@ pub struct GitScope {
 impl GitScope {
     pub fn capture(editor: &Editor) -> Self {
         let (_, doc) = crate::current_ref!(editor);
+        if let Some(review) = doc.project_review() {
+            return Self {
+                path: review.root.clone(),
+                workspace: review.workspace.clone(),
+            };
+        }
+        if let Some(commit) = doc.commit_message() {
+            return Self {
+                path: commit.repository().root().to_owned(),
+                workspace: commit.workspace().to_owned(),
+            };
+        }
         if let Some(review) = doc.review() {
             return Self {
                 path: review.path().to_owned(),
