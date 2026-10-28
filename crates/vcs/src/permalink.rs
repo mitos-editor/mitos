@@ -234,8 +234,14 @@ pub fn file_revision(path: &Path, revision: Option<&str>, trusted: bool) -> Resu
         .find(|path| path.is_dir())
         .context("Repository no longer exists")?;
     let repo = crate::git::open_repo(directory, trusted)?.to_thread_local();
-    let root = repo.workdir().context("Repository has no working tree")?;
-    let relative = path.strip_prefix(root)?.to_owned();
+    let root = stdx::path::canonicalize_existing(
+        repo.workdir().context("Repository has no working tree")?,
+    );
+    // Use the same canonical prefix on Windows (including verbatim paths),
+    // while preserving a symlink leaf as a Git entry rather than following it.
+    let path = stdx::path::canonicalize_existing(path.parent().context("File has no parent")?)
+        .join(path.file_name().context("File has no name")?);
+    let relative = path.strip_prefix(&root)?.to_owned();
     let id = match revision {
         Some(id) => gix::ObjectId::from_hex(RevisionId::parse(id)?.as_str().as_bytes())?,
         None => {
@@ -372,6 +378,10 @@ mod tests {
             dir.path(),
         );
         let first = file_revision(&path, None, false)?;
+        assert_eq!(
+            file_revision(&std::fs::canonicalize(&path)?, None, false)?.path,
+            first.path
+        );
         assert_eq!(first.bytes, b"initial\n");
         std::fs::write(&path, "later\n")?;
         create_commit_with_message(dir.path(), true, "later");
