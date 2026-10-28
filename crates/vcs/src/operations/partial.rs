@@ -91,12 +91,15 @@ impl GitRepository {
             );
         }
         let status = std::cell::RefCell::new(None);
-        let canonical_path = self.root.join(&relative);
         crate::git::for_each_file_status(
             &crate::ChangedFileScope::Repository(self.root.clone()),
             true,
             |_, result| match result {
-                Ok(found) if found.path() == canonical_path => {
+                Ok(found)
+                    if self
+                        .relative(found.path())
+                        .is_ok_and(|path| path == relative) =>
+                {
                     *status.borrow_mut() = Some(Ok(found));
                     false
                 }
