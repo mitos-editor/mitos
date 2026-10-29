@@ -318,12 +318,9 @@ impl PaneRenderer {
         }
 
         let mut overlays = Vec::new();
-        if let Some(highlights) = crate::ui::change_review::document::highlights(
-            doc,
-            layout.offset.anchor,
-            inner.height,
-            theme,
-        ) {
+        if let Some(highlights) =
+            crate::ui::change_review::document::highlights(doc, &layout, theme)
+        {
             overlays.push(highlights);
         }
 

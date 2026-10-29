@@ -702,12 +702,9 @@ pub(super) fn render_preview_content(
         annotations: TextAnnotations::default(),
     };
     let mut overlay_highlights = Vec::new();
-    if let Some(highlights) = crate::ui::change_review::document::highlights(
-        doc,
-        offset.anchor,
-        area.height,
-        &cx.editor.theme,
-    ) {
+    if let Some(highlights) =
+        crate::ui::change_review::document::highlights(doc, &layout, &cx.editor.theme)
+    {
         overlay_highlights.push(highlights);
     }
     if doc

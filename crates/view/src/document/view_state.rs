@@ -19,6 +19,7 @@ impl Clone for DocumentViewState {
     fn clone(&self) -> Self {
         Self {
             selection: self.selection.clone(),
+            folds: self.folds.clone(),
             position: self.position,
             jump_labels: self.jump_labels.clone(),
             restore_append_cursor: self.restore_append_cursor,

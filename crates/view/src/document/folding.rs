@@ -396,6 +396,26 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn presentation_preserves_folds_without_changing_the_document() {
+        let (mut doc, view, _) = fixture("header\nhidden\nlast\nnext", None);
+        doc.set_selection(
+            view.id,
+            Selection::single(0, doc.text().line_to_char_idx(3)),
+        );
+        doc.fold(view.id, FoldAction::Selection);
+        let before = doc.folded_ranges(view.id).to_vec();
+        let transaction =
+            Transaction::change(doc.text(), [(0, 0, Some("prefix ".into()))].into_iter());
+        let presentation = doc.presentation(&transaction, view.id);
+        assert_eq!(presentation.folded_ranges(view.id).len(), 1);
+        assert_eq!(
+            presentation.folded_ranges(view.id)[0].range,
+            before[0].range.start + 7..before[0].range.end + 7
+        );
+        assert_eq!(doc.folded_ranges(view.id), before);
+    }
+
+    #[tokio::test]
     async fn edits_map_unaffected_folds_and_open_touched_folds_in_all_views() {
         for newline in ["\n", "\r\n"] {
             let (mut doc, view, other) = fixture(
