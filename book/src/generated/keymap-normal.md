@@ -318,7 +318,6 @@
 | `` <space>gi `` | Show the current change against HEAD | `` show_change `` |
 | `` <space>gt `` | Toggle inline Git blame | `` toggle_inline_blame `` |
 | `` <space>gS `` | Browse Git stashes in the current repository | `` git_stash_picker `` |
-| `` <space>ga `` | Choose a Git command | `` vcs_command_mode `` |
 
 #### `` <space>G `` — Debug (experimental)
 

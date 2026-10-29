@@ -12,15 +12,11 @@ Press `Space g` to choose a Git action.
 | `Space g b`, `:vcs-blame` | Show the commit that last changed the current line |
 | `Space g t`, `:vcs-toggle-inline-blame` | Show or hide inline blame |
 | `Space g S`, `:vcs-stashes` | Browse stashes |
-| `Space g a` | Choose a Git command with completion |
 
 `s` means status, `S` stashes, `f` file history, and `l` log. `Space g c`,
 `Space g h`, and `Space g H` are aliases for status, file history, and log.
 
-For other Git actions, press `Space g a` to open the command prompt with `vcs-`
-already entered. Use completion to choose a command and enter its arguments,
-then press `Enter` to run it. You can also find these commands by searching for
-`vcs-` in the command palette (`Space ?`).
+Find other Git commands by searching for `vcs-` in the command palette (`Space ?`).
 
 Existing commands such as `:diff`, `:file-history`, and `:git-history` still work.
 `Space i` also inspects a change, and `Space B` toggles inline blame.

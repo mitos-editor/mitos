@@ -152,7 +152,6 @@ impl MappableCommand {
         git_history => super::vcs::git_history, "Browse Git commits and their changed files in the current repository",
         git_file_history => super::vcs::git_file_history, "Browse the current file history across renames",
         git_stash_picker => super::vcs::git_stash_picker, "Browse Git stashes in the current repository",
-        vcs_command_mode => super::command_line::vcs_command_mode, "Choose a Git command",
         changed_file_picker => super::vcs::changed_file_picker, "Open changed file picker in workspace",
         diff => super::vcs::diff, "Review all changes in the current file in a read-only buffer",
         diff_refresh => super::vcs::diff_refresh, "Retry loading the current diff review buffer",

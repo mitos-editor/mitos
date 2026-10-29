@@ -257,7 +257,6 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
                 "i" => show_change,
                 "t" => toggle_inline_blame,
                 "S" => git_stash_picker,
-                "a" => vcs_command_mode,
             },
             "a" => code_action,
             "l" => show_code_lenses_under_cursor,

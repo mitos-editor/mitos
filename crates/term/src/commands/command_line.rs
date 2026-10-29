@@ -20,16 +20,8 @@ use crate::{
     ui::{self, completers::Completer, Prompt, PromptEvent},
 };
 
-pub(super) fn command_mode(cx: &mut Context) {
-    command_mode_with_line(cx, "");
-}
-
-pub(super) fn vcs_command_mode(cx: &mut Context) {
-    command_mode_with_line(cx, "vcs-");
-}
-
 #[allow(clippy::unnecessary_unwrap)]
-fn command_mode_with_line(cx: &mut Context, line: &str) {
+pub(super) fn command_mode(cx: &mut Context) {
     cx.jobs.command_expansion.cancel();
     let mut session = execution::Session::default();
     let mut prompt = Prompt::new_with_callback(
@@ -56,7 +48,7 @@ fn command_mode_with_line(cx: &mut Context, line: &str) {
     prompt.doc_fn = Box::new(move |input| command_line_doc_with_custom(input, &custom_commands));
 
     // Calculate initial completion
-    prompt.set_line(line.to_owned(), cx.editor);
+    prompt.recalculate_completion(cx.editor);
     cx.push_layer(Box::new(prompt));
 }
 
