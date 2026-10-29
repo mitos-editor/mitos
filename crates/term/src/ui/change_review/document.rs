@@ -106,6 +106,23 @@ pub fn highlights(doc: &Document, layout: &ViewLayout, theme: &Theme) -> Option<
     let mut highlights = Vec::new();
     for index in visible_lines(layout) {
         let Some((row, source, prefix)) = row_info(doc, index) else {
+            if let Some(project) = doc.project_review() {
+                let line = text.line(index, stdx::rope::LINE_TYPE).to_string();
+                if (project
+                    .sections
+                    .iter()
+                    .any(|section| section.start_line == index)
+                    || line.starts_with("Unstaged ·")
+                    || line.starts_with("Staged ·"))
+                    && let Some(highlight) = theme.find_highlight("ui.text.focus")
+                {
+                    let start = text.line_to_char_idx(index);
+                    highlights.push((
+                        highlight,
+                        start..start + line.chars().count().saturating_sub(1),
+                    ));
+                }
+            }
             continue;
         };
         let has_syntax = source.is_some_and(|source| source.syntax_for_row(row).is_some());
@@ -117,6 +134,12 @@ pub fn highlights(doc: &Document, layout: &ViewLayout, theme: &Theme) -> Option<
             ReviewLineKind::Notice => "ui.text.inactive",
             ReviewLineKind::Context => continue,
         };
+        if prefix > 0
+            && (has_syntax || row.changes.is_some())
+            && let Some(highlight) = theme.find_highlight(scope)
+        {
+            highlights.push((highlight, start..start + prefix));
+        }
         if let Some(ranges) = &row.changes {
             let Some(highlight) = theme.find_highlight(&format!("{scope}.word")) else {
                 continue;
@@ -151,4 +174,57 @@ fn visible_lines<'a>(layout: &ViewLayout<'a>) -> impl Iterator<Item = usize> + u
             text.byte_to_line_idx(range.start, stdx::rope::LINE_TYPE)
                 ..=text.byte_to_line_idx(range.end - 1, stdx::rope::LINE_TYPE)
         })
+}
+
+/// Keep the review controls visible while scrolling; hints follow user keymaps.
+pub(crate) fn render_project_hints(
+    doc: &Document,
+    area: Rect,
+    keys: &ui_core::keymap::Keymap<crate::keymap::component::ProjectReviewAction>,
+    theme: &Theme,
+    surface: &mut tui::buffer::Buffer,
+) {
+    use crate::keymap::component::{action_hint, ProjectReviewAction as A};
+    use tui::{
+        buffer::BufferExt as _,
+        widgets::{Paragraph, Widget},
+    };
+    let Some(project) = doc.project_review() else {
+        return;
+    };
+    let source = if !project.combined {
+        project.comparison.name()
+    } else if project.comparison == view::features::change_review::ReviewComparison::Buffer {
+        "buffers"
+    } else {
+        "saved"
+    };
+    let mut hints = format!("Git · {source}");
+    if project.loading {
+        hints.push_str(" · refreshing");
+    }
+    for (action, label) in [
+        (A::Stage, "stage"),
+        (A::Unstage, "unstage"),
+        (A::ToggleFold, "fold"),
+        (A::OpenSource, "edit"),
+        (A::ToggleBuffers, "buffers"),
+        (A::Refresh, "refresh"),
+    ] {
+        if action == A::ToggleBuffers && !project.combined {
+            continue;
+        }
+        let hint = format!(" · {} {label}", action_hint(keys, &action));
+        if editor_core::unicode::width::UnicodeWidthStr::width(hints.as_str())
+            + editor_core::unicode::width::UnicodeWidthStr::width(hint.as_str())
+            > area.width as usize
+        {
+            break;
+        }
+        hints.push_str(&hint);
+    }
+    surface.clear_with(area, theme.get("ui.statusline"));
+    Paragraph::new(hints)
+        .style(theme.get("ui.statusline"))
+        .render(area, surface);
 }

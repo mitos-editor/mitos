@@ -116,7 +116,7 @@ impl Document {
         }
         let text = self.buffer.text().slice(..);
         let selection = self.selection(view).clone();
-        let candidates: Vec<_> = if matches!(
+        let mut candidates: Vec<_> = if matches!(
             action,
             FoldAction::Close | FoldAction::Toggle | FoldAction::CloseAll
         ) {
@@ -163,6 +163,18 @@ impl Document {
         } else {
             Vec::new()
         };
+        if matches!(
+            action,
+            FoldAction::Close | FoldAction::Toggle | FoldAction::CloseAll
+        ) && let Some(project) = self.project_review()
+        {
+            candidates.extend(
+                project
+                    .fold_ranges()
+                    .into_iter()
+                    .filter_map(|(start, end)| conceal(text, start, end)),
+            );
+        }
         let state = self
             .view_states
             .get_mut(&view)

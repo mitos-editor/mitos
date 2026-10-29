@@ -17,7 +17,8 @@ mod document;
 mod engine;
 mod live;
 pub(crate) use live::{
-    handle_file_events, has_live_reviews, invalidate, poll, Handler, ReviewTrigger,
+    configure, handle_file_events, has_live_reviews, invalidate, poll, queue, Handler,
+    ReviewTrigger,
 };
 pub(crate) mod historical;
 pub use document::ReviewDocument;
@@ -363,10 +364,31 @@ impl ReviewRequest {
         previous: Option<Arc<ReviewSnapshot>>,
         cancel: event::TaskHandle,
     ) -> Result<Arc<ReviewSnapshot>> {
+        self.run_prepared(previous, cancel, false).await
+    }
+
+    pub(super) async fn run_with_syntax(
+        self: Arc<Self>,
+        cancel: event::TaskHandle,
+    ) -> Result<Arc<ReviewSnapshot>> {
+        self.run_prepared(None, cancel, true).await
+    }
+
+    async fn run_prepared(
+        self: Arc<Self>,
+        previous: Option<Arc<ReviewSnapshot>>,
+        cancel: event::TaskHandle,
+        syntax: bool,
+    ) -> Result<Arc<ReviewSnapshot>> {
         let worker = self.worker.clone();
         let check = cancel.clone();
         run_review(worker, cancel, move || {
-            self.compute_cached_cancellable(previous, &|| check.is_canceled())
+            let snapshot = self.compute_cached_cancellable(previous, &|| check.is_canceled())?;
+            if syntax && snapshot.diff().is_ok_and(|review| !review.truncated) {
+                snapshot.source.prepare_syntax(&|| check.is_canceled());
+            }
+            ensure!(!check.is_canceled(), "Review canceled");
+            Ok(snapshot)
         })
         .await
     }

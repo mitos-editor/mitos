@@ -475,45 +475,44 @@ yourself.
 
 ## Project review
 
-Run `:vcs-project-diff` to review unstaged changes across the repository in one
-read-only buffer, including unsaved edits. Choose `:vcs-project-diff staged` to
-review what the next commit will contain, or `:vcs-project-diff unstaged` to
-compare the staging area with saved files.
+Press `Space g r` or run `:vcs-project-diff` to review the repository in a read-only Git buffer.
+**Unstaged** compares the index with saved files; **Staged** compares HEAD with
+the index. A partially staged file appears in both sections, so you can see
+exactly what the next commit includes and what remains.
 
-Each file has a heading followed by its changes, with added and removed lines
-marked. Move, select, search, and yank as usual. Binary files and other files
-that cannot be reviewed show an explanation; you can keep reviewing the rest.
+Move, select, search, and yank as usual. Added and removed lines keep their diff
+colors and syntax highlighting. The section labels identify staging state.
 
-| Command | Action |
+| Key | Action |
 | --- | --- |
-| `:vcs-project-next file` / `previous-file` | Move between files |
-| `:vcs-project-next hunk` / `previous-hunk` | Move between hunks |
-| `Enter`, `:vcs-project-open` | Open the selected file's review |
-| `:vcs-project-refresh` | Update the review with the latest changes |
+| `s` | Stage the file at its heading, the hunk at the cursor, or selected changed lines |
+| `u` | Unstage with the same scope in Staged |
+| `Tab` | Collapse or expand the file or hunk at the cursor |
+| `Enter` | Open the source file for editing; `Ctrl-o` returns to the review |
+| `Alt-o` | Open the selected file's dedicated diff review |
+| `Alt-b` | Toggle inclusion of unsaved buffers |
+| `R` | Refresh the review |
 
-Use `[g` / `]g` to move between hunks across files, and `[G` / `]G` for the
-first / last hunk. Counts such as `2]g` work as they do in file reviews.
-Press `Enter` to inspect one file's review, then `Ctrl-o` to return to the
-project review.
+These keys are configurable under `[keys.project-review]`. Use `[g` / `]g` to
+move between hunks across files, and `[G` / `]G` for the first / last hunk.
+`:vcs-project-next file` and `:vcs-project-next previous-file` move between files.
+After staging or unstaging, both sections refresh and the cursor moves to the
+next remaining hunk in the same section. Moving the cursor while an operation
+runs cancels that automatic jump.
 
-Run `:vcs-stage-hunk` or `:vcs-stage-lines` directly in a project review to stage
-the selected change. Use a staged project review with `:vcs-unstage-hunk` or
-`:vcs-unstage-lines` to leave selected changes out of the next commit. You can
-select additions and removals separately. Keep each action's selections within
-one file; selections spanning files are rejected. These actions keep your saved
-files and unsaved edits.
+Saved files are the default source. `Alt-b` or `:vcs-project-diff buffer` includes
+unsaved editor text in Unstaged. Staging that text updates the index without
+saving the buffer. The header shows which source is active. Staged always shows
+the actual index. Binary files and other files that cannot be reviewed show an
+explanation; stage or unstage them at their file heading.
 
-When staging from the default review, unsaved edits shown for that file are
-included without saving it. An unstaged review stages the saved content instead.
-If you edit a file or change the staging area after opening the review, run
-`:vcs-project-refresh` before staging or unstaging.
+Select additions and removals independently to stage selected lines. Keep each
+action's selections within one file and one comparison. Files, index snapshots,
+and source buffers are checked again before applying changes; stale actions are
+rejected. `:vcs-stage-hunk`, `:vcs-stage-lines`, and their unstage equivalents
+remain available.
 
-Use `:vcs-stage-and-next` to stage the selected hunks and move to the next
-remaining hunk in that file, then to the next changed file.
-
-Git actions in Mitos update open project reviews automatically. After editing or
-running Git outside Mitos, use `:vcs-project-refresh` to see the latest changes.
-If files change while the review is loading, refresh to try again.
-
-Very large reviews may be shortened, with a notice explaining what was left out.
-Use the changed-file picker to review the remaining files individually.
+File and Git changes refresh open reviews automatically when file watching is
+enabled. Use `R` or `:vcs-project-refresh` to refresh manually. Explicit
+`:vcs-project-diff staged` and `:vcs-project-diff unstaged` open a single
+comparison.

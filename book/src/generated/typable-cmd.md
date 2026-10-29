@@ -98,7 +98,7 @@
 | `:vcs-conflict-resolve` | Keep the current side, incoming side, or both sides of the conflict at the cursor. |
 | `:vcs-conflict-toggle-markers` | Show or hide raw conflict markers in the current view. |
 | `:vcs-conflict-source` | Open the base, current, or incoming version of a conflicted file in a read-only split. |
-| `:vcs-project-diff` | Review unstaged changes together, including unsaved edits. Use staged for the next commit or unstaged for saved changes. |
+| `:vcs-project-diff` | Review staged and unstaged changes together. Use buffer to include unsaved edits, or staged / unstaged for one comparison. |
 | `:vcs-project-refresh` | Update the project review with the latest file and staged changes. |
 | `:vcs-project-next` | Move to the next file or hunk; use file, previous-file, hunk, or previous-hunk. |
 | `:vcs-project-open` | Open the selected file's review. Use Ctrl-o to return to the project review. |

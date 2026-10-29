@@ -129,6 +129,7 @@
 | `changed_file_picker` | Open changed file picker in workspace | normal: `` <space>gs ``, select: `` <space>gs `` |
 | `diff` | Review all changes in the current file in a read-only buffer | normal: `` <space>gd ``, select: `` <space>gd `` |
 | `diff_refresh` | Retry loading the current diff review buffer |  |
+| `git_project_review` | Review staged and unstaged repository changes | normal: `` <space>gr ``, select: `` <space>gr `` |
 | `diff_open_source` | Jump from a diff review to its source location | normal: `` <ret> ``, select: `` <ret> `` |
 | `diff_open_file` | Open the current file from a diff review |  |
 | `changed_file_picker_in_repository` | Open changed file picker in repository |  |

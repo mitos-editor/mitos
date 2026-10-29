@@ -23,7 +23,7 @@ pub struct NextPartialTarget {
     view: ViewId,
     snapshot: buffer::Snapshot,
     selection: Selection,
-    project_path: Option<PathBuf>,
+    project_path: Option<(PathBuf, crate::features::change_review::ReviewComparison)>,
 }
 
 /// Popup actions operate only at the originating cursor, even with multiple selections.
@@ -87,7 +87,7 @@ impl NextPartialTarget {
         {
             return;
         }
-        if let Some(path) = self.project_path {
+        if let Some((path, comparison)) = self.project_path {
             editor.advance_project_review_after_refresh(
                 self.document,
                 crate::features::project_review::ProjectAdvance {
@@ -95,6 +95,7 @@ impl NextPartialTarget {
                     snapshot: self.snapshot,
                     selection: self.selection,
                     path,
+                    comparison,
                     line,
                 },
             );
@@ -306,11 +307,80 @@ pub fn capture(
     Ok((request, next))
 }
 
+/// The review's point, selection, or file header determines the operation scope.
+pub fn capture_project_action(
+    editor: &Editor,
+    kind: FileOperation,
+) -> Result<(GitRequest, Option<NextPartialTarget>)> {
+    use crate::features::change_review::ReviewComparison;
+    let (view, doc) = crate::current_ref!(editor);
+    let project = doc
+        .project_review()
+        .context("Current buffer is not a project review")?;
+    ensure!(
+        !project.loading,
+        "Wait for the project review to finish loading"
+    );
+    let line = doc.cursor_line(view.id);
+    let section = project
+        .section(line)
+        .context("Move to a file or hunk in the review")?;
+    ensure!(
+        (section.comparison == ReviewComparison::Staged) == (kind == FileOperation::Unstage),
+        "Stage changes from Unstaged; unstage changes from Staged"
+    );
+    let selection = doc.selection(view.id);
+    let selected = editor.mode() == crate::document::Mode::Select
+        || selection.len() > 1
+        || selection.iter().any(|range| range.len() > 1);
+    let whole_file = !selected && line == section.start_line;
+    if whole_file && section.comparison != ReviewComparison::Buffer {
+        ensure!(
+            section.is_current(editor),
+            "Source changed; refresh and try again"
+        );
+        let mut request = GitRequest::capture_with_document(
+            editor,
+            project.workspace.clone(),
+            GitAction::File(section.status.clone(), kind),
+            section.source_document(),
+        )?;
+        if let Some(snapshot) = &section.snapshot {
+            ensure!(
+                snapshot.is_current(editor),
+                "Git state changed; refresh and try again"
+            );
+            request = request.with_review_guard(snapshot.action_guard());
+        }
+        return Ok((
+            request,
+            Some(NextPartialTarget {
+                document: doc.id(),
+                view: view.id,
+                snapshot: doc.snapshot(),
+                selection: selection.clone(),
+                project_path: Some((section.status.path().to_owned(), section.comparison)),
+            }),
+        ));
+    }
+    capture_project_scope(editor, kind, selected, false, whole_file)
+}
+
 fn capture_project(
     editor: &Editor,
     kind: FileOperation,
     selected_lines: bool,
     disk: bool,
+) -> Result<(GitRequest, Option<NextPartialTarget>)> {
+    capture_project_scope(editor, kind, selected_lines, disk, false)
+}
+
+fn capture_project_scope(
+    editor: &Editor,
+    kind: FileOperation,
+    selected_lines: bool,
+    disk: bool,
+    whole_file: bool,
 ) -> Result<(GitRequest, Option<NextPartialTarget>)> {
     use crate::features::change_review::{ReviewComparison, ReviewLineKind};
     let (view, doc) = crate::current_ref!(editor);
@@ -329,8 +399,9 @@ fn capture_project(
                 .context("Select source changes within one file in the project review")?;
             ensure!(
                 selected_section
-                    .is_none_or(|selected| selected.status.path() == section.status.path()),
-                "Partial staging selections cannot span multiple files"
+                    .is_none_or(|selected| selected.status.path() == section.status.path()
+                        && selected.comparison == section.comparison),
+                "Partial staging selections cannot span multiple files or comparisons"
             );
             selected_section = Some(section);
             rows.push(row);
@@ -388,6 +459,9 @@ fn capture_project(
     let mut ranges = Vec::new();
     let mut before = Vec::new();
     let mut after = Vec::new();
+    if whole_file {
+        rows = (section.start_line + 1..end).collect();
+    }
     for row in rows {
         let row = if !selected_lines
             && section
@@ -466,7 +540,7 @@ fn capture_project(
             view: view.id,
             snapshot: doc.snapshot(),
             selection: doc.selection(view.id).clone(),
-            project_path: Some(path),
+            project_path: Some((path, section.comparison)),
         }),
     ))
 }

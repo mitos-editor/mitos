@@ -312,6 +312,7 @@
 | Key | Description | Command |
 | --- | --- | --- |
 | `` <space>gs `` | Open changed file picker in workspace | `` changed_file_picker `` |
+| `` <space>gr `` | Review staged and unstaged repository changes | `` git_project_review `` |
 | `` <space>gd `` | Review all changes in the current file in a read-only buffer | `` diff `` |
 | `` <space>gf `` | Browse the current file history across renames | `` git_file_history `` |
 | `` <space>gl `` | Browse Git commits and their changed files in the current repository | `` git_history `` |

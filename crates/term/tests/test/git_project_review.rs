@@ -1,4 +1,4 @@
-use super::helpers::{run_event_loop_until_idle, AppBuilder};
+use super::helpers::{run_event_loop_until_idle as run_until_idle, AppBuilder};
 use std::{path::Path, process::Command, time::Duration};
 use stdx::rope::RopeExt as _;
 use term::application::Application;
@@ -45,12 +45,19 @@ fn repo() -> anyhow::Result<tempfile::TempDir> {
     Ok(dir)
 }
 
+async fn run_event_loop_until_idle(app: &mut Application) {
+    app.editor.reset_idle_timer();
+    run_until_idle(app).await;
+    tokio::task::yield_now().await;
+}
+
 async fn keys(app: &mut Application, keys: &str) -> anyhow::Result<()> {
     let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
     for key in parse_macro(keys)? {
         tx.send(Ok(Event::Key(KeyEvent::from(key))))?;
     }
     let mut input = UnboundedReceiverStream::new(rx);
+    app.editor.reset_idle_timer();
     assert!(app.event_loop_until_idle(&mut input).await);
     Ok(())
 }
@@ -59,6 +66,7 @@ async fn ready(app: &mut Application) -> anyhow::Result<()> {
     tokio::time::timeout(Duration::from_secs(10), async {
         loop {
             run_event_loop_until_idle(app).await;
+            tokio::task::yield_now().await;
             if current_ref!(app.editor)
                 .1
                 .project_review()
@@ -76,6 +84,7 @@ async fn acted(app: &mut Application) -> anyhow::Result<()> {
     tokio::time::timeout(Duration::from_secs(10), async {
         loop {
             run_event_loop_until_idle(app).await;
+            tokio::task::yield_now().await;
             if !app.editor.handlers().git_operations.busy()
                 && current_ref!(app.editor)
                     .1
@@ -94,6 +103,7 @@ async fn ready_file_review(app: &mut Application) -> anyhow::Result<()> {
     tokio::time::timeout(Duration::from_secs(10), async {
         loop {
             run_event_loop_until_idle(app).await;
+            tokio::task::yield_now().await;
             if !app.editor.handlers().git_operations.busy()
                 && current_ref!(app.editor)
                     .1
@@ -121,7 +131,8 @@ fn row(app: &Application, file: &str, kind: ReviewLineKind, text: &str) -> usize
             .snapshot
             .as_ref()
             .unwrap()
-            .review
+            .diff()
+            .unwrap()
             .lines
             .iter()
             .position(|row| row.kind == kind && row.text.contains(text))
@@ -167,20 +178,58 @@ async fn project_review_separates_layers_refreshes_and_opens_file_reviews() -> a
         current_ref!(app.editor).1.text().to_string(),
         "buffer-disk\n"
     );
+    let source = current_ref!(app.editor).1.id();
     keys(&mut app, ":vcs-project-diff<ret>").await?;
     ready(&mut app).await?;
+    assert_eq!(
+        current_ref!(app.editor)
+            .1
+            .project_review()
+            .unwrap()
+            .sections
+            .iter()
+            .find(|section| section.status.path().ends_with("a.txt"))
+            .and_then(|section| section.source_document()),
+        Some(source)
+    );
     let id = current_ref!(app.editor).1.id();
     let text = current_ref!(app.editor).1.text().to_string();
     assert!(text.contains("-staged"), "{text}");
-    assert!(text.contains("+buffer-disk"), "{text}");
+    assert!(
+        text.contains("+disk") && !text.contains("+buffer-disk"),
+        "{text}"
+    );
+    assert!(
+        text.contains("Staged · HEAD") && text.contains("Unstaged · index"),
+        "{text}"
+    );
+    assert_eq!(
+        current_ref!(app.editor)
+            .1
+            .project_review()
+            .unwrap()
+            .sections
+            .iter()
+            .filter(|section| section.status.path().ends_with("a.txt"))
+            .count(),
+        2
+    );
     assert!(text.contains("new.txt"));
     assert!(text.contains("binary.bin") && text.contains("Cannot review:"));
     assert!(current_ref!(app.editor).1.is_content_readonly());
     keys(&mut app, "iSHOULD-NOT-EDIT<esc>").await?;
     assert_eq!(current_ref!(app.editor).1.text().to_string(), text);
     assert_eq!(std::fs::read_to_string(&path)?, "disk\n");
-    keys(&mut app, ":vcs-project-next file<ret><ret>").await?;
-    assert!(current_ref!(app.editor).1.review().is_some());
+    let heading = current_ref!(app.editor)
+        .1
+        .project_review()
+        .unwrap()
+        .sections[0]
+        .start_line;
+    select_line(&mut app, heading);
+    keys(&mut app, "<ret>").await?;
+    assert_eq!(current_ref!(app.editor).1.id(), source);
+    assert!(!current_ref!(app.editor).1.is_content_readonly());
     keys(&mut app, "<C-o>").await?;
     assert_eq!(current_ref!(app.editor).1.id(), id);
     std::fs::write(dir.path().join("new.txt"), "refreshed\n")?;
@@ -214,6 +263,13 @@ async fn project_review_includes_clean_files_with_unsaved_changes_and_cancels_cl
         "unsaved-head\n"
     );
     keys(&mut app, ":vcs-project-diff<ret>").await?;
+    ready(&mut app).await?;
+    assert!(!current_ref!(app.editor)
+        .1
+        .text()
+        .to_string()
+        .contains("+unsaved-head"));
+    keys(&mut app, "<A-b>").await?;
     ready(&mut app).await?;
     let review = current_ref!(app.editor).1.id();
     assert!(current_ref!(app.editor)
@@ -556,7 +612,7 @@ async fn live_review_of_an_unopened_bom_file_uses_its_raw_disk_source() -> anyho
         ready(&mut app).await?;
         let selected = row(&app, "bom.txt", ReviewLineKind::Added, "first");
         select_line(&mut app, selected);
-        keys(&mut app, "<ret>").await?;
+        keys(&mut app, "<A-o>").await?;
         ready_file_review(&mut app).await?;
         if comparison == "head" {
             keys(&mut app, ":diff head<ret>").await?;
@@ -586,5 +642,352 @@ async fn live_review_of_an_unopened_bom_file_uses_its_raw_disk_source() -> anyho
         assert_eq!(std::fs::read_to_string(&path)?, "\u{feff}first\n");
         assert!(app.close().await.is_empty());
     }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn git_review_contextual_actions_fold_files_and_keep_comparisons_separate(
+) -> anyhow::Result<()> {
+    use view::features::change_review::ReviewComparison;
+    let dir = repo()?;
+    let path = dir.path().join("a.txt");
+    let original = "first\n0\n1\n2\n3\n4\n5\n6\n7\n8\nlast\n";
+    std::fs::write(&path, original)?;
+    git(dir.path(), &["add", "a.txt"]);
+    git(dir.path(), &["commit", "-m", "hunks"]);
+    std::fs::write(
+        &path,
+        original.replace("first", "FIRST").replace("last", "LAST"),
+    )?;
+    let mut app = AppBuilder::new().with_file(&path, None).build()?;
+    keys(&mut app, ":vcs-project-diff<ret>").await?;
+    ready(&mut app).await?;
+    let heading = current_ref!(app.editor)
+        .1
+        .project_review()
+        .unwrap()
+        .sections[0]
+        .start_line;
+    select_line(&mut app, heading);
+    keys(&mut app, "<tab>").await?;
+    let (view, doc) = current_ref!(app.editor);
+    assert_eq!(doc.folded_ranges(view.id).len(), 1);
+    assert_eq!(doc.cursor_line(view.id), heading);
+    keys(&mut app, "<tab>]g<tab>").await?;
+    let (view, doc) = current_ref!(app.editor);
+    assert_eq!(doc.folded_ranges(view.id).len(), 1);
+    // A folded hunk stages just that hunk, then advances within Unstaged.
+    keys(&mut app, "s").await?;
+    acted(&mut app).await?;
+    assert_eq!(
+        index_text(dir.path(), "a.txt"),
+        original.replace("first", "FIRST")
+    );
+    let (view, doc) = current_ref!(app.editor);
+    assert_eq!(
+        doc.project_review()
+            .unwrap()
+            .section(doc.cursor_line(view.id))
+            .unwrap()
+            .comparison,
+        ReviewComparison::Unstaged
+    );
+    let unstaged = row(&app, "a.txt", ReviewLineKind::Added, "LAST");
+    let staged = current_ref!(app.editor)
+        .1
+        .project_review()
+        .unwrap()
+        .sections
+        .iter()
+        .find(|section| section.comparison == ReviewComparison::Staged)
+        .unwrap()
+        .start_line;
+    let (view, doc) = view::current!(app.editor);
+    doc.set_selection(
+        view.id,
+        editor_core::Selection::new(
+            vec![
+                editor_core::Range::point(doc.text().line_to_char_idx(unstaged)),
+                editor_core::Range::point(doc.text().line_to_char_idx(staged)),
+            ]
+            .into(),
+            0,
+        ),
+    );
+    keys(&mut app, "s").await?;
+    assert!(app.editor.get_status().unwrap().0.contains("comparisons"));
+    assert_eq!(
+        index_text(dir.path(), "a.txt"),
+        original.replace("first", "FIRST")
+    );
+    select_line(&mut app, staged);
+    keys(&mut app, "u").await?;
+    acted(&mut app).await?;
+    assert_eq!(index_text(dir.path(), "a.txt"), original);
+    // The file header stages both remaining hunks, including while folded.
+    let heading = current_ref!(app.editor)
+        .1
+        .project_review()
+        .unwrap()
+        .sections[0]
+        .start_line;
+    select_line(&mut app, heading);
+    keys(&mut app, "<tab>s").await?;
+    acted(&mut app).await?;
+    assert_eq!(
+        index_text(dir.path(), "a.txt"),
+        original.replace("first", "FIRST").replace("last", "LAST")
+    );
+    assert!(current_ref!(app.editor)
+        .1
+        .text()
+        .to_string()
+        .contains("Unstaged · index → saved files (0 files)"));
+    assert_eq!(
+        std::fs::read_to_string(&path)?,
+        original.replace("first", "FIRST").replace("last", "LAST")
+    );
+    assert!(app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn git_review_selected_lines_and_buffer_file_actions_preserve_unsaved_text(
+) -> anyhow::Result<()> {
+    let dir = repo()?;
+    let path = dir.path().join("a.txt");
+    let mut app = AppBuilder::new().with_file(&path, None).build()?;
+    keys(&mut app, "ggIone\ntwo\n<esc>:vcs-project-diff buffer<ret>").await?;
+    ready(&mut app).await?;
+    let source = app.editor.document_by_path(&path).unwrap().id();
+    let first = row(&app, "a.txt", ReviewLineKind::Added, "one");
+    let (view, doc) = view::current!(app.editor);
+    let start = doc.text().line_to_char_idx(first);
+    doc.set_selection(view.id, editor_core::Selection::single(start, start + 3));
+    keys(&mut app, "s").await?;
+    acted(&mut app).await?;
+    assert_eq!(index_text(dir.path(), "a.txt"), "one\nhead\n");
+    let heading = current_ref!(app.editor)
+        .1
+        .project_review()
+        .unwrap()
+        .sections[0]
+        .start_line;
+    select_line(&mut app, heading);
+    keys(&mut app, "s").await?;
+    acted(&mut app).await?;
+    assert_eq!(index_text(dir.path(), "a.txt"), "one\ntwo\nhead\n");
+    assert_eq!(std::fs::read_to_string(&path)?, "head\n");
+    assert_eq!(
+        app.editor.document(source).unwrap().text().to_string(),
+        "one\ntwo\nhead\n"
+    );
+    assert!(app.editor.close_document(source, true).is_ok());
+    assert!(app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn git_review_refreshes_external_index_disk_and_opted_in_buffer_changes() -> anyhow::Result<()>
+{
+    let dir = repo()?;
+    let path = dir.path().join("a.txt");
+    std::fs::write(&path, "disk\n")?;
+    let mut config = super::helpers::test_config();
+    config.editor.files.watch.enable = true;
+    config.editor.files.watch.watch_vcs = true;
+    config.editor.files.watch.hidden = false;
+    let mut app = AppBuilder::new()
+        .with_config(config)
+        .with_file(&path, None)
+        .build()?;
+    keys(&mut app, ":vcs-project-diff<ret>").await?;
+    ready(&mut app).await?;
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while !app.editor.file_watcher.is_watching(&path) {
+            run_event_loop_until_idle(&mut app).await;
+        }
+    })
+    .await?;
+    std::fs::write(&path, "external\n")?;
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            run_event_loop_until_idle(&mut app).await;
+            if current_ref!(app.editor)
+                .1
+                .text()
+                .to_string()
+                .contains("+external")
+            {
+                break;
+            }
+        }
+    })
+    .await?;
+    git(dir.path(), &["add", "a.txt"]);
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            run_event_loop_until_idle(&mut app).await;
+            let text = current_ref!(app.editor).1.text().to_string();
+            if text.contains("+external")
+                && text.contains("Unstaged · index → saved files (0 files)")
+            {
+                break;
+            }
+        }
+    })
+    .await
+    .map_err(|error| {
+        anyhow::anyhow!(
+            "external refresh: {error}; {}",
+            current_ref!(app.editor).1.text()
+        )
+    })?;
+    keys(&mut app, "<A-b>").await?;
+    ready(&mut app).await?;
+    let source = app.editor.document_by_path(&path).unwrap().id();
+    let doc = app.editor.document(source).unwrap();
+    let transaction =
+        editor_core::Transaction::change(doc.text(), [(0, 0, Some("buffer-".into()))].into_iter());
+    app.editor
+        .apply_document_changes(source, doc.version(), transaction.changes())?;
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            run_event_loop_until_idle(&mut app).await;
+            if current_ref!(app.editor)
+                .1
+                .text()
+                .to_string()
+                .contains("+buffer-")
+            {
+                break;
+            }
+        }
+    })
+    .await
+    .map_err(|error| {
+        anyhow::anyhow!(
+            "buffer refresh: {error}; {}",
+            current_ref!(app.editor).1.text()
+        )
+    })?;
+    assert!(app.editor.close_document(source, true).is_ok());
+    assert!(app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn git_review_bindings_are_remappable_and_visible_while_scrolling() -> anyhow::Result<()> {
+    let dir = repo()?;
+    let path = dir.path().join("a.txt");
+    std::fs::write(&path, "changed\n")?;
+    let mut config = super::helpers::test_config();
+    config.component_keys = term::config::Config::load(
+        Ok(
+            &"[keys.project-review]\ns = 'unbound'\n[ keys.project-review.z ]\nx = 'stage'\n"
+                .to_owned(),
+        ),
+        Err(term::config::ConfigLoadError::default()),
+    )
+    .unwrap()
+    .component_keys;
+    let mut app = AppBuilder::new()
+        .with_config(config)
+        .with_file(&path, None)
+        .build()?;
+    keys(&mut app, " gr").await?;
+    ready(&mut app).await?;
+    keys(&mut app, "").await?;
+    let screen: String = app
+        .terminal_backend()
+        .buffer()
+        .content
+        .iter()
+        .map(|cell| cell.symbol())
+        .collect();
+    assert!(screen.contains("zx stage"), "{screen}");
+    let heading = current_ref!(app.editor)
+        .1
+        .project_review()
+        .unwrap()
+        .sections[0]
+        .start_line;
+    select_line(&mut app, heading);
+    keys(&mut app, "z<esc>").await?;
+    assert_eq!(index_text(dir.path(), "a.txt"), "head\n");
+    keys(&mut app, "zx").await?;
+    acted(&mut app).await?;
+    assert_eq!(index_text(dir.path(), "a.txt"), "changed\n");
+    let (view, doc) = current_ref!(app.editor);
+    assert_eq!(
+        doc.cursor_line(view.id),
+        4,
+        "Stay at the empty Unstaged section"
+    );
+    assert!(app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn git_review_renders_both_groups_with_native_syntax_and_diff_styles() -> anyhow::Result<()> {
+    let dir = repo()?;
+    let path = dir.path().join("source.rs");
+    std::fs::write(&path, "fn original() { 1 }\n")?;
+    git(dir.path(), &["add", "."]);
+    git(dir.path(), &["commit", "-m", "source"]);
+    std::fs::write(&path, "fn staged() { 2 }\n")?;
+    git(dir.path(), &["add", "source.rs"]);
+    std::fs::write(&path, "fn edited() { 3 }\n")?;
+    let mut app = AppBuilder::new()
+        .with_lang_loader(super::helpers::test_syntax_loader(None))
+        .with_file(&path, None)
+        .build()?;
+    app.editor
+        .set_theme(theme::Theme::from(toml::from_str::<toml::Value>(
+            r#"
+        "ui.text" = "white"
+        "ui.text.focus" = { fg = "yellow", modifiers = ["bold"] }
+        "ui.selection" = { bg = "blue" }
+        "ui.cursor" = { bg = "yellow" }
+        "ui.statusline" = { fg = "white", bg = "black" }
+        "keyword" = "magenta"
+        "function" = "cyan"
+        "constant.numeric" = "blue"
+        "diff.plus" = "green"
+        "diff.minus" = "red"
+        "diff.plus.line" = { bg = "black" }
+        "diff.minus.line" = { bg = "black" }
+    "#,
+        )?))?;
+    keys(&mut app, " gr").await?;
+    ready(&mut app).await?;
+    keys(&mut app, "").await?;
+    let buffer = app.terminal_backend().buffer();
+    let screen: String = buffer.content.iter().map(|cell| cell.symbol()).collect();
+    assert!(
+        screen.contains("Unstaged · index") && screen.contains("Staged · HEAD"),
+        "{screen}"
+    );
+    assert!(
+        screen.contains("s stage") && screen.contains("u unstage"),
+        "{screen}"
+    );
+    assert!(buffer
+        .content
+        .iter()
+        .any(|cell| cell.symbol() == "f" && cell.fg == tui::style::Color::Magenta));
+    assert!(buffer
+        .content
+        .iter()
+        .any(|cell| cell.symbol() == "+" && cell.fg == tui::style::Color::Green));
+    assert!(buffer
+        .content
+        .iter()
+        .any(|cell| cell.symbol() == "-" && cell.fg == tui::style::Color::Red));
+    assert!(buffer
+        .content
+        .iter()
+        .any(|cell| cell.symbol() == "U" && cell.modifier.contains(tui::style::Modifier::BOLD)));
+    assert!(app.close().await.is_empty());
     Ok(())
 }

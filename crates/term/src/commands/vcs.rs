@@ -104,7 +104,7 @@ pub(super) fn diff_refresh(cx: &mut Context) {
 
 pub(super) fn diff_open_source(cx: &mut Context) {
     if view::current_ref!(cx.editor).1.project_review().is_some() {
-        if let Err(error) = cx.editor.open_project_review_file() {
+        if let Err(error) = cx.editor.open_project_review_source() {
             cx.editor.set_error(|| error.to_string());
         }
         return;
