@@ -58,6 +58,7 @@ impl Editor {
                 document.refresh_settings();
             }
         }
+        self.tree.set_split_strategy(config.splits.strategy);
         self.reset_idle_timer();
         self._refresh();
         event::dispatch(ConfigDidChange {

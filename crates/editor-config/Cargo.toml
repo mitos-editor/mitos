@@ -19,6 +19,7 @@ core.workspace = true
 language-config.workspace = true
 clipboard.workspace = true
 ui-core.workspace = true
+pane-layout.workspace = true
 workspace.workspace = true
 serde.workspace = true
 anyhow.workspace = true
