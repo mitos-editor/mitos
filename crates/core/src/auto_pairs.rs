@@ -181,12 +181,14 @@ pub fn handle_delete(doc: &Rope, range: &Range) -> Option<(Deletion, Range)> {
     let next_head = graphemes::next_grapheme_boundary(text, range.head) - size_delete;
 
     // if the range is a single grapheme cursor, we do not want to shrink the
-    // range, just move it, so we only subtract the size of the closing pair char
+    // range, just move it onto the grapheme that follows the deleted span
     let next_anchor = match (range.direction(), range.is_single_grapheme(text)) {
-        // single grapheme forward needs to move, but only the width of the
-        // character under the cursor, which is the closer
-        (Direction::Forward, true) => range.anchor - (end_next - cursor),
-        (Direction::Backward, true) => range.anchor - (cursor - end_prev),
+        // a forward cursor starts where the deleted span started
+        (Direction::Forward, true) => end_prev,
+        // a backward cursor starts after the grapheme that followed the deleted span
+        (Direction::Backward, true) => {
+            graphemes::next_grapheme_boundary(text, range.anchor) - size_delete
+        }
 
         (Direction::Forward, false) => range.anchor,
         (Direction::Backward, false) => range.anchor - size_delete,
@@ -218,6 +220,12 @@ fn handle_insert_whitespace(
     let pair = pairs.get(cur)?;
 
     if pair.open != prev || pair.close != cur {
+        return None;
+    }
+
+    // Brackets and quotes shouldn't insert an extra space (e.g. Markdown [ ]).
+    // Preserve existing whitespace padding for parentheses and braces.
+    if !matches!(pair.open, '(' | '{') {
         return None;
     }
 
@@ -417,4 +425,39 @@ fn handle_insert_same(doc: &Rope, range: &Range, pair: &Pair) -> Option<(Change,
     log::debug!("auto pair change: {:#?}", result);
 
     Some(result)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn whitespace_padding_skips_brackets_and_quotes() {
+        let pairs = AutoPairs::default();
+
+        for pair in ["[]", "''", "\"\"", "``"] {
+            let doc = Rope::from(pair);
+            let range = Range::point(1);
+
+            assert!(
+                hook_insert(&doc, &range, ' ', &pairs).is_none(),
+                "unexpected extra whitespace for {pair:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn whitespace_padding_is_preserved_for_parentheses_and_braces() {
+        let pairs = AutoPairs::default();
+
+        for pair in ["()", "{}"] {
+            let doc = Rope::from(pair);
+            let range = Range::point(1);
+
+            assert!(
+                hook_insert(&doc, &range, ' ', &pairs).is_some(),
+                "expected whitespace padding for {pair:?}"
+            );
+        }
+    }
 }
