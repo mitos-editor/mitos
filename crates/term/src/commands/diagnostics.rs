@@ -433,6 +433,13 @@ fn diag_picker(
             };
             Some(Span::styled(icon.with_no_left_padding().to_string(), style))
         }),
+        ui::PickerColumn::new("message", |item: &PickerDiagnostic, _| {
+            if item.resolved {
+                format!("{} (resolved)", item.message).into()
+            } else {
+                (&*item.message).into()
+            }
+        }),
         ui::PickerColumn::new("source", |item: &PickerDiagnostic, _| {
             item.source.as_deref().unwrap_or("").into()
         }),
@@ -443,15 +450,8 @@ fn diag_picker(
                 None => "".into(),
             }
         }),
-        ui::PickerColumn::new("message", |item: &PickerDiagnostic, _| {
-            if item.resolved {
-                format!("{} (resolved)", item.message).into()
-            } else {
-                (&*item.message).into()
-            }
-        }),
     ];
-    let mut primary_column = 3; // message
+    let mut primary_column = 1; // message
 
     if format == DiagnosticsFormat::ShowSourcePath {
         columns.insert(
