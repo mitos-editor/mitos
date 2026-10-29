@@ -304,7 +304,7 @@ pub fn language(lang_str: String) -> std::io::Result<()> {
         "debug adapter",
         lang.debugger
             .as_ref()
-            .map(|dap| (dap.command.as_str(), &[][..])),
+            .map(|dap| (dap.command.as_str(), dap.args.as_slice())),
     )?;
 
     probe_protocol(
@@ -429,7 +429,7 @@ fn probe_protocol(
     };
     writeln!(stdout)?;
 
-    let (diag, icon) = match stdx::env::which(&cmd) {
+    let (diag, icon) = match stdx::env::which(cmd) {
         Ok(path) => (path.display().to_string().green(), "✓".green()),
         Err(_) => (format!("'{}' not found in $PATH", cmd).red(), "✘".red()),
     };
