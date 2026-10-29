@@ -136,7 +136,7 @@
 | `lsp_or_syntax_workspace_symbol_picker` | Open workspace symbol picker from LSP or syntax information | normal: `` <space>S ``, select: `` <space>S `` |
 | `diagnostics_picker` | Open diagnostic picker | normal: `` <space>d ``, select: `` <space>d `` |
 | `workspace_diagnostics_picker` | Open workspace diagnostic picker | normal: `` <space>D ``, select: `` <space>D `` |
-| `last_picker` | Open last picker | normal: `` <space>' ``, select: `` <space>' `` |
+| `last_picker` | Open last picker, preserving selected entry | normal: `` <space>' ``, select: `` <space>' `` |
 | `insert_at_line_start` | Insert at start of line | normal: `` I ``, select: `` I `` |
 | `insert_at_line_end` | Insert at end of line | normal: `` A ``, select: `` A `` |
 | `open_below` | Open new line below selection | normal: `` o ``, select: `` o `` |

@@ -300,7 +300,7 @@
 | `` <space>g `` | Git | Prefix |
 | `` <space>a `` | Perform code action | `` code_action `` |
 | `` <space>l `` | Show code lenses under cursor | `` show_code_lenses_under_cursor `` |
-| `` <space>' `` | Open last picker | `` last_picker `` |
+| `` <space>' `` | Open last picker, preserving selected entry | `` last_picker `` |
 | `` <space>G `` | Debug (experimental) (sticky; Escape to exit) | Prefix |
 | `` <space>w `` | Window | Prefix |
 | `` <space>y `` | Yank selections to clipboard | `` yank_to_clipboard `` |
