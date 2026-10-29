@@ -381,8 +381,7 @@ async fn shifted_arrows_swap_splits_in_both_window_prefixes() -> anyhow::Result<
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn resize_mode_grows_shrinks_and_equalizes_splits_in_both_window_prefixes(
-) -> anyhow::Result<()> {
+async fn resize_mode_moves_boundaries_with_defaults_and_exact_counts() -> anyhow::Result<()> {
     let widths = |app: &term::application::Application| {
         let mut panes: Vec<_> = app
             .editor
@@ -420,14 +419,23 @@ async fn resize_mode_grows_shrinks_and_equalizes_splits_in_both_window_prefixes(
 
         // The mode stays active for every key until escape.
         keys(&mut app, &format!("{prefix}rlll<right><esc>")).await?;
-        assert_eq!(widths(&app), [left - 4, right + 4]);
+        assert_eq!(widths(&app), [left + 20, right - 20]);
         keys(&mut app, &format!("{prefix}rhh<esc>")).await?;
-        assert_eq!(widths(&app), [left - 2, right + 2]);
+        assert_eq!(widths(&app), [left + 10, right - 10]);
 
-        // A count typed inside the mode multiplies the step.
+        // A count typed inside the mode is an exact cell amount.
         keys(&mut app, &format!("{prefix}r3h<esc>")).await?;
-        assert_eq!(widths(&app), [left + 1, right - 1]);
+        assert_eq!(widths(&app), [left + 7, right - 7]);
 
+        keys(&mut app, &format!("{prefix}r1h<esc>")).await?;
+        assert_eq!(widths(&app), [left + 6, right - 6]);
+
+        // From the left pane, right grows and left shrinks. A count is consumed
+        // by the first resize, and the next key uses the default again.
+        keys(&mut app, &format!("{prefix}h{prefix}r3l<right><esc>")).await?;
+        assert_eq!(widths(&app), [left + 14, right - 14]);
+        keys(&mut app, &format!("{prefix}rh<left><esc>")).await?;
+        assert_eq!(widths(&app), [left + 4, right - 4]);
         keys(&mut app, &format!("{prefix}=")).await?;
         assert_eq!(widths(&app), even);
         helpers::assert_status_not_error(&app.editor);
@@ -440,7 +448,11 @@ async fn resize_mode_grows_shrinks_and_equalizes_splits_in_both_window_prefixes(
         panic!("two rows: {even:?}")
     };
     keys(&mut app, "<C-w>rkk<up>j<esc>").await?;
-    assert_eq!(heights(&app), [top - 2, bottom + 2]);
+    assert_eq!(heights(&app), [top - 4, bottom + 4]);
+    keys(&mut app, "<C-w>r1j<esc>").await?;
+    assert_eq!(heights(&app), [top - 3, bottom + 3]);
+    keys(&mut app, "<C-w>k<C-w>rj<down><esc>").await?;
+    assert_eq!(heights(&app), [top + 1, bottom - 1]);
     keys(&mut app, "<C-w>r=<esc>").await?;
     assert_eq!(heights(&app), even);
     helpers::assert_status_not_error(&app.editor);

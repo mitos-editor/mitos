@@ -99,6 +99,9 @@ impl Tree {
     pub(crate) fn equalize(&mut self) {
         self.layout.equalize();
     }
+    pub(crate) fn resize_focus_direction(&mut self, direction: Direction, cells: usize) -> bool {
+        self.layout.resize_focus_direction(direction, cells)
+    }
     pub fn swap_split_in_direction(&mut self, direction: Direction) -> Option<()> {
         self.layout.swap_split_in_direction(direction)
     }

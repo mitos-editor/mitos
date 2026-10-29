@@ -617,6 +617,13 @@ impl Editor {
         }
     }
 
+    /// Resize toward a neighboring split, or inward at the edge of the layout.
+    pub fn resize_view_direction(&mut self, direction: tree::Direction, cells: usize) {
+        if self.tree.resize_focus_direction(direction, cells) {
+            self._refresh();
+        }
+    }
+
     /// Give all splits equal sizes again.
     pub fn equalize_views(&mut self) {
         self.tree.equalize();

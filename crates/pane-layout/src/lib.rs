@@ -783,6 +783,56 @@ impl<K: Key, P: Pane<K>> Tree<K, P> {
         true
     }
 
+    /// Grow toward `direction` by taking up to `cells` from the adjacent subtree.
+    /// At the outer edge, shrink from the opposite side instead. Search outward
+    /// through nested splits before falling back, and stop at subtree minimums.
+    /// An undersized layout is left unchanged until its minimums fit again.
+    pub fn resize_focus_direction(&mut self, direction: Direction, cells: usize) -> bool {
+        if cells == 0 {
+            return false;
+        }
+        let (layout, forward) = match direction {
+            Direction::Left => (Layout::Vertical, false),
+            Direction::Right => (Layout::Vertical, true),
+            Direction::Up => (Layout::Horizontal, false),
+            Direction::Down => (Layout::Horizontal, true),
+        };
+        let mut child = self.focus;
+        let mut fallback = None;
+        let mut target = None;
+        while let Some((parent, idx)) = self.enclosing_split(child, layout) {
+            let len = self.container_ref(parent).children.len();
+            if (forward && idx + 1 < len) || (!forward && idx > 0) {
+                let neighbor = if forward { idx + 1 } else { idx - 1 };
+                target = Some((parent, neighbor, idx));
+                break;
+            }
+            // This split has no neighbor in the requested direction, but its
+            // opposite boundary can move if no enclosing split has one either.
+            fallback.get_or_insert((parent, idx, if forward { idx - 1 } else { idx + 1 }));
+            child = parent;
+        }
+        let Some((parent, donor, receiver)) = target.or(fallback) else {
+            return false;
+        };
+        let container = self.container_ref(parent);
+        let minimums = self.minimum_shares(container);
+        let used = container.used_extent();
+        if minimums.iter().sum::<usize>() > used {
+            return false;
+        }
+        let mut shares = container.shares(used, &minimums);
+        let amount = cells.min(shares[donor].saturating_sub(minimums[donor]));
+        if amount == 0 {
+            return false;
+        }
+        shares[donor] -= amount;
+        shares[receiver] += amount;
+        self.container_mut(parent).weights = shares.into_iter().map(|share| share as u32).collect();
+        self.recalculate();
+        true
+    }
+
     /// Give every child of every split the same size again.
     pub fn equalize(&mut self) {
         for node in self.nodes.values_mut() {
@@ -1281,6 +1331,116 @@ mod test {
             ids.push(tree.split(TestPane::new(ContentId::default()), Layout::Vertical));
         }
         (tree, ids)
+    }
+
+    #[test]
+    fn directional_resize_uses_only_the_neighbor_on_the_requested_side() {
+        let (mut tree, ids) = columns(80, 3, 5);
+        tree.focus = ids[1];
+        assert!(tree.resize_focus_direction(Direction::Left, 4));
+        assert_eq!(widths(&tree), [22, 30, 26]);
+        assert!(tree.resize_focus_direction(Direction::Right, 6));
+        assert_eq!(widths(&tree), [22, 36, 20]);
+        assert!(tree.resize_focus_direction(Direction::Right, usize::MAX));
+        assert_eq!(widths(&tree), [22, 51, 5]);
+        // A blocked boundary must neither draw from the other side nor reverse.
+        assert!(!tree.resize_focus_direction(Direction::Right, 1));
+        assert!(!tree.resize_focus_direction(Direction::Left, 0));
+        assert_eq!(widths(&tree), [22, 51, 5]);
+    }
+
+    #[test]
+    fn directional_resize_preserves_zero_minimum_and_unrelated_siblings() {
+        let (mut tree, ids) = columns(80, 3, 0);
+        tree.focus = ids[1];
+        assert!(tree.resize_focus_direction(Direction::Left, usize::MAX));
+        assert_eq!(widths(&tree), [0, 52, 26]);
+        assert!(!tree.resize_focus_direction(Direction::Left, 1));
+        tree.focus = ids[0];
+        assert!(tree.resize_focus_direction(Direction::Right, 3));
+        assert_eq!(widths(&tree), [3, 49, 26]);
+    }
+
+    #[test]
+    fn directional_resize_reverses_at_each_outer_edge() {
+        for (direction, layout, first) in [
+            (Direction::Left, Layout::Vertical, true),
+            (Direction::Right, Layout::Vertical, false),
+            (Direction::Up, Layout::Horizontal, true),
+            (Direction::Down, Layout::Horizontal, false),
+        ] {
+            let mut tree = Tree::with_minimum_size(Rect::new(0, 0, 81, 24), 5, 2);
+            let a = tree.insert(TestPane::new(ContentId::default()));
+            let b = tree.split(TestPane::new(ContentId::default()), layout);
+            tree.focus = if first { a } else { b };
+            let before = tree.get(tree.focus).area;
+            assert!(tree.resize_focus_direction(direction, 3));
+            let after = tree.get(tree.focus).area;
+            if layout == Layout::Vertical {
+                assert_eq!(after.width, before.width - 3);
+                assert_eq!(after.height, before.height);
+            } else {
+                assert_eq!(after.height, before.height - 3);
+                assert_eq!(after.width, before.width);
+            }
+            assert!(tree.resize_focus_direction(direction, usize::MAX));
+            assert!(!tree.resize_focus_direction(direction, 1));
+        }
+    }
+
+    #[test]
+    fn directional_resize_finds_the_outer_neighbor_before_reversing() {
+        // A and B are in a column split nested inside a row in the left column.
+        // | A | B | R |
+        // |   C   |   |
+        let mut tree = Tree::with_minimum_size(Rect::new(0, 0, 121, 24), 5, 2);
+        let a = tree.insert(TestPane::new(ContentId::default()));
+        let r = tree.split(TestPane::new(ContentId::default()), Layout::Vertical);
+        tree.focus = a;
+        tree.split(TestPane::new(ContentId::default()), Layout::Horizontal);
+        tree.focus = a;
+        let b = tree.split(TestPane::new(ContentId::default()), Layout::Vertical);
+        let before_a = tree.get(a).area;
+        let before_b = tree.get(b).area;
+        let before_r = tree.get(r).area;
+        assert!(tree.resize_focus_direction(Direction::Right, 10));
+        assert_eq!(tree.get(r).area.width, before_r.width - 10);
+        assert!(tree.get(a).area.width > before_a.width);
+        assert!(tree.get(b).area.width > before_b.width);
+        // Resizing R left must leave enough space for both nested panes and their gap.
+        tree.focus = r;
+        assert!(tree.resize_focus_direction(Direction::Left, usize::MAX));
+        assert_eq!(tree.get(a).area.width, 5);
+        assert_eq!(tree.get(b).area.width, 5);
+    }
+
+    #[test]
+    fn directional_resize_handles_missing_axes_and_undersized_terminals() {
+        let (mut tree, ids) = columns(81, 2, 10);
+        tree.focus = ids[1];
+        assert!(!tree.resize_focus_direction(Direction::Up, 5));
+        let before = widths(&tree);
+        tree.resize(Rect::new(0, 0, 10, 1));
+        let constrained = widths(&tree);
+        for direction in [
+            Direction::Left,
+            Direction::Right,
+            Direction::Up,
+            Direction::Down,
+        ] {
+            assert!(!tree.resize_focus_direction(direction, usize::MAX));
+            assert_eq!(widths(&tree), constrained);
+        }
+        tree.resize(Rect::new(0, 0, 81, 24));
+        assert_eq!(widths(&tree), before);
+        assert!(tree.resize_focus_direction(Direction::Left, 7));
+        assert_eq!(widths(&tree), [before[0] - 7, before[1] + 7]);
+        tree.resize(Rect::new(0, 0, 161, 24));
+        assert_eq!(widths(&tree), [65, 95]);
+        tree.equalize();
+        assert_eq!(widths(&tree), [80, 80]);
+        tree.remove(ids[0]);
+        assert!(!tree.resize_focus_direction(Direction::Left, 5));
     }
 
     #[test]

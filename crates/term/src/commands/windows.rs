@@ -75,6 +75,31 @@ pub(super) fn equalize_views(cx: &mut Context) {
     cx.editor.equalize_views()
 }
 
+fn resize_view_direction(cx: &mut Context, direction: tree::Direction) {
+    let default = match direction {
+        tree::Direction::Left | tree::Direction::Right => 5,
+        tree::Direction::Up | tree::Direction::Down => 2,
+    };
+    let cells = cx.count.map_or(default, |count| count.get());
+    cx.editor.resize_view_direction(direction, cells);
+}
+
+pub(super) fn resize_view_left(cx: &mut Context) {
+    resize_view_direction(cx, tree::Direction::Left)
+}
+
+pub(super) fn resize_view_right(cx: &mut Context) {
+    resize_view_direction(cx, tree::Direction::Right)
+}
+
+pub(super) fn resize_view_up(cx: &mut Context) {
+    resize_view_direction(cx, tree::Direction::Up)
+}
+
+pub(super) fn resize_view_down(cx: &mut Context) {
+    resize_view_direction(cx, tree::Direction::Down)
+}
+
 /// Open a new split in the given direction specified by the action.
 ///
 /// Maintain the current view (both the cursor's position and view in document).

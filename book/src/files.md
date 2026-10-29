@@ -42,6 +42,23 @@ or `:open`. In a picker, `Ctrl-v` opens the selected file vertically and
 You can also use `:vsplit <path>` or `:hsplit <path>`. To start with files in
 separate views, see [Starting Mitos](./invocation.md).
 
+### Resize splits
+
+Press `Ctrl-w r` (or `Space w r`) to enter resize mode. `h` / `j` / `k` / `l`
+and the arrow keys grow the focused split toward the left / down / up / right.
+At the outer edge of the layout, they shrink from the opposite side instead.
+For example, `h` grows a right-hand pane to the left; `l` shrinks it from the
+left. A boundary stops when either subtree reaches its minimum size.
+
+Each press moves the boundary by 5 columns or 2 rows. An explicit count replaces
+that default with an exact number of cells: `Ctrl-w r 1 h` moves one column,
+and `Ctrl-w r 10 h` moves ten. Resize mode stays active until `Escape`.
+Press `=` in resize mode, or `Ctrl-w =`, to equalize the splits.
+
+The `grow_view_width`, `shrink_view_width`, `grow_view_height`, and
+`shrink_view_height` commands remain available for custom keybindings. They
+always grow or shrink the focused split, using one cell or an explicit count.
+
 ## Save and close
 
 | Command | Action |

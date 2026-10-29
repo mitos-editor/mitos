@@ -263,14 +263,14 @@
 
 | Key | Description | Command |
 | --- | --- | --- |
-| `` <C-w>rh `` | Shrink split width | `` shrink_view_width `` |
-| `` <C-w>r<left> `` | Shrink split width | `` shrink_view_width `` |
-| `` <C-w>rl `` | Grow split width | `` grow_view_width `` |
-| `` <C-w>r<right> `` | Grow split width | `` grow_view_width `` |
-| `` <C-w>rj `` | Shrink split height | `` shrink_view_height `` |
-| `` <C-w>r<down> `` | Shrink split height | `` shrink_view_height `` |
-| `` <C-w>rk `` | Grow split height | `` grow_view_height `` |
-| `` <C-w>r<up> `` | Grow split height | `` grow_view_height `` |
+| `` <C-w>rh `` | Resize split left | `` resize_view_left `` |
+| `` <C-w>r<left> `` | Resize split left | `` resize_view_left `` |
+| `` <C-w>rl `` | Resize split right | `` resize_view_right `` |
+| `` <C-w>r<right> `` | Resize split right | `` resize_view_right `` |
+| `` <C-w>rj `` | Resize split down | `` resize_view_down `` |
+| `` <C-w>r<down> `` | Resize split down | `` resize_view_down `` |
+| `` <C-w>rk `` | Resize split up | `` resize_view_up `` |
+| `` <C-w>r<up> `` | Resize split up | `` resize_view_up `` |
 | `` <C-w>r= `` | Make all splits the same size | `` equalize_views `` |
 
 #### `` <C-w>n `` — New split scratch buffer
@@ -407,14 +407,14 @@
 
 | Key | Description | Command |
 | --- | --- | --- |
-| `` <space>wrh `` | Shrink split width | `` shrink_view_width `` |
-| `` <space>wr<left> `` | Shrink split width | `` shrink_view_width `` |
-| `` <space>wrl `` | Grow split width | `` grow_view_width `` |
-| `` <space>wr<right> `` | Grow split width | `` grow_view_width `` |
-| `` <space>wrj `` | Shrink split height | `` shrink_view_height `` |
-| `` <space>wr<down> `` | Shrink split height | `` shrink_view_height `` |
-| `` <space>wrk `` | Grow split height | `` grow_view_height `` |
-| `` <space>wr<up> `` | Grow split height | `` grow_view_height `` |
+| `` <space>wrh `` | Resize split left | `` resize_view_left `` |
+| `` <space>wr<left> `` | Resize split left | `` resize_view_left `` |
+| `` <space>wrl `` | Resize split right | `` resize_view_right `` |
+| `` <space>wr<right> `` | Resize split right | `` resize_view_right `` |
+| `` <space>wrj `` | Resize split down | `` resize_view_down `` |
+| `` <space>wr<down> `` | Resize split down | `` resize_view_down `` |
+| `` <space>wrk `` | Resize split up | `` resize_view_up `` |
+| `` <space>wr<up> `` | Resize split up | `` resize_view_up `` |
 | `` <space>wr= `` | Make all splits the same size | `` equalize_views `` |
 
 ##### `` <space>wn `` — New split scratch buffer
