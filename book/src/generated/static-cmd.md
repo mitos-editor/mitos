@@ -115,10 +115,10 @@
 | `show_change` | Show the current change against HEAD | normal: `` <space>i ``, `` <space>gi ``, select: `` <space>i ``, `` <space>gi `` |
 | `blame_line` | Show commit details for the current line | normal: `` <space>gb ``, select: `` <space>gb `` |
 | `toggle_inline_blame` | Toggle inline Git blame | normal: `` <space>B ``, `` <space>gt ``, select: `` <space>B ``, `` <space>gt `` |
-| `git_history` | Browse Git commits and their changed files in the current repository | normal: `` <space>gH ``, `` <space>gl ``, select: `` <space>gH ``, `` <space>gl `` |
-| `git_file_history` | Browse the current file history across renames | normal: `` <space>gf ``, `` <space>gh ``, select: `` <space>gf ``, `` <space>gh `` |
+| `git_history` | Browse Git commits and their changed files in the current repository | normal: `` <space>gl ``, select: `` <space>gl `` |
+| `git_file_history` | Browse the current file history across renames | normal: `` <space>gf ``, select: `` <space>gf `` |
 | `git_stash_picker` | Browse Git stashes in the current repository | normal: `` <space>gS ``, select: `` <space>gS `` |
-| `changed_file_picker` | Open changed file picker in workspace | normal: `` <space>gc ``, `` <space>gs ``, select: `` <space>gc ``, `` <space>gs `` |
+| `changed_file_picker` | Open changed file picker in workspace | normal: `` <space>gs ``, select: `` <space>gs `` |
 | `diff` | Review all changes in the current file in a read-only buffer | normal: `` <space>gd ``, select: `` <space>gd `` |
 | `diff_refresh` | Retry loading the current diff review buffer |  |
 | `diff_open_source` | Jump from a diff review to its source location | normal: `` <ret> ``, select: `` <ret> `` |

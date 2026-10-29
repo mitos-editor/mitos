@@ -249,10 +249,10 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
             "d" => diagnostics_picker,
             "D" => workspace_diagnostics_picker,
             "g" => { "Git"
-                "s" | "c" => changed_file_picker,
+                "s" => changed_file_picker,
                 "d" => diff,
-                "f" | "h" => git_file_history,
-                "l" | "H" => git_history,
+                "f" => git_file_history,
+                "l" => git_history,
                 "b" => blame_line,
                 "i" => show_change,
                 "t" => toggle_inline_blame,

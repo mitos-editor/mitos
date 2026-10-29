@@ -308,12 +308,9 @@
 | Key | Description | Command |
 | --- | --- | --- |
 | `` <space>gs `` | Open changed file picker in workspace | `` changed_file_picker `` |
-| `` <space>gc `` | Open changed file picker in workspace | `` changed_file_picker `` |
 | `` <space>gd `` | Review all changes in the current file in a read-only buffer | `` diff `` |
 | `` <space>gf `` | Browse the current file history across renames | `` git_file_history `` |
-| `` <space>gh `` | Browse the current file history across renames | `` git_file_history `` |
 | `` <space>gl `` | Browse Git commits and their changed files in the current repository | `` git_history `` |
-| `` <space>gH `` | Browse Git commits and their changed files in the current repository | `` git_history `` |
 | `` <space>gb `` | Show commit details for the current line | `` blame_line `` |
 | `` <space>gi `` | Show the current change against HEAD | `` show_change `` |
 | `` <space>gt `` | Toggle inline Git blame | `` toggle_inline_blame `` |

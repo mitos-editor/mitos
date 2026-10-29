@@ -392,7 +392,6 @@ async fn changed_file_pickers_include_staged_only_files() -> anyhow::Result<()> 
         .build()?;
     run_event_loop_until_idle(&mut app).await;
     for keys in [
-        "<space>gc",
         "<space>gs",
         ":vcs-changes<ret>",
         ":vcs-repository-changes<ret>",
@@ -592,7 +591,7 @@ async fn syntax_picker_reviews_toggle_comparisons_open_buffers_and_report_fallba
         .with_config(config)
         .with_file(&path, None)
         .build()?;
-    press_keys(&mut app, "<space>gcfile.json").await?;
+    press_keys(&mut app, "<space>gsfile.json").await?;
     wait_for_review_screen(&mut app, "syntax · Unstaged", "\"value\": 3").await?;
     press_keys(&mut app, "<A-d>").await?;
     wait_for_review_screen(&mut app, "syntax · Unstaged", "\"value\": 3").await?;
@@ -611,7 +610,7 @@ async fn syntax_picker_reviews_toggle_comparisons_open_buffers_and_report_fallba
     press_keys(&mut app, "<space>'<C-t><esc>").await?;
     assert_eq!(std::fs::read(repo.join(".git/index"))?, index);
     std::fs::write(&path, "{]\n")?;
-    press_keys(&mut app, "<space>gcfile.json").await?;
+    press_keys(&mut app, "<space>gsfile.json").await?;
     wait_for_review_screen(&mut app, "line · Unstaged", "parse errors").await?;
     assert!(review_screen(&app).contains("{]"));
     press_keys(&mut app, "<esc>").await?;
@@ -637,7 +636,7 @@ async fn changed_file_review_switches_layers_opens_deletions_and_preserves_the_i
     std::fs::write(&path, "working contents\n")?;
     let index = std::fs::read(repo.join(".git/index"))?;
     let mut app = AppBuilder::new().with_file(&path, None).build()?;
-    press_keys(&mut app, "Iunsaved-<esc><space>gcfile.txt").await?;
+    press_keys(&mut app, "Iunsaved-<esc><space>gsfile.txt").await?;
     wait_for_review_screen(&mut app, "Unsaved · index", "unsaved-working contents").await?;
     assert!(review_screen(&app).contains("A-p/A-n versions"));
     press_keys(&mut app, "<A-n>").await?;
@@ -666,7 +665,7 @@ async fn changed_file_review_switches_layers_opens_deletions_and_preserves_the_i
     // Opening a deleted row creates a pathless review and never recreates the file.
     press_keys(&mut app, "u").await?;
     std::fs::remove_file(&path)?;
-    press_keys(&mut app, "<space>gcfile.txt").await?;
+    press_keys(&mut app, "<space>gsfile.txt").await?;
     wait_for_review_screen(&mut app, "Unstaged · index", "staged contents").await?;
     let documents = app.editor.documents().count();
     press_keys(&mut app, "<ret>").await?;
@@ -755,7 +754,7 @@ async fn review_refreshes_after_external_staging_and_edits_without_polling() -> 
         .with_config(config)
         .with_file(&path, None)
         .build()?;
-    press_keys(&mut app, "<space>gcwatched.txt").await?;
+    press_keys(&mut app, "<space>gswatched.txt").await?;
     wait_for_review_screen(&mut app, "Unstaged · index", "first edit").await?;
     git(&repo, &["add", "watched.txt"]);
     wait_for_review_screen(&mut app, "Staged · HEAD", "first edit").await?;

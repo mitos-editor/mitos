@@ -13,8 +13,7 @@ Press `Space g` to choose a Git action.
 | `Space g t`, `:vcs-toggle-inline-blame` | Show or hide inline blame |
 | `Space g S`, `:vcs-stashes` | Browse stashes |
 
-`s` means status, `S` stashes, `f` file history, and `l` log. `Space g c`,
-`Space g h`, and `Space g H` are aliases for status, file history, and log.
+`s` means status, `S` stashes, `f` file history, and `l` log.
 
 Find other Git commands by searching for `vcs-` in the command palette (`Space ?`).
 
@@ -22,7 +21,7 @@ Existing commands such as `:diff`, `:file-history`, and `:git-history` still wor
 `Space i` also inspects a change, and `Space B` toggles inline blame.
 
 Previously, `Space g` opened changed files directly; that action is now
-`Space g s` (or `Space g c`). To open changed files directly again, replace the
+`Space g s`. To open changed files directly again, replace the
 Git menu with this binding in `config.toml`:
 
 ```toml
