@@ -71,6 +71,10 @@ the splits equally sized without changing the sidebar.
 The sidebar only changes width. You can resize it while it is focused or from
 the buffer beside it.
 
+Set [`editor.splits.strategy = "balanced"`](./configuration.md#editorsplits) to
+keep pane widths or heights balanced when closing or rearranging splits.
+Use `:set splits.strategy balanced` to rebalance existing panes immediately.
+
 ## Save and close
 
 | Command | Action |
