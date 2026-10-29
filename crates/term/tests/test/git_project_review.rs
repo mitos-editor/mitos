@@ -121,7 +121,8 @@ fn row(app: &Application, file: &str, kind: ReviewLineKind, text: &str) -> usize
             .snapshot
             .as_ref()
             .unwrap()
-            .review
+            .diff()
+            .unwrap()
             .lines
             .iter()
             .position(|row| row.kind == kind && row.text.contains(text))
@@ -167,8 +168,20 @@ async fn project_review_separates_layers_refreshes_and_opens_file_reviews() -> a
         current_ref!(app.editor).1.text().to_string(),
         "buffer-disk\n"
     );
+    let source = current_ref!(app.editor).1.id();
     keys(&mut app, ":vcs-project-diff<ret>").await?;
     ready(&mut app).await?;
+    assert_eq!(
+        current_ref!(app.editor)
+            .1
+            .project_review()
+            .unwrap()
+            .sections
+            .iter()
+            .find(|section| section.status.path().ends_with("a.txt"))
+            .and_then(|section| section.source_document()),
+        Some(source)
+    );
     let id = current_ref!(app.editor).1.id();
     let text = current_ref!(app.editor).1.text().to_string();
     assert!(text.contains("-staged"), "{text}");

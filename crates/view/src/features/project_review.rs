@@ -79,21 +79,23 @@ impl ProjectReviewDocument {
         self.sections
             .iter()
             .flat_map(|section| {
-                section.snapshot.iter().flat_map(move |snapshot| {
-                    let ReviewContent::Diff(review) = &snapshot.content else {
-                        return Vec::new().into_iter();
-                    };
-                    review
-                        .lines
-                        .iter()
-                        .enumerate()
-                        .filter_map(move |(row, line)| {
-                            (line.kind == ReviewLineKind::Header)
-                                .then_some(section.start_line + 1 + row)
-                        })
-                        .collect::<Vec<_>>()
-                        .into_iter()
-                })
+                section
+                    .snapshot
+                    .iter()
+                    .filter_map(|snapshot| match &snapshot.content {
+                        ReviewContent::Diff(review) => Some(review),
+                        ReviewContent::Conflict(_) => None,
+                    })
+                    .flat_map(move |review| {
+                        review
+                            .lines
+                            .iter()
+                            .enumerate()
+                            .filter_map(move |(row, line)| {
+                                (line.kind == ReviewLineKind::Header)
+                                    .then_some(section.start_line + 1 + row)
+                            })
+                    })
             })
             .collect()
     }
@@ -220,7 +222,8 @@ impl Editor {
                             }
                             _ => path,
                         };
-                        (id, path)
+                        // Keep the editor spelling, including simplified Windows prefixes.
+                        (id, stdx::path::normalize(path))
                     })
                     .collect::<Vec<_>>();
                 (
@@ -277,6 +280,7 @@ impl Editor {
                     editor.finish_project_review(id, &cancel, "Workspace trust changed while loading; use :vcs-project-refresh to retry.\n".into(), Vec::new(), false);
                     return;
                 }
+                let root = stdx::path::normalize(root);
                 if comparison == ReviewComparison::Buffer {
                     for (id, path) in &aliases {
                         if path.starts_with(&root) && editor.document(*id).is_some_and(|doc| doc.is_modified())
