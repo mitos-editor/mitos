@@ -1,5 +1,5 @@
 //! Formatter execution and provider selection for explicit formatting and saves.
-use std::{fmt::Display, path::Path};
+use std::fmt::Display;
 
 use command_line::Token;
 use editor_core::{indent::IndentStyle, Rope, Transaction};
@@ -84,11 +84,9 @@ impl Document {
 
             let mut process = tokio::process::Command::new(&fmt_cmd);
 
-            let directory = self
-                .path()
-                .and_then(|path| path.parent())
-                .map(Path::to_path_buf)
-                .unwrap_or_else(stdx::env::current_working_dir);
+            // Keep project-relative formatter arguments and shell expansions in the
+            // same workspace. Documents without a workspace use their parent directory.
+            let directory = self.workspace_root().to_path_buf();
             process.current_dir(&directory);
 
             let expansion = expansion::Context::capture_document(
