@@ -1,4 +1,5 @@
 use super::Fixture;
+use editor_config::SplitStrategy;
 use editor_core::{
     movement::{Direction, Movement},
     Selection,
@@ -11,6 +12,51 @@ use view::{
     events::{DocumentFocusLost, SelectionDidChange},
     view::ViewPosition,
 };
+
+#[tokio::test(flavor = "multi_thread")]
+async fn split_strategy_applies_at_startup_and_when_configuration_changes() -> anyhow::Result<()> {
+    for strategy in [SplitStrategy::EqualSiblings, SplitStrategy::Balanced] {
+        let mut f = Fixture::with_config(
+            "some text\n",
+            "language = []",
+            loader::syntax::Resources::default(),
+            |config| config.splits.strategy = strategy,
+        )?;
+        let (first, doc) = current_ref!(f.editor);
+        let (first, doc) = (first.id, doc.id());
+        f.editor.switch(doc, Action::VerticalSplit);
+        let second = f.editor.tree.focus();
+        f.editor.switch(doc, Action::HorizontalSplit);
+        let removed = f.editor.tree.focus();
+        f.editor.focus(second);
+        f.editor.switch(doc, Action::VerticalSplit);
+        let third = f.editor.tree.focus();
+        f.editor.close(removed);
+        let original = [first, second, third].map(|id| f.editor.tree.get(id).area);
+        assert_eq!(
+            original[0].width == original[1].width,
+            strategy == SplitStrategy::Balanced
+        );
+        let selection = Selection::single(4, 5);
+        f.editor
+            .document_mut(doc)
+            .unwrap()
+            .set_selection(third, selection.clone());
+
+        f.configure(|config| config.splits.strategy = SplitStrategy::Balanced);
+        assert_eq!(f.editor.tree.focus(), third);
+        assert_eq!(f.editor.document(doc).unwrap().selection(third), &selection);
+        let widths = [first, second, third].map(|id| f.editor.tree.get(id).area.width);
+        assert_eq!(widths, [26, 26, 26]);
+
+        f.configure(|config| config.splits.strategy = strategy);
+        assert_eq!(
+            [first, second, third].map(|id| f.editor.tree.get(id).area),
+            original
+        );
+    }
+    Ok(())
+}
 
 #[tokio::test(flavor = "multi_thread")]
 async fn same_document_splits_publish_the_copied_selection_and_viewport() -> anyhow::Result<()> {

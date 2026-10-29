@@ -1,5 +1,6 @@
 //! Editor split layout adapter. Structural changes remain owned by `Editor`.
 use crate::{graphics::Rect, View, ViewId};
+use pane_layout::SplitStrategy;
 pub use pane_layout::{Direction, Layout};
 pub type Traverse<'a> = pane_layout::Traverse<'a, ViewId, View>;
 
@@ -23,10 +24,10 @@ pub struct Tree {
     layout: pane_layout::Tree<ViewId, View>,
 }
 impl Tree {
-    pub(crate) fn new(area: Rect) -> Self {
-        Self {
-            layout: pane_layout::Tree::new(area),
-        }
+    pub(crate) fn new(area: Rect, strategy: SplitStrategy) -> Self {
+        let mut layout = pane_layout::Tree::new(area);
+        layout.set_split_strategy(strategy);
+        Self { layout }
     }
     pub fn focus(&self) -> ViewId {
         self.layout.focus()
@@ -69,6 +70,9 @@ impl Tree {
     }
     pub fn recalculate(&mut self) {
         self.layout.recalculate();
+    }
+    pub(crate) fn set_split_strategy(&mut self, strategy: SplitStrategy) {
+        self.layout.set_split_strategy(strategy);
     }
     pub fn traverse(&self) -> Traverse<'_> {
         self.layout.traverse()

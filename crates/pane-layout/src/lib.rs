@@ -1,7 +1,8 @@
 //! Stable pane identities, split topology, and rectangle allocation.
 //! Applications own document bindings and other lifecycle effects around structural changes.
 
-use slotmap::{Key, SlotMap};
+use serde::{Deserialize, Serialize};
+use slotmap::{Key, SecondaryMap, SlotMap};
 use ui_core::graphics::Rect;
 
 /// A caller-owned pane value. The layout assigns its stable key and geometry.
@@ -18,6 +19,7 @@ pub struct Tree<K: Key, P: Pane<K>> {
     root: K,
     focus: K,
     area: Rect,
+    split_strategy: SplitStrategy,
 
     nodes: SlotMap<K, Node<K, P>>,
 
@@ -58,6 +60,18 @@ pub enum Layout {
     Horizontal,
     Vertical,
     // could explore stacked/tabbed
+}
+
+/// How space is distributed among panes and nested split groups.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum SplitStrategy {
+    /// Give each direct child of a split group an equal share.
+    #[default]
+    EqualSiblings,
+    /// Equalize widths/heights through nested groups with the same direction.
+    /// A perpendicular group counts as a single pane in its parent.
+    Balanced,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -105,6 +119,7 @@ impl<K: Key, P: Pane<K>> Tree<K, P> {
             root,
             focus: root,
             area,
+            split_strategy: SplitStrategy::default(),
             nodes,
             stack: Vec::new(),
         }
@@ -372,6 +387,42 @@ impl<K: Key, P: Pane<K>> Tree<K, P> {
         false
     }
 
+    /// Apply a sizing strategy immediately, preserving topology and focus.
+    pub fn set_split_strategy(&mut self, strategy: SplitStrategy) {
+        if self.split_strategy != strategy {
+            self.split_strategy = strategy;
+            self.recalculate();
+        }
+    }
+
+    /// Weights along [horizontal, vertical] split directions. Perpendicular
+    /// groups contribute one unit, regardless of how many panes they contain.
+    fn split_weights(&self) -> SecondaryMap<K, [usize; 2]> {
+        let mut order = vec![self.root];
+        let mut index = 0;
+        while index < order.len() {
+            if let Content::Container(container) = &self.nodes[order[index]].content {
+                order.extend(&container.children);
+            }
+            index += 1;
+        }
+
+        let mut weights: SecondaryMap<K, [usize; 2]> = SecondaryMap::new();
+        for key in order.into_iter().rev() {
+            let mut weight = [1, 1];
+            if let Content::Container(container) = &self.nodes[key].content {
+                let axis = usize::from(container.layout == Layout::Vertical);
+                weight[axis] = container
+                    .children
+                    .iter()
+                    .map(|&child| weights[child][axis])
+                    .sum();
+            }
+            weights.insert(key, weight);
+        }
+        weights
+    }
+
     pub fn recalculate(&mut self) {
         if self.is_empty() {
             // There are no more panes, so the tree should focus itself again.
@@ -380,6 +431,8 @@ impl<K: Key, P: Pane<K>> Tree<K, P> {
             return;
         }
 
+        let weights =
+            (self.split_strategy == SplitStrategy::Balanced).then(|| self.split_weights());
         self.stack.push((self.root, self.area));
 
         // take the area
@@ -396,6 +449,42 @@ impl<K: Key, P: Pane<K>> Tree<K, P> {
                 }
                 Content::Container(container) => {
                     container.area = area;
+
+                    if let Some(weights) = &weights {
+                        let vertical = container.layout == Layout::Vertical;
+                        let axis = usize::from(vertical);
+                        let gap = usize::from(vertical);
+                        let length = usize::from(if vertical { area.width } else { area.height });
+                        let total = weights[key][axis];
+                        // Reserve separators throughout a same-direction group,
+                        // including those inside nested children.
+                        let available = length.saturating_sub(gap * (total - 1));
+                        let mut used = 0;
+                        let mut offset = 0;
+                        for &child in &container.children {
+                            used += weights[child][axis];
+                            let end = (available * used / total + gap * (used - 1)).min(length);
+                            let size = (end - offset) as u16;
+                            let child_area = if vertical {
+                                Rect::new(
+                                    area.x.saturating_add(offset as u16),
+                                    area.y,
+                                    size,
+                                    area.height,
+                                )
+                            } else {
+                                Rect::new(
+                                    area.x,
+                                    area.y.saturating_add(offset as u16),
+                                    area.width,
+                                    size,
+                                )
+                            };
+                            self.stack.push((child, child_area));
+                            offset = (end + gap).min(length);
+                        }
+                        continue;
+                    }
 
                     match container.layout {
                         Layout::Horizontal => {
@@ -1055,27 +1144,165 @@ mod invariants {
     }
 
     #[test]
-    fn nested_panes_remain_bounded_in_tiny_viewports() {
-        for width in 0..5 {
-            for height in 0..5 {
-                let area = Rect::new(10, 20, width, height);
-                let mut tree = Tree::new(area);
-                tree.insert(Value::new());
-                for index in 0..12 {
-                    tree.split(
-                        Value::new(),
-                        if index % 2 == 0 {
-                            Layout::Vertical
-                        } else {
-                            Layout::Horizontal
-                        },
-                    );
+    fn balanced_splits_equalize_nested_groups_after_removal() {
+        for layout in [Layout::Horizontal, Layout::Vertical] {
+            let mut tree = Tree::new(Rect::new(7, 9, 182, 90));
+            let first = tree.insert(Value::new());
+            let second = tree.split(Value::new(), layout);
+            let opposite = match layout {
+                Layout::Horizontal => Layout::Vertical,
+                Layout::Vertical => Layout::Horizontal,
+            };
+            let removed = tree.split(Value::new(), opposite);
+            tree.set_focus(second);
+            let third = tree.split(Value::new(), layout);
+            tree.remove(removed);
+
+            // Closing the perpendicular sibling leaves [first, [second, third]].
+            let original: Vec<_> = tree.traverse().map(|(_, pane)| pane.area).collect();
+            tree.set_split_strategy(SplitStrategy::Balanced);
+            assert_eq!(tree.focus(), third);
+            assert_eq!(
+                tree.traverse().map(|(id, _)| id).collect::<Vec<_>>(),
+                [first, second, third]
+            );
+            for (index, id) in [first, second, third].into_iter().enumerate() {
+                let expected = match layout {
+                    Layout::Horizontal => Rect::new(7, 9 + index as u16 * 30, 182, 30),
+                    Layout::Vertical => Rect::new(7 + index as u16 * 61, 9, 60, 90),
+                };
+                assert_eq!(tree.get(id).area, expected);
+            }
+            let direction = match layout {
+                Layout::Horizontal => Direction::Up,
+                Layout::Vertical => Direction::Left,
+            };
+            assert_eq!(tree.find_split_in_direction(third, direction), Some(second));
+            assert_eq!(tree.find_split_in_direction(second, direction), Some(first));
+
+            tree.set_split_strategy(SplitStrategy::EqualSiblings);
+            assert_eq!(
+                tree.traverse()
+                    .map(|(_, pane)| pane.area)
+                    .collect::<Vec<_>>(),
+                original
+            );
+        }
+    }
+
+    #[test]
+    fn balanced_splits_keep_perpendicular_groups_equal_and_follow_layout_changes() {
+        let mut tree = Tree::new(Rect::new(7, 9, 181, 90));
+        tree.set_split_strategy(SplitStrategy::Balanced);
+        let left = tree.insert(Value::new());
+        let top_right = tree.split(Value::new(), Layout::Vertical);
+        let bottom_right = tree.split(Value::new(), Layout::Horizontal);
+        assert_eq!(tree.get(left).area, Rect::new(7, 9, 90, 90));
+        assert_eq!(tree.get(top_right).area, Rect::new(98, 9, 90, 45));
+        assert_eq!(tree.get(bottom_right).area, Rect::new(98, 54, 90, 45));
+
+        tree.resize(Rect::new(7, 9, 241, 120));
+        assert_eq!(tree.get(left).area, Rect::new(7, 9, 120, 120));
+        assert_eq!(tree.get(top_right).area, Rect::new(128, 9, 120, 60));
+        assert_eq!(tree.get(bottom_right).area, Rect::new(128, 69, 120, 60));
+
+        tree.transpose();
+        // Transposing the focused group puts all three panes along one axis.
+        assert_eq!(tree.get(left).area, Rect::new(7, 9, 79, 120));
+        assert_eq!(tree.get(top_right).area, Rect::new(87, 9, 80, 120));
+        assert_eq!(tree.get(bottom_right).area, Rect::new(168, 9, 80, 120));
+
+        tree.remove(bottom_right);
+        tree.remove(top_right);
+        assert_eq!(tree.get(left).area, tree.area());
+        tree.remove(left);
+        assert!(tree.is_empty());
+        let new = tree.split(Value::new(), Layout::Vertical);
+        assert_eq!(tree.get(new).area, tree.area());
+    }
+
+    #[test]
+    fn balanced_splits_fill_odd_and_tiny_viewports_without_overlap() {
+        for layout in [Layout::Horizontal, Layout::Vertical] {
+            for nested in [false, true] {
+                for width in 0..15 {
+                    for height in 0..15 {
+                        let area = Rect::new(7, 9, width, height);
+                        let mut tree = Tree::new(area);
+                        tree.set_split_strategy(SplitStrategy::Balanced);
+                        tree.insert(Value::new());
+                        for _ in 0..6 {
+                            if nested {
+                                let focus = tree.focus();
+                                let opposite = match layout {
+                                    Layout::Horizontal => Layout::Vertical,
+                                    Layout::Vertical => Layout::Horizontal,
+                                };
+                                let temporary = tree.split(Value::new(), opposite);
+                                tree.set_focus(focus);
+                                tree.split(Value::new(), layout);
+                                tree.remove(temporary);
+                            } else {
+                                tree.split(Value::new(), layout);
+                            }
+                        }
+                        let mut edge = match layout {
+                            Layout::Horizontal => area.top(),
+                            Layout::Vertical => area.left(),
+                        };
+                        let mut sizes = Vec::new();
+                        for (_, pane) in tree.traverse() {
+                            assert!(pane.area.left() >= area.left());
+                            assert!(pane.area.top() >= area.top());
+                            assert!(pane.area.right() <= area.right());
+                            assert!(pane.area.bottom() <= area.bottom());
+                            let (start, end) = match layout {
+                                Layout::Horizontal => (pane.area.top(), pane.area.bottom()),
+                                Layout::Vertical => (pane.area.left(), pane.area.right()),
+                            };
+                            assert!(start >= edge);
+                            sizes.push(end - start);
+                            edge = end;
+                        }
+                        assert!(sizes.iter().max().unwrap() - sizes.iter().min().unwrap() <= 1);
+                        assert_eq!(
+                            edge,
+                            match layout {
+                                Layout::Horizontal => area.bottom(),
+                                Layout::Vertical => area.right(),
+                            }
+                        );
+                    }
                 }
-                for (value, _) in tree.panes() {
-                    assert!(value.area.left() >= area.left());
-                    assert!(value.area.top() >= area.top());
-                    assert!(value.area.right() <= area.right());
-                    assert!(value.area.bottom() <= area.bottom());
+            }
+        }
+    }
+
+    #[test]
+    fn nested_panes_remain_bounded_in_tiny_viewports() {
+        for strategy in [SplitStrategy::EqualSiblings, SplitStrategy::Balanced] {
+            for width in 0..5 {
+                for height in 0..5 {
+                    let area = Rect::new(10, 20, width, height);
+                    let mut tree = Tree::new(area);
+                    tree.set_split_strategy(strategy);
+                    tree.insert(Value::new());
+                    for index in 0..12 {
+                        tree.split(
+                            Value::new(),
+                            if index % 2 == 0 {
+                                Layout::Vertical
+                            } else {
+                                Layout::Horizontal
+                            },
+                        );
+                    }
+                    for (value, _) in tree.panes() {
+                        assert!(value.area.left() >= area.left());
+                        assert!(value.area.top() >= area.top());
+                        assert!(value.area.right() <= area.right());
+                        assert!(value.area.bottom() <= area.bottom());
+                    }
                 }
             }
         }

@@ -11,6 +11,7 @@ use ::diagnostics::Severity;
 use editor_core::{LineEnding, NATIVE_LINE_ENDING};
 pub use language_config::DiffEngine;
 use language_config::{AutoPairConfig, IndentationHeuristic, SoftWrap, SpellingConfig};
+pub use pane_layout::SplitStrategy;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use workspace::trust::ImplicitTrustLevel;
 
@@ -341,6 +342,12 @@ pub enum BorderStyle {
     QuadrantOutside,
 }
 
+#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case", default, deny_unknown_fields)]
+pub struct SplitsConfig {
+    pub strategy: SplitStrategy,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case", default, deny_unknown_fields)]
 pub struct Config {
@@ -374,6 +381,7 @@ pub struct Config {
     pub icons: bool,
     pub border_style: BorderStyle,
     pub picker: PickerConfig,
+    pub splits: SplitsConfig,
     pub file_picker: FilePickerConfig,
     pub file_explorer: FileExplorerConfig,
     /// Configuration of the statusline elements
@@ -1219,6 +1227,7 @@ impl Default for Config {
             icons: false,
             border_style: BorderStyle::default(),
             picker: PickerConfig::default(),
+            splits: SplitsConfig::default(),
             file_picker: FilePickerConfig::default(),
             file_explorer: FileExplorerConfig::default(),
             statusline: StatusLineConfig::default(),
@@ -1664,6 +1673,32 @@ mod tests {
             "style = 1",
         ] {
             assert!(toml::from_str::<RulersConfig>(source).is_err(), "{source}");
+        }
+    }
+
+    #[test]
+    fn split_strategies_preserve_defaults_and_round_trip() {
+        for source in ["", "[splits]"] {
+            assert_eq!(
+                toml::from_str::<Config>(source).unwrap().splits.strategy,
+                SplitStrategy::EqualSiblings
+            );
+        }
+        for (name, expected) in [
+            ("equal-siblings", SplitStrategy::EqualSiblings),
+            ("balanced", SplitStrategy::Balanced),
+        ] {
+            let config: Config = toml::from_str(&format!("[splits]\nstrategy = '{name}'")).unwrap();
+            assert_eq!(config.splits.strategy, expected);
+            let serialized = toml::Value::try_from(&config).unwrap();
+            assert_eq!(serialized["splits"]["strategy"].as_str(), Some(name));
+        }
+        for source in [
+            "strategy = 'halves'",
+            "strategy = true",
+            "stratgey = 'balanced'",
+        ] {
+            assert!(toml::from_str::<Config>(&format!("[splits]\n{source}")).is_err());
         }
     }
 

@@ -236,7 +236,7 @@ impl Editor {
 
         Self {
             mode: Mode::Normal,
-            tree: Tree::new(area),
+            tree: Tree::new(area, conf.splits.strategy),
             documents: Documents::new(),
             writes: WriteQueue::default(),
             file_operation: event::TaskController::default(),
