@@ -446,3 +446,32 @@ async fn resize_mode_grows_shrinks_and_equalizes_splits_in_both_window_prefixes(
     helpers::assert_status_not_error(&app.editor);
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn minimum_split_sizes_survive_terminal_resizes_and_new_splits() -> anyhow::Result<()> {
+    use view::editor::Action;
+    use view::tree::Tree;
+
+    for (action, key) in [(Action::VerticalSplit, "l"), (Action::HorizontalSplit, "k")] {
+        let mut app = AppBuilder::new().build()?;
+        app.editor.new_file(action);
+        keys(&mut app, &format!("<C-w>r1000{key}<esc>")).await?;
+
+        let area = app.editor.tree.area();
+        app.editor.resize(view::graphics::Rect {
+            width: 41,
+            height: 9,
+            ..area
+        });
+        for add_split in [false, true] {
+            if add_split {
+                app.editor.new_file(action);
+            }
+            assert!(app.editor.tree.views().all(|(pane, _)| {
+                pane.area.width >= Tree::MIN_PANE_WIDTH && pane.area.height >= Tree::MIN_PANE_HEIGHT
+            }));
+            helpers::assert_status_not_error(&app.editor);
+        }
+    }
+    Ok(())
+}

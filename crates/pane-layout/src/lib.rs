@@ -18,6 +18,8 @@ pub struct Tree<K: Key, P: Pane<K>> {
     root: K,
     focus: K,
     area: Rect,
+    min_pane_width: u16,
+    min_pane_height: u16,
 
     nodes: SlotMap<K, Node<K, P>>,
 
@@ -136,7 +138,7 @@ impl<K: Key> Container<K> {
     }
 
     /// Each child's share of `used` cells. The last child takes what rounding leaves.
-    fn shares(&self, used: usize) -> Vec<usize> {
+    fn shares(&self, used: usize, minimums: &[usize]) -> Vec<usize> {
         let total: u64 = self.weights.iter().map(|&w| u64::from(w)).sum();
         let mut shares: Vec<usize> = self
             .weights
@@ -146,7 +148,45 @@ impl<K: Key> Container<K> {
         if let Some((last, rest)) = shares.split_last_mut() {
             *last = used.saturating_sub(rest.iter().sum());
         }
-        shares
+        // An undersized terminal cannot satisfy every minimum. Keep the weighted
+        // layout bounded and let it recover when space becomes available again.
+        if minimums.iter().sum::<usize>() > used {
+            return shares;
+        }
+
+        let mut fixed = vec![false; shares.len()];
+        let mut remaining = used;
+        let mut remaining_weight = total;
+        loop {
+            let mut changed = false;
+            for (i, &minimum) in minimums.iter().enumerate() {
+                if !fixed[i] && shares[i] < minimum {
+                    shares[i] = minimum;
+                    fixed[i] = true;
+                    remaining -= minimum;
+                    remaining_weight -= u64::from(self.weights[i]);
+                    changed = true;
+                }
+            }
+            if !changed {
+                return shares;
+            }
+
+            // Pin children at their minimum and divide the rest proportionally.
+            let mut allocated = 0;
+            let mut last = None;
+            for (i, &weight) in self.weights.iter().enumerate() {
+                if !fixed[i] {
+                    shares[i] =
+                        (remaining as u64 * u64::from(weight) / remaining_weight.max(1)) as usize;
+                    allocated += shares[i];
+                    last = Some(i);
+                }
+            }
+            if let Some(last) = last {
+                shares[last] += remaining - allocated;
+            }
+        }
     }
 }
 
@@ -158,6 +198,12 @@ impl<K: Key> Default for Container<K> {
 
 impl<K: Key, P: Pane<K>> Tree<K, P> {
     pub fn new(area: Rect) -> Self {
+        Self::with_minimum_size(area, 0, 0)
+    }
+
+    /// Keep each pane at least this size whenever the available area permits it.
+    /// Weights are retained while constrained, so a larger area restores proportions.
+    pub fn with_minimum_size(area: Rect, min_pane_width: u16, min_pane_height: u16) -> Self {
         let root = Node::container(Layout::Vertical);
 
         let mut nodes = SlotMap::with_key();
@@ -170,6 +216,8 @@ impl<K: Key, P: Pane<K>> Tree<K, P> {
             root,
             focus: root,
             area,
+            min_pane_width,
+            min_pane_height,
             nodes,
             stack: Vec::new(),
         }
@@ -453,6 +501,10 @@ impl<K: Key, P: Pane<K>> Tree<K, P> {
         // b) node is container, calculate areas for each child and push them on the stack
 
         while let Some((key, area)) = self.stack.pop() {
+            let minimums = match &self.nodes[key].content {
+                Content::Container(container) => self.minimum_shares(container),
+                Content::Pane(_) => Vec::new(),
+            };
             let node = &mut self.nodes[key];
 
             match &mut node.content {
@@ -461,7 +513,7 @@ impl<K: Key, P: Pane<K>> Tree<K, P> {
                 }
                 Content::Container(container) => {
                     container.area = area;
-                    let shares = container.shares(container.used_extent());
+                    let shares = container.shares(container.used_extent(), &minimums);
 
                     match container.layout {
                         Layout::Horizontal => {
@@ -682,29 +734,19 @@ impl<K: Key, P: Pane<K>> Tree<K, P> {
     /// The nearest enclosing split that divides `dimension` changes: the pane (or the
     /// container holding it) takes cells from the following siblings first, nearest first,
     /// then from the preceding ones. Shrinking gives the cells to the next sibling, or to
-    /// the previous one for the last child. No pane drops below `min` cells. Returns
-    /// whether any size changed.
-    pub fn resize_focus(&mut self, dimension: Dimension, delta: isize, min: u16) -> bool {
+    /// the previous one for the last child. Respects the tree's minimum pane size.
+    /// Returns whether any size changed.
+    pub fn resize_focus(&mut self, dimension: Dimension, delta: isize) -> bool {
         if delta == 0 {
             return false;
         }
         let Some((parent, idx)) = self.enclosing_split(self.focus, dimension.layout()) else {
             return false;
         };
-        let (children, used) = {
-            let container = self.container_ref(parent);
-            (container.children.clone(), container.used_extent())
-        };
-        let len = children.len();
-        let mut shares = self.container_ref(parent).shares(used);
-        let mut mins: Vec<usize> = children
-            .iter()
-            .map(|&child| usize::from(self.min_extent(child, dimension, min)))
-            .collect();
-        if dimension == Dimension::Width {
-            // The last column gives one cell of its share to the gap before it.
-            mins[len - 1] += 1;
-        }
+        let container = self.container_ref(parent);
+        let len = container.children.len();
+        let mins = self.minimum_shares(container);
+        let mut shares = container.shares(container.used_extent(), &mins);
 
         let amount = delta.unsigned_abs();
         if delta > 0 {
@@ -769,15 +811,35 @@ impl<K: Key, P: Pane<K>> Tree<K, P> {
         }
     }
 
-    /// The fewest cells `id` can occupy along `dimension` with each pane at least `min`.
-    fn min_extent(&self, id: K, dimension: Dimension, min: u16) -> u16 {
+    /// Each child's minimum share, including the last column's leading gap.
+    fn minimum_shares(&self, container: &Container<K>) -> Vec<usize> {
+        let dimension = match container.layout {
+            Layout::Vertical => Dimension::Width,
+            Layout::Horizontal => Dimension::Height,
+        };
+        let mut minimums: Vec<_> = container
+            .children
+            .iter()
+            .map(|&child| usize::from(self.min_extent(child, dimension)))
+            .collect();
+        if dimension == Dimension::Width && minimums.len() > 1 {
+            *minimums.last_mut().unwrap() += 1;
+        }
+        minimums
+    }
+
+    /// The fewest cells `id` can occupy along `dimension` at the minimum pane size.
+    fn min_extent(&self, id: K, dimension: Dimension) -> u16 {
         match &self.nodes[id].content {
-            Content::Pane(_) => min,
+            Content::Pane(_) => match dimension {
+                Dimension::Width => self.min_pane_width,
+                Dimension::Height => self.min_pane_height,
+            },
             Content::Container(container) => {
                 let mins = container
                     .children
                     .iter()
-                    .map(|&child| self.min_extent(child, dimension, min));
+                    .map(|&child| self.min_extent(child, dimension));
                 if container.layout == dimension.layout() {
                     let gaps = match dimension {
                         Dimension::Width => container.children.len().saturating_sub(1) as u16,
@@ -785,7 +847,7 @@ impl<K: Key, P: Pane<K>> Tree<K, P> {
                     };
                     mins.fold(gaps, u16::saturating_add)
                 } else {
-                    mins.max().unwrap_or(min)
+                    mins.max().unwrap_or(0)
                 }
             }
         }
@@ -1212,8 +1274,8 @@ mod test {
         tree.traverse().map(|(_, pane)| pane.area.height).collect()
     }
 
-    fn columns(width: u16, count: usize) -> (Tree, Vec<PaneId>) {
-        let mut tree = Tree::new(Rect::new(0, 0, width, 24));
+    fn columns(width: u16, count: usize, minimum: u16) -> (Tree, Vec<PaneId>) {
+        let mut tree = Tree::with_minimum_size(Rect::new(0, 0, width, 24), minimum, 2);
         let mut ids = vec![tree.insert(TestPane::new(ContentId::default()))];
         for _ in 1..count {
             ids.push(tree.split(TestPane::new(ContentId::default()), Layout::Vertical));
@@ -1224,48 +1286,48 @@ mod test {
     #[test]
     fn grow_takes_from_the_next_column_then_the_previous_ones() {
         // | 26 | 26 | 26 | with two gaps on 80 columns.
-        let (mut tree, ids) = columns(80, 3);
+        let (mut tree, ids) = columns(80, 3, 5);
         assert_eq!(widths(&tree), [26, 26, 26]);
 
         tree.focus = ids[1];
-        assert!(tree.resize_focus(Dimension::Width, 4, 5));
+        assert!(tree.resize_focus(Dimension::Width, 4));
         assert_eq!(widths(&tree), [26, 30, 22]);
 
         // The next column stops at the minimum, the rest comes from the previous one.
-        assert!(tree.resize_focus(Dimension::Width, 20, 5));
+        assert!(tree.resize_focus(Dimension::Width, 20));
         assert_eq!(widths(&tree), [23, 50, 5]);
 
         // Every neighbour is at the minimum, so nothing changes.
-        assert!(tree.resize_focus(Dimension::Width, 30, 5));
+        assert!(tree.resize_focus(Dimension::Width, 30));
         assert_eq!(widths(&tree), [5, 68, 5]);
-        assert!(!tree.resize_focus(Dimension::Width, 1, 5));
+        assert!(!tree.resize_focus(Dimension::Width, 1));
         assert_eq!(widths(&tree), [5, 68, 5]);
     }
 
     #[test]
     fn shrink_gives_to_the_next_column_or_the_previous_one_for_the_last() {
-        let (mut tree, ids) = columns(80, 3);
+        let (mut tree, ids) = columns(80, 3, 5);
 
         tree.focus = ids[0];
-        assert!(tree.resize_focus(Dimension::Width, -6, 5));
+        assert!(tree.resize_focus(Dimension::Width, -6));
         assert_eq!(widths(&tree), [20, 32, 26]);
 
         tree.focus = ids[2];
-        assert!(tree.resize_focus(Dimension::Width, -6, 5));
+        assert!(tree.resize_focus(Dimension::Width, -6));
         assert_eq!(widths(&tree), [20, 38, 20]);
 
-        assert!(tree.resize_focus(Dimension::Width, -100, 5));
+        assert!(tree.resize_focus(Dimension::Width, -100));
         assert_eq!(widths(&tree), [20, 53, 5]);
-        assert!(!tree.resize_focus(Dimension::Width, -1, 5));
+        assert!(!tree.resize_focus(Dimension::Width, -1));
     }
 
     #[test]
     fn resizing_keeps_panes_inside_the_container() {
-        let (mut tree, ids) = columns(80, 4);
+        let (mut tree, ids) = columns(80, 4, 3);
         for (step, &id) in ids.iter().cycle().take(40).enumerate() {
             tree.focus = id;
             let delta = if step % 3 == 0 { -7 } else { 9 };
-            tree.resize_focus(Dimension::Width, delta, 3);
+            tree.resize_focus(Dimension::Width, delta);
             let panes: Vec<_> = tree.traverse().map(|(_, pane)| pane.area).collect();
             for pair in panes.windows(2) {
                 assert_eq!(
@@ -1284,7 +1346,7 @@ mod test {
     fn height_resizes_the_enclosing_row_split() {
         // | L0 | R0 |
         // | L1 |    |
-        let mut tree = Tree::new(Rect::new(0, 0, 80, 24));
+        let mut tree = Tree::with_minimum_size(Rect::new(0, 0, 80, 24), 5, 2);
         let l0 = tree.insert(TestPane::new(ContentId::default()));
         let r0 = tree.split(TestPane::new(ContentId::default()), Layout::Vertical);
         tree.focus = l0;
@@ -1292,24 +1354,24 @@ mod test {
         assert_eq!(heights(&tree), [12, 12, 24]);
 
         tree.focus = l1;
-        assert!(tree.resize_focus(Dimension::Height, 5, 2));
+        assert!(tree.resize_focus(Dimension::Height, 5));
         assert_eq!(heights(&tree), [7, 17, 24]);
 
         // R0 has no row split around it.
         tree.focus = r0;
-        assert!(!tree.resize_focus(Dimension::Height, 5, 2));
+        assert!(!tree.resize_focus(Dimension::Height, 5));
         assert_eq!(heights(&tree), [7, 17, 24]);
 
         // Width from L1 grows the left column, which holds L0 and L1.
         tree.focus = l1;
-        assert!(tree.resize_focus(Dimension::Width, 10, 5));
+        assert!(tree.resize_focus(Dimension::Width, 10));
         assert_eq!(widths(&tree), [50, 50, 29]);
     }
 
     #[test]
     fn a_nested_split_keeps_room_for_each_of_its_panes() {
         // | L0 | L2 | R0 |  where L0 and L2 sit in a column split under a row split.
-        let mut tree = Tree::new(Rect::new(0, 0, 80, 24));
+        let mut tree = Tree::with_minimum_size(Rect::new(0, 0, 80, 24), 5, 2);
         let l0 = tree.insert(TestPane::new(ContentId::default()));
         let r0 = tree.split(TestPane::new(ContentId::default()), Layout::Vertical);
         tree.focus = l0;
@@ -1318,7 +1380,7 @@ mod test {
         tree.split(TestPane::new(ContentId::default()), Layout::Vertical);
 
         tree.focus = r0;
-        assert!(tree.resize_focus(Dimension::Width, 100, 5));
+        assert!(tree.resize_focus(Dimension::Width, 100));
         // The left column keeps two 5-cell panes and the gap between them.
         let left = tree.get(l0).area;
         assert_eq!(left.width, 5);
@@ -1327,9 +1389,9 @@ mod test {
 
     #[test]
     fn new_and_removed_panes_keep_the_other_proportions() {
-        let (mut tree, ids) = columns(81, 2);
+        let (mut tree, ids) = columns(81, 2, 5);
         tree.focus = ids[0];
-        assert!(tree.resize_focus(Dimension::Width, 20, 5));
+        assert!(tree.resize_focus(Dimension::Width, 20));
         assert_eq!(widths(&tree), [60, 20]);
 
         // A new column takes a third, the old ones keep their 3:1 ratio.
@@ -1347,13 +1409,13 @@ mod test {
 
     #[test]
     fn equalize_restores_the_even_split() {
-        let (mut tree, ids) = columns(80, 3);
+        let (mut tree, ids) = columns(80, 3, 5);
         tree.focus = ids[0];
         tree.split(TestPane::new(ContentId::default()), Layout::Horizontal);
         let even = (widths(&tree), heights(&tree));
 
-        tree.resize_focus(Dimension::Width, 11, 5);
-        tree.resize_focus(Dimension::Height, 4, 2);
+        tree.resize_focus(Dimension::Width, 11);
+        tree.resize_focus(Dimension::Height, 4);
         assert_ne!((widths(&tree), heights(&tree)), even);
 
         tree.equalize();
@@ -1361,10 +1423,131 @@ mod test {
     }
 
     #[test]
+    fn ancestor_resizes_preserve_minimum_sizes_in_weighted_descendants() {
+        for layout in [Layout::Vertical, Layout::Horizontal] {
+            let (dimension, perpendicular, step) = match layout {
+                Layout::Vertical => (Dimension::Width, Layout::Horizontal, 10),
+                Layout::Horizontal => (Dimension::Height, Layout::Vertical, 2),
+            };
+            let mut tree = Tree::with_minimum_size(Rect::new(0, 0, 120, 24), 10, 2);
+            let first = tree.insert(TestPane::new(ContentId::default()));
+            let outer = tree.split(TestPane::new(ContentId::default()), layout);
+            tree.focus = first;
+            tree.split(TestPane::new(ContentId::default()), perpendicular);
+            tree.focus = first;
+            let inner = tree.split(TestPane::new(ContentId::default()), layout);
+
+            tree.focus = first;
+            assert!(tree.resize_focus(dimension, step));
+            let extent = |area: Rect| match dimension {
+                Dimension::Width => area.width,
+                Dimension::Height => area.height,
+            };
+            assert!(extent(tree.get(first).area) > extent(tree.get(inner).area));
+            tree.focus = outer;
+            assert!(tree.resize_focus(dimension, isize::MAX));
+            assert_eq!(extent(tree.get(first).area), step as u16);
+            assert_eq!(extent(tree.get(inner).area), step as u16);
+            assert!(tree
+                .panes()
+                .all(|(pane, _)| pane.area.width >= 10 && pane.area.height >= 2));
+        }
+    }
+
+    #[test]
+    fn terminal_resizes_preserve_minimum_sizes_and_restore_proportions() {
+        let original = Rect::new(10, 20, 81, 25);
+        for layout in [Layout::Vertical, Layout::Horizontal] {
+            let dimension = match layout {
+                Layout::Vertical => Dimension::Width,
+                Layout::Horizontal => Dimension::Height,
+            };
+            let mut tree = Tree::with_minimum_size(original, 10, 2);
+            let first = tree.insert(TestPane::new(ContentId::default()));
+            tree.split(TestPane::new(ContentId::default()), layout);
+            tree.focus = first;
+            assert!(tree.resize_focus(dimension, isize::MAX));
+            let before = (widths(&tree), heights(&tree));
+
+            tree.resize(Rect::new(10, 20, 41, 9));
+            assert!(tree
+                .panes()
+                .all(|(pane, _)| pane.area.width >= 10 && pane.area.height >= 2));
+            tree.resize(original);
+            assert_eq!((widths(&tree), heights(&tree)), before);
+
+            // Below the feasible minimum, panes remain bounded and saved weights
+            // still restore their proportions when the terminal grows again.
+            for size in 0..3 {
+                let tiny = Rect::new(10, 20, size, size);
+                tree.resize(tiny);
+                for (pane, _) in tree.panes() {
+                    assert!(pane.area.left() >= tiny.left());
+                    assert!(pane.area.top() >= tiny.top());
+                    assert!(pane.area.right() <= tiny.right());
+                    assert!(pane.area.bottom() <= tiny.bottom());
+                }
+                tree.resize(original);
+                assert_eq!((widths(&tree), heights(&tree)), before);
+            }
+        }
+    }
+
+    #[test]
+    fn new_splits_preserve_minimum_sizes_and_removal_restores_proportions() {
+        for layout in [Layout::Vertical, Layout::Horizontal] {
+            let dimension = match layout {
+                Layout::Vertical => Dimension::Width,
+                Layout::Horizontal => Dimension::Height,
+            };
+            let mut tree = Tree::with_minimum_size(Rect::new(0, 0, 120, 24), 10, 2);
+            let first = tree.insert(TestPane::new(ContentId::default()));
+            tree.split(TestPane::new(ContentId::default()), layout);
+            tree.focus = first;
+            assert!(tree.resize_focus(dimension, isize::MAX));
+            let before = (widths(&tree), heights(&tree));
+
+            // Both insertion paths must constrain the old, smaller sibling.
+            for split in [true, false] {
+                tree.focus = first;
+                let pane = TestPane::new(ContentId::default());
+                let added = if split {
+                    tree.split(pane, layout)
+                } else {
+                    tree.insert(pane)
+                };
+                assert!(tree
+                    .panes()
+                    .all(|(pane, _)| pane.area.width >= 10 && pane.area.height >= 2));
+                tree.remove(added);
+                assert_eq!((widths(&tree), heights(&tree)), before);
+            }
+        }
+    }
+
+    #[test]
+    fn resize_commands_use_visible_sizes_after_minimum_constraints() {
+        let (mut tree, ids) = columns(81, 2, 10);
+        tree.focus = ids[0];
+        assert!(tree.resize_focus(Dimension::Width, isize::MAX));
+        assert_eq!(widths(&tree), [70, 10]);
+        tree.resize(Rect::new(0, 0, 41, 24));
+        assert_eq!(widths(&tree), [30, 10]);
+
+        // A one-cell step uses the constrained widths, not the saved weights.
+        tree.focus = ids[1];
+        assert!(tree.resize_focus(Dimension::Width, 1));
+        assert_eq!(widths(&tree), [29, 11]);
+        assert!(tree.resize_focus(Dimension::Width, isize::MIN));
+        assert_eq!(widths(&tree), [30, 10]);
+        assert!(!tree.resize_focus(Dimension::Width, -1));
+    }
+
+    #[test]
     fn a_single_pane_does_not_resize() {
-        let (mut tree, _) = columns(80, 1);
-        assert!(!tree.resize_focus(Dimension::Width, 5, 5));
-        assert!(!tree.resize_focus(Dimension::Height, 5, 2));
+        let (mut tree, _) = columns(80, 1, 5);
+        assert!(!tree.resize_focus(Dimension::Width, 5));
+        assert!(!tree.resize_focus(Dimension::Height, 5));
         assert_eq!(widths(&tree), [80]);
     }
 }
