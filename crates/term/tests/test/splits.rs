@@ -3,6 +3,53 @@ use super::*;
 use stdx::path;
 
 #[tokio::test(flavor = "multi_thread")]
+async fn split_strategy_can_be_changed_through_runtime_commands() -> anyhow::Result<()> {
+    let mut app = helpers::AppBuilder::new()
+        .with_lang_loader(language::syntax::Loader::default())
+        .build()?;
+    // Leave a vertical group nested inside another vertical group by closing
+    // its perpendicular sibling, then rebalance through the public command.
+    helpers::keys(&mut app, "<C-w>v<C-w>s<C-w>k<C-w>v<C-w>j<C-w>q").await?;
+    let original: Vec<_> = app
+        .editor
+        .tree
+        .traverse()
+        .map(|(id, view)| (id, view.area))
+        .collect();
+    assert_eq!(original.len(), 3);
+    assert!(original[0].1.width > original[1].1.width);
+    let focus = app.editor.tree.focus();
+
+    helpers::keys(&mut app, ":set splits.strategy balanced<ret>").await?;
+    helpers::assert_status_not_error(&app.editor);
+    assert_eq!(
+        app.editor.config().splits.strategy,
+        editor_config::SplitStrategy::Balanced
+    );
+    assert_eq!(app.editor.tree.focus(), focus);
+    let widths: Vec<_> = app
+        .editor
+        .tree
+        .traverse()
+        .map(|(_, view)| view.area.width)
+        .collect();
+    assert!(widths.iter().max().unwrap() - widths.iter().min().unwrap() <= 1);
+
+    helpers::keys(&mut app, ":set splits.strategy equal-siblings<ret>").await?;
+    helpers::assert_status_not_error(&app.editor);
+    assert_eq!(
+        app.editor
+            .tree
+            .traverse()
+            .map(|(id, view)| (id, view.area))
+            .collect::<Vec<_>>(),
+        original
+    );
+    assert!(app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn test_split_write_quit_all() -> anyhow::Result<()> {
     let mut file1 = tempfile::NamedTempFile::new()?;
     let mut file2 = tempfile::NamedTempFile::new()?;

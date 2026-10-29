@@ -220,7 +220,7 @@ impl Editor {
 
         Self {
             mode: Mode::Normal,
-            tree: Tree::new(area),
+            tree: Tree::new(area, conf.splits.strategy),
             documents: Documents::new(),
             writes: WriteQueue::default(),
             saves: crate::save::Operations::default(),

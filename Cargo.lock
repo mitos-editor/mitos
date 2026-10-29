@@ -850,6 +850,7 @@ dependencies = [
  "core",
  "diagnostics",
  "language-config",
+ "pane-layout",
  "serde",
  "toml",
  "ui-core",
@@ -2984,6 +2985,7 @@ dependencies = [
 name = "pane-layout"
 version = "0.1.3"
 dependencies = [
+ "serde",
  "slotmap",
  "ui-core",
 ]

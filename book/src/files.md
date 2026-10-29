@@ -60,6 +60,10 @@ The `grow_view_width`, `shrink_view_width`, `grow_view_height`, and
 `shrink_view_height` commands remain available for custom keybindings. They
 always grow or shrink the focused split, using one cell or an explicit count.
 
+Set [`editor.splits.strategy = "balanced"`](./configuration.md#editorsplits) to
+keep pane widths or heights balanced when closing or rearranging splits.
+Use `:set splits.strategy balanced` to rebalance existing panes immediately.
+
 ## Save and close
 
 | Command | Action |

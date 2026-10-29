@@ -122,6 +122,7 @@ For common examples, see [Configure Mitos](./editor.md).
 | `info` | table | `{ border-style = "inherit" }` | Contextual information popup appearance. See [`[editor.info]`](#editorinfo). |
 | `shell-output` | table | `{ border-style = "inherit" }` | Shell command output popup appearance. See [`[editor.shell-output]`](#editorshell-output). |
 | `picker` | table | See below | Shared picker appearance. See [`[editor.picker]`](#editorpicker). |
+| `splits` | table | See below | Pane sizing. See [`[editor.splits]`](#editorsplits). |
 | `file-picker` | table | See below | File-picker and global-search traversal. See [`[editor.file-picker]`](#editorfile-picker). |
 | `file-explorer` | table | See below | File-explorer traversal. See [`[editor.file-explorer]`](#editorfile-explorer). |
 | `buffer-picker` | table | See below | Initial selection in the buffer picker. See [`[editor.buffer-picker]`](#editorbuffer-picker). |
@@ -569,6 +570,29 @@ git-ignore = true
 git-global = true
 max-depth = 10
 ```
+
+### `[editor.splits]`
+
+| Key | Type / accepted values | Default | Description |
+| --- | --- | --- | --- |
+| `strategy` | `"equal-siblings"` or `"balanced"` | `"equal-siblings"` | How split pane sizes are balanced. |
+
+`equal-siblings` shares space equally between adjacent panes or groups of panes.
+Individual panes within a group can remain smaller than their neighbors.
+
+`balanced` keeps neighboring panes at equal widths or heights as you split,
+close, resize, or rearrange them. For example, closing a pane in a row of four
+leaves three equal-width columns. Two stacked panes beside a full-height pane
+keep two equal-width columns. Sizes may differ slightly to fit whole terminal
+cells and separators. Changing the strategy keeps the pane arrangement and focus.
+
+```toml
+[editor.splits]
+strategy = "balanced"
+```
+
+Use `:set splits.strategy balanced` to apply it immediately to existing panes.
+Use `:set splits.strategy equal-siblings` to return to the default sizing.
 
 ### `[editor.picker]`
 
