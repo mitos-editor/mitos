@@ -35,6 +35,8 @@ pub enum ReviewComparison {
     Buffer,
     /// HEAD compared with the current editor buffer, including unsaved edits.
     Head,
+    /// HEAD compared with the saved working file, independent of open buffers.
+    HeadToWorktree,
 }
 
 impl ReviewComparison {
@@ -44,7 +46,7 @@ impl ReviewComparison {
             Self::Staged => "staged",
             Self::Unstaged => "unstaged",
             Self::Buffer => "buffer",
-            Self::Head => "HEAD",
+            Self::Head | Self::HeadToWorktree => "HEAD",
         }
     }
 
@@ -55,6 +57,7 @@ impl ReviewComparison {
             Self::Unstaged => "Unstaged · index → working tree",
             Self::Buffer => "Unsaved · index → buffer",
             Self::Head => "Changes · HEAD → buffer",
+            Self::HeadToWorktree => "Changes · HEAD → working tree",
         }
     }
 
@@ -290,7 +293,9 @@ impl ReviewRequest {
             ReviewComparison::Buffer => ComparisonKind::Unstaged,
             ReviewComparison::Unstaged => ComparisonKind::Unstaged,
             ReviewComparison::Head if self.buffer.is_some() => ComparisonKind::Head,
-            ReviewComparison::Head => ComparisonKind::HeadToWorktree,
+            ReviewComparison::Head | ReviewComparison::HeadToWorktree => {
+                ComparisonKind::HeadToWorktree
+            }
         };
         let status = if self.fresh_status {
             self.providers

@@ -1,6 +1,6 @@
 //! Interactive code-action gathering shared by editor frontends.
 
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
 use event::{cancelable_future, register_hook, TaskController, TaskHandle};
 use futures_util::{future::BoxFuture, stream::FuturesUnordered, FutureExt, StreamExt};
@@ -39,7 +39,7 @@ impl CodeActionsState {
 
 struct Context {
     owner: EditorCallbackSender,
-    target: SelectionRequest,
+    target: Arc<SelectionRequest>,
     mode: Mode,
 }
 
@@ -83,7 +83,7 @@ impl CodeActionsUpdate {
 }
 
 impl Editor {
-    /// Gather actions at the focused selection from language servers and spelling.
+    /// Gather actions at the focused selection from language servers, spelling, and conflicts.
     /// Disabled LSP actions are removed and higher-priority actions are returned first.
     pub fn request_code_actions(&mut self) -> CodeActionsTask {
         let owner = self.callback_sender().clone();
@@ -129,13 +129,14 @@ impl Editor {
         let cancel = doc.code_actions.restart(view.id);
         let context = Context {
             owner,
-            target: SelectionRequest::new(doc, view.id, cancel, Vec::new()),
+            target: Arc::new(SelectionRequest::new(doc, view.id, cancel, Vec::new())),
             mode,
         };
+        let conflicts = super::conflicts::actions(self, context.target.clone());
         CodeActionsTask {
             context,
             future: async move {
-                let mut actions = Vec::new();
+                let mut actions = conflicts;
                 while let Some(result) = providers.next().await {
                     match result {
                         Ok(items) => actions.extend(items),

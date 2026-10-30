@@ -61,6 +61,15 @@ impl<T> ChangeReviewPreview<T> {
         let buffer = editor
             .document_by_path(status.path())
             .is_some_and(|doc| doc.is_modified() && !doc.is_binary());
+        // Unmerged entries have stages 1/2/3, not the stage-zero index entry
+        // required by staged/unstaged comparisons. Preview the pending result.
+        if matches!(status.unstaged, Some(vcs::FileChange::Conflict { .. })) {
+            return if buffer {
+                ReviewComparison::Head
+            } else {
+                ReviewComparison::HeadToWorktree
+            };
+        }
         match self.comparison {
             Some(ReviewComparison::Buffer) if !buffer => ReviewComparison::Unstaged,
             Some(comparison) => comparison,
@@ -258,11 +267,19 @@ impl<T> PickerPreview<T> for ChangeReviewPreview<T> {
                     .replace("<A-p>", "A-p")
                     .replace("<A-n>", "A-n")
             };
+            let versions = if matches!(status.unstaged, Some(vcs::FileChange::Conflict { .. })) {
+                String::new()
+            } else {
+                format!(
+                    " · {}/{} versions",
+                    hint(PickerAction::PreviewPrevious),
+                    hint(PickerAction::PreviewNext),
+                )
+            };
             let help = format!(
-                "{} open diff · {}/{} versions · {}/{} scroll",
+                "{} open diff{} · {}/{} scroll",
                 hint(PickerAction::OpenPreview),
-                hint(PickerAction::PreviewPrevious),
-                hint(PickerAction::PreviewNext),
+                versions,
                 hint(PickerAction::PreviewScrollUp),
                 hint(PickerAction::PreviewScrollDown),
             );
@@ -298,6 +315,9 @@ impl<T> PickerPreview<T> for ChangeReviewPreview<T> {
                     return EventResult::Consumed(None);
                 };
                 let status = (self.status)(item);
+                if matches!(status.unstaged, Some(vcs::FileChange::Conflict { .. })) {
+                    return EventResult::Consumed(None);
+                }
                 let current = self.comparison_for(cx.editor, status);
                 let buffer = cx
                     .editor

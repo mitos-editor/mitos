@@ -1,10 +1,13 @@
 //! Undoable conflict resolution operates only on the current document snapshot.
 
+use std::sync::Arc;
+
 use anyhow::{ensure, Result};
 use editor_core::{Rope, Selection, Transaction};
 use vcs::conflict::{self, Resolution};
 
-use crate::{editor::Action, Document, DocumentId, Editor};
+use super::request::SelectionRequest;
+use crate::{action, editor::Action, Document, DocumentId, Editor};
 
 fn snapshot(editor: &Editor) -> Result<String> {
     let (_, doc) = crate::current_ref!(editor);
@@ -82,40 +85,54 @@ pub fn resolve(editor: &mut Editor, choice: Resolution) -> Result<()> {
     Ok(())
 }
 
-/// Inspect marker contents without changing the source document or index. For plain
-/// merge markers the common ancestor is available through the index source command.
-pub fn inspect(editor: &mut Editor) -> Result<DocumentId> {
-    let text = snapshot(editor)?;
-    let (_, doc) = crate::current_ref!(editor);
-    let conflicts = conflict::parse(&text)?;
-    let view = crate::view!(editor);
+/// Local actions share the code-action menu and its captured selection. The target
+/// is checked again on execution because the menu can outlive its document snapshot.
+pub(crate) fn actions(editor: &Editor, target: Arc<SelectionRequest>) -> Vec<action::Action> {
+    let Some((view, doc)) = target.get(editor) else {
+        return Vec::new();
+    };
+    if doc.validate_editable().is_err() {
+        return Vec::new();
+    }
+    let Ok(text) = snapshot(editor) else {
+        return Vec::new();
+    };
+    let Ok(conflicts) = conflict::parse(&text) else {
+        return Vec::new();
+    };
     let cursor = doc.text().char_to_byte_idx(
         doc.selection(view.id)
             .primary()
             .cursor(doc.text().slice(..)),
     );
-    let c = conflicts
+    if !conflicts
         .iter()
-        .find(|c| c.whole.contains(&cursor))
-        .ok_or_else(|| anyhow::anyhow!("Place the cursor inside a conflict first"))?;
-    let base = c
-        .base
-        .as_ref()
-        .map(|r| &text[r.clone()])
-        .unwrap_or("Not included in these markers; use :vcs-conflict-source base\n");
-    let content = format!(
-        "Current: {}\n{}\nBase:\n{}\nIncoming: {}\n{}",
-        c.current_label,
-        &text[c.current.clone()],
-        base,
-        c.incoming_label,
-        &text[c.incoming.clone()]
-    );
-    Ok(open_source(
-        editor,
-        "Conflict contents".into(),
-        Rope::from(content),
-    ))
+        .any(|conflict| conflict.whole.contains(&cursor))
+    {
+        return Vec::new();
+    }
+    [
+        ("Accept current", Resolution::Current),
+        ("Accept incoming", Resolution::Incoming),
+        ("Accept both (current then incoming)", Resolution::Both),
+    ]
+    .into_iter()
+    .map(|(title, choice)| {
+        let target = target.clone();
+        action::Action::new(title, 100, move |editor| {
+            if !target
+                .get(editor)
+                .is_some_and(|(view, _)| editor.tree.focus() == view.id)
+            {
+                editor.set_error(|| "Conflict action is no longer current");
+                return;
+            }
+            if let Err(error) = resolve(editor, choice) {
+                editor.set_error(|| error.to_string());
+            }
+        })
+    })
+    .collect()
 }
 
 pub fn open_source(editor: &mut Editor, name: String, text: Rope) -> DocumentId {

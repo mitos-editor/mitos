@@ -44,13 +44,6 @@ pub(super) fn resolve(cx: &mut compositor::Context, args: Args, event: PromptEve
     Ok(())
 }
 
-pub(super) fn inspect(cx: &mut compositor::Context, _: Args, event: PromptEvent) -> Result<()> {
-    if event == PromptEvent::Validate {
-        view::features::conflicts::inspect(cx.editor)?;
-    }
-    Ok(())
-}
-
 pub(super) fn source(cx: &mut compositor::Context, args: Args, event: PromptEvent) -> Result<()> {
     if event != PromptEvent::Validate {
         return Ok(());
@@ -87,8 +80,12 @@ pub(super) fn source(cx: &mut compositor::Context, args: Args, event: PromptEven
             Ok(Callback::Editor(Box::new(move |editor| {
                 if editor.tree.focus() != view_id
                     || editor
+                        .tree
+                        .try_get(view_id)
+                        .is_none_or(|view| view.document_id() != doc_id)
+                    || editor
                         .document(doc_id)
-                        .is_none_or(|doc| doc.version() != version)
+                        .is_none_or(|doc| doc.version() != version || doc.encoding() != encoding)
                     || editor
                         .workspace_trust
                         .query(&workspace, workspace::trust::TrustQuery::Git)

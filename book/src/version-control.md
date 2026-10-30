@@ -64,6 +64,10 @@ The preview starts with unsaved edits when available, then unstaged changes, the
 staged changes. `Alt-Left` / `Alt-Right` also switch comparisons, but some
 terminals use those keys for word movement.
 
+Conflicted files instead compare HEAD with the file on disk, or with the buffer
+when it has unsaved edits. Index comparisons are unavailable until the file is
+resolved and staged.
+
 | Key | Action |
 | --- | --- |
 | `Enter` | Open the file |
@@ -371,11 +375,16 @@ Available placeholders are:
 
 Use `[m` / `]m` to move between conflict regions. A count moves across several
 regions. Navigation wraps and reports the current conflict and remaining total.
+Inside a conflict, press `Space-a` to accept the current side, incoming side, or
+both (current then incoming). These actions work without a language server.
+
+The changed-files picker previews conflicted files against HEAD, including unsaved
+buffer edits when present. The preview keeps the conflict markers visible; open
+the file to resolve them.
 
 | Command | Action |
 | --- | --- |
 | `:vcs-conflict-next [next\|previous]` | Move between conflict regions |
-| `:vcs-conflict-show` | Inspect the conflict at the cursor in a read-only split |
 | `:vcs-conflict-source base` | Inspect the complete common ancestor version |
 | `:vcs-conflict-source current` | Inspect the complete current version |
 | `:vcs-conflict-source incoming` | Inspect the complete incoming version |
@@ -388,8 +397,7 @@ save it, then stage the file. The status message reports how many conflict regio
 remain. Keeping both sides may require further editing to combine their logic.
 
 For a merge, **current** is the checked-out branch and **incoming** is the branch
-being merged. **Base** is their common ancestor. Inspection shows the labels from
-the file to help you identify each side.
+being merged. **Base** is their common ancestor. The conflict markers identify each side.
 
 During a rebase, **current** means the new base and commits already replayed;
 **incoming** means the commit being replayed. The complete-version inspection
