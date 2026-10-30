@@ -1,6 +1,7 @@
 //! Editor split layout adapter. Structural changes remain owned by `Editor`.
 use crate::{graphics::Rect, View, ViewId};
 pub use pane_layout::{Dimension, Direction, Layout};
+pub type SplitSizes = pane_layout::SplitSizes<ViewId>;
 pub type Traverse<'a> = pane_layout::Traverse<'a, ViewId, View>;
 
 impl pane_layout::Pane<ViewId> for View {
@@ -104,6 +105,12 @@ impl Tree {
     }
     pub fn swap_split_in_direction(&mut self, direction: Direction) -> Option<()> {
         self.layout.swap_split_in_direction(direction)
+    }
+    pub fn split_sizes(&self) -> SplitSizes {
+        self.layout.split_sizes()
+    }
+    pub(crate) fn restore_split_sizes(&mut self, sizes: SplitSizes) {
+        self.layout.restore_split_sizes(sizes);
     }
     pub fn area(&self) -> Rect {
         self.layout.area()

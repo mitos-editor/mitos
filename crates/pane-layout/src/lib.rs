@@ -12,6 +12,20 @@ pub trait Pane<K: Key> {
     fn set_area(&mut self, area: Rect);
 }
 
+/// Split proportions captured before an interactive resize.
+#[derive(Debug)]
+pub struct SplitSizes<K: Key> {
+    containers: Vec<SplitSize<K>>,
+}
+
+#[derive(Debug)]
+struct SplitSize<K: Key> {
+    id: K,
+    layout: Layout,
+    children: Vec<K>,
+    weights: Vec<u32>,
+}
+
 /// Split topology and geometry over stable keys and caller-owned pane values.
 #[derive(Debug)]
 pub struct Tree<K: Key, P: Pane<K>> {
@@ -833,6 +847,50 @@ impl<K: Key, P: Pane<K>> Tree<K, P> {
         true
     }
 
+    /// Capture split proportions without copying pane contents or geometry.
+    pub fn split_sizes(&self) -> SplitSizes<K> {
+        SplitSizes {
+            containers: self
+                .nodes
+                .iter()
+                .filter_map(|(id, node)| {
+                    let Content::Container(container) = &node.content else {
+                        return None;
+                    };
+                    Some(SplitSize {
+                        id,
+                        layout: container.layout,
+                        children: container.children.clone(),
+                        weights: container.weights.clone(),
+                    })
+                })
+                .collect(),
+        }
+    }
+
+    /// Restore proportions for splits whose topology has not changed. The current
+    /// terminal size is retained, and removed or rearranged splits are skipped.
+    pub fn restore_split_sizes(&mut self, sizes: SplitSizes<K>) {
+        for SplitSize {
+            id,
+            layout,
+            children,
+            weights,
+        } in sizes.containers
+        {
+            if let Some(Node {
+                content: Content::Container(container),
+                ..
+            }) = self.nodes.get_mut(id)
+                && container.layout == layout
+                && container.children == children
+            {
+                container.weights = weights;
+            }
+        }
+        self.recalculate();
+    }
+
     /// Give every child of every split the same size again.
     pub fn equalize(&mut self) {
         for node in self.nodes.values_mut() {
@@ -1565,6 +1623,35 @@ mod test {
         // A terminal resize scales the split.
         tree.resize(Rect::new(0, 0, 41, 24));
         assert_eq!(widths(&tree), [30, 10]);
+    }
+
+    #[test]
+    fn restoring_split_sizes_keeps_current_terminal_size() {
+        let (mut tree, ids) = columns(81, 2, 5);
+        tree.focus = ids[0];
+        tree.resize_focus(Dimension::Width, 10);
+        let original = widths(&tree);
+        let sizes = tree.split_sizes();
+        tree.resize(Rect::new(0, 0, 61, 24));
+        let expected = widths(&tree);
+        tree.resize_focus(Dimension::Width, 5);
+        tree.restore_split_sizes(sizes);
+        assert_eq!(tree.area(), Rect::new(0, 0, 61, 24));
+        assert_eq!(widths(&tree), expected);
+        tree.resize(Rect::new(0, 0, 81, 24));
+        assert_eq!(widths(&tree), original);
+    }
+
+    #[test]
+    fn restoring_split_sizes_skips_changed_topology() {
+        let (mut tree, ids) = columns(81, 2, 5);
+        tree.focus = ids[0];
+        tree.resize_focus(Dimension::Width, 10);
+        let sizes = tree.split_sizes();
+        tree.split(TestPane::new(ContentId::default()), Layout::Vertical);
+        let expected = widths(&tree);
+        tree.restore_split_sizes(sizes);
+        assert_eq!(widths(&tree), expected);
     }
 
     #[test]

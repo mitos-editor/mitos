@@ -290,15 +290,16 @@
 | `swap_view_up` | Swap with split above | normal: `` <C-w>K ``, `` <space>wK ``, `` <C-w><S-up> ``, `` <space>w<S-up> ``, select: `` <C-w>K ``, `` <space>wK ``, `` <C-w><S-up> ``, `` <space>w<S-up> `` |
 | `swap_view_down` | Swap with split below | normal: `` <C-w>J ``, `` <space>wJ ``, `` <C-w><S-down> ``, `` <space>w<S-down> ``, select: `` <C-w>J ``, `` <space>wJ ``, `` <C-w><S-down> ``, `` <space>w<S-down> `` |
 | `transpose_view` | Transpose splits | normal: `` <C-w>t ``, `` <space>wt ``, `` <C-w><C-t> ``, `` <space>w<C-t> ``, select: `` <C-w>t ``, `` <space>wt ``, `` <C-w><C-t> ``, `` <space>w<C-t> `` |
-| `resize_view_left` | Resize split left | normal: `` <C-w>rh ``, `` <space>wrh ``, `` <C-w>r<left> ``, `` <space>wr<left> ``, select: `` <C-w>rh ``, `` <space>wrh ``, `` <C-w>r<left> ``, `` <space>wr<left> `` |
-| `resize_view_right` | Resize split right | normal: `` <C-w>rl ``, `` <space>wrl ``, `` <C-w>r<right> ``, `` <space>wr<right> ``, select: `` <C-w>rl ``, `` <space>wrl ``, `` <C-w>r<right> ``, `` <space>wr<right> `` |
-| `resize_view_up` | Resize split up | normal: `` <C-w>rk ``, `` <C-w>r<up> ``, `` <space>wrk ``, `` <space>wr<up> ``, select: `` <C-w>rk ``, `` <C-w>r<up> ``, `` <space>wrk ``, `` <space>wr<up> `` |
-| `resize_view_down` | Resize split down | normal: `` <C-w>rj ``, `` <space>wrj ``, `` <C-w>r<down> ``, `` <space>wr<down> ``, select: `` <C-w>rj ``, `` <space>wrj ``, `` <C-w>r<down> ``, `` <space>wr<down> `` |
+| `resize_mode` | Resize splits (Enter to confirm, Escape to cancel) | normal: `` <C-w>r ``, `` <space>wr ``, select: `` <C-w>r ``, `` <space>wr `` |
+| `resize_view_left` | Resize split left |  |
+| `resize_view_right` | Resize split right |  |
+| `resize_view_up` | Resize split up |  |
+| `resize_view_down` | Resize split down |  |
 | `grow_view_width` | Grow split width |  |
 | `shrink_view_width` | Shrink split width |  |
 | `grow_view_height` | Grow split height |  |
 | `shrink_view_height` | Shrink split height |  |
-| `equalize_views` | Make all splits the same size | normal: `` <C-w>= ``, `` <C-w>r= ``, `` <space>w= ``, `` <space>wr= ``, select: `` <C-w>= ``, `` <C-w>r= ``, `` <space>w= ``, `` <space>wr= `` |
+| `equalize_views` | Make all splits the same size | normal: `` <C-w>= ``, `` <space>w= ``, select: `` <C-w>= ``, `` <space>w= `` |
 | `rotate_view` | Goto next window | normal: `` <C-w>w ``, `` <space>ww ``, `` <C-w><C-w> ``, `` <space>w<C-w> ``, select: `` <C-w>w ``, `` <space>ww ``, `` <C-w><C-w> ``, `` <space>w<C-w> `` |
 | `rotate_view_reverse` | Goto previous window | normal: `` <C-w>W ``, `` <space>wW ``, select: `` <C-w>W ``, `` <space>wW `` |
 | `hsplit` | Horizontal bottom split | normal: `` <C-w>s ``, `` <space>ws ``, `` <C-w><C-s> ``, `` <space>w<C-s> ``, select: `` <C-w>s ``, `` <space>ws ``, `` <C-w><C-s> ``, `` <space>w<C-s> `` |

@@ -52,7 +52,8 @@ left. A boundary stops when either subtree reaches its minimum size.
 
 Each press moves the boundary by 5 columns or 2 rows. An explicit count replaces
 that default with an exact number of cells: `Ctrl-w r 1 h` moves one column,
-and `Ctrl-w r 10 h` moves ten. Resize mode stays active until `Escape`.
+and `Ctrl-w r 10 h` moves ten. Press `Enter` to keep the new sizes and leave
+resize mode, or `Escape` to restore the sizes from before you entered resize mode.
 Press `=` in resize mode, or `Ctrl-w =`, to equalize the splits.
 
 The `grow_view_width`, `shrink_view_width`, `grow_view_height`, and

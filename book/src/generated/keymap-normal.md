@@ -229,7 +229,7 @@
 | `` <C-w>v `` | Vertical right split | `` vsplit `` |
 | `` <C-w><C-t> `` | Transpose splits | `` transpose_view `` |
 | `` <C-w>t `` | Transpose splits | `` transpose_view `` |
-| `` <C-w>r `` | Resize split (sticky; Escape to exit) | Prefix |
+| `` <C-w>r `` | Resize splits (Enter to confirm, Escape to cancel) | `` resize_mode `` |
 | `` <C-w>= `` | Make all splits the same size | `` equalize_views `` |
 | `` <C-w>f `` | Goto files in selections (hsplit) | `` goto_file_hsplit `` |
 | `` <C-w>F `` | Goto files in selections (vsplit) | `` goto_file_vsplit `` |
@@ -258,20 +258,6 @@
 | `` <C-w>J `` | Swap with split below | `` swap_view_down `` |
 | `` <C-w><S-down> `` | Swap with split below | `` swap_view_down `` |
 | `` <C-w>n `` | New split scratch buffer | Prefix |
-
-#### `` <C-w>r `` — Resize split
-
-| Key | Description | Command |
-| --- | --- | --- |
-| `` <C-w>rh `` | Resize split left | `` resize_view_left `` |
-| `` <C-w>r<left> `` | Resize split left | `` resize_view_left `` |
-| `` <C-w>rl `` | Resize split right | `` resize_view_right `` |
-| `` <C-w>r<right> `` | Resize split right | `` resize_view_right `` |
-| `` <C-w>rj `` | Resize split down | `` resize_view_down `` |
-| `` <C-w>r<down> `` | Resize split down | `` resize_view_down `` |
-| `` <C-w>rk `` | Resize split up | `` resize_view_up `` |
-| `` <C-w>r<up> `` | Resize split up | `` resize_view_up `` |
-| `` <C-w>r= `` | Make all splits the same size | `` equalize_views `` |
 
 #### `` <C-w>n `` — New split scratch buffer
 
@@ -373,7 +359,7 @@
 | `` <space>wv `` | Vertical right split | `` vsplit `` |
 | `` <space>w<C-t> `` | Transpose splits | `` transpose_view `` |
 | `` <space>wt `` | Transpose splits | `` transpose_view `` |
-| `` <space>wr `` | Resize split (sticky; Escape to exit) | Prefix |
+| `` <space>wr `` | Resize splits (Enter to confirm, Escape to cancel) | `` resize_mode `` |
 | `` <space>w= `` | Make all splits the same size | `` equalize_views `` |
 | `` <space>wf `` | Goto files in selections (hsplit) | `` goto_file_hsplit `` |
 | `` <space>wF `` | Goto files in selections (vsplit) | `` goto_file_vsplit `` |
@@ -402,20 +388,6 @@
 | `` <space>wL `` | Swap with right split | `` swap_view_right `` |
 | `` <space>w<S-right> `` | Swap with right split | `` swap_view_right `` |
 | `` <space>wn `` | New split scratch buffer | Prefix |
-
-##### `` <space>wr `` — Resize split
-
-| Key | Description | Command |
-| --- | --- | --- |
-| `` <space>wrh `` | Resize split left | `` resize_view_left `` |
-| `` <space>wr<left> `` | Resize split left | `` resize_view_left `` |
-| `` <space>wrl `` | Resize split right | `` resize_view_right `` |
-| `` <space>wr<right> `` | Resize split right | `` resize_view_right `` |
-| `` <space>wrj `` | Resize split down | `` resize_view_down `` |
-| `` <space>wr<down> `` | Resize split down | `` resize_view_down `` |
-| `` <space>wrk `` | Resize split up | `` resize_view_up `` |
-| `` <space>wr<up> `` | Resize split up | `` resize_view_up `` |
-| `` <space>wr= `` | Make all splits the same size | `` equalize_views `` |
 
 ##### `` <space>wn `` — New split scratch buffer
 

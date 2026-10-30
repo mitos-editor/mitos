@@ -624,6 +624,12 @@ impl Editor {
         }
     }
 
+    /// Restore split proportions after cancelling an interactive resize.
+    pub fn restore_split_sizes(&mut self, sizes: tree::SplitSizes) {
+        self.tree.restore_split_sizes(sizes);
+        self._refresh();
+    }
+
     /// Give all splits equal sizes again.
     pub fn equalize_views(&mut self) {
         self.tree.equalize();

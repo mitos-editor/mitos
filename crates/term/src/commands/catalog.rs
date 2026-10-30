@@ -324,6 +324,7 @@ impl MappableCommand {
         swap_view_up => super::windows::swap_view_up, "Swap with split above",
         swap_view_down => super::windows::swap_view_down, "Swap with split below",
         transpose_view => super::windows::transpose_view, "Transpose splits",
+        resize_mode => super::windows::resize_mode, "Resize splits (Enter to confirm, Escape to cancel)",
         resize_view_left => super::windows::resize_view_left, "Resize split left",
         resize_view_right => super::windows::resize_view_right, "Resize split right",
         resize_view_up => super::windows::resize_view_up, "Resize split up",
