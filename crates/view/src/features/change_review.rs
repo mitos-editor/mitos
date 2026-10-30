@@ -73,6 +73,7 @@ pub struct ReviewRequest {
     providers: vcs::DiffProviderRegistry,
     status: FileStatus,
     fresh_status: bool,
+    prefer_conflicts: bool,
     comparison: ReviewComparison,
     trust_full: bool,
     buffer: Option<Rope>,
@@ -91,15 +92,28 @@ struct FileStamp {
 
 type RepositoryStamp = Vec<(PathBuf, Option<FileStamp>)>;
 
+/// Picker previews can present unresolved source text without computing a diff.
+pub enum ReviewContent {
+    Diff(Arc<Review>),
+    Conflict(Arc<super::conflicts::ConflictPresentation>),
+}
+
 /// A bounded review and the metadata used to avoid repeating unchanged comparisons.
 pub struct ReviewSnapshot {
-    pub review: Arc<Review>,
+    pub content: ReviewContent,
     pub source: Arc<ReviewSource>,
     stamp: RepositoryStamp,
     request: ReviewRequest,
 }
 
 impl ReviewSnapshot {
+    pub fn diff(&self) -> Result<Arc<Review>> {
+        match &self.content {
+            ReviewContent::Diff(review) => Ok(review.clone()),
+            ReviewContent::Conflict(_) => anyhow::bail!("Conflict preview is not a diff"),
+        }
+    }
+
     pub fn engine(&self) -> DiffEngine {
         self.request.engine()
     }
@@ -127,6 +141,7 @@ impl ReviewRequest {
             providers: editor.diff_providers.clone(),
             status: status.clone(),
             fresh_status: false,
+            prefer_conflicts: false,
             comparison,
             trust_full: editor
                 .workspace_trust
@@ -141,6 +156,12 @@ impl ReviewRequest {
             workspace,
             settings: Settings::capture(editor, status.path()),
         }
+    }
+
+    /// Prefer structured conflict sections for this picker preview only.
+    pub fn with_conflict_preview(mut self) -> Self {
+        self.prefer_conflicts = true;
+        self
     }
 
     /// Re-resolve renames and conflicts when opening directly or refreshing.
@@ -174,7 +195,8 @@ impl ReviewRequest {
     }
 
     pub fn same_target(&self, other: &Self) -> bool {
-        self.status == other.status
+        self.prefer_conflicts == other.prefer_conflicts
+            && self.status == other.status
             && self.fresh_status == other.fresh_status
             && self.encoding == other.encoding
             && self.settings.current(&other.settings)
@@ -250,14 +272,22 @@ impl ReviewRequest {
         }
         let source = Arc::new(self.source()?);
         ensure!(!canceled(), "Diff preview canceled");
-        let review = source.compute(Some(self.engine()), canceled);
+        let conflicts = self
+            .prefer_conflicts
+            .then(|| super::conflicts::ConflictPresentation::new(source.after()));
+        let content = if let Some(conflicts) = conflicts.filter(|conflicts| conflicts.active()) {
+            source.prepare_syntax(canceled);
+            ReviewContent::Conflict(Arc::new(conflicts))
+        } else {
+            ReviewContent::Diff(source.compute(Some(self.engine()), canceled))
+        };
         ensure!(!canceled(), "Diff preview canceled");
         ensure!(
             stamp == self.stamp(),
             "Repository changed while loading the diff; refreshing will retry"
         );
         Ok(Arc::new(ReviewSnapshot {
-            review,
+            content,
             source,
             stamp,
             request: self.clone(),

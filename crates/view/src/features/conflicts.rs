@@ -6,22 +6,30 @@ use anyhow::{ensure, Result};
 use editor_core::{Rope, Selection, Transaction};
 use vcs::conflict::{self, Resolution};
 
+mod presentation;
+pub use presentation::{ConflictMarker, ConflictPresentation, ConflictSide};
+
 use super::request::SelectionRequest;
 use crate::{action, editor::Action, Document, DocumentId, Editor};
 
-fn snapshot(editor: &Editor) -> Result<String> {
+fn regions(editor: &Editor) -> Result<Vec<conflict::Conflict>> {
     let (_, doc) = crate::current_ref!(editor);
     ensure!(!doc.is_binary(), "Conflict actions require a text buffer");
     ensure!(
         doc.text().len() <= vcs::MAX_REVIEW_BYTES,
         "Buffer too large to inspect conflicts"
     );
-    Ok(doc.text().to_string())
+    let state = doc.conflict_presentation();
+    ensure!(
+        state.error.is_none(),
+        "{}",
+        state.error.as_deref().unwrap_or_default()
+    );
+    Ok(state.regions.clone())
 }
 
 pub fn navigate(editor: &mut Editor, forward: bool, count: usize) -> Result<()> {
-    let text = snapshot(editor)?;
-    let conflicts = conflict::parse(&text)?;
+    let conflicts = regions(editor)?;
     ensure!(!conflicts.is_empty(), "No conflict markers in this buffer");
     let scrolloff = editor.config().scroll.padding;
     let (view, doc) = crate::current!(editor);
@@ -55,8 +63,7 @@ pub fn navigate(editor: &mut Editor, forward: bool, count: usize) -> Result<()> 
 }
 
 pub fn resolve(editor: &mut Editor, choice: Resolution) -> Result<()> {
-    let text = snapshot(editor)?;
-    let conflicts = conflict::parse(&text)?;
+    let conflicts = regions(editor)?;
     let (view, doc) = crate::current!(editor);
     let cursor = doc.text().char_to_byte_idx(
         doc.selection(view.id)
@@ -69,7 +76,7 @@ pub fn resolve(editor: &mut Editor, choice: Resolution) -> Result<()> {
         .ok_or_else(|| anyhow::anyhow!("Place the cursor inside a conflict first"))?;
     let start = doc.text().byte_to_char_idx(conflict.whole.start);
     let end = doc.text().byte_to_char_idx(conflict.whole.end);
-    let replacement = conflict.replacement(&text, choice);
+    let replacement = conflict.replacement(&doc.text().to_string(), choice);
     let transaction = Transaction::change(
         doc.text(),
         [(start, end, Some(replacement.into()))].into_iter(),
@@ -94,10 +101,7 @@ pub(crate) fn actions(editor: &Editor, target: Arc<SelectionRequest>) -> Vec<act
     if doc.validate_editable().is_err() {
         return Vec::new();
     }
-    let Ok(text) = snapshot(editor) else {
-        return Vec::new();
-    };
-    let Ok(conflicts) = conflict::parse(&text) else {
+    let Ok(conflicts) = regions(editor) else {
         return Vec::new();
     };
     let cursor = doc.text().char_to_byte_idx(

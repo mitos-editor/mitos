@@ -44,6 +44,18 @@ pub(super) fn resolve(cx: &mut compositor::Context, args: Args, event: PromptEve
     Ok(())
 }
 
+pub(super) fn toggle_markers(
+    cx: &mut compositor::Context,
+    _: Args,
+    event: PromptEvent,
+) -> Result<()> {
+    if event == PromptEvent::Validate {
+        let (view, doc) = view::current!(cx.editor);
+        doc.toggle_conflict_markers(view.id);
+    }
+    Ok(())
+}
+
 pub(super) fn source(cx: &mut compositor::Context, args: Args, event: PromptEvent) -> Result<()> {
     if event != PromptEvent::Validate {
         return Ok(());

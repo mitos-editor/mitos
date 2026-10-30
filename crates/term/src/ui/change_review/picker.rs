@@ -1,6 +1,6 @@
 //! Git comparison selection, preview caching, and repository invalidation.
 
-use super::{load, Pending, ReviewView};
+use super::{conflicts::ConflictView, load, Pending, ReviewView};
 use crate::{
     compositor::{Context, EventResult},
     ui::picker::{PickerPreview, PreviewAction},
@@ -9,10 +9,40 @@ use event::TaskController;
 use std::{path::PathBuf, sync::Arc, time::Duration};
 use tokio::sync::{broadcast, oneshot, Semaphore};
 use tui::buffer::Buffer;
+use view::features::change_review::ReviewContent;
 use view::{
     features::change_review::{ReviewComparison, ReviewRequest, ReviewSnapshot},
     graphics::Rect,
 };
+
+enum PreviewContent {
+    Diff(ReviewView),
+    Conflict(Box<ConflictView>),
+}
+struct FilePreview {
+    offset: usize,
+    content: PreviewContent,
+}
+impl FilePreview {
+    fn heading_rows(&self) -> usize {
+        match &self.content {
+            PreviewContent::Diff(view) => view.heading_rows(),
+            PreviewContent::Conflict(_) => 1,
+        }
+    }
+    fn line_count(&self, width: u16, theme: &theme::Theme) -> usize {
+        match &self.content {
+            PreviewContent::Diff(view) => view.review.lines.len(),
+            PreviewContent::Conflict(view) => view.visual_height(width, theme),
+        }
+    }
+    fn draw(&self, area: Rect, surface: &mut Buffer, cx: &Context) {
+        match &self.content {
+            PreviewContent::Diff(view) => view.draw(area, surface, cx, self.offset),
+            PreviewContent::Conflict(view) => view.draw(area, surface, cx, self.offset),
+        }
+    }
+}
 
 /// A single active preview bounds retained text and serializes blocking loads.
 /// The callback supplies status without coupling the generic picker to Git.
@@ -24,7 +54,7 @@ pub struct ChangeReviewPreview<T> {
     worker: Arc<Semaphore>,
     pending: Option<Pending>,
     request: Option<Arc<ReviewRequest>>,
-    ready: Option<ReviewView>,
+    ready: Option<FilePreview>,
     error: Option<String>,
     snapshot: Option<Arc<ReviewSnapshot>>,
     dirty: bool,
@@ -146,7 +176,12 @@ impl<T> PickerPreview<T> for ChangeReviewPreview<T> {
         }
         let poll = &cx.editor.config().files.reload.poll;
         self.dirty |= dirty;
-        let request = ReviewRequest::new(cx.editor, status, comparison, &self.workspace);
+        let mut request = ReviewRequest::new(cx.editor, status, comparison, &self.workspace);
+        if self.comparison.is_none()
+            || matches!(status.unstaged, Some(vcs::FileChange::Conflict { .. }))
+        {
+            request = request.with_conflict_preview();
+        }
         let target_changed = self
             .request
             .as_ref()
@@ -189,19 +224,29 @@ impl<T> PickerPreview<T> for ChangeReviewPreview<T> {
                         match result {
                             Ok(snapshot) => {
                                 let offset = self.ready.as_ref().map_or(0, |view| view.offset);
-                                let mut view = ReviewView::from_shared(
-                                    format!(
-                                        "{} · {}",
-                                        comparison.label(),
-                                        status
-                                            .path()
-                                            .strip_prefix(&self.workspace)
-                                            .unwrap_or(status.path())
-                                            .display()
-                                    ),
-                                    snapshot.review.clone(),
-                                );
-                                view.offset = offset;
+                                let path = status
+                                    .path()
+                                    .strip_prefix(&self.workspace)
+                                    .unwrap_or(status.path())
+                                    .display();
+                                let content = match &snapshot.content {
+                                    ReviewContent::Diff(review) => {
+                                        PreviewContent::Diff(ReviewView::from_shared(
+                                            format!("{} · {}", comparison.label(), path),
+                                            review.clone(),
+                                        ))
+                                    }
+                                    ReviewContent::Conflict(model) => {
+                                        PreviewContent::Conflict(Box::new(ConflictView::new(
+                                            format!("Conflicts · {path}"),
+                                            snapshot.source.conflict_document(
+                                                cx.editor.config.clone(),
+                                                model.clone(),
+                                            ),
+                                        )))
+                                    }
+                                };
+                                let view = FilePreview { offset, content };
                                 self.ready = Some(view);
                                 self.snapshot = Some(snapshot);
                                 self.error = None;
@@ -228,11 +273,13 @@ impl<T> PickerPreview<T> for ChangeReviewPreview<T> {
         }
         let content = Rect::new(area.x, area.y, area.width, area.height.saturating_sub(1));
         if let Some(view) = &mut self.ready {
-            view.offset =
-                view.offset.min(view.review.lines.len().saturating_sub(
-                    content.height.saturating_sub(view.heading_rows() as u16) as usize,
-                ));
-            view.draw(content, surface, cx, view.offset);
+            view.offset = view.offset.min(
+                view.line_count(content.width, &cx.editor.theme)
+                    .saturating_sub(
+                        content.height.saturating_sub(view.heading_rows() as u16) as usize
+                    ),
+            );
+            view.draw(content, surface, cx);
         } else {
             surface.set_stringn(
                 area.x,

@@ -64,7 +64,7 @@ The preview starts with unsaved edits when available, then unstaged changes, the
 staged changes. `Alt-Left` / `Alt-Right` also switch comparisons, but some
 terminals use those keys for word movement.
 
-For conflicted files, the preview compares your changes with `HEAD`, including
+For conflicted files, the preview shows each side of the conflict, including
 unsaved edits. Press `Enter` to open the file and
 [resolve the conflicts](#resolving-conflicts).
 
@@ -374,6 +374,11 @@ Available placeholders are:
 
 Open a conflicted file from the changed-files picker (`Space g s`). Use `]m` to
 move to the next conflict or `[m` to move to the previous one.
+
+Conflicts appear as labeled sections for the current, incoming, and base versions
+when available. The gutter marks these sections instead of ordinary Git changes.
+Selecting a marker line reveals its original text so you can edit it. Run
+`:vcs-conflict-toggle-markers` to show or hide all raw markers in the current view.
 
 Place the cursor inside a conflict and press `Space a` to choose **Accept current**,
 **Accept incoming**, or **Accept both (current then incoming)**. Other available

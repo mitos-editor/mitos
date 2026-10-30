@@ -287,6 +287,7 @@ impl PaneRenderer {
 
         let text_annotations = &layout.annotations;
         let mut decorations = DecorationManager::default();
+        decorations.add_decoration(text_decorations::conflicts::line_backgrounds(doc, theme));
         if doc.review().is_some() {
             decorations.add_decoration(crate::ui::change_review::document::line_backgrounds(
                 doc, theme,

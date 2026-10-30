@@ -1565,6 +1565,14 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
         signature: Signature { positionals: (1, Some(1)), ..Signature::DEFAULT },
     },
     TypableCommand {
+        name: "vcs-conflict-toggle-markers",
+        aliases: &[],
+        doc: "Show or hide raw conflict markers in the current view.",
+        fun: super::conflicts::toggle_markers,
+        completer: CommandCompleter::none(),
+        signature: Signature { positionals: (0, Some(0)), ..Signature::DEFAULT },
+    },
+    TypableCommand {
         name: "vcs-conflict-source",
         aliases: &[],
         doc: "Open the base, current, or incoming version of a conflicted file in a read-only split.",

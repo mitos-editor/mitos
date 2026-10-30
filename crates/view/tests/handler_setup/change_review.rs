@@ -388,12 +388,12 @@ async fn full_file_head_review_captures_unsaved_text_and_resolves_staged_renames
         "unsaved\nsecond\nthird\nfourth\n"
     );
     assert!(snapshot
-        .review
+        .diff()?
         .lines
         .iter()
         .any(|line| line.text == "committed"));
     assert!(!snapshot
-        .review
+        .diff()?
         .lines
         .iter()
         .any(|line| line.text == "staged"));
@@ -454,8 +454,8 @@ async fn review_engine_policy_cache_and_captured_language_resources_follow_confi
     };
     let line = ReviewRequest::new(&f.editor, &status, ReviewComparison::Buffer, f.dir.path());
     let original = line.compute_cached(None)?;
-    assert_eq!(original.review.provider, None);
-    assert!(original.review.fallback.is_none());
+    assert_eq!(original.diff()?.provider, None);
+    assert!(original.diff()?.fallback.is_none());
     let hunk = HunkReviewRequest::capture(&f.editor)?;
     f.configure(|config| config.diff.engine = DiffEngine::Syntax);
     assert!(!line.is_current(&f.editor));
@@ -464,7 +464,7 @@ async fn review_engine_policy_cache_and_captured_language_resources_follow_confi
     assert!(!line.same_target(&syntax));
     let updated = syntax.compute_cached(Some(original.clone()))?;
     assert!(!Arc::ptr_eq(&updated, &original));
-    assert_eq!(updated.review.provider, Some("syntax"));
+    assert_eq!(updated.diff()?.provider, Some("syntax"));
     assert_eq!(
         updated
             .source
@@ -488,7 +488,7 @@ async fn review_engine_policy_cache_and_captured_language_resources_follow_confi
     let line = ReviewRequest::new(&f.editor, &status, ReviewComparison::Buffer, f.dir.path());
     let updated = line.compute_cached(Some(original.clone()))?;
     assert_eq!(updated.engine(), DiffEngine::Line);
-    assert_eq!(updated.review.provider, None);
+    assert_eq!(updated.diff()?.provider, None);
     assert!(!Arc::ptr_eq(&original.source, &updated.source));
     f.editor.syn_loader.store(Arc::new(language::Loader::new(
         toml::from_str(JSON_LANGUAGE)?,
@@ -621,12 +621,12 @@ async fn repository_review_cache_reuses_unchanged_snapshots_and_follows_staging(
     let original = request.compute_cached(None)?;
     let cached = request.compute_cached(Some(original.clone()))?;
     assert!(Arc::ptr_eq(&original, &cached));
-    assert_eq!(original.review.additions, 0);
+    assert_eq!(original.diff()?.additions, 0);
     let unstaged = ReviewRequest::new(&f.editor, &status, ReviewComparison::Unstaged, f.dir.path());
     let unstaged = unstaged.compute_cached(Some(original.clone()))?;
-    assert_eq!(unstaged.review.additions, 1);
+    assert_eq!(unstaged.diff()?.additions, 1);
     assert!(unstaged
-        .review
+        .diff()?
         .lines
         .iter()
         .any(|line| line.text == "disk edit"));
@@ -634,12 +634,12 @@ async fn repository_review_cache_reuses_unchanged_snapshots_and_follows_staging(
     let updated = request.compute_cached(Some(original.clone()))?;
     assert!(!Arc::ptr_eq(&original, &updated));
     assert!(updated
-        .review
+        .diff()?
         .lines
         .iter()
         .any(|line| line.text == "disk edit"));
     assert!(updated
-        .review
+        .diff()?
         .lines
         .iter()
         .any(|line| line.text == "committed"));
@@ -666,7 +666,7 @@ async fn reviews_honor_explicit_encoding_and_reject_results_after_encoding_chang
     let original = buffer.compute_cached(None)?;
     let hunk = HunkReviewRequest::capture(&f.editor)?;
     let inspected = hunk.compute()?;
-    for review in [original.review.as_ref(), inspected.as_ref()] {
+    for review in [original.diff()?.as_ref(), inspected.as_ref()] {
         assert_eq!((review.additions, review.deletions), (1, 1));
         assert!(review.lines.iter().any(|line| line.text == "café"));
         assert!(review.lines.iter().any(|line| line.text == "caféteria"));
@@ -698,7 +698,7 @@ async fn repository_attributes_invalidate_cached_worktree_conversions() -> anyho
     let request = ReviewRequest::new(&f.editor, &status, ReviewComparison::Unstaged, f.dir.path());
     let original = request.compute_cached(None)?;
     assert_eq!(
-        (original.review.additions, original.review.deletions),
+        (original.diff()?.additions, original.diff()?.deletions),
         (1, 1)
     );
     let attributes = f.dir.path().join(".git/info/attributes");
@@ -706,7 +706,10 @@ async fn repository_attributes_invalidate_cached_worktree_conversions() -> anyho
     assert!(original.affected_by(&attributes.canonicalize()?));
     let updated = request.compute_cached(Some(original.clone()))?;
     assert!(!Arc::ptr_eq(&original, &updated));
-    assert_eq!((updated.review.additions, updated.review.deletions), (2, 2));
+    assert_eq!(
+        (updated.diff()?.additions, updated.diff()?.deletions),
+        (2, 2)
+    );
     Ok(())
 }
 
@@ -1332,4 +1335,35 @@ pub(super) fn file_event(
         path: CanonicalPathBuf::assert_canonicalized(&stdx::path::canonicalize_existing(path)),
         ty,
     }]));
+}
+
+#[tokio::test]
+async fn conflict_previews_keep_source_sections_and_explicit_reviews_still_compute_diffs(
+) -> anyhow::Result<()> {
+    use view::features::change_review::ReviewContent;
+    let mut f = Fixture::new("committed\n")?;
+    prepare(&mut f, "initial");
+    let path = current_ref!(f.editor).1.path().unwrap().to_owned();
+    let markers = "prefix\n<<<<<<< HEAD\ncurrent\n=======\nincoming\n>>>>>>> topic\n";
+    f.replace(markers);
+    let request = review_request(&f, &path, ReviewComparison::Head);
+    let preview = request.clone().with_conflict_preview();
+    let snapshot = preview.compute_cached(None)?;
+    assert!(
+        matches!(&snapshot.content, ReviewContent::Conflict(model) if model.regions.len() == 1)
+    );
+    assert!(snapshot.diff().is_err());
+    assert_eq!(snapshot.source.after().to_string(), markers);
+    assert!(Arc::ptr_eq(
+        &snapshot,
+        &preview.compute_cached(Some(snapshot.clone()))?
+    ));
+    let explicit = request.compute_cached(Some(snapshot))?;
+    assert!(explicit.diff()?.additions > 0);
+    f.replace("resolved\n");
+    let resolved = review_request(&f, &path, ReviewComparison::Head)
+        .with_conflict_preview()
+        .compute_cached(None)?;
+    assert!(matches!(resolved.content, ReviewContent::Diff(_)));
+    Ok(())
 }

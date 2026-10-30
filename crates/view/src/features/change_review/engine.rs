@@ -126,6 +126,24 @@ impl ReviewSource {
         }
     }
 
+    /// Unregistered source snapshot for a structured picker preview. It has no
+    /// filesystem identity, write history, or attached language server.
+    pub fn conflict_document(
+        &self,
+        config: Arc<dyn arc_swap::access::DynAccess<editor_config::Config>>,
+        model: Arc<crate::features::conflicts::ConflictPresentation>,
+    ) -> crate::Document {
+        let mut doc = crate::Document::from(
+            self.after.clone(),
+            None,
+            config,
+            self.settings.loader.clone(),
+        );
+        self.initialize_document(&mut doc, false);
+        let _ = doc.conflicts.set(model);
+        doc
+    }
+
     pub fn engine(&self) -> DiffEngine {
         self.settings.engine
     }

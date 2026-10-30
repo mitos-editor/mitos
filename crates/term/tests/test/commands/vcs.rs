@@ -952,9 +952,10 @@ fn create_index_conflict(repo: &Path) {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn conflicted_file_preview_uses_head_and_tracks_unsaved_resolution() -> anyhow::Result<()> {
+async fn conflicted_file_preview_shows_sections_and_tracks_unsaved_resolution() -> anyhow::Result<()>
+{
     let Some(root) = super::super::helpers::isolation::workspace(
-        "test::commands::vcs::conflicted_file_preview_uses_head_and_tracks_unsaved_resolution",
+        "test::commands::vcs::conflicted_file_preview_shows_sections_and_tracks_unsaved_resolution",
     )?
     else {
         return Ok(());
@@ -966,9 +967,10 @@ async fn conflicted_file_preview_uses_head_and_tracks_unsaved_resolution() -> an
     let index = std::fs::read(repo.join(".git/index"))?;
     let mut app = AppBuilder::new().build()?;
     press_keys(&mut app, "<space>gsfile.txt").await?;
-    wait_for_review_screen(&mut app, "Changes · HEAD → working tree", "<<<<<<<").await?;
+    wait_for_review_screen(&mut app, "Conflicts · file.txt", "Current: HEAD").await?;
+    assert!(!review_screen(&app).contains("<<<<<<<"));
     press_keys(&mut app, "<A-n><A-p>").await?;
-    wait_for_review_screen(&mut app, "Changes · HEAD → working tree", "theirs").await?;
+    wait_for_review_screen(&mut app, "Conflicts · file.txt", "theirs").await?;
     assert!(!review_screen(&app).contains("Unmerged file"));
     assert!(!review_screen(&app).contains("versions"));
     press_keys(&mut app, "<ret>").await?;
@@ -1036,6 +1038,76 @@ async fn conflict_source_opens_the_index_stage_in_a_readonly_split() -> anyhow::
     assert!(requested_actions(&mut app).await?.is_empty());
     assert_eq!(std::fs::read_to_string(&path)?, original);
     assert_eq!(std::fs::read(dir.path().join(".git/index"))?, index);
+    assert!(app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn conflict_headings_reveal_source_for_editing_and_follow_undo() -> anyhow::Result<()> {
+    let original =
+        "préfix\n<<<<<<< HEAD\nours\n||||||| base\nold\n=======\ntheirs\n>>>>>>> topic\nsuffix\n";
+    let (dir, path) = committed_file()?;
+    std::fs::write(&path, original)?;
+    let mut app = AppBuilder::new().with_file(&path, None).build()?;
+    run_event_loop_until_idle(&mut app).await;
+    let screen = review_screen(&app);
+    assert!(screen.contains("Current: HEAD"), "{screen}");
+    assert!(screen.contains("Incoming: topic"));
+    assert!(screen.contains("Base"));
+    assert!(!screen.contains("<<<<<<<"));
+    assert!(!screen.contains("======="));
+    assert!(screen.contains("│"));
+    assert!(!screen.contains("▍"));
+    assert_eq!(current_ref!(app.editor).1.text().to_string(), original);
+
+    // A heading's source row is exposed when movement/search selects it.
+    press_keys(&mut app, "]m").await?;
+    assert!(review_screen(&app).contains("<<<<<<< HEAD"));
+    press_keys(&mut app, "j").await?;
+    assert!(review_screen(&app).contains("Space a: resolve"));
+    assert!(!review_screen(&app).contains("<<<<<<<"));
+    press_keys(&mut app, ":vcs-conflict-toggle-markers<ret>").await?;
+    assert!(review_screen(&app).contains("<<<<<<< HEAD"));
+    assert!(review_screen(&app).contains("======="));
+    assert!(current_ref!(app.editor)
+        .1
+        .raw_conflict_markers(current_ref!(app.editor).0.id));
+    let raw_view = current_ref!(app.editor).0.id;
+    press_keys(&mut app, "<C-w>v").await?;
+    let split_view = current_ref!(app.editor).0.id;
+    assert_ne!(raw_view, split_view);
+    assert!(!current_ref!(app.editor).1.raw_conflict_markers(split_view));
+    assert!(current_ref!(app.editor).1.raw_conflict_markers(raw_view));
+    press_keys(&mut app, ":q<ret>").await?;
+    press_keys(&mut app, ":vcs-conflict-toggle-markers<ret>").await?;
+    assert!(!review_screen(&app).contains("<<<<<<<"));
+    press_keys(&mut app, ":vcs-conflict-resolve incoming<ret>").await?;
+    assert!(!current_ref!(app.editor).1.conflict_presentation().active());
+    assert!(!review_screen(&app).contains("Current: HEAD"));
+    press_keys(&mut app, "u").await?;
+    assert_eq!(current_ref!(app.editor).1.text().to_string(), original);
+    assert!(current_ref!(app.editor).1.conflict_presentation().active());
+    press_keys(&mut app, "gg").await?;
+    assert!(review_screen(&app).contains("Current: HEAD"));
+
+    // Breaking a marker invalidates every heading; undo rebuilds the model.
+    press_keys(&mut app, "]miX<esc>").await?;
+    assert!(current_ref!(app.editor)
+        .1
+        .conflict_presentation()
+        .error
+        .is_some());
+    assert!(current_ref!(app.editor)
+        .1
+        .conflict_presentation()
+        .markers
+        .is_empty());
+    assert!(requested_actions(&mut app).await?.is_empty());
+    press_keys(&mut app, "ugg").await?;
+    assert_eq!(current_ref!(app.editor).1.text().to_string(), original);
+    assert!(review_screen(&app).contains("Current: HEAD"));
+    assert_eq!(std::fs::read_to_string(&path)?, original);
+    git(dir.path(), &["diff", "--cached", "--exit-code"]);
     assert!(app.close().await.is_empty());
     Ok(())
 }

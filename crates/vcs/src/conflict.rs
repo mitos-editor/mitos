@@ -7,11 +7,21 @@ use anyhow::{bail, ensure, Result};
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Conflict {
     pub whole: Range<usize>,
+    pub markers: MarkerRanges,
     pub current: Range<usize>,
     pub base: Option<Range<usize>>,
     pub incoming: Range<usize>,
     pub current_label: String,
     pub incoming_label: String,
+}
+
+/// Exact marker lines, including their original line endings, in UTF-8 bytes.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MarkerRanges {
+    pub current: Range<usize>,
+    pub base: Option<Range<usize>>,
+    pub incoming: Range<usize>,
+    pub end: Range<usize>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -171,6 +181,19 @@ pub fn parse(text: &str) -> Result<Vec<Conflict>> {
                                 .ok_or_else(|| anyhow::anyhow!("Conflict has no separator"))?;
                             result.push(Conflict {
                                 whole: region.start..offset + line.len(),
+                                markers: MarkerRanges {
+                                    current: region.start..region.current.start,
+                                    base: region
+                                        .base
+                                        .as_ref()
+                                        .map(|base| region.current.end..base.start),
+                                    incoming: region
+                                        .base
+                                        .as_ref()
+                                        .map_or(region.current.end, |base| base.end)
+                                        ..incoming,
+                                    end: offset..offset + line.len(),
+                                },
                                 current: region.current,
                                 base: region.base,
                                 incoming: incoming..offset,

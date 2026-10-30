@@ -80,6 +80,15 @@ impl Overlay {
     }
 }
 
+/// A non-empty, single-line display label replacing a source range in characters.
+/// The source range must start and end at grapheme boundaries and exclude line endings.
+/// Positions inside the range map to the label's anchor; the underlying text is unchanged.
+#[derive(Debug, Clone)]
+pub struct LineReplacement {
+    pub range: Range<usize>,
+    pub text: Tendril,
+}
+
 /// Line annotations allow inserting virtual text lines between normal text
 /// lines.  These lines can be filled with text in the rendering code as their
 /// contents have no effect beyond visual appearance.
@@ -200,8 +209,14 @@ impl<A, M> Layer<'_, A, M> {
     }
 
     pub fn consume(&self, char_idx: usize, get_char_idx: impl Fn(&A) -> usize) -> Option<&A> {
+        if self
+            .annotations
+            .get(self.current_index.get())
+            .is_some_and(|annot| get_char_idx(annot) < char_idx)
+        {
+            self.reset_pos(char_idx, &get_char_idx);
+        }
         let annot = self.annotations.get(self.current_index.get())?;
-        debug_assert!(get_char_idx(annot) >= char_idx);
         if get_char_idx(annot) == char_idx {
             self.current_index.set(self.current_index.get() + 1);
             Some(annot)
@@ -277,6 +292,7 @@ impl<T: ?Sized> Drop for RawBox<T> {
 /// Also commonly called virtual text.
 #[derive(Default)]
 pub struct TextAnnotations<'a> {
+    replacements: Vec<(&'a LineReplacement, Option<Highlight>)>,
     inline_annotations: Vec<Layer<'a, InlineAnnotation, Option<Highlight>>>,
     overlays: Vec<Layer<'a, Overlay, Option<Highlight>>>,
     line_annotations: Vec<(Cell<usize>, RawBox<dyn LineAnnotation + 'a>)>,
@@ -314,6 +330,34 @@ impl<'a> TextAnnotations<'a> {
         }
 
         OverlayHighlights::Heterogenous { highlights }
+    }
+
+    /// Add a single-line replacement. Ranges must be sorted and non-overlapping.
+    pub fn add_line_replacement(
+        &mut self,
+        replacement: &'a LineReplacement,
+        highlight: Option<Highlight>,
+    ) {
+        assert!(!replacement.range.is_empty() && !replacement.text.is_empty());
+        assert!(!replacement.text.contains(['\n', '\r']));
+        assert!(self
+            .replacements
+            .last()
+            .is_none_or(|(last, _)| last.range.end <= replacement.range.start));
+        self.replacements.push((replacement, highlight));
+    }
+
+    pub(crate) fn replacement_at(
+        &self,
+        char_idx: usize,
+    ) -> Option<(&'a LineReplacement, Option<Highlight>)> {
+        let index = self
+            .replacements
+            .partition_point(|(replacement, _)| replacement.range.start < char_idx);
+        self.replacements
+            .get(index)
+            .copied()
+            .filter(|(replacement, _)| replacement.range.start == char_idx)
     }
 
     /// Add new inline annotations.
