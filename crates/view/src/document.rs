@@ -197,6 +197,8 @@ pub struct Document {
     pub(crate) document_highlights: DocumentHighlightsState,
     pub(crate) code_action_hints: CodeActionHints,
     pub(crate) code_actions: crate::features::code_actions::CodeActionsState,
+    pub(crate) conflicts:
+        std::sync::OnceLock<Arc<crate::features::conflicts::ConflictPresentation>>,
     pub(crate) document_symbols: DocumentSymbols,
     pub(crate) workspace_symbols: event::TaskController,
     pub(crate) review: Option<Box<crate::features::change_review::ReviewDocument>>,
@@ -337,6 +339,7 @@ impl Document {
             document_highlights: Default::default(),
             code_action_hints: Default::default(),
             code_actions: Default::default(),
+            conflicts: Default::default(),
             document_links: Default::default(),
             document_colors: Default::default(),
             code_lenses: Default::default(),

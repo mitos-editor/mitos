@@ -27,8 +27,8 @@ async fn press_keys(app: &mut Application, keys: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn git(dir: &Path, args: &[&str]) {
-    let output = Command::new("git")
+fn git_output(dir: &Path, args: &[&str]) -> std::process::Output {
+    Command::new("git")
         .arg("-C")
         .arg(dir)
         .args(args)
@@ -43,7 +43,11 @@ fn git(dir: &Path, args: &[&str]) {
         .env("GIT_CONFIG_KEY_1", "init.defaultBranch")
         .env("GIT_CONFIG_VALUE_1", "main")
         .output()
-        .unwrap();
+        .unwrap()
+}
+
+fn git(dir: &Path, args: &[&str]) {
+    let output = git_output(dir, args);
     assert!(
         output.status.success(),
         "{}",
@@ -763,6 +767,428 @@ async fn review_refreshes_after_external_staging_and_edits_without_polling() -> 
     assert!(review_screen(&app).contains("first edit"));
     assert!(review_screen(&app).contains("1/1"));
     press_keys(&mut app, "<esc>").await?;
+    assert!(app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn conflict_resolution_is_undoable_and_never_writes_disk_or_index() -> anyhow::Result<()> {
+    let (dir, path) = committed_file()?;
+    let original = "prefix\n<<<<<<< HEAD\ncurrent\n||||||| base\ncommitted\n=======\nincoming\n>>>>>>> topic\nsuffix\n";
+    std::fs::write(&path, original)?;
+    let mut app = AppBuilder::new().with_file(&path, None).build()?;
+    run_event_loop_until_idle(&mut app).await;
+    press_keys(&mut app, "]m").await?;
+    press_keys(&mut app, ":vcs-conflict-resolve both<ret>").await?;
+    assert_eq!(
+        current_ref!(app.editor).1.text().to_string(),
+        "prefix\ncurrent\nincoming\nsuffix\n"
+    );
+    assert_eq!(std::fs::read_to_string(&path)?, original);
+    git(dir.path(), &["diff", "--cached", "--exit-code"]);
+    press_keys(&mut app, "u").await?;
+    assert_eq!(current_ref!(app.editor).1.text().to_string(), original);
+    assert!(app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn conflict_navigation_wraps_and_resolution_leaves_other_conflicts_untouched(
+) -> anyhow::Result<()> {
+    let first = "<<<<<<< HEAD\none\n=======\ntwo\n>>>>>>> topic\n";
+    let second = "<<<<<<< HEAD\nthree\n=======\nfour\n>>>>>>> topic\n";
+    let text = format!("prefix\n{first}middle\n{second}");
+    let mut app = AppBuilder::new()
+        .with_input_text(format!("#[|]#{text}"))
+        .build()?;
+    run_event_loop_until_idle(&mut app).await;
+    press_keys(&mut app, "]m]m").await?;
+    press_keys(&mut app, ":vcs-conflict-resolve incoming<ret>").await?;
+    assert_eq!(
+        current_ref!(app.editor).1.text().to_string(),
+        format!("prefix\n{first}middle\nfour\n")
+    );
+    press_keys(&mut app, "]m").await?;
+    press_keys(&mut app, ":vcs-conflict-resolve current<ret>").await?;
+    assert_eq!(
+        current_ref!(app.editor).1.text().to_string(),
+        "prefix\none\nmiddle\nfour\n"
+    );
+    assert!(app.close().await.is_empty());
+    Ok(())
+}
+
+async fn requested_actions(app: &mut Application) -> anyhow::Result<Vec<view::action::Action>> {
+    let update = app
+        .editor
+        .request_code_actions()
+        .run()
+        .await
+        .ok_or_else(|| anyhow::anyhow!("action request canceled"))?;
+    update
+        .into_actions(&app.editor)
+        .ok_or_else(|| anyhow::anyhow!("action request stale"))
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn conflict_actions_resolve_each_choice_without_a_language_server() -> anyhow::Result<()> {
+    let original = "préfix\r\n<<<<<<< HEAD\r\nours\r\n||||||| base\r\nold\r\n=======\r\ntheirs\r\n>>>>>>> topic\r\nsuffix\r\n";
+    for (title, replacement) in [
+        ("Accept current", "ours\r\n"),
+        ("Accept incoming", "theirs\r\n"),
+        ("Accept both (current then incoming)", "ours\r\ntheirs\r\n"),
+    ] {
+        let mut config = test_config();
+        config.editor.lsp.enable = false;
+        let mut app = AppBuilder::new()
+            .with_config(config)
+            .with_input_text(format!("#[|]#{original}"))
+            .build()?;
+        press_keys(&mut app, "]m").await?;
+        let actions = requested_actions(&mut app).await?;
+        assert_eq!(actions.len(), 3);
+        actions
+            .iter()
+            .find(|action| action.title() == title)
+            .unwrap()
+            .execute(&mut app.editor);
+        assert_eq!(
+            current_ref!(app.editor).1.text().to_string(),
+            format!("préfix\r\n{replacement}suffix\r\n")
+        );
+        press_keys(&mut app, "u").await?;
+        assert_eq!(current_ref!(app.editor).1.text().to_string(), original);
+        assert!(app.close().await.is_empty());
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn conflict_actions_reject_stale_selection_and_document_snapshots() -> anyhow::Result<()> {
+    let original = "prefix\n<<<<<<< HEAD\nours\n=======\ntheirs\n>>>>>>> topic\nsuffix\n";
+    let mut app = AppBuilder::new()
+        .with_input_text(format!("#[|]#{original}"))
+        .build()?;
+    assert!(requested_actions(&mut app).await?.is_empty());
+    press_keys(&mut app, "]m").await?;
+    let actions = requested_actions(&mut app).await?;
+    press_keys(&mut app, "j").await?;
+    actions[0].execute(&mut app.editor);
+    assert_eq!(current_ref!(app.editor).1.text().to_string(), original);
+    let actions = requested_actions(&mut app).await?;
+    press_keys(&mut app, "iX<esc>").await?;
+    let edited = current_ref!(app.editor).1.text().to_string();
+    actions[0].execute(&mut app.editor);
+    assert_eq!(current_ref!(app.editor).1.text().to_string(), edited);
+    assert!(app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn space_a_offers_conflict_resolution_and_preserves_disk_and_index() -> anyhow::Result<()> {
+    let (dir, path) = committed_file()?;
+    let original = "prefix\n<<<<<<< HEAD\nours\n=======\ntheirs\n>>>>>>> topic\n";
+    std::fs::write(&path, original)?;
+    let index = std::fs::read(dir.path().join(".git/index"))?;
+    let mut app = AppBuilder::new().with_file(&path, None).build()?;
+    press_keys(&mut app, "]m<space>a").await?;
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let (tx, rx) = tokio::sync::oneshot::channel();
+            app.job_sender()
+                .send(move |_, compositor| {
+                    let selected = compositor
+                        .find_id::<term::ui::Popup<term::ui::Menu<view::action::Action>>>(
+                            "code-action",
+                        )
+                        .and_then(|popup| popup.contents().selection())
+                        .map(|action| action.title().to_owned());
+                    let _ = tx.send(selected);
+                })
+                .await;
+            run_event_loop_until_idle(&mut app).await;
+            if let Some(title) = rx.await? {
+                assert_eq!(title, "Accept current");
+                break;
+            }
+        }
+        anyhow::Ok(())
+    })
+    .await??;
+    press_keys(&mut app, "<C-n><ret>").await?;
+    assert_eq!(
+        current_ref!(app.editor).1.text().to_string(),
+        "prefix\ntheirs\n"
+    );
+    assert_eq!(std::fs::read_to_string(&path)?, original);
+    assert_eq!(std::fs::read(dir.path().join(".git/index"))?, index);
+    press_keys(&mut app, "u").await?;
+    assert_eq!(current_ref!(app.editor).1.text().to_string(), original);
+    assert!(app.close().await.is_empty());
+    Ok(())
+}
+
+fn create_index_conflict(repo: &Path) {
+    create_encoded_index_conflict(repo, |text| text.as_bytes().to_vec());
+    assert!(std::fs::read_to_string(repo.join("file.txt"))
+        .unwrap()
+        .contains("<<<<<<<"));
+}
+
+fn create_encoded_index_conflict(repo: &Path, encode: impl Fn(&str) -> Vec<u8>) {
+    let path = repo.join("file.txt");
+    std::fs::write(&path, encode("base\n")).unwrap();
+    std::fs::write(repo.join(".gitattributes"), "* text eol=lf\n").unwrap();
+    git(repo, &["init"]);
+    git(repo, &["add", "-A"]);
+    git(repo, &["commit", "-m", "base"]);
+    git(repo, &["checkout", "-b", "incoming"]);
+    std::fs::write(&path, encode("theirs\n")).unwrap();
+    git(repo, &["commit", "-am", "incoming"]);
+    git(repo, &["checkout", "main"]);
+    std::fs::write(&path, encode("ours\n")).unwrap();
+    git(repo, &["commit", "-am", "current"]);
+    let merge = git_output(repo, &["merge", "incoming"]);
+    assert_eq!(
+        merge.status.code(),
+        Some(1),
+        "{}",
+        String::from_utf8_lossy(&merge.stderr)
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn conflicted_file_preview_shows_sections_and_tracks_unsaved_resolution() -> anyhow::Result<()>
+{
+    let Some(root) = super::super::helpers::isolation::workspace(
+        "test::commands::vcs::conflicted_file_preview_shows_sections_and_tracks_unsaved_resolution",
+    )?
+    else {
+        return Ok(());
+    };
+    let repo = root.join("workspace");
+    let path = repo.join("file.txt");
+    create_index_conflict(&repo);
+    let original = std::fs::read_to_string(&path)?;
+    let index = std::fs::read(repo.join(".git/index"))?;
+    let mut app = AppBuilder::new().build()?;
+    press_keys(&mut app, "<space>gsfile.txt").await?;
+    wait_for_review_screen(&mut app, "Conflicts · file.txt", "Current: HEAD").await?;
+    assert!(!review_screen(&app).contains("<<<<<<<"));
+    press_keys(&mut app, "<A-n><A-p>").await?;
+    wait_for_review_screen(&mut app, "Conflicts · file.txt", "theirs").await?;
+    assert!(!review_screen(&app).contains("Unmerged file"));
+    assert!(!review_screen(&app).contains("versions"));
+    press_keys(&mut app, "<ret>").await?;
+    assert_eq!(current_ref!(app.editor).1.path(), Some(path.as_path()));
+    assert!(current_ref!(app.editor).1.review().is_none());
+    press_keys(
+        &mut app,
+        "]m:vcs-conflict-resolve incoming<ret><space>gsfile.txt",
+    )
+    .await?;
+    wait_for_review_screen(&mut app, "Changes · HEAD → buffer", "theirs").await?;
+    assert!(!review_screen(&app).contains("<<<<<<<"));
+    press_keys(&mut app, "<A-n><A-p>").await?;
+    wait_for_review_screen(&mut app, "Changes · HEAD → buffer", "theirs").await?;
+    press_keys(&mut app, "<esc>").await?;
+    assert_eq!(std::fs::read_to_string(&path)?, original);
+    assert_eq!(std::fs::read(repo.join(".git/index"))?, index);
+    assert!(app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn conflict_actions_ignore_malformed_and_immutable_documents() -> anyhow::Result<()> {
+    let malformed = "<<<<<<< HEAD\nours\n=======\ntheirs\n";
+    let mut app = AppBuilder::new()
+        .with_input_text(format!("#[|]#{malformed}"))
+        .build()?;
+    assert!(requested_actions(&mut app).await?.is_empty());
+    let original = "<<<<<<< HEAD\nours\n=======\ntheirs\n>>>>>>> topic\n";
+    view::features::conflicts::open_source(
+        &mut app.editor,
+        "Read-only source".into(),
+        editor_core::Rope::from(original),
+    );
+    assert!(current_ref!(app.editor).1.is_readonly());
+    assert!(requested_actions(&mut app).await?.is_empty());
+    assert!(view::features::conflicts::resolve(
+        &mut app.editor,
+        vcs::conflict::Resolution::Current
+    )
+    .is_err());
+    assert_eq!(current_ref!(app.editor).1.text().to_string(), original);
+    assert!(app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn conflict_source_opens_the_index_stage_in_a_readonly_split() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    create_index_conflict(dir.path());
+    let path = dir.path().join("file.txt");
+    let index = std::fs::read(dir.path().join(".git/index"))?;
+    let original = std::fs::read_to_string(&path)?;
+    let mut app = AppBuilder::new().with_file(&path, None).build()?;
+    press_keys(&mut app, ":vcs-conflict-source base<ret>").await?;
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while !current_ref!(app.editor).1.is_readonly() {
+            run_event_loop_until_idle(&mut app).await;
+        }
+    })
+    .await?;
+    let (_, doc) = current_ref!(app.editor);
+    assert!(doc.path().is_none());
+    assert_eq!(doc.text().to_string(), "base\n");
+    assert!(requested_actions(&mut app).await?.is_empty());
+    assert_eq!(std::fs::read_to_string(&path)?, original);
+    assert_eq!(std::fs::read(dir.path().join(".git/index"))?, index);
+    assert!(app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn conflict_headings_stay_stable_during_navigation_and_follow_undo() -> anyhow::Result<()> {
+    let original =
+        "préfix\n<<<<<<< HEAD\nours\n||||||| base\nold\n=======\ntheirs\n>>>>>>> topic\nsuffix\n";
+    let (dir, path) = committed_file()?;
+    std::fs::write(&path, original)?;
+    let mut app = AppBuilder::new().with_file(&path, None).build()?;
+    run_event_loop_until_idle(&mut app).await;
+    let screen = review_screen(&app);
+    assert!(screen.contains("Current: HEAD"), "{screen}");
+    assert!(screen.contains("Incoming: topic"));
+    assert!(screen.contains("Base"));
+    assert!(!screen.contains("<<<<<<<"));
+    assert!(!screen.contains("======="));
+    assert!(screen.contains("│"));
+    assert!(!screen.contains("▍"));
+    assert_eq!(current_ref!(app.editor).1.text().to_string(), original);
+
+    // Navigating through labels must not reveal raw markers or lose the caret.
+    press_keys(&mut app, "]mlll").await?;
+    assert!(!review_screen(&app).contains("<<<<<<< HEAD"));
+    let (view, doc) = current_ref!(app.editor);
+    assert!(app.editor.cursor_cache.get(view, doc).is_some());
+    press_keys(&mut app, "6j").await?;
+    assert!(review_screen(&app).contains("End conflict"));
+    assert!(!review_screen(&app).contains(">>>>>>> topic"));
+    let (view, doc) = current_ref!(app.editor);
+    assert!(app.editor.cursor_cache.get(view, doc).is_some());
+    press_keys(&mut app, "]mj").await?;
+    press_keys(&mut app, ":vcs-conflict-toggle-markers<ret>").await?;
+    assert!(review_screen(&app).contains("<<<<<<< HEAD"));
+    assert!(review_screen(&app).contains("======="));
+    assert!(current_ref!(app.editor)
+        .1
+        .raw_conflict_markers(current_ref!(app.editor).0.id));
+    let raw_view = current_ref!(app.editor).0.id;
+    press_keys(&mut app, "<C-w>v").await?;
+    let split_view = current_ref!(app.editor).0.id;
+    assert_ne!(raw_view, split_view);
+    assert!(!current_ref!(app.editor).1.raw_conflict_markers(split_view));
+    assert!(current_ref!(app.editor).1.raw_conflict_markers(raw_view));
+    press_keys(&mut app, ":q<ret>").await?;
+    press_keys(&mut app, ":vcs-conflict-toggle-markers<ret>").await?;
+    assert!(!review_screen(&app).contains("<<<<<<<"));
+    press_keys(&mut app, ":vcs-conflict-resolve incoming<ret>").await?;
+    assert!(!current_ref!(app.editor).1.conflict_presentation().active());
+    assert!(!review_screen(&app).contains("Current: HEAD"));
+    press_keys(&mut app, "u").await?;
+    assert_eq!(current_ref!(app.editor).1.text().to_string(), original);
+    assert!(current_ref!(app.editor).1.conflict_presentation().active());
+    press_keys(&mut app, "gg").await?;
+    assert!(review_screen(&app).contains("Current: HEAD"));
+
+    // Breaking a marker invalidates every heading; undo rebuilds the model.
+    press_keys(&mut app, "]miX<esc>").await?;
+    assert!(current_ref!(app.editor)
+        .1
+        .conflict_presentation()
+        .error
+        .is_some());
+    assert!(current_ref!(app.editor)
+        .1
+        .conflict_presentation()
+        .markers
+        .is_empty());
+    assert!(requested_actions(&mut app).await?.is_empty());
+    press_keys(&mut app, "ugg").await?;
+    assert_eq!(current_ref!(app.editor).1.text().to_string(), original);
+    assert!(review_screen(&app).contains("Current: HEAD"));
+    assert_eq!(std::fs::read_to_string(&path)?, original);
+    git(dir.path(), &["diff", "--cached", "--exit-code"]);
+    assert!(app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn conflict_source_decodes_utf16_index_stages() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    create_encoded_index_conflict(dir.path(), |text| {
+        [0xff, 0xfe]
+            .into_iter()
+            .chain(text.encode_utf16().flat_map(u16::to_le_bytes))
+            .collect()
+    });
+    let path = dir.path().join("file.txt");
+    let before = std::fs::read(&path)?;
+    let mut app = AppBuilder::new().with_file(&path, None).build()?;
+    assert_eq!(
+        current_ref!(app.editor).1.encoding(),
+        editor_core::encoding::UTF_16LE
+    );
+    press_keys(&mut app, ":vcs-conflict-source base<ret>").await?;
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while !current_ref!(app.editor).1.is_readonly() {
+            run_event_loop_until_idle(&mut app).await;
+        }
+    })
+    .await?;
+    assert_eq!(current_ref!(app.editor).1.text().to_string(), "base\n");
+    assert_eq!(std::fs::read(&path)?, before);
+    assert!(app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn conflict_navigation_counts_wrap_and_resolution_macros_replay() -> anyhow::Result<()> {
+    let block = "<<<<<<< HEAD\nours\n=======\ntheirs\n>>>>>>> incoming\n";
+    let original = format!("prefix\n{block}middle\n{block}suffix\n{block}");
+    let mut app = AppBuilder::new()
+        .with_input_text(format!("#[|]#{original}"))
+        .build()?;
+    press_keys(&mut app, "2]m").await?;
+    let (view, doc) = current_ref!(app.editor);
+    let second = original.match_indices("<<<<<<<").nth(1).unwrap().0;
+    assert_eq!(
+        doc.selection(view.id)
+            .primary()
+            .cursor(doc.text().slice(..)),
+        second
+    );
+    press_keys(&mut app, "3]m").await?;
+    let (view, doc) = current_ref!(app.editor);
+    assert_eq!(
+        doc.selection(view.id)
+            .primary()
+            .cursor(doc.text().slice(..)),
+        second
+    );
+    press_keys(&mut app, "2[m").await?;
+    // Record navigation and resolution, then replay against the next region.
+    press_keys(&mut app, "Q]m:vcs-conflict-resolve incoming<ret>Qq").await?;
+    assert_eq!(
+        current_ref!(app.editor)
+            .1
+            .conflict_presentation()
+            .regions
+            .len(),
+        1
+    );
+    press_keys(&mut app, "uu").await?;
+    assert_eq!(current_ref!(app.editor).1.text().to_string(), original);
     assert!(app.close().await.is_empty());
     Ok(())
 }

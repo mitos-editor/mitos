@@ -8,6 +8,7 @@ pub use text_render::{Decoration, DecorationManager};
 
 pub mod blame;
 pub mod code_lenses;
+pub mod conflicts;
 pub mod debug_values;
 mod diagnostics;
 mod end_of_line;

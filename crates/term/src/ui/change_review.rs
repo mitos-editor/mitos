@@ -23,6 +23,7 @@ use crate::{
 mod historical;
 #[cfg(feature = "git")]
 pub use historical::HistoricalReviewPreview;
+mod conflicts;
 mod picker;
 pub use picker::ChangeReviewPreview;
 pub(crate) mod document;

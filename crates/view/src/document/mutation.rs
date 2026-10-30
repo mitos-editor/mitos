@@ -156,6 +156,7 @@ impl Document {
             return;
         }
 
+        self.conflicts.take();
         self.modified_since_accessed = true;
         self.navigation
             .map_pending_location(changes, self.buffer.text().slice(..));

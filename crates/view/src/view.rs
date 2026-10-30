@@ -461,6 +461,7 @@ impl View {
     ) -> TextAnnotations<'a> {
         let mut text_annotations = TextAnnotations::default();
         text_annotations.set_conceals(doc.folded_ranges(self.id));
+        doc.annotate_conflicts(self.id, theme, &mut text_annotations);
 
         if let Some(labels) = doc.jump_labels(self.id) {
             let style = theme.and_then(|t| t.find_highlight("ui.virtual.jump-label"));

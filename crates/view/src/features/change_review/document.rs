@@ -391,7 +391,7 @@ impl Editor {
                         }));
                         request
                             .compute_cached_cancellable(previous, &|| check.is_canceled())
-                            .map(|snapshot| (snapshot.source.clone(), snapshot.review.clone()))
+                            .and_then(|snapshot| Ok((snapshot.source.clone(), snapshot.diff()?)))
                     }
                     Work::Engine { source, engine } => {
                         let review = source.compute(Some(engine), &|| check.is_canceled());

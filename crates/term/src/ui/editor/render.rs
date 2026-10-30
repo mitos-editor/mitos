@@ -284,6 +284,7 @@ impl PaneRenderer {
         let config = editor.config();
 
         let mut decorations = DecorationManager::default();
+        decorations.add_decoration(text_decorations::conflicts::line_backgrounds(doc, theme));
         if doc.review().is_some() {
             decorations.add_decoration(crate::ui::change_review::document::line_backgrounds(
                 doc, theme,
@@ -389,7 +390,7 @@ impl PaneRenderer {
             editor.cursor_cache.set(None);
             decorations.add_decoration(text_decorations::Cursor {
                 cache: &editor.cursor_cache,
-                primary_cursor,
+                primary_cursor: layout.annotations.display_anchor(primary_cursor),
             });
         }
         if is_focused

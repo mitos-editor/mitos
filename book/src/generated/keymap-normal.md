@@ -183,6 +183,7 @@
 | `` [q `` | Goto previous quicklist entry | `` goto_prev_quicklist `` |
 | `` [D `` | Goto first diagnostic | `` goto_first_diag `` |
 | `` [g `` | Goto previous change | `` goto_prev_change `` |
+| `` [m `` | Go to the previous unresolved conflict | `` goto_previous_conflict `` |
 | `` [G `` | Goto first change | `` goto_first_change `` |
 | `` [l `` | Goto previous quicklist entry in current file | `` goto_prev_file_quicklist `` |
 | `` [f `` | Goto previous function | `` goto_prev_function `` |
@@ -204,6 +205,7 @@
 | `` ]q `` | Goto next quicklist entry | `` goto_next_quicklist `` |
 | `` ]D `` | Goto last diagnostic | `` goto_last_diag `` |
 | `` ]g `` | Goto next change | `` goto_next_change `` |
+| `` ]m `` | Go to the next unresolved conflict | `` goto_next_conflict `` |
 | `` ]G `` | Goto last change | `` goto_last_change `` |
 | `` ]l `` | Goto next quicklist entry in current file | `` goto_next_file_quicklist `` |
 | `` ]f `` | Goto next function | `` goto_next_function `` |

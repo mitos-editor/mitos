@@ -32,6 +32,13 @@ pub enum GraphemeSource {
     Document {
         codepoints: usize,
     },
+    /// Display text anchored to a replaced source range. Only its final grapheme
+    /// advances the source iterator, so every visible cell maps to the same anchor.
+    Replacement {
+        codepoints: usize,
+        covered: usize,
+        highlight: Option<Highlight>,
+    },
     /// Inline virtual text can not be highlighted with a `Highlight` iterator
     /// because it's not part of the document. Instead the `Highlight`
     /// is emitted right by the document formatter
@@ -51,9 +58,18 @@ impl GraphemeSource {
         matches!(self, GraphemeSource::Document { codepoints: 0 })
     }
 
+    /// Source extent represented by a display grapheme, including concealed text.
+    pub fn covered_chars(self) -> usize {
+        match self {
+            Self::Replacement { covered, .. } => covered,
+            _ => self.doc_chars(),
+        }
+    }
+
     pub fn doc_chars(self) -> usize {
         match self {
-            GraphemeSource::Document { codepoints } => codepoints,
+            GraphemeSource::Document { codepoints }
+            | GraphemeSource::Replacement { codepoints, .. } => codepoints,
             GraphemeSource::VirtualText { .. } => 0,
         }
     }
@@ -148,7 +164,7 @@ impl<'a> GraphemeWithSource<'a> {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TextFormat {
     pub soft_wrap: bool,
     pub tab_width: u16,
@@ -196,6 +212,8 @@ pub struct DocumentFormatter<'t> {
     exhausted: bool,
 
     inline_annotation_graphemes: Option<(Graphemes<'t>, Option<Highlight>)>,
+
+    replacement_graphemes: Option<(Graphemes<'t>, usize, Option<Highlight>)>,
 
     // softwrap specific
     /// The indentation of the current line
@@ -247,6 +265,7 @@ impl<'t> DocumentFormatter<'t> {
             line_pos: block_line_idx,
             block_line_pos: block_line_idx,
             inline_annotation_graphemes: None,
+            replacement_graphemes: None,
         }
     }
 
@@ -288,6 +307,35 @@ impl<'t> DocumentFormatter<'t> {
                 concealed_lines: self.text.char_to_line_idx(end)
                     - self.text.char_to_line_idx(char_pos),
             });
+        }
+        if self.replacement_graphemes.is_none()
+            && let Some((replacement, highlight)) = self.annotations.replacement_at(char_pos)
+        {
+            self.graphemes = self.text.slice_chars(replacement.range.end..).graphemes();
+            self.annotations.skip_concealed(replacement.range.end);
+            self.replacement_graphemes = Some((
+                replacement.text.graphemes(true),
+                replacement.range.len(),
+                highlight,
+            ));
+        }
+        if let Some((graphemes, covered, highlight)) = &mut self.replacement_graphemes {
+            let grapheme = graphemes.next().expect("non-empty replacement");
+            let last = graphemes.as_str().is_empty();
+            let source = GraphemeSource::Replacement {
+                codepoints: if last { *covered } else { 0 },
+                covered: *covered,
+                highlight: *highlight,
+            };
+            if last {
+                self.replacement_graphemes = None;
+            }
+            return Some(GraphemeWithSource::new(
+                grapheme.into(),
+                col,
+                self.text_fmt.tab_width,
+                source,
+            ));
         }
         let (grapheme, source) =
             if let Some((grapheme, highlight)) = self.next_inline_annotation_grapheme(char_pos) {

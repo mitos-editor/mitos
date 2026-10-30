@@ -30,13 +30,12 @@ pub fn visual_offset_from_block(
     annotations: &TextAnnotations,
 ) -> (DisplayPosition, usize) {
     let mut last_pos = DisplayPosition::default();
-    let mut formatter =
-        DocumentFormatter::new_at_prev_checkpoint(text, text_fmt, annotations, anchor);
+    let formatter = DocumentFormatter::new_at_prev_checkpoint(text, text_fmt, annotations, anchor);
     let block_start = formatter.next_char_pos();
 
-    while let Some(grapheme) = formatter.next() {
+    for grapheme in formatter {
         last_pos = grapheme.visual_pos;
-        if formatter.next_char_pos() > pos {
+        if grapheme.char_idx + grapheme.source.covered_chars() > pos {
             return (grapheme.visual_pos, block_start);
         }
     }
@@ -71,8 +70,7 @@ pub fn visual_offset_from_anchor(
     annotations: &TextAnnotations,
     max_rows: usize,
 ) -> Result<(DisplayPosition, usize), VisualOffsetError> {
-    let mut formatter =
-        DocumentFormatter::new_at_prev_checkpoint(text, text_fmt, annotations, anchor);
+    let formatter = DocumentFormatter::new_at_prev_checkpoint(text, text_fmt, annotations, anchor);
     let mut anchor_line = None;
     let mut found_pos = None;
     let mut last_pos = DisplayPosition::default();
@@ -82,18 +80,18 @@ pub fn visual_offset_from_anchor(
         return Err(VisualOffsetError::PosBeforeAnchorRow);
     }
 
-    while let Some(grapheme) = formatter.next() {
+    for grapheme in formatter {
         last_pos = grapheme.visual_pos;
 
-        if formatter.next_char_pos() > pos {
+        if grapheme.char_idx + grapheme.source.covered_chars() > pos {
             if let Some(anchor_line) = anchor_line {
                 last_pos.row -= anchor_line;
                 return Ok((last_pos, block_start));
-            } else {
+            } else if found_pos.is_none() {
                 found_pos = Some(last_pos);
             }
         }
-        if formatter.next_char_pos() > anchor && anchor_line.is_none() {
+        if grapheme.char_idx + grapheme.source.covered_chars() > anchor && anchor_line.is_none() {
             if let Some(mut found_pos) = found_pos {
                 return if found_pos.row == last_pos.row {
                     found_pos.row = 0;
@@ -486,5 +484,154 @@ mod test {
             .0,
             0
         );
+    }
+}
+
+#[cfg(test)]
+mod replacement_tests {
+    use super::*;
+    use crate::{
+        doc_formatter::DocumentFormatter,
+        text_annotations::{InlineAnnotation, LineReplacement, Overlay},
+    };
+    use editor_core::Rope;
+
+    #[test]
+    fn folding_takes_precedence_over_overlapping_replacement_labels() {
+        use crate::text_annotations::Conceal;
+        let text =
+            Rope::from("before\n<<<<<<< HEAD\nours\n=======\ntheirs\n>>>>>>> topic\nafter\n");
+        let replacement = LineReplacement {
+            range: 7..19,
+            text: "Current".into(),
+        };
+        for range in [7..text.len_chars() - 7, 10..16] {
+            let conceals = [Conceal { range }];
+            let mut annotations = TextAnnotations::default();
+            annotations.set_conceals(&conceals);
+            annotations.add_line_replacement(&replacement, None);
+            let format = TextFormat::default();
+            let graphemes: Vec<_> =
+                DocumentFormatter::new_at_prev_checkpoint(text.slice(..), &format, &annotations, 0)
+                    .collect();
+            assert!(!graphemes.iter().any(|g| matches!(
+                g.source,
+                crate::doc_formatter::GraphemeSource::Replacement { .. }
+            )));
+            assert_eq!(annotations.display_anchor(11), 11);
+            let mut plain = TextAnnotations::default();
+            plain.set_conceals(&conceals);
+            for pos in 0..text.len_chars() {
+                assert_eq!(
+                    visual_offset_from_block(text.slice(..), 0, pos, &format, &annotations),
+                    visual_offset_from_block(text.slice(..), 0, pos, &format, &plain)
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn replacements_preserve_source_rows_and_map_labels_to_their_anchor() {
+        let text = Rope::from("préfix\n<<<<<<< HEAD\r\n界\tx\n");
+        let start = 7;
+        let end = start + "<<<<<<< HEAD".chars().count();
+        let replacement = LineReplacement {
+            range: start..end,
+            text: "── Current: HEAD ──".into(),
+        };
+        let inline = [InlineAnnotation::new(start + 2, "hidden")];
+        let overlays = [Overlay::new(start + 3, "X")];
+        let mut annotations = TextAnnotations::default();
+        annotations.add_line_replacement(&replacement, None);
+        annotations.add_inline_annotations(&inline, None);
+        annotations.add_overlay(&overlays, None);
+        let format = TextFormat::default();
+        for pos in start..end {
+            assert_eq!(
+                visual_offset_from_block(text.slice(..), 0, pos, &format, &annotations).0,
+                DisplayPosition::new(1, 0)
+            );
+        }
+        for col in 0..18 {
+            assert_eq!(
+                char_idx_at_visual_offset(text.slice(..), 0, 1, col, &format, &annotations),
+                (start, 0)
+            );
+        }
+        assert_eq!(
+            visual_offset_from_anchor(text.slice(..), end, start, &format, &annotations, 10)
+                .unwrap()
+                .0,
+            DisplayPosition::new(0, 0)
+        );
+        let after = end + 2;
+        assert_eq!(
+            visual_offset_from_block(text.slice(..), 0, after, &format, &annotations).0,
+            DisplayPosition::new(2, 0)
+        );
+        let formatted =
+            DocumentFormatter::new_at_prev_checkpoint(text.slice(..), &format, &annotations, 0)
+                .collect::<Vec<_>>();
+        assert_eq!(
+            formatted
+                .iter()
+                .filter(|g| g.line_idx == 1)
+                .map(|g| g.doc_chars())
+                .sum::<usize>(),
+            end - start + 2
+        );
+        assert!(formatted
+            .iter()
+            .filter(|g| g.line_idx == 1)
+            .all(|g| g.char_idx == start || g.char_idx == end));
+        assert_eq!(text.to_string(), "préfix\n<<<<<<< HEAD\r\n界\tx\n");
+    }
+
+    #[test]
+    fn wrapped_replacements_and_eof_keep_source_positions() {
+        for suffix in ["", "\nnext\n"] {
+            let text = Rope::from(format!("<<<<<<< HEAD{suffix}"));
+            let replacement = LineReplacement {
+                range: 0..12,
+                text: "Current 界 HEAD".into(),
+            };
+            let mut annotations = TextAnnotations::default();
+            annotations.add_line_replacement(&replacement, None);
+            let format = TextFormat {
+                soft_wrap: true,
+                viewport_width: 5,
+                max_wrap: 0,
+                ..Default::default()
+            };
+            let mut formatter =
+                DocumentFormatter::new_at_prev_checkpoint(text.slice(..), &format, &annotations, 0);
+            let graphemes: Vec<_> = formatter.by_ref().collect();
+            assert_eq!(formatter.next_char_pos(), text.len_chars());
+            for g in graphemes.iter().filter(|g| {
+                matches!(
+                    g.source,
+                    crate::doc_formatter::GraphemeSource::Replacement { .. }
+                )
+            }) {
+                assert_eq!(
+                    char_idx_at_visual_offset(
+                        text.slice(..),
+                        0,
+                        g.visual_pos.row as isize,
+                        g.visual_pos.col,
+                        &format,
+                        &annotations
+                    )
+                    .0,
+                    0
+                );
+            }
+            for pos in 0..12 {
+                assert_eq!(
+                    visual_offset_from_block(text.slice(..), 0, pos, &format, &annotations).0,
+                    DisplayPosition::new(0, 0)
+                );
+            }
+        }
     }
 }

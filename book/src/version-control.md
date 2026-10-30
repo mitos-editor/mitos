@@ -64,6 +64,11 @@ The preview starts with unsaved edits when available, then unstaged changes, the
 staged changes. `Alt-Left` / `Alt-Right` also switch comparisons, but some
 terminals use those keys for word movement.
 
+Conflicts with marker lines appear as labeled sections in the preview, including
+unsaved edits. Press `Enter` to open the file and
+[resolve the conflicts](#resolving-conflicts). Once the markers are removed, the
+preview shows a diff so you can review the result.
+
 | Key | Action |
 | --- | --- |
 | `Enter` | Open the file |
@@ -94,6 +99,9 @@ Choose another comparison with:
 
 These comparisons also work before the repository's first commit. For deleted
 files, open the review from the changed-file picker.
+
+For conflicted files, use `:diff` to compare with `HEAD`. Save and stage the
+resolved file before choosing another comparison.
 
 Reviews are read-only buffers. Use normal movement, search, selection, yank,
 wrapping, and view commands. Reviews appear in the buffer picker; use the usual
@@ -141,9 +149,8 @@ To review two files side by side:
 Use `Ctrl-w v` / `Ctrl-w s` to split an existing review. The command palette also
 lists the diff commands.
 
-Binary files, submodules, and unresolved merge conflicts show an explanation
-instead of a text diff. Very large files may be rejected, or their diffs shortened
-with a notice.
+Binary files and submodules show an explanation instead of a text diff. Very
+large files may be rejected, or their diffs shortened with a notice.
 
 ### Inspecting the current change
 
@@ -366,3 +373,39 @@ Available placeholders are:
 | `{date}` / `{time-ago}` | Commit date / relative age |
 | `{title}` / `{body}` | Commit title / body |
 | `{commit}` | Abbreviated commit ID |
+
+## Resolving conflicts
+
+Press `Space g s` and open a conflicted file. Use `]m` to move to the next
+conflict or `[m` to move to the previous one.
+
+Place the cursor inside a conflict and press `Space a`. Choose **Accept current**,
+**Accept incoming**, or **Accept both (current then incoming)** to keep that text.
+The menu also includes other available code actions. You can edit the text directly.
+
+Press `u` to undo a choice. If you keep both sides, review and edit the combined
+text. When you have resolved every conflict, save the file and stage it.
+
+The editor labels each side of the conflict. To see or edit the marker lines,
+run `:vcs-conflict-toggle-markers`. Run it again to restore the headings. This
+affects only the current view.
+
+You can also resolve conflicts with commands:
+
+| Command | Action |
+| --- | --- |
+| `:vcs-conflict-resolve current` | Keep the current side |
+| `:vcs-conflict-resolve incoming` | Keep the incoming side |
+| `:vcs-conflict-resolve both` | Keep current followed by incoming |
+
+During a merge, **current** is the branch you have checked out and **incoming** is
+the branch you are merging. During a rebase, **current** is the branch you are
+rebasing onto, including commits already applied; **incoming** is the commit being
+applied.
+
+To see the whole file for either side, run `:vcs-conflict-source current` or
+`:vcs-conflict-source incoming`. Use `:vcs-conflict-source base` to see the original
+version. Each version opens in a read-only split. Close it with `:q`.
+
+If Mitos cannot recognize a conflict, edit the file and remove the marker lines
+yourself.
