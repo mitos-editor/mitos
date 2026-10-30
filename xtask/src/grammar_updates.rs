@@ -1,5 +1,6 @@
 use std::{
     collections::{BTreeMap, HashSet},
+    error::Error,
     fs,
     io::Write,
     path::{Component, Path},
@@ -64,6 +65,7 @@ enum Status {
     Current,
     Update(String),
     Skipped(String),
+    Failed(String),
 }
 
 pub fn update(args: impl Iterator<Item = String>) -> Result<(), DynError> {
@@ -101,6 +103,7 @@ fn update_at(root: &Path, options: Options) -> Result<(), DynError> {
     results.sort_by(|(a, _), (b, _)| a.name.cmp(&b.name));
     let mut updated = 0;
     let mut skipped = 0;
+    let mut failed = 0;
     for (grammar, status) in results {
         match status {
             Status::Current => {}
@@ -126,16 +129,26 @@ fn update_at(root: &Path, options: Options) -> Result<(), DynError> {
                 println!("- Skipped `{}`: {reason}", grammar.name);
                 skipped += 1;
             }
+            Status::Failed(reason) => {
+                println!("- Failed `{}`: {reason}", grammar.name);
+                failed += 1;
+            }
         }
     }
     println!(
-        "\n{} {updated} grammar(s); {skipped} skipped.",
-        if options.dry_run {
+        "\n{} {updated} grammar(s); {skipped} skipped; {failed} failed.",
+        if options.dry_run || failed > 0 {
             "Would update"
         } else {
             "Updated"
         },
     );
+    if failed > 0 {
+        return Err(format!(
+            "{failed} grammar(s) failed inspection; languages.toml was not changed"
+        )
+        .into());
+    }
     if updated > 0 && !options.dry_run {
         let mut temporary = tempfile::NamedTempFile::new_in(root)?;
         temporary
@@ -235,12 +248,17 @@ fn inspect<'a>(remote: &str, grammars: &[&'a Grammar]) -> Vec<(&'a Grammar, Stat
         // Close object database handles before removing the temporary directory.
         Ok((revision, Some((repo, directory))))
     })()
-    .map_err(|error| format!("could not inspect {remote}: {error}"));
+    .map_err(|error| {
+        format!(
+            "could not inspect {remote}: {}",
+            format_error(error.as_ref())
+        )
+    });
     grammars
         .iter()
         .map(|&grammar| {
             let status = match &result {
-                Err(error) => Status::Skipped(error.clone()),
+                Err(error) => Status::Failed(error.clone()),
                 Ok((revision, _)) if current_revision(&grammar.revision) == Some(*revision) => {
                     Status::Current
                 }
@@ -251,9 +269,10 @@ fn inspect<'a>(remote: &str, grammars: &[&'a Grammar]) -> Vec<(&'a Grammar, Stat
                             "upstream HEAD has no committed `{}`",
                             grammar.parser
                         )),
-                        Err(error) => Status::Skipped(format!(
-                            "could not inspect upstream `{}`: {error}",
-                            grammar.parser
+                        Err(error) => Status::Failed(format!(
+                            "could not inspect upstream `{}`: {}",
+                            grammar.parser,
+                            format_error(error.as_ref())
                         )),
                     }
                 }
@@ -262,6 +281,17 @@ fn inspect<'a>(remote: &str, grammars: &[&'a Grammar]) -> Vec<(&'a Grammar, Stat
             (grammar, status)
         })
         .collect()
+}
+
+fn format_error(error: &dyn Error) -> String {
+    let mut message = error.to_string();
+    let mut source = error.source();
+    while let Some(error) = source {
+        message.push_str(": ");
+        message.push_str(&error.to_string());
+        source = error.source();
+    }
+    message
 }
 
 fn init_repository(path: &Path, object_hash: gix::hash::Kind) -> Result<gix::Repository, DynError> {
@@ -506,8 +536,37 @@ source = {{ path = "/local/grammar" }}
 
         let unreachable = manifest(&root.path().join("absent"), &new);
         fs::write(&path, &unreachable).unwrap();
-        update_at(root.path(), options(&[])).unwrap();
-        assert_eq!(fs::read_to_string(&path).unwrap(), unreachable);
+        for args in [vec![], vec!["--dry-run"]] {
+            assert!(update_at(root.path(), options(&args)).is_err());
+            assert_eq!(fs::read_to_string(&path).unwrap(), unreachable);
+        }
+    }
+
+    #[test]
+    fn inspection_failure_does_not_persist_other_updates() {
+        let (repo, old, _) = repository();
+        let root = tempfile::tempdir().unwrap();
+        let original = manifest(repo.path(), &old).replacen(
+            &format!("git = {:?}", repo.path()),
+            &format!("git = {:?}", root.path().join("absent")),
+            1,
+        );
+        let path = root.path().join("languages.toml");
+        fs::write(&path, &original).unwrap();
+        let error = update_at(root.path(), options(&[])).unwrap_err();
+        assert!(error.to_string().contains("1 grammar(s) failed inspection"));
+        assert_eq!(fs::read_to_string(&path).unwrap(), original);
+    }
+
+    #[test]
+    fn transport_error_includes_the_underlying_cause() {
+        let error = gix::protocol::transport::client::Error::Io(std::io::Error::other(
+            "Protocol \"https\" not supported",
+        ));
+        assert_eq!(
+            format_error(&error),
+            "An IO error occurred when talking to the server: Protocol \"https\" not supported"
+        );
     }
 
     #[test]
@@ -563,7 +622,7 @@ source = {{ path = "/local/grammar" }}
         let original = manifest(repo.path(), &"0".repeat(40));
         let path = root.path().join("languages.toml");
         fs::write(&path, &original).unwrap();
-        update_at(root.path(), options(&[])).unwrap();
+        assert!(update_at(root.path(), options(&[])).is_err());
         assert_eq!(fs::read_to_string(&path).unwrap(), original);
     }
 }

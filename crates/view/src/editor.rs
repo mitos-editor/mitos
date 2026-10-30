@@ -610,6 +610,32 @@ impl Editor {
         self.tree.transpose();
     }
 
+    /// Grow (positive `delta`) or shrink the focused split by `delta` cells.
+    pub fn resize_view(&mut self, dimension: tree::Dimension, delta: isize) {
+        if self.tree.resize_focus(dimension, delta) {
+            self._refresh();
+        }
+    }
+
+    /// Resize toward a neighboring split, or inward at the edge of the layout.
+    pub fn resize_view_direction(&mut self, direction: tree::Direction, cells: usize) {
+        if self.tree.resize_focus_direction(direction, cells) {
+            self._refresh();
+        }
+    }
+
+    /// Restore split proportions after cancelling an interactive resize.
+    pub fn restore_split_sizes(&mut self, sizes: tree::SplitSizes) {
+        self.tree.restore_split_sizes(sizes);
+        self._refresh();
+    }
+
+    /// Give all splits equal sizes again.
+    pub fn equalize_views(&mut self) {
+        self.tree.equalize();
+        self._refresh();
+    }
+
     pub fn should_close(&self) -> bool {
         self.tree.is_empty()
     }

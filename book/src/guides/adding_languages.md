@@ -58,6 +58,7 @@ check that `ms --health <language>` reports its availability correctly.
    | `locals.scm` | scope tracking so locals highlight distinctly | [locals.md](./locals.md) |
    | `tags.scm` | document/workspace symbol pickers | [tags.md](./tags.md) |
    | `spellcheck.scm` | prose regions for spell checking | [spellcheck.md](./spellcheck.md) |
+   | `folds.scm` | syntax regions for code folding | [folding.md](./folding.md) |
    | `rainbows.scm` | rainbow brackets | [rainbow_bracket_queries.md](./rainbow_bracket_queries.md) |
 
    A query file may reuse another language's with `; inherits: <lang>` on the

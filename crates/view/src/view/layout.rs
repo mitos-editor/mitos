@@ -20,6 +20,76 @@ pub struct ViewLayout<'a> {
 }
 
 impl ViewLayout<'_> {
+    /// Source line that begins the display block containing this position.
+    pub fn block_line_at_pos(&self, pos: usize) -> usize {
+        self.text
+            .char_to_line_idx(self.annotations.checkpoint_anchor(self.text, pos))
+    }
+
+    /// A whole-line upper bound for text visible in this viewport. Folding
+    /// expands the document range; wrapping and virtual lines can only shrink it.
+    pub fn visible_byte_range(&self) -> std::ops::Range<usize> {
+        let anchor = self
+            .annotations
+            .checkpoint_anchor(self.text, self.offset.anchor.min(self.text.len_chars()));
+        let first = self.text.char_to_line_idx(anchor);
+        let last = self.last_document_line();
+        let end = self
+            .annotations
+            .block_end(self.text, self.text.line_to_char_idx(last));
+        let end_line = self.text.char_to_line_idx(end);
+        self.text.line_to_byte_idx(first, stdx::rope::LINE_TYPE)
+            ..self
+                .text
+                .line_to_byte_idx(end_line + 1, stdx::rope::LINE_TYPE)
+    }
+
+    /// Upper bound for the final visible document line, including an empty EOF line.
+    pub fn last_document_line(&self) -> usize {
+        let anchor = self
+            .annotations
+            .checkpoint_anchor(self.text, self.offset.anchor.min(self.text.len_chars()));
+        let first = self.text.char_to_line_idx(anchor);
+        let count = self
+            .offset
+            .vertical_offset
+            .saturating_add(self.viewport.height as usize)
+            .saturating_sub(1);
+        text_layout::movement::document_line_at_offset(
+            self.text,
+            first,
+            editor_core::movement::Direction::Forward,
+            count,
+            self.annotations.conceals(),
+        )
+    }
+
+    /// Visible byte ranges with concealed text removed, for syntax queries that
+    /// should not traverse hidden bodies on every frame.
+    pub fn visible_byte_ranges(&self) -> Vec<std::ops::Range<usize>> {
+        let range = self.visible_byte_range();
+        let mut start = range.start;
+        let mut ranges = Vec::new();
+        for conceal in self.annotations.conceals() {
+            let hidden_start = self.text.char_to_byte_idx(conceal.range.start);
+            let hidden_end = self.text.char_to_byte_idx(conceal.range.end);
+            if hidden_end <= start {
+                continue;
+            }
+            if hidden_start >= range.end {
+                break;
+            }
+            if start < hidden_start {
+                ranges.push(start..hidden_start);
+            }
+            start = hidden_end.min(range.end);
+        }
+        if start < range.end {
+            ranges.push(start..range.end);
+        }
+        ranges
+    }
+
     /// Translate to a viewport-relative display position, rejecting positions outside the viewport.
     pub fn display_position_at_pos(&self, pos: usize) -> Option<DisplayPosition> {
         let mut pos = visual_offset_from_anchor(
@@ -85,8 +155,9 @@ impl ViewLayout<'_> {
         let first_line = self
             .text
             .char_to_line_idx(self.offset.anchor.min(self.text.len_chars()));
-        if first_line.saturating_add(self.viewport.height as usize)
-            < self.text.len_lines(stdx::rope::LINE_TYPE)
+        if self.annotations.conceals().is_empty()
+            && first_line.saturating_add(self.viewport.height as usize)
+                < self.text.len_lines(stdx::rope::LINE_TYPE)
         {
             return self.viewport.height.saturating_sub(1) as usize;
         }

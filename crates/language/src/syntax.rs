@@ -51,6 +51,7 @@ pub struct LanguageData {
     tag_query: OnceLock<Option<TagQuery>>,
     rainbow_query: OnceLock<Option<RainbowQuery>>,
     spellcheck_query: OnceLock<Option<SpellcheckQuery>>,
+    fold_query: OnceLock<Option<FoldQuery>>,
 }
 
 impl LanguageData {
@@ -63,6 +64,7 @@ impl LanguageData {
             tag_query: OnceLock::new(),
             rainbow_query: OnceLock::new(),
             spellcheck_query: OnceLock::new(),
+            fold_query: OnceLock::new(),
         }
     }
 
@@ -216,6 +218,23 @@ impl LanguageData {
             .as_ref()
     }
 
+    fn load_fold_query(&self, grammar: Grammar, loader: &Loader) -> Result<Option<FoldQuery>> {
+        let name = &self.config.language_id;
+        queries::compile_fold_query(grammar, name, &loader.resources.query(name, "folds.scm"))
+    }
+
+    fn fold_query(&self, loader: &Loader) -> Option<&FoldQuery> {
+        self.fold_query
+            .get_or_init(|| {
+                let grammar = self.syntax_config(loader)?.grammar;
+                self.load_fold_query(grammar, loader)
+                    .map_err(|err| log::error!("{err:#}"))
+                    .ok()
+                    .flatten()
+            })
+            .as_ref()
+    }
+
     fn reconfigure(&self, scopes: &[String]) {
         if let Some(Some(config)) = self.syntax.get() {
             reconfigure_highlights(config, scopes);
@@ -326,6 +345,7 @@ impl Loader {
         data.load_tag_query(grammar, self)?;
         data.load_rainbow_query(grammar, self)?;
         data.load_spellcheck_query(grammar, self)?;
+        data.load_fold_query(grammar, self)?;
         Ok(())
     }
 
@@ -662,6 +682,36 @@ impl Syntax {
             |lang| loader.tag_query(lang).map(|q| &q.query),
             range,
         )
+    }
+
+    /// Regions captured by `@fold`, including injected languages. Paired syntax
+    /// tokens identify closers without inspecting text for delimiter-like strings.
+    /// Presentation policy and closed state belong to the view.
+    pub fn fold_ranges(
+        &self,
+        source: RopeSlice,
+        loader: &Loader,
+        range: impl RangeBounds<u32>,
+    ) -> Vec<FoldRange> {
+        let mut ranges = Vec::new();
+        let mut iter = self.query_iter::<_, (), _>(
+            source,
+            |lang| loader.language(lang).fold_query(loader).map(|q| &q.query),
+            range,
+        );
+        while let Some(event) = iter.next() {
+            let QueryIterEvent::Match(mat) = event else {
+                continue;
+            };
+            let query = loader
+                .language(iter.current_language())
+                .fold_query(loader)
+                .expect("a fold capture requires a fold query");
+            if Some(mat.capture) == query.capture {
+                ranges.push(FoldRange::new(source, &mat.node));
+            }
+        }
+        ranges
     }
 
     pub fn rainbow_highlights(
@@ -1149,6 +1199,61 @@ impl RainbowQuery {
             include_children_patterns,
             scope_capture: query.get_capture("rainbow.scope"),
             bracket_capture: query.get_capture("rainbow.bracket"),
+            query,
+        })
+    }
+}
+
+/// A syntax fold's source extent and optional paired closing token.
+#[derive(Debug, Clone)]
+pub struct FoldRange {
+    /// Full captured region in document character indices.
+    pub range: ops::Range<usize>,
+    /// First character of a real paired closing token, when present.
+    pub closing_delimiter: Option<usize>,
+}
+
+impl FoldRange {
+    fn new(source: RopeSlice, node: &Node) -> Self {
+        let bytes = node.byte_range();
+        let closing_delimiter = node
+            .child_count()
+            .checked_sub(1)
+            .and_then(|index| node.child(index))
+            .filter(|closing| !closing.is_missing())
+            .filter(|closing| {
+                let opening = match closing.kind() {
+                    "}" => "{",
+                    "]" => "[",
+                    ")" => "(",
+                    _ => return false,
+                };
+                node.children()
+                    .any(|child| child.kind() == opening && !child.is_missing())
+            })
+            .map(|closing| source.byte_to_char_idx(closing.start_byte() as usize));
+        Self {
+            range: source.byte_to_char_idx(bytes.start as usize)
+                ..source.byte_to_char_idx(bytes.end as usize),
+            closing_delimiter,
+        }
+    }
+}
+
+/// Compiled syntax folding captures.
+#[derive(Debug)]
+pub struct FoldQuery {
+    query: Query,
+    capture: Option<Capture>,
+}
+
+impl FoldQuery {
+    pub(crate) fn new(grammar: Grammar, source: &str) -> Result<Self> {
+        let query = Query::new(grammar, source, |_, predicate| {
+            Err(InvalidPredicateError::unknown(predicate))
+        })?;
+        Ok(Self {
+            capture: query.get_capture("fold"),
             query,
         })
     }

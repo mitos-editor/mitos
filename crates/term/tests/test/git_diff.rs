@@ -671,3 +671,82 @@ async fn repository_history_selects_merge_parents_and_retains_nested_browsers() 
     assert!(app.close().await.is_empty());
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn review_highlighting_follows_visible_rows_after_a_large_fold() -> anyhow::Result<()> {
+    use stdx::rope::RopeExt as _;
+    use tui::style::Color;
+
+    let dir = tempfile::tempdir()?;
+    git(dir.path(), &["init"]);
+    git(dir.path(), &["config", "core.autocrlf", "false"]);
+    let path = dir.path().join("source.rs");
+    std::fs::write(&path, "fn visible() {}\n")?;
+    git(dir.path(), &["add", "."]);
+    git(dir.path(), &["commit", "-m", "initial"]);
+    std::fs::write(
+        &path,
+        format!(
+            "fn folded() {{\n{}}}\nfn visible() {{}}\n",
+            "    // hidden\n".repeat(200)
+        ),
+    )?;
+    let mut app = AppBuilder::new()
+        .with_config(test_config())
+        .with_lang_loader(super::helpers::test_syntax_loader(None))
+        .with_file(&path, None)
+        .build()?;
+    app.editor
+        .set_theme(theme::Theme::from(toml::from_str::<toml::Value>(
+            r#"
+        "ui.text" = "white"
+        "ui.selection" = { bg = "blue" }
+        "ui.cursor" = { bg = "yellow" }
+        "keyword" = "magenta"
+        "comment" = "green"
+        "function" = "cyan"
+        "diff.plus.word" = { modifiers = ["bold"] }
+        "diff.plus.line" = { bg = "black" }
+        "diff.minus.line" = { bg = "black" }
+        "#,
+        )?))?;
+    keys(&mut app, ":diff<ret>").await?;
+    ready(&mut app).await?;
+    let (view, doc) = current_ref!(app.editor);
+    let text = doc.text();
+    let lines: Vec<_> = text.lines(stdx::rope::LINE_TYPE).collect();
+    let start = lines
+        .iter()
+        .position(|line| line.to_string().contains("fn folded"))
+        .unwrap();
+    let end = lines
+        .iter()
+        .position(|line| line.to_string().contains("fn visible"))
+        .unwrap();
+    let (id, view_id) = (doc.id(), view.id);
+    let selection =
+        editor_core::Selection::single(text.line_to_char_idx(start), text.line_to_char_idx(end));
+    app.editor
+        .document_mut(id)
+        .unwrap()
+        .set_selection(view_id, selection);
+    keys(&mut app, "zfs").await?;
+    let (view, doc) = current_ref!(app.editor);
+    assert_eq!(doc.folded_ranges(view.id).len(), 1);
+    let area = view.inner_area(doc);
+    let buffer = app.terminal_backend().buffer();
+    let row = (area.y..area.bottom())
+        .find_map(|y| {
+            let rendered: String = (area.x..area.right())
+                .map(|x| buffer[(x, y)].symbol())
+                .collect();
+            rendered
+                .find("fn visible")
+                .map(|byte| (area.x + rendered[..byte].chars().count() as u16, y))
+        })
+        .expect("source after the fold must remain visible");
+    assert_eq!(buffer[row].fg, Color::Magenta);
+    assert_eq!(buffer[(row.0 + 3, row.1)].fg, Color::Cyan);
+    assert!(app.close().await.is_empty());
+    Ok(())
+}

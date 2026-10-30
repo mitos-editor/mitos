@@ -13,6 +13,14 @@ use termina::{
     Terminal as _,
 };
 
+fn workspace_trust() -> workspace::trust::WorkspaceTrust {
+    let config = Config::load_default().unwrap_or_default();
+    workspace::trust::WorkspaceTrust::new(
+        (&config.editor.workspace_trust).into(),
+        loader::workspace_trust_dir(),
+    )
+}
+
 /// Display general diagnostics.
 pub fn general() -> std::io::Result<()> {
     let stdout = std::io::stdout();
@@ -113,20 +121,25 @@ pub fn clipboard() -> std::io::Result<()> {
 }
 
 pub fn languages_all() -> std::io::Result<()> {
-    languages(None)
+    let trust = workspace_trust();
+    loader::config::warn_if_workspace_languages_skipped(&trust)?;
+    languages(None, &trust)
 }
 
 pub fn languages_selection() -> std::io::Result<()> {
-    let selection = loader::grammar::get_grammar_names().unwrap_or_default();
-    languages(selection)
+    let trust = workspace_trust();
+    let selection = loader::grammar::get_grammar_names(&trust).unwrap_or_default();
+    languages(selection, &trust)
 }
 
-fn languages(selection: Option<HashSet<String>>) -> std::io::Result<()> {
+fn languages(
+    selection: Option<HashSet<String>>,
+    trust: &workspace::trust::WorkspaceTrust,
+) -> std::io::Result<()> {
     let stdout = std::io::stdout();
     let mut stdout = stdout.lock();
 
-    let trust = workspace::trust::WorkspaceTrust::fully_trusted(loader::workspace_trust_dir());
-    let mut syn_loader_conf = match user_lang_config(&trust) {
+    let mut syn_loader_conf = match user_lang_config(trust) {
         Ok(conf) => conf,
         Err(err) => {
             let stderr = std::io::stderr();
@@ -246,7 +259,8 @@ pub fn language(lang_str: String) -> std::io::Result<()> {
     let stdout = std::io::stdout();
     let mut stdout = stdout.lock();
 
-    let trust = workspace::trust::WorkspaceTrust::fully_trusted(loader::workspace_trust_dir());
+    let trust = workspace_trust();
+    loader::config::warn_if_workspace_languages_skipped(&trust)?;
     let syn_loader_conf = match user_lang_config(&trust) {
         Ok(conf) => conf,
         Err(err) => {
@@ -300,15 +314,19 @@ pub fn language(lang_str: String) -> std::io::Result<()> {
     )?;
 
     probe_protocol(
+        &mut stdout,
         "debug adapter",
-        lang.debugger.as_ref().map(|dap| dap.command.to_string()),
+        lang.debugger
+            .as_ref()
+            .map(|dap| (dap.command.as_str(), dap.args.as_slice())),
     )?;
 
     probe_protocol(
+        &mut stdout,
         "formatter",
         lang.formatter
             .as_ref()
-            .map(|formatter| formatter.command.to_string()),
+            .map(|formatter| (formatter.command.as_str(), formatter.args.as_slice())),
     )?;
 
     probe_parser(lang.grammar.as_ref().unwrap_or(&lang.language_id))?;
@@ -368,6 +386,9 @@ fn probe_language_servers(
                         "    ✘ {}: '{}' not found in $PATH",
                         server.name, definition.command
                     )?;
+                    if !definition.args.is_empty() {
+                        writeln!(stdout, "      Arguments: {:?}", definition.args)?;
+                    }
                     continue;
                 }
             };
@@ -401,28 +422,35 @@ fn probe_language_servers(
             };
             selected = true;
             writeln!(stdout, "    ✓ {}: {} ({role})", server.name, path.display())?;
+            if !definition.args.is_empty() {
+                writeln!(stdout, "      Arguments: {:?}", definition.args)?;
+            }
         }
     }
     Ok(())
 }
 
 /// Display diagnostics about LSP and DAP.
-fn probe_protocol(protocol_name: &str, server_cmd: Option<String>) -> std::io::Result<()> {
-    let stdout = std::io::stdout();
-    let mut stdout = stdout.lock();
-
+fn probe_protocol(
+    stdout: &mut impl Write,
+    protocol_name: &str,
+    server_cmd: Option<(&str, &[String])>,
+) -> std::io::Result<()> {
     write!(stdout, "Configured {}:", protocol_name)?;
-    let Some(cmd) = server_cmd else {
+    let Some((cmd, args)) = server_cmd else {
         writeln!(stdout, "{}", " None".yellow())?;
         return Ok(());
     };
     writeln!(stdout)?;
 
-    let (diag, icon) = match stdx::env::which(&cmd) {
+    let (diag, icon) = match stdx::env::which(cmd) {
         Ok(path) => (path.display().to_string().green(), "✓".green()),
         Err(_) => (format!("'{}' not found in $PATH", cmd).red(), "✘".red()),
     };
     writeln!(stdout, "  {} {}", icon, diag)?;
+    if !args.is_empty() {
+        writeln!(stdout, "    Arguments: {args:?}")?;
+    }
 
     Ok(())
 }
@@ -539,5 +567,43 @@ mod runtime_warning_tests {
         )));
         assert!(output.contains(&format!("Runtime directory is empty: {}", empty.display())));
         assert!(!output.contains(&populated.to_string_lossy().to_string()));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn language_server_health_includes_configured_arguments() {
+        let language = toml::from_str(
+            "name = 'health-test'\nscope = 'source.health-test'\nfile-types = []\nlanguage-servers = ['wrapper']",
+        )
+        .unwrap();
+        let definitions = toml::from_str(
+            "[wrapper]\ncommand = 'missing-mitos-health-tool'\nargs = ['run', 'server', '--stdio']",
+        )
+        .unwrap();
+        let mut output = Vec::new();
+        super::probe_language_servers(&mut output, &language, &definitions, &[]).unwrap();
+        let output = String::from_utf8(output).unwrap();
+        assert!(output.contains("wrapper"));
+        assert!(output.contains("Arguments: [\"run\", \"server\", \"--stdio\"]"));
+    }
+
+    #[test]
+    fn formatter_health_includes_literal_wrapper_arguments() {
+        let args = vec![
+            "run".to_owned(),
+            "black".to_owned(),
+            "%{buffer_name}".to_owned(),
+        ];
+        let mut output = Vec::new();
+        super::probe_protocol(
+            &mut output,
+            "formatter",
+            Some(("missing-mitos-health-tool", &args)),
+        )
+        .unwrap();
+        let output = String::from_utf8(output).unwrap();
+        assert!(output.contains("Arguments: [\"run\", \"black\", \"%{buffer_name}\"]"));
     }
 }

@@ -23,7 +23,7 @@ use crate::{
 use anyhow::Context as _;
 use anyhow::Error;
 use arc_swap::{access::Map, ArcSwap};
-use editor_core::{pos_at_coords, Range};
+use editor_core::{pos_at_coords, Range, Selection};
 use language::syntax;
 #[cfg(not(windows))]
 use signal_hook::consts::signal;
@@ -192,9 +192,17 @@ impl Application {
         } else if stdin().is_terminal() || cfg!(feature = "integration") {
             editor.new_file_welcome();
         } else {
-            editor
-                .new_file_from_stdin(Action::VerticalSplit)
-                .unwrap_or_else(|_| editor.new_file_welcome());
+            match editor.new_file_from_stdin(Action::VerticalSplit) {
+                Ok(_) => {
+                    let (view, doc) = current!(editor);
+                    let position = pos_at_coords(doc.text().slice(..), args.stdin_position, true);
+                    doc.set_selection(view.id, Selection::point(position));
+                    align_view(doc, view, Align::Center);
+                }
+                Err(_) => {
+                    editor.new_file_welcome();
+                }
+            }
         }
 
         #[cfg(windows)]

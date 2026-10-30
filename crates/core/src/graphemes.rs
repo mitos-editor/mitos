@@ -89,10 +89,26 @@ impl Display for Grapheme<'_> {
                 }
                 Ok(())
             }
-            Grapheme::Other { ref g } => {
-                write!(f, "{g}")
-            }
+            Grapheme::Other { ref g } => f.write_str(&render_grapheme(g)),
         }
+    }
+}
+
+/// Replace control characters with visible cells before writing editable text to a terminal.
+#[must_use]
+#[inline]
+pub fn render_grapheme(g: &str) -> Cow<'_, str> {
+    match g.as_bytes() {
+        [byte] if byte.is_ascii_control() => "\u{fffd}".into(),
+        [_] => g.into(),
+        // C1 controls each occupy two UTF-8 bytes.
+        [0xc2, 0x80..=0x9f] => "\u{fffd}".into(),
+        _ if g.chars().any(char::is_control) => g
+            .chars()
+            .map(|ch| if ch.is_control() { '\u{fffd}' } else { ch })
+            .collect::<String>()
+            .into(),
+        _ => g.into(),
     }
 }
 
@@ -450,5 +466,31 @@ mod boundary_tests {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod render_tests {
+    use super::*;
+    #[test]
+    fn controls_become_visible_single_cells_without_allocating() {
+        for ch in (0..=0x9f).map(char::from).filter(|ch| ch.is_control()) {
+            let mut utf8 = [0; 4];
+            let rendered = render_grapheme(ch.encode_utf8(&mut utf8));
+            assert!(matches!(rendered, Cow::Borrowed("�")), "{ch:?}");
+            assert_eq!(grapheme_width(&rendered), 1);
+        }
+    }
+
+    #[test]
+    fn regular_text_is_preserved_and_borrowed() {
+        for text in ["", "a", " ", "界", "e\u{301}", "👩‍💻"] {
+            assert!(matches!(render_grapheme(text), Cow::Borrowed(value) if value == text));
+        }
+    }
+
+    #[test]
+    fn mixed_strings_still_replace_every_control() {
+        assert_eq!(render_grapheme("a\0b\u{80}c"), "a�b�c");
     }
 }

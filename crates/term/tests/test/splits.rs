@@ -379,3 +379,235 @@ async fn shifted_arrows_swap_splits_in_both_window_prefixes() -> anyhow::Result<
     }
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn resize_mode_moves_boundaries_with_defaults_and_exact_counts() -> anyhow::Result<()> {
+    let widths = |app: &term::application::Application| {
+        let mut panes: Vec<_> = app
+            .editor
+            .tree
+            .views()
+            .map(|(view, _)| (view.area.x, view.area.width))
+            .collect();
+        panes.sort();
+        panes
+            .into_iter()
+            .map(|(_, width)| width)
+            .collect::<Vec<_>>()
+    };
+    let heights = |app: &term::application::Application| {
+        let mut panes: Vec<_> = app
+            .editor
+            .tree
+            .views()
+            .map(|(view, _)| (view.area.y, view.area.height))
+            .collect();
+        panes.sort();
+        panes
+            .into_iter()
+            .map(|(_, height)| height)
+            .collect::<Vec<_>>()
+    };
+
+    for prefix in ["<C-w>", "<space>w"] {
+        let mut app = AppBuilder::new().build()?;
+        app.editor.new_file(view::editor::Action::VerticalSplit);
+        let even = widths(&app);
+        let [left, right] = even[..] else {
+            panic!("two columns: {even:?}")
+        };
+
+        // The mode stays active for every key until Enter.
+        keys(&mut app, &format!("{prefix}rlll<right><ret>")).await?;
+        assert_eq!(widths(&app), [left + 20, right - 20]);
+        keys(&mut app, &format!("{prefix}rhh<ret>")).await?;
+        assert_eq!(widths(&app), [left + 10, right - 10]);
+
+        // A count typed inside the mode is an exact cell amount.
+        keys(&mut app, &format!("{prefix}r3h<ret>")).await?;
+        assert_eq!(widths(&app), [left + 7, right - 7]);
+
+        keys(&mut app, &format!("{prefix}r1h<ret>")).await?;
+        assert_eq!(widths(&app), [left + 6, right - 6]);
+
+        // From the left pane, right grows and left shrinks. A count is consumed
+        // by the first resize, and the next key uses the default again.
+        keys(&mut app, &format!("{prefix}h{prefix}r3l<right><ret>")).await?;
+        assert_eq!(widths(&app), [left + 14, right - 14]);
+        keys(&mut app, &format!("{prefix}rh<left><ret>")).await?;
+        assert_eq!(widths(&app), [left + 4, right - 4]);
+        keys(&mut app, &format!("{prefix}=")).await?;
+        assert_eq!(widths(&app), even);
+        helpers::assert_status_not_error(&app.editor);
+    }
+
+    let mut app = AppBuilder::new().build()?;
+    app.editor.new_file(view::editor::Action::HorizontalSplit);
+    let even = heights(&app);
+    let [top, bottom] = even[..] else {
+        panic!("two rows: {even:?}")
+    };
+    keys(&mut app, "<C-w>rkk<up>j<ret>").await?;
+    assert_eq!(heights(&app), [top - 4, bottom + 4]);
+    keys(&mut app, "<C-w>r1j<ret>").await?;
+    assert_eq!(heights(&app), [top - 3, bottom + 3]);
+    keys(&mut app, "<C-w>k<C-w>rj<down><ret>").await?;
+    assert_eq!(heights(&app), [top + 1, bottom - 1]);
+    keys(&mut app, "<C-w>r=<ret>").await?;
+    assert_eq!(heights(&app), even);
+    helpers::assert_status_not_error(&app.editor);
+    Ok(())
+}
+
+fn split_areas(app: &term::application::Application) -> Vec<(view::ViewId, view::graphics::Rect)> {
+    app.editor
+        .tree
+        .views()
+        .map(|(view, _)| (view.id, view.area))
+        .collect()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn resize_mode_confirms_or_restores_the_entry_layout() -> anyhow::Result<()> {
+    for prefix in ["<C-w>", "<space>w"] {
+        for select in [false, true] {
+            let mut app = AppBuilder::new().build()?;
+            app.editor.new_file(view::editor::Action::VerticalSplit);
+            app.editor.new_file(view::editor::Action::HorizontalSplit);
+            if select {
+                keys(&mut app, "v").await?;
+            }
+            let original = split_areas(&app);
+            let focus = app.editor.tree.focus();
+
+            keys(&mut app, &format!("{prefix}r3h1k")).await?;
+            assert_ne!(split_areas(&app), original);
+            assert!(app.editor.autoinfo.is_some());
+            keys(&mut app, "<esc>").await?;
+            assert_eq!(split_areas(&app), original);
+            assert!(app.editor.autoinfo.is_none());
+
+            keys(&mut app, &format!("{prefix}r3h1k<ret>")).await?;
+            let confirmed = split_areas(&app);
+            assert_ne!(confirmed, original);
+            assert!(app.editor.autoinfo.is_none());
+
+            // Equalizing is part of the same resize session. Cancel restores
+            // the last confirmed, uneven layout rather than the initial one.
+            keys(&mut app, &format!("{prefix}r=")).await?;
+            assert_ne!(split_areas(&app), confirmed);
+            keys(&mut app, "19<esc>").await?;
+            assert_eq!(split_areas(&app), confirmed);
+            assert_eq!(app.editor.count, None);
+            assert_eq!(app.editor.tree.focus(), focus);
+
+            // Both exit keys return input to the editor without leaking a count.
+            keys(&mut app, "iX<esc>").await?;
+            assert_eq!(
+                view::current_ref!(app.editor).1.text().to_string(),
+                format!("X{}", editor_core::NATIVE_LINE_ENDING.as_str())
+            );
+            assert_eq!(split_areas(&app), confirmed);
+            helpers::assert_status_not_error(&app.editor);
+        }
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn paste_dismisses_resize_mode_and_restores_the_layout() -> anyhow::Result<()> {
+    #[cfg(windows)]
+    use crossterm::event::Event;
+    #[cfg(not(windows))]
+    use termina::event::Event;
+
+    let mut app = AppBuilder::new().build()?;
+    app.editor.new_file(view::editor::Action::VerticalSplit);
+    let original = split_areas(&app);
+    keys(&mut app, "<C-w>r3h").await?;
+    assert_ne!(split_areas(&app), original);
+    app.handle_terminal_events(Ok(Event::Paste("X".into())))
+        .await;
+    assert_eq!(split_areas(&app), original);
+    assert!(app.editor.autoinfo.is_none());
+    keys(&mut app, "iY<esc>").await?;
+    assert_eq!(
+        view::current_ref!(app.editor).1.text().to_string(),
+        format!("YX{}", editor_core::NATIVE_LINE_ENDING.as_str())
+    );
+    helpers::assert_status_not_error(&app.editor);
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn resize_mode_exit_clears_pending_counts_even_without_splits() -> anyhow::Result<()> {
+    for exit in ["<ret>", "<esc>"] {
+        let mut app = AppBuilder::new().build()?;
+        let original = split_areas(&app);
+        keys(&mut app, &format!("<C-w>r999h12{exit}iX<esc>")).await?;
+        assert_eq!(split_areas(&app), original);
+        assert!(app.editor.autoinfo.is_none());
+        assert_eq!(app.editor.count, None);
+        assert_eq!(
+            view::current_ref!(app.editor).1.text().to_string(),
+            format!("X{}", editor_core::NATIVE_LINE_ENDING.as_str())
+        );
+        helpers::assert_status_not_error(&app.editor);
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn minimum_split_sizes_survive_terminal_resizes_and_new_splits() -> anyhow::Result<()> {
+    use view::editor::Action;
+    use view::tree::Tree;
+
+    for (action, key) in [(Action::VerticalSplit, "l"), (Action::HorizontalSplit, "k")] {
+        let mut app = AppBuilder::new().build()?;
+        app.editor.new_file(action);
+        keys(&mut app, &format!("<C-w>r1000{key}<ret>")).await?;
+
+        let area = app.editor.tree.area();
+        app.editor.resize(view::graphics::Rect {
+            width: 41,
+            height: 9,
+            ..area
+        });
+        for add_split in [false, true] {
+            if add_split {
+                app.editor.new_file(action);
+            }
+            assert!(app.editor.tree.views().all(|(pane, _)| {
+                pane.area.width >= Tree::MIN_PANE_WIDTH && pane.area.height >= Tree::MIN_PANE_HEIGHT
+            }));
+            helpers::assert_status_not_error(&app.editor);
+        }
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn key_sequence_stops_after_closing_last_view() -> anyhow::Result<()> {
+    for keys in ["<C-q>", "i<C-q>"] {
+        let mut config = test_config();
+        let source = r#"
+            [keys.normal]
+            C-q = ["wclose", "normal_mode"]
+            [keys.insert]
+            C-q = ["wclose", "normal_mode"]
+        "#
+        .to_owned();
+        config.keys = Config::load(Ok(&source), Err(term::config::ConfigLoadError::default()))
+            .unwrap()
+            .keys;
+        let mut app = AppBuilder::new().with_config(config).build()?;
+        test_key_sequence(
+            &mut app,
+            Some(keys),
+            Some(&|app| assert!(app.editor.should_close())),
+            true,
+        )
+        .await?;
+    }
+    Ok(())
+}

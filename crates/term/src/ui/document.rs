@@ -1,7 +1,6 @@
 //! Editor adapters for the document-independent text renderer.
 
 use super::text_decorations::DecorationManager;
-use language::syntax::Highlighter;
 use text_layout::DisplayPosition;
 use theme::Theme;
 use tui::buffer::Buffer as Surface;
@@ -14,7 +13,6 @@ pub fn render_document(
     surface: &mut Surface,
     doc: &Document,
     layout: &ViewLayout,
-    syntax_highlighter: Option<Highlighter<'_>>,
     overlay_highlights: Vec<editor_core::highlight::OverlayHighlights>,
     theme: &Theme,
     decorations: DecorationManager,
@@ -30,18 +28,14 @@ pub fn render_document(
         ),
         layout.viewport,
     );
-    let review_styles = super::change_review::document::syntax_styles(
-        doc,
-        layout.offset.anchor,
-        layout.viewport.height,
-        theme,
-    );
-    let ordinary_styles = super::highlights::syntax_styles(layout.text, syntax_highlighter, theme)
-        .take(if review_styles.is_some() {
+    let review_styles = super::change_review::document::syntax_styles(doc, layout, theme);
+    let ordinary_styles = super::highlights::document_syntax_styles(doc, layout, theme).take(
+        if review_styles.is_some() {
             0
         } else {
             usize::MAX
-        });
+        },
+    );
     let syntax_styles = review_styles.into_iter().flatten().chain(ordinary_styles);
     render_text(
         &mut renderer,

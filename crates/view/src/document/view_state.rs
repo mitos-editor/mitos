@@ -7,6 +7,7 @@ use text_layout::text_annotations::Overlay;
 #[derive(Debug)]
 pub(super) struct DocumentViewState {
     pub selection: Selection,
+    pub folds: super::folding::Folds,
     pub position: ViewPosition,
     pub jump_labels: Vec<Overlay>,
     pub restore_append_cursor: bool,
@@ -19,6 +20,7 @@ impl Clone for DocumentViewState {
     fn clone(&self) -> Self {
         Self {
             selection: self.selection.clone(),
+            folds: self.folds.clone(),
             position: self.position,
             jump_labels: self.jump_labels.clone(),
             restore_append_cursor: self.restore_append_cursor,
@@ -33,6 +35,7 @@ impl DocumentViewState {
     pub(super) fn new(selection: Selection) -> Self {
         Self {
             selection,
+            folds: Default::default(),
             position: ViewPosition::default(),
             jump_labels: Vec::new(),
             restore_append_cursor: false,

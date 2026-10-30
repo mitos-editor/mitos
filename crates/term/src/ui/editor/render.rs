@@ -283,9 +283,6 @@ impl PaneRenderer {
         let theme = &editor.theme;
         let config = editor.config();
 
-        let view_offset = layout.offset;
-
-        let text_annotations = &layout.annotations;
         let mut decorations = DecorationManager::default();
         decorations.add_decoration(text_decorations::conflicts::line_backgrounds(doc, theme));
         if doc.review().is_some() {
@@ -299,7 +296,7 @@ impl PaneRenderer {
         }
 
         if is_focused && config.cursor.highlight_line {
-            decorations.add_decoration(Self::cursorline(doc, view, theme));
+            decorations.add_decoration(Self::cursorline(doc, view, theme, &layout));
         }
 
         if is_focused && config.cursor.highlight_column {
@@ -321,15 +318,10 @@ impl PaneRenderer {
             decorations.add_decoration(line_decoration);
         }
 
-        let syntax_highlighter =
-            highlights::syntax_highlighter(doc, view_offset.anchor, inner.height);
         let mut overlays = Vec::new();
-        if let Some(highlights) = crate::ui::change_review::document::highlights(
-            doc,
-            view_offset.anchor,
-            inner.height,
-            theme,
-        ) {
+        if let Some(highlights) =
+            crate::ui::change_review::document::highlights(doc, &layout, theme)
+        {
             overlays.push(highlights);
         }
 
@@ -337,8 +329,7 @@ impl PaneRenderer {
             .language_config()
             .and_then(|config| config.rainbow_brackets)
             .unwrap_or(config.rainbow_brackets.enable)
-            && let Some(overlay) =
-                highlights::rainbow_highlights(doc, view_offset.anchor, inner.height, theme)
+            && let Some(overlay) = highlights::rainbow_highlights(doc, &layout, theme)
         {
             overlays.push(overlay);
         }
@@ -347,12 +338,7 @@ impl PaneRenderer {
             overlays.push(overlay);
         }
 
-        overlays.push(highlights::overlay_highlights(
-            doc,
-            view_offset.anchor,
-            inner.height,
-            text_annotations,
-        ));
+        overlays.push(highlights::overlay_highlights(&layout));
 
         highlights::diagnostic_highlights(doc, theme, &mut overlays);
 
@@ -385,8 +371,8 @@ impl PaneRenderer {
                 editor,
                 doc,
                 view,
-                area,
                 theme,
+                &layout,
                 is_focused & options.terminal_focused,
                 &mut decorations,
             );
@@ -479,15 +465,7 @@ impl PaneRenderer {
                 hidden_line,
             ));
         }
-        render_document(
-            surface,
-            doc,
-            &layout,
-            syntax_highlighter,
-            overlays,
-            theme,
-            decorations,
-        );
+        render_document(surface, doc, &layout, overlays, theme, decorations);
 
         if editor.config().welcome_screen && doc.version() == 0 && doc.is_welcome {
             Self::render_welcome(theme, inner, surface, options.true_color);
@@ -733,16 +711,17 @@ impl PaneRenderer {
         editor: &'d Editor,
         doc: &'d Document,
         view: &View,
-        viewport: Rect,
         theme: &Theme,
+        layout: &view::view::ViewLayout,
         is_focused: bool,
         decoration_manager: &mut DecorationManager<'d>,
     ) {
+        let viewport = view.content_area(doc);
         let text = doc.text().slice(..);
         let cursors: Rc<[_]> = doc
             .selection(view.id)
             .iter()
-            .map(|range| range.cursor_line(text))
+            .map(|range| layout.block_line_at_pos(range.cursor(text)))
             .collect();
 
         let mut offset = 0;
@@ -859,10 +838,15 @@ impl PaneRenderer {
     }
 
     /// Apply the highlighting on the lines where a cursor is active
-    fn cursorline(doc: &Document, view: &View, theme: &Theme) -> impl Decoration + use<> {
+    fn cursorline(
+        doc: &Document,
+        view: &View,
+        theme: &Theme,
+        layout: &view::view::ViewLayout,
+    ) -> impl Decoration + use<> {
         let text = doc.text().slice(..);
         // TODO only highlight the visual line that contains the cursor instead of the full visual line
-        let primary_line = doc.selection(view.id).primary().cursor_line(text);
+        let primary_line = layout.block_line_at_pos(doc.selection(view.id).primary().cursor(text));
 
         // The secondary_lines do contain the primary_line, it doesn't matter
         // as the else-if clause in the loop later won't test for the
@@ -873,7 +857,7 @@ impl PaneRenderer {
         let secondary_lines: Vec<_> = doc
             .selection(view.id)
             .iter()
-            .map(|range| range.cursor_line(text))
+            .map(|range| layout.block_line_at_pos(range.cursor(text)))
             .collect();
 
         let primary_style = theme.get("ui.cursorline.primary");

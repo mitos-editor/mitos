@@ -5,7 +5,7 @@ use stdx::rope::RopeExt as _;
 
 use editor_core::highlight::OverlayHighlights;
 use theme::{Style, Theme};
-use view::{features::change_review::ReviewLineKind, graphics::Rect, Document};
+use view::{features::change_review::ReviewLineKind, graphics::Rect, view::ViewLayout, Document};
 
 use crate::ui::{
     document::{LinePos, TextRenderer},
@@ -38,8 +38,7 @@ pub fn line_backgrounds<'a>(doc: &'a Document, theme: &'a Theme) -> impl Decorat
 /// queried. Resolving scopes at draw time also supports live theme changes.
 pub fn syntax_styles(
     doc: &Document,
-    anchor: usize,
-    height: u16,
+    layout: &ViewLayout,
     theme: &Theme,
 ) -> Option<Vec<(usize, Style)>> {
     let review = doc.review()?;
@@ -51,10 +50,8 @@ pub fn syntax_styles(
         loader.set_scopes(theme.scopes().to_vec());
     }
     let text = doc.text();
-    let first = text.char_to_line_idx(anchor.min(text.len_chars()));
-    let last = (first + usize::from(height) + 1).min(text.len_lines(stdx::rope::LINE_TYPE));
     let mut styles = Vec::new();
-    for index in first..last {
+    for index in visible_lines(layout) {
         let start = text.line_to_char_idx(index);
         styles.push((start, theme.get("ui.text")));
         let Some(row) = review.row(index) else {
@@ -77,18 +74,11 @@ pub fn syntax_styles(
     Some(styles)
 }
 
-pub fn highlights(
-    doc: &Document,
-    anchor: usize,
-    height: u16,
-    theme: &Theme,
-) -> Option<OverlayHighlights> {
+pub fn highlights(doc: &Document, layout: &ViewLayout, theme: &Theme) -> Option<OverlayHighlights> {
     let review = doc.review()?;
     let text = doc.text();
-    let first = text.char_to_line_idx(anchor.min(text.len_chars()));
-    let last = (first + height as usize + 1).min(text.len_lines(stdx::rope::LINE_TYPE));
     let mut highlights = Vec::new();
-    for index in first..last {
+    for index in visible_lines(layout) {
         let Some(row) = review.row(index) else {
             continue;
         };
@@ -123,4 +113,16 @@ pub fn highlights(
         }
     }
     Some(OverlayHighlights::Heterogenous { highlights })
+}
+
+/// Include retained closing-line suffixes as well as fold headers.
+fn visible_lines<'a>(layout: &ViewLayout<'a>) -> impl Iterator<Item = usize> + use<'a> {
+    let text = layout.text;
+    layout
+        .visible_byte_ranges()
+        .into_iter()
+        .flat_map(move |range| {
+            text.byte_to_line_idx(range.start, stdx::rope::LINE_TYPE)
+                ..=text.byte_to_line_idx(range.end - 1, stdx::rope::LINE_TYPE)
+        })
 }

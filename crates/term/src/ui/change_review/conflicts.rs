@@ -3,7 +3,6 @@ use crate::{
     compositor::Context,
     ui::{
         document::render_document,
-        highlights,
         text_decorations::{self, DecorationManager},
     },
 };
@@ -31,6 +30,9 @@ impl ConflictView {
     }
 
     pub fn visual_height(&self, width: u16, theme: &theme::Theme) -> usize {
+        if width == 0 {
+            return 0;
+        }
         let format = self.doc.text_format(width, Some(theme));
         if let Some((_, height)) = self
             .height
@@ -63,7 +65,7 @@ impl ConflictView {
         surface.set_stringn(
             area.x,
             area.y,
-            &self.title,
+            super::literal(&self.title),
             area.width as usize,
             cx.editor.theme.get("ui.text.focus"),
         );
@@ -100,7 +102,6 @@ impl ConflictView {
             doc,
             &cx.editor.theme,
         ));
-        let syntax = highlights::syntax_highlighter(doc, anchor, viewport.height);
         render_document(
             surface,
             doc,
@@ -115,7 +116,6 @@ impl ConflictView {
                 format,
                 annotations,
             },
-            syntax,
             Vec::new(),
             &cx.editor.theme,
             decorations,
@@ -141,6 +141,7 @@ mod tests {
         );
         let view = ConflictView::new("Conflicts".into(), doc);
         let theme = theme::Theme::default();
+        assert_eq!(view.visual_height(0, &theme), 0);
         let narrow = view.visual_height(12, &theme);
         assert!(narrow > view.doc.text().len_lines(stdx::rope::LINE_TYPE));
         assert_eq!(view.visual_height(12, &theme), narrow);

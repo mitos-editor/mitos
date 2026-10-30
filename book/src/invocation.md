@@ -40,7 +40,8 @@ Pipe text into Mitos to edit it in a scratch buffer:
 git diff | ms
 ```
 
-Use `:write <path>` to save the text. This requires an interactive terminal
+Use `ms +42` to start piped input at line 42, or `ms +` to start at its
+last line. Use `:write <path>` to save the text. This requires an interactive terminal
 for the editor interface.
 
 ## Setup and troubleshooting flags

@@ -27,4 +27,4 @@ toml_edit.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tempfile.workspace = true
-gix = { workspace = true, features = ["blocking-http-transport-curl", "sha1", "sha256"] }
+gix = { workspace = true, features = ["blocking-http-transport-curl-openssl", "sha1", "sha256"] }

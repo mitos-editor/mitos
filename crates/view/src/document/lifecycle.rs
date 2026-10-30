@@ -9,6 +9,7 @@ impl Document {
     pub(super) fn invalidate_language_features(&mut self) {
         for state in self.view_states.values_mut() {
             state.expansion_history.clear();
+            state.folds = Default::default();
         }
         self.hover.clear();
         self.navigation.clear();
@@ -39,6 +40,7 @@ impl Document {
                 if state.selection != selection {
                     state.expansion_history.clear();
                 }
+                state.folds.reveal(&selection, self.buffer.text().slice(..));
                 state.selection = selection
             }
             std::collections::hash_map::Entry::Vacant(state) => {

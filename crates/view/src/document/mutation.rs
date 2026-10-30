@@ -87,6 +87,7 @@ impl Document {
         }
         for state in self.view_states.values_mut() {
             state.expansion_history.clear();
+            state.folds.apply_changes(changes);
             let selection = &mut state.selection;
             *selection = selection
                 .clone()
@@ -95,6 +96,7 @@ impl Document {
                 // Ensure all selections across all views still adhere to invariants.
                 .ensure_invariants(self.buffer.text().slice(..));
             state.position.anchor = changes.map_pos(state.position.anchor, Assoc::Before);
+            state.folds.reveal(selection, self.buffer.text().slice(..));
         }
 
         // update tree-sitter syntax tree

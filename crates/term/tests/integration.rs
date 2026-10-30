@@ -37,6 +37,7 @@ mod test {
     mod document_features;
     mod document_symbols;
     mod file_operations;
+    mod folding;
     mod formatting;
     #[cfg(feature = "git")]
     mod git_diff;

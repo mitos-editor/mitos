@@ -235,7 +235,8 @@ fn line_numbers<'doc>(
         });
     }
 
-    let last_line_in_view = view.estimate_last_doc_line(doc);
+    let layout = view.layout(doc, None);
+    let last_line_in_view = layout.last_document_line();
 
     // Whether to draw the line number for the last line of the
     // document or not.  We only draw it if it's not an empty line.
@@ -244,12 +245,11 @@ fn line_numbers<'doc>(
     let linenr = theme.get("ui.linenr");
     let linenr_select = theme.get("ui.linenr.selected");
 
-    let current_line = doc
-        .text()
-        .char_to_line_idx(doc.selection(view.id).primary().cursor(text));
+    let current_line = layout.block_line_at_pos(doc.selection(view.id).primary().cursor(text));
 
     let view_id = view.id;
     let line_number = editor.config().line_number;
+    let folds = doc.folded_ranges(view.id);
     let wrap_indicator = editor
         .config()
         .soft_wrap
@@ -279,7 +279,7 @@ fn line_numbers<'doc>(
                     && current_line != line;
 
                 let display_num = if relative {
-                    current_line.abs_diff(line)
+                    text_layout::movement::document_line_distance(text, current_line, line, folds)
                 } else {
                     line + 1
                 };
@@ -413,9 +413,9 @@ fn code_action_hint<'doc>(
     let style = theme.get("ui.text");
     let text = doc.text().slice(..);
     let show_hint = doc.code_action_hints(view.id);
-    let current_line = doc
-        .text()
-        .char_to_line_idx(doc.selection(view.id).primary().cursor(text));
+    let current_line = view
+        .layout(doc, None)
+        .block_line_at_pos(doc.selection(view.id).primary().cursor(text));
 
     Box::new(
         move |line: usize, _selected: bool, first_visual_line: bool, out: &mut String| {
