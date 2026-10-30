@@ -64,9 +64,9 @@ The preview starts with unsaved edits when available, then unstaged changes, the
 staged changes. `Alt-Left` / `Alt-Right` also switch comparisons, but some
 terminals use those keys for word movement.
 
-Conflicted files instead compare HEAD with the file on disk, or with the buffer
-when it has unsaved edits. Index comparisons are unavailable until the file is
-resolved and staged.
+For conflicted files, the preview compares your changes with `HEAD`, including
+unsaved edits. Press `Enter` to open the file and
+[resolve the conflicts](#resolving-conflicts).
 
 | Key | Action |
 | --- | --- |
@@ -145,9 +145,8 @@ To review two files side by side:
 Use `Ctrl-w v` / `Ctrl-w s` to split an existing review. The command palette also
 lists the diff commands.
 
-Binary files, submodules, and unresolved merge conflicts show an explanation
-instead of a text diff. Very large files may be rejected, or their diffs shortened
-with a notice.
+Binary files and submodules show an explanation instead of a text diff. Very
+large files may be rejected, or their diffs shortened with a notice.
 
 ### Inspecting the current change
 
@@ -373,36 +372,33 @@ Available placeholders are:
 
 ## Resolving conflicts
 
-Use `[m` / `]m` to move between conflict regions. A count moves across several
-regions. Navigation wraps and reports the current conflict and remaining total.
-Inside a conflict, press `Space-a` to accept the current side, incoming side, or
-both (current then incoming). These actions work without a language server.
+Open a conflicted file from the changed-files picker (`Space g s`). Use `]m` to
+move to the next conflict or `[m` to move to the previous one.
 
-The changed-files picker previews conflicted files against HEAD, including unsaved
-buffer edits when present. The preview keeps the conflict markers visible; open
-the file to resolve them.
+Place the cursor inside a conflict and press `Space a` to choose **Accept current**,
+**Accept incoming**, or **Accept both (current then incoming)**. Other available
+code actions appear in the same menu. You can also edit the text yourself.
+
+Press `u` to undo a resolution. When you are happy with the result, save the file
+and stage it. Accepting both sides keeps their text in order; you may need to
+edit it further.
+
+The same choices are available as commands:
 
 | Command | Action |
 | --- | --- |
-| `:vcs-conflict-next [next\|previous]` | Move between conflict regions |
-| `:vcs-conflict-source base` | Inspect the complete common ancestor version |
-| `:vcs-conflict-source current` | Inspect the complete current version |
-| `:vcs-conflict-source incoming` | Inspect the complete incoming version |
 | `:vcs-conflict-resolve current` | Keep the current side |
 | `:vcs-conflict-resolve incoming` | Keep the incoming side |
 | `:vcs-conflict-resolve both` | Keep current followed by incoming |
 
-Resolution changes only the buffer and can be undone with `u`. Review the result,
-save it, then stage the file. The status message reports how many conflict regions
-remain. Keeping both sides may require further editing to combine their logic.
+For a merge, **current** is the branch you have checked out and **incoming** is
+the branch you are merging. During a rebase, **current** is the branch you are
+rebasing onto, including commits already applied, and **incoming** is the commit
+being applied.
 
-For a merge, **current** is the checked-out branch and **incoming** is the branch
-being merged. **Base** is their common ancestor. The conflict markers identify each side.
+For more context, run `:vcs-conflict-source base` to open the shared original
+version in a read-only split. Replace `base` with `current` or `incoming` to open
+either side. Close the split with `:q`.
 
-During a rebase, **current** means the new base and commits already replayed;
-**incoming** means the commit being replayed. The complete-version inspection
-buffers label these roles. If a version does not exist, such as the base of an
-added file, inspection opens an empty read-only buffer labeled absent.
-
-If conflict markers are incomplete or nested, resolve the conflict with normal
-text editing. Remove the markers, review the result, then save and stage the file.
+If Mitos cannot recognize the conflict markers, remove them and resolve the
+conflict by editing the file.

@@ -1559,7 +1559,7 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
     TypableCommand {
         name: "vcs-conflict-resolve",
         aliases: &[],
-        doc: "Keep current, incoming, or both sides of the conflict at the cursor. Changes can be undone with u; save and stage when ready.",
+        doc: "Keep the current side, incoming side, or both sides of the conflict at the cursor.",
         fun: super::conflicts::resolve,
         completer: CommandCompleter::none(),
         signature: Signature { positionals: (1, Some(1)), ..Signature::DEFAULT },
@@ -1567,7 +1567,7 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
     TypableCommand {
         name: "vcs-conflict-source",
         aliases: &[],
-        doc: "Inspect the complete base, current, or incoming version of a conflicted file.",
+        doc: "Open the base, current, or incoming version of a conflicted file in a read-only split.",
         fun: super::conflicts::source,
         completer: CommandCompleter::none(),
         signature: Signature { positionals: (1, Some(1)), ..Signature::DEFAULT },
