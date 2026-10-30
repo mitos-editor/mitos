@@ -64,9 +64,10 @@ The preview starts with unsaved edits when available, then unstaged changes, the
 staged changes. `Alt-Left` / `Alt-Right` also switch comparisons, but some
 terminals use those keys for word movement.
 
-For conflicted files, the preview shows each side of the conflict, including
+Conflicts with marker lines appear as labeled sections in the preview, including
 unsaved edits. Press `Enter` to open the file and
-[resolve the conflicts](#resolving-conflicts).
+[resolve the conflicts](#resolving-conflicts). Once the markers are removed, the
+preview shows a diff so you can review the result.
 
 | Key | Action |
 | --- | --- |
@@ -98,6 +99,9 @@ Choose another comparison with:
 
 These comparisons also work before the repository's first commit. For deleted
 files, open the review from the changed-file picker.
+
+For conflicted files, use `:diff` to compare with `HEAD`. Save and stage the
+resolved file before choosing another comparison.
 
 Reviews are read-only buffers. Use normal movement, search, selection, yank,
 wrapping, and view commands. Reviews appear in the buffer picker; use the usual
@@ -372,23 +376,21 @@ Available placeholders are:
 
 ## Resolving conflicts
 
-Open a conflicted file from the changed-files picker (`Space g s`). Use `]m` to
-move to the next conflict or `[m` to move to the previous one.
+Press `Space g s` and open a conflicted file. Use `]m` to move to the next
+conflict or `[m` to move to the previous one.
 
-Conflicts appear as labeled sections for the current, incoming, and base versions
-when available. The gutter marks these sections instead of ordinary Git changes.
-Run `:vcs-conflict-toggle-markers` to show or hide the original marker text in
-the current view when you want to edit it.
+Place the cursor inside a conflict and press `Space a`. Choose **Accept current**,
+**Accept incoming**, or **Accept both (current then incoming)** to keep that text.
+The menu also includes other available code actions. You can edit the text directly.
 
-Place the cursor inside a conflict and press `Space a` to choose **Accept current**,
-**Accept incoming**, or **Accept both (current then incoming)**. Other available
-code actions appear in the same menu. You can also edit the text yourself.
+Press `u` to undo a choice. If you keep both sides, review and edit the combined
+text. When you have resolved every conflict, save the file and stage it.
 
-Press `u` to undo a resolution. When you are happy with the result, save the file
-and stage it. Accepting both sides keeps their text in order; you may need to
-edit it further.
+The editor labels each side of the conflict. To see or edit the marker lines,
+run `:vcs-conflict-toggle-markers`. Run it again to restore the headings. This
+affects only the current view.
 
-The same choices are available as commands:
+You can also resolve conflicts with commands:
 
 | Command | Action |
 | --- | --- |
@@ -396,14 +398,14 @@ The same choices are available as commands:
 | `:vcs-conflict-resolve incoming` | Keep the incoming side |
 | `:vcs-conflict-resolve both` | Keep current followed by incoming |
 
-For a merge, **current** is the branch you have checked out and **incoming** is
+During a merge, **current** is the branch you have checked out and **incoming** is
 the branch you are merging. During a rebase, **current** is the branch you are
-rebasing onto, including commits already applied, and **incoming** is the commit
-being applied.
+rebasing onto, including commits already applied; **incoming** is the commit being
+applied.
 
-For more context, run `:vcs-conflict-source base` to open the shared original
-version in a read-only split. Replace `base` with `current` or `incoming` to open
-either side. Close the split with `:q`.
+To see the whole file for either side, run `:vcs-conflict-source current` or
+`:vcs-conflict-source incoming`. Use `:vcs-conflict-source base` to see the original
+version. Each version opens in a read-only split. Close it with `:q`.
 
-If Mitos cannot recognize the conflict markers, remove them and resolve the
-conflict by editing the file.
+If Mitos cannot recognize a conflict, edit the file and remove the marker lines
+yourself.
