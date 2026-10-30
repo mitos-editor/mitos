@@ -377,8 +377,8 @@ move to the next conflict or `[m` to move to the previous one.
 
 Conflicts appear as labeled sections for the current, incoming, and base versions
 when available. The gutter marks these sections instead of ordinary Git changes.
-Selecting a marker line reveals its original text so you can edit it. Run
-`:vcs-conflict-toggle-markers` to show or hide all raw markers in the current view.
+Run `:vcs-conflict-toggle-markers` to show or hide the original marker text in
+the current view when you want to edit it.
 
 Place the cursor inside a conflict and press `Space a` to choose **Accept current**,
 **Accept incoming**, or **Accept both (current then incoming)**. Other available

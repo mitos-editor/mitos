@@ -82,7 +82,13 @@ pub(super) fn source(cx: &mut compositor::Context, args: Args, event: PromptEven
             .workspace_trust
             .query(&workspace, workspace::trust::TrustQuery::Git)
             .is_trusted();
-        let (view_id, doc_id, version) = (view.id, doc.id(), doc.version());
+        let (view_id, binding, doc_id, version, uri) = (
+            view.id,
+            view.binding_revision(),
+            doc.id(),
+            doc.version(),
+            doc.uri(),
+        );
         let encoding = doc.encoding();
         cx.jobs.callback(async move {
             let result = tokio::task::spawn_blocking(move || {
@@ -91,13 +97,12 @@ pub(super) fn source(cx: &mut compositor::Context, args: Args, event: PromptEven
             .await?;
             Ok(Callback::Editor(Box::new(move |editor| {
                 if editor.tree.focus() != view_id
-                    || editor
-                        .tree
-                        .try_get(view_id)
-                        .is_none_or(|view| view.document_id() != doc_id)
-                    || editor
-                        .document(doc_id)
-                        .is_none_or(|doc| doc.version() != version || doc.encoding() != encoding)
+                    || editor.tree.try_get(view_id).is_none_or(|view| {
+                        view.document_id() != doc_id || view.binding_revision() != binding
+                    })
+                    || editor.document(doc_id).is_none_or(|doc| {
+                        doc.version() != version || doc.encoding() != encoding || doc.uri() != uri
+                    })
                     || editor
                         .workspace_trust
                         .query(&workspace, workspace::trust::TrustQuery::Git)
@@ -109,7 +114,7 @@ pub(super) fn source(cx: &mut compositor::Context, args: Args, event: PromptEven
                 match result {
                     Ok((label, bytes)) => {
                         let (text, _, malformed) = encoding.decode(&bytes);
-                        if malformed {
+                        if malformed || text.contains('\0') {
                             editor.set_error(|| {
                                 "Conflict source cannot be decoded with this file's encoding"
                             });

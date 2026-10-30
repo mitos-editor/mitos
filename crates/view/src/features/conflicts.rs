@@ -12,7 +12,7 @@ pub use presentation::{ConflictMarker, ConflictPresentation, ConflictSide};
 use super::request::SelectionRequest;
 use crate::{action, editor::Action, Document, DocumentId, Editor};
 
-fn regions(editor: &Editor) -> Result<Vec<conflict::Conflict>> {
+fn regions(editor: &Editor) -> Result<&[conflict::Conflict]> {
     let (_, doc) = crate::current_ref!(editor);
     ensure!(!doc.is_binary(), "Conflict actions require a text buffer");
     ensure!(
@@ -20,19 +20,17 @@ fn regions(editor: &Editor) -> Result<Vec<conflict::Conflict>> {
         "Buffer too large to inspect conflicts"
     );
     let state = doc.conflict_presentation();
-    ensure!(
-        state.error.is_none(),
-        "{}",
-        state.error.as_deref().unwrap_or_default()
-    );
-    Ok(state.regions.clone())
+    if let Some(error) = &state.error {
+        anyhow::bail!("{error}");
+    }
+    Ok(&state.regions)
 }
 
 pub fn navigate(editor: &mut Editor, forward: bool, count: usize) -> Result<()> {
     let conflicts = regions(editor)?;
     ensure!(!conflicts.is_empty(), "No conflict markers in this buffer");
     let scrolloff = editor.config().scroll.padding;
-    let (view, doc) = crate::current!(editor);
+    let (view, doc) = crate::current_ref!(editor);
     let cursor = doc.text().char_to_byte_idx(
         doc.selection(view.id)
             .primary()
@@ -56,15 +54,17 @@ pub fn navigate(editor: &mut Editor, forward: bool, count: usize) -> Result<()> 
         (index + conflicts.len() - extra) % conflicts.len()
     };
     let pos = doc.text().byte_to_char_idx(conflicts[index].whole.start);
+    let total = conflicts.len();
+    let (view, doc) = crate::current!(editor);
     doc.set_selection(view.id, Selection::point(pos));
     view.ensure_cursor_in_view(doc, scrolloff);
-    editor.set_status(format!("Conflict {} of {}", index + 1, conflicts.len()));
+    editor.set_status(format!("Conflict {} of {}", index + 1, total));
     Ok(())
 }
 
 pub fn resolve(editor: &mut Editor, choice: Resolution) -> Result<()> {
     let conflicts = regions(editor)?;
-    let (view, doc) = crate::current!(editor);
+    let (view, doc) = crate::current_ref!(editor);
     let cursor = doc.text().char_to_byte_idx(
         doc.selection(view.id)
             .primary()
@@ -76,18 +76,29 @@ pub fn resolve(editor: &mut Editor, choice: Resolution) -> Result<()> {
         .ok_or_else(|| anyhow::anyhow!("Place the cursor inside a conflict first"))?;
     let start = doc.text().byte_to_char_idx(conflict.whole.start);
     let end = doc.text().byte_to_char_idx(conflict.whole.end);
-    let replacement = conflict.replacement(&doc.text().to_string(), choice);
+    let text = doc.text();
+    let replacement = match choice {
+        Resolution::Current => text.slice(conflict.current.clone()).to_string(),
+        Resolution::Incoming => text.slice(conflict.incoming.clone()).to_string(),
+        Resolution::Both => format!(
+            "{}{}",
+            text.slice(conflict.current.clone()),
+            text.slice(conflict.incoming.clone())
+        ),
+    };
+    let remaining = conflicts.len() - 1;
     let transaction = Transaction::change(
         doc.text(),
         [(start, end, Some(replacement.into()))].into_iter(),
     );
+    let (view, doc) = crate::current!(editor);
     crate::editing::apply(doc, &transaction, view.id)?;
     doc.commit_changes();
     doc.set_selection(view.id, Selection::single(start, start));
     view.sync_changes(doc);
     editor.set_status(format!(
         "{} conflicts remaining; review, save, and stage the resolved file",
-        conflicts.len() - 1
+        remaining
     ));
     Ok(())
 }

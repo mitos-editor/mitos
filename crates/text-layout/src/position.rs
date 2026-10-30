@@ -497,6 +497,40 @@ mod replacement_tests {
     use editor_core::Rope;
 
     #[test]
+    fn folding_takes_precedence_over_overlapping_replacement_labels() {
+        use crate::text_annotations::Conceal;
+        let text =
+            Rope::from("before\n<<<<<<< HEAD\nours\n=======\ntheirs\n>>>>>>> topic\nafter\n");
+        let replacement = LineReplacement {
+            range: 7..19,
+            text: "Current".into(),
+        };
+        for range in [7..text.len_chars() - 7, 10..16] {
+            let conceals = [Conceal { range }];
+            let mut annotations = TextAnnotations::default();
+            annotations.set_conceals(&conceals);
+            annotations.add_line_replacement(&replacement, None);
+            let format = TextFormat::default();
+            let graphemes: Vec<_> =
+                DocumentFormatter::new_at_prev_checkpoint(text.slice(..), &format, &annotations, 0)
+                    .collect();
+            assert!(!graphemes.iter().any(|g| matches!(
+                g.source,
+                crate::doc_formatter::GraphemeSource::Replacement { .. }
+            )));
+            assert_eq!(annotations.display_anchor(11), 11);
+            let mut plain = TextAnnotations::default();
+            plain.set_conceals(&conceals);
+            for pos in 0..text.len_chars() {
+                assert_eq!(
+                    visual_offset_from_block(text.slice(..), 0, pos, &format, &annotations),
+                    visual_offset_from_block(text.slice(..), 0, pos, &format, &plain)
+                );
+            }
+        }
+    }
+
+    #[test]
     fn replacements_preserve_source_rows_and_map_labels_to_their_anchor() {
         let text = Rope::from("préfix\n<<<<<<< HEAD\r\n界\tx\n");
         let start = 7;

@@ -929,17 +929,24 @@ async fn space_a_offers_conflict_resolution_and_preserves_disk_and_index() -> an
 }
 
 fn create_index_conflict(repo: &Path) {
+    create_encoded_index_conflict(repo, |text| text.as_bytes().to_vec());
+    assert!(std::fs::read_to_string(repo.join("file.txt"))
+        .unwrap()
+        .contains("<<<<<<<"));
+}
+
+fn create_encoded_index_conflict(repo: &Path, encode: impl Fn(&str) -> Vec<u8>) {
     let path = repo.join("file.txt");
-    std::fs::write(&path, "base\n").unwrap();
+    std::fs::write(&path, encode("base\n")).unwrap();
     std::fs::write(repo.join(".gitattributes"), "* text eol=lf\n").unwrap();
     git(repo, &["init"]);
     git(repo, &["add", "-A"]);
     git(repo, &["commit", "-m", "base"]);
     git(repo, &["checkout", "-b", "incoming"]);
-    std::fs::write(&path, "theirs\n").unwrap();
+    std::fs::write(&path, encode("theirs\n")).unwrap();
     git(repo, &["commit", "-am", "incoming"]);
     git(repo, &["checkout", "main"]);
-    std::fs::write(&path, "ours\n").unwrap();
+    std::fs::write(&path, encode("ours\n")).unwrap();
     git(repo, &["commit", "-am", "current"]);
     let merge = git_output(repo, &["merge", "incoming"]);
     assert_eq!(
@@ -948,7 +955,6 @@ fn create_index_conflict(repo: &Path) {
         "{}",
         String::from_utf8_lossy(&merge.stderr)
     );
-    assert!(std::fs::read_to_string(path).unwrap().contains("<<<<<<<"));
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -1043,7 +1049,7 @@ async fn conflict_source_opens_the_index_stage_in_a_readonly_split() -> anyhow::
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn conflict_headings_reveal_source_for_editing_and_follow_undo() -> anyhow::Result<()> {
+async fn conflict_headings_stay_stable_during_navigation_and_follow_undo() -> anyhow::Result<()> {
     let original =
         "préfix\n<<<<<<< HEAD\nours\n||||||| base\nold\n=======\ntheirs\n>>>>>>> topic\nsuffix\n";
     let (dir, path) = committed_file()?;
@@ -1060,12 +1066,17 @@ async fn conflict_headings_reveal_source_for_editing_and_follow_undo() -> anyhow
     assert!(!screen.contains("▍"));
     assert_eq!(current_ref!(app.editor).1.text().to_string(), original);
 
-    // A heading's source row is exposed when movement/search selects it.
-    press_keys(&mut app, "]m").await?;
-    assert!(review_screen(&app).contains("<<<<<<< HEAD"));
-    press_keys(&mut app, "j").await?;
-    assert!(review_screen(&app).contains("Space a: resolve"));
-    assert!(!review_screen(&app).contains("<<<<<<<"));
+    // Navigating through labels must not reveal raw markers or lose the caret.
+    press_keys(&mut app, "]mlll").await?;
+    assert!(!review_screen(&app).contains("<<<<<<< HEAD"));
+    let (view, doc) = current_ref!(app.editor);
+    assert!(app.editor.cursor_cache.get(view, doc).is_some());
+    press_keys(&mut app, "6j").await?;
+    assert!(review_screen(&app).contains("End conflict"));
+    assert!(!review_screen(&app).contains(">>>>>>> topic"));
+    let (view, doc) = current_ref!(app.editor);
+    assert!(app.editor.cursor_cache.get(view, doc).is_some());
+    press_keys(&mut app, "]mj").await?;
     press_keys(&mut app, ":vcs-conflict-toggle-markers<ret>").await?;
     assert!(review_screen(&app).contains("<<<<<<< HEAD"));
     assert!(review_screen(&app).contains("======="));
@@ -1108,6 +1119,76 @@ async fn conflict_headings_reveal_source_for_editing_and_follow_undo() -> anyhow
     assert!(review_screen(&app).contains("Current: HEAD"));
     assert_eq!(std::fs::read_to_string(&path)?, original);
     git(dir.path(), &["diff", "--cached", "--exit-code"]);
+    assert!(app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn conflict_source_decodes_utf16_index_stages() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    create_encoded_index_conflict(dir.path(), |text| {
+        [0xff, 0xfe]
+            .into_iter()
+            .chain(text.encode_utf16().flat_map(u16::to_le_bytes))
+            .collect()
+    });
+    let path = dir.path().join("file.txt");
+    let before = std::fs::read(&path)?;
+    let mut app = AppBuilder::new().with_file(&path, None).build()?;
+    assert_eq!(
+        current_ref!(app.editor).1.encoding(),
+        editor_core::encoding::UTF_16LE
+    );
+    press_keys(&mut app, ":vcs-conflict-source base<ret>").await?;
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while !current_ref!(app.editor).1.is_readonly() {
+            run_event_loop_until_idle(&mut app).await;
+        }
+    })
+    .await?;
+    assert_eq!(current_ref!(app.editor).1.text().to_string(), "base\n");
+    assert_eq!(std::fs::read(&path)?, before);
+    assert!(app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn conflict_navigation_counts_wrap_and_resolution_macros_replay() -> anyhow::Result<()> {
+    let block = "<<<<<<< HEAD\nours\n=======\ntheirs\n>>>>>>> incoming\n";
+    let original = format!("prefix\n{block}middle\n{block}suffix\n{block}");
+    let mut app = AppBuilder::new()
+        .with_input_text(format!("#[|]#{original}"))
+        .build()?;
+    press_keys(&mut app, "2]m").await?;
+    let (view, doc) = current_ref!(app.editor);
+    let second = original.match_indices("<<<<<<<").nth(1).unwrap().0;
+    assert_eq!(
+        doc.selection(view.id)
+            .primary()
+            .cursor(doc.text().slice(..)),
+        second
+    );
+    press_keys(&mut app, "3]m").await?;
+    let (view, doc) = current_ref!(app.editor);
+    assert_eq!(
+        doc.selection(view.id)
+            .primary()
+            .cursor(doc.text().slice(..)),
+        second
+    );
+    press_keys(&mut app, "2[m").await?;
+    // Record navigation and resolution, then replay against the next region.
+    press_keys(&mut app, "Q]m:vcs-conflict-resolve incoming<ret>Qq").await?;
+    assert_eq!(
+        current_ref!(app.editor)
+            .1
+            .conflict_presentation()
+            .regions
+            .len(),
+        1
+    );
+    press_keys(&mut app, "uu").await?;
+    assert_eq!(current_ref!(app.editor).1.text().to_string(), original);
     assert!(app.close().await.is_empty());
     Ok(())
 }

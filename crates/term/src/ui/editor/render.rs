@@ -390,7 +390,7 @@ impl PaneRenderer {
             editor.cursor_cache.set(None);
             decorations.add_decoration(text_decorations::Cursor {
                 cache: &editor.cursor_cache,
-                primary_cursor,
+                primary_cursor: layout.annotations.display_anchor(primary_cursor),
             });
         }
         if is_focused

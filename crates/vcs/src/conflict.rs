@@ -45,7 +45,11 @@ pub fn read_source(path: &std::path::Path, side: &str, trusted: bool) -> Result<
     let parent = path
         .parent()
         .ok_or_else(|| anyhow::anyhow!("File has no parent"))?;
-    let repo = crate::git::open_repo(parent, trusted)?.to_thread_local();
+    let directory = parent
+        .ancestors()
+        .find(|path| path.is_dir())
+        .ok_or_else(|| anyhow::anyhow!("File has no existing parent directory"))?;
+    let repo = crate::git::open_repo(directory, trusted)?.to_thread_local();
     let root = stdx::path::canonicalize_existing(
         repo.workdir()
             .ok_or_else(|| anyhow::anyhow!("Repository has no working tree"))?,
@@ -65,15 +69,15 @@ pub fn read_source(path: &std::path::Path, side: &str, trusted: bool) -> Result<
             .iter()
             .any(|entry| entry.stage() != Stage::Unconflicted
                 && entry.path(&index) == bytes.as_ref()),
-        "File has no unresolved index stages"
+        "File has no unresolved Git conflict"
     );
     let rebasing = repo.git_dir().join("rebase-merge").is_dir()
         || repo.git_dir().join("rebase-apply").is_dir();
     let role = match (side, rebasing) {
         ("current", true) => "current (new base and already replayed commits)",
         ("incoming", true) => "incoming (commit being replayed)",
-        ("current", false) => "current (index stage 2)",
-        ("incoming", false) => "incoming (index stage 3)",
+        ("current", false) => "current",
+        ("incoming", false) => "incoming",
         _ => "base (common ancestor)",
     };
     let Some(entry) = index.entry_by_path_and_stage(bytes.as_ref(), stage) else {
@@ -86,27 +90,10 @@ pub fn read_source(path: &std::path::Path, side: &str, trusted: bool) -> Result<
         ),
         "This conflict source is not a regular text file"
     );
-    let content =
-        crate::review::read_blob(&repo, entry.id, gix::objs::tree::EntryKind::Blob, relative)?;
-    ensure!(
-        !content.contains(&0),
-        "Binary conflict sources cannot be shown as text"
-    );
-    Ok((role.into(), content))
-}
-
-impl Conflict {
-    pub fn replacement(&self, text: &str, choice: Resolution) -> String {
-        match choice {
-            Resolution::Current => text[self.current.clone()].into(),
-            Resolution::Incoming => text[self.incoming.clone()].into(),
-            Resolution::Both => format!(
-                "{}{}",
-                &text[self.current.clone()],
-                &text[self.incoming.clone()]
-            ),
-        }
-    }
+    Ok((
+        role.into(),
+        crate::review::read_blob(&repo, entry.id, gix::objs::tree::EntryKind::Blob, relative)?,
+    ))
 }
 
 /// Reject incomplete/nested markers instead of offering destructive resolution of an
@@ -254,6 +241,42 @@ mod tests {
         Ok(())
     }
 
+    #[cfg(feature = "git")]
+    #[test]
+    fn missing_stages_remain_inspectable_after_removing_the_parent_directory() -> Result<()> {
+        use crate::git::test::{create_commit_with_message, empty_git_repo, exec_git_cmd};
+        let dir = empty_git_repo();
+        let root = dir.path().canonicalize()?;
+        std::fs::write(root.join(".gitattributes"), "* text eol=lf\n")?;
+        let parent = root.join("nested");
+        let path = parent.join("file.txt");
+        std::fs::create_dir(&parent)?;
+        std::fs::write(&path, "base\n")?;
+        create_commit_with_message(&root, true, "base");
+        exec_git_cmd(&["checkout", "-b", "topic"], &root);
+        std::fs::write(&path, "incoming\n")?;
+        create_commit_with_message(&root, true, "incoming");
+        exec_git_cmd(&["checkout", "main"], &root);
+        exec_git_cmd(&["rm", "nested/file.txt"], &root);
+        create_commit_with_message(&root, false, "delete current");
+        let merge = std::process::Command::new("git")
+            .arg("-C")
+            .arg(&root)
+            .args(["merge", "topic"])
+            .env_remove("GIT_DIR")
+            .output()?;
+        assert_eq!(merge.status.code(), Some(1));
+        // Choose deletion in the worktree, keeping unresolved stages for inspection.
+        std::fs::remove_file(&path)?;
+        std::fs::remove_dir(&parent)?;
+        assert_eq!(read_source(&path, "base", false)?.1, b"base\n");
+        let (label, current) = read_source(&path, "current", false)?;
+        assert!(label.contains("absent"));
+        assert!(current.is_empty());
+        assert_eq!(read_source(&path, "incoming", false)?.1, b"incoming\n");
+        Ok(())
+    }
+
     #[test]
     fn parses_diff3_unicode_crlf_and_custom_width_without_changing_text() -> Result<()> {
         let text = "prefix\r\n<<<<<<<< HEAD\r\nžluť\r\n|||||||| base\r\nold\r\n========\r\nblue\r\n>>>>>>>> feature";
@@ -261,7 +284,8 @@ mod tests {
         let c = &conflicts[0];
         assert_eq!(&text[c.whole.clone()], &text[8..]);
         assert_eq!(&text[c.base.clone().unwrap()], "old\r\n");
-        assert_eq!(c.replacement(text, Resolution::Both), "žluť\r\nblue\r\n");
+        assert_eq!(&text[c.current.clone()], "žluť\r\n");
+        assert_eq!(&text[c.incoming.clone()], "blue\r\n");
         assert_eq!(c.current_label, "HEAD");
         assert_eq!(c.incoming_label, "feature");
         Ok(())
@@ -278,7 +302,9 @@ mod tests {
             assert!(parse(text).is_err(), "{text}");
         }
         let text = "<<<<<<< a\n=======\n>>>>>>> b\n";
-        assert_eq!(parse(text)?[0].replacement(text, Resolution::Both), "");
+        let conflicts = parse(text)?;
+        assert!(conflicts[0].current.is_empty());
+        assert!(conflicts[0].incoming.is_empty());
         assert!(parse("<<<<<<<<comparison\n=======not a marker\n")?.is_empty());
         Ok(())
     }

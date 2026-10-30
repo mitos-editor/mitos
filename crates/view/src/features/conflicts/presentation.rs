@@ -2,7 +2,6 @@
 
 use crate::{Document, ViewId};
 use editor_core::Rope;
-use std::ops::Range;
 use stdx::rope::RopeExt as _;
 use text_layout::text_annotations::{LineReplacement, TextAnnotations};
 use vcs::conflict::{self, Conflict};
@@ -37,9 +36,6 @@ pub struct ConflictMarker {
     pub line: usize,
     pub side: ConflictSide,
     pub replacement: LineReplacement,
-    hint: LineReplacement,
-    source: Range<usize>,
-    region: Range<usize>,
 }
 
 #[derive(Default)]
@@ -54,17 +50,21 @@ impl ConflictPresentation {
         if text.len() > vcs::MAX_REVIEW_BYTES {
             return Self::default();
         }
-        let source = text.to_string();
-        // An ordinary Markdown separator is not a conflict. Incomplete opening
-        // and closing markers still suppress misleading diff gutters.
-        if !source.lines().any(|line| {
-            ["<<<<<<<", ">>>>>>>"].iter().any(|prefix| {
-                line.strip_prefix(prefix)
-                    .is_some_and(|rest| rest.is_empty() || rest.starts_with([' ', '<', '>']))
-            })
+        // Inspect only line prefixes before allocating contiguous text. Most
+        // documents contain no markers, and this runs after each text change.
+        if !text.slice(..).lines(stdx::rope::LINE_TYPE).any(|line| {
+            let mut chars = line.chars();
+            let Some(marker @ ('<' | '>')) = chars.next() else {
+                return false;
+            };
+            (0..6).all(|_| chars.next() == Some(marker))
+                && chars
+                    .next()
+                    .is_none_or(|ch| ch == marker || matches!(ch, ' ' | '\r' | '\n'))
         }) {
             return Self::default();
         }
+        let source = text.to_string();
         let regions = match conflict::parse(&source) {
             Ok(regions) => regions,
             Err(error) => {
@@ -115,24 +115,15 @@ impl ConflictPresentation {
                     continue;
                 };
                 let start = text.byte_to_char_idx(range.start);
-                let end = text.byte_to_char_idx(range.end);
                 let content = source[range.clone()].trim_end_matches(['\r', '\n']);
                 let replacement = LineReplacement {
                     range: start..start + content.chars().count(),
                     text: heading.clone().into(),
                 };
-                let hint = LineReplacement {
-                    range: replacement.range.clone(),
-                    text: format!("{heading} · Space a: resolve").into(),
-                };
                 markers.push(ConflictMarker {
                     line: text.char_to_line_idx(start),
                     side,
                     replacement,
-                    hint,
-                    source: start..end,
-                    region: text.byte_to_char_idx(region.whole.start)
-                        ..text.byte_to_char_idx(region.whole.end),
                 });
             }
         }
@@ -202,12 +193,12 @@ impl Document {
         let Some(marker) = markers.get(index).filter(|marker| marker.line == line) else {
             return false;
         };
-        self.try_selection(view).is_none_or(|selection| {
-            !selection
-                .ranges()
-                .iter()
-                .any(|range| range.from() < marker.source.end && range.to() >= marker.source.start)
-        })
+        let range = &marker.replacement.range;
+        let folds = self.folded_ranges(view);
+        let next = folds.partition_point(|fold| fold.range.end <= range.start);
+        folds
+            .get(next)
+            .is_none_or(|fold| fold.range.start >= range.end)
     }
 
     pub fn annotate_conflicts<'a>(
@@ -219,29 +210,16 @@ impl Document {
         if self.raw_conflict_markers(view) {
             return;
         }
-        let selection = self.try_selection(view);
         for marker in &self.conflict_presentation().markers {
-            // Reveal source rows touched by any cursor or selection. Search and
-            // editing therefore retain ordinary source coordinates.
             if !self.conflict_marker_hidden(view, marker.line) {
                 continue;
             }
-            let replacement = if marker.side == ConflictSide::Current
-                && selection.is_some_and(|selection| {
-                    marker
-                        .region
-                        .contains(&selection.primary().cursor(self.text().slice(..)))
-                }) {
-                &marker.hint
-            } else {
-                &marker.replacement
-            };
             let highlight = theme.and_then(|theme| {
                 theme
                     .find_highlight(marker.side.scope())
                     .or_else(|| theme.find_highlight(marker.side.fallback()))
             });
-            annotations.add_line_replacement(replacement, highlight);
+            annotations.add_line_replacement(&marker.replacement, highlight);
         }
     }
 }
@@ -275,6 +253,17 @@ mod tests {
         }
         assert_eq!(model.side_at_line(&text, 5), Some(ConflictSide::Incoming));
         assert_eq!(model.side_at_line(&text, 0), None);
+    }
+
+    #[test]
+    fn detects_markers_in_chunked_documents_and_ignores_long_normal_lines() {
+        let prefix = "ordinary text\n".repeat(400);
+        let source = format!("{prefix}<<<<<<< HEAD\na\n=======\nb\n>>>>>>> incoming\n");
+        assert_eq!(
+            ConflictPresentation::new(&Rope::from(source)).regions.len(),
+            1
+        );
+        assert!(!ConflictPresentation::new(&Rope::from("x".repeat(100_000))).active());
     }
 
     #[test]
