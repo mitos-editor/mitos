@@ -378,6 +378,8 @@ pub struct Config {
     pub file_explorer: FileExplorerConfig,
     /// Configuration of the statusline elements
     pub statusline: StatusLineConfig,
+    /// Command-line space and visibility.
+    pub command_line: CommandLineConfig,
     /// Search configuration.
     #[serde(default)]
     pub search: SearchConfig,
@@ -739,6 +741,29 @@ pub struct SearchConfig {
     pub wrap_around: bool,
     /// Maximum counted matches. The time budget still applies with `"none"`.
     pub max_matches: OptionToml<usize>,
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
+pub struct CommandLineConfig {
+    pub show: CommandLineShow,
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum CommandLineShow {
+    /// Reserve a row below the statusline.
+    #[default]
+    Always,
+    /// Overlay prompts, messages, and indicators on the bottom statusline.
+    Auto,
+}
+
+impl CommandLineConfig {
+    /// Number of rows reserved below the statusline, even while idle.
+    pub fn reserved_height(self) -> u16 {
+        u16::from(self.show == CommandLineShow::Always)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1222,6 +1247,7 @@ impl Default for Config {
             file_picker: FilePickerConfig::default(),
             file_explorer: FileExplorerConfig::default(),
             statusline: StatusLineConfig::default(),
+            command_line: CommandLineConfig::default(),
             search: SearchConfig::default(),
             lsp: LspConfig::default(),
             debugger: DebuggerConfig::default(),
@@ -1610,6 +1636,35 @@ impl Default for PathCompletionConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn command_line_defaults_round_trip_and_validate() {
+        assert_eq!(Config::default().command_line.show, CommandLineShow::Always);
+        assert_eq!(Config::default().command_line.reserved_height(), 1);
+        for (value, expected) in [
+            ("always", CommandLineShow::Always),
+            ("auto", CommandLineShow::Auto),
+        ] {
+            let config: Config =
+                toml::from_str(&format!("[command-line]\nshow = '{value}'")).unwrap();
+            assert_eq!(config.command_line.show, expected);
+            let serialized = toml::to_string(&config).unwrap();
+            assert_eq!(toml::from_str::<Config>(&serialized).unwrap(), config);
+        }
+        let partial: Config = toml::from_str("[command-line]").unwrap();
+        assert_eq!(partial.command_line, CommandLineConfig::default());
+        for source in [
+            "command-line = false",
+            "[command-line]\nshow = 'never'",
+            "[command-line]\nshow = false",
+            "[command-line]\nunknown = true",
+        ] {
+            assert!(
+                toml::from_str::<Config>(source).is_err(),
+                "accepted {source}"
+            );
+        }
+    }
 
     #[test]
     fn rulers_default_and_round_trip_single_column_characters() {

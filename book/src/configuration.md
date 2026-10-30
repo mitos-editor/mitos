@@ -116,6 +116,7 @@ For common examples, see [Configure Mitos](./editor.md).
 | `file-picker` | table | See below | File-picker and global-search traversal. See [`[editor.file-picker]`](#editorfile-picker). |
 | `file-explorer` | table | See below | File-explorer traversal. See [`[editor.file-explorer]`](#editorfile-explorer). |
 | `buffer-picker` | table | See below | Initial selection in the buffer picker. See [`[editor.buffer-picker]`](#editorbuffer-picker). |
+| `command-line` | table | `{ show = "always" }` | Command row visibility. See [`[editor.command-line]`](#editorcommand-line). |
 | `statusline` | table | See below | Statusline layout and labels. See [`[editor.statusline]`](#editorstatusline). |
 | `search` | table | See below | Search matching and wrap behavior. See [`[editor.search]`](#editorsearch). |
 | `lsp` | table | See below | Global LSP behavior. See [`[editor.lsp]`](#editorlsp). |
@@ -295,6 +296,26 @@ and optional `args` array (default `[]`). Mitos sends yanked text to stdin and
 reads pasted text from stdout. `yank-primary` and `paste-primary` are optional;
 they handle the primary selection where the platform has one.
 
+### `[editor.command-line]`
+
+| Key | Type / accepted values | Default | Description |
+| --- | --- | --- | --- |
+| `show` | `"always"` or `"auto"` | `"always"` | Reserve a command row below the statusline, or reuse the bottom statusline when needed. |
+
+To reclaim the idle command row:
+
+```toml
+[editor.command-line]
+show = "auto"
+```
+
+In `auto` mode, command and search prompts and messages appear over the bottom
+statusline. Pending keys, counts, macro recording, and workspace-trust indicators
+use its right side. The statusline returns when the prompt or message is dismissed;
+opening a prompt does not resize the editing area. This works with both per-view
+and global statuslines. Change it at runtime with `:set command-line.show auto`
+or restore the dedicated row with `:set command-line.show always`.
+
 ### `[editor.statusline]`
 
 Each view has its own statusline by default. Set `global = true` to show a
@@ -357,8 +378,8 @@ Available statusline elements:
 | --- | --- | --- | --- |
 | `enable` | boolean | `true` | Enable LSP integration globally. |
 | `workspace-roots` | array of paths | `[]` | Workspace-relative directories that stop LSP root discovery. |
-| `progress.enable` | boolean | `false` | Show `$/progress` messages below the statusline. |
-| `messages.enable` | boolean | `true` | Show `window/showMessage` messages below the statusline. |
+| `progress.enable` | boolean | `false` | Show `$/progress` messages in the command area. |
+| `messages.enable` | boolean | `true` | Show `window/showMessage` messages in the command area. |
 | `signature-help.auto-trigger` | boolean | `true` | Open signature help automatically. |
 | `signature-help.show-documentation` | boolean | `true` | Show documentation in signature help. |
 | `inlay-hints.enable` | boolean | `false` | Render inlay hints. The server may also require configuration. |

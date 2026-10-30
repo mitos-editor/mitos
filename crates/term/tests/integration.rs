@@ -24,6 +24,7 @@ mod test {
     mod code_actions;
     mod code_lenses;
     mod command_line;
+    mod command_line_visibility;
     mod command_palette;
     mod commands;
     mod completion;

@@ -27,7 +27,7 @@ use view::{
 };
 
 use tui::{
-    buffer::Buffer as Surface,
+    buffer::{Buffer as Surface, BufferExt as _},
     layout::{Alignment, Constraint, Layout},
     widgets::{Paragraph, Widget},
 };
@@ -711,7 +711,12 @@ impl Component for EditorView {
             BufferLine::Multiple if cx.editor.documents.len() > 1 => true,
             _ => false,
         };
-        let layout = ApplicationLayout::new(area, use_bufferline, config.statusline.global);
+        let layout = ApplicationLayout::new(
+            area,
+            use_bufferline,
+            config.statusline.global,
+            config.command_line,
+        );
         cx.editor.resize(layout.editor);
         cx.editor.refresh_debugger_inline_values();
         self.renderer.render(
@@ -775,6 +780,14 @@ impl Component for EditorView {
             )
         };
 
+        let overlay = config.command_line.reserved_height() == 0;
+        let background = cx.editor.theme.get("ui.background");
+        // A message replaces the whole statusline; transient indicators replace only
+        // their own cells so an idle command line leaves the statusline visible.
+        if overlay && cx.editor.status_msg.is_some() {
+            surface.clear_with(layout.commandline, background);
+        }
+
         // render status msg
         if let Some((status_msg, severity)) = &cx.editor.status_msg {
             use ::diagnostics::Severity;
@@ -806,12 +819,20 @@ impl Component for EditorView {
             let disp = disp
                 .get(disp.len().saturating_sub(key_width as usize)..)
                 .unwrap_or(&disp);
-            Paragraph::new(disp)
-                .style(style)
-                .alignment(Alignment::Right)
-                .render(pending_area, surface);
+            if !overlay || !disp.is_empty() {
+                if overlay {
+                    surface.clear_with(pending_area, background);
+                }
+                Paragraph::new(disp)
+                    .style(style)
+                    .alignment(Alignment::Right)
+                    .render(pending_area, surface);
+            }
 
             if restricted {
+                if overlay {
+                    surface.clear_with(trust_area, background);
+                }
                 let style = style
                     .fg(view::graphics::Color::Yellow)
                     .add_modifier(Modifier::BOLD);
@@ -820,6 +841,9 @@ impl Component for EditorView {
                     .render(trust_area, surface);
             }
             if let Some((reg, _)) = cx.editor.macro_recording {
+                if overlay {
+                    surface.clear_with(macro_area, background);
+                }
                 let disp = format!("[{}]", reg);
                 let style = style
                     .fg(view::graphics::Color::Yellow)

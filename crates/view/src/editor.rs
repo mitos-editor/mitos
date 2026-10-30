@@ -231,8 +231,10 @@ impl Editor {
         let file_watcher = Watcher::new(&conf.files.watch, handlers.callbacks.clone());
         let diff_providers = DiffProviderRegistry::default();
 
-        // HAXX: offset the render area height by 1 to account for prompt/commandline
-        area.height -= 1;
+        // The frontend refines this area with its remaining application chrome.
+        area.height = area
+            .height
+            .saturating_sub(conf.command_line.reserved_height());
 
         Self {
             mode: Mode::Normal,

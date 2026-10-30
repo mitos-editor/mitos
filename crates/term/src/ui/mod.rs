@@ -195,10 +195,12 @@ pub fn search_prompt(
                             if event == PromptEvent::Validate {
                                 let callback = async move {
                                     let call: job::Callback = Callback::EditorCompositor(Box::new(
-                                        move |_editor: &mut Editor, compositor: &mut Compositor| {
+                                        move |editor: &mut Editor, compositor: &mut Compositor| {
                                             let contents = Text::new(err.root_cause().to_string());
                                             let size = compositor.size();
-                                            let editor_area = size.clip_bottom(2);
+                                            let editor_area = size.clip_bottom(
+                                                1 + editor.config().command_line.reserved_height(),
+                                            );
                                             let popup = Popup::new("invalid-regex", contents)
                                                 .position(Some(text_layout::DisplayPosition::new(
                                                     editor_area.bottom().saturating_sub(1) as usize,
