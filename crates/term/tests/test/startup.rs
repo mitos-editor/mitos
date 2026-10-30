@@ -255,3 +255,64 @@ async fn diagnostic_refresh_is_delivered_once_to_the_owning_application() -> any
     assert!(second.close().await.is_empty());
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn rust_syntax_is_shown_before_its_injected_languages_compile() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let path = dir.path().join("staged.rs");
+    std::fs::write(&path, "/// Returns **one**.\nfn one() -> u8 {\n    1\n}\n")?;
+    let (tx, mut rx) = tokio::sync::mpsc::channel(1);
+    let blocking_tx = tx.clone();
+    let sender = view::callbacks::EditorCallbackSender::new(
+        event::Redraw::default(),
+        move |callback| {
+            let tx = tx.clone();
+            async move {
+                let _ = tx.send(callback).await;
+            }
+        },
+        move |callback| event::send_blocking(&blocking_tx, callback),
+    );
+    let mut app = AppBuilder::new()
+        .with_file(&path, None)
+        .with_handler_setup(move |handlers, _| {
+            handlers.syntax = view::features::syntax::SyntaxHandler::new(sender);
+        })
+        .build()?;
+    let mut next = async || {
+        tokio::time::timeout(Duration::from_secs(10), rx.recv())
+            .await
+            .map(|callback| callback.expect("syntax callback was not delivered"))
+    };
+    let doc_comment_layers = |app: &term::application::Application| {
+        doc!(app.editor)
+            .syntax()
+            .unwrap()
+            .layers_for_byte_range(5, 5)
+            .count()
+    };
+
+    // Rust is colored before the doc comment's Markdown is compiled.
+    next().await?(&mut app.editor);
+    assert!(doc!(app.editor).is_syntax_pending());
+    assert_eq!(doc_comment_layers(&app), 1);
+
+    // An edit in between restarts initialization without hiding the first tree.
+    let (view, doc) = current!(app.editor);
+    let change = Transaction::change(doc.text(), [(0, 0, Some("use a;\n".into()))].into_iter());
+    view::editing::apply(doc, &change, view.id).unwrap();
+    next().await?(&mut app.editor);
+    assert!(doc!(app.editor).is_syntax_pending());
+    assert!(doc!(app.editor).syntax().is_some());
+
+    next().await?(&mut app.editor);
+    let doc = doc!(app.editor);
+    assert!(!doc.is_syntax_pending());
+    assert_eq!(
+        doc.syntax().unwrap().tree().root_node().byte_range(),
+        0..doc.text().len() as u32
+    );
+    assert!(doc.syntax().unwrap().layers_for_byte_range(12, 12).count() > 1);
+    assert!(app.close().await.is_empty());
+    Ok(())
+}

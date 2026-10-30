@@ -43,7 +43,7 @@ use ::text_io::from_reader;
 mod syntax_initialization;
 
 use syntax_initialization::PendingSyntax;
-pub use syntax_initialization::SyntaxRequest;
+pub use syntax_initialization::{FirstSyntax, SyntaxRequest};
 
 use anyhow::{bail, Error};
 use arc_swap::access::DynAccess;

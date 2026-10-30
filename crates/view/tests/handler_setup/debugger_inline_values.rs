@@ -46,6 +46,82 @@ async fn labels(f: &mut Fixture, view: ViewId) -> anyhow::Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn inline_values_refresh_when_injected_syntax_finishes() -> anyhow::Result<()> {
+    for queued in [false, true] {
+        let (sender, mut syntax_callbacks) = crate::support::callback_channel();
+        let mut f = Fixture::with_handler_setup(
+            "<script>answer;</script>\n",
+            r#"
+            [[language]]
+            name = "html"
+            scope = "text.html.basic"
+            file-types = ["words"]
+
+            [[language]]
+            name = "javascript"
+            scope = "source.js"
+            file-types = ["js"]
+            injection-regex = "^(js|javascript)$"
+            "#,
+            loader::syntax::Resources::default(),
+            |_| {},
+            move |handlers, _| {
+                handlers.syntax = view::features::syntax::SyntaxHandler::new(sender);
+            },
+        )?;
+        let first = tokio::time::timeout(Duration::from_secs(10), syntax_callbacks.recv())
+            .await?
+            .context("missing root syntax callback")?;
+        first(&mut f.editor);
+        let (view, doc) = current_ref!(f.editor);
+        let (view, doc_id, path) = (view.id, doc.id(), doc.path().unwrap().to_owned());
+        assert!(doc.is_syntax_pending() && doc.syntax().is_some());
+        let complete = tokio::time::timeout(Duration::from_secs(10), syntax_callbacks.recv())
+            .await?
+            .context("missing injected syntax callback")?;
+        let (_, mut wire) = paused_adapter_with_options(
+            &mut f,
+            AdapterOptions {
+                stack_source: Some(path),
+                stack_line: Some(1),
+                ..Default::default()
+            },
+        )
+        .await?;
+
+        // The root tree cannot identify the JavaScript local yet. Exercise both
+        // a cached empty result and a result queued across syntax completion.
+        f.editor.refresh_debugger_inline_values();
+        command(&mut wire, "variables").await?;
+        let callback = tokio::time::timeout(Duration::from_secs(10), f.callbacks.recv())
+            .await?
+            .context("missing root-only inline values")?;
+        let callback = if queued {
+            Some(callback)
+        } else {
+            callback(&mut f.editor);
+            None
+        };
+        assert!(f.editor.debugger_inline_values(view).is_empty());
+
+        complete(&mut f.editor);
+        assert!(!f.editor.document(doc_id).unwrap().is_syntax_pending());
+        if let Some(callback) = callback {
+            callback(&mut f.editor);
+        }
+        f.editor.refresh_debugger_inline_values();
+        labels(&mut f, view).await?;
+        let values = f.editor.debugger_inline_values(view);
+        assert_eq!(values.len(), 1);
+        assert_eq!(
+            (values[0].line, values[0].text.as_str()),
+            (0, "answer = 42")
+        );
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn inline_values_use_cheap_scopes_and_the_last_code_occurrence_in_the_selected_function(
 ) -> anyhow::Result<()> {
     let (mut f, id, mut wire, view) = fixture(AdapterOptions::default()).await?;

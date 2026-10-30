@@ -36,6 +36,7 @@ struct Target {
     provider: Option<LanguageServerId>,
     language: Option<String>,
     has_syntax: bool,
+    syntax_pending: bool,
     can_evaluate: bool,
 }
 
@@ -75,6 +76,7 @@ impl Target {
             && self.view.get(editor).is_some_and(|(view, doc)| {
                 !doc.is_modified()
                     && doc.syntax().is_some() == self.has_syntax
+                    && doc.is_syntax_pending() == self.syntax_pending
                     && doc
                         .language_config()
                         .map(|language| language.language_id.as_str())
@@ -172,6 +174,7 @@ impl Editor {
             .language_config()
             .map(|language| language.language_id.clone());
         let has_syntax = doc.syntax().is_some();
+        let syntax_pending = doc.is_syntax_pending();
         let syntax = doc.syntax().cloned();
         let loader = self.syn_loader.load_full();
         let provider = provider(self, doc);
@@ -223,6 +226,7 @@ impl Editor {
             provider,
             language,
             has_syntax,
+            syntax_pending,
             can_evaluate,
         });
         let request_target = target.clone();

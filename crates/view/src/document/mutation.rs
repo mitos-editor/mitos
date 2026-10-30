@@ -100,14 +100,17 @@ impl Document {
         }
 
         // update tree-sitter syntax tree
-        if let Some(syntax) = &mut self.syntax
-            && let Err(err) = syntax.update(
-                old_doc.slice(..),
-                self.buffer.text().slice(..),
-                changes,
-                &self.syntax_loader,
-            )
-        {
+        let (old_text, text) = (old_doc.slice(..), self.buffer.text().slice(..));
+        // A first tree published while injected languages still compile must not compile
+        // them here, on the editor thread; the pending initialization reparses the edit.
+        let updated = match &mut self.syntax {
+            Some(syntax) if self.pending_syntax.is_some() => {
+                syntax.update_compiled(old_text, text, changes, &self.syntax_loader)
+            }
+            Some(syntax) => syntax.update(old_text, text, changes, &self.syntax_loader),
+            None => Ok(()),
+        };
+        if let Err(err) = updated {
             log::error!("TS parser failed, disabling TS for the current buffer: {err}");
             self.syntax = None;
         }

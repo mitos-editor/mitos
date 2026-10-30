@@ -2,6 +2,8 @@ use crate::queries;
 use editor_core::highlight::{Highlight, HighlightEvent, OverlayHighlights};
 
 #[cfg(test)]
+mod injection_tests;
+#[cfg(test)]
 mod resource_tests;
 
 use std::{
@@ -503,6 +505,55 @@ impl LanguageLoader for Loader {
     }
 }
 
+impl Loader {
+    /// Compile the syntax configurations of `languages` on the calling worker.
+    ///
+    /// Keeping compilation on that worker preserves the caller's concurrency limit
+    /// even for documents with many injected languages. Already compiled languages
+    /// return immediately.
+    pub fn compile_syntax_configs(&self, languages: &[Language]) {
+        for &language in languages {
+            self.language(language).syntax_config(self);
+        }
+    }
+}
+
+/// Serves only syntax configurations that have already been compiled.
+///
+/// Parsing through it never compiles queries: injections of languages that are not
+/// compiled yet are skipped and recorded, so the caller can compile them off-thread.
+struct CompiledLanguages<'a> {
+    loader: &'a Loader,
+    missing: std::cell::RefCell<Vec<Language>>,
+}
+
+impl<'a> CompiledLanguages<'a> {
+    fn new(loader: &'a Loader) -> Self {
+        Self {
+            loader,
+            missing: Default::default(),
+        }
+    }
+}
+
+impl LanguageLoader for CompiledLanguages<'_> {
+    fn language_for_marker(&self, marker: InjectionLanguageMarker) -> Option<Language> {
+        let language = self.loader.language_for_marker(marker)?;
+        if self.loader.language(language).syntax.get().is_some() {
+            return Some(language);
+        }
+        let mut missing = self.missing.borrow_mut();
+        if !missing.contains(&language) {
+            missing.push(language);
+        }
+        None
+    }
+
+    fn get_config(&self, lang: Language) -> Option<&SyntaxConfig> {
+        self.loader.language(lang).syntax.get()?.as_ref()
+    }
+}
+
 #[derive(Debug)]
 struct FileTypeGlob {
     glob: globset::Glob,
@@ -578,6 +629,46 @@ impl Syntax {
     ) -> Result<Self, Error> {
         let inner = tree_house::Syntax::new(source, language, timeout, loader)?;
         Ok(Self { inner })
+    }
+
+    /// Parse, compiling only the root language's queries.
+    ///
+    /// Injections whose languages are not compiled yet are left out of the tree and
+    /// returned, so a first tree can be shown while those languages compile with
+    /// [`Loader::compile_syntax_configs`]. An empty list means the tree is complete.
+    pub fn new_with_compiled(
+        source: RopeSlice,
+        language: Language,
+        loader: &Loader,
+    ) -> Result<(Self, Vec<Language>), Error> {
+        loader.language(language).syntax_config(loader);
+        let compiled = CompiledLanguages::new(loader);
+        let inner = tree_house::Syntax::new(source, language, PARSE_TIMEOUT, &compiled)?;
+        Ok((Self { inner }, compiled.missing.into_inner()))
+    }
+
+    /// Like [`Self::update`], but never compiles queries for newly injected languages.
+    ///
+    /// Used while injected languages are still compiling in the background, so an edit
+    /// cannot stall the editor thread on query compilation.
+    pub fn update_compiled(
+        &mut self,
+        old_source: RopeSlice,
+        source: RopeSlice,
+        changeset: &ChangeSet,
+        loader: &Loader,
+    ) -> Result<(), Error> {
+        let edits = generate_edits(old_source, changeset);
+        if edits.is_empty() {
+            Ok(())
+        } else {
+            self.inner.update(
+                source,
+                PARSE_TIMEOUT,
+                &edits,
+                &CompiledLanguages::new(loader),
+            )
+        }
     }
 
     pub fn update(

@@ -25,6 +25,25 @@ pub struct SyntaxRequest {
     cancel: TaskHandle,
 }
 
+/// The tree [`SyntaxRequest::compute_first`] can show before injections are compiled.
+pub struct FirstSyntax {
+    /// `None` when the language has no usable syntax configuration.
+    pub syntax: Option<Syntax>,
+    /// Injected languages whose queries still need compiling; empty when final.
+    pub missing: Vec<Language>,
+}
+
+fn syntax_or_none(
+    result: Result<Syntax, syntax::HighlighterError>,
+) -> anyhow::Result<Option<Syntax>> {
+    match result {
+        Ok(syntax) => Ok(Some(syntax)),
+        // Missing/invalid configuration has already been reported by the loader.
+        Err(syntax::HighlighterError::NoRootConfig) => Ok(None),
+        Err(err) => Err(anyhow::anyhow!("{err}")),
+    }
+}
+
 impl SyntaxRequest {
     /// Wait until this snapshot is superseded or its document cancels the request.
     pub async fn canceled(&self) {
@@ -34,6 +53,52 @@ impl SyntaxRequest {
     /// Compute off-thread, or return `None` when canceled. A successful result
     /// may contain no tree when the language has no usable syntax configuration.
     pub async fn compute(&self) -> Option<anyhow::Result<Option<Syntax>>> {
+        self.run(|text, language, loader| {
+            syntax_or_none(Syntax::new(text.slice(..), language, loader))
+        })
+        .await
+    }
+
+    /// First stage of [`SyntaxHandler`](crate::features::syntax::SyntaxHandler)
+    /// initialization: a tree that compiles only the root language's queries.
+    ///
+    /// Injected languages that were not compiled yet are skipped and returned. When none
+    /// are, the tree is final and goes to [`Self::complete`]; otherwise it is shown with
+    /// [`Self::publish_first`] while [`Self::compute_injections`] compiles the rest.
+    pub async fn compute_first(&self) -> Option<anyhow::Result<FirstSyntax>> {
+        self.run(|text, language, loader| {
+            match Syntax::new_with_compiled(text.slice(..), language, loader) {
+                Ok((syntax, missing)) => Ok(FirstSyntax {
+                    syntax: Some(syntax),
+                    missing,
+                }),
+                Err(err) => syntax_or_none(Err(err)).map(|syntax| FirstSyntax {
+                    syntax,
+                    missing: Vec::new(),
+                }),
+            }
+        })
+        .await
+    }
+
+    /// Compile the injected languages a first tree skipped and parse again.
+    pub async fn compute_injections(
+        &self,
+        missing: Vec<Language>,
+    ) -> Option<anyhow::Result<Option<Syntax>>> {
+        self.run(move |text, language, loader| {
+            loader.compile_syntax_configs(&missing);
+            syntax_or_none(Syntax::new(text.slice(..), language, loader))
+        })
+        .await
+    }
+
+    async fn run<R: Send + 'static>(
+        &self,
+        work: impl FnOnce(&editor_core::Rope, Language, &syntax::Loader) -> anyhow::Result<R>
+            + Send
+            + 'static,
+    ) -> Option<anyhow::Result<R>> {
         cancelable_future(
             async {
                 let permit = WORKERS.acquire().await?;
@@ -45,14 +110,10 @@ impl SyntaxRequest {
                     // A running blocking task retains its permit even after cancellation.
                     let _permit = permit;
                     if cancel.is_canceled() {
-                        return Ok(None);
+                        // Publication checks cancellation first, so this is never shown.
+                        anyhow::bail!("syntax initialization was canceled");
                     }
-                    match Syntax::new(text.slice(..), language, &loader) {
-                        Ok(syntax) => Ok(Some(syntax)),
-                        // Missing/invalid configuration has already been reported by the loader.
-                        Err(syntax::HighlighterError::NoRootConfig) => Ok(None),
-                        Err(err) => Err(anyhow::anyhow!("{err}")),
-                    }
+                    work(&text, language, &loader)
                 })
                 .await?
             },
@@ -61,18 +122,35 @@ impl SyntaxRequest {
         .await
     }
 
+    /// Show a first tree on the editor thread, keeping initialization pending until
+    /// its injections are published by [`Self::complete`].
+    pub fn publish_first(&self, doc: &mut Document, syntax: Syntax) {
+        if !self.is_current(doc) {
+            return;
+        }
+        if !self.snapshot.is_current(&doc.buffer) {
+            doc.restart_syntax_initialization(self.loader.clone());
+            return;
+        }
+        self.loader.refresh_highlights();
+        doc.syntax = Some(syntax);
+    }
+
+    /// Whether this request still belongs to the document's initialization.
+    fn is_current(&self, doc: &Document) -> bool {
+        !self.cancel.is_canceled() && Arc::ptr_eq(&self.loader, &doc.syntax_loader)
+    }
+
     /// Publish on the editor thread. Superseded requests are ignored, and edits
     /// made during compilation start a fresh snapshot using the cached queries.
     /// Returns whether initialization finished and dependent features can refresh.
-    pub fn complete(self, doc: &mut Document, result: anyhow::Result<Option<Syntax>>) -> bool {
-        if self.cancel.is_canceled() {
-            return false;
-        }
-        if !Arc::ptr_eq(&self.loader, &doc.syntax_loader) {
+    pub fn complete(&self, doc: &mut Document, result: anyhow::Result<Option<Syntax>>) -> bool {
+        if !self.is_current(doc) {
             return false;
         }
         if !self.snapshot.is_current(&doc.buffer) {
-            doc.initialize_syntax(self.loader);
+            // A first tree has been updated with those edits and stays visible meanwhile.
+            doc.restart_syntax_initialization(self.loader.clone());
             return false;
         }
         doc.pending_syntax = None;
@@ -130,7 +208,8 @@ impl Document {
         }
     }
 
-    /// Whether the document is waiting for its initial syntax tree.
+    /// Whether the document is waiting for its initial syntax tree, including a first
+    /// tree that is shown while its injected languages compile.
     pub fn is_syntax_pending(&self) -> bool {
         self.pending_syntax.is_some()
     }
@@ -145,6 +224,15 @@ impl Document {
                 }
             })
             .ok()
+    }
+
+    /// Take a fresh snapshot after edits, keeping any first tree visible meanwhile.
+    fn restart_syntax_initialization(&mut self, loader: Arc<syntax::Loader>) {
+        let shown = self.syntax.take();
+        self.initialize_syntax(loader);
+        if self.pending_syntax.is_some() {
+            self.syntax = shown;
+        }
     }
 
     /// Finish initialization on demand for commands that require a syntax tree.
@@ -398,6 +486,124 @@ mod tests {
         let request = doc.syntax_request().unwrap();
         drop(doc);
         assert!(request.compute().await.is_none());
+    }
+
+    /// A doc comment and a format string: Rust's two usual injections.
+    const RUST: &str =
+        "/// Returns **one**.\nfn one() -> u8 {\n    println!(\"{}\", 1);\n    1\n}\n";
+
+    fn rust_document() -> (Document, Arc<syntax::Loader>) {
+        let loader = Arc::new(language::loader::default_lang_loader(
+            loader::syntax::Resources::default(),
+        ));
+        let mut doc = Document::from(
+            Rope::from_str(RUST),
+            None,
+            Arc::new(ArcSwap::from_pointee(Config::default())),
+            loader.clone(),
+        );
+        detect_language(&mut doc, "rs", &loader);
+        (doc, loader)
+    }
+
+    /// Layers containing a byte of the doc comment's text.
+    fn doc_comment_layers(doc: &Document) -> usize {
+        doc.syntax().unwrap().layers_for_byte_range(5, 5).count()
+    }
+
+    fn insert_line(doc: &mut Document) {
+        event::register_event::<DocumentDidChange>();
+        event::register_event::<SelectionDidChange>();
+        let transaction =
+            Transaction::change(doc.text(), [(0, 0, Some("use a;\n".into()))].into_iter());
+        doc.apply(transaction.changes()).unwrap();
+    }
+
+    #[tokio::test]
+    async fn first_tree_is_shown_while_injected_languages_compile() {
+        let (mut doc, _loader) = rust_document();
+        let request = doc.syntax_request().unwrap();
+        let first = request.compute_first().await.unwrap().unwrap();
+        assert!(!first.missing.is_empty());
+
+        request.publish_first(&mut doc, first.syntax.unwrap());
+        assert!(doc.is_syntax_pending());
+        assert_eq!(doc_comment_layers(&doc), 1);
+
+        let result = request.compute_injections(first.missing).await.unwrap();
+        assert!(request.complete(&mut doc, result));
+        assert!(!doc.is_syntax_pending());
+        assert!(doc_comment_layers(&doc) > 1);
+    }
+
+    #[tokio::test]
+    async fn edits_after_the_first_tree_keep_it_until_a_fresh_snapshot_completes() {
+        let (mut doc, _loader) = rust_document();
+        let request = doc.syntax_request().unwrap();
+        let first = request.compute_first().await.unwrap().unwrap();
+        request.publish_first(&mut doc, first.syntax.unwrap());
+        insert_line(&mut doc);
+        let len = doc.text().len() as u32;
+        assert_eq!(
+            doc.syntax().unwrap().tree().root_node().byte_range(),
+            0..len
+        );
+
+        let result = request.compute_injections(first.missing).await.unwrap();
+        assert!(!request.complete(&mut doc, result));
+        // The stale result is dropped, but the edited first tree stays visible.
+        assert!(doc.is_syntax_pending());
+        assert_eq!(
+            doc.syntax().unwrap().tree().root_node().byte_range(),
+            0..len
+        );
+
+        // Queries are compiled by now, so the fresh snapshot is final at once.
+        let request = doc.syntax_request().unwrap();
+        let first = request.compute_first().await.unwrap().unwrap();
+        assert!(first.missing.is_empty());
+        assert!(request.complete(&mut doc, Ok(first.syntax)));
+        assert!(!doc.is_syntax_pending());
+        assert_eq!(
+            doc.syntax().unwrap().tree().root_node().byte_range(),
+            0..len
+        );
+    }
+
+    #[tokio::test]
+    async fn a_stale_first_tree_is_not_shown() {
+        let (mut doc, _loader) = rust_document();
+        let request = doc.syntax_request().unwrap();
+        let first = request.compute_first().await.unwrap().unwrap();
+        insert_line(&mut doc);
+
+        request.publish_first(&mut doc, first.syntax.unwrap());
+        assert!(doc.syntax().is_none());
+        assert!(doc.is_syntax_pending());
+        // The restart superseded the old request.
+        assert!(request.compute_injections(first.missing).await.is_none());
+        finish(&mut doc).await;
+        assert_eq!(
+            doc.syntax().unwrap().tree().root_node().byte_range(),
+            0..doc.text().len() as u32
+        );
+    }
+
+    #[tokio::test]
+    async fn languages_without_injections_are_final_after_the_first_stage() {
+        let loader = loader();
+        let mut doc = document(&loader);
+        detect_language(&mut doc, "json", &loader);
+        let request = doc.syntax_request().unwrap();
+        let first = request.compute_first().await.unwrap().unwrap();
+        assert!(first.missing.is_empty());
+        assert!(request.complete(&mut doc, Ok(first.syntax)));
+        assert!(doc.syntax().is_some());
+
+        detect_language(&mut doc, "missing", &loader);
+        let request = doc.syntax_request().unwrap();
+        let first = request.compute_first().await.unwrap().unwrap();
+        assert!(first.syntax.is_none() && first.missing.is_empty());
     }
 
     #[tokio::test]
