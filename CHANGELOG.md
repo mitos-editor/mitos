@@ -4,6 +4,26 @@
 
 ## [0.1.3](https://github.com/mitos-editor/mitos/compare/v0.1.2...v0.1.3) - 2026-10-30
 
+### Highlights
+
+- [Review Git changes](https://mitos.computer/docs/version-control.html#reviewing-changes) in full-screen buffers with syntax highlighting, line numbers, and automatic updates as you edit or stage files. Optional syntax-aware comparison makes reformatted code easier to review.
+- Stage and unstage files, browse and apply stashes, and explore [file and repository history](https://mitos.computer/docs/version-control.html#git-history) without leaving Mitos. Preview past changes, open older versions, and compare them with your unsaved edits.
+- [Resolve merge conflicts](https://mitos.computer/docs/version-control.html#resolving-conflicts) with actions to accept the current side, incoming side, or both. Undo a choice like any other edit, and inspect either side or the base version in a separate split.
+- [Search and replace across files](https://mitos.computer/docs/pickers.html#replacing-global-search-results), with path filters and regex captures. Replace one match or all matches in the filtered files; open buffers keep replacements unsaved, while unopened files are updated on disk.
+- [Fold code or selected lines](https://mitos.computer/docs/folding.html) to focus on what you are editing. Folds can be nested, each split keeps its own folds, and searching or jumping into hidden text reveals it automatically.
+- [Resize splits](https://mitos.computer/docs/files.html#resize-splits) with directional keys, confirm the layout with Enter, or restore it with Escape. Equalize splits, swap adjacent views with shifted arrow keys, and cycle through splits in either direction.
+- Run interactive terminal tools such as `fzf` from commands and keybindings with [interactive shell expansions](https://mitos.computer/docs/command-line.html#expansions) on Unix, then use their output in Mitos commands.
+- Move selected lines up and down with `Ctrl-k` and `Ctrl-j`. [Sort selections](https://mitos.computer/docs/commands.html#sorting-selected-text) by number, natural order, length, or a regex key, with options to ignore case and reverse the result.
+- Reclaim a screen row by letting the [command line share the statusline](https://mitos.computer/docs/configuration.html#editorcommand-line). The statusline can also show your current search match and total count, and new commands jump between diagnostics of a chosen severity.
+- Set [`MITOS_CONFIG_DIR`](https://mitos.computer/docs/configuration.html#configuration-files-and-precedence) to keep your configuration, snippets, and custom runtime files in a directory of your choice. Health checks now show configured tool arguments and respect workspace trust.
+- Added Packer HCL support and more language-server choices for KDL, OpenTofu, and Rego, alongside improvements to file detection, highlighting, indentation, textobjects, and theme contrast.
+- More reliable picker navigation, Unicode rendering and editing, clipboard access in WezTerm, terminal suspend and resume, and grammar updates. Syntax highlighting appears sooner while embedded-language queries load.
+
+### Upgrade notes
+
+- `Space g` now opens the [Git menu](https://mitos.computer/docs/version-control.html); use `Space g s` to open changed files. The documentation includes a binding to restore the previous shortcut.
+- When [installing from source](https://mitos.computer/docs/building-from-source.html), use `cargo xtask install` to install the executable together with its runtime files.
+
 ### Added
 
 - *(vcs)* add undoable conflict resolution and source inspection ([#821](https://github.com/mitos-editor/mitos/pull/821))
