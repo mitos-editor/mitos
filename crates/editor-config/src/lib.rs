@@ -246,6 +246,8 @@ pub struct FilePickerConfig {
     /// Enables reading `.ignore` files.
     /// Whether to hide files listed in .ignore in file picker and global search results. Defaults to true.
     pub ignore: bool,
+    /// Apply Git ignore rules only inside a Git repository. Defaults to true.
+    pub require_git: bool,
     /// Enables reading `.gitignore` files.
     /// Whether to hide files listed in .gitignore in file picker and global search results. Defaults to true.
     pub git_ignore: bool,
@@ -268,6 +270,7 @@ impl Default for FilePickerConfig {
             deduplicate_links: true,
             parents: true,
             ignore: true,
+            require_git: true,
             git_ignore: true,
             git_global: true,
             git_exclude: true,
@@ -276,7 +279,7 @@ impl Default for FilePickerConfig {
     }
 }
 
-#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case", default, deny_unknown_fields)]
 pub struct FileExplorerConfig {
     /// IgnoreOptions
@@ -291,6 +294,8 @@ pub struct FileExplorerConfig {
     /// Enables reading `.ignore` files.
     /// Whether to hide files listed in .ignore in file picker and global search results. Defaults to false.
     pub ignore: bool,
+    /// Apply Git ignore rules only inside a Git repository. Defaults to true.
+    pub require_git: bool,
     /// Enables reading `.gitignore` files.
     /// Whether to hide files listed in .gitignore in file picker and global search results. Defaults to false.
     pub git_ignore: bool,
@@ -325,6 +330,21 @@ where
         ));
     }
     Ok(chars)
+}
+
+impl Default for FileExplorerConfig {
+    fn default() -> Self {
+        Self {
+            hidden: false,
+            follow_symlinks: false,
+            parents: false,
+            ignore: false,
+            require_git: true,
+            git_ignore: false,
+            git_global: false,
+            git_exclude: false,
+        }
+    }
 }
 
 /// Border glyphs used by panels, popups, menus, and separators.

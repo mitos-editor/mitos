@@ -489,6 +489,7 @@ This applies to all pickers. See [Picker layout](./pickers.md#layout).
 | `deduplicate-links` | boolean | `true` | Hide links to files already present in results. |
 | `parents` | boolean | `true` | Read ignore files from parent directories. |
 | `ignore` | boolean | `true` | Read `.ignore` files. |
+| `require-git` | boolean | `true` | Apply Git ignore rules only inside a Git repository. Set to `false` to use `.gitignore` outside repositories. |
 | `git-ignore` | boolean | `true` | Read `.gitignore` files. |
 | `git-global` | boolean | `true` | Read Git's global excludes file. |
 | `git-exclude` | boolean | `true` | Read `.git/info/exclude`. |
@@ -502,6 +503,7 @@ This applies to all pickers. See [Picker layout](./pickers.md#layout).
 | `follow-symlinks` | boolean | `false` | Follow symbolic links. |
 | `parents` | boolean | `false` | Read ignore files from parent directories. |
 | `ignore` | boolean | `false` | Read `.ignore` files. |
+| `require-git` | boolean | `true` | Apply Git ignore rules only inside a Git repository. Set to `false` to use `.gitignore` outside repositories. |
 | `git-ignore` | boolean | `false` | Read `.gitignore` files. |
 | `git-global` | boolean | `false` | Read Git's global excludes file. |
 | `git-exclude` | boolean | `false` | Read `.git/info/exclude`. |
