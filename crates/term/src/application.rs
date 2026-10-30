@@ -179,7 +179,15 @@ impl Application {
                             && !self.editor.documents().any(|doc| doc.is_syntax_pending())
                             && !self.compositor.has_pending_render()
                         {
-                            return true;
+                            use futures_util::FutureExt;
+
+                            // An expired idle timer can win the select while input is
+                            // still queued, especially when a CI runner is busy.
+                            if let Some(Some(event)) = input_stream.next().now_or_never() {
+                                self.handle_terminal_events(event).await;
+                            } else {
+                                return true;
+                            }
                         }
                     }
                 }

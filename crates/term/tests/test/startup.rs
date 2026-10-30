@@ -3,7 +3,40 @@ use std::time::Duration;
 use editor_core::Transaction;
 use view::{current, doc};
 
-use super::helpers::{run_event_loop_until_idle, AppBuilder};
+use super::helpers::{run_event_loop_until_idle, test_config, AppBuilder};
+
+#[tokio::test(flavor = "multi_thread")]
+async fn idle_wait_consumes_queued_input_even_when_the_timer_has_expired() -> anyhow::Result<()> {
+    let mut config = test_config();
+    // Make input and idle ready together, as can happen on a busy CI runner.
+    config.editor.idle_timeout = Duration::ZERO;
+    let mut app = AppBuilder::new().with_config(config).build()?;
+    let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+    let mut input = tokio_stream::wrappers::UnboundedReceiverStream::new(rx);
+    let text = "queued input ".repeat(16);
+    for key in ui_core::input::parse_macro(&format!("i{text}<esc>"))? {
+        #[cfg(not(windows))]
+        let event = termina::event::Event::Key(key.into());
+        #[cfg(windows)]
+        let event = crossterm::event::Event::Key(key.into());
+        tx.send(Ok(event))?;
+    }
+    assert!(
+        tokio::time::timeout(
+            Duration::from_secs(10),
+            app.event_loop_until_idle(&mut input)
+        )
+        .await?
+    );
+    assert!(input.as_ref().is_empty(), "idle left queued input unread");
+    assert_eq!(
+        doc!(app.editor).text().to_string(),
+        format!("{text}{}", editor_core::NATIVE_LINE_ENDING.as_str())
+    );
+    assert_eq!(app.editor.mode(), view::document::Mode::Normal);
+    assert!(app.close().await.is_empty());
+    Ok(())
+}
 
 #[tokio::test(flavor = "multi_thread")]
 async fn syntax_completion_retries_and_handles_closed_documents_without_terminal_jobs(
