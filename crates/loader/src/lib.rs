@@ -36,6 +36,15 @@ pub const VERSION_AND_GIT_HASH: &str = env!("VERSION_AND_GIT_HASH");
 
 static RUNTIME_DIRS: LazyLock<Vec<PathBuf>> = LazyLock::new(prioritize_runtime_dirs);
 
+static CONFIG_DIR: LazyLock<PathBuf> = LazyLock::new(|| {
+    if let Some(directory) = std::env::var_os("MITOS_CONFIG_DIR").filter(|value| !value.is_empty())
+    {
+        return path::canonicalize(PathBuf::from(directory));
+    }
+    let strategy = choose_base_strategy().expect("Unable to find the config directory!");
+    strategy.config_dir().join("mitos")
+});
+
 static CONFIG_FILE: OnceLock<PathBuf> = OnceLock::new();
 
 static LOG_FILE: OnceLock<PathBuf> = OnceLock::new();
@@ -45,6 +54,7 @@ static LOG_FILE: OnceLock<PathBuf> = OnceLock::new();
 /// The parent directory is created when possible. Only the first call changes
 /// the stored path; subsequent calls are ignored.
 pub fn initialize_config_file(specified_file: Option<PathBuf>) {
+    LazyLock::force(&CONFIG_DIR);
     let config_file = specified_file.unwrap_or_else(default_config_file);
     ensure_parent_dir(&config_file);
     CONFIG_FILE.set(config_file).ok();
@@ -177,12 +187,9 @@ pub(crate) fn runtime_file_in(directories: &[PathBuf], relative: &Path) -> PathB
         })
 }
 
+/// User configuration directory, resolved once from `MITOS_CONFIG_DIR` or platform defaults.
 pub fn config_dir() -> PathBuf {
-    // TODO: allow env var override
-    let strategy = choose_base_strategy().expect("Unable to find the config directory!");
-    let mut path = strategy.config_dir();
-    path.push("mitos");
-    path
+    CONFIG_DIR.clone()
 }
 
 pub fn cache_dir() -> PathBuf {
@@ -361,6 +368,50 @@ fn ensure_parent_dir(path: &Path) {
 
 #[cfg(test)]
 mod directory_tests {
+    #[test]
+    fn config_directory_override_is_stable_and_cli_file_takes_precedence() {
+        const CHILD: &str = "MITOS_TEST_CONFIG_DIRECTORY_CHILD";
+        if let Some(expected) = std::env::var_os(CHILD) {
+            let expected = std::path::PathBuf::from(expected);
+            let explicit =
+                std::env::var_os("MITOS_TEST_EXPLICIT_CONFIG_FILE").map(std::path::PathBuf::from);
+            super::initialize_config_file(explicit.clone());
+            assert_eq!(
+                super::config_file(),
+                explicit.unwrap_or_else(|| expected.join("config.toml"))
+            );
+            std::env::set_current_dir(expected.parent().unwrap().join("elsewhere")).unwrap();
+            assert_eq!(super::config_dir(), expected);
+            assert_eq!(super::lang_config_file(), expected.join("languages.toml"));
+            return;
+        }
+        let root = tempfile::tempdir().unwrap();
+        // Resolve temporary-directory symlinks and normalize Windows verbatim prefixes.
+        let expected = stdx::path::normalize(root.path().canonicalize().unwrap()).join("settings");
+        std::fs::create_dir(root.path().join("elsewhere")).unwrap();
+        for explicit in [false, true] {
+            let mut child = std::process::Command::new(std::env::current_exe().unwrap());
+            child.args(["--exact", "directory_tests::config_directory_override_is_stable_and_cli_file_takes_precedence", "--nocapture"])
+                .current_dir(root.path())
+                .env("MITOS_CONFIG_DIR", "settings")
+                .env(CHILD, &expected)
+                .env_remove("MITOS_TEST_EXPLICIT_CONFIG_FILE");
+            if explicit {
+                child.env(
+                    "MITOS_TEST_EXPLICIT_CONFIG_FILE",
+                    root.path().join("custom.toml"),
+                );
+            }
+            let output = child.output().unwrap();
+            assert!(
+                output.status.success(),
+                "{}{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+    }
+
     #[test]
     fn installed_runtime_starts_with_user_config() {
         let directories = super::runtime_dirs_for_manifest(None, None);

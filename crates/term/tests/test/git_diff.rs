@@ -653,7 +653,13 @@ async fn repository_history_selects_merge_parents_and_retains_nested_browsers() 
         .to_string()
         .contains("fn side()"));
     // Restore the file browser, return to its commit browser, and choose the second parent.
-    keys(&mut app, "<space>'<A-h><A-a>parent 2<ret>main.rs").await?;
+    keys(&mut app, "<space>'<A-h>").await?;
+    preview_contains(&mut app, &head[..12]).await?;
+    keys(&mut app, "<A-a>parent 2").await?;
+    // Let the asynchronous matcher select the requested parent before accepting it.
+    preview_contains(&mut app, "Review against parent 2 (").await?;
+    keys(&mut app, "<ret>main.rs").await?;
+    preview_contains(&mut app, "fn original()").await?;
     tokio::time::timeout(Duration::from_secs(10), async {
         while current_ref!(app.editor).1.id() == first {
             keys(&mut app, "<C-s>").await.unwrap();

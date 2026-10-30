@@ -78,7 +78,7 @@ async fn wait_for_diff(f: &Fixture) -> anyhow::Result<()> {
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+#[tokio::test(flavor = "multi_thread")]
 async fn blame_waits_for_the_diff_after_an_edit() -> anyhow::Result<()> {
     let mut f = Fixture::new("committed\n")?;
     prepare(&mut f, "initial");
@@ -86,14 +86,19 @@ async fn blame_waits_for_the_diff_after_an_edit() -> anyhow::Result<()> {
     wait_for_blame(&mut f).await?;
     let id = current_ref!(f.editor).1.id();
 
-    // One runtime worker keeps the differ queued until this test yields.
-    f.replace("inserted\ncommitted\n");
-    assert!(matches!(
-        current_ref!(f.editor).1.line_blame(0, "{title}"),
-        Err(LineBlameError::NotReadyYet)
-    ));
-    f.editor.blame_line(id, 0);
-    assert!(f.editor.get_status().unwrap().0.contains("not ready"));
+    {
+        let differ = current_ref!(f.editor).1.diff_handle().unwrap().clone();
+        // Hold the snapshot so the worker cannot publish the edit before these assertions.
+        let snapshot = differ.load();
+        f.replace("inserted\ncommitted\n");
+        assert!(!snapshot.is_current());
+        assert!(matches!(
+            current_ref!(f.editor).1.line_blame(0, "{title}"),
+            Err(LineBlameError::NotReadyYet)
+        ));
+        f.editor.blame_line(id, 0);
+        assert!(f.editor.get_status().unwrap().0.contains("not ready"));
+    }
     wait_for_diff(&f).await?;
     let doc = current_ref!(f.editor).1;
     assert!(matches!(
@@ -393,12 +398,16 @@ async fn reload_reuses_blame_when_head_is_unchanged() -> anyhow::Result<()> {
         .clone();
     let path = current_ref!(f.editor).1.path().unwrap().to_path_buf();
     std::fs::write(&path, "inserted\nbefore\n")?;
-    let (_, doc) = current!(f.editor);
-    doc.reload(&f.editor.diff_providers, true)?;
-    assert!(matches!(
-        doc.line_blame(0, "{title}"),
-        Err(LineBlameError::NotReadyYet)
-    ));
+    {
+        let differ = current_ref!(f.editor).1.diff_handle().unwrap().clone();
+        let _snapshot = differ.load();
+        let (_, doc) = current!(f.editor);
+        doc.reload(&f.editor.diff_providers, true)?;
+        assert!(matches!(
+            doc.line_blame(0, "{title}"),
+            Err(LineBlameError::NotReadyYet)
+        ));
+    }
     wait_for_blame(&mut f).await?;
     let doc = current_ref!(f.editor).1;
     let refreshed = doc.file_blame().unwrap().as_ref().unwrap();
