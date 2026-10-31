@@ -1,6 +1,9 @@
 //! Picker preview cache, background loading, cancellation, and rendering.
 
-use super::Picker;
+use super::{
+    scroll::{self, PreviewScroll},
+    Picker,
+};
 use crate::{
     compositor::Context,
     job,
@@ -22,8 +25,8 @@ use std::{
     time::{Duration, SystemTime},
 };
 use stdx::rope::RopeExt as _;
-use text_layout::char_idx_at_visual_offset;
 use text_layout::text_annotations::TextAnnotations;
+use text_layout::{char_idx_at_visual_offset, doc_formatter::TextFormat, visual_offset_from_block};
 use theme::icons::ICONS;
 use tui::{buffer::Buffer as Surface, layout::Size};
 use view::{
@@ -137,6 +140,52 @@ impl Preview<'_, '_> {
                 CachedPreview::NotFound => "<File not found>",
             },
         }
+    }
+}
+
+#[derive(Default)]
+pub(super) struct FileScroll {
+    target: Option<(view::quicklist::QuicklistTarget, Option<(usize, usize)>)>,
+    pub scroll: PreviewScroll,
+    initialized: bool,
+    metrics: Option<(editor_core::Rope, TextFormat, usize)>,
+    position: Option<(usize, ViewPosition)>,
+}
+
+impl FileScroll {
+    pub fn select(&mut self, (target, range): &FileLocation<'_>) {
+        let target = match target {
+            PathOrId::Path(path) => view::quicklist::QuicklistTarget::Path(path.to_path_buf()),
+            PathOrId::Id(id) => view::quicklist::QuicklistTarget::Document(*id),
+        };
+        if self
+            .target
+            .as_ref()
+            .is_none_or(|(old, old_range)| old != &target || old_range != range)
+        {
+            *self = Self {
+                target: Some((target, *range)),
+                ..Self::default()
+            };
+        }
+    }
+
+    fn document_height(&mut self, doc: &Document, format: &TextFormat) -> usize {
+        if !format.soft_wrap {
+            return doc.text().len_lines(stdx::rope::LINE_TYPE);
+        }
+        // Reloaded preview documents can reuse document IDs and version numbers.
+        // An unchanged rope clone gives us a constant-time text identity check.
+        if let Some((_, _, height)) = self.metrics.as_ref().filter(|(text, old, _)| {
+            editor_core::ropey::extra::esoterica::ropes_are_instances(text, doc.text())
+                && old == format
+        }) {
+            return *height;
+        }
+        let height = text_layout::softwrapped_dimensions(doc.text().slice(..), format).0;
+        self.metrics = Some((doc.text().clone(), format.clone(), height));
+        self.position = None;
+        height
     }
 }
 
@@ -556,6 +605,7 @@ impl FilePreview {
 pub(super) fn render_preview_content(
     mut preview: Preview<'_, '_>,
     range: Option<(usize, usize)>,
+    state: &mut FileScroll,
     inner: Rect,
     surface: &mut Surface,
     cx: &Context,
@@ -563,6 +613,7 @@ pub(super) fn render_preview_content(
     let text_style = cx.editor.theme.get("ui.text");
     let directory_style = cx.editor.theme.get("ui.text.directory");
     if let Some(image) = preview.image() {
+        state.scroll.update(inner.height, 0);
         match image {
             ImagePreview::Loading { .. } => {
                 render_preview_placeholder(surface, inner, "<Loading image>", text_style);
@@ -592,8 +643,13 @@ pub(super) fn render_preview_content(
         }
         _ => {
             if let Some(dir_content) = preview.dir_content() {
-                for (i, (path, is_dir)) in
-                    dir_content.iter().take(inner.height as usize).enumerate()
+                state.scroll.update(inner.height, dir_content.len());
+                let content = scroll::text_area(inner);
+                for (i, (path, is_dir)) in dir_content
+                    .iter()
+                    .skip(state.scroll.offset)
+                    .take(inner.height as usize)
+                    .enumerate()
                 {
                     let name = path
                         .file_name()
@@ -625,7 +681,7 @@ pub(super) fn render_preview_content(
                                 inner.x,
                                 inner.y + i as u16,
                                 icon.glyph(),
-                                inner.width as usize,
+                                content.width as usize,
                                 icon.style(),
                             );
                             let suffix = if *is_dir { "/" } else { "" };
@@ -633,7 +689,7 @@ pub(super) fn render_preview_content(
                                 inner.x + icon.width(),
                                 inner.y + i as u16,
                                 format!("{name}{suffix}"),
-                                inner.width.saturating_sub(icon.width()) as usize,
+                                content.width.saturating_sub(icon.width()) as usize,
                                 if *is_dir { directory_style } else { text_style },
                             );
                             continue;
@@ -645,13 +701,15 @@ pub(super) fn render_preview_content(
                         inner.x,
                         inner.y + i as u16,
                         format!("{name}{suffix}"),
-                        inner.width as usize,
+                        content.width as usize,
                         if *is_dir { directory_style } else { text_style },
                     );
                 }
+                state.scroll.render(inner, surface, &cx.editor.theme);
                 return;
             }
 
+            state.scroll.update(inner.height, 0);
             let alt_text = preview.placeholder();
             let x = inner.x + inner.width.saturating_sub(alt_text.len() as u16) / 2;
             let y = inner.y + inner.height / 2;
@@ -660,8 +718,17 @@ pub(super) fn render_preview_content(
         }
     };
 
+    let scrollbar_area = inner;
+    let inner = scroll::text_area(inner);
+    if inner.is_empty() {
+        return;
+    }
+    let format = doc.text_format(inner.width, Some(&cx.editor.theme));
+    let content_height = state.document_height(doc, &format);
     let mut offset = ViewPosition::default();
-    if let Some((start_line, end_line)) = range {
+    if !state.initialized
+        && let Some((start_line, end_line)) = range
+    {
         let last_line = doc
             .text()
             .len_lines(stdx::rope::LINE_TYPE)
@@ -673,14 +740,13 @@ pub(super) fn render_preview_content(
         let start = text.line_to_char_idx(start_line);
         let middle = text.line_to_char_idx(start_line + height / 2);
         if height < inner.height as usize {
-            let text_fmt = doc.text_format(inner.width, None);
             let annotations = TextAnnotations::default();
             (offset.anchor, offset.vertical_offset) = char_idx_at_visual_offset(
                 text,
                 middle,
                 -(inner.height as isize / 2),
                 0,
-                &text_fmt,
+                &format,
                 &annotations,
             );
             if start < offset.anchor {
@@ -692,13 +758,60 @@ pub(super) fn render_preview_content(
         }
     }
 
+    if !state.initialized {
+        state.scroll.offset = if format.soft_wrap {
+            visual_offset_from_block(
+                doc.text().slice(..),
+                0,
+                offset.anchor,
+                &format,
+                &TextAnnotations::default(),
+            )
+            .0
+            .row + offset.vertical_offset
+        } else {
+            doc.text().char_to_line_idx(offset.anchor)
+        };
+        state.initialized = true;
+    }
+    state.scroll.update(inner.height, content_height);
+    if !format.soft_wrap {
+        offset.anchor = doc.text().line_to_char_idx(state.scroll.offset);
+    } else if let Some((_, cached)) = state
+        .position
+        .filter(|(row, _)| *row == state.scroll.offset)
+    {
+        offset = cached;
+    } else {
+        let (anchor, delta) =
+            state
+                .position
+                .map_or((0, state.scroll.offset as isize), |(row, position)| {
+                    (
+                        position.anchor,
+                        (state.scroll.offset as isize)
+                            .saturating_sub(row as isize)
+                            .saturating_add(position.vertical_offset as isize),
+                    )
+                });
+        (offset.anchor, offset.vertical_offset) = char_idx_at_visual_offset(
+            doc.text().slice(..),
+            anchor,
+            delta,
+            0,
+            &format,
+            &TextAnnotations::default(),
+        );
+        state.position = Some((state.scroll.offset, offset));
+    }
+
     let config = cx.editor.config();
 
     let layout = view::view::ViewLayout {
         text: doc.text().slice(..),
         viewport: inner,
         offset,
-        format: doc.text_format(inner.width, Some(&cx.editor.theme)),
+        format,
         annotations: TextAnnotations::default(),
     };
     let mut overlay_highlights = Vec::new();
@@ -754,6 +867,9 @@ pub(super) fn render_preview_content(
         &cx.editor.theme,
         decorations,
     );
+    state
+        .scroll
+        .render(scrollbar_area, surface, &cx.editor.theme);
 }
 
 fn render_preview_placeholder(

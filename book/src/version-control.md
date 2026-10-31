@@ -73,7 +73,7 @@ preview shows a diff so you can review the result.
 | --- | --- |
 | `Enter` | Open the file |
 | `Alt-o` | Open the selected diff in a review buffer |
-| `Alt-Up` / `Alt-Down` | Scroll the preview |
+| `Alt-k` / `Alt-j` or `Alt-Up` / `Alt-Down` | Scroll the preview |
 | `Ctrl-t` | Hide or show the preview |
 
 For deleted files, `Enter` opens a review. `Alt-o` also works when the preview is
@@ -280,8 +280,8 @@ changes. Choose `git_file_history` or `git_history` from the command palette
 
 Run `:file-history` to browse commits that changed the current file, following
 renames detected by Git. The preview shows the selected commit's diff against
-its first parent. `Ctrl-t` hides or shows the preview; `Alt-Up` / `Alt-Down`
-scroll it.
+its first parent. `Ctrl-t` hides or shows the preview; `Alt-k` / `Alt-j` or
+`Alt-Up` / `Alt-Down` scroll it.
 
 Press `Enter` to open the diff in a review buffer. `Ctrl-v` / `Ctrl-s` open it in a
 vertical / horizontal split. `Space '` restores the picker with its query and

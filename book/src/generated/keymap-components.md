@@ -19,8 +19,8 @@
 | `` <C-q> `` | `` populate_quicklist `` |
 | `` <A-right> `` | `` preview_next `` |
 | `` <A-left> `` | `` preview_previous `` |
-| `` <A-down> `` | `` preview_scroll_down `` |
-| `` <A-up> `` | `` preview_scroll_up `` |
+| `` <A-j> ``, `` <A-down> `` | `` preview_scroll_down `` |
+| `` <A-k> ``, `` <A-up> `` | `` preview_scroll_up `` |
 | `` <C-ret> ``, `` <Meta-ret> `` | `` replace_all `` |
 | `` <A-c> `` | `` toggle_case_sensitive `` |
 | `` <C-t> `` | `` toggle_preview `` |
@@ -45,8 +45,8 @@
 | `` <C-q> `` | `` populate_quicklist `` |
 | `` <A-right> `` | `` preview_next `` |
 | `` <A-left> `` | `` preview_previous `` |
-| `` <A-down> `` | `` preview_scroll_down `` |
-| `` <A-up> `` | `` preview_scroll_up `` |
+| `` <A-j> ``, `` <A-down> `` | `` preview_scroll_down `` |
+| `` <A-k> ``, `` <A-up> `` | `` preview_scroll_up `` |
 | `` <C-ret> ``, `` <Meta-ret> `` | `` replace_all `` |
 | `` <A-c> `` | `` toggle_case_sensitive `` |
 | `` <C-t> `` | `` toggle_preview `` |
@@ -71,8 +71,8 @@
 | `` <C-q> `` | `` populate_quicklist `` |
 | `` <A-right> `` | `` preview_next `` |
 | `` <A-left> `` | `` preview_previous `` |
-| `` <A-down> `` | `` preview_scroll_down `` |
-| `` <A-up> `` | `` preview_scroll_up `` |
+| `` <A-j> ``, `` <A-down> `` | `` preview_scroll_down `` |
+| `` <A-k> ``, `` <A-up> `` | `` preview_scroll_up `` |
 | `` <C-x> `` | `` remove_entry `` |
 | `` <C-ret> ``, `` <Meta-ret> `` | `` replace_all `` |
 | `` <A-c> `` | `` toggle_case_sensitive `` |
@@ -99,8 +99,8 @@
 | `` <C-q> `` | `` populate_quicklist `` |
 | `` <A-n> ``, `` <A-right> `` | `` preview_next `` |
 | `` <A-p> ``, `` <A-left> `` | `` preview_previous `` |
-| `` <A-down> `` | `` preview_scroll_down `` |
-| `` <A-up> `` | `` preview_scroll_up `` |
+| `` <A-j> ``, `` <A-down> `` | `` preview_scroll_down `` |
+| `` <A-k> ``, `` <A-up> `` | `` preview_scroll_up `` |
 | `` <C-ret> ``, `` <Meta-ret> `` | `` replace_all `` |
 | `` <A-s> `` | `` stage `` |
 | `` <A-z> `` | `` stash `` |
@@ -132,8 +132,8 @@
 | `` <C-q> `` | `` populate_quicklist `` |
 | `` <A-right> `` | `` preview_next `` |
 | `` <A-left> `` | `` preview_previous `` |
-| `` <A-down> `` | `` preview_scroll_down `` |
-| `` <A-up> `` | `` preview_scroll_up `` |
+| `` <A-j> ``, `` <A-down> `` | `` preview_scroll_down `` |
+| `` <A-k> ``, `` <A-up> `` | `` preview_scroll_up `` |
 | `` <C-ret> ``, `` <Meta-ret> `` | `` replace_all `` |
 | `` <A-c> `` | `` toggle_case_sensitive `` |
 | `` <C-t> `` | `` toggle_preview `` |
@@ -160,8 +160,8 @@
 | `` <C-q> `` | `` populate_quicklist `` |
 | `` <A-right> `` | `` preview_next `` |
 | `` <A-left> `` | `` preview_previous `` |
-| `` <A-down> `` | `` preview_scroll_down `` |
-| `` <A-up> `` | `` preview_scroll_up `` |
+| `` <A-j> ``, `` <A-down> `` | `` preview_scroll_down `` |
+| `` <A-k> ``, `` <A-up> `` | `` preview_scroll_up `` |
 | `` <C-ret> ``, `` <Meta-ret> `` | `` replace_all `` |
 | `` <A-c> `` | `` toggle_case_sensitive `` |
 | `` <C-t> `` | `` toggle_preview `` |

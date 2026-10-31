@@ -40,6 +40,12 @@ impl<T: Send + Sync + 'static, D: Send + Sync + 'static> Picker<T, D> {
                 ),
             ]);
         }
+        if self.show_preview && self.file_fn.is_some() && self.custom_preview.is_none() {
+            actions.extend([
+                (PickerAction::PreviewScrollDown, "scroll preview down"),
+                (PickerAction::PreviewScrollUp, "scroll preview up"),
+            ]);
+        }
         let mut hints = self
             .help
             .map_or_else(Vec::new, |help| help(&cx.config.current.component_keys));

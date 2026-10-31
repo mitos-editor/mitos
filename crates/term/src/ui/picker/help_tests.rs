@@ -55,8 +55,7 @@ async fn picker_specific_hints_follow_live_visibility_and_use_at_most_one_row() 
 }
 
 #[tokio::test]
-async fn file_pickers_without_specific_actions_do_not_show_hints_or_lose_result_space(
-) -> anyhow::Result<()> {
+async fn file_pickers_show_scroll_hints_without_losing_result_space() -> anyhow::Result<()> {
     let mut app = test::application(false)?;
     let config = AppConfig::default();
     let dir = tempfile::tempdir()?;
@@ -67,18 +66,17 @@ async fn file_pickers_without_specific_actions_do_not_show_hints_or_lose_result_
     })
     .await?;
     let visible = frame(&mut picker, &mut app, &config);
-    for generic in [
-        "<ret> open",
-        "split below",
-        "split right",
-        "preview",
-        "quicklist",
-    ] {
+    for generic in ["<ret> open", "split below", "split right", "quicklist"] {
         assert!(!visible.contains(generic), "unexpected {generic:?}");
     }
+    assert!(visible.contains("<A-j> scroll preview down"));
+    assert!(visible.contains("<A-k> scroll preview up"));
     let visible_rows = picker.completion_height;
+    picker.toggle_preview();
+    assert!(!frame(&mut picker, &mut app, &config).contains("scroll preview"));
+    picker.toggle_preview();
     set_hints(&mut app, false);
-    assert!(!frame(&mut picker, &mut app, &config).contains("<ret>"));
+    assert!(!frame(&mut picker, &mut app, &config).contains("scroll preview"));
     assert_eq!(picker.completion_height, visible_rows);
     Ok(())
 }

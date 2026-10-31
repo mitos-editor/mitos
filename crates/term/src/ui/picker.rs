@@ -11,6 +11,9 @@ mod preview;
 mod query;
 mod replacement;
 mod results;
+pub(crate) mod scroll;
+#[cfg(all(test, feature = "integration"))]
+mod scroll_tests;
 #[cfg(all(test, feature = "integration"))]
 pub(crate) mod test;
 mod updates;
@@ -53,7 +56,7 @@ use view::{
 };
 
 use self::handlers::{DynamicQueryChange, DynamicQueryHandler};
-use self::preview::{render_preview_content, FilePreview};
+use self::preview::{render_preview_content, FilePreview, FileScroll};
 use self::replacement::{split_picker_input_area, CaseSensitiveToggle, Replacement};
 
 // These types remain available through the picker facade.
@@ -65,6 +68,11 @@ pub(crate) use updates::UpdateContext;
 
 type FileCallback<T> = Box<dyn for<'a> Fn(&'a Editor, &'a T) -> Option<FileLocation<'a>>>;
 type QuicklistCallback<T> = Box<dyn Fn(&Editor, &T) -> Option<QuicklistEntry>>;
+type SelectedPreview<'picker, 'editor> = (
+    Preview<'picker, 'editor>,
+    Option<(usize, usize)>,
+    &'picker mut FileScroll,
+);
 
 /// A native preview surface independent of file loading and repository providers.
 /// Implementations own their background work and cancel it when hidden or dropped.
@@ -269,6 +277,7 @@ pub struct Picker<T: 'static + Send + Sync, D: 'static> {
 
     /// Whether to show the preview panel (default true)
     show_preview: bool,
+    preview_area: Option<Rect>,
     /// Constraints for tabular formatting
     widths: Vec<Constraint>,
 
@@ -277,6 +286,7 @@ pub struct Picker<T: 'static + Send + Sync, D: 'static> {
 
     pub truncate_start: bool,
     preview: FilePreview,
+    preview_scroll: FileScroll,
     custom_preview: Option<Box<dyn PickerPreview<T>>>,
     /// Given an item in the picker, return the file path and line number to display.
     file_fn: Option<FileCallback<T>>,
@@ -457,11 +467,13 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             query,
             truncate_start: true,
             show_preview: true,
+            preview_area: None,
             callback_fn: Box::new(callback_fn),
             default_action: Action::Replace,
             completion_height: 0,
             widths,
             preview: FilePreview::default(),
+            preview_scroll: FileScroll::default(),
             custom_preview: None,
             file_fn: None,
             quicklist_fn: None,
@@ -763,6 +775,9 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
 
     pub fn toggle_preview(&mut self) {
         self.show_preview = !self.show_preview;
+        if !self.show_preview {
+            self.preview_area = None;
+        }
     }
 
     fn prompt_handle_event(&mut self, event: &Event, cx: &mut Context) -> EventResult {
@@ -859,17 +874,20 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         jobs: &crate::job::Jobs,
         image_picker: Option<&ratatui_image::picker::Picker>,
         image_size: Size,
-    ) -> Option<(Preview<'picker, 'editor>, Option<(usize, usize)>)> {
+    ) -> Option<SelectedPreview<'picker, 'editor>> {
         let snapshot = self.results.matcher.snapshot();
         let location = snapshot
             .get_matched_item(self.results.cursor)
             .and_then(|current| (self.file_fn.as_ref()?)(editor, current.data));
         let Some(location) = location else {
             self.preview.cancel_loads(None);
+            self.preview_scroll = FileScroll::default();
             return None;
         };
+        self.preview_scroll.select(&location);
         self.preview
             .get::<T, D>(editor, location, jobs, image_picker, image_size)
+            .map(|(preview, range)| (preview, range, &mut self.preview_scroll))
     }
 
     fn render_picker(&mut self, area: Rect, surface: &mut Surface, cx: &mut Context) {
@@ -1116,6 +1134,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         block.render(area, surface);
 
         if inner.is_empty() {
+            self.preview_area = None;
             self.preview.cancel_loads(None);
             if let Some(preview) = &mut self.custom_preview {
                 preview.cancel();
@@ -1133,10 +1152,10 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             return;
         }
         let image_size = Size::new(inner.width, inner.height.saturating_sub(2).max(1));
-        if let Some((preview, range)) =
+        if let Some((preview, range, scroll)) =
             self.get_preview(cx.editor, cx.jobs, cx.image_picker, image_size)
         {
-            render_preview_content(preview, range, inner, surface, cx);
+            render_preview_content(preview, range, scroll, inner, surface, cx);
         }
     }
 
@@ -1396,6 +1415,14 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                 | PickerAction::PreviewPrevious
                 | PickerAction::PreviewNext
                 | PickerAction::OpenPreview => {
+                    if self.preview_area.is_none()
+                        && matches!(
+                            action,
+                            PickerAction::PreviewScrollUp | PickerAction::PreviewScrollDown
+                        )
+                    {
+                        continue;
+                    }
                     if let Some(preview) = &mut self.custom_preview {
                         let action = match action {
                             PickerAction::PreviewScrollUp => PreviewAction::ScrollUp,
@@ -1417,6 +1444,11 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                             return close_fn(self, callback);
                         }
                         return result;
+                    }
+                    match action {
+                        PickerAction::PreviewScrollUp => self.preview_scroll.scroll.scroll(false),
+                        PickerAction::PreviewScrollDown => self.preview_scroll.scroll.scroll(true),
+                        _ => {}
                     }
                 }
                 PickerAction::TogglePreview => {
@@ -1503,6 +1535,7 @@ impl<I: 'static + Send + Sync, D: 'static + Send + Sync> Component for Picker<I,
         self.refresh_from_editor(cx.editor);
 
         let (picker_area, preview_area) = split_picker_area(area, render_preview);
+        self.preview_area = preview_area;
         self.render_picker(picker_area, surface, cx);
 
         if let Some(preview_area) = preview_area {
@@ -1520,18 +1553,37 @@ impl<I: 'static + Send + Sync, D: 'static + Send + Sync> Component for Picker<I,
     }
 
     fn handle_event(&mut self, event: &Event, ctx: &mut Context) -> EventResult {
-        // TODO: keybinds for scrolling preview
-
         let key_event = match event {
             Event::Key(event) => *event,
             Event::Paste(..) => {
                 self.keys.clear();
                 return self.prompt_handle_event(event, ctx);
             }
-            Event::Resize(..) => return EventResult::Consumed(None),
+            Event::Resize(..) => {
+                self.preview_area = None;
+                return EventResult::Consumed(None);
+            }
             // Picker is a modal and should consume mouse events so clicks don't fall
             // through to the editor underneath
-            Event::Mouse(_) => return EventResult::Consumed(None),
+            Event::Mouse(mouse) => {
+                use ui_core::input::MouseEventKind;
+                if self.preview_area.is_some_and(|area| {
+                    mouse.column >= area.left()
+                        && mouse.column < area.right()
+                        && mouse.row >= area.top()
+                        && mouse.row < area.bottom()
+                }) {
+                    let action = match mouse.kind {
+                        MouseEventKind::ScrollDown => Some(PickerAction::PreviewScrollDown),
+                        MouseEventKind::ScrollUp => Some(PickerAction::PreviewScrollUp),
+                        _ => None,
+                    };
+                    if let Some(action) = action {
+                        return self.execute_actions(&[action], ctx);
+                    }
+                }
+                return EventResult::Consumed(None);
+            }
             _ => return EventResult::Ignored(None),
         };
 

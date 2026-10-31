@@ -756,3 +756,71 @@ async fn review_highlighting_follows_visible_rows_after_a_large_fold() -> anyhow
     assert!(app.close().await.is_empty());
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn changed_file_and_history_previews_share_scroll_keys_and_scrollbars() -> anyhow::Result<()>
+{
+    let Some(root) = isolation::workspace(
+        "test::git_diff::changed_file_and_history_previews_share_scroll_keys_and_scrollbars",
+    )?
+    else {
+        return Ok(());
+    };
+    let workspace = root.join("workspace");
+    git(&workspace, &["init"]);
+    git(&workspace, &["config", "core.autocrlf", "false"]);
+    let path = workspace.join("scroll.txt");
+    let text = |prefix: &str| {
+        (0..100)
+            .map(|i| format!("{prefix}-{i:03}\n"))
+            .collect::<String>()
+    };
+    std::fs::write(&path, text("old"))?;
+    git(&workspace, &["add", "."]);
+    git(&workspace, &["commit", "-m", "initial"]);
+    std::fs::write(&path, text("new"))?;
+    let mut config = test_config();
+    config.editor.diff.engine = editor_config::DiffEngine::Line;
+    let mut app = AppBuilder::new()
+        .with_config(config)
+        .with_file(&path, None)
+        .build()?;
+
+    // Exercise the live changed-file preview, then the historical preview of the same diff.
+    for historical in [false, true] {
+        if historical {
+            git(&workspace, &["add", "."]);
+            git(&workspace, &["commit", "-m", "scrolling change"]);
+            keys(&mut app, ":file-history<ret>scrolling change").await?;
+        } else {
+            keys(&mut app, "<space>gsscroll.txt").await?;
+        }
+        preview_contains(&mut app, "old-000").await?;
+        let preview_text = |app: &Application| {
+            let buffer = app.terminal_backend().buffer();
+            (buffer.area.y..buffer.area.bottom().saturating_sub(2))
+                .map(|y| {
+                    (buffer.area.width / 2..buffer.area.right())
+                        .map(|x| buffer[(x, y)].symbol())
+                        .collect::<String>()
+                })
+                .collect::<String>()
+        };
+        assert!(preview_text(&app).contains('▐'));
+        keys(&mut app, "<A-j>").await?;
+        assert!(!preview_text(&app).contains("old-000"));
+        keys(&mut app, "<A-k>").await?;
+        assert!(preview_text(&app).contains("old-000"));
+        keys(&mut app, "<A-down>").await?;
+        assert!(!preview_text(&app).contains("old-000"));
+        keys(&mut app, "<A-up>").await?;
+        assert!(preview_text(&app).contains("old-000"));
+        keys(&mut app, &"<A-j>".repeat(100)).await?;
+        assert!(preview_text(&app).contains("new-099"));
+        keys(&mut app, "<A-k>").await?;
+        assert!(!preview_text(&app).contains("new-099"));
+        keys(&mut app, "<esc>").await?;
+    }
+    assert!(app.close().await.is_empty());
+    Ok(())
+}

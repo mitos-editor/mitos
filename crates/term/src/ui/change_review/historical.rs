@@ -2,7 +2,10 @@
 use super::ReviewView;
 use crate::{
     compositor::{Context, EventResult},
-    ui::picker::{PickerPreview, PreviewAction},
+    ui::picker::{
+        scroll::{self, PreviewScroll},
+        PickerPreview, PreviewAction,
+    },
 };
 use event::TaskController;
 use std::{sync::Arc, time::Duration};
@@ -27,7 +30,7 @@ pub struct HistoricalReviewPreview<T, K> {
     snapshot: Option<Arc<HistoricalReviewSnapshot>>,
     ready: Option<ReviewView>,
     error: Option<String>,
-    height: u16,
+    scroll: PreviewScroll,
     opened_document: bool,
 }
 
@@ -45,7 +48,7 @@ impl<T, K: Eq> HistoricalReviewPreview<T, K> {
             snapshot: None,
             ready: None,
             error: None,
-            height: 1,
+            scroll: PreviewScroll::default(),
             opened_document: false,
         }
     }
@@ -57,6 +60,7 @@ impl<T, K: Eq> HistoricalReviewPreview<T, K> {
         self.snapshot = None;
         self.ready = None;
         self.error = None;
+        self.scroll = PreviewScroll::default();
     }
 
     fn select(&mut self, item: Option<&T>, editor: &Editor) {
@@ -97,7 +101,6 @@ impl<T, K: Eq> PickerPreview<T> for HistoricalReviewPreview<T, K> {
 
     fn render(&mut self, item: Option<&T>, area: Rect, surface: &mut Buffer, cx: &mut Context) {
         self.select(item, cx.editor);
-        self.height = area.height;
         if let Some((_, request)) = &self.selected
             && self.pending.is_none()
             && self.snapshot.is_none()
@@ -145,11 +148,20 @@ impl<T, K: Eq> PickerPreview<T> for HistoricalReviewPreview<T, K> {
         }
         let content = Rect::new(area.x, area.y, area.width, area.height.saturating_sub(1));
         if let Some(view) = &mut self.ready {
-            view.offset =
-                view.offset.min(view.review.lines.len().saturating_sub(
-                    content.height.saturating_sub(view.heading_rows() as u16) as usize,
-                ));
-            view.draw(content, surface, cx, view.offset);
+            let heading = view.heading_rows() as u16;
+            let rows = content.height.saturating_sub(heading);
+            self.scroll.update(rows, view.review.lines.len());
+            view.draw(scroll::text_area(content), surface, cx, self.scroll.offset);
+            self.scroll.render(
+                Rect::new(
+                    content.x,
+                    content.y + heading.min(content.height),
+                    content.width,
+                    rows,
+                ),
+                surface,
+                &cx.editor.theme,
+            );
         } else if !content.is_empty() {
             let message = self.error.as_deref().unwrap_or(if self.selected.is_some() {
                 "Loading diff…"
@@ -199,20 +211,8 @@ impl<T, K: Eq> PickerPreview<T> for HistoricalReviewPreview<T, K> {
                     }
                 }
             }
-            PreviewAction::ScrollUp => {
-                if let Some(view) = &mut self.ready {
-                    view.offset = view
-                        .offset
-                        .saturating_sub((self.height / 2).max(1) as usize);
-                }
-            }
-            PreviewAction::ScrollDown => {
-                if let Some(view) = &mut self.ready {
-                    view.offset = view
-                        .offset
-                        .saturating_add((self.height / 2).max(1) as usize);
-                }
-            }
+            PreviewAction::ScrollUp => self.scroll.scroll(false),
+            PreviewAction::ScrollDown => self.scroll.scroll(true),
             PreviewAction::Previous | PreviewAction::Next => {}
         }
         EventResult::Consumed(None)
