@@ -31,6 +31,15 @@ impl Screen {
             .any(|row| row.iter().collect::<String>().trim_end() == text)
     }
 
+    fn line_feed(&mut self) {
+        if self.row == 23 {
+            self.cells.rotate_left(1);
+            self.cells[23].fill(' ');
+        } else {
+            self.row += 1;
+        }
+    }
+
     pub(super) fn feed(&mut self, text: &str) {
         self.pending.push_str(text);
         let mut input = std::mem::take(&mut self.pending);
@@ -74,10 +83,16 @@ impl Screen {
                 let ch = input.remove(0);
                 match ch {
                     '\r' => self.col = 0,
-                    '\n' => self.row = (self.row + 1).min(23),
+                    '\n' => self.line_feed(),
                     ch if !ch.is_control() => {
+                        // ConPTY can emit entire rows without cursor commands
+                        // or newlines, relying on the terminal's delayed wrap.
+                        if self.col == 80 {
+                            self.col = 0;
+                            self.line_feed();
+                        }
                         self.cells[self.row][self.col] = ch;
-                        self.col = (self.col + 1).min(79);
+                        self.col += 1;
                     }
                     _ => {}
                 }
@@ -85,4 +100,16 @@ impl Screen {
         }
         self.pending = input;
     }
+}
+
+#[test]
+fn conpty_wrapped_rows_preserve_status_text() {
+    let mut screen = Screen::default();
+    // ConPTY's startup repaint streams full rows, then the status line. There
+    // need not be a CR/LF or cursor-position command between those rows.
+    screen.feed(&" ".repeat(80 * 22));
+    screen.feed(" NOR   sample.txt");
+    assert!(screen.contains("NOR"));
+    screen.feed("\x1b[24;1Hcompleted 3");
+    assert!(screen.contains_line("completed 3"));
 }
