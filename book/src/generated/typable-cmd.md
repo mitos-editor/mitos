@@ -105,6 +105,17 @@
 | `:blame`, `:vcs-blame` | Show commit details for the current line, with actions to copy the commit ID or message. |
 | `:vcs-commit`, `:git-commit` | Review staged changes and write a commit message. Run again to update the review and keep the message. |
 | `:vcs-commit-submit`, `:git-commit-submit` | Commit the reviewed changes with this message. If Git rejects the commit, the message stays open. |
+| `:vcs-branches`, `:git-branches` | Browse local branches. Enter switches to the selected branch without discarding changes. |
+| `:vcs-branch-create`, `:git-branch-create` | Create a local branch at HEAD without switching to it. |
+| `:vcs-branch-switch`, `:git-branch-switch` | Switch to an existing local branch. Save edited files first; Git refuses to overwrite changes. |
+| `:vcs-worktrees`, `:git-worktrees` | Browse worktrees. Enter opens the selected worktree's file picker. |
+| `:vcs-worktree-create`, `:git-worktree-create` | Create a worktree in a new folder. Give an existing branch name, or open the current commit without a branch. |
+| `:vcs-worktree-open`, `:git-worktree-open` | Change directory to a worktree and open its file picker, keeping your open files. |
+| `:vcs-worktree-remove`, `:git-worktree-remove` | Confirm removal of a clean worktree, keeping its branch. |
+| `:vcs-remotes`, `:git-remotes` | Choose a remote, then fetch, pull, or push. |
+| `:vcs-fetch`, `:git-fetch` | Download remote commits without changing your files. Give a remote name when several are configured. |
+| `:vcs-pull`, `:git-pull` | Download changes and move the current branch forward without creating a merge commit. Optionally give a remote name. |
+| `:vcs-push`, `:git-push` | Upload commits from the current branch. Optionally give a remote name. |
 | `:show-change`, `:vcs-show-change` | Inspect the current change against HEAD, including deleted lines and unsaved edits. |
 | `:diff`, `:vcs-diff` | Review the current file. Choose head (all changes), staged (next commit), unstaged (saved changes), or buffer (unstaged and unsaved changes). |
 | `:git-history`, `:vcs-history` | Browse repository commits. Select a commit, then a file to review its changes. |
