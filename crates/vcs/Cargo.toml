@@ -23,6 +23,7 @@ gix = { workspace = true, features = ["attributes", "status", "blame", "parallel
 dunce = { workspace = true, optional = true }
 text-diff.workspace = true
 anyhow.workspace = true
+percent-encoding.workspace = true
 
 log.workspace = true
 

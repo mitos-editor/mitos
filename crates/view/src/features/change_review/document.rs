@@ -81,6 +81,16 @@ struct Observed {
 }
 
 impl ReviewDocument {
+    #[cfg(feature = "git")]
+    pub(crate) fn permalink_source(
+        &self,
+        before: bool,
+    ) -> Option<super::historical::HistoricalPermalink> {
+        match &self.request {
+            Request::Historical(request) => request.permalink_source(before),
+            Request::Live(_) => None,
+        }
+    }
     pub(crate) fn is_live(&self) -> bool {
         matches!(self.request, Request::Live(_))
     }
@@ -632,9 +642,8 @@ impl Editor {
                         .and_then(|row| state.review.after_line_at(row))
                 })
                 .ok_or_else(|| anyhow::anyhow!("This row has no source location"))?;
-            let (path, label) = request.source_metadata(before);
-            let workspace = request.workspace.clone();
-            self.open_historical_source(path, workspace, label, source, action, before);
+            let request = request.clone();
+            self.open_historical_source(&request, source, action, before);
             let (view, doc) = crate::current!(self);
             let line = line.min(
                 doc.text()

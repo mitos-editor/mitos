@@ -328,6 +328,41 @@ your filter. Filtering searches only commits already loaded.
 Remap history actions under `[keys.history-picker]`, which inherits shared picker
 bindings. See [Component keys](./remapping.md#component-keys).
 
+## Sharing source links
+
+Run `:vcs-copy-permalink` to copy a permanent link to the current line or selected
+line range. Use `:vcs-open-permalink` to open the same link in your browser. Both
+commands are also available in the command palette as `copy_permalink` and
+`open_permalink`.
+
+Links keep pointing to the same committed version after a branch changes.
+Current files link to `HEAD`; historical reviews and versions link to the
+selected revision. A removed line in a historical diff links to the original
+version. Commit any selected changes before creating a link.
+
+GitHub and GitLab remotes work with HTTPS, SSH URLs, and `git@host:owner/repo`
+addresses. If more than one supported remote is configured, append its name:
+
+```text
+:vcs-copy-permalink upstream
+```
+
+For a self-hosted GitHub or GitLab server, set `remote.<name>.mitos-provider` to
+`github` or `gitlab` in your repository's Git configuration:
+
+```sh
+git config remote.origin.mitos-provider gitlab
+```
+
+Creating a link does not upload commits. A local commit must exist on the hosting
+service before other people can open its link. Credentials from remote URLs are
+never included in links.
+
+In the blame popup, `l` copies a commit link and `o` opens it. History action menus
+(`Alt-a`) offer the same actions. With several supported remotes, choose one with
+`:vcs-copy-commit-link <full-commit-id> <remote>` or
+`:vcs-open-commit-link <full-commit-id> <remote>`.
+
 ## Blame details
 
 Run `:blame` or choose `blame_line` from the command palette to inspect the commit
@@ -339,11 +374,14 @@ name and email, date, and commit message. Lines with uncommitted changes report
 | --- | --- |
 | `y` | Copy the full commit ID to the clipboard |
 | `Y` | Copy the commit message to the clipboard |
+| `l` | Copy a link to the commit |
+| `o` | Open the commit in your browser |
 | `Ctrl-d`, `Page Down` | Scroll down |
 | `Ctrl-u`, `Page Up` | Scroll up |
 | `Esc` | Close |
 
 Copy actions use `[keys.blame]` with `copy_commit_id` and `copy_message`.
+Commit links use `copy_commit_link` and `open_commit_link` in the same section.
 Scrolling and closing use `[keys.popup]`.
 
 ## Inline blame

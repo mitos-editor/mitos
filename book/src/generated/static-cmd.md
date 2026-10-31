@@ -122,6 +122,8 @@
 | `goto_next_conflict` | Go to the next unresolved conflict | normal: `` ]m ``, select: `` ]m `` |
 | `goto_previous_conflict` | Go to the previous unresolved conflict | normal: `` [m ``, select: `` [m `` |
 | `blame_line` | Show commit details for the current line | normal: `` <space>gb ``, select: `` <space>gb `` |
+| `copy_permalink` | Copy a permanent link to the current line or selected lines |  |
+| `open_permalink` | Open a permanent link to the current line or selected lines |  |
 | `toggle_inline_blame` | Toggle inline Git blame | normal: `` <space>B ``, `` <space>gt ``, select: `` <space>B ``, `` <space>gt `` |
 | `git_history` | Browse Git commits and their changed files in the current repository | normal: `` <space>gl ``, select: `` <space>gl `` |
 | `git_file_history` | Browse the current file history across renames | normal: `` <space>gf ``, select: `` <space>gf `` |

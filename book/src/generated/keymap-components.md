@@ -231,7 +231,9 @@
 | Key | Action |
 | --- | --- |
 | `` y `` | `` copy_commit_id `` |
+| `` l `` | `` copy_commit_link `` |
 | `` Y `` | `` copy_message `` |
+| `` o `` | `` open_commit_link `` |
 
 ## Diff popup
 

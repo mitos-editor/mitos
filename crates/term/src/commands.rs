@@ -70,4 +70,6 @@ pub use syntax::{
     extend_parent_node_end, extend_parent_node_start, move_parent_node_end, move_parent_node_start,
     syntax_symbol_picker, syntax_workspace_symbol_picker,
 };
+#[cfg(feature = "git")]
+pub(crate) use vcs::request_commit_permalink;
 pub use view::save::{WriteAllOptions, WriteOptions};

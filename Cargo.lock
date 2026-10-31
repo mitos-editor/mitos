@@ -4771,6 +4771,7 @@ dependencies = [
  "gix",
  "log",
  "parking_lot",
+ "percent-encoding",
  "ropey",
  "stdx",
  "tempfile",

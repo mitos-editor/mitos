@@ -17,6 +17,142 @@ async fn press_space_b(app: &mut Application) -> anyhow::Result<()> {
     press_keys(app, "<space>B").await
 }
 
+async fn wait_permalink_status(app: &mut Application, prefix: &str) -> anyhow::Result<()> {
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while !app
+            .editor
+            .get_status()
+            .is_some_and(|(message, _)| message.starts_with(prefix))
+        {
+            run_event_loop_until_idle(app).await;
+        }
+    })
+    .await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn permalinks_map_unsaved_lines_reject_changed_lines_and_allow_remote_selection(
+) -> anyhow::Result<()> {
+    let (dir, path) = committed_file()?;
+    git(
+        dir.path(),
+        &["remote", "add", "origin", "git@github.com:owner/repo.git"],
+    );
+    let mut app = AppBuilder::new().with_file(&path, None).build()?;
+    app.editor
+        .registers
+        .set_clipboard_backend(Box::<TestClipboard>::default());
+    press_keys(&mut app, "ggOlocal<esc>j:vcs-copy-permalink<ret>").await?;
+    wait_permalink_status(&mut app, "Copied Git permalink").await?;
+    let url = app.editor.first_register_value('+').unwrap().into_owned();
+    assert!(
+        url.starts_with("https://github.com/owner/repo/blob/"),
+        "{url}"
+    );
+    assert!(url.ends_with("/file.txt#L1"), "{url}");
+    assert_eq!(std::fs::read_to_string(&path)?, "committed\n");
+    press_keys(&mut app, "gg:vcs-copy-permalink<ret>").await?;
+    wait_permalink_status(&mut app, "Selected lines contain uncommitted changes").await?;
+    assert_eq!(app.editor.first_register_value('+').unwrap(), url);
+    git(
+        dir.path(),
+        &[
+            "remote",
+            "add",
+            "upstream",
+            "https://gitlab.com/group/repo.git",
+        ],
+    );
+    press_keys(&mut app, "j:vcs-copy-permalink<ret>").await?;
+    wait_permalink_status(&mut app, "Choose a remote").await?;
+    press_keys(&mut app, ":vcs-copy-permalink upstream<ret>").await?;
+    wait_permalink_status(&mut app, "Copied Git permalink").await?;
+    assert!(app
+        .editor
+        .first_register_value('+')
+        .unwrap()
+        .starts_with("https://gitlab.com/group/repo/-/blob/"));
+    assert!(app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn permalink_results_are_discarded_after_source_edits() -> anyhow::Result<()> {
+    let (dir, path) = committed_file()?;
+    git(
+        dir.path(),
+        &["remote", "add", "origin", "git@github.com:owner/repo.git"],
+    );
+    let mut app = AppBuilder::new().with_file(&path, None).build()?;
+    let request = view::features::permalink::PermalinkRequest::capture(&app.editor)?;
+    let result = request.run(None).await?;
+    press_keys(&mut app, "Iedited<esc>").await?;
+    assert!(result.resolve(&app.editor).is_none());
+    assert!(app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn historical_permalinks_from_versions_and_removed_diff_lines_pin_the_original_commit(
+) -> anyhow::Result<()> {
+    use vcs::operations::{
+        history::{RevisionFile, RevisionId},
+        GitRepository,
+    };
+    use view::features::change_review::HistoricalReviewRequest;
+    let (dir, _) = committed_file()?;
+    std::fs::create_dir_all(dir.path().join("nested/.mitos"))?;
+    git(dir.path(), &["mv", "file.txt", "nested/file.txt"]);
+    git(dir.path(), &["commit", "-m", "nested source"]);
+    let path = dir.path().join("nested/file.txt");
+    git(
+        dir.path(),
+        &["remote", "add", "origin", "git@github.com:owner/repo.git"],
+    );
+    let first = vcs::permalink::file_revision(&path, None, false)?.revision;
+    std::fs::write(&path, "replacement\n")?;
+    git(dir.path(), &["add", "."]);
+    git(dir.path(), &["commit", "-m", "replacement"]);
+    let second = vcs::permalink::file_revision(&path, None, false)?.revision;
+    let mut app = AppBuilder::new().with_file(&path, None).build()?;
+    assert_eq!(
+        stdx::path::canonicalize_existing(current_ref!(app.editor).1.workspace_root()),
+        stdx::path::canonicalize_existing(&dir.path().join("nested"))
+    );
+    let repository = GitRepository::discover(&path)?;
+    let before = RevisionFile::new(RevisionId::parse(&first)?, "nested/file.txt".into())?;
+    let after = RevisionFile::new(RevisionId::parse(&second)?, "nested/file.txt".into())?;
+    let request =
+        HistoricalReviewRequest::revisions(&app.editor, repository, Some(before), Some(after))?;
+    app.editor
+        .open_historical_review(request, view::editor::Action::Replace);
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while current_ref!(app.editor).1.review().unwrap().is_loading() {
+            run_event_loop_until_idle(&mut app).await;
+        }
+    })
+    .await?;
+    press_keys(&mut app, "/committed<ret>").await?;
+    let result = view::features::permalink::PermalinkRequest::capture(&app.editor)?
+        .run(None)
+        .await?
+        .resolve(&app.editor)
+        .unwrap()?;
+    assert!(result.contains(&first), "{result}");
+    assert!(result.ends_with("/nested/file.txt#L1"));
+    // Enter on a removed row opens the original read-only file version.
+    press_keys(&mut app, "<ret>").await?;
+    let result = view::features::permalink::PermalinkRequest::capture(&app.editor)?
+        .run(None)
+        .await?
+        .resolve(&app.editor)
+        .unwrap()?;
+    assert!(result.contains(&first), "{result}");
+    assert!(app.close().await.is_empty());
+    Ok(())
+}
+
 async fn press_keys(app: &mut Application, keys: &str) -> anyhow::Result<()> {
     let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
     for key in parse_macro(keys)? {
