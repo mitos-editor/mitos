@@ -1082,7 +1082,11 @@ foreground process group with terminal stdin/stderr and captured stdout. Editor
 callbacks and rendering wait until the child releases the terminal; completion,
 cancellation and failures restore the foreground group, terminal modes and input,
 then resume the existing command continuation. Formatter contexts have no
-interactive executor. Windows reports that a Unix terminal is required.
+interactive executor. On Windows, a bounded poll/read worker acknowledges input
+pauses. The child shares the console with terminal stdin/stderr and captured stdout;
+it starts suspended, joins a job that terminates descendants on cleanup, and only
+then resumes. A temporary console control handler protects Mitos while Ctrl-c
+reaches the child. Console modes are restored before reclaiming the backend.
 
 The terminal frontend.
 

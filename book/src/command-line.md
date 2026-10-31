@@ -55,7 +55,7 @@ Aside from editor variables, the following expansions may be used:
 
 * Unicode `%u{..}`. The contents may contain up to six hexadecimal numbers corresponding to a Unicode codepoint value. For example `:echo %u{25CF}` prints `●` to the statusline.
 * Shell `%sh{..}`. The contents are passed to the configured shell command. For example `:echo %sh{echo "20 * 5" | bc}` may print `100` on the statusline when using a shell with `echo` and the `bc` calculator installed. Shell expansions are evaluated recursively. `%sh{echo '%{buffer_name}:%{cursor_line}'}` for example executes a command like `echo 'README.md:1'`: the variables within the `%sh{..}` expansion are evaluated before executing the shell command.
-* Interactive shell `%sh_interactive{..}` (Unix). Runs a shell command with exclusive access to the terminal, then uses its standard output as the expansion value. Use this for terminal programs such as `fzf`; their interface uses the terminal while standard output carries the selected value. Mitos resumes after the command finishes. A nonzero exit status aborts the enclosing editor command. Interactive expansions are available in submitted commands and key bindings, including custom commands; they are unavailable in formatter arguments.
+* Interactive shell `%sh_interactive{..}`. Runs a shell command with exclusive access to the terminal, then uses its standard output as the expansion value. Use this for terminal programs such as `fzf`; their interface uses the terminal while standard output carries the selected value. Mitos resumes after the command finishes. A nonzero exit status aborts the enclosing editor command. Interactive expansions are available in submitted commands and key bindings, including custom commands; they are unavailable in formatter arguments.
 * Register `%reg{..}`. The contents should be a single character representing the register name. For example, `:set-register a hello world` followed by `:echo %reg{a}` prints `hello world` to the statusline.
 * Positional argument `%arg{..}`. Within a [custom command](./custom-commands.md), the contents are a zero-based argument index. For example, `%arg{0}` expands to the first argument passed to the custom command. Missing arguments expand to an empty string.
 
@@ -68,7 +68,7 @@ For example, an outline script that launches `fzf` and prints a selected line nu
 x = { label = "File outline", command = ":goto %sh_interactive{mitos-ctags.py '%{file_path_absolute}' '%{cursor_line}'}" }
 ```
 
-The editor restores terminal modes automatically; the script does not need to change Mitos's keyboard or mouse protocols. Cancel in the external program with its usual keys. Suspending an interactive command with Ctrl-z aborts it and returns to Mitos.
+The editor restores terminal modes automatically; the script does not need to change Mitos's keyboard or mouse protocols. Cancel in the external program with its usual keys. On Unix, suspending an interactive command with Ctrl-z aborts it and returns to Mitos.
 
 Note that expansions are only evaluated once the Enter key is pressed in command mode.
 

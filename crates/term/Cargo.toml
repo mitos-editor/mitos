@@ -119,7 +119,15 @@ serde.workspace = true
 
 
 [target.'cfg(windows)'.dependencies]
-crossterm = { workspace = true, features = ["event-stream"] }
+crossterm.workspace = true
+windows-sys = { workspace = true, features = [
+  "Win32_Foundation",
+  "Win32_Security",
+  "Win32_System_Console",
+  "Win32_System_Diagnostics_ToolHelp",
+  "Win32_System_JobObjects",
+  "Win32_System_Threading",
+] }
 
 [target.'cfg(not(windows))'.dependencies]  # https://github.com/vorner/signal-hook/issues/100
 signal-hook-tokio = { workspace = true, features = ["futures-v0_3"] }
@@ -133,4 +141,8 @@ loader.workspace = true
 tokio = { workspace = true, features = ["test-util"] }
 spelling.workspace = true
 indoc.workspace = true
+vt100.workspace = true
 same-file.workspace = true
+
+[target.'cfg(windows)'.dev-dependencies]
+windows-sys = { workspace = true, features = ["Win32_System_Pipes"] }

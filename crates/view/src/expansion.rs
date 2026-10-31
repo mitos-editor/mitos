@@ -318,10 +318,26 @@ impl Context {
         let content = self.expand_inner(content, positional_args).await?;
         ensure!(!self.shell.is_empty(), "No shell set");
         let mut process = tokio::process::Command::new(&self.shell[0]);
-        process
-            .args(&self.shell[1..])
-            .arg(content.as_ref())
-            .current_dir(&self.directory);
+        process.args(&self.shell[1..]).current_dir(&self.directory);
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            let shell = std::path::Path::new(&self.shell[0])
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("");
+            if interactive
+                && (shell.eq_ignore_ascii_case("cmd") || shell.eq_ignore_ascii_case("cmd.exe"))
+            {
+                // cmd /C parses a script, not a CRT argv argument. Preserve
+                // embedded quotes and wrap the script in cmd's outer quotes.
+                process.as_std_mut().raw_arg(format!("\"{content}\""));
+            } else {
+                process.arg(content.as_ref());
+            }
+        }
+        #[cfg(not(windows))]
+        process.arg(content.as_ref());
         let output = if let Some(executor) = executor {
             executor(process).await?
         } else {
