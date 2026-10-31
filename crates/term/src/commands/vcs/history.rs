@@ -18,7 +18,7 @@ use vcs::operations::{
     history::{CommitEntry, HistoryCursor, HistoryFile, HistoryPage, RevisionFile},
     GitRepository,
 };
-use view::{features::change_review::HistoricalReviewRequest, DocumentId, Editor};
+use view::{editor::Action, features::change_review::HistoricalReviewRequest, DocumentId, Editor};
 
 #[derive(Clone, PartialEq, Eq)]
 enum Row {
@@ -135,7 +135,11 @@ fn browser(
         },
     )
     .with_title(title)
-    .with_help(|maps| super::actions::help(&maps.history_picker))
+    .with_help(if path.is_some() {
+        |maps| history_help(&maps.history_picker, true)
+    } else {
+        |maps| history_help(&maps.history_picker, false)
+    })
     .with_item_key(|row| match row {
         Row::Commit(c) => c.id.as_str().to_owned(),
         Row::More => "more".into(),
@@ -143,20 +147,11 @@ fn browser(
     .with_editor_updates(move |cx| pager.update(cx))
     .with_item_actions(
         |maps| &maps.history_picker,
-        move |_, row, action| {
-            if action != PickerItemAction::Actions {
-                return PickerCallbackResult::KeepOpen;
-            }
+        move |cx, row, action| {
             let Some(Row::Commit(commit)) = row else {
                 return PickerCallbackResult::KeepOpen;
             };
-            let data = actions.clone();
-            let commit = commit.clone();
-            PickerCallbackResult::KeepOpenWithCallback(Box::new(move |compositor, cx| {
-                compositor.push(Box::new(overlaid(action_picker(
-                    cx.editor, data, commit, 0,
-                ))));
-            }))
+            history_action(cx, &actions, commit, 0, action)
         },
     );
     let picker = if path.is_some() {
@@ -267,140 +262,140 @@ fn review_request(
     HistoricalReviewRequest::revisions(editor, repo.clone(), before, after)
 }
 
-#[derive(Clone)]
-enum ChoiceKind {
-    Review(usize),
-    Version,
-    Buffer,
+fn history_help(
+    keys: &ui_core::keymap::Keymap<crate::keymap::component::PickerAction>,
+    file: bool,
+) -> Vec<String> {
+    use crate::keymap::component::{PickerAction as P, PickerItemAction as I};
+    let mut actions = vec![(P::Accept, if file { "review" } else { "files" })];
+    if file {
+        actions.extend([
+            (P::Item(I::HistoryOpenVersion), "open version"),
+            (P::Item(I::HistoryCompareBuffer), "compare buffer"),
+        ]);
+    }
+    actions.push((P::Item(I::HistoryCompareParent), "compare parent"));
+    super::actions::action_hints(keys, &actions)
 }
-#[derive(Clone)]
-struct Choice {
-    label: String,
-    kind: ChoiceKind,
+
+fn history_action<T, D>(
+    cx: &mut crate::compositor::Context,
+    data: &Data,
+    commit: &CommitEntry,
+    baseline: usize,
+    action: PickerItemAction,
+) -> PickerCallbackResult<T, D> {
+    if action == PickerItemAction::HistoryCompareParent {
+        let data = data.clone();
+        let commit = commit.clone();
+        return PickerCallbackResult::KeepOpenWithCallback(Box::new(move |compositor, cx| {
+            compositor.push(Box::new(overlaid(parent_picker(
+                cx.editor, data, commit, baseline,
+            ))));
+        }));
+    }
+    if !matches!(
+        action,
+        PickerItemAction::HistoryOpenVersion | PickerItemAction::HistoryCompareBuffer
+    ) {
+        return PickerCallbackResult::KeepOpen;
+    }
+    let result = (|| -> Result<()> {
+        let path = commit
+            .file
+            .as_ref()
+            .and_then(|file| file.after.as_ref())
+            .ok_or_else(|| anyhow::anyhow!("Select a file that exists in this revision"))?;
+        let endpoint = RevisionFile::new(commit.id.clone(), path.clone())?;
+        if action == PickerItemAction::HistoryCompareBuffer {
+            let buffer = data.buffer.ok_or_else(|| {
+                anyhow::anyhow!("Open this file in an editable buffer before comparing")
+            })?;
+            let request = HistoricalReviewRequest::against_buffer(
+                cx.editor,
+                data.repo.clone(),
+                endpoint,
+                buffer,
+            )?;
+            cx.editor.open_historical_review(request, Action::Replace);
+        } else {
+            let request = HistoricalReviewRequest::revisions(
+                cx.editor,
+                data.repo.clone(),
+                None,
+                Some(endpoint),
+            )?;
+            cx.editor.open_historical_version(request, Action::Replace);
+        }
+        Ok(())
+    })();
+    match result {
+        Ok(()) => PickerCallbackResult::Close,
+        Err(error) => {
+            cx.editor.set_error(|| error.to_string());
+            PickerCallbackResult::KeepOpen
+        }
+    }
 }
-fn action_picker(
+
+fn parent_picker(
     editor: &Editor,
     data: Data,
     commit: CommitEntry,
     baseline: usize,
-) -> Picker<Choice, ()> {
-    let title = format!("{} · {}", commit.id.short(), commit.subject);
-    let mut choices = vec![Choice {
-        label: if commit.parents.is_empty() {
-            "Review initial version".into()
-        } else {
-            format!(
-                "Review against parent {} ({})",
-                baseline + 1,
-                commit.parents[baseline].short()
-            )
-        },
-        kind: ChoiceKind::Review(baseline),
-    }];
-    for parent in (0..commit.parents.len()).filter(|parent| *parent != baseline) {
-        choices.push(Choice {
-            label: format!(
-                "Review against parent {} ({})",
-                parent + 1,
-                commit.parents[parent].short()
-            ),
-            kind: ChoiceKind::Review(parent),
-        });
-    }
-    if commit
-        .file
-        .as_ref()
-        .is_some_and(|file| file.after.is_some())
-    {
-        choices.push(Choice {
-            label: "Open historical version".into(),
-            kind: ChoiceKind::Version,
-        });
-        if data.buffer.is_some() {
-            choices.push(Choice {
-                label: "Compare revision with current buffer (includes unsaved edits)".into(),
-                kind: ChoiceKind::Buffer,
-            });
-        }
-    }
+) -> Picker<usize, CommitEntry> {
+    let title = format!("{} · compare parent", commit.id.short());
+    let parents = std::iter::once(baseline)
+        .chain((0..commit.parents.len()).filter(|parent| *parent != baseline))
+        .collect::<Vec<_>>();
     Picker::new_with_callback_result(
         editor.redraw().clone(),
-        [PickerColumn::new("action", |choice: &Choice, _: &()| {
-            choice.label.as_str().into()
-        })],
+        [PickerColumn::new(
+            "parent",
+            |parent: &usize, commit: &CommitEntry| {
+                if commit.parents.is_empty() {
+                    "Review initial version".into()
+                } else {
+                    format!(
+                        "Review against parent {} ({})",
+                        parent + 1,
+                        commit.parents[*parent].short()
+                    )
+                    .into()
+                }
+            },
+        )],
         0,
-        choices,
-        (),
-        move |cx, choice, action| {
-            let result = (|| -> Result<bool> {
-                match choice.kind {
-                    ChoiceKind::Review(parent) => {
-                        if parent == baseline
-                            && let Some(file) = &commit.file
-                        {
-                            cx.editor.open_historical_review(
-                                review_request(cx.editor, &data.repo, &commit, file, baseline)?,
-                                action,
-                            );
-                            Ok(false)
-                        } else {
-                            Ok(true)
-                        }
+        parents,
+        commit.clone(),
+        move |cx, parent, action| {
+            if *parent == baseline
+                && let Some(file) = &commit.file
+            {
+                match review_request(cx.editor, &data.repo, &commit, file, baseline) {
+                    Ok(request) => {
+                        cx.editor.open_historical_review(request, action);
                     }
-                    ChoiceKind::Version | ChoiceKind::Buffer => {
-                        let path = commit
-                            .file
-                            .as_ref()
-                            .and_then(|file| file.after.as_ref())
-                            .ok_or_else(|| {
-                                anyhow::anyhow!("This file is deleted in the selected revision")
-                            })?;
-                        let endpoint = RevisionFile::new(commit.id.clone(), path.clone())?;
-                        let request = match choice.kind {
-                            ChoiceKind::Buffer => HistoricalReviewRequest::against_buffer(
-                                cx.editor,
-                                data.repo.clone(),
-                                endpoint,
-                                data.buffer.unwrap(),
-                            )?,
-                            _ => HistoricalReviewRequest::revisions(
-                                cx.editor,
-                                data.repo.clone(),
-                                None,
-                                Some(endpoint),
-                            )?,
-                        };
-                        if matches!(choice.kind, ChoiceKind::Version) {
-                            cx.editor.open_historical_version(request, action);
-                        } else {
-                            cx.editor.open_historical_review(request, action);
-                        }
-                        Ok(false)
+                    Err(error) => {
+                        cx.editor.set_error(|| error.to_string());
+                        return PickerCallbackResult::KeepOpen;
                     }
                 }
-            })();
-            match result {
-                Err(error) => {
-                    cx.editor.set_error(|| error.to_string());
-                    PickerCallbackResult::KeepOpen
-                }
-                Ok(files) => {
-                    let data = data.clone();
-                    let commit = commit.clone();
-                    let kind = choice.kind.clone();
-                    PickerCallbackResult::CloseWithCallback(Box::new(move |compositor, cx| {
-                        // Replace the action picker cache with the originating commit browser.
-                        compositor.last_picker = compositor.pop();
-                        if files && let ChoiceKind::Review(parent) = kind {
-                            let path = commit.file.as_ref().map(|file| file.path().to_owned());
-                            let browser = compositor.last_picker.take();
-                            compositor.push(Box::new(overlaid(files_picker(
-                                cx.editor, data, commit, parent, path, browser,
-                            ))));
-                        }
-                    }))
-                }
+                return PickerCallbackResult::CloseWithCallback(Box::new(|compositor, _| {
+                    compositor.last_picker = compositor.pop();
+                }));
             }
+            let data = data.clone();
+            let commit = commit.clone();
+            let parent = *parent;
+            PickerCallbackResult::CloseWithCallback(Box::new(move |compositor, cx| {
+                compositor.last_picker = compositor.pop();
+                let path = commit.file.as_ref().map(|file| file.path().to_owned());
+                let browser = compositor.last_picker.take();
+                compositor.push(Box::new(overlaid(files_picker(
+                    cx.editor, data, commit, parent, path, browser,
+                ))));
+            }))
         },
     )
     .with_title(title)
@@ -431,8 +426,8 @@ fn files_picker(
     let preview_commit = commit.clone();
     let accept = data.clone();
     let selected = commit.clone();
-    let menu_data = data.clone();
-    let menu_commit = commit.clone();
+    let action_data = data.clone();
+    let action_commit = commit.clone();
     let load = Files {
         data: data.clone(),
         commit: commit.clone(),
@@ -480,7 +475,7 @@ fn files_picker(
     ))
     .with_title(title)
     .with_help(|maps| {
-        let mut hints = super::actions::help(&maps.history_picker);
+        let mut hints = history_help(&maps.history_picker, true);
         hints.push(format!(
             "{} back",
             crate::keymap::component::action_hint(
@@ -492,7 +487,7 @@ fn files_picker(
     })
     .with_item_actions(
         |maps| &maps.history_picker,
-        move |_, file, action| {
+        move |cx, file, action| {
             if action == PickerItemAction::HistoryBack {
                 if browser.borrow().is_none() {
                     return PickerCallbackResult::KeepOpen;
@@ -504,25 +499,17 @@ fn files_picker(
                     }
                 }));
             }
-            if action != PickerItemAction::Actions {
-                return PickerCallbackResult::KeepOpen;
-            }
             let Some(file) = file else {
                 return PickerCallbackResult::KeepOpen;
             };
-            let data = menu_data.clone();
-            let mut commit = menu_commit.clone();
+            let mut data = action_data.clone();
+            let mut commit = action_commit.clone();
             commit.file = Some(file.clone());
-            PickerCallbackResult::KeepOpenWithCallback(Box::new(move |compositor, cx| {
-                let mut data = data;
-                if data.buffer.is_none() {
-                    let path = data.repo.root().join(commit.file.as_ref().unwrap().path());
-                    data.buffer = cx.editor.document_by_path(&path).map(|doc| doc.id());
-                }
-                compositor.push(Box::new(overlaid(action_picker(
-                    cx.editor, data, commit, parent,
-                ))));
-            }))
+            if data.buffer.is_none() {
+                let path = data.repo.root().join(commit.file.as_ref().unwrap().path());
+                data.buffer = cx.editor.document_by_path(&path).map(|doc| doc.id());
+            }
+            history_action(cx, &data, &commit, parent, action)
         },
     )
     .with_initial_options(move |cancel| {

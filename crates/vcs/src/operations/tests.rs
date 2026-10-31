@@ -24,6 +24,412 @@ fn initial() -> tempfile::TempDir {
     repo
 }
 
+fn staged_text(root: &Path, path: &str) -> String {
+    let result = std::process::Command::new("git")
+        .arg("-C")
+        .arg(root)
+        .args(["show", &format!(":{path}")])
+        .env_remove("GIT_DIR")
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "git show :{path} failed: {}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    String::from_utf8(result.stdout).unwrap()
+}
+
+#[tokio::test]
+async fn partial_staging_preserves_existing_index_and_unsaved_disk_text() -> Result<()> {
+    let dir = initial();
+    let path = dir.path().join("file.txt");
+    std::fs::write(&path, "already staged\nsecond\nthird\n")?;
+    exec_git_cmd(&["add", "file.txt"], dir.path());
+    std::fs::write(&path, "disk stays untouched\n")?;
+    let repo = GitRepository::discover(dir.path())?;
+    let source = PartialSource::Buffer("already staged\nselected\nleave unsaved\n".into());
+    repo.prepare_partial(
+        &path,
+        FileOperation::Stage,
+        &source,
+        PartialSelection::Lines(std::iter::once(1..2).collect()),
+        true,
+    )?
+    .execute()
+    .await?;
+    assert_eq!(
+        staged_text(dir.path(), "file.txt"),
+        "already staged\nselected\nthird\n"
+    );
+    assert_eq!(std::fs::read_to_string(&path)?, "disk stays untouched\n");
+    repo.prepare_partial(
+        &path,
+        FileOperation::Unstage,
+        &source,
+        PartialSelection::Lines(std::iter::once(1..2).collect()),
+        true,
+    )?
+    .execute()
+    .await?;
+    assert_eq!(
+        staged_text(dir.path(), "file.txt"),
+        "already staged\nthird\n"
+    );
+    assert_eq!(std::fs::read_to_string(&path)?, "disk stays untouched\n");
+    Ok(())
+}
+
+#[tokio::test]
+async fn partial_new_file_and_deletions_preserve_literal_names_and_eof() -> Result<()> {
+    let dir = initial();
+    std::fs::create_dir(dir.path().join("nested dir"))?;
+    let path = dir.path().join("nested dir/[literal] file.txt");
+    std::fs::write(&path, "first\nsecond\nthird")?;
+    let repo = GitRepository::discover(dir.path())?;
+    repo.prepare_partial(
+        &path,
+        FileOperation::Stage,
+        &PartialSource::Worktree,
+        PartialSelection::Lines(std::iter::once(1..2).collect()),
+        true,
+    )?
+    .execute()
+    .await?;
+    assert_eq!(
+        staged_text(dir.path(), "nested dir/[literal] file.txt"),
+        "second\n"
+    );
+    repo.prepare_partial(
+        &path,
+        FileOperation::Unstage,
+        &PartialSource::Index,
+        PartialSelection::Hunks(std::iter::once(0..1).collect()),
+        true,
+    )?
+    .execute()
+    .await?;
+    assert!(statuses(dir.path())
+        .into_iter()
+        .find(|s| s.path() == path)
+        .unwrap()
+        .staged
+        .is_none());
+    assert_eq!(std::fs::read_to_string(&path)?, "first\nsecond\nthird");
+    let tracked = dir.path().join("file.txt");
+    repo.prepare_partial(
+        &tracked,
+        FileOperation::Stage,
+        &PartialSource::Buffer(String::new()),
+        PartialSelection::Hunks(std::iter::once(0..1).collect()),
+        true,
+    )?
+    .execute()
+    .await?;
+    assert_eq!(staged_text(dir.path(), "file.txt"), "");
+    assert_eq!(std::fs::read_to_string(tracked)?, "head\n");
+    Ok(())
+}
+
+#[tokio::test]
+async fn partial_staging_rejects_stale_index_and_preserves_lock() -> Result<()> {
+    let dir = initial();
+    let path = dir.path().join("file.txt");
+    let repo = GitRepository::discover(dir.path())?;
+    let prepare = || {
+        repo.prepare_partial(
+            &path,
+            FileOperation::Stage,
+            &PartialSource::Buffer("selected\n".into()),
+            PartialSelection::Hunks(std::iter::once(0..1).collect()),
+            true,
+        )
+    };
+    let plan = prepare()?;
+    std::fs::write(&path, "external\n")?;
+    exec_git_cmd(&["add", "file.txt"], dir.path());
+    assert!(plan.execute().await.is_err());
+    assert_eq!(staged_text(dir.path(), "file.txt"), "external\n");
+    let plan = prepare()?;
+    let lock = dir.path().join(".git/index.lock");
+    std::fs::write(&lock, "another process")?;
+    assert!(plan.execute().await.is_err());
+    assert_eq!(std::fs::read_to_string(lock)?, "another process");
+    assert_eq!(staged_text(dir.path(), "file.txt"), "external\n");
+    assert!(repo
+        .prepare_partial(
+            &path,
+            FileOperation::Stage,
+            &PartialSource::Buffer("selected\n".into()),
+            PartialSelection::Hunks(std::iter::once(0..1).collect()),
+            false
+        )
+        .is_err());
+    Ok(())
+}
+
+#[tokio::test]
+async fn partial_staging_normalizes_crlf_and_applies_clean_filters() -> Result<()> {
+    let dir = initial();
+    let path = dir.path().join("file.txt");
+    std::fs::write(
+        dir.path().join(".gitattributes"),
+        "file.txt text eol=crlf filter=example\n",
+    )?;
+    exec_git_cmd(
+        &["config", "filter.example.clean", "git stripspace"],
+        dir.path(),
+    );
+    let repo = GitRepository::discover(dir.path())?;
+    repo.prepare_partial(
+        &path,
+        FileOperation::Stage,
+        &PartialSource::Buffer("selected  \r\nsecond\r\n".into()),
+        PartialSelection::Lines(std::iter::once(0..1).collect()),
+        true,
+    )?
+    .execute()
+    .await?;
+    assert_eq!(staged_text(dir.path(), "file.txt"), "selected\n");
+    assert_eq!(std::fs::read_to_string(path)?, "head\n");
+    Ok(())
+}
+
+#[tokio::test]
+async fn partial_staging_linked_worktree_uses_its_own_index() -> Result<()> {
+    let dir = initial();
+    let worktree = tempfile::tempdir()?;
+    exec_git_cmd(
+        &[
+            "worktree",
+            "add",
+            "--detach",
+            worktree.path().to_str().unwrap(),
+        ],
+        dir.path(),
+    );
+    let path = worktree.path().join("file.txt");
+    let repo = GitRepository::discover(worktree.path())?;
+    repo.prepare_partial(
+        &path,
+        FileOperation::Stage,
+        &PartialSource::Buffer("worktree only\n".into()),
+        PartialSelection::Hunks(std::iter::once(0..1).collect()),
+        true,
+    )?
+    .execute()
+    .await?;
+    assert_eq!(staged_text(worktree.path(), "file.txt"), "worktree only\n");
+    assert_eq!(staged_text(dir.path(), "file.txt"), "head\n");
+    Ok(())
+}
+
+#[tokio::test]
+async fn partial_review_rows_select_removals_and_additions_independently() -> Result<()> {
+    let dir = initial();
+    let path = dir.path().join("file.txt");
+    let repo = GitRepository::discover(dir.path())?;
+    let source = PartialSource::Buffer("replacement\n".into());
+    repo.prepare_partial(
+        &path,
+        FileOperation::Stage,
+        &source,
+        PartialSelection::ReviewLines {
+            before: vec![],
+            after: std::iter::once(0..1).collect(),
+        },
+        true,
+    )?
+    .execute()
+    .await?;
+    assert_eq!(staged_text(dir.path(), "file.txt"), "head\nreplacement\n");
+    repo.prepare_partial(
+        &path,
+        FileOperation::Unstage,
+        &PartialSource::Index,
+        PartialSelection::ReviewLines {
+            before: std::iter::once(1..2).collect(),
+            after: vec![],
+        },
+        true,
+    )?
+    .execute()
+    .await?;
+    assert_eq!(staged_text(dir.path(), "file.txt"), "head\n");
+    repo.prepare_partial(
+        &path,
+        FileOperation::Stage,
+        &source,
+        PartialSelection::ReviewLines {
+            before: std::iter::once(0..1).collect(),
+            after: vec![],
+        },
+        true,
+    )?
+    .execute()
+    .await?;
+    assert_eq!(staged_text(dir.path(), "file.txt"), "");
+    Ok(())
+}
+
+#[tokio::test]
+async fn partial_unstaging_restores_a_staged_file_deletion() -> Result<()> {
+    let dir = initial();
+    let path = dir.path().join("file.txt");
+    exec_git_cmd(&["rm", "file.txt"], dir.path());
+    GitRepository::discover(dir.path())?
+        .prepare_partial(
+            &path,
+            FileOperation::Unstage,
+            &PartialSource::Index,
+            PartialSelection::Hunks(std::iter::once(0..1).collect()),
+            true,
+        )?
+        .execute()
+        .await?;
+    assert_eq!(staged_text(dir.path(), "file.txt"), "head\n");
+    assert!(!path.exists());
+    Ok(())
+}
+
+#[tokio::test]
+async fn partial_staging_rejects_stale_review_and_ignored_files() -> Result<()> {
+    let dir = initial();
+    let path = dir.path().join("file.txt");
+    let repo = GitRepository::discover(dir.path())?;
+    std::fs::write(&path, "new index\n")?;
+    exec_git_cmd(&["add", "file.txt"], dir.path());
+    let stale = PartialSource::Snapshot {
+        index: "head\n".into(),
+        text: "reviewed\n".into(),
+        buffer: true,
+    };
+    assert!(repo
+        .prepare_partial(
+            &path,
+            FileOperation::Stage,
+            &stale,
+            PartialSelection::Lines(std::iter::once(0..1).collect()),
+            true
+        )
+        .is_err());
+    assert_eq!(staged_text(dir.path(), "file.txt"), "new index\n");
+    std::fs::write(dir.path().join(".gitignore"), "ignored.txt\n")?;
+    let ignored = dir.path().join("ignored.txt");
+    std::fs::write(&ignored, "ignored\n")?;
+    assert!(repo
+        .prepare_partial(
+            &ignored,
+            FileOperation::Stage,
+            &PartialSource::Worktree,
+            PartialSelection::Lines(std::iter::once(0..1).collect()),
+            true
+        )
+        .is_err());
+    Ok(())
+}
+
+#[tokio::test]
+async fn partial_staging_preserves_utf8_bom_and_staged_rename() -> Result<()> {
+    let dir = initial();
+    let path = dir.path().join("file.txt");
+    std::fs::write(&path, "\u{feff}head\nkeep one\nkeep two\nkeep three\n")?;
+    create_commit_with_message(dir.path(), true, "with BOM");
+    exec_git_cmd(&["mv", "file.txt", "renamed.txt"], dir.path());
+    let path = dir.path().join("renamed.txt");
+    let repo = GitRepository::discover(dir.path())?;
+    repo.prepare_partial(
+        &path,
+        FileOperation::Stage,
+        &PartialSource::Buffer("\u{feff}selected\nkeep one\nkeep two\nkeep three\n".into()),
+        PartialSelection::Lines(std::iter::once(0..1).collect()),
+        true,
+    )?
+    .execute()
+    .await?;
+    assert_eq!(
+        staged_text(dir.path(), "renamed.txt"),
+        "\u{feff}selected\nkeep one\nkeep two\nkeep three\n"
+    );
+    repo.prepare_partial(
+        &path,
+        FileOperation::Unstage,
+        &PartialSource::Index,
+        PartialSelection::Hunks(std::iter::once(0..1).collect()),
+        true,
+    )?
+    .execute()
+    .await?;
+    assert_eq!(
+        staged_text(dir.path(), "renamed.txt"),
+        "\u{feff}head\nkeep one\nkeep two\nkeep three\n"
+    );
+    assert!(!dir.path().join("file.txt").exists());
+    Ok(())
+}
+
+#[tokio::test]
+async fn partial_staging_untracked_review_snapshot_preserves_utf8_bom() -> Result<()> {
+    let dir = initial();
+    let path = dir.path().join("new.txt");
+    std::fs::write(&path, "\u{feff}first\nsecond\n")?;
+    let repo = GitRepository::discover(dir.path())?;
+    repo.prepare_partial(
+        &path,
+        FileOperation::Stage,
+        &PartialSource::Snapshot {
+            index: String::new(),
+            text: "first\nsecond\n".into(),
+            buffer: false,
+        },
+        PartialSelection::Lines(std::iter::once(1..2).collect()),
+        true,
+    )?
+    .execute()
+    .await?;
+    assert_eq!(staged_text(dir.path(), "new.txt"), "\u{feff}second\n");
+    let source = PartialSource::Buffer("\u{feff}first\nsecond\n".into());
+    repo.prepare_partial(
+        &path,
+        FileOperation::Stage,
+        &source,
+        PartialSelection::Lines(std::iter::once(0..1).collect()),
+        true,
+    )?
+    .execute()
+    .await?;
+    assert_eq!(
+        staged_text(dir.path(), "new.txt"),
+        "\u{feff}first\nsecond\n"
+    );
+    repo.prepare_partial(
+        &path,
+        FileOperation::Unstage,
+        &source,
+        PartialSelection::Lines(std::iter::once(1..2).collect()),
+        true,
+    )?
+    .execute()
+    .await?;
+    assert_eq!(staged_text(dir.path(), "new.txt"), "\u{feff}first\n");
+
+    assert_eq!(std::fs::read_to_string(&path)?, "\u{feff}first\nsecond\n");
+    std::fs::remove_file(&path)?;
+    repo.prepare_partial(
+        &path,
+        FileOperation::Stage,
+        &PartialSource::Worktree,
+        PartialSelection::Hunks(std::iter::once(0..1).collect()),
+        true,
+    )?
+    .execute()
+    .await?;
+    assert!(statuses(dir.path())
+        .iter()
+        .all(|status| status.path() != path));
+    Ok(())
+}
+
 #[tokio::test]
 async fn stage_and_unstage_leave_working_file_untouched() -> Result<()> {
     let repo = initial();

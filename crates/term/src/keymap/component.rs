@@ -67,10 +67,14 @@ pub enum PickerItemAction {
     Stage,
     Unstage,
     Stash,
-    Actions,
-    Stashes,
     ApplyStash,
     ApplyStashWithIndex,
+    #[serde(rename = "open_version")]
+    HistoryOpenVersion,
+    #[serde(rename = "compare_buffer")]
+    HistoryCompareBuffer,
+    #[serde(rename = "compare_parent")]
+    HistoryCompareParent,
     #[serde(rename = "back")]
     HistoryBack,
 }
@@ -114,6 +118,9 @@ pub enum DiffAction {
     ScrollLeft,
     ScrollRight,
     Restore,
+    Stage,
+    Unstage,
+    StageAndNext,
 }
 
 /// Terminal component maps, resolved from defaults and user configuration.
@@ -162,17 +169,26 @@ impl ComponentKeymaps {
         shared.merge(bindings(&[
             ("A-p", PickerAction::PreviewPrevious),
             ("A-n", PickerAction::PreviewNext),
-            ("A-a", PickerAction::Item(I::Actions)),
             ("A-s", PickerAction::Item(I::Stage)),
             ("A-u", PickerAction::Item(I::Unstage)),
             ("A-z", PickerAction::Item(I::Stash)),
-            ("A-l", PickerAction::Item(I::Stashes)),
         ]));
         shared
     }
     pub fn history_picker(mut shared: Keymap<PickerAction>) -> Keymap<PickerAction> {
         shared.merge(bindings(&[
-            ("A-a", PickerAction::Item(PickerItemAction::Actions)),
+            (
+                "A-v",
+                PickerAction::Item(PickerItemAction::HistoryOpenVersion),
+            ),
+            (
+                "A-e",
+                PickerAction::Item(PickerItemAction::HistoryCompareBuffer),
+            ),
+            (
+                "A-p",
+                PickerAction::Item(PickerItemAction::HistoryCompareParent),
+            ),
             ("A-h", PickerAction::Item(PickerItemAction::HistoryBack)),
         ]));
         shared
@@ -181,7 +197,6 @@ impl ComponentKeymaps {
     pub fn stash_picker(mut shared: Keymap<PickerAction>) -> Keymap<PickerAction> {
         use PickerItemAction as I;
         shared.merge(bindings(&[
-            ("A-a", PickerAction::Item(I::Actions)),
             ("A-s", PickerAction::Item(I::ApplyStash)),
             ("A-i", PickerAction::Item(I::ApplyStashWithIndex)),
         ]));
@@ -304,6 +319,9 @@ impl Default for ComponentKeymaps {
                 ("left", DiffAction::ScrollLeft),
                 ("right", DiffAction::ScrollRight),
                 ("r", DiffAction::Restore),
+                ("s", DiffAction::Stage),
+                ("u", DiffAction::Unstage),
+                ("S", DiffAction::StageAndNext),
             ]),
             blame: bindings(&[
                 ("y", BlameAction::CopyCommitId),

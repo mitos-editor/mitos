@@ -107,7 +107,7 @@ async fn stash_application_confirms_and_finishes_after_the_picker_closes() -> an
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn git_actions_are_available_without_a_selected_file() -> anyhow::Result<()> {
+async fn repository_stash_shortcut_is_available_without_a_selected_file() -> anyhow::Result<()> {
     let dir = repo()?;
     let mut app = application(false)?;
     let mut compositor = compositor::Compositor::new(view::graphics::Rect::new(0, 0, 80, 24));
@@ -131,7 +131,7 @@ async fn git_actions_are_available_without_a_selected_file() -> anyhow::Result<(
     );
     until(&mut picker, &mut app, |_| true).await?;
     compositor.push(Box::new(overlaid(picker)));
-    key(&mut app, &mut compositor, &mut jobs, "A-a");
+    key(&mut app, &mut compositor, &mut jobs, "A-z");
     assert!(compositor.find::<ActionMenu>().is_some());
     key(&mut app, &mut compositor, &mut jobs, "esc");
     assert!(compositor.find::<ActionMenu>().is_none());
@@ -302,13 +302,11 @@ async fn direct_git_shortcuts_clip_to_one_row_follow_remaps_and_preserve_paging(
                     "<A-s> stage"
                 }));
                 if width == 120 {
-                    for hint in ["<A-u> unstage", "<A-l> stashes", "<A-a> actions"] {
-                        assert!(screen.contains(hint), "Missing {hint:?}: {screen}");
-                    }
+                    assert!(screen.contains("<A-u> unstage"), "{screen}");
                     assert_eq!(screen.contains("<A-z> stash"), !remapped);
-                } else {
-                    assert!(!screen.contains("actions"), "{screen}");
                 }
+                assert!(!screen.contains("actions"), "{screen}");
+                assert!(!screen.contains("stashes"), "{screen}");
                 assert!(rows[..rows.len() - 1]
                     .iter()
                     .all(|row| !row.contains("stage")));
@@ -341,15 +339,15 @@ async fn direct_git_shortcuts_clip_to_one_row_follow_remaps_and_preserve_paging(
 }
 
 #[tokio::test]
-async fn action_choosers_keep_long_option_names_visible() -> anyhow::Result<()> {
+async fn stash_confirmation_keeps_long_option_names_visible() -> anyhow::Result<()> {
     let mut app = application(false)?;
     let mut jobs = crate::job::Jobs::new();
     let config = crate::config::Config::default();
     for width in [40, 80] {
         let mut menu = ActionMenu::new(
-            "Git actions".into(),
+            "Stash repository changes?".into(),
             vec![
-                Choice::new("Stage selected file on disk", Command::Cancel),
+                Choice::new("Cancel", Command::Cancel),
                 Choice::new("Stash all repository changes…", Command::Cancel),
             ],
             std::path::PathBuf::new(),
@@ -362,7 +360,7 @@ async fn action_choosers_keep_long_option_names_visible() -> anyhow::Result<()> 
             view::graphics::Rect::new(0, 0, width, 20),
         )
         .join("\n");
-        assert!(screen.contains("Stage selected file on disk"), "{screen}");
+        assert!(screen.contains("Cancel"), "{screen}");
         assert!(screen.contains("Stash all repository changes…"), "{screen}");
     }
     Ok(())

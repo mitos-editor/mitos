@@ -17,6 +17,8 @@ use view::{document::Mode, Editor};
 mod actions;
 #[cfg(feature = "git")]
 mod history;
+#[cfg(feature = "git")]
+pub(crate) mod partial;
 
 pub(super) fn git_history(cx: &mut Context) {
     #[cfg(feature = "git")]
@@ -668,6 +670,83 @@ pub(super) mod typed {
         event: PromptEvent,
     ) -> anyhow::Result<()> {
         run_command(cx, event, super::toggle_inline_blame)
+    }
+
+    fn partial_action(
+        cx: &mut compositor::Context,
+        event: PromptEvent,
+        stage: bool,
+        lines: bool,
+        disk: bool,
+        advance: bool,
+    ) -> anyhow::Result<()> {
+        if event != PromptEvent::Validate {
+            return Ok(());
+        }
+        #[cfg(feature = "git")]
+        {
+            let kind = if stage {
+                ::vcs::operations::FileOperation::Stage
+            } else {
+                ::vcs::operations::FileOperation::Unstage
+            };
+            super::partial::start(cx.editor, cx.jobs, kind, lines, disk, advance)
+        }
+        #[cfg(not(feature = "git"))]
+        {
+            let _ = (cx, stage, lines, disk, advance);
+            bail!("No Git support included in this build")
+        }
+    }
+
+    pub(in crate::commands) fn stage_hunk(
+        cx: &mut compositor::Context,
+        _args: Args,
+        event: PromptEvent,
+    ) -> anyhow::Result<()> {
+        partial_action(cx, event, true, false, false, false)
+    }
+    pub(in crate::commands) fn stage_lines(
+        cx: &mut compositor::Context,
+        _args: Args,
+        event: PromptEvent,
+    ) -> anyhow::Result<()> {
+        partial_action(cx, event, true, true, false, false)
+    }
+    pub(in crate::commands) fn stage_hunk_disk(
+        cx: &mut compositor::Context,
+        _args: Args,
+        event: PromptEvent,
+    ) -> anyhow::Result<()> {
+        partial_action(cx, event, true, false, true, false)
+    }
+    pub(in crate::commands) fn stage_lines_disk(
+        cx: &mut compositor::Context,
+        _args: Args,
+        event: PromptEvent,
+    ) -> anyhow::Result<()> {
+        partial_action(cx, event, true, true, true, false)
+    }
+    pub(in crate::commands) fn unstage_hunk(
+        cx: &mut compositor::Context,
+        _args: Args,
+        event: PromptEvent,
+    ) -> anyhow::Result<()> {
+        partial_action(cx, event, false, false, false, false)
+    }
+    pub(in crate::commands) fn unstage_lines(
+        cx: &mut compositor::Context,
+        _args: Args,
+        event: PromptEvent,
+    ) -> anyhow::Result<()> {
+        partial_action(cx, event, false, true, false, false)
+    }
+    pub(in crate::commands) fn stage_and_next(
+        cx: &mut compositor::Context,
+        _args: Args,
+        event: PromptEvent,
+    ) -> anyhow::Result<()> {
+        partial_action(cx, event, true, false, false, true)
     }
 
     pub(in crate::commands) fn blame(

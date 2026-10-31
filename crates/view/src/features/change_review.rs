@@ -411,12 +411,15 @@ pub struct HunkReviewSnapshot {
 }
 
 impl HunkReviewSnapshot {
+    pub fn is_current(&self, editor: &Editor) -> bool {
+        self.request.is_current(editor)
+            && self.stamp == repository_stamp(self.stamp.iter().map(|(path, _)| path.clone()))
+    }
     /// Restore only the hunk at the captured cursor, including when nearby hunks
     /// share the popup's context. Repository and buffer changes invalidate it.
     pub fn restore(&self, editor: &mut Editor) -> Result<()> {
         ensure!(
-            self.request.is_current(editor)
-                && self.stamp == repository_stamp(self.stamp.iter().map(|(path, _)| path.clone())),
+            self.is_current(editor),
             "Change inspection is stale; inspect the change again before restoring"
         );
         let hunk = self

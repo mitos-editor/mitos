@@ -102,10 +102,17 @@
 | `:show-change`, `:vcs-show-change` | Inspect the current change against HEAD, including deleted lines and unsaved edits. |
 | `:diff`, `:vcs-diff` | Review the current file. Choose head (all changes), staged (next commit), unstaged (saved changes), or buffer (unstaged and unsaved changes). |
 | `:git-history`, `:vcs-history` | Browse repository commits. Select a commit, then a file to review its changes. |
-| `:file-history`, `:git-file-history`, `:vcs-file-history` | Browse commits that changed the current file, following renames. Enter reviews the selected change; Alt-a offers more comparisons. |
+| `:file-history`, `:git-file-history`, `:vcs-file-history` | Browse commits that changed the current file, following renames. Enter reviews the selected change; Alt-v opens its version, Alt-e compares the buffer, and Alt-p chooses a parent. |
 | `:diff-refresh`, `:vcs-diff-refresh` | Reload the current diff. Reviews of past commits keep the versions originally chosen. |
 | `:diff-open-source`, `:vcs-diff-open-source` | Open the source at the selected diff line. |
 | `:diff-open-file`, `:vcs-diff-open-file` | Open the current file from a diff review. |
+| `:vcs-stage-hunk` | Stage hunks touched by the selections, including unsaved edits. Does not save the file. |
+| `:vcs-stage-lines` | Stage only selected lines, including unsaved edits. Does not save the file. |
+| `:vcs-stage-hunk-disk` | Stage hunks touched by the selections from the saved file. Save the buffer first. |
+| `:vcs-stage-lines-disk` | Stage only selected lines from the saved file. Save the buffer first. |
+| `:vcs-unstage-hunk` | Unstage hunks touched by the selections, keeping saved and unsaved edits. |
+| `:vcs-unstage-lines` | Unstage only selected lines, keeping saved and unsaved edits. |
+| `:vcs-stage-and-next` | Stage the selected hunks and move to the next unstaged hunk. |
 | `:restore-change`, `:vcs-restore-change` | Restore selected hunks from HEAD in the buffer. Use u to undo; saved files and staged changes stay unchanged. |
 | `:vcs-changes`, `:git-changes` | Browse changed files in the workspace. |
 | `:vcs-repository-changes`, `:git-repository-changes` | Browse changed files throughout the current repository. |

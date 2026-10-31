@@ -87,7 +87,6 @@
 | `` <C-s> `` | `` accept_horizontal_split `` |
 | `` <A-ret> `` | `` accept_keep_open `` |
 | `` <C-v> `` | `` accept_vertical_split `` |
-| `` <A-a> `` | `` actions `` |
 | `` <C-c> ``, `` <esc> `` | `` cancel `` |
 | `` <C-n> ``, `` <tab> ``, `` <down> `` | `` move_down `` |
 | `` <end> `` | `` move_end `` |
@@ -104,7 +103,6 @@
 | `` <C-ret> ``, `` <Meta-ret> `` | `` replace_all `` |
 | `` <A-s> `` | `` stage `` |
 | `` <A-z> `` | `` stash `` |
-| `` <A-l> `` | `` stashes `` |
 | `` <A-c> `` | `` toggle_case_sensitive `` |
 | `` <C-t> `` | `` toggle_preview `` |
 | `` <A-r> `` | `` toggle_replacement `` |
@@ -118,7 +116,6 @@
 | `` <C-s> `` | `` accept_horizontal_split `` |
 | `` <A-ret> `` | `` accept_keep_open `` |
 | `` <C-v> `` | `` accept_vertical_split `` |
-| `` <A-a> `` | `` actions `` |
 | `` <A-s> `` | `` apply_stash `` |
 | `` <A-i> `` | `` apply_stash_with_index `` |
 | `` <C-c> ``, `` <esc> `` | `` cancel `` |
@@ -147,14 +144,16 @@
 | `` <C-s> `` | `` accept_horizontal_split `` |
 | `` <A-ret> `` | `` accept_keep_open `` |
 | `` <C-v> `` | `` accept_vertical_split `` |
-| `` <A-a> `` | `` actions `` |
 | `` <A-h> `` | `` back `` |
 | `` <C-c> ``, `` <esc> `` | `` cancel `` |
+| `` <A-e> `` | `` compare_buffer `` |
+| `` <A-p> `` | `` compare_parent `` |
 | `` <C-n> ``, `` <tab> ``, `` <down> `` | `` move_down `` |
 | `` <end> `` | `` move_end `` |
 | `` <home> `` | `` move_start `` |
 | `` <up> ``, `` <C-p> ``, `` <S-tab> `` | `` move_up `` |
 | `` <A-o> `` | `` open_preview `` |
+| `` <A-v> `` | `` open_version `` |
 | `` <C-d> ``, `` <pagedown> `` | `` page_down `` |
 | `` <C-u> ``, `` <pageup> `` | `` page_up `` |
 | `` <C-q> `` | `` populate_quicklist `` |
@@ -240,3 +239,6 @@
 | `` r `` | `` restore `` |
 | `` <left> `` | `` scroll_left `` |
 | `` <right> `` | `` scroll_right `` |
+| `` s `` | `` stage `` |
+| `` S `` | `` stage_and_next `` |
+| `` u `` | `` unstage `` |
