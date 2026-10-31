@@ -11,6 +11,7 @@ use std::{
     thread,
 };
 
+use super::TerminalEvent;
 use futures_util::Stream;
 use tokio::sync::mpsc;
 
@@ -20,6 +21,7 @@ struct State {
     stopped: AtomicBool,
     reading: Mutex<()>,
     wake: Condvar,
+    #[cfg(not(windows))]
     interrupt: Mutex<Option<termina::event::PlatformWaker>>,
 }
 
@@ -37,6 +39,7 @@ impl Control {
     }
 
     fn interrupt(&self) {
+        #[cfg(not(windows))]
         if let Some(wake) = self.0.interrupt.lock().unwrap().as_ref() {
             let _ = wake.wake();
         }
@@ -58,17 +61,18 @@ impl Drop for Paused {
     }
 }
 
-type ReadEvent = Box<dyn FnMut() -> io::Result<Option<termina::Event>> + Send>;
+type ReadEvent = Box<dyn FnMut() -> io::Result<Option<TerminalEvent>> + Send>;
 
 pub(super) struct Events {
-    receiver: mpsc::Receiver<io::Result<termina::Event>>,
+    receiver: mpsc::Receiver<io::Result<TerminalEvent>>,
     control: Control,
     worker: Option<thread::JoinHandle<()>>,
     reader: Option<ReadEvent>,
-    sender: Option<mpsc::Sender<io::Result<termina::Event>>>,
+    sender: Option<mpsc::Sender<io::Result<TerminalEvent>>>,
 }
 
 impl Events {
+    #[cfg(not(windows))]
     pub fn new(reader: termina::EventReader, control: Control) -> Self {
         *control.0.interrupt.lock().unwrap() = Some(reader.waker());
         Self::with_reader(control, move || {
@@ -89,9 +93,23 @@ impl Events {
         })
     }
 
+    #[cfg(windows)]
+    pub fn new(control: Control) -> Self {
+        Self::with_reader(control, || {
+            // Crossterm's EventStream owns an unpausable background reader.
+            // Keep poll/read on our worker instead. A finite poll bounds pause
+            // and shutdown latency without injecting input into the console.
+            if crossterm::event::poll(std::time::Duration::from_millis(25))? {
+                crossterm::event::read().map(Some)
+            } else {
+                Ok(None)
+            }
+        })
+    }
+
     fn with_reader(
         control: Control,
-        read: impl FnMut() -> io::Result<Option<termina::Event>> + Send + 'static,
+        read: impl FnMut() -> io::Result<Option<TerminalEvent>> + Send + 'static,
     ) -> Self {
         let (sender, receiver) = mpsc::channel(128);
         Self {
@@ -137,7 +155,7 @@ impl Events {
 }
 
 impl Stream for Events {
-    type Item = io::Result<termina::Event>;
+    type Item = io::Result<TerminalEvent>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         self.start();
@@ -199,7 +217,16 @@ mod tests {
             if count == 129 {
                 full.send(()).unwrap();
             }
-            Ok(Some(termina::Event::FocusIn))
+            Ok(Some({
+                #[cfg(not(windows))]
+                {
+                    termina::Event::FocusIn
+                }
+                #[cfg(windows)]
+                {
+                    crossterm::event::Event::FocusGained
+                }
+            }))
         });
         events.start();
         ready.recv_timeout(Duration::from_secs(1)).unwrap();

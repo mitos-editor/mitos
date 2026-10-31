@@ -8,7 +8,7 @@ use view::Editor;
 
 mod configuration;
 mod events;
-#[cfg(all(not(windows), not(feature = "integration")))]
+#[cfg(not(feature = "integration"))]
 mod input;
 mod interactive;
 mod lsp;
@@ -66,7 +66,7 @@ pub struct Application {
 
     signals: Signals,
     jobs: Jobs,
-    #[cfg(all(not(windows), not(feature = "integration")))]
+    #[cfg(not(feature = "integration"))]
     terminal_input: input::Control,
     _presentation_hooks: event::HookRegistration,
 
@@ -228,7 +228,7 @@ impl Application {
     pub fn event_stream(
         &self,
     ) -> impl Stream<Item = std::io::Result<TerminalEvent>> + Unpin + use<> {
-        crossterm::event::EventStream::new()
+        input::Events::new(self.terminal_input.clone())
     }
 
     #[cfg(feature = "integration")]

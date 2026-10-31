@@ -227,7 +227,7 @@ impl Application {
             config_updates: tokio::sync::mpsc::unbounded_channel(),
             signals,
             jobs,
-            #[cfg(all(not(windows), not(feature = "integration")))]
+            #[cfg(not(feature = "integration"))]
             terminal_input: super::input::Control::default(),
             _presentation_hooks: presentation_hooks,
             theme_mode,
