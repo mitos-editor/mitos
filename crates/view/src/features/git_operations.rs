@@ -10,7 +10,8 @@ use std::{
     },
 };
 use vcs::operations::{
-    FileOperation, GitRepository, PartialSelection, PartialSource, PreparedOperation, StashEntry,
+    CommitSnapshot, FileOperation, GitRepository, PartialSelection, PartialSource,
+    PreparedOperation, StashEntry,
 };
 
 pub mod partial;
@@ -48,6 +49,7 @@ pub enum GitAction {
     File(vcs::FileStatus, FileOperation),
     Stash(PathBuf),
     Apply(GitRepository, StashEntry, bool),
+    Commit(CommitSnapshot, String),
 }
 
 pub struct GitRequest {
@@ -72,6 +74,7 @@ pub struct GitTask {
 pub struct GitCompletion {
     state: GitTaskState,
     result: Result<()>,
+    notice: Option<String>,
 }
 
 struct GitTaskState {
@@ -176,6 +179,7 @@ impl GitRequest {
                     GitRepository::discover(status.path())?.prepare_file(status, *kind, true)?
                 }
                 GitAction::Apply(repo, entry, index) => repo.prepare_apply(entry, *index, true)?,
+                GitAction::Commit(snapshot, message) => snapshot.prepare(message, true)?,
             };
             Ok(PreparedGitAction {
                 operation,
@@ -229,7 +233,7 @@ impl PreparedGitAction {
                 continue;
             }
             ensure!(
-                !changes_worktree || !doc.is_modified(),
+                !self.operation.requires_clean_buffers() || !doc.is_modified(),
                 "Save or close unsaved buffer '{}' before changing its file on disk",
                 doc.display_name()
             );
@@ -251,10 +255,14 @@ impl PreparedGitAction {
 impl GitTask {
     /// Frontends must retain this future until completion, including during shutdown.
     pub async fn execute(self) -> GitCompletion {
-        let result = self.operation.execute().await;
+        let (result, notice) = match self.operation.execute_with_notice().await {
+            Ok(notice) => (Ok(()), notice),
+            Err(error) => (Err(error), None),
+        };
         GitCompletion {
             state: self.state,
             result,
+            notice,
         }
     }
 }
@@ -322,13 +330,15 @@ impl GitCompletion {
         match self.result {
             Ok(()) if reload_error.is_some() => editor.set_error(|| reload_error.unwrap()),
             Ok(()) => editor.set_status(format!(
-                "{} complete{}",
+                "{} complete{}{}",
                 self.state.label,
                 if preserved {
-                    "; newer buffer edits were preserved"
+                    "; buffer edits were preserved"
                 } else {
                     ""
-                }
+                },
+                self.notice
+                    .map_or_else(String::new, |notice| format!("; {notice}"))
             )),
             Err(error) => editor.set_error(|| format!("{error}")),
         }

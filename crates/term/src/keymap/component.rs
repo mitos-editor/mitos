@@ -126,6 +126,7 @@ pub enum DiffAction {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ProjectReviewAction {
+    Commit,
     Stage,
     Unstage,
     ToggleFold,
@@ -337,6 +338,7 @@ impl Default for ComponentKeymaps {
                 ("S", DiffAction::StageAndNext),
             ]),
             project_review: bindings(&[
+                ("c", ProjectReviewAction::Commit),
                 ("s", ProjectReviewAction::Stage),
                 ("u", ProjectReviewAction::Unstage),
                 ("tab", ProjectReviewAction::ToggleFold),
