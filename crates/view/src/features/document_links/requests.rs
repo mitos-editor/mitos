@@ -1,18 +1,15 @@
 //! Shared coordination for LSP document links results.
 
-use std::collections::HashSet;
-
-use event::{cancelable_future, register_hook};
-use futures_util::{stream::FuturesUnordered, StreamExt};
+use event::register_hook;
 use language_config::LanguageServerFeature;
 
 use crate::{
     callbacks::EditorCallbackSender,
-    events::{
-        DocumentDidChange, DocumentDidOpen, DocumentFocusLost, DocumentLanguageDidChange,
-        LanguageServerExited, LanguageServerInitialized, SelectionDidChange,
+    events::{DocumentFocusLost, SelectionDidChange},
+    features::{
+        debounce::debounce_documents,
+        request::{collect_document_results, document_providers, register_document_refresh_hooks},
     },
-    features::{debounce::debounce_documents, request::DocumentRequest},
     DocumentId, Editor,
 };
 
@@ -47,19 +44,14 @@ fn request_document_links(
 
     let cancel = doc.document_links.request.restart();
 
-    // Exit hooks run before the server is removed from the registry.
-    let mut seen_language_servers = HashSet::new();
-    let mut futures: FuturesUnordered<_> = doc
-        .language_servers_with_feature(LanguageServerFeature::DocumentLinks)
-        .filter(|ls| Some(ls.id()) != exited_server)
-        .filter(|ls| seen_language_servers.insert(ls.id()))
+    let requests = document_providers(doc, LanguageServerFeature::DocumentLinks, exited_server)
         .filter_map(|language_server| {
             let text = doc.text().clone();
             let offset_encoding = language_server.offset_encoding();
             let language_server_id = language_server.id();
             let future = language_server.text_document_document_link(doc.identifier(), None)?;
 
-            Some(async move {
+            Some((language_server_id, async move {
                 let links = future.await?.unwrap_or_default();
                 let links: Vec<_> = links
                     .into_iter()
@@ -86,35 +78,16 @@ fn request_document_links(
                     })
                     .collect();
                 anyhow::Ok(links)
-            })
-        })
-        .collect();
-
-    if futures.is_empty() {
-        return;
-    }
-
-    let request = DocumentRequest::new(doc, cancel, seen_language_servers.into_iter().collect());
-
-    tokio::spawn(async move {
-        let mut all_links = Vec::new();
-        loop {
-            match cancelable_future(futures.next(), &request.cancel).await {
-                Some(Some(Ok(items))) => all_links.extend(items),
-                Some(Some(Err(err))) => log::error!("document link request failed: {err}"),
-                Some(None) => break,
-                None => return,
-            }
-        }
-
-        callbacks
-            .send(move |editor| {
-                if request.is_current(editor) {
-                    attach_document_links(editor, doc_id, all_links);
-                }
-            })
-            .await;
-    });
+            }))
+        });
+    collect_document_results(
+        doc,
+        cancel,
+        callbacks,
+        requests,
+        "document link",
+        attach_document_links,
+    );
 }
 
 fn attach_document_links(editor: &mut Editor, doc_id: DocumentId, mut links: Vec<DocumentLink>) {
@@ -132,10 +105,16 @@ fn attach_document_links(editor: &mut Editor, doc_id: DocumentId, mut links: Vec
 }
 
 pub(crate) fn register_hooks() {
-    register_hook!(move |event: &mut DocumentLanguageDidChange<'_>| {
-        request_document_links(event.editor, event.doc, None);
-        Ok(())
-    });
+    register_document_refresh_hooks(
+        request_document_links,
+        |doc| {
+            doc.document_links.request.cancel();
+            if let Some(handler) = &doc.document_links.handler {
+                event::send_blocking(&handler.events, doc.id());
+            }
+        },
+        |doc| doc.document_links.clear_cache(),
+    );
     register_hook!(move |event: &mut SelectionDidChange<'_>| {
         event.doc.document_links.cancel_navigation_for(event.view);
         Ok(())
@@ -144,45 +123,6 @@ pub(crate) fn register_hooks() {
         if let Some(doc) = event.editor.document_mut(event.doc) {
             doc.document_links.cancel_navigation_for(event.view);
         }
-        Ok(())
-    });
-    register_hook!(move |event: &mut DocumentDidOpen<'_>| {
-        request_document_links(event.editor, event.doc, None);
-        Ok(())
-    });
-
-    register_hook!(move |event: &mut DocumentDidChange<'_>| {
-        event.doc.document_links.request.cancel();
-        if let Some(handler) = &event.doc.document_links.handler {
-            event::send_blocking(&handler.events, event.doc.id());
-        }
-
-        Ok(())
-    });
-
-    register_hook!(move |event: &mut LanguageServerInitialized<'_>| {
-        let doc_ids: Vec<_> = event.editor.documents().map(|doc| doc.id()).collect();
-
-        for doc_id in doc_ids {
-            request_document_links(event.editor, doc_id, None);
-        }
-
-        Ok(())
-    });
-
-    register_hook!(move |event: &mut LanguageServerExited<'_>| {
-        for doc in event.editor.documents_mut() {
-            if doc.supports_language_server(event.server_id) {
-                doc.document_links.clear_cache();
-            }
-        }
-
-        let doc_ids: Vec<_> = event.editor.documents().map(|doc| doc.id()).collect();
-
-        for doc_id in doc_ids {
-            request_document_links(event.editor, doc_id, Some(event.server_id));
-        }
-
         Ok(())
     });
 }

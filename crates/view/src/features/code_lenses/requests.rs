@@ -16,7 +16,10 @@ use crate::{
         ConfigDidChange, DocumentDidChange, DocumentDidClose, DocumentDidOpen,
         LanguageServerExited, LanguageServerInitialized,
     },
-    features::{debounce::debounce_documents, request::DocumentRequest},
+    features::{
+        debounce::debounce_documents,
+        request::{collect_document_results, document_providers, DocumentRequest},
+    },
     DocumentId, Editor,
 };
 
@@ -59,18 +62,13 @@ fn request_document_code_lenses(
     doc.code_lenses.cancel_requests();
     doc.code_lenses.version = None;
     let cancel = doc.code_lenses.request.restart();
-    let mut servers = HashSet::new();
-    let mut futures: FuturesUnordered<_> = doc
-        .language_servers_with_feature(LanguageServerFeature::CodeLens)
-        // Exit hooks run before removal from the registry.
-        .filter(|server| Some(server.id()) != exited_server)
-        .filter(|server| servers.insert(server.id()))
+    let requests = document_providers(doc, LanguageServerFeature::CodeLens, exited_server)
         .filter_map(|server| {
             let text = doc.text().clone();
             let encoding = server.offset_encoding();
             let language_server_id = server.id();
             let future = server.code_lens(doc.identifier())?;
-            Some(async move {
+            Some((language_server_id, async move {
                 let lenses = future.await?.unwrap_or_default();
                 let lenses: Vec<_> = lenses
                     .into_iter()
@@ -92,40 +90,27 @@ fn request_document_code_lenses(
                     })
                     .collect();
                 anyhow::Ok(lenses)
-            })
-        })
-        .collect();
-    if futures.is_empty() {
-        doc.code_lenses.cache.clear();
-        return;
-    }
-    let request = DocumentRequest::new(doc, cancel, servers.into_iter().collect());
-    tokio::spawn(async move {
-        let mut lenses = Vec::new();
-        loop {
-            match cancelable_future(futures.next(), &request.cancel).await {
-                Some(Some(Ok(items))) => lenses.extend(items),
-                Some(Some(Err(err))) => log::error!("code lens request failed: {err}"),
-                Some(None) => break,
-                None => return,
+            }))
+        });
+    if !collect_document_results(
+        doc,
+        cancel,
+        callbacks,
+        requests,
+        "code lens",
+        |editor, doc_id, mut lenses| {
+            if editor.config().lsp.enable && editor.config().lsp.code_lenses.enable {
+                lenses.sort_by_key(|lens| (lens.char_idx, lens.language_server_id));
+                let doc = editor.document_mut(doc_id).unwrap();
+                doc.code_lenses.version = Some(doc.version());
+                doc.code_lenses.uri = doc.uri();
+                doc.code_lenses.cache = lenses;
+                editor.redraw().request();
             }
-        }
-        lenses.sort_by_key(|lens| (lens.char_idx, lens.language_server_id));
-        callbacks
-            .send(move |editor| {
-                if request.is_current(editor)
-                    && editor.config().lsp.enable
-                    && editor.config().lsp.code_lenses.enable
-                {
-                    let doc = editor.document_mut(doc_id).unwrap();
-                    doc.code_lenses.version = Some(doc.version());
-                    doc.code_lenses.uri = doc.uri();
-                    doc.code_lenses.cache = lenses;
-                    editor.redraw().request();
-                }
-            })
-            .await;
-    });
+        },
+    ) {
+        doc.code_lenses.cache.clear();
+    }
 }
 
 /// Handle workspace/codeLens/refresh for documents attached to its sender.
@@ -245,32 +230,24 @@ pub fn prepare_visible_code_lenses(editor: &mut Editor) {
         let request = DocumentRequest::new(doc, cancel, vec![server.id()]);
         let slots = handler.resolution_slots.clone();
         let callbacks = handler.callbacks.clone();
-        tokio::spawn(async move {
-            let Some(result) =
-                cancelable_future(resolve_lens(server, lens, slots), &request.cancel).await
-            else {
-                return;
-            };
-            let lens = match result {
-                Ok(Some(lens)) => lens,
-                Ok(None) => return,
-                Err(err) => {
-                    log::error!("code lens title resolution failed: {err}");
-                    return;
-                }
-            };
-            callbacks
-                .send(move |editor| {
-                    if request.is_current(editor)
-                        && editor.config().lsp.enable
-                        && editor.config().lsp.code_lenses.enable
-                    {
-                        editor.document_mut(doc_id).unwrap().code_lenses.cache[index].lens = lens;
-                        editor.redraw().request();
+        request.publish(
+            callbacks,
+            async move {
+                match resolve_lens(server, lens, slots).await {
+                    Ok(lens) => lens,
+                    Err(err) => {
+                        log::error!("code lens title resolution failed: {err}");
+                        None
                     }
-                })
-                .await;
-        });
+                }
+            },
+            move |editor, lens| {
+                if editor.config().lsp.enable && editor.config().lsp.code_lenses.enable {
+                    editor.document_mut(doc_id).unwrap().code_lenses.cache[index].lens = lens;
+                    editor.redraw().request();
+                }
+            },
+        );
     }
 }
 

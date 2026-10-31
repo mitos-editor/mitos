@@ -603,6 +603,12 @@ request controllers follow the document lifetime; rendering and interactive
 commands remain in the frontend.
 
 `features::request` defines document, view-bound, and selection-bound snapshots.
+Document-wide colors, links, and code-lens requests share provider deduplication,
+cancellable batch collection, and validated queued publication there. Colors and
+links also share their open/edit/language/server lifecycle registration; feature
+conversion, selection, configuration, and lazy-resolution policy stays with each
+coordinator. Color setting changes cancel pending requests, clear cached swatches,
+and fetch newly enabled swatches for open documents without requiring another edit.
 View and selection snapshots return validated references for feature policy checks;
 they also provide the target IDs and cancellation handle used by publication.
 Focus, mode, provider choice, handler ownership, and viewport coverage stay in the

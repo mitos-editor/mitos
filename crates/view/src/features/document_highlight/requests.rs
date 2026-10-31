@@ -1,6 +1,6 @@
 //! Shared coordination for LSP document highlights results.
 
-use event::{cancelable_future, register_hook};
+use event::register_hook;
 use language_config::LanguageServerFeature;
 use lsp_client::{lsp, util::lsp_range_to_range, OffsetEncoding};
 
@@ -73,39 +73,36 @@ fn request_document_highlights(editor: &mut Editor, doc_id: DocumentId, view_id:
     let selection = doc.selection(view_id).clone();
     let request = DocumentRequest::new(doc, cancel, vec![server_id]);
 
-    tokio::spawn(async move {
-        let response = match cancelable_future(future, &request.cancel).await {
-            Some(Ok(response)) => response,
-            Some(Err(err)) => {
-                log::error!("document highlight request failed: {err}");
-                return;
+    request.publish(
+        callbacks,
+        async move {
+            match future.await {
+                Ok(response) => Some(
+                    response
+                        .map(|highlights| {
+                            document_highlight_ranges(&text, offset_encoding, highlights)
+                        })
+                        .unwrap_or_default(),
+                ),
+                Err(err) => {
+                    log::error!("document highlight request failed: {err}");
+                    None
+                }
             }
-            None => return,
-        };
-
-        let ranges = response
-            .map(|highlights| document_highlight_ranges(&text, offset_encoding, highlights))
-            .unwrap_or_default();
-
-        callbacks
-            .send(move |editor| {
-                if !request.is_current(editor) {
-                    return;
-                }
-                if !editor
-                    .tree
-                    .try_get(view_id)
-                    .is_some_and(|view| view.doc == doc_id)
-                    || editor
-                        .document(doc_id)
-                        .is_none_or(|doc| doc.selection(view_id) != &selection)
-                {
-                    return;
-                }
+        },
+        move |editor, ranges| {
+            if editor
+                .tree
+                .try_get(view_id)
+                .is_some_and(|view| view.doc == doc_id)
+                && editor
+                    .document(doc_id)
+                    .is_some_and(|doc| doc.selection(view_id) == &selection)
+            {
                 apply_document_highlights(editor, doc_id, view_id, ranges);
-            })
-            .await;
-    });
+            }
+        },
+    );
 }
 
 fn document_highlight_ranges(

@@ -1,6 +1,6 @@
 //! Shared coordination for LSP document symbols results.
 
-use event::{cancelable_future, register_hook};
+use event::register_hook;
 use language_config::LanguageServerFeature;
 use lsp_client::lsp::DocumentSymbolResponse;
 
@@ -55,29 +55,21 @@ fn request_document_symbols(editor: &mut Editor, doc_id: DocumentId) {
 
     let request = DocumentRequest::new(doc, cancel, vec![server_id]);
 
-    tokio::spawn(async move {
-        let Some(Ok(Some(response))) = cancelable_future(future, &request.cancel).await else {
-            return;
-        };
-
-        callbacks
-            .send(move |editor| {
-                if !request.is_current(editor) {
-                    return;
-                }
-                if let Some(doc) = editor.document_mut(doc_id) {
-                    match response {
-                        DocumentSymbolResponse::Nested(symbols) => {
-                            doc.set_document_symbols(symbols, offset_encoding);
-                        }
-                        // TODO: Using the `Location`, it should be possible to map cursor
-                        // to a hierarchical tree?
-                        DocumentSymbolResponse::Flat(_) => doc.clear_document_symbols(),
+    request.publish(
+        callbacks,
+        async move { future.await.ok().flatten() },
+        move |editor, response| {
+            if let Some(doc) = editor.documents.get_mut(&doc_id) {
+                match response {
+                    DocumentSymbolResponse::Nested(symbols) => {
+                        doc.set_document_symbols(symbols, offset_encoding);
                     }
+                    // Breadcrumbs require a hierarchical tree.
+                    DocumentSymbolResponse::Flat(_) => doc.clear_document_symbols(),
                 }
-            })
-            .await;
-    });
+            }
+        },
+    );
 }
 
 pub(crate) fn register_hooks() {
