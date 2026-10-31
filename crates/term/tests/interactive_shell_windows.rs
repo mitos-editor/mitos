@@ -27,7 +27,7 @@ use windows_sys::Win32::{
         Console::{
             ClosePseudoConsole, CreatePseudoConsole, GetConsoleMode, ResizePseudoConsole,
             SetConsoleMode, COORD, ENABLE_ECHO_INPUT, ENABLE_LINE_INPUT, ENABLE_PROCESSED_INPUT,
-            HPCON,
+            ENABLE_VIRTUAL_TERMINAL_PROCESSING, HPCON,
         },
         Pipes::CreatePipe,
         Threading::{
@@ -35,7 +35,8 @@ use windows_sys::Win32::{
             InitializeProcThreadAttributeList, OpenProcess, TerminateProcess,
             UpdateProcThreadAttribute, WaitForSingleObject, CREATE_UNICODE_ENVIRONMENT,
             EXTENDED_STARTUPINFO_PRESENT, PROCESS_INFORMATION, PROCESS_QUERY_LIMITED_INFORMATION,
-            PROCESS_SYNCHRONIZE, PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE, STARTUPINFOEXW,
+            PROCESS_SYNCHRONIZE, PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE, STARTF_USESTDHANDLES,
+            STARTUPINFOEXW,
         },
     },
 };
@@ -170,6 +171,10 @@ shell = {}
         let mut attributes = Attributes::new(console.0)?;
         let mut startup = STARTUPINFOEXW::default();
         startup.StartupInfo.cb = size_of::<STARTUPINFOEXW>() as u32;
+        // Explicit null stdio prevents Windows from duplicating a redirected
+        // CI parent's handles instead of connecting to the pseudoconsole.
+        // https://github.com/microsoft/terminal/discussions/15814
+        startup.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
         startup.lpAttributeList = attributes.0.as_mut_ptr().cast();
         let mut process = PROCESS_INFORMATION::default();
         let executable = wide(env!("CARGO_BIN_EXE_ms"));
@@ -247,6 +252,12 @@ shell = {}
     fn drain(&mut self) -> anyhow::Result<()> {
         while let Ok(bytes) = self.receiver.try_recv() {
             let output = String::from_utf8_lossy(&bytes);
+            if output.contains("\x1b[5n") {
+                self.send("\x1b[0n")?;
+            }
+            if output.contains("\x1b[16t") {
+                self.send("\x1b[6;16;8t")?;
+            }
             if output.contains("\x1b[6n") {
                 self.send("\x1b[1;1R")?;
             }
@@ -276,7 +287,14 @@ shell = {}
             ensure!(
                 Instant::now() < deadline && exit == 259,
                 "waiting for {description}; exit: {exit}; output: {:?}; log: {}",
-                self.output.chars().rev().take(2000).collect::<String>(),
+                self.output
+                    .chars()
+                    .rev()
+                    .take(2000)
+                    .collect::<String>()
+                    .chars()
+                    .rev()
+                    .collect::<String>(),
                 std::fs::read_to_string(self.dir.path().join("mitos.log")).unwrap_or_default()
             );
             thread::sleep(Duration::from_millis(5));
@@ -399,8 +417,17 @@ fn fixture_process() -> anyhow::Result<()> {
     let mut line = String::new();
     std::io::stdin().read_line(&mut line)?;
     if mode == "modes" {
-        // Deliberately leave input raw. The next handoff must still start cooked.
+        // Leave input raw and disable ANSI output. The guard must restore
+        // both console modes before Mitos draws or accepts another command.
         check(unsafe { SetConsoleMode(input.as_raw_handle(), mode_flags & !cooked) })?;
+        let mut output_mode = 0;
+        check(unsafe { GetConsoleMode(console.as_raw_handle(), &mut output_mode) })?;
+        check(unsafe {
+            SetConsoleMode(
+                console.as_raw_handle(),
+                output_mode & !ENABLE_VIRTUAL_TERMINAL_PROCESSING,
+            )
+        })?;
     }
     println!("\n{}", line.trim());
     std::process::exit(0);

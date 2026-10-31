@@ -76,7 +76,7 @@ impl Drop for Console {
     fn drop(&mut self) {
         // Children can leave raw input or output modes behind, even on failure.
         // Restore the modes from after Mitos released its terminal, before the
-        // backend claims it again and saves its next raw-mode restore point.
+        // backend enables the editor's terminal modes again.
         for (handle, mode) in [
             (self.input.as_raw_handle(), self.input_mode),
             (self.output.as_raw_handle(), self.output_mode),
