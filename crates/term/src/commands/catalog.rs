@@ -1634,7 +1634,7 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
     TypableCommand {
         name: "file-history",
         aliases: &["git-file-history", "vcs-file-history"],
-        doc: "Browse commits that changed the current file, following renames. Enter reviews the selected change; Alt-a offers more comparisons.",
+        doc: "Browse commits that changed the current file, following renames. Enter reviews the selected change; Alt-v opens its version, Alt-e compares the buffer, and Alt-p chooses a parent.",
         fun: super::vcs::typed::file_history,
         completer: CommandCompleter::none(),
         signature: Signature {positionals: (0,Some(0)), ..Signature::DEFAULT},

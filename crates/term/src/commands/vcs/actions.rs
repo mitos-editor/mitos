@@ -28,7 +28,6 @@ enum Command {
     Cancel,
     Run(GitAction),
     Confirmed(GitAction),
-    Stashes(PathBuf),
 }
 
 #[derive(Clone)]
@@ -115,10 +114,6 @@ fn dispatch(
 ) {
     match command {
         Command::Cancel => {}
-        Command::Stashes(path) => match stash_browser(cx.editor, path, workspace) {
-            Ok(picker) => compositor.push(picker),
-            Err(error) => cx.editor.set_error(|| error.to_string()),
-        },
         Command::Run(action @ (GitAction::File(..) | GitAction::Partial { .. }))
         | Command::Confirmed(action) => start(cx, workspace, action),
         Command::Run(action) => {
@@ -212,32 +207,6 @@ pub(super) fn file_action<T, D>(
             ))
         }
         PickerItemAction::Stash => Command::Run(GitAction::Stash(path)),
-        PickerItemAction::Stashes => Command::Stashes(path),
-        PickerItemAction::Actions => {
-            let mut choices = Vec::new();
-            if let Some(status) = status {
-                if status.unstaged.is_some() {
-                    choices.push(Choice::new(
-                        "Stage selected file on disk",
-                        Command::Run(GitAction::File(status.clone(), FileOperation::Stage)),
-                    ));
-                }
-                if status.staged.is_some() {
-                    choices.push(Choice::new(
-                        "Unstage selected file",
-                        Command::Run(GitAction::File(status.clone(), FileOperation::Unstage)),
-                    ));
-                }
-            }
-            choices.push(Choice::new(
-                "Stash all repository changes…",
-                Command::Run(GitAction::Stash(path.clone())),
-            ));
-            choices.push(Choice::new("Browse stashes…", Command::Stashes(path)));
-            return PickerCallbackResult::KeepOpenWithCallback(Box::new(move |compositor, _| {
-                compositor.push(menu("Git actions".into(), choices, workspace));
-            }));
-        }
         _ => return PickerCallbackResult::KeepOpen,
     };
     // Stage/unstage start immediately, leaving the query and selected row intact.
@@ -248,16 +217,6 @@ pub(super) fn file_action<T, D>(
     PickerCallbackResult::KeepOpenWithCallback(Box::new(move |compositor, cx| {
         dispatch(compositor, cx, workspace, command)
     }))
-}
-
-pub(super) fn help(
-    keys: &ui_core::keymap::Keymap<crate::keymap::component::PickerAction>,
-) -> Vec<String> {
-    use crate::keymap::component::PickerAction;
-    action_hints(
-        keys,
-        &[(PickerAction::Item(PickerItemAction::Actions), "actions")],
-    )
 }
 
 pub(super) fn file_help(
@@ -271,8 +230,6 @@ pub(super) fn file_help(
             (P::Item(PickerItemAction::Stage), "stage"),
             (P::Item(PickerItemAction::Unstage), "unstage"),
             (P::Item(PickerItemAction::Stash), "stash"),
-            (P::Item(PickerItemAction::Stashes), "stashes"),
-            (P::Item(PickerItemAction::Actions), "actions"),
         ],
     )
 }
@@ -290,12 +247,11 @@ fn stash_help(
                 P::Item(PickerItemAction::ApplyStashWithIndex),
                 "apply with staged changes",
             ),
-            (P::Item(PickerItemAction::Actions), "actions"),
         ],
     )
 }
 
-fn action_hints(
+pub(super) fn action_hints(
     keys: &ui_core::keymap::Keymap<crate::keymap::component::PickerAction>,
     actions: &[(crate::keymap::component::PickerAction, &str)],
 ) -> Vec<String> {
@@ -394,17 +350,6 @@ fn stash_picker(
             let command = match action {
                 PickerItemAction::ApplyStash => apply(false),
                 PickerItemAction::ApplyStashWithIndex => apply(true),
-                PickerItemAction::Actions => {
-                    let choices = vec![
-                        Choice::new("Apply and keep stash…", apply(false)),
-                        Choice::new("Apply, restore staged changes and keep stash…", apply(true)),
-                    ];
-                    return PickerCallbackResult::KeepOpenWithCallback(Box::new(
-                        move |compositor, _| {
-                            compositor.push(menu("Stash actions".into(), choices, workspace))
-                        },
-                    ));
-                }
                 _ => return PickerCallbackResult::KeepOpen,
             };
             PickerCallbackResult::KeepOpenWithCallback(Box::new(move |compositor, cx| {

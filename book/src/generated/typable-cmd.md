@@ -102,7 +102,7 @@
 | `:show-change`, `:vcs-show-change` | Inspect the current change against HEAD, including deleted lines and unsaved edits. |
 | `:diff`, `:vcs-diff` | Review the current file. Choose head (all changes), staged (next commit), unstaged (saved changes), or buffer (unstaged and unsaved changes). |
 | `:git-history`, `:vcs-history` | Browse repository commits. Select a commit, then a file to review its changes. |
-| `:file-history`, `:git-file-history`, `:vcs-file-history` | Browse commits that changed the current file, following renames. Enter reviews the selected change; Alt-a offers more comparisons. |
+| `:file-history`, `:git-file-history`, `:vcs-file-history` | Browse commits that changed the current file, following renames. Enter reviews the selected change; Alt-v opens its version, Alt-e compares the buffer, and Alt-p chooses a parent. |
 | `:diff-refresh`, `:vcs-diff-refresh` | Reload the current diff. Reviews of past commits keep the versions originally chosen. |
 | `:diff-open-source`, `:vcs-diff-open-source` | Open the source at the selected diff line. |
 | `:diff-open-file`, `:vcs-diff-open-file` | Open the current file from a diff review. |
