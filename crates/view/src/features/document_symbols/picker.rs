@@ -3,6 +3,7 @@
 use anyhow::{ensure, Context as _, Result};
 use futures_util::{future::BoxFuture, stream::FuturesUnordered, FutureExt, StreamExt};
 use language_config::LanguageServerFeature;
+use lsp_client::UriExt as _;
 use lsp_client::{lsp, OffsetEncoding};
 
 use crate::{
@@ -90,7 +91,7 @@ fn normalize(
         Some(lsp::DocumentSymbolResponse::Flat(symbols)) => symbols
             .into_iter()
             .filter_map(|symbol| {
-                let uri = editor_core::Uri::try_from(&symbol.location.uri).ok()?;
+                let uri = symbol.location.uri.to_editor_uri().ok()?;
                 Some(DocumentSymbol {
                     location: Location {
                         uri,
@@ -120,7 +121,10 @@ fn normalize(
                         tags: symbol.tags,
                         deprecated: symbol.deprecated,
                         location: lsp::Location::new(
-                            uri.to_url().expect("document URI is an LSP URL"),
+                            lsp::Uri::from_file_path(
+                                uri.as_path().expect("document URI is a file"),
+                            )
+                            .expect("document URI is an LSP URI"),
                             symbol.selection_range,
                         ),
                         container_name: None,

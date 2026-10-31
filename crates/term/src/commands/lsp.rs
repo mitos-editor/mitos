@@ -8,6 +8,7 @@ use crate::{
 use editor_core::Selection;
 use futures_util::FutureExt;
 use language_config::LanguageServerFeature;
+use lsp_client::SymbolKindExt as _;
 use lsp_client::{lsp, util::lsp_range_to_range, OffsetEncoding};
 use std::path::Path;
 use stdx::path;
@@ -361,7 +362,7 @@ fn nested_symbol_to_flat(
 #[cfg(test)]
 mod symbol_picker_tests {
     use super::*;
-    use editor_core::Uri;
+    use lsp_client::UriExt as _;
     use theme::DEFAULT_THEME;
 
     fn symbol_information_item() -> SymbolInformationItem {
@@ -377,7 +378,7 @@ mod symbol_picker_tests {
         };
         SymbolInformationItem {
             location: Location {
-                uri: Uri::try_from(&uri).unwrap(),
+                uri: uri.to_editor_uri().unwrap(),
                 range: lsp::Range::default(),
                 offset_encoding: OffsetEncoding::Utf16,
             },

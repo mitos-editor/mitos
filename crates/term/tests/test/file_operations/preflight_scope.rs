@@ -1,3 +1,4 @@
+use lsp_client::UriExt as _;
 use lsp_client::Url;
 use serde_json::json;
 use view::editor::Action;

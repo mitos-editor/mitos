@@ -47,11 +47,11 @@ fn source_state(editor: &Editor, document: DocumentId, workspace: bool) -> Optio
 
 pub(super) fn symbol_key(
     item: &SymbolInformationItem,
-) -> (Option<PathBuf>, String, lsp::SymbolKind, Option<String>) {
+) -> (Option<PathBuf>, String, String, Option<String>) {
     (
         item.location.uri.as_path().map(Path::to_owned),
         item.symbol.name.clone(),
-        item.symbol.kind,
+        format!("{:?}", item.symbol.kind),
         item.symbol.container_name.clone(),
     )
 }

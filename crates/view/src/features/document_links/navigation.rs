@@ -5,7 +5,7 @@ use std::{collections::HashSet, path::PathBuf};
 use editor_core::Range;
 use event::cancelable_future;
 use futures_util::{future::BoxFuture, FutureExt};
-use lsp_client::{lsp, LanguageServerId};
+use lsp_client::{lsp, LanguageServerId, UriExt as _};
 use stdx::{path::find_paths, rope::RopeSliceExt, Url};
 
 use crate::{callbacks::EditorCallbackSender, features::request::SelectionRequest, Editor};
@@ -103,7 +103,9 @@ pub fn prepare_navigation(editor: &mut Editor) -> FileNavigation {
             matched = true;
             servers.insert(link.language_server_id);
             if let Some(url) = &link.link.target {
-                targets.push(NavigationTarget::Url(url.clone()));
+                if let Ok(url) = url.to_editor_url() {
+                    targets.push(NavigationTarget::Url(url));
+                }
             } else if seen_links.insert((link.start, link.end, link.language_server_id)) {
                 let Some(server) = doc
                     .language_servers()
@@ -138,7 +140,11 @@ pub fn prepare_navigation(editor: &mut Editor) -> FileNavigation {
             match response {
                 Ok(lsp::DocumentLink {
                     target: Some(url), ..
-                }) => targets.push(NavigationTarget::Url(url)),
+                }) => {
+                    if let Ok(url) = url.to_editor_url() {
+                        targets.push(NavigationTarget::Url(url));
+                    }
+                }
                 Ok(_) => {}
                 Err(error) => log::warn!("Failed to resolve document link: {error}"),
             }

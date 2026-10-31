@@ -1,5 +1,6 @@
 use super::Fixture;
 use editor_core::Transaction;
+use lsp_client::UriExt as _;
 use lsp_client::{lsp, OffsetEncoding, Url};
 use view::{current, current_ref, editing::EditError, workspace_edit::ApplyEditErrorKind};
 
