@@ -152,6 +152,10 @@ impl ReviewSource {
     }
 
     /// The immutable after-side used to validate navigation into a live document.
+    pub fn byte_len(&self) -> usize {
+        self.before.len() + self.after.len()
+    }
+
     pub fn after(&self) -> &Rope {
         &self.after
     }

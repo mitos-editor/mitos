@@ -84,6 +84,13 @@ impl ReviewDocument {
     #[cfg(feature = "git")]
     pub(crate) fn source_is_current(&self, editor: &Editor) -> bool {
         self.request.is_current(editor)
+            && self.action_guard().is_some_and(|guard| guard.is_current())
+    }
+    #[cfg(feature = "git")]
+    pub(crate) fn action_guard(&self) -> Option<super::ReviewGuard> {
+        Some(super::ReviewGuard {
+            stamp: self.observed.as_ref()?.stamp.clone(),
+        })
     }
     #[cfg(feature = "git")]
     pub(crate) fn source_document(&self) -> Option<DocumentId> {
@@ -161,7 +168,7 @@ impl Document {
     /// Derived content can be selected and searched but cannot be edited or saved.
     /// This is independent of filesystem write permissions and cannot be forced.
     pub fn is_content_readonly(&self) -> bool {
-        self.review.is_some() || self.historical.is_some()
+        self.review.is_some() || self.historical.is_some() || self.project_review.is_some()
     }
     pub fn review(&self) -> Option<&ReviewDocument> {
         self.review.as_deref()
@@ -532,23 +539,29 @@ impl Editor {
     /// Use the existing change motions for review hunks, with independent cursors
     /// in every split. `edge` selects the first/last hunk instead of a neighbour.
     pub fn navigate_review_hunk(&mut self, direction: Direction, count: usize, edge: bool) -> bool {
-        if crate::current_ref!(self).1.review().is_none() {
+        if crate::current_ref!(self).1.review().is_none()
+            && crate::current_ref!(self).1.project_review().is_none()
+        {
             return false;
         }
         let wrap = self.config().search.wrap_around;
         self.apply_motion(move |editor| {
             let mode = editor.mode();
             let (view, doc) = crate::current!(editor);
-            let state = doc.review().unwrap();
-            let rows: Vec<_> = state
-                .review
-                .lines
-                .iter()
-                .enumerate()
-                .filter_map(|(row, line)| {
-                    (line.kind == ReviewLineKind::Header).then_some(row + state.row_offset())
-                })
-                .collect();
+            let rows: Vec<_> = if let Some(project) = doc.project_review() {
+                project.hunk_rows()
+            } else {
+                let state = doc.review().unwrap();
+                state
+                    .review
+                    .lines
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(row, line)| {
+                        (line.kind == ReviewLineKind::Header).then_some(row + state.row_offset())
+                    })
+                    .collect()
+            };
             let status = std::cell::Cell::new(None);
             let text = doc.text().slice(..);
             let selection = doc.selection(view.id).clone().transform(|range| {

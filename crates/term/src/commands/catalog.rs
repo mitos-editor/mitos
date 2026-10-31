@@ -1597,6 +1597,26 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
         signature: Signature { positionals: (1, Some(1)), ..Signature::DEFAULT },
     },
     TypableCommand {
+        name: "vcs-project-diff", aliases: &[], doc: "Review unstaged changes together, including unsaved edits. Use staged for the next commit or unstaged for saved changes.",
+        fun: super::project_review::open, completer: CommandCompleter::none(),
+        signature: Signature { positionals: (0, Some(1)), ..Signature::DEFAULT },
+    },
+    TypableCommand {
+        name: "vcs-project-refresh", aliases: &[], doc: "Update the project review with the latest file and staged changes.",
+        fun: super::project_review::refresh, completer: CommandCompleter::none(),
+        signature: Signature { positionals: (0, Some(0)), ..Signature::DEFAULT },
+    },
+    TypableCommand {
+        name: "vcs-project-next", aliases: &[], doc: "Move to the next file or hunk; use file, previous-file, hunk, or previous-hunk.",
+        fun: super::project_review::navigate, completer: CommandCompleter::none(),
+        signature: Signature { positionals: (0, Some(1)), ..Signature::DEFAULT },
+    },
+    TypableCommand {
+        name: "vcs-project-open", aliases: &[], doc: "Open the selected file's review. Use Ctrl-o to return to the project review.",
+        fun: super::project_review::open_file, completer: CommandCompleter::none(),
+        signature: Signature { positionals: (0, Some(0)), ..Signature::DEFAULT },
+    },
+    TypableCommand {
         name: "blame",
         aliases: &["vcs-blame"],
         doc: "Show commit details for the current line, with actions to copy the commit ID or message.",
