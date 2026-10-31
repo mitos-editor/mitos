@@ -137,6 +137,7 @@ mod tests {
     fn auto_command_line_reclaims_a_picker_row() {
         let command_line = CommandLineConfig {
             show: editor_config::CommandLineShow::Auto,
+            ..Default::default()
         };
         assert_eq!(
             picker_area(Rect::new(3, 5, 80, 42), PickerLayout::Auto, command_line),

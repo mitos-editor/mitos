@@ -106,6 +106,7 @@ pub fn show_code_lenses_under_cursor(cx: &mut Context) {
                 });
                 menu.move_down();
                 let popup = Popup::new("code-lens", menu)
+                    .with_border(ui::PopupBorder::CodeLenses)
                     .with_scrollbar(false)
                     .auto_close(true);
                 compositor.replace_or_push("code-lens", popup);
@@ -652,6 +653,7 @@ pub fn code_action(cx: &mut Context) {
                 });
                 picker.move_down();
                 let popup = Popup::new("code-action", picker)
+                    .with_border(ui::PopupBorder::CodeActions)
                     .with_scrollbar(false)
                     .auto_close(true);
                 compositor.replace_or_push("code-action", popup);

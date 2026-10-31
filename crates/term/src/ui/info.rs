@@ -21,8 +21,11 @@ impl Component for Info {
             Layout::vertical([Constraint::Min(0), Constraint::Length(height)]).areas(area);
         surface.clear_with(area, popup_style);
 
-        let block = panel::horizontally_padded(&cx.editor.theme, cx.editor.config().border_style)
-            .title(self.title.as_ref());
+        let block = panel::horizontally_padded(
+            &cx.editor.theme,
+            panel::PopupBorder::Info.resolve(&cx.editor.config()),
+        )
+        .title(self.title.as_ref());
 
         let inner = block.inner(area);
         block.render(area, surface);

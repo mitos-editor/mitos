@@ -34,6 +34,7 @@ pub use editor::EditorView;
 pub(crate) use icons::icon_span;
 pub use markdown::Markdown;
 pub use menu::Menu;
+pub use panel::PopupBorder;
 pub use picker::{Column as PickerColumn, FileLocation, Picker};
 pub use popup::Popup;
 pub use prompt::{Prompt, PromptEvent};
@@ -202,6 +203,7 @@ pub fn search_prompt(
                                                 1 + editor.config().command_line.reserved_height(),
                                             );
                                             let popup = Popup::new("invalid-regex", contents)
+                                                .with_border(panel::PopupBorder::Search)
                                                 .position(Some(text_layout::DisplayPosition::new(
                                                     editor_area.bottom().saturating_sub(1) as usize,
                                                     0,

@@ -104,7 +104,9 @@ pub fn show(
     };
     match result {
         Ok(blame) => {
-            let popup = Popup::new(BlameDetails::ID, BlameDetails::new(blame)).auto_close(true);
+            let popup = Popup::new(BlameDetails::ID, BlameDetails::new(blame))
+                .with_border(panel::PopupBorder::InlineBlame)
+                .auto_close(true);
             compositor.replace_or_push(BlameDetails::ID, popup);
             let keys = &config.component_keys;
             editor.set_status(format!(

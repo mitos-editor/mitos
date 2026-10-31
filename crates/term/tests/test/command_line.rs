@@ -674,3 +674,87 @@ async fn interactive_shell_expansions_require_a_real_terminal() -> anyhow::Resul
     )
     .await
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn popup_border_commands_set_get_and_restore_inheritance() -> anyhow::Result<()> {
+    use editor_config::BorderStyle;
+    use term::ui::PopupBorder;
+
+    let mut app = AppBuilder::new().build()?;
+    for name in [
+        "lsp.hover",
+        "completion",
+        "lsp.signature-help",
+        "lsp.code-actions",
+        "lsp.code-lenses",
+        "info",
+        "inline-blame",
+        "command-line",
+        "shell-output",
+        "search",
+    ] {
+        let path = format!("{name}.border-style");
+        assert!(term::ui::completers::setting(&app.editor, name)
+            .iter()
+            .any(|(_, span)| span.content == path));
+    }
+    test_key_sequences(
+        &mut app,
+        vec![
+            (Some(":set lsp.hover.border-style none<ret>"), None),
+            (
+                Some(":get lsp.hover.border-style<ret>"),
+                Some(&|app| {
+                    assert_eq!(app.editor.get_status().unwrap().0.as_ref(), "\"none\"");
+                    assert_eq!(
+                        PopupBorder::Hover.resolve(&app.editor.config()),
+                        BorderStyle::None
+                    );
+                    assert_eq!(
+                        PopupBorder::Completion.resolve(&app.editor.config()),
+                        BorderStyle::Rounded
+                    );
+                }),
+            ),
+            (Some(":set border-style double<ret>"), None),
+            (Some(":set lsp.hover.border-style inherit<ret>"), None),
+            (
+                Some(":get lsp.hover.border-style<ret>"),
+                Some(&|app| {
+                    assert_eq!(app.editor.get_status().unwrap().0.as_ref(), "\"inherit\"");
+                    assert_eq!(
+                        PopupBorder::Hover.resolve(&app.editor.config()),
+                        BorderStyle::Double
+                    );
+                }),
+            ),
+            (Some(":set completion.border-style plain<ret>"), None),
+            (
+                Some(":toggle completion.border-style plain none<ret>"),
+                Some(&|app| {
+                    assert_eq!(
+                        PopupBorder::Completion.resolve(&app.editor.config()),
+                        BorderStyle::None
+                    );
+                }),
+            ),
+            (
+                Some(":set completion.border-style invalid<ret>"),
+                Some(&|app| {
+                    assert_eq!(
+                        PopupBorder::Completion.resolve(&app.editor.config()),
+                        BorderStyle::None
+                    );
+                    assert!(app
+                        .editor
+                        .get_status()
+                        .unwrap()
+                        .0
+                        .contains("Could not parse field"));
+                }),
+            ),
+        ],
+        false,
+    )
+    .await
+}

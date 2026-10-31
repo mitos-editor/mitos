@@ -349,7 +349,9 @@ pub(super) mod typed {
             let call: job::Callback = Callback::EditorCompositor(Box::new(
                 move |editor: &mut Editor, compositor: &mut Compositor| {
                     let contents = ui::Markdown::new(contents, editor.syn_loader.clone());
-                    let popup = Popup::new("hover", contents).auto_close(true);
+                    let popup = Popup::new("hover", contents)
+                        .with_border(ui::PopupBorder::Hover)
+                        .auto_close(true);
                     compositor.replace_or_push("hover", popup);
                 },
             ));
@@ -418,7 +420,9 @@ pub(super) mod typed {
             let call: job::Callback = Callback::EditorCompositor(Box::new(
                 move |editor: &mut Editor, compositor: &mut Compositor| {
                     let content = ui::Markdown::new(content, editor.syn_loader.clone());
-                    let popup = Popup::new("hover", content).auto_close(true);
+                    let popup = Popup::new("hover", content)
+                        .with_border(ui::PopupBorder::Hover)
+                        .auto_close(true);
                     compositor.replace_or_push("hover", popup);
                 },
             ));
@@ -469,7 +473,9 @@ pub(super) mod typed {
             let call: job::Callback = Callback::EditorCompositor(Box::new(
                 move |editor: &mut Editor, compositor: &mut Compositor| {
                     let content = ui::Markdown::new(languages, editor.syn_loader.clone());
-                    let popup = Popup::new("hover", content).auto_close(true);
+                    let popup = Popup::new("hover", content)
+                        .with_border(ui::PopupBorder::Hover)
+                        .auto_close(true);
                     compositor.replace_or_push("hover", popup);
                 },
             ));
@@ -507,7 +513,9 @@ pub(super) mod typed {
                     let call: job::Callback = Callback::EditorCompositor(Box::new(
                         move |editor: &mut Editor, compositor: &mut Compositor| {
                             let contents = ui::Markdown::new(contents, editor.syn_loader.clone());
-                            let popup = Popup::new("hover", contents).auto_close(true);
+                            let popup = Popup::new("hover", contents)
+                                .with_border(ui::PopupBorder::Hover)
+                                .auto_close(true);
                             compositor.replace_or_push("hover", popup);
                         },
                     ));

@@ -95,7 +95,7 @@ impl Component for Hover {
 
             panel::top_border(
                 cx.editor.theme.get("ui.window"),
-                cx.editor.config().border_style,
+                panel::PopupBorder::Hover.resolve(&cx.editor.config()),
             )
             .render(separator_area, surface);
             contents_area

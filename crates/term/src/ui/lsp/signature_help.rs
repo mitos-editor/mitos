@@ -164,7 +164,7 @@ impl Component for SignatureHelp {
             .areas(area);
         panel::top_border(
             cx.editor.theme.get("ui.window"),
-            cx.editor.config().border_style,
+            panel::PopupBorder::SignatureHelp.resolve(&cx.editor.config()),
         )
         .render(separator_area, surface);
 

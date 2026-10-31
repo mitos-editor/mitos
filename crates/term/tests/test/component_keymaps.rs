@@ -409,9 +409,10 @@ async fn hover_actions_change_the_rendered_page() -> anyhow::Result<()> {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn hover_popup_can_hide_borders_without_changing_layout_or_scrolling() -> anyhow::Result<()> {
-    use editor_config::BorderStyle;
+    use editor_config::{BorderStyle, BorderStyleOverride};
     use lsp_client::lsp::{Hover as LspHover, HoverContents, MarkedString};
     use term::ui::lsp::hover::Hover;
+    use term::ui::PopupBorder;
     use view::editor::ConfigEvent;
 
     let mut fixture = Fixture::new("")?;
@@ -432,17 +433,46 @@ async fn hover_popup_can_hide_borders_without_changing_layout_or_scrolling() -> 
                 .collect(),
             fixture.app.editor.syn_loader.clone(),
         );
-        let mut popup = Popup::new(Hover::ID, hover);
+        let mut popup = Popup::new(Hover::ID, hover).with_border(PopupBorder::Hover);
         let expected_area = popup.area(viewport, &fixture.app.editor);
         let mut buffer = Buffer::empty(viewport);
-        for (style, left_corner, right_corner, bottom_corner) in [
-            (BorderStyle::Rounded, "╭", "╮", "╯"),
-            (BorderStyle::None, " ", " ", " "),
-            (BorderStyle::Double, "╔", "╗", "╝"),
-            (BorderStyle::None, " ", " ", " "),
+        for (global, preference, style, left_corner, right_corner, bottom_corner) in [
+            (
+                BorderStyle::Rounded,
+                BorderStyleOverride::Inherit,
+                BorderStyle::Rounded,
+                "╭",
+                "╮",
+                "╯",
+            ),
+            (
+                BorderStyle::Double,
+                BorderStyleOverride::Style(BorderStyle::None),
+                BorderStyle::None,
+                " ",
+                " ",
+                " ",
+            ),
+            (
+                BorderStyle::None,
+                BorderStyleOverride::Style(BorderStyle::Double),
+                BorderStyle::Double,
+                "╔",
+                "╗",
+                "╝",
+            ),
+            (
+                BorderStyle::None,
+                BorderStyleOverride::Inherit,
+                BorderStyle::None,
+                " ",
+                " ",
+                " ",
+            ),
         ] {
             let mut config = (*fixture.app.editor.config()).clone();
-            config.border_style = style;
+            config.border_style = global;
+            config.lsp.hover.border_style = preference;
             fixture
                 .app
                 .handle_config_events(ConfigEvent::Update(Box::new(config)));
@@ -481,6 +511,110 @@ async fn hover_popup_can_hide_borders_without_changing_layout_or_scrolling() -> 
             for _ in 0..20 {
                 popup.scroll_half_page_up();
             }
+        }
+    }
+    assert!(fixture.app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn popup_border_overrides_follow_features_without_affecting_other_panels(
+) -> anyhow::Result<()> {
+    use term::ui::PopupBorder;
+    use view::editor::ConfigEvent;
+
+    let mut fixture = Fixture::new("")?;
+    let viewport = Rect::new(0, 0, 80, 40);
+    let features = [
+        ("lsp.hover", PopupBorder::Hover),
+        ("completion", PopupBorder::Completion),
+        ("lsp.signature-help", PopupBorder::SignatureHelp),
+        ("lsp.code-actions", PopupBorder::CodeActions),
+        ("lsp.code-lenses", PopupBorder::CodeLenses),
+        ("info", PopupBorder::Info),
+        ("inline-blame", PopupBorder::InlineBlame),
+        ("command-line", PopupBorder::CommandLine),
+        ("shell-output", PopupBorder::ShellOutput),
+        ("search", PopupBorder::Search),
+    ];
+    for (path, border) in features {
+        let mut popup =
+            Popup::new("unrelated-compositor-id", Text::new("content".into())).with_border(border);
+        let area = popup.area(viewport, &fixture.app.editor);
+        for (global, override_style, expected) in [
+            ("double", "none", " "),
+            ("none", "plain", "┌"),
+            ("rounded", "inherit", "╭"),
+            ("double", "inherit", "╔"),
+        ] {
+            let source = format!("[editor]\nborder-style = '{global}'\n[editor.{path}]\nborder-style = '{override_style}'");
+            let config = Fixture::load_config(&source).editor;
+            fixture
+                .app
+                .handle_config_events(ConfigEvent::Update(Box::new(config)));
+            let mut buffer = Buffer::empty(viewport);
+            popup.render(viewport, &mut buffer, &mut fixture.context());
+            assert_eq!(popup.area(viewport, &fixture.app.editor), area);
+            assert_eq!(buffer[(area.x, area.y)].symbol(), expected, "{path}");
+            let mut other = Popup::new("other", Text::new("other".into()));
+            let other_area = other.area(viewport, &fixture.app.editor);
+            other.render(viewport, &mut buffer, &mut fixture.context());
+            let global_corner = match global {
+                "none" => " ",
+                "double" => "╔",
+                _ => "╭",
+            };
+            assert_eq!(buffer[(other_area.x, other_area.y)].symbol(), global_corner);
+            assert_eq!(
+                PopupBorder::Global.resolve(&fixture.app.editor.config()),
+                fixture.app.editor.config().border_style
+            );
+        }
+    }
+    assert!(fixture.app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn signature_popup_uses_its_border_for_documentation_separators() -> anyhow::Result<()> {
+    use term::ui::PopupBorder;
+    use view::editor::ConfigEvent;
+
+    let mut fixture = Fixture::new("")?;
+    let help = SignatureHelp::new(
+        "".into(),
+        fixture.app.editor.syn_loader.clone(),
+        0,
+        None,
+        vec![Signature {
+            signature: "function(argument)".into(),
+            signature_doc: Some("documentation\n\nadditional details".into()),
+            active_param_range: None,
+        }],
+    );
+    let mut popup = Popup::new(SignatureHelp::ID, help).with_border(PopupBorder::SignatureHelp);
+    let viewport = Rect::new(0, 0, 80, 40);
+    let area = popup.area(viewport, &fixture.app.editor);
+    for (style, corner, separator) in [
+        ("none", " ", " "),
+        ("double", "╔", "═"),
+        ("inherit", "╭", "─"),
+    ] {
+        let source = format!("[editor.lsp.signature-help]\nborder-style = '{style}'");
+        fixture
+            .app
+            .handle_config_events(ConfigEvent::Update(Box::new(
+                Fixture::load_config(&source).editor,
+            )));
+        let mut buffer = Buffer::empty(viewport);
+        popup.render(viewport, &mut buffer, &mut fixture.context());
+        assert_eq!(popup.area(viewport, &fixture.app.editor), area);
+        assert_eq!(buffer[(area.x, area.y)].symbol(), corner);
+        assert_eq!(buffer[(area.x + 2, area.y + 3)].symbol(), separator);
+        let text: String = buffer.content.iter().map(|cell| cell.symbol()).collect();
+        assert!(text.contains("documentation"));
+        if style == "none" {
+            assert!(!text.contains(['╭', '╮', '╰', '╯', '─', '│', '═', '║']));
         }
     }
     assert!(fixture.app.close().await.is_empty());

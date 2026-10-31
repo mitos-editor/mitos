@@ -599,7 +599,7 @@ fn picker_settings_are_shared_by_all_pickers() {
 }
 
 #[test]
-fn popup_border_is_not_configurable() {
+fn rejects_unrecognized_global_popup_border_key() {
     let config = "[editor]\npopup-border = \"none\"".to_owned();
     let error = Config::load(Ok(&config), Err(ConfigLoadError::default())).unwrap_err();
     assert!(error.to_string().contains("unknown field `popup-border`"));
@@ -951,4 +951,29 @@ fn history_picker_keys_inherit_navigation_and_only_accept_history_actions() {
         Ok(String::new())
     )
     .is_err());
+}
+
+#[test]
+fn popup_border_overrides_merge_by_feature_and_can_restore_inheritance() {
+    use crate::ui::PopupBorder;
+    use editor_config::{BorderStyle, BorderStyleOverride};
+
+    let user = "[editor]\nborder-style = 'rounded'\n[editor.lsp.hover]\nborder-style = 'none'\n[editor.completion]\nborder-style = 'plain'".to_owned();
+    let project = "[editor]\nborder-style = 'double'\n[editor.lsp.signature-help]\nshow-documentation = false".to_owned();
+    let merged = Config::load(Ok(&user), Ok(project)).unwrap().editor;
+    assert_eq!(PopupBorder::Hover.resolve(&merged), BorderStyle::None);
+    assert_eq!(PopupBorder::Completion.resolve(&merged), BorderStyle::Plain);
+    assert_eq!(
+        PopupBorder::SignatureHelp.resolve(&merged),
+        BorderStyle::Double
+    );
+    assert!(merged.lsp.signature_help.auto_trigger);
+    assert!(!merged.lsp.signature_help.show_documentation);
+
+    let project = "[editor]\nborder-style = 'double'\n[editor.lsp.hover]\nborder-style = 'inherit'"
+        .to_owned();
+    let merged = Config::load(Ok(&user), Ok(project)).unwrap().editor;
+    assert_eq!(merged.lsp.hover.border_style, BorderStyleOverride::Inherit);
+    assert_eq!(PopupBorder::Hover.resolve(&merged), BorderStyle::Double);
+    assert_eq!(PopupBorder::Completion.resolve(&merged), BorderStyle::Plain);
 }
