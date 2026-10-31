@@ -141,6 +141,7 @@ loader.workspace = true
 tokio = { workspace = true, features = ["test-util"] }
 spelling.workspace = true
 indoc.workspace = true
+vt100.workspace = true
 same-file.workspace = true
 
 [target.'cfg(windows)'.dev-dependencies]

@@ -264,7 +264,7 @@ shell = {}
             if output.contains("\x1b[c") {
                 self.send("\x1b[?1;2c")?;
             }
-            self.screen.feed(&output);
+            self.screen.feed(&bytes);
             self.output.push_str(&output);
         }
         Ok(())
@@ -442,6 +442,7 @@ fn interactive_input_output_resize_and_nested_expansions() -> anyhow::Result<()>
     let result =
         unsafe { ResizePseudoConsole(editor.console.as_ref().unwrap().0, COORD { X: 80, Y: 20 }) };
     ensure!(result >= 0, "ResizePseudoConsole: {result:#x}");
+    editor.screen.resize(20, 80);
     thread::sleep(Duration::from_millis(150));
     editor.drain()?;
     // ConPTY itself may repaint the child's screen during resize. Mitos must

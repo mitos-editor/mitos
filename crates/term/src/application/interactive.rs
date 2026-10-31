@@ -46,8 +46,8 @@ impl Application {
                     tokio::select! {
                         result = process::run(request.command) => result,
                         _ = request.result.closed() => Err(anyhow::anyhow!("Command cancelled")),
-                        received = self.signals.next() => {
-                            signal = received;
+                        Some(received) = self.signals.next() => {
+                            signal = Some(received);
                             Err(anyhow::anyhow!("Interactive shell interrupted"))
                         }
                     }

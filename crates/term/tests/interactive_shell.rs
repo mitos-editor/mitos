@@ -146,7 +146,7 @@ shell = {shell}
                         self.send("\x1b[?1;2c")?;
                     }
                     self.output.push_str(&output);
-                    self.screen.feed(&output);
+                    self.screen.feed(&buffer[..count]);
                 }
                 Err(error) if error.kind() == io::ErrorKind::WouldBlock => break,
                 Err(error) => return Err(error.into()),
@@ -372,6 +372,7 @@ fn interactive_expansion_owns_input_and_resumes_goto() -> anyhow::Result<()> {
         },
         0
     );
+    editor.screen.resize(20, 80);
     thread::sleep(Duration::from_millis(150));
     editor.drain()?;
     assert_eq!(
