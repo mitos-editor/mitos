@@ -2,9 +2,9 @@
 
 use super::Application;
 use crate::job::InteractiveShellRequest;
-#[cfg(all(not(windows), not(feature = "integration")))]
+#[cfg(not(feature = "integration"))]
 use futures_util::StreamExt;
-#[cfg(all(not(windows), not(feature = "integration")))]
+#[cfg(not(feature = "integration"))]
 use tui::backend::BackendExt;
 
 impl Application {
@@ -15,29 +15,39 @@ impl Application {
         if request.result.is_closed() {
             return Ok(true);
         }
-        #[cfg(any(windows, feature = "integration"))]
+        #[cfg(feature = "integration")]
         {
             drop(request.command);
             let _ = request.result.send(Err(anyhow::anyhow!(
-                "interactive shell expansion requires a real Unix terminal"
+                "interactive shell expansion requires a real terminal"
             )));
             Ok(true)
         }
-        #[cfg(all(not(windows), not(feature = "integration")))]
+        #[cfg(not(feature = "integration"))]
         {
             let mut request = request;
             let paused = self.terminal_input.pause();
+            // Install before releasing raw mode and retain through reclamation:
+            // console Ctrl-c is also delivered to Mitos while the child runs.
+            #[cfg(windows)]
+            let _control = match process::ControlHandler::install() {
+                Ok(control) => control,
+                Err(error) => {
+                    let _ = request.result.send(Err(error.into()));
+                    return Ok(true);
+                }
+            };
             let mut signal = None;
             let output = match self.restore_term() {
                 Ok(()) => {
                     // Do not process editor input, callbacks or renders until the
                     // child has returned terminal ownership. Dropping execution
-                    // kills its process group and restores the foreground group.
+                    // cleans up its processes and restores console ownership.
                     tokio::select! {
                         result = process::run(request.command) => result,
                         _ = request.result.closed() => Err(anyhow::anyhow!("Command cancelled")),
-                        received = self.signals.next() => {
-                            signal = received;
+                        Some(received) = self.signals.next() => {
+                            signal = Some(received);
                             Err(anyhow::anyhow!("Interactive shell interrupted"))
                         }
                     }
@@ -60,6 +70,10 @@ impl Application {
         }
     }
 }
+
+#[cfg(all(windows, not(feature = "integration")))]
+#[path = "interactive/windows.rs"]
+mod process;
 
 #[cfg(all(not(windows), not(feature = "integration")))]
 mod process {

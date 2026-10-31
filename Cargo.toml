@@ -202,6 +202,7 @@ threadpool = "1.0"
 # Tests and benchmarks
 criterion = { version = "0.8", default-features = false, features = ["cargo_bench_support"] }
 indoc = "2.0.6"
+vt100 = "0.18"
 quickcheck = { version = "1", default-features = false }
 same-file = "1.0.1"
 

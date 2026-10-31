@@ -74,3 +74,19 @@ async fn interactive_expansions_compose_with_captured_values_and_do_not_reexpand
     );
     Ok(())
 }
+
+#[cfg(windows)]
+#[tokio::test]
+async fn interactive_cmd_preserves_quotes_and_pipelines() -> anyhow::Result<()> {
+    use futures_util::FutureExt;
+    let fixture = Fixture::new("text\n")?;
+    let source = r#"%sh_interactive{echo "quoted value"| findstr quoted}"#;
+    let context = Context::capture(&fixture.editor, source).with_interactive_shell(
+        std::sync::Arc::new(|mut command| async move { Ok(command.output().await?) }.boxed()),
+    );
+    assert_eq!(
+        context.expand(Token::expand(source), &[]).await?,
+        r#""quoted value""#
+    );
+    Ok(())
+}
