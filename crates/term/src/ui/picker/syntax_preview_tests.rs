@@ -350,6 +350,7 @@ async fn preview_rendering_tolerates_locations_beyond_a_shortened_file() -> anyh
     render_preview_content(
         Preview::Cached(&mut entry.preview),
         Some((100, 150)),
+        &mut FileScroll::default(),
         area,
         &mut Surface::empty(area),
         &cx,

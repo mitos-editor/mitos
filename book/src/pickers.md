@@ -22,6 +22,17 @@ opens the selected item; `Alt-Enter` opens it in the background while keeping
 the picker open. `Ctrl-v` opens a vertical split and `Ctrl-s` a horizontal one.
 `Ctrl-t` toggles the preview. `Esc` closes the picker.
 
+Scroll the preview with `Alt-j` / `Alt-k` or `Alt-Down` / `Alt-Up`. Each press
+moves half a page without changing the selected result or query. These keys
+work in file, buffer, search, symbol, diagnostic, directory, and Git previews.
+You can also use the mouse wheel over the preview. A scrollbar shows your
+position when the preview extends beyond the pane.
+Selecting a different file or match resets the preview to that location.
+Images fit the preview pane and do not scroll.
+
+Remap `preview_scroll_down` and `preview_scroll_up` under `[keys.picker]`, or
+under a specific picker's component keymap.
+
 Press `Ctrl-q` to copy matched file locations into the [quicklist](./quicklist.md)
 for navigation after closing the picker. To customize keys, see
 [Component keys](./remapping.md#component-keys).

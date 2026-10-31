@@ -3,7 +3,10 @@
 use super::{conflicts::ConflictView, load, Pending, ReviewView};
 use crate::{
     compositor::{Context, EventResult},
-    ui::picker::{PickerPreview, PreviewAction},
+    ui::picker::{
+        scroll::{self, PreviewScroll},
+        PickerPreview, PreviewAction,
+    },
 };
 use event::TaskController;
 use std::{path::PathBuf, sync::Arc, time::Duration};
@@ -20,7 +23,6 @@ enum PreviewContent {
     Conflict(Box<ConflictView>),
 }
 struct FilePreview {
-    offset: usize,
     content: PreviewContent,
 }
 impl FilePreview {
@@ -36,10 +38,10 @@ impl FilePreview {
             PreviewContent::Conflict(view) => view.visual_height(width, theme),
         }
     }
-    fn draw(&self, area: Rect, surface: &mut Buffer, cx: &Context) {
+    fn draw(&self, area: Rect, surface: &mut Buffer, cx: &Context, offset: usize) {
         match &self.content {
-            PreviewContent::Diff(view) => view.draw(area, surface, cx, self.offset),
-            PreviewContent::Conflict(view) => view.draw(area, surface, cx, self.offset),
+            PreviewContent::Diff(view) => view.draw(area, surface, cx, offset),
+            PreviewContent::Conflict(view) => view.draw(area, surface, cx, offset),
         }
     }
 }
@@ -60,7 +62,7 @@ pub struct ChangeReviewPreview<T> {
     dirty: bool,
     events: Option<broadcast::Receiver<view::file_watcher::Events>>,
     checked: tokio::time::Instant,
-    height: u16,
+    scroll: PreviewScroll,
     review_on_accept: bool,
     opened_document: bool,
 }
@@ -81,7 +83,7 @@ impl<T> ChangeReviewPreview<T> {
             dirty: false,
             events: None,
             checked: tokio::time::Instant::now(),
-            height: 1,
+            scroll: PreviewScroll::default(),
             review_on_accept: false,
             opened_document: false,
         }
@@ -116,6 +118,7 @@ impl<T> ChangeReviewPreview<T> {
         self.ready = None;
         self.error = None;
         self.snapshot = None;
+        self.scroll = PreviewScroll::default();
     }
 }
 
@@ -142,7 +145,6 @@ impl<T> PickerPreview<T> for ChangeReviewPreview<T> {
         };
         let status = (self.status)(item);
         let comparison = self.comparison_for(cx.editor, status);
-        self.height = area.height;
         if self.events.is_none() {
             self.events = Some(cx.editor.file_watcher.subscribe());
         }
@@ -223,7 +225,6 @@ impl<T> PickerPreview<T> for ChangeReviewPreview<T> {
                     if pending.request.is_current(cx.editor) {
                         match result {
                             Ok(snapshot) => {
-                                let offset = self.ready.as_ref().map_or(0, |view| view.offset);
                                 let path = status
                                     .path()
                                     .strip_prefix(&self.workspace)
@@ -246,7 +247,7 @@ impl<T> PickerPreview<T> for ChangeReviewPreview<T> {
                                         )))
                                     }
                                 };
-                                let view = FilePreview { offset, content };
+                                let view = FilePreview { content };
                                 self.ready = Some(view);
                                 self.snapshot = Some(snapshot);
                                 self.error = None;
@@ -273,13 +274,22 @@ impl<T> PickerPreview<T> for ChangeReviewPreview<T> {
         }
         let content = Rect::new(area.x, area.y, area.width, area.height.saturating_sub(1));
         if let Some(view) = &mut self.ready {
-            view.offset = view.offset.min(
-                view.line_count(content.width, &cx.editor.theme)
-                    .saturating_sub(
-                        content.height.saturating_sub(view.heading_rows() as u16) as usize
-                    ),
+            let text = scroll::text_area(content);
+            let heading = view.heading_rows() as u16;
+            let rows = content.height.saturating_sub(heading);
+            self.scroll
+                .update(rows, view.line_count(text.width, &cx.editor.theme));
+            view.draw(text, surface, cx, self.scroll.offset);
+            self.scroll.render(
+                Rect::new(
+                    content.x,
+                    content.y + heading.min(content.height),
+                    content.width,
+                    rows,
+                ),
+                surface,
+                &cx.editor.theme,
             );
-            view.draw(content, surface, cx);
         } else {
             surface.set_stringn(
                 area.x,
@@ -343,20 +353,8 @@ impl<T> PickerPreview<T> for ChangeReviewPreview<T> {
     fn action(&mut self, item: Option<&T>, action: PreviewAction, cx: &mut Context) -> EventResult {
         self.opened_document = false;
         match action {
-            PreviewAction::ScrollUp => {
-                if let Some(view) = &mut self.ready {
-                    view.offset = view
-                        .offset
-                        .saturating_sub((self.height / 2).max(1) as usize);
-                }
-            }
-            PreviewAction::ScrollDown => {
-                if let Some(view) = &mut self.ready {
-                    view.offset = view
-                        .offset
-                        .saturating_add((self.height / 2).max(1) as usize);
-                }
-            }
+            PreviewAction::ScrollUp => self.scroll.scroll(false),
+            PreviewAction::ScrollDown => self.scroll.scroll(true),
             PreviewAction::Previous | PreviewAction::Next => {
                 let Some(item) = item else {
                     return EventResult::Consumed(None);
