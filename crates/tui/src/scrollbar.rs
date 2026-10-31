@@ -31,7 +31,10 @@ pub fn render(
         .thumb_style(RatatuiStyle::default().fg(thumb))
         .track_symbol((!bordered).then_some(symbol))
         .track_style(RatatuiStyle::default().fg(track));
-    let mut state = ScrollbarState::new(content_height)
+    // Ratatui treats content_length as the number of scroll positions, including
+    // zero, and adds the viewport length when calculating the thumb's size.
+    let positions = content_height.saturating_sub(viewport_height as usize) + 1;
+    let mut state = ScrollbarState::new(positions)
         .position(position)
         .viewport_content_length(viewport_height as usize);
     scrollbar.render(area, surface, &mut state);
@@ -79,5 +82,32 @@ mod tests {
         );
 
         assert!((0..area.height).all(|y| surface[(area.right() - 1, y)].symbol() == "▐"));
+    }
+
+    #[test]
+    fn thumb_matches_the_viewport_and_reaches_both_ends() {
+        let area = Rect::new(3, 2, 5, 4);
+        for bordered in [false, true] {
+            let symbol = if bordered { "▌" } else { "▐" };
+            for (position, expected_rows) in [(0, [2, 3]), (2, [3, 4]), (4, [4, 5])] {
+                let mut surface = Buffer::empty(area);
+                render(
+                    &mut surface,
+                    area,
+                    area.height,
+                    8,
+                    position,
+                    bordered,
+                    Style::default().fg(Color::Red).bg(Color::Blue),
+                );
+                let thumb_rows: Vec<_> = (area.top()..area.bottom())
+                    .filter(|&y| {
+                        let cell = &surface[(area.right() - 1, y)];
+                        cell.symbol() == symbol && cell.fg == Color::Red
+                    })
+                    .collect();
+                assert_eq!(thumb_rows, expected_rows);
+            }
+        }
     }
 }

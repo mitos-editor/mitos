@@ -435,11 +435,11 @@ async fn hover_popup_can_hide_borders_without_changing_layout_or_scrolling() -> 
         let mut popup = Popup::new(Hover::ID, hover);
         let expected_area = popup.area(viewport, &fixture.app.editor);
         let mut buffer = Buffer::empty(viewport);
-        for (style, corner) in [
-            (BorderStyle::Rounded, "╭"),
-            (BorderStyle::None, " "),
-            (BorderStyle::Double, "╔"),
-            (BorderStyle::None, " "),
+        for (style, left_corner, right_corner, bottom_corner) in [
+            (BorderStyle::Rounded, "╭", "╮", "╯"),
+            (BorderStyle::None, " ", " ", " "),
+            (BorderStyle::Double, "╔", "╗", "╝"),
+            (BorderStyle::None, " ", " ", " "),
         ] {
             let mut config = (*fixture.app.editor.config()).clone();
             config.border_style = style;
@@ -449,7 +449,13 @@ async fn hover_popup_can_hide_borders_without_changing_layout_or_scrolling() -> 
 
             popup.render(viewport, &mut buffer, &mut fixture.context());
             assert_eq!(popup.area(viewport, &fixture.app.editor), expected_area);
-            assert_eq!(buffer[(expected_area.x, expected_area.y)].symbol(), corner);
+            assert_eq!(
+                buffer[(expected_area.x, expected_area.y)].symbol(),
+                left_corner
+            );
+            let right = expected_area.right() - 1;
+            assert_eq!(buffer[(right, expected_area.y)].symbol(), right_corner);
+            assert_eq!(buffer[(right, expected_area.y + 1)].symbol(), "▌");
             let text: String = buffer.content.iter().map(|cell| cell.symbol()).collect();
             assert!(text.contains("first line"));
             if count > 1 {
@@ -458,16 +464,24 @@ async fn hover_popup_can_hide_borders_without_changing_layout_or_scrolling() -> 
             if style == BorderStyle::None {
                 assert!(!text.contains(['╭', '╮', '╰', '╯', '─', '│', '═', '║']));
             }
-        }
 
-        for _ in 0..20 {
-            popup.scroll_half_page_down();
+            for _ in 0..20 {
+                popup.scroll_half_page_down();
+            }
+            popup.render(viewport, &mut buffer, &mut fixture.context());
+            assert_eq!(
+                buffer[(right, expected_area.bottom() - 1)].symbol(),
+                bottom_corner
+            );
+            assert_eq!(buffer[(right, expected_area.bottom() - 2)].symbol(), "▌");
+            let text: String = buffer.content.iter().map(|cell| cell.symbol()).collect();
+            assert!(text.contains("last line"));
+            assert!(!text.contains("first line"));
+
+            for _ in 0..20 {
+                popup.scroll_half_page_up();
+            }
         }
-        let mut buffer = Buffer::empty(viewport);
-        popup.render(viewport, &mut buffer, &mut fixture.context());
-        let text: String = buffer.content.iter().map(|cell| cell.symbol()).collect();
-        assert!(text.contains("last line"));
-        assert!(!text.contains("first line"));
     }
     assert!(fixture.app.close().await.is_empty());
     Ok(())

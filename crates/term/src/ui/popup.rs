@@ -368,7 +368,11 @@ impl<T: Component> Component for Popup<T> {
             let scroll_style = cx.editor.theme.get("ui.menu.scroll");
             scrollbar::render(
                 surface,
-                area,
+                Rect {
+                    y: inner.y,
+                    height: inner.height,
+                    ..area
+                },
                 inner.height,
                 child_height as usize,
                 scroll,
