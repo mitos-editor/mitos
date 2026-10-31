@@ -83,7 +83,7 @@ C-n = "unbound" # Release this key to the picker's prompt.
 C-x = "close_buffer" # Close the selected buffer and keep the picker open.
 
 [keys.git-picker]
-C-x = "actions"
+C-x = "stage"
 
 [keys.stash-picker]
 C-x = "apply_stash"
