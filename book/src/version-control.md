@@ -326,6 +326,30 @@ fails. Mitos refreshes the resulting files and staged changes.
 Remap Git and stash actions under `[keys.git-picker]` and `[keys.stash-picker]`.
 See [Component keys](./remapping.md#component-keys).
 
+## Committing staged changes
+
+Stage the changes you want to commit, then:
+
+1. Run `:vcs-commit` to open your staged changes beside a commit message.
+2. Review the changes and write your message using normal editing commands.
+3. Run `:vcs-commit-submit` from the message buffer to commit.
+
+The message buffer's name shows which repository you are committing to.
+Committing uses the reviewed staged changes and your Git settings for author,
+hooks, and signing. Unsaved edits in other buffers stay unsaved. A commit is
+stored locally; push it when you are ready to share it.
+
+If the staged changes or current commit change while you write, run `:vcs-commit`
+again. This updates the review and keeps your message. If Git rejects the commit,
+the message stays open so you can fix the problem and retry.
+
+If another Git command changes the staging area during a commit, Mitos keeps
+those changes and asks you to review them before committing again.
+
+Mitos requires a complete staged review before committing. If a file cannot be
+shown or the review is too large, read the notice in the review and use Git in
+your terminal if needed.
+
 ## Git history
 
 Use history to review older changes or compare a past version with your current

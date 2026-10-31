@@ -58,6 +58,8 @@ impl Editor {
                         .tree
                         .traverse()
                         .any(|(_, v)| v.doc == doc.id && v.id != view.id);
+                #[cfg(feature = "git")]
+                let remove_empty_scratch = remove_empty_scratch && doc.commit_message().is_none();
 
                 let (view, doc) = current!(self);
                 let view_id = view.id;

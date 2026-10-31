@@ -203,6 +203,8 @@ pub struct Document {
     pub(crate) workspace_symbols: event::TaskController,
     pub(crate) review: Option<Box<crate::features::change_review::ReviewDocument>>,
     pub(crate) project_review: Option<Box<crate::features::project_review::ProjectReviewDocument>>,
+    #[cfg(feature = "git")]
+    pub(crate) commit_message: Option<Box<crate::features::git_commit::CommitMessage>>,
     pub(crate) historical: Option<crate::features::change_review::historical::HistoricalDocument>,
 
     file: file::FileState,
@@ -298,6 +300,8 @@ impl Document {
             id: DocumentId::default(),
             review: None,
             project_review: None,
+            #[cfg(feature = "git")]
+            commit_message: None,
             historical: None,
             snippet: None,
             file: file::FileState::new(encoding, has_bom),

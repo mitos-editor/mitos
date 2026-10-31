@@ -805,3 +805,255 @@ async fn non_utf8_filenames_remain_literal() -> Result<()> {
     assert!(statuses(repo.path())[0].staged.is_some());
     Ok(())
 }
+
+#[tokio::test]
+async fn commit_records_only_the_reviewed_index_and_keeps_the_worktree() -> Result<()> {
+    let repo = initial();
+    let path = repo.path().join("file.txt");
+    std::fs::write(&path, "staged\n")?;
+    exec_git_cmd(&["add", "file.txt"], repo.path());
+    let git = GitRepository::discover(repo.path())?;
+    let snapshot = git.commit_snapshot(true)?;
+    std::fs::write(&path, "unstaged\n")?;
+    let operation = snapshot.prepare("Focused commit\n\nDetails.\n", true)?;
+    assert!(!operation.requires_clean_buffers());
+    let Operation::Commit(file) = &operation.operation else {
+        unreachable!()
+    };
+    let message_file = file.path().to_owned();
+    operation.execute().await?;
+    assert!(!message_file.exists());
+    let committed = std::process::Command::new("git")
+        .arg("-C")
+        .arg(repo.path())
+        .args(["show", "HEAD:file.txt"])
+        .output()?;
+    assert!(committed.status.success());
+    assert_eq!(committed.stdout, b"staged\n");
+    assert_eq!(std::fs::read_to_string(&path)?, "unstaged\n");
+    assert!(statuses(repo.path())
+        .iter()
+        .all(|status| status.staged.is_none()));
+    Ok(())
+}
+
+#[tokio::test]
+async fn commit_requires_trust_staged_changes_and_the_reviewed_index() -> Result<()> {
+    let repo = initial();
+    let git = GitRepository::discover(repo.path())?;
+    assert!(git.commit_snapshot(false).is_err());
+    assert!(git.commit_snapshot(true).is_err());
+    std::fs::write(repo.path().join("file.txt"), "staged\n")?;
+    exec_git_cmd(&["add", "file.txt"], repo.path());
+    let snapshot = git.commit_snapshot(true)?;
+    assert!(snapshot.prepare("message", false).is_err());
+    assert!(snapshot.prepare(" \n", true).is_err());
+    std::fs::write(repo.path().join("other.txt"), "another staged change\n")?;
+    exec_git_cmd(&["add", "other.txt"], repo.path());
+    assert!(snapshot.prepare("message", true).is_err());
+    Ok(())
+}
+
+#[tokio::test]
+async fn commit_creates_the_first_commit_from_staged_files() -> Result<()> {
+    let repo = empty_git_repo();
+    std::fs::write(repo.path().join("first.txt"), "first\n")?;
+    exec_git_cmd(&["add", "first.txt"], repo.path());
+    let git = GitRepository::discover(repo.path())?;
+    git.commit_snapshot(true)?
+        .prepare("initial commit", true)?
+        .execute()
+        .await?;
+    assert!(!git.open(true)?.head()?.is_unborn());
+    assert!(statuses(repo.path()).is_empty());
+    Ok(())
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn commit_reports_hook_and_signing_failures_without_advancing_head() -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    let repo = initial();
+    std::fs::write(repo.path().join("file.txt"), "staged\n")?;
+    exec_git_cmd(&["add", "file.txt"], repo.path());
+    let hook = repo.path().join(".git/hooks/pre-commit");
+    std::fs::write(&hook, "#!/bin/sh\necho 'hook rejected' >&2\nexit 1\n")?;
+    std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755))?;
+    let git = GitRepository::discover(repo.path())?;
+    let operation = git
+        .commit_snapshot(true)?
+        .prepare("keep this message", true)?;
+    let result = operation.execute().await;
+    assert!(result.unwrap_err().to_string().contains("hook rejected"));
+    assert!(statuses(repo.path())
+        .iter()
+        .any(|status| status.staged.is_some()));
+    std::fs::remove_file(hook)?;
+    exec_git_cmd(&["config", "commit.gpgsign", "true"], repo.path());
+    exec_git_cmd(
+        &["config", "gpg.program", "/mitos-nonexistent-gpg"],
+        repo.path(),
+    );
+    assert!(git
+        .commit_snapshot(true)?
+        .prepare("keep this message", true)?
+        .execute()
+        .await
+        .is_err());
+    assert!(statuses(repo.path())
+        .iter()
+        .any(|status| status.staged.is_some()));
+    Ok(())
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn commit_pins_reviewed_index_and_preserves_external_staging_during_hooks() -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    use std::time::Duration;
+    let repo = initial();
+    std::fs::write(repo.path().join("file.txt"), "reviewed\n")?;
+    exec_git_cmd(&["add", "file.txt"], repo.path());
+    let operation = GitRepository::discover(repo.path())?
+        .commit_snapshot(true)?
+        .prepare("reviewed commit", true)?;
+    let hook = repo.path().join(".git/hooks/pre-commit");
+    std::fs::write(&hook, "#!/bin/sh\ntouch .commit-ready\nattempt=0\nwhile [ ! -e .commit-release ] && [ \"$attempt\" -lt 500 ]; do attempt=$((attempt+1)); sleep 0.01; done\n")?;
+    std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755))?;
+    let task = tokio::spawn(operation.execute_with_notice());
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while !repo.path().join(".commit-ready").exists() {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await?;
+    std::fs::write(repo.path().join("other.txt"), "newer external staging\n")?;
+    exec_git_cmd(&["add", "other.txt"], repo.path());
+    let external_index = std::fs::read(repo.path().join(".git/index"))?;
+    std::fs::write(repo.path().join(".commit-release"), "continue")?;
+    let notice = tokio::time::timeout(Duration::from_secs(10), task).await???;
+    assert!(notice.is_some_and(|notice| notice.contains("Newer staging")));
+    assert_eq!(
+        std::fs::read(repo.path().join(".git/index"))?,
+        external_index
+    );
+    let committed = std::process::Command::new("git")
+        .arg("-C")
+        .arg(repo.path())
+        .args(["show", "HEAD:other.txt"])
+        .output()?;
+    assert!(committed.status.success());
+    assert_eq!(committed.stdout, b"other\n");
+    assert!(statuses(repo.path())
+        .iter()
+        .any(|status| status.path().ends_with("other.txt") && status.staged.is_some()));
+    Ok(())
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn commit_preserves_trusted_hook_index_updates_and_existing_index_locks() -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    let repo = initial();
+    std::fs::write(repo.path().join("file.txt"), "reviewed\n")?;
+    exec_git_cmd(&["add", "file.txt"], repo.path());
+    let hook = repo.path().join(".git/hooks/pre-commit");
+    std::fs::write(
+        &hook,
+        "#!/bin/sh\nprintf 'formatted by hook\\n' > file.txt\ngit add file.txt\n",
+    )?;
+    std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755))?;
+    let git = GitRepository::discover(repo.path())?;
+    // Hook-staged work survives a failed attempt just as it does with ordinary Git.
+    std::fs::write(
+        &hook,
+        "#!/bin/sh\nprintf 'formatted by hook\\n' > file.txt\ngit add file.txt\nexit 1\n",
+    )?;
+    assert!(git
+        .commit_snapshot(true)?
+        .prepare("failed hook", true)?
+        .execute()
+        .await
+        .is_err());
+    let staged = std::process::Command::new("git")
+        .arg("-C")
+        .arg(repo.path())
+        .args(["show", ":file.txt"])
+        .output()?;
+    assert!(staged.status.success());
+    assert_eq!(staged.stdout, b"formatted by hook\n");
+    std::fs::write(
+        &hook,
+        "#!/bin/sh\nprintf 'formatted by hook\\n' > file.txt\ngit add file.txt\n",
+    )?;
+    let notice = git
+        .commit_snapshot(true)?
+        .prepare("formatted commit", true)?
+        .execute_with_notice()
+        .await?;
+    assert!(notice.is_none());
+    assert!(statuses(repo.path()).is_empty());
+    assert_eq!(
+        std::fs::read_to_string(repo.path().join("file.txt"))?,
+        "formatted by hook\n"
+    );
+    std::fs::remove_file(hook)?;
+    std::fs::write(repo.path().join("file.txt"), "another change\n")?;
+    exec_git_cmd(&["add", "file.txt"], repo.path());
+    let operation = git.commit_snapshot(true)?.prepare("lock kept", true)?;
+    let index = std::fs::read(repo.path().join(".git/index"))?;
+    let lock = repo.path().join(".git/index.lock");
+    std::fs::write(&lock, "another process")?;
+    let notice = operation.execute_with_notice().await?;
+    assert!(notice.is_some_and(|notice| notice.contains("could not be locked")));
+    assert_eq!(std::fs::read_to_string(lock)?, "another process");
+    assert_eq!(std::fs::read(repo.path().join(".git/index"))?, index);
+    Ok(())
+}
+
+#[tokio::test]
+async fn commit_private_index_preserves_merge_and_cherry_pick_state() -> Result<()> {
+    let repo = initial();
+    exec_git_cmd(&["checkout", "-b", "feature"], repo.path());
+    std::fs::write(repo.path().join("file.txt"), "feature\n")?;
+    create_commit_with_message(repo.path(), true, "feature");
+    exec_git_cmd(&["checkout", "main"], repo.path());
+    std::fs::write(repo.path().join("other.txt"), "main\n")?;
+    create_commit_with_message(repo.path(), true, "main");
+    exec_git_cmd(&["merge", "--no-commit", "--no-ff", "feature"], repo.path());
+    let git = GitRepository::discover(repo.path())?;
+    assert!(git.git_dir.join("MERGE_HEAD").exists());
+    git.commit_snapshot(true)?
+        .prepare("merge feature", true)?
+        .execute()
+        .await?;
+    assert_eq!(git.open(true)?.head_commit()?.parent_ids().count(), 2);
+    assert!(!git.git_dir.join("MERGE_HEAD").exists());
+    assert!(statuses(repo.path()).is_empty());
+
+    exec_git_cmd(&["checkout", "-b", "pick-source"], repo.path());
+    std::fs::write(repo.path().join("other.txt"), "picked\n")?;
+    create_commit_with_message(repo.path(), true, "pick source");
+    let pick = git.open(true)?.head_commit()?.id.to_string();
+    exec_git_cmd(&["checkout", "main"], repo.path());
+    std::fs::write(repo.path().join("other.txt"), "conflicting main\n")?;
+    create_commit_with_message(repo.path(), true, "conflicting main");
+    let failed = std::process::Command::new("git")
+        .arg("-C")
+        .arg(repo.path())
+        .args(["cherry-pick", &pick])
+        .env_remove("GIT_DIR")
+        .output()?;
+    assert!(!failed.status.success());
+    assert!(git.git_dir.join("CHERRY_PICK_HEAD").exists());
+    std::fs::write(repo.path().join("other.txt"), "resolved\n")?;
+    exec_git_cmd(&["add", "other.txt"], repo.path());
+    git.commit_snapshot(true)?
+        .prepare("resolved cherry pick", true)?
+        .execute()
+        .await?;
+    assert_eq!(git.open(true)?.head_commit()?.parent_ids().count(), 1);
+    assert!(!git.git_dir.join("CHERRY_PICK_HEAD").exists());
+    assert!(statuses(repo.path()).is_empty());
+    Ok(())
+}
