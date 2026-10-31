@@ -27,6 +27,8 @@ mod conflicts;
 mod picker;
 pub use picker::ChangeReviewPreview;
 pub(crate) mod document;
+mod hunk;
+pub use hunk::HunkReviewView;
 
 /// Compact presentation for hunk popups and picker previews.
 pub struct ReviewView {
@@ -196,6 +198,7 @@ impl Component for ReviewView {
                             .horizontal
                             .saturating_add(8)
                             .min(self.review.max_line_chars()),
+                        DiffAction::Restore => return EventResult::Ignored(None),
                     };
                 }
                 EventResult::Consumed(None)

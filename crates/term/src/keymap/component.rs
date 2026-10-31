@@ -113,6 +113,7 @@ pub enum BlameAction {
 pub enum DiffAction {
     ScrollLeft,
     ScrollRight,
+    Restore,
 }
 
 /// Terminal component maps, resolved from defaults and user configuration.
@@ -302,6 +303,7 @@ impl Default for ComponentKeymaps {
             diff: bindings(&[
                 ("left", DiffAction::ScrollLeft),
                 ("right", DiffAction::ScrollRight),
+                ("r", DiffAction::Restore),
             ]),
             blame: bindings(&[
                 ("y", BlameAction::CopyCommitId),
