@@ -32,6 +32,16 @@ pub(super) fn goto_previous_buffer(cx: &mut Context) {
     goto_buffer(cx.editor, Direction::Backward, cx.count());
 }
 
+pub(super) fn move_buffer_up(editor: &mut Editor) {
+    let current = view!(editor).document_id();
+    editor.move_document_up(current, 1);
+}
+
+pub(super) fn move_buffer_down(editor: &mut Editor) {
+    let current = view!(editor).document_id();
+    editor.move_document_down(current, 1);
+}
+
 pub(super) fn goto_buffer(editor: &mut Editor, direction: Direction, count: usize) {
     let current = view!(editor).document_id();
 
