@@ -10,7 +10,7 @@ preferred-dark-theme = "colibri"
 git-repository-url = "https://github.com/mitos-editor/mitos"
 edit-url-template = "https://github.com/mitos-editor/mitos/edit/main/book/{path}"
 additional-css = ["custom.css"]
-additional-js = ["ts-query.js", "page-toc.js"]
+additional-js = ["ts-query.js", "page-toc.js", "doc-versions.js"]
 no-section-label = true
 sidebar-header-nav = false
 

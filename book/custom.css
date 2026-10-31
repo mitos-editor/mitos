@@ -151,7 +151,7 @@ input:focus-visible {
   top: 0 !important;
   z-index: 102;
   display: grid;
-  grid-template-columns: minmax(180px, var(--sidebar-width)) minmax(220px, 300px) minmax(180px, var(--sidebar-width));
+  grid-template-columns: minmax(180px, var(--sidebar-width)) minmax(220px, 300px) minmax(280px, var(--sidebar-width));
   align-items: center;
   justify-content: space-between;
   gap: 16px;
@@ -784,7 +784,7 @@ pre>.buttons button {
 
 @media only screen and (max-width: 480px) {
   #mdbook-menu-bar {
-    grid-template-columns: auto 34px 34px;
+    grid-template-columns: auto 34px auto;
     gap: 8px;
     padding: 0 10px;
   }
@@ -793,7 +793,7 @@ pre>.buttons button {
     gap: 0;
   }
 
-  #mdbook-menu-bar .right-buttons> :not(#mdbook-theme-toggle):not(#mdbook-theme-list) {
+  #mdbook-menu-bar .right-buttons> :not(#mdbook-theme-toggle):not(#mdbook-theme-list):not(#doc-version) {
     display: none;
   }
 
@@ -843,5 +843,28 @@ pre>.buttons button {
   .content {
     display: block;
     padding: 0;
+  }
+}
+
+/* Keep the version visible on small screens as well as desktop. */
+#doc-version {
+  max-width: 170px;
+  min-width: 0;
+  height: 30px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+  font-size: 1.2rem;
+}
+
+@media only screen and (max-width: 480px) {
+  .header-brand span {
+    display: none;
+  }
+
+  #doc-version {
+    max-width: 140px;
   }
 }
