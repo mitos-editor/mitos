@@ -118,16 +118,16 @@
 | `symbol_picker` | Open symbol picker |  |
 | `syntax_symbol_picker` | Open symbol picker from syntax information |  |
 | `lsp_or_syntax_symbol_picker` | Open symbol picker from LSP or syntax information | normal: `` <space>s ``, select: `` <space>s `` |
-| `show_change` | Show the current change against HEAD | normal: `` <space>i ``, `` <space>gi ``, select: `` <space>i ``, `` <space>gi `` |
+| `show_change` | Show hunk diff | normal: `` <space>i ``, `` <space>gi ``, select: `` <space>i ``, `` <space>gi `` |
 | `goto_next_conflict` | Go to the next unresolved conflict | normal: `` ]m ``, select: `` ]m `` |
 | `goto_previous_conflict` | Go to the previous unresolved conflict | normal: `` [m ``, select: `` [m `` |
-| `blame_line` | Show commit details for the current line | normal: `` <space>gb ``, select: `` <space>gb `` |
-| `toggle_inline_blame` | Toggle inline Git blame | normal: `` <space>B ``, `` <space>gt ``, select: `` <space>B ``, `` <space>gt `` |
-| `git_history` | Browse Git commits and their changed files in the current repository | normal: `` <space>gl ``, select: `` <space>gl `` |
-| `git_file_history` | Browse the current file history across renames | normal: `` <space>gf ``, select: `` <space>gf `` |
-| `git_stash_picker` | Browse Git stashes in the current repository | normal: `` <space>gS ``, select: `` <space>gS `` |
-| `changed_file_picker` | Open changed file picker in workspace | normal: `` <space>gs ``, select: `` <space>gs `` |
-| `diff` | Review all changes in the current file in a read-only buffer | normal: `` <space>gd ``, select: `` <space>gd `` |
+| `blame_line` | Show line blame | normal: `` <space>gb ``, select: `` <space>gb `` |
+| `toggle_inline_blame` | Toggle inline blame | normal: `` <space>B ``, `` <space>gt ``, select: `` <space>B ``, `` <space>gt `` |
+| `git_history` | Browse commits | normal: `` <space>gl ``, select: `` <space>gl `` |
+| `git_file_history` | Browse file history | normal: `` <space>gf ``, select: `` <space>gf `` |
+| `git_stash_picker` | Browse stashes | normal: `` <space>gS ``, select: `` <space>gS `` |
+| `changed_file_picker` | Browse changed files | normal: `` <space>gs ``, select: `` <space>gs `` |
+| `diff` | Show file diff | normal: `` <space>gd ``, select: `` <space>gd `` |
 | `diff_refresh` | Retry loading the current diff review buffer |  |
 | `diff_open_source` | Jump from a diff review to its source location | normal: `` <ret> ``, select: `` <ret> `` |
 | `diff_open_file` | Open the current file from a diff review |  |
