@@ -66,14 +66,14 @@ pub fn selection_pattern(text: RopeSlice, selection: &Selection, word_boundaries
     use crate::chars::char_is_word;
     let word_start = |index| {
         index < text.len_chars()
-            && char_is_word(text.char(index))
-            && (index == 0 || !char_is_word(text.char(index - 1)))
+            && char_is_word(text.char_at(index))
+            && (index == 0 || !char_is_word(text.char_at(index - 1)))
     };
     let word_end = |index| {
         index > 0
             && index < text.len_chars()
-            && char_is_word(text.char(index - 1))
-            && !char_is_word(text.char(index))
+            && char_is_word(text.char_at(index - 1))
+            && !char_is_word(text.char_at(index))
     };
     selection
         .iter()
@@ -270,6 +270,31 @@ mod buffer_tests {
                 .range,
                 found.range
             );
+        }
+    }
+
+    #[test]
+    fn selection_patterns_detect_unicode_word_boundaries() {
+        for (text, from, to, expected) in [
+            ("中\n", 0, 1, r"\b中\b"),
+            ("中文\n", 0, 1, r"\b中"),
+            ("中文\n", 1, 2, r"文\b"),
+            ("中文本\n", 1, 2, "文"),
+            ("前 中 后\n", 2, 3, r"\b中\b"),
+            ("éclair\n", 0, 6, r"\béclair\b"),
+            ("𐐀\n", 0, 1, r"\b𐐀\b"),
+            ("😀中!\n", 1, 2, r"\b中\b"),
+            ("é 😀 中\n", 2, 3, "😀"),
+        ] {
+            let text = Rope::from(text);
+            for (anchor, head) in [(from, to), (to, from)] {
+                let selection = Selection::single(anchor, head);
+                assert_eq!(
+                    selection_pattern(text.slice(..), &selection, true),
+                    expected,
+                    "text: {text:?}, selection: {selection:?}"
+                );
+            }
         }
     }
 

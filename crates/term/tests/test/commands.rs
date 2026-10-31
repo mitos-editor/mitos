@@ -152,6 +152,30 @@ async fn search_selection_detect_word_boundaries_at_eof() -> anyhow::Result<()> 
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn search_selection_detect_word_boundaries_on_unicode() -> anyhow::Result<()> {
+    let mut app = AppBuilder::new()
+        .with_input_text("中#[文|]# 中文字 文\n")
+        .build()?;
+
+    test_key_sequence(
+        &mut app,
+        Some("*n"),
+        Some(&|app| {
+            assert_eq!(app.editor.first_register_value('/').unwrap(), r"文\b");
+            let (view, doc) = view::current_ref!(app.editor);
+            assert_eq!(
+                editor_core::test::plain(doc.text().slice(..), doc.selection(view.id)),
+                "中文 中文字 #[文|]#\n"
+            );
+        }),
+        false,
+    )
+    .await?;
+
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn search_prev_from_past_last_match_without_wrap_around() -> anyhow::Result<()> {
     let mut config = test_config();
     config.editor.search.wrap_around = false;
