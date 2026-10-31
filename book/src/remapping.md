@@ -83,7 +83,7 @@ C-n = "unbound" # Release this key to the picker's prompt.
 C-x = "close_buffer" # Close the selected buffer and keep the picker open.
 
 [keys.git-picker]
-C-x = "actions"
+C-x = "stage"
 
 [keys.stash-picker]
 C-x = "apply_stash"
@@ -137,9 +137,9 @@ belong in `keys.normal`, `keys.insert`, and `keys.select`.
 | `keys.picker` | `accept`, `accept_keep_open`, `accept_horizontal_split`, `accept_vertical_split`, `cancel`, `move_up`, `move_down`, `move_start`, `move_end`, `page_up`, `page_down`, `toggle_preview`, `populate_quicklist`, `toggle_replacement`, `toggle_case_sensitive`, `replace_all`, `preview_scroll_up`, `preview_scroll_down`, `preview_previous`, `preview_next`, `open_preview` |
 | `keys.buffer-picker` | All `keys.picker` actions, plus `close_buffer` |
 | `keys.quicklist-picker` | All `keys.picker` actions, plus `remove_entry` |
-| `keys.git-picker` | All `keys.picker` actions, plus `stage`, `unstage`, `stash`, `actions`, `stashes` |
-| `keys.stash-picker` | All `keys.picker` actions, plus `apply_stash`, `apply_stash_with_index`, `actions` |
-| `keys.history-picker` | All `keys.picker` actions, plus `actions`, `back` |
+| `keys.git-picker` | All `keys.picker` actions, plus `stage`, `unstage`, `stash` |
+| `keys.stash-picker` | All `keys.picker` actions, plus `apply_stash`, `apply_stash_with_index` |
+| `keys.history-picker` | All `keys.picker` actions, plus `open_version`, `compare_buffer`, `compare_parent`, `back` |
 | `keys.menu` | `accept`, `cancel`, `move_up`, `move_down`, `page_up`, `page_down` |
 | `keys.popup` | `cancel`, `scroll_up`, `scroll_down` |
 | `keys.hover`, `keys.signature-help` | `previous`, `next` |

@@ -245,11 +245,9 @@ workspace.
 | `Alt-s` | Stage the selected file as it exists on disk |
 | `Alt-u` | Unstage the selected file, keeping its working copy |
 | `Alt-z` | Stash all repository changes, after confirmation |
-| `Alt-l` | Browse stashes |
 
 The picker shows these shortcuts below the file list, including any remappings.
-`Alt-a` offers the same actions in a menu. Staging and unstaging keep the query
-and selected file.
+Staging and unstaging keep the query and selected file.
 
 Staging does not save unsaved buffer edits. Staging and unstaging affect the
 entire file, including both paths of a rename.
@@ -309,13 +307,12 @@ using `stage`, `unstage`, and `stage_and_next`.
 
 ### Stashes
 
-Press `Alt-l` in the changed-file picker or choose `git_stash_picker` from the
+Run `:vcs-stashes`, press `Space g S`, or choose `git_stash_picker` from the
 command palette to browse the newest 500 stashes. Press `Enter` to browse a
 stash's saved staged version, working tree, and untracked files, then `Enter` on
 a file to review its saved changes. `Alt-Enter` keeps the picker open.
 
-In the stash picker, use these shortcuts directly or choose an action with
-`Alt-a`:
+In the stash picker, use these shortcuts:
 
 | Key | Action |
 | --- | --- |
@@ -347,9 +344,15 @@ Press `Enter` to open the diff in a review buffer. `Ctrl-v` / `Ctrl-s` open it i
 vertical / horizontal split. `Space '` restores the picker with its query and
 selection, so you can open another comparison alongside it.
 
-Use `Alt-a` to open the file's version at that commit or choose another parent
-of a merge commit. When browsing from an editable file buffer, it also offers a
-comparison with that buffer, including unsaved edits.
+Use these shortcuts directly on the selected commit:
+
+| Key | Action |
+| --- | --- |
+| `Alt-v` | Open the file's historical version |
+| `Alt-e` | Compare the revision with the current buffer, including unsaved edits |
+| `Alt-p` | Choose a parent to compare against |
+
+Comparing with the buffer requires an editable buffer for that file.
 
 File history follows the first parent of a merge: the previous commit on the
 branch that received the merge. Use repository history to see individual commits
@@ -363,9 +366,9 @@ or the current directory when no file is open. Run the command again after
 switching branches to browse the new branch.
 
 Select a commit, then a changed file to preview and review its diff. Merges
-compare with their first parent by default; use `Alt-a` to choose another parent.
-`Alt-a` also offers historical versions and comparisons with an open buffer for
-that file.
+compare with their first parent by default; use `Alt-p` to choose another parent.
+In the changed-file browser, `Alt-v` opens the historical version and `Alt-e`
+compares it with an open editable buffer for that file, including unsaved edits.
 
 In the changed-file browser, `Alt-h` returns to the commit browser with its query
 and selection. `Space '` restores the last picker after opening a review.

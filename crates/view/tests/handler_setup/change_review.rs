@@ -1436,3 +1436,50 @@ async fn inspected_hunk_restoration_rejects_changed_buffer_and_repository() -> a
     assert_eq!(current_ref!(f.editor).1.text().to_string(), "newer\n");
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn saved_head_review_stages_disk_without_unsaved_buffer_edits() -> anyhow::Result<()> {
+    let mut f = Fixture::new("before\n")?;
+    prepare(&mut f, "initial");
+    let path = current_ref!(f.editor).1.path().unwrap().to_owned();
+    std::fs::write(&path, "saved\n")?;
+    f.replace("unsaved\n");
+    let request = review_request(&f, &path, ReviewComparison::HeadToWorktree);
+    let id = f.editor.open_review(request, Action::Replace, None);
+    finish_review(&mut f, id).await?;
+    let (view, doc) = current!(f.editor);
+    let row = (0..doc.text().len_lines(stdx::rope::LINE_TYPE))
+        .find(|row| {
+            doc.review().unwrap().row(*row).is_some_and(|line| {
+                line.kind == view::features::change_review::ReviewLineKind::Added
+            })
+        })
+        .unwrap();
+    doc.set_selection(view.id, Selection::point(doc.text().line_to_char_idx(row)));
+    let (request, _) = view::features::git_operations::partial::capture(
+        &f.editor,
+        vcs::operations::FileOperation::Stage,
+        false,
+        false,
+    )?;
+    request
+        .prepare()
+        .await?
+        .admit(&mut f.editor)?
+        .execute()
+        .await
+        .finish(&mut f.editor);
+    let output = std::process::Command::new("git")
+        .arg("show")
+        .arg(format!(":{}", path.file_name().unwrap().to_str().unwrap()))
+        .current_dir(f.dir.path())
+        .output()?;
+    assert!(output.status.success());
+    assert_eq!(String::from_utf8(output.stdout)?, "saved\n");
+    assert_eq!(std::fs::read_to_string(&path)?, "saved\n");
+    assert_eq!(
+        f.editor.document_by_path(&path).unwrap().text().to_string(),
+        "unsaved\n"
+    );
+    Ok(())
+}

@@ -151,6 +151,7 @@ pub fn capture(
                 buffer: review.comparison() == ReviewComparison::Buffer,
             },
             ReviewComparison::Head => PartialSource::Buffer(text),
+            ReviewComparison::HeadToWorktree => PartialSource::Worktree,
             ReviewComparison::Historical => unreachable!(),
         };
         let mut ranges = Vec::new();
@@ -188,7 +189,11 @@ pub fn capture(
         if selected_lines {
             if staged {
                 review_rows = Some((after_rows, before_rows));
-            } else if kind == FileOperation::Stage && review.comparison() != ReviewComparison::Head
+            } else if kind == FileOperation::Stage
+                && !matches!(
+                    review.comparison(),
+                    ReviewComparison::Head | ReviewComparison::HeadToWorktree
+                )
             {
                 review_rows = Some((before_rows, after_rows));
             } else if kind == FileOperation::Stage && after_rows.is_empty() {

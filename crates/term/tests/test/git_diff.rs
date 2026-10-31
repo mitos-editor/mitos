@@ -524,7 +524,11 @@ async fn file_history_restores_query_opens_splits_and_historical_syntax() -> any
     git(&workspace, &["add", "."]);
     git(&workspace, &["commit", "-m", "changed history"]);
     let mut app = AppBuilder::new().with_file(&path, None).build()?;
-    keys(&mut app, ":file-history<ret>changed history").await?;
+    keys(
+        &mut app,
+        "I// unsaved buffer<ret><esc>:file-history<ret>changed history",
+    )
+    .await?;
     preview_contains(&mut app, "old_version").await?;
     assert!(
         current_ref!(app.editor).1.review().is_none(),
@@ -564,7 +568,7 @@ async fn file_history_restores_query_opens_splits_and_historical_syntax() -> any
         "historical source uses the ordinary language syntax tree"
     );
     assert!(doc.path().is_none());
-    keys(&mut app, "<space>'<A-a>Open historical version<ret>").await?;
+    keys(&mut app, "<space>'<A-v>").await?;
     tokio::time::timeout(Duration::from_secs(10), async {
         while !current_ref!(app.editor)
             .1
@@ -580,6 +584,17 @@ async fn file_history_restores_query_opens_splits_and_historical_syntax() -> any
     let (_, doc) = current_ref!(app.editor);
     assert!(doc.review().is_none() && doc.is_content_readonly());
     assert!(doc.syntax().is_some());
+    keys(&mut app, "<space>'<A-e>").await?;
+    ready(&mut app).await?;
+    let (_, doc) = current_ref!(app.editor);
+    assert!(doc.review().is_some());
+    assert!(doc.text().to_string().contains("// unsaved buffer"));
+    assert_eq!(
+        std::fs::read_to_string(&path)?,
+        "fn new_version() { let value = 2; }\n"
+    );
+    keys(&mut app, "<space>'").await?;
+    preview_contains(&mut app, "old_version").await?;
     assert!(app.close().await.is_empty());
     Ok(())
 }
@@ -655,7 +670,7 @@ async fn repository_history_selects_merge_parents_and_retains_nested_browsers() 
     // Restore the file browser, return to its commit browser, and choose the second parent.
     keys(&mut app, "<space>'<A-h>").await?;
     preview_contains(&mut app, &head[..12]).await?;
-    keys(&mut app, "<A-a>parent 2").await?;
+    keys(&mut app, "<A-p>parent 2").await?;
     // Let the asynchronous matcher select the requested parent before accepting it.
     preview_contains(&mut app, "Review against parent 2 (").await?;
     keys(&mut app, "<ret>main.rs").await?;
