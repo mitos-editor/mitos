@@ -13,7 +13,6 @@ use text_layout::DisplayPosition;
 use ui_core::input::{MouseEvent, MouseEventKind};
 use view::{graphics::Rect, Editor};
 
-const MIN_HEIGHT: u16 = 6;
 const MAX_HEIGHT: u16 = 26;
 const MAX_WIDTH: u16 = 120;
 
@@ -155,70 +154,52 @@ impl<T: Component> Popup<T> {
             self.position = Some(position);
         }
 
-        // -- make sure frame doesn't stick out of bounds
-        let mut rel_x = position.col as u16;
-        let mut rel_y = position.row as u16;
+        self.render_info_at(viewport, position)
+    }
 
-        // if there's a orientation preference, use that
-        // if we're on the top part of the screen, do below
-        // if we're on the bottom part, do above
-        let can_put_below = viewport.height > rel_y + MIN_HEIGHT;
-        let can_put_above = rel_y.checked_sub(MIN_HEIGHT).is_some();
-        let final_pos = match self.position_bias {
-            Open::Below => match can_put_below {
-                true => Open::Below,
-                false => Open::Above,
-            },
-            Open::Above => match can_put_above {
-                true => Open::Above,
-                false => Open::Below,
-            },
-        };
+    fn render_info_at(&mut self, viewport: Rect, position: DisplayPosition) -> RenderInfo {
+        // Cursor positions are absolute screen coordinates. Clamp before narrowing
+        // to u16 so a stale anchor cannot escape a resized viewport.
+        let anchor_y = position.row.clamp(
+            viewport.y as usize,
+            viewport.bottom().saturating_sub(1).max(viewport.y) as usize,
+        ) as u16;
+        let above = anchor_y.saturating_sub(viewport.y);
+        let below = viewport.bottom().saturating_sub(anchor_y.saturating_add(1));
 
-        // compute maximum space available for child
-        let mut max_height = match final_pos {
-            Open::Above => rel_y,
-            Open::Below => viewport.height.saturating_sub(1 + rel_y),
-        };
-        max_height = max_height.min(MAX_HEIGHT);
+        // Measure using the larger side first. Measuring only in the preferred
+        // direction lets height-constrained children hide how much space they need.
+        let mut max_height = above.max(below).min(MAX_HEIGHT);
         let mut max_width = viewport.width.saturating_sub(2).min(MAX_WIDTH);
         let render_borders = max_height > 3 && max_width > 3;
-        if render_borders {
-            max_width -= 2;
-            max_height -= 2;
-        }
-
-        // compute required child size and reclamp
-        let (mut width, child_height) = self
+        let border = if render_borders { 2 } else { 0 };
+        max_width -= border;
+        max_height -= border;
+        let (width, child_height) = self
             .contents
             .required_size((max_width, max_height))
             .expect("Component needs required_size implemented in order to be embedded in a popup");
+        let height = child_height.saturating_add(border).min(MAX_HEIGHT);
 
-        width = width.min(MAX_WIDTH);
-        let height = if render_borders {
-            (child_height + 2).min(MAX_HEIGHT)
+        // Keep the preference when the popup fits. Otherwise use the side with
+        // more room, retaining the preference on ties to keep placement stable.
+        let put_above = match self.position_bias {
+            Open::Above => height <= above || above >= below,
+            Open::Below => height > below && above > below,
+        };
+        let height = height.min(if put_above { above } else { below });
+        let width = width.min(max_width).saturating_add(border);
+        let right = viewport.right().saturating_sub(viewport.width.min(2));
+        let x = position.col.clamp(
+            viewport.x as usize,
+            right.saturating_sub(width).max(viewport.x) as usize,
+        ) as u16;
+        let y = if put_above {
+            anchor_y - height
         } else {
-            child_height.min(MAX_HEIGHT)
+            anchor_y.saturating_add(1).min(viewport.bottom())
         };
-        if render_borders {
-            width += 2;
-        }
-        if viewport.width <= rel_x + width + 2 {
-            rel_x = viewport.width.saturating_sub(width + 2);
-            width = viewport.width.saturating_sub(rel_x + 2)
-        }
-
-        let area = match final_pos {
-            Open::Above => {
-                rel_y = rel_y.saturating_sub(height);
-                Rect::new(rel_x, rel_y, width, position.row as u16 - rel_y)
-            }
-            Open::Below => {
-                rel_y += 1;
-                let y_max = viewport.bottom().min(height + rel_y);
-                Rect::new(rel_x, rel_y, width, y_max - rel_y)
-            }
-        };
+        let area = Rect::new(x, y, width, height);
         RenderInfo {
             area,
             child_height,
@@ -411,7 +392,8 @@ fn clamp_scroll(half_pages: &mut usize, half_page_size: usize, max_offset: usize
 
 #[cfg(test)]
 mod tests {
-    use super::clamp_scroll;
+    use super::*;
+    use crate::ui::Text;
 
     #[test]
     fn clamped_scroll_is_stable_across_frames() {
@@ -434,5 +416,114 @@ mod tests {
         let mut half_pages = 3;
         assert_eq!(clamp_scroll(&mut half_pages, 10, 0), 0);
         assert_eq!(half_pages, 0);
+    }
+
+    fn text_popup(lines: usize, bias: Open) -> Popup<Text> {
+        Popup::new("test", Text::new(vec!["line"; lines].join("\n"))).position_bias(bias)
+    }
+
+    #[test]
+    fn preferred_side_is_kept_when_content_fits_including_borders() {
+        let viewport = Rect::new(0, 0, 80, 30);
+        for (bias, row, expected_y) in [(Open::Below, 22, 23), (Open::Above, 6, 0)] {
+            let info =
+                text_popup(4, bias).render_info_at(viewport, DisplayPosition { row, col: 4 });
+            assert_eq!(info.area, Rect::new(4, expected_y, 6, 6));
+        }
+    }
+
+    #[test]
+    fn above_preference_flips_below_when_it_has_more_room() {
+        let info = text_popup(16, Open::Above)
+            .render_info_at(Rect::new(0, 0, 80, 30), DisplayPosition { row: 7, col: 4 });
+        assert_eq!(info.area, Rect::new(4, 8, 6, 18));
+    }
+
+    #[test]
+    fn equal_space_preserves_preference_and_height_cap() {
+        for (bias, expected_y) in [(Open::Above, 4), (Open::Below, 31)] {
+            let info = text_popup(50, bias)
+                .render_info_at(Rect::new(0, 0, 80, 61), DisplayPosition { row: 30, col: 4 });
+            assert_eq!(info.area, Rect::new(4, expected_y, 6, MAX_HEIGHT));
+        }
+    }
+
+    #[test]
+    fn wrapped_content_is_measured_before_choosing_a_side() {
+        let mut popup = Popup::new("test", Text::new("x".repeat(60)));
+        let info =
+            popup.render_info_at(Rect::new(0, 0, 14, 30), DisplayPosition { row: 22, col: 0 });
+        assert_eq!(info.area, Rect::new(0, 14, 12, 8));
+    }
+
+    #[test]
+    fn short_popup_fits_below_even_with_fewer_than_six_rows() {
+        let info = text_popup(1, Open::Below)
+            .render_info_at(Rect::new(0, 0, 80, 30), DisplayPosition { row: 26, col: 4 });
+        assert_eq!(info.area, Rect::new(4, 27, 6, 3));
+    }
+
+    #[test]
+    fn review_keeps_full_content_height_for_scrolling() {
+        use crate::ui::change_review::ReviewView;
+        use view::features::change_review::Review;
+
+        let review = Review::new("old\n".repeat(30).into(), "new\n".repeat(30).into(), None);
+        let mut popup = Popup::new("test", ReviewView::new("hunk".into(), review));
+        let info =
+            popup.render_info_at(Rect::new(0, 0, 80, 40), DisplayPosition { row: 31, col: 4 });
+        assert_eq!(info.area, Rect::new(0, 5, 78, MAX_HEIGHT));
+        assert!(info.child_height > MAX_HEIGHT);
+        assert!(info.render_borders);
+    }
+
+    #[test]
+    fn placement_is_recomputed_after_resizing() {
+        let mut popup = text_popup(16, Open::Below);
+        let position = DisplayPosition { row: 22, col: 4 };
+        for (height, expected_y) in [(50, 23), (30, 4), (50, 23)] {
+            let info = popup.render_info_at(Rect::new(0, 0, 80, height), position);
+            assert_eq!(info.area, Rect::new(4, expected_y, 6, 18));
+        }
+    }
+
+    #[test]
+    fn popup_stays_inside_small_and_offset_viewports() {
+        for viewport in [
+            Rect::new(0, 0, 0, 0),
+            Rect::new(3, 5, 1, 1),
+            Rect::new(3, 5, 3, 3),
+            Rect::new(3, 5, 80, 30),
+        ] {
+            for position in [
+                DisplayPosition { row: 0, col: 0 },
+                DisplayPosition { row: 27, col: 80 },
+                DisplayPosition {
+                    row: usize::MAX,
+                    col: usize::MAX,
+                },
+            ] {
+                let area = text_popup(50, Open::Below)
+                    .render_info_at(viewport, position)
+                    .area;
+                assert_eq!(area.intersection(viewport), area);
+            }
+        }
+    }
+
+    #[test]
+    fn tall_popup_uses_space_above_instead_of_squeezing_below() {
+        let viewport = Rect::new(0, 0, 80, 30);
+        let mut popup = text_popup(16, Open::Below);
+        let info = popup.render_info_at(viewport, DisplayPosition { row: 22, col: 4 });
+        assert_eq!(info.area, Rect::new(4, 4, 6, 18));
+    }
+
+    #[test]
+    fn oversized_popup_uses_the_larger_side_when_neither_side_fits() {
+        let viewport = Rect::new(0, 0, 80, 24);
+        let mut popup = text_popup(50, Open::Below);
+        let info = popup.render_info_at(viewport, DisplayPosition { row: 16, col: 4 });
+        assert_eq!(info.area, Rect::new(4, 0, 6, 16));
     }
 }
