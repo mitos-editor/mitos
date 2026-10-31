@@ -3,7 +3,7 @@ use crate::{
     commands::Open,
     compositor::{Callback, Component, Context, Event, EventResult},
     key,
-    ui::panel,
+    ui::panel::{self, PopupBorder},
 };
 use tui::buffer::BufferExt as _;
 use tui::{buffer::Buffer as Surface, scrollbar, widgets::Widget};
@@ -45,6 +45,7 @@ pub struct Popup<T: Component> {
     id: &'static str,
     has_scrollbar: bool,
     kind: PopupKind,
+    border: PopupBorder,
 }
 
 impl<T: Component> Popup<T> {
@@ -61,6 +62,7 @@ impl<T: Component> Popup<T> {
             id,
             has_scrollbar: true,
             kind: PopupKind::default(),
+            border: PopupBorder::default(),
         }
     }
 
@@ -116,6 +118,12 @@ impl<T: Component> Popup<T> {
     /// already has its own.
     pub fn with_scrollbar(mut self, enable_scrollbar: bool) -> Self {
         self.has_scrollbar = enable_scrollbar;
+        self
+    }
+
+    /// Follow this feature's current border preference on each render.
+    pub fn with_border(mut self, border: PopupBorder) -> Self {
+        self.border = border;
         self
     }
 
@@ -354,7 +362,7 @@ impl<T: Component> Component for Popup<T> {
 
         let mut inner = area;
         if render_borders {
-            let block = panel::bordered(&cx.editor.theme, cx.editor.config().border_style);
+            let block = panel::bordered(&cx.editor.theme, self.border.resolve(&cx.editor.config()));
             inner = block.inner(area);
             Widget::render(block, area, surface);
         }

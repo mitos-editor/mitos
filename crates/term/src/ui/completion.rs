@@ -189,6 +189,7 @@ impl Completion {
         });
 
         let popup = Popup::new(Self::ID, menu)
+            .with_border(panel::PopupBorder::Completion)
             .menu_style()
             .with_scrollbar(false)
             .ignore_escape_key(true);
@@ -451,7 +452,10 @@ impl Component for Completion {
         surface.clear_with(doc_area, background);
 
         use tui::widgets::Widget;
-        let block = panel::bordered(&cx.editor.theme, cx.editor.config().border_style);
+        let block = panel::bordered(
+            &cx.editor.theme,
+            panel::PopupBorder::Completion.resolve(&cx.editor.config()),
+        );
         let markdown_area = block.inner(doc_area);
         Widget::render(block, doc_area, surface);
 

@@ -83,6 +83,7 @@ mod tests {
         let area = Rect::new(3, 5, 80, 24);
         let command_line = CommandLineConfig {
             show: editor_config::CommandLineShow::Auto,
+            ..Default::default()
         };
         for bufferline in [false, true] {
             for global in [false, true] {
@@ -107,6 +108,7 @@ mod tests {
     fn auto_command_line_stays_inside_tiny_areas() {
         let command_line = CommandLineConfig {
             show: editor_config::CommandLineShow::Auto,
+            ..Default::default()
         };
         for width in [0, 1, 80] {
             for height in [0, 1, 2, 3] {

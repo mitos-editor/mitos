@@ -19,6 +19,8 @@ pub fn show(
         return;
     }
     let contents = Hover::new(hovers, editor.syn_loader.clone());
-    let popup = Popup::new(Hover::ID, contents).auto_close(true);
+    let popup = Popup::new(Hover::ID, contents)
+        .with_border(crate::ui::PopupBorder::Hover)
+        .auto_close(true);
     compositor.replace_or_push(Hover::ID, popup);
 }

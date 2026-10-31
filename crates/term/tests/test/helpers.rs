@@ -316,10 +316,12 @@ pub fn test_config() -> Config {
 }
 
 pub fn test_editor_config() -> editor_config::Config {
-    let mut config = editor_config::Config::default();
     // The integration loop uses idle as a settling barrier after each input
     // sequence. Keep that barrier short; timing-specific tests can override it.
-    config.idle_timeout = Duration::from_millis(10);
+    let mut config = editor_config::Config {
+        idle_timeout: Duration::from_millis(10),
+        ..Default::default()
+    };
     // Watcher and word-completion tests opt in; unrelated tests avoid background work.
     config.files.watch.enable = false;
     config.files.watch.watch_vcs = false;

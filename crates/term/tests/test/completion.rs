@@ -1008,3 +1008,84 @@ async fn repeating_postfix_snippets_preserves_receiver_edits_tabstops_and_undo(
     }
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn completion_popup_and_documentation_share_the_live_border_override() -> anyhow::Result<()> {
+    use editor_config::{BorderStyle, BorderStyleOverride};
+    use term::{
+        compositor::{Component, Context},
+        job::Jobs,
+        ui::Completion,
+    };
+    use tui::buffer::Buffer;
+    use view::{editor::ConfigEvent, graphics::Rect};
+
+    let dir = tempfile::tempdir()?;
+    let mut f = Fixture::new(dir.path(), "ap\n", &["alpha"]).await?;
+    f.trigger();
+    let (mut items, session) = f.completion_with_count(2).await?;
+    for item in &mut items {
+        if let CompletionItem::Lsp(item) = item {
+            item.item.detail = None;
+            item.item.documentation = Some(lsp_client::lsp::Documentation::String(
+                "completion documentation".into(),
+            ));
+            item.resolved = true;
+        }
+    }
+    let mut config = test_config();
+    config.editor.completion.preview_insert = false;
+    f.app
+        .handle_config_events(ConfigEvent::Update(Box::new(config.editor.clone())));
+    let mut completion = Completion::new(&f.app.editor, items, session);
+    let viewport = Rect::new(0, 0, 120, 40);
+    let area = completion.area(viewport, &f.app.editor);
+    let mut jobs = Jobs::new();
+    let (updates, _receiver) = mpsc::unbounded_channel();
+    let mut selected = false;
+    for (global, preference, corner) in [
+        (
+            BorderStyle::Rounded,
+            BorderStyleOverride::Style(BorderStyle::None),
+            " ",
+        ),
+        (
+            BorderStyle::None,
+            BorderStyleOverride::Style(BorderStyle::Double),
+            "╔",
+        ),
+        (BorderStyle::Rounded, BorderStyleOverride::Inherit, "╭"),
+    ] {
+        config.editor.border_style = global;
+        config.editor.completion.border_style = preference;
+        f.app
+            .handle_config_events(ConfigEvent::Update(Box::new(config.editor.clone())));
+        let mut buffer = Buffer::empty(viewport);
+        let mut cx = Context {
+            config: term::config::Context {
+                current: &config,
+                updates: &updates,
+            },
+            editor: &mut f.app.editor,
+            scroll: None,
+            jobs: &mut jobs,
+            image_picker: None,
+            is_cursor_owner: false,
+        };
+        if !selected {
+            completion.handle_event(&ui_core::input::Event::Key("down".parse()?), &mut cx);
+            selected = true;
+        }
+        completion.render(viewport, &mut buffer, &mut cx);
+        assert_eq!(completion.area(viewport, &f.app.editor), area);
+        assert_eq!(buffer[(area.x, area.y)].symbol(), corner);
+        assert_eq!(buffer[(area.right(), area.y)].symbol(), corner);
+        let text: String = buffer.content.iter().map(|cell| cell.symbol()).collect();
+        assert!(text.contains("completion documentation"));
+        if corner == " " {
+            assert!(!text.contains(['╭', '╮', '╰', '╯', '─', '│', '═', '║']));
+        }
+    }
+    assert!(f.app.close().await.is_empty());
+    Ok(())
+}

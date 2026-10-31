@@ -119,11 +119,13 @@ For common examples, see [Configure Mitos](./editor.md).
 | `auto-info` | boolean | `true` | Display contextual information popups. |
 | `icons` | boolean | `false` | Show UI icons. The glyphs require a Nerd Font. |
 | `border-style` | `"none"`, `"plain"`, `"rounded"`, `"double"`, `"thick"`, `"quadrant-inside"`, or `"quadrant-outside"` | `"rounded"` | Border glyphs for panels, popups, menus, and separators. Use `"none"` to hide borders. This preference stays the same when switching themes; colors come from the theme. |
+| `info` | table | `{ border-style = "inherit" }` | Contextual information popup appearance. See [`[editor.info]`](#editorinfo). |
+| `shell-output` | table | `{ border-style = "inherit" }` | Shell command output popup appearance. See [`[editor.shell-output]`](#editorshell-output). |
 | `picker` | table | See below | Shared picker appearance. See [`[editor.picker]`](#editorpicker). |
 | `file-picker` | table | See below | File-picker and global-search traversal. See [`[editor.file-picker]`](#editorfile-picker). |
 | `file-explorer` | table | See below | File-explorer traversal. See [`[editor.file-explorer]`](#editorfile-explorer). |
 | `buffer-picker` | table | See below | Initial selection in the buffer picker. See [`[editor.buffer-picker]`](#editorbuffer-picker). |
-| `command-line` | table | `{ show = "always" }` | Command row visibility. See [`[editor.command-line]`](#editorcommand-line). |
+| `command-line` | table | `{ show = "always", border-style = "inherit" }` | Command row visibility and help popup appearance. See [`[editor.command-line]`](#editorcommand-line). |
 | `statusline` | table | See below | Statusline layout and labels. See [`[editor.statusline]`](#editorstatusline). |
 | `search` | table | See below | Search matching and wrap behavior. See [`[editor.search]`](#editorsearch). |
 | `lsp` | table | See below | Global LSP behavior. See [`[editor.lsp]`](#editorlsp). |
@@ -149,6 +151,47 @@ For common examples, see [Configure Mitos](./editor.md).
 | `mouse` | table | See below | See [`[editor.mouse]`](#editormouse). |
 | `rainbow-brackets` | table | See below | See [`[editor.rainbow-brackets]`](#editorrainbow-brackets). |
 | `scroll` | table | See below | See [`[editor.scroll]`](#editorscroll). |
+
+### Popup borders
+
+`editor.border-style` supplies the default border style. Floating UI features
+can override it with their own `border-style`, using the same styles or
+`"inherit"` (the default). Omitted overrides follow the global setting.
+
+For example, keep rounded borders elsewhere while hiding hover and completion
+borders:
+
+```toml
+[editor]
+border-style = "rounded"
+
+[editor.lsp.hover]
+border-style = "none"
+
+[editor.completion]
+border-style = "none"
+```
+
+A feature's setting also applies to its documentation panel and internal
+separators. `"none"` hides border glyphs while preserving spacing and scrolling.
+Pickers and persistent panels continue to use the global setting.
+
+Changes apply to open popups. For example, use `:set lsp.hover.border-style none`
+to hide hover borders or `:set lsp.hover.border-style inherit` to restore the
+global preference. A project can also explicitly use `"inherit"` to clear a
+user-level override for that feature.
+
+### `[editor.info]`
+
+| Key | Type / accepted values | Default | Description |
+| --- | --- | --- | --- |
+| `border-style` | border style or `"inherit"` | `"inherit"` | Borders around contextual information popups, such as keybinding hints. See [popup borders](#popup-borders). |
+
+### `[editor.shell-output]`
+
+| Key | Type / accepted values | Default | Description |
+| --- | --- | --- | --- |
+| `border-style` | border style or `"inherit"` | `"inherit"` | Borders around `:run-shell-command` output. See [popup borders](#popup-borders). |
 
 ### `[editor.scroll]`
 
@@ -185,6 +228,7 @@ For common examples, see [Configure Mitos](./editor.md).
 
 | Key | Type / accepted values | Default | Description |
 | --- | --- | --- | --- |
+| `border-style` | border style or `"inherit"` | `"inherit"` | Completion menu and documentation borders. See [popup borders](#popup-borders). |
 | `auto-trigger` | boolean | `true` | Show completion automatically. |
 | `snippets` | boolean | `true` | Offer [user-defined snippets](./snippets.md). |
 | `word` | table | `{ enable = true, trigger-length = 7 }` | Complete words from open buffers. See [`[editor.completion.word]`](#editorcompletionword). |
@@ -307,6 +351,7 @@ they handle the primary selection where the platform has one.
 
 | Key | Type / accepted values | Default | Description |
 | --- | --- | --- | --- |
+| `border-style` | border style or `"inherit"` | `"inherit"` | Command documentation popup borders. See [popup borders](#popup-borders). |
 | `show` | `"always"` or `"auto"` | `"always"` | Reserve a command row below the statusline, or reuse the bottom statusline when needed. |
 
 To reclaim the idle command row:
@@ -387,13 +432,17 @@ Available statusline elements:
 | `workspace-roots` | array of paths | `[]` | Workspace-relative directories that stop LSP root discovery. |
 | `progress.enable` | boolean | `false` | Show `$/progress` messages in the command area. |
 | `messages.enable` | boolean | `true` | Show `window/showMessage` messages in the command area. |
+| `hover.border-style` | border style or `"inherit"` | `"inherit"` | Hover popup borders, including syntax inspection hovers. See [popup borders](#popup-borders). |
 | `signature-help.auto-trigger` | boolean | `true` | Open signature help automatically. |
 | `signature-help.show-documentation` | boolean | `true` | Show documentation in signature help. |
+| `signature-help.border-style` | border style or `"inherit"` | `"inherit"` | Signature help popup borders and documentation separators. See [popup borders](#popup-borders). |
 | `inlay-hints.enable` | boolean | `false` | Render inlay hints. The server may also require configuration. |
 | `document-highlight.auto-trigger` | boolean | `true` | Highlight references to the symbol at the cursor. |
 | `inlay-hints.length-limit` | non-zero integer or unset | Unset | Truncate displayed inlay hints to this length. |
 | `color-swatches.enable` | boolean | `true` | Render swatches beside document colors. |
+| `code-actions.border-style` | border style or `"inherit"` | `"inherit"` | Code action menu borders. See [popup borders](#popup-borders). |
 | `code-lenses.enable` | boolean | `true` | Show code lens labels, such as run or test actions, beside code. Use `Space l` for the commands on the current line. |
+| `code-lenses.border-style` | border style or `"inherit"` | `"inherit"` | Code lens command menu borders. See [popup borders](#popup-borders). |
 | `completion.snippets` | boolean | `true` | Advertise and insert LSP snippet completions. A server restart is required after changing it. |
 | `references.include-declaration` | boolean | `true` | Include a symbol's declaration in reference results. |
 
@@ -582,6 +631,7 @@ enable delayed saving.
 
 | Key | Type | Default | Description |
 | --- | --- | --- | --- |
+| `border-style` | border style or `"inherit"` | `"inherit"` | Invalid search pattern popup borders; search result pickers use the global style. See [popup borders](#popup-borders). |
 | `smart-case` | boolean | `true` | Search case-insensitively unless the pattern contains an uppercase character. |
 | `wrap-around` | boolean | `true` | Continue at the other end of the document after the last match or change. |
 | `max-matches` | nonnegative integer or `"none"` | `100` | Limit the search-position counting scan; both the match index and total may be capped. `"none"` removes the match limit, while the time budget still applies. |
@@ -683,6 +733,7 @@ breakpoints; the code-action gutter indicates available actions.
 
 | Key | Type | Default | Description |
 | --- | --- | --- | --- |
+| `border-style` | border style or `"inherit"` | `"inherit"` | Blame details popup borders. See [popup borders](#popup-borders). |
 | `show` | string | `"never"` | Display blame on `"cursor-line"`, `"all-lines"`, or hide it with `"never"`. |
 | `format` | string | `"{author}, {time-ago} • {title} • {commit}"` | Blame message format. See [inline blame formatting](./version-control.md#format). |
 

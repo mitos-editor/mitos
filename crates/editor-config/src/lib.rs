@@ -214,6 +214,8 @@ pub enum InlineBlameShow {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case", default, deny_unknown_fields)]
 pub struct InlineBlameConfig {
+    /// Popup border glyphs; inherit the editor border style by default.
+    pub border_style: BorderStyleOverride,
     /// How to show the inline blame
     pub show: InlineBlameShow,
     /// How the inline blame should look like and the information it includes
@@ -223,6 +225,7 @@ pub struct InlineBlameConfig {
 impl Default for InlineBlameConfig {
     fn default() -> Self {
         Self {
+            border_style: BorderStyleOverride::Inherit,
             show: InlineBlameShow::Never,
             format: "{author}, {time-ago} • {title} • {commit}".to_owned(),
         }
@@ -341,6 +344,32 @@ pub enum BorderStyle {
     QuadrantOutside,
 }
 
+/// A popup border preference that follows the editor default when omitted.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum BorderStyleOverride {
+    #[default]
+    Inherit,
+    #[serde(untagged)]
+    Style(BorderStyle),
+}
+
+impl BorderStyleOverride {
+    pub fn resolve(self, default: BorderStyle) -> BorderStyle {
+        match self {
+            Self::Inherit => default,
+            Self::Style(style) => style,
+        }
+    }
+}
+
+/// Presentation settings shared by features whose only option is a popup border.
+#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
+pub struct PopupConfig {
+    pub border_style: BorderStyleOverride,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case", default, deny_unknown_fields)]
 pub struct Config {
@@ -373,6 +402,8 @@ pub struct Config {
     /// Whether to show icons in the user interface. Defaults to false.
     pub icons: bool,
     pub border_style: BorderStyle,
+    pub info: PopupConfig,
+    pub shell_output: PopupConfig,
     pub picker: PickerConfig,
     pub file_picker: FilePickerConfig,
     pub file_explorer: FileExplorerConfig,
@@ -593,6 +624,8 @@ pub struct LspConfig {
     pub workspace_roots: Vec<PathBuf>,
     pub progress: LspProgressConfig,
     pub messages: LspMessagesConfig,
+    pub hover: PopupConfig,
+    pub code_actions: PopupConfig,
     pub signature_help: LspSignatureHelpConfig,
     pub inlay_hints: LspInlayHintsConfig,
     pub document_highlight: LspDocumentHighlightConfig,
@@ -609,6 +642,8 @@ impl Default for LspConfig {
             workspace_roots: Vec::new(),
             progress: LspProgressConfig::default(),
             messages: LspMessagesConfig::default(),
+            hover: PopupConfig::default(),
+            code_actions: PopupConfig::default(),
             signature_help: LspSignatureHelpConfig::default(),
             inlay_hints: LspInlayHintsConfig::default(),
             document_highlight: LspDocumentHighlightConfig::default(),
@@ -641,6 +676,8 @@ impl Default for LspMessagesConfig {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
 pub struct LspSignatureHelpConfig {
+    /// Popup border glyphs; inherit the editor border style by default.
+    pub border_style: BorderStyleOverride,
     pub auto_trigger: bool,
     pub show_documentation: bool,
 }
@@ -648,6 +685,7 @@ pub struct LspSignatureHelpConfig {
 impl Default for LspSignatureHelpConfig {
     fn default() -> Self {
         Self {
+            border_style: BorderStyleOverride::Inherit,
             auto_trigger: true,
             show_documentation: true,
         }
@@ -688,12 +726,17 @@ impl Default for LspColorSwatchesConfig {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
 pub struct LspCodeLensesConfig {
+    /// Popup border glyphs; inherit the editor border style by default.
+    pub border_style: BorderStyleOverride,
     pub enable: bool,
 }
 
 impl Default for LspCodeLensesConfig {
     fn default() -> Self {
-        Self { enable: true }
+        Self {
+            border_style: BorderStyleOverride::Inherit,
+            enable: true,
+        }
     }
 }
 
@@ -735,6 +778,8 @@ pub enum OptionToml<T> {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case", default, deny_unknown_fields)]
 pub struct SearchConfig {
+    /// Popup border glyphs; inherit the editor border style by default.
+    pub border_style: BorderStyleOverride,
     /// Smart case: Case insensitive searching unless pattern contains upper case characters. Defaults to true.
     pub smart_case: bool,
     /// Whether search and change navigation wrap at document boundaries. Defaults to true.
@@ -746,6 +791,8 @@ pub struct SearchConfig {
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
 pub struct CommandLineConfig {
+    /// Popup border glyphs; inherit the editor border style by default.
+    pub border_style: BorderStyleOverride,
     pub show: CommandLineShow,
 }
 
@@ -1243,6 +1290,8 @@ impl Default for Config {
             auto_info: true,
             icons: false,
             border_style: BorderStyle::default(),
+            info: PopupConfig::default(),
+            shell_output: PopupConfig::default(),
             picker: PickerConfig::default(),
             file_picker: FilePickerConfig::default(),
             file_explorer: FileExplorerConfig::default(),
@@ -1301,6 +1350,7 @@ impl StatusLineConfig {
 impl Default for SearchConfig {
     fn default() -> Self {
         Self {
+            border_style: BorderStyleOverride::Inherit,
             wrap_around: true,
             smart_case: true,
             max_matches: OptionToml::Some(100),
@@ -1412,6 +1462,8 @@ pub enum BlockCursorRendering {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
 pub struct CompletionConfig {
+    /// Popup border glyphs; inherit the editor border style by default.
+    pub border_style: BorderStyleOverride,
     /// Offer user-defined snippets without requiring a language server.
     pub snippets: bool,
     /// Automatic auto-completion, automatically pop up without user trigger. Defaults to true.
@@ -1438,6 +1490,7 @@ pub struct CompletionConfig {
 impl Default for CompletionConfig {
     fn default() -> Self {
         Self {
+            border_style: BorderStyleOverride::Inherit,
             snippets: true,
             auto_trigger: true,
             word: WordCompletion::default(),
@@ -1636,6 +1689,59 @@ impl Default for PathCompletionConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn popup_border_overrides_inherit_round_trip_and_validate() {
+        let paths = [
+            "lsp.hover",
+            "completion",
+            "lsp.signature-help",
+            "lsp.code-actions",
+            "lsp.code-lenses",
+            "info",
+            "inline-blame",
+            "command-line",
+            "shell-output",
+            "search",
+        ];
+        for path in paths {
+            let defaults: Config = toml::from_str(&format!("[{path}]")).unwrap();
+            assert_eq!(defaults, Config::default(), "{path}");
+            for (name, expected) in [
+                ("inherit", BorderStyle::Double),
+                ("none", BorderStyle::None),
+                ("plain", BorderStyle::Plain),
+                ("rounded", BorderStyle::Rounded),
+                ("double", BorderStyle::Double),
+                ("thick", BorderStyle::Thick),
+                ("quadrant-inside", BorderStyle::QuadrantInside),
+                ("quadrant-outside", BorderStyle::QuadrantOutside),
+            ] {
+                let source = format!("border-style = 'double'\n[{path}]\nborder-style = '{name}'");
+                let config: Config = toml::from_str(&source).unwrap();
+                let serialized = toml::to_string(&config).unwrap();
+                assert_eq!(toml::from_str::<Config>(&serialized).unwrap(), config);
+                let table: toml::Value = toml::from_str(&serialized).unwrap();
+                let section = path.split('.').fold(&table, |value, key| &value[key]);
+                assert_eq!(section["border-style"].as_str(), Some(name));
+                let preference: BorderStyleOverride =
+                    section["border-style"].clone().try_into().unwrap();
+                assert_eq!(preference.resolve(config.border_style), expected);
+            }
+            for value in ["'invalid'", "true", "1", "[]", "{}"] {
+                let source = format!("[{path}]\nborder-style = {value}");
+                assert!(
+                    toml::from_str::<Config>(&source).is_err(),
+                    "accepted {source}"
+                );
+            }
+            let source = format!("[{path}]\nborder-stlye = 'none'");
+            assert!(
+                toml::from_str::<Config>(&source).is_err(),
+                "accepted {source}"
+            );
+        }
+    }
 
     #[test]
     fn command_line_defaults_round_trip_and_validate() {

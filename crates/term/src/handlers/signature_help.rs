@@ -116,6 +116,7 @@ pub fn show_signature_help(
     );
 
     let mut popup = Popup::new(SignatureHelp::ID, contents)
+        .with_border(crate::ui::PopupBorder::SignatureHelp)
         .position(old_popup.and_then(|p| p.get_position()))
         .position_bias(Open::Above)
         .ignore_escape_key(true);
