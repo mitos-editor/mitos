@@ -163,6 +163,7 @@ impl MappableCommand {
         changed_file_picker => super::vcs::changed_file_picker, "Open changed file picker in workspace",
         diff => super::vcs::diff, "Review all changes in the current file in a read-only buffer",
         diff_refresh => super::vcs::diff_refresh, "Retry loading the current diff review buffer",
+        git_project_review => super::project_review::open_default, "Review staged and unstaged repository changes",
         diff_open_source => super::vcs::diff_open_source, "Jump from a diff review to its source location",
         diff_open_file => super::vcs::diff_open_file, "Open the current file from a diff review",
         changed_file_picker_in_repository => super::vcs::changed_file_picker_in_repository, "Open changed file picker in repository",
@@ -1595,6 +1596,26 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
         fun: super::conflicts::source,
         completer: CommandCompleter::none(),
         signature: Signature { positionals: (1, Some(1)), ..Signature::DEFAULT },
+    },
+    TypableCommand {
+        name: "vcs-project-diff", aliases: &[], doc: "Review staged and unstaged changes together. Use buffer to include unsaved edits, or staged / unstaged for one comparison.",
+        fun: super::project_review::open, completer: CommandCompleter::none(),
+        signature: Signature { positionals: (0, Some(1)), ..Signature::DEFAULT },
+    },
+    TypableCommand {
+        name: "vcs-project-refresh", aliases: &[], doc: "Update the project review with the latest file and staged changes.",
+        fun: super::project_review::refresh, completer: CommandCompleter::none(),
+        signature: Signature { positionals: (0, Some(0)), ..Signature::DEFAULT },
+    },
+    TypableCommand {
+        name: "vcs-project-next", aliases: &[], doc: "Move to the next file or hunk; use file, previous-file, hunk, or previous-hunk.",
+        fun: super::project_review::navigate, completer: CommandCompleter::none(),
+        signature: Signature { positionals: (0, Some(1)), ..Signature::DEFAULT },
+    },
+    TypableCommand {
+        name: "vcs-project-open", aliases: &[], doc: "Open the selected file's review. Use Ctrl-o to return to the project review.",
+        fun: super::project_review::open_file, completer: CommandCompleter::none(),
+        signature: Signature { positionals: (0, Some(0)), ..Signature::DEFAULT },
     },
     TypableCommand {
         name: "blame",

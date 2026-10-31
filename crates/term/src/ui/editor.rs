@@ -34,6 +34,7 @@ use tui::{
 
 pub struct EditorView {
     pub keymaps: Keymaps,
+    review_keys: ui_core::keymap::KeymapState,
     on_next_key: Option<(OnKeyCallback, OnKeyCallbackKind)>,
     pseudo_pending: Vec<KeyEvent>,
     pub(crate) repeat: crate::repeat::RepeatController,
@@ -47,6 +48,7 @@ impl EditorView {
     pub fn new(keymaps: Keymaps) -> Self {
         Self {
             keymaps,
+            review_keys: Default::default(),
             on_next_key: None,
             pseudo_pending: Vec::new(),
             repeat: crate::repeat::RepeatController::default(),
@@ -162,6 +164,31 @@ impl EditorView {
     }
 
     fn command_mode(&mut self, mode: Mode, cxt: &mut commands::Context, event: KeyEvent) {
+        if self.keymaps.pending().is_empty()
+            && view::current_ref!(cxt.editor).1.project_review().is_some()
+        {
+            use ui_core::keymap::Lookup;
+            match self
+                .review_keys
+                .lookup(&cxt.config.current.component_keys.project_review, event)
+            {
+                Lookup::Pending => return,
+                Lookup::Actions(actions) => {
+                    let actions = actions.to_vec();
+                    for action in actions {
+                        if let Err(error) = commands::project_review::action(cxt, action) {
+                            cxt.editor.set_error(|| error.to_string());
+                            break;
+                        }
+                    }
+                    cxt.editor.count = None;
+                    return;
+                }
+                Lookup::Unbound => {}
+            }
+        } else {
+            self.review_keys.clear();
+        }
         match (event, cxt.editor.count) {
             // If the count is already started and the input is a number, always continue the count.
             (key!(i @ '0'..='9'), Some(count)) => {
@@ -538,6 +565,10 @@ impl EditorView {
 }
 
 impl Component for EditorView {
+    fn has_pending_keys(&self) -> bool {
+        self.review_keys.is_pending() || !self.keymaps.pending().is_empty()
+    }
+
     fn handle_event(
         &mut self,
         event: &Event,
@@ -729,6 +760,7 @@ impl Component for EditorView {
                 terminal_focused: self.terminal_focused,
                 is_cursor_owner: cx.is_cursor_owner,
                 true_color: cx.config.current.terminal.true_color || crate::true_color(),
+                review_keys: &cx.config.current.component_keys.project_review,
             },
         );
 

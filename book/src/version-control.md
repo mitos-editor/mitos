@@ -263,9 +263,9 @@ on disk.
 
 ### Staging individual changes
 
-Use these commands in a file buffer or a live review to add selected changes to
-Git's staging area or remove them. Neither action changes the saved file or your
-unsaved edits.
+Use these commands in a file buffer, a live review, or a
+[project review](#project-review) to add selected changes to Git's staging area
+or remove them. Neither action changes the saved file or your unsaved edits.
 
 | Command | Action |
 | --- | --- |
@@ -289,7 +289,7 @@ For precise line choices, open `:diff buffer` to include unsaved edits, or
 `:vcs-stage-lines`; additions and removals can be staged separately. To leave
 selected staged changes out of the next commit, open `:diff staged` and use
 `:vcs-unstage-lines`. Reviews of past commits cannot stage or unstage changes.
-If the file or staging area changes after you open a review, run
+If the file, staging area, or current commit changes after you open a review, run
 `:diff-refresh` before trying again.
 
 Line and hunk actions require UTF-8 text and support normal line-ending
@@ -472,3 +472,47 @@ version. Each version opens in a read-only split. Close it with `:q`.
 
 If Mitos cannot recognize a conflict, edit the file and remove the marker lines
 yourself.
+
+## Project review
+
+Press `Space g r` or run `:vcs-project-diff` to review the repository in a read-only Git buffer.
+**Unstaged** compares the index with saved files; **Staged** compares HEAD with
+the index. A partially staged file appears in both sections, so you can see
+exactly what the next commit includes and what remains.
+
+Move, select, search, and yank as usual. Added and removed lines keep their diff
+colors and syntax highlighting. The section labels identify staging state.
+
+| Key | Action |
+| --- | --- |
+| `s` | Stage the file at its heading, the hunk at the cursor, or selected changed lines |
+| `u` | Unstage with the same scope in Staged |
+| `Tab` | Collapse or expand the file or hunk at the cursor |
+| `Enter` | Open the source file for editing; `Ctrl-o` returns to the review |
+| `Alt-o` | Open the selected file's dedicated diff review |
+| `Alt-b` | Toggle inclusion of unsaved buffers |
+| `R` | Refresh the review |
+
+These keys are configurable under `[keys.project-review]`. Use `[g` / `]g` to
+move between hunks across files, and `[G` / `]G` for the first / last hunk.
+`:vcs-project-next file` and `:vcs-project-next previous-file` move between files.
+After staging or unstaging, both sections refresh and the cursor moves to the
+next remaining hunk in the same section. Moving the cursor while an operation
+runs cancels that automatic jump.
+
+Saved files are the default source. `Alt-b` or `:vcs-project-diff buffer` includes
+unsaved editor text in Unstaged. Staging that text updates the index without
+saving the buffer. The header shows which source is active. Staged always shows
+the actual index. Binary files and other files that cannot be reviewed show an
+explanation; stage or unstage them at their file heading.
+
+Select additions and removals independently to stage selected lines. Keep each
+action's selections within one file and one comparison. Files, index snapshots,
+and source buffers are checked again before applying changes; stale actions are
+rejected. `:vcs-stage-hunk`, `:vcs-stage-lines`, and their unstage equivalents
+remain available.
+
+File and Git changes refresh open reviews automatically when file watching is
+enabled. Use `R` or `:vcs-project-refresh` to refresh manually. Explicit
+`:vcs-project-diff staged` and `:vcs-project-diff unstaged` open a single
+comparison.

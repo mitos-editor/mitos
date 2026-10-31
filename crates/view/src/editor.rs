@@ -836,6 +836,9 @@ impl Editor {
     pub fn refresh_vcs_watches(&mut self) {
         let mut paths = Vec::new();
         for doc in self.documents.values() {
+            if let Some(review) = doc.project_review() {
+                self.file_watcher.add_root(&review.root);
+            }
             if let Some(review) = doc.review().filter(|review| review.is_live())
                 && let Some(parent) = review.path().parent()
             {
@@ -850,6 +853,13 @@ impl Editor {
                 .is_trusted();
             paths.extend(self.diff_providers.get_watched_paths(&root, trusted));
             for doc in self.documents.values() {
+                if let Some(review) = doc.project_review() {
+                    let trusted = self
+                        .workspace_trust
+                        .query(&review.workspace, workspace::trust::TrustQuery::Git)
+                        .is_trusted();
+                    paths.extend(self.diff_providers.get_watched_paths(&review.root, trusted));
+                }
                 let Some(path) = doc
                     .path()
                     .or_else(|| {

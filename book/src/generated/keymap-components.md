@@ -242,3 +242,15 @@
 | `` s `` | `` stage `` |
 | `` S `` | `` stage_and_next `` |
 | `` u `` | `` unstage `` |
+
+## Project review
+
+| Key | Action |
+| --- | --- |
+| `` <A-o> `` | `` open_review `` |
+| `` <ret> `` | `` open_source `` |
+| `` R `` | `` refresh `` |
+| `` s `` | `` stage `` |
+| `` <A-b> `` | `` toggle_buffers `` |
+| `` <tab> `` | `` toggle_fold `` |
+| `` u `` | `` unstage `` |

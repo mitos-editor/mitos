@@ -352,6 +352,7 @@ pub fn component_keymaps() -> Result<String, DynError> {
     section!("Signature-help popup", signature_help);
     section!("Blame", blame);
     section!("Diff popup", diff);
+    section!("Project review", project_review);
     md.pop();
     Ok(md)
 }

@@ -24,6 +24,7 @@ mod movement;
 mod navigation;
 mod palette;
 mod picker;
+pub(crate) mod project_review;
 mod quicklist;
 mod registers;
 mod search;

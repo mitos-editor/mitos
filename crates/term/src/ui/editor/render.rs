@@ -30,11 +30,12 @@ use view::{
 };
 
 #[derive(Clone, Copy)]
-pub(super) struct PaneOptions {
+pub(super) struct PaneOptions<'a> {
     pub area: Rect,
     pub terminal_focused: bool,
     pub is_cursor_owner: bool,
     pub true_color: bool,
+    pub review_keys: &'a ui_core::keymap::Keymap<crate::keymap::component::ProjectReviewAction>,
 }
 
 #[derive(Default)]
@@ -50,7 +51,7 @@ impl PaneRenderer {
         layout: ApplicationLayout,
         surface: &mut Surface,
         image_picker: Option<&ratatui_image::picker::Picker>,
-        options: PaneOptions,
+        options: PaneOptions<'_>,
     ) {
         self.spinners
             .synchronize(editor.progressing_language_servers());
@@ -96,12 +97,26 @@ impl PaneRenderer {
             );
             let mut context = statusline::RenderContext::new(editor, doc, view, &self.spinners);
             statusline::render(&mut context, view.statusline_area(doc), surface);
+            super::super::change_review::document::render_project_hints(
+                doc,
+                view.statusline_area(doc),
+                options.review_keys,
+                &editor.theme,
+                surface,
+            );
         }
 
         if layout.statusline.height > 0 {
             let (view, doc) = current_ref!(editor);
             let mut context = statusline::RenderContext::new(editor, doc, view, &self.spinners);
             statusline::render(&mut context, layout.statusline, surface);
+            super::super::change_review::document::render_project_hints(
+                doc,
+                layout.statusline,
+                options.review_keys,
+                &editor.theme,
+                surface,
+            );
         }
     }
     fn render_welcome(theme: &Theme, area: Rect, surface: &mut Surface, colorful: bool) {
@@ -266,7 +281,7 @@ impl PaneRenderer {
     #[allow(clippy::too_many_lines)]
     fn render_view(
         editor: &Editor,
-        options: PaneOptions,
+        options: PaneOptions<'_>,
         doc: &Document,
         view: &View,
         viewport: Rect,
@@ -285,7 +300,7 @@ impl PaneRenderer {
 
         let mut decorations = DecorationManager::default();
         decorations.add_decoration(text_decorations::conflicts::line_backgrounds(doc, theme));
-        if doc.review().is_some() {
+        if doc.review().is_some() || doc.project_review().is_some() {
             decorations.add_decoration(crate::ui::change_review::document::line_backgrounds(
                 doc, theme,
             ));
