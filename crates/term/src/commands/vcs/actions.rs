@@ -16,6 +16,7 @@ use std::{
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
 };
+use tui::text::Span;
 use vcs::operations::{FileOperation, GitRepository, StashEntry, StashFile};
 use view::{
     features::git_operations::{GitAction, GitRequest},
@@ -329,6 +330,7 @@ pub(super) fn stash_browser(
 
 struct StashData {
     repo: GitRepository,
+    theme: Arc<theme::Theme>,
 }
 fn stash_picker(
     editor: &Editor,
@@ -342,11 +344,15 @@ fn stash_picker(
     Picker::new_with_callback_result(
         editor.redraw().clone(),
         [
-            PickerColumn::new("stash", |entry: &StashEntry, _| {
-                entry.selector.as_str().into()
+            PickerColumn::new("stash", |entry: &StashEntry, data: &StashData| {
+                Span::styled(
+                    entry.selector.as_str(),
+                    data.theme.get("string.special.symbol"),
+                )
+                .into()
             }),
-            PickerColumn::new("commit", |entry: &StashEntry, _| {
-                entry.id()[..12].to_owned().into()
+            PickerColumn::new("commit", |entry: &StashEntry, data| {
+                Span::styled(&entry.id()[..12], data.theme.get("constant")).into()
             }),
             PickerColumn::new("message", |entry: &StashEntry, _| {
                 entry.message.as_str().into()
@@ -354,7 +360,10 @@ fn stash_picker(
         ],
         2,
         entries,
-        StashData { repo },
+        StashData {
+            repo,
+            theme: Arc::new(editor.theme.clone()),
+        },
         move |_, entry, _| {
             let repo = inspect_repo.clone();
             let entry = entry.clone();
@@ -414,12 +423,18 @@ fn stash_files_picker(
     let data = StashFiles {
         repo: repo.clone(),
         entry: entry.clone(),
+        theme: Arc::new(editor.theme.clone()),
     };
     Picker::new(
         editor.redraw().clone(),
         [
-            PickerColumn::new("kind", |file: &StashFile, _: &StashFiles| {
-                file.layer().label().into()
+            PickerColumn::new("kind", |file: &StashFile, data: &StashFiles| {
+                let scope = if file.untracked() {
+                    "diff.plus"
+                } else {
+                    "ui.text.inactive"
+                };
+                Span::styled(file.layer().label(), data.theme.get(scope)).into()
             }),
             PickerColumn::new("path", |file: &StashFile, _| {
                 file.path().to_string_lossy().into_owned().into()
@@ -456,6 +471,7 @@ fn stash_files_picker(
 struct StashFiles {
     repo: GitRepository,
     entry: StashEntry,
+    theme: Arc<theme::Theme>,
 }
 
 #[cfg(all(test, feature = "integration"))]
