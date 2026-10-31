@@ -14,6 +14,7 @@ use std::{
         Arc,
     },
 };
+use tui::text::Span;
 use vcs::operations::{
     history::{CommitEntry, HistoryCursor, HistoryFile, HistoryPage, RevisionFile},
     GitRepository,
@@ -29,6 +30,7 @@ enum Row {
 struct Data {
     repo: GitRepository,
     buffer: Option<DocumentId>,
+    theme: Arc<theme::Theme>,
 }
 
 pub(super) fn file_history(editor: &Editor) -> Result<Box<dyn Component>> {
@@ -69,6 +71,7 @@ fn browser(
     let data = Data {
         repo: repo.clone(),
         buffer,
+        theme: Arc::new(editor.theme.clone()),
     };
     let preview_repo = data.repo.clone();
     let accept = data.clone();
@@ -84,21 +87,31 @@ fn browser(
     let picker = Picker::new_with_callback_result(
         editor.redraw().clone(),
         [
-            PickerColumn::new("commit", |row: &Row, _: &Data| match row {
-                Row::Commit(c) => c.id.short().into(),
-                Row::More => "…".into(),
+            PickerColumn::new("commit", |row: &Row, data: &Data| match row {
+                Row::Commit(c) => Span::styled(c.id.short(), data.theme.get("constant")).into(),
+                Row::More => Span::styled("…", data.theme.get("ui.text.inactive")).into(),
             }),
-            PickerColumn::new("date", |row: &Row, _| match row {
-                Row::Commit(c) => c.date.get(..10).unwrap_or(&c.date).into(),
+            PickerColumn::new("date", |row: &Row, data| match row {
+                Row::Commit(c) => Span::styled(
+                    c.date.get(..10).unwrap_or(&c.date),
+                    data.theme.get("ui.text.inactive"),
+                )
+                .into(),
                 _ => "".into(),
             }),
-            PickerColumn::new("author", |row: &Row, _| match row {
-                Row::Commit(c) => c.author.as_str().into(),
+            PickerColumn::new("author", |row: &Row, data| match row {
+                Row::Commit(c) => {
+                    Span::styled(c.author.as_str(), data.theme.get("string.special")).into()
+                }
                 _ => "".into(),
             }),
-            PickerColumn::new("subject", |row: &Row, _| match row {
+            PickerColumn::new("subject", |row: &Row, data| match row {
                 Row::Commit(c) => c.subject.as_str().into(),
-                Row::More => "Load 100 older commits…".into(),
+                Row::More => Span::styled(
+                    "Load 100 older commits…",
+                    data.theme.get("ui.text.inactive"),
+                )
+                .into(),
             }),
         ],
         3,
@@ -442,8 +455,15 @@ fn files_picker(
     Picker::new_with_callback_result(
         editor.redraw().clone(),
         [
-            PickerColumn::new("change", |file: &HistoryFile, _: &Files| {
-                file.status.as_str().into()
+            PickerColumn::new("change", |file: &HistoryFile, data: &Files| {
+                let scope = match file.status.as_bytes().first() {
+                    Some(b'A') => "diff.plus",
+                    Some(b'D') => "diff.minus",
+                    Some(b'R' | b'C') => "diff.delta.moved",
+                    Some(b'M' | b'T') => "diff.delta",
+                    _ => "ui.text",
+                };
+                Span::styled(file.status.as_str(), data.data.theme.get(scope)).into()
             }),
             PickerColumn::new("path", |file: &HistoryFile, _| {
                 file.path().to_string_lossy().into_owned().into()
