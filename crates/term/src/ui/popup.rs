@@ -284,10 +284,11 @@ impl<T: Component> Component for Popup<T> {
             _ => return EventResult::Ignored(None),
         };
 
+        let popup_keys = &cx.config.current.component_keys.popup;
         if key!(Esc) == key
             && self.ignore_escape_key
             && !self.has_pending_keys()
-            && matches!(cx.config.current.component_keys.popup.0.get(&key), Some(Binding::Actions(actions)) if actions == &[PopupAction::Cancel])
+            && popup_keys.get(&key).and_then(Binding::actions) == Some(&[PopupAction::Cancel])
         {
             return EventResult::Ignored(None);
         }

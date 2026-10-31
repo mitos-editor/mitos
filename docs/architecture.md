@@ -52,8 +52,10 @@ bindings and lifecycle transitions. Startup, execution, inspection, and shutdown
 retain separate cancellation scopes; shutdown results do not depend on thread or
 frame selection. `view` owns request cancellation, workspace trust, callbacks, and source
 navigation. Debugger widgets and launch prompts belong to `term`.
-Component keymap parsing and prefix lookup live in `ui-core`; action definitions,
-defaults, configuration composition, and execution belong to `term`. Buffer picker
+Editor and component keymaps share tree storage, parsing, merging, and prefix lookup
+in `ui-core`. Terminal parsing policy retains command labels and macro restrictions;
+component policy retains `no_op` and `unbound` actions. Action definitions, defaults,
+configuration composition, and execution belong to `term`. Buffer picker
 item actions call editor lifecycle operations from `term::commands::buffers`.
 Editor mode keymaps and their menu and binding labels also belong to `term`,
 where static commands, typable commands, and macros are resolved and executed.
