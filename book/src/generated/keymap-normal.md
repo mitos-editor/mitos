@@ -304,21 +304,21 @@
 | `` <space>C `` | Block comment/uncomment selections | `` toggle_block_comments `` |
 | `` <space><A-c> `` | Line comment/uncomment selections | `` toggle_line_comments `` |
 | `` <space>? `` | Open command palette | `` command_palette `` |
-| `` <space>B `` | Toggle inline Git blame | `` toggle_inline_blame `` |
-| `` <space>i `` | Show the current change against HEAD | `` show_change `` |
+| `` <space>B `` | Toggle inline blame | `` toggle_inline_blame `` |
+| `` <space>i `` | Show hunk diff | `` show_change `` |
 
 #### `` <space>g `` — Git
 
 | Key | Description | Command |
 | --- | --- | --- |
-| `` <space>gs `` | Open changed file picker in workspace | `` changed_file_picker `` |
-| `` <space>gd `` | Review all changes in the current file in a read-only buffer | `` diff `` |
-| `` <space>gf `` | Browse the current file history across renames | `` git_file_history `` |
-| `` <space>gl `` | Browse Git commits and their changed files in the current repository | `` git_history `` |
-| `` <space>gb `` | Show commit details for the current line | `` blame_line `` |
-| `` <space>gi `` | Show the current change against HEAD | `` show_change `` |
-| `` <space>gt `` | Toggle inline Git blame | `` toggle_inline_blame `` |
-| `` <space>gS `` | Browse Git stashes in the current repository | `` git_stash_picker `` |
+| `` <space>gs `` | Browse changed files | `` changed_file_picker `` |
+| `` <space>gd `` | Show file diff | `` diff `` |
+| `` <space>gf `` | Browse file history | `` git_file_history `` |
+| `` <space>gl `` | Browse commits | `` git_history `` |
+| `` <space>gb `` | Show line blame | `` blame_line `` |
+| `` <space>gi `` | Show hunk diff | `` show_change `` |
+| `` <space>gt `` | Toggle inline blame | `` toggle_inline_blame `` |
+| `` <space>gS `` | Browse stashes | `` git_stash_picker `` |
 
 #### `` <space>G `` — Debug (experimental)
 
