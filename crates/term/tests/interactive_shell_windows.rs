@@ -307,13 +307,14 @@ shell = {}
     }
 
     fn fixture(&mut self, mode: &str) -> anyhow::Result<()> {
-        // Normal cases filter libtest's progress output into a selected line.
+        // Filter libtest's progress output by the selected line's numeric
+        // prefix, without end-of-line assumptions for the helper's LF output.
         // The descendant case must let cmd exit before stdout reaches EOF, so
         // run without a pipeline and discard the expansion's captured value.
         let (command, filter) = if mode == "descendant" {
             ("discard", "")
         } else {
-            ("outline", " | findstr /R \"^[0-9]$\"")
+            ("outline", " | findstr /R \"^[0-9]\"")
         };
         let script = format!(
             "set MITOS_TEST_INTERACTIVE_MODE={mode}&& \"{}\" --exact fixture_process --nocapture --quiet{filter}",
