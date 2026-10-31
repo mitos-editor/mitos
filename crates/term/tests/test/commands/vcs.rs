@@ -17,6 +17,240 @@ async fn press_space_b(app: &mut Application) -> anyhow::Result<()> {
     press_keys(app, "<space>B").await
 }
 
+async fn repository_status(app: &mut Application, prefix: &str) -> anyhow::Result<()> {
+    let result = tokio::time::timeout(Duration::from_secs(10), async {
+        while !app
+            .editor
+            .get_status()
+            .is_some_and(|(message, _)| message.contains(prefix))
+        {
+            run_event_loop_until_idle(app).await;
+        }
+    })
+    .await;
+    anyhow::ensure!(
+        result.is_ok(),
+        "Waiting for {prefix}; status: {:?}",
+        app.editor.get_status()
+    );
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn repository_commands_target_the_current_buffer_and_protect_unsaved_edits(
+) -> anyhow::Result<()> {
+    let (dir, path) = committed_file()?;
+    let repo = vcs::operations::GitRepository::discover(&path)?;
+    let mut app = AppBuilder::new().with_file(&path, None).build()?;
+    press_keys(&mut app, ":vcs-branch-create topic<ret>").await?;
+    repository_status(&mut app, "Create branch complete").await?;
+    assert!(repo
+        .branches()
+        .await?
+        .iter()
+        .any(|branch| branch.name == "topic"));
+    press_keys(&mut app, "Iunsaved<esc>:vcs-branch-switch topic<ret>").await?;
+    repository_status(&mut app, "Save or close unsaved buffer").await?;
+    assert!(repo
+        .branches()
+        .await?
+        .iter()
+        .any(|branch| branch.name == "main" && branch.current));
+    assert_eq!(
+        current_ref!(app.editor).1.text().to_string(),
+        "unsavedcommitted\n"
+    );
+    assert_eq!(std::fs::read_to_string(&path)?, "committed\n");
+    press_keys(&mut app, "u:vcs-branch-switch topic<ret>").await?;
+    repository_status(&mut app, "Switch branch complete").await?;
+    assert!(repo
+        .branches()
+        .await?
+        .iter()
+        .any(|branch| branch.name == "topic" && branch.current));
+    press_keys(&mut app, ":vcs-branches<ret>").await?;
+    wait_for_review_screen(&mut app, "Git branches", "main").await?;
+    press_keys(&mut app, "main").await?;
+    wait_for_review_screen(&mut app, "Git branches", "> main").await?;
+    press_keys(&mut app, "<ret>").await?;
+    repository_status(&mut app, "Switch branch complete").await?;
+    assert!(repo
+        .branches()
+        .await?
+        .iter()
+        .any(|branch| branch.name == "main" && branch.current));
+    let cursor = repo.history_cursor(Some(&path))?.unwrap();
+    let commit = repo.history_page(cursor).await?.commits.remove(0);
+    let endpoint = vcs::operations::history::RevisionFile::new(commit.id, "file.txt".into())?;
+    let request = view::features::change_review::HistoricalReviewRequest::revisions(
+        &app.editor,
+        repo.clone(),
+        None,
+        Some(endpoint),
+    )?;
+    app.editor
+        .open_historical_review(request, view::editor::Action::Replace);
+    assert!(current_ref!(app.editor).1.path().is_none());
+    press_keys(&mut app, ":vcs-branch-create history-context<ret>").await?;
+    repository_status(&mut app, "Create branch complete").await?;
+    assert!(repo
+        .branches()
+        .await?
+        .iter()
+        .any(|branch| branch.name == "history-context"));
+    assert!(app.close().await.is_empty());
+    drop(dir);
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn repository_commands_keep_project_and_commit_buffer_context() -> anyhow::Result<()> {
+    let (dir, path) = committed_file()?;
+    std::fs::write(&path, "staged\n")?;
+    git(dir.path(), &["add", "file.txt"]);
+    let repository = vcs::operations::GitRepository::discover(&path)?;
+    let mut app = AppBuilder::new().with_file(&path, None).build()?;
+    let workspace = current_ref!(app.editor).1.workspace_root().to_owned();
+    app.editor.open_project_review(
+        repository.root().to_owned(),
+        workspace.clone(),
+        view::features::change_review::ReviewComparison::Staged,
+        view::editor::Action::Replace,
+    );
+    assert!(current_ref!(app.editor).1.path().is_none());
+    press_keys(&mut app, ":vcs-branch-create project-context<ret>").await?;
+    repository_status(&mut app, "Create branch complete").await?;
+    press_keys(&mut app, ":vcs-commit<ret>").await?;
+    ready_commit_message(&mut app).await?;
+    assert!(current_ref!(app.editor).1.path().is_none());
+    let scope = view::features::git_operations::GitScope::capture(&app.editor);
+    assert_eq!(scope.path, repository.root());
+    assert_eq!(scope.workspace, workspace);
+    press_keys(&mut app, ":vcs-branch-create message-context<ret>").await?;
+    repository_status(&mut app, "Create branch complete").await?;
+    let branches = repository.branches().await?;
+    for name in ["project-context", "message-context"] {
+        assert!(branches.iter().any(|branch| branch.name == name));
+    }
+    assert_eq!(std::fs::read_to_string(path)?, "staged\n");
+    assert!(app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn repository_worktree_commands_open_keep_buffers_and_confirm_clean_removal(
+) -> anyhow::Result<()> {
+    let Some(_root) = super::super::helpers::isolation::workspace("test::commands::vcs::repository_worktree_commands_open_keep_buffers_and_confirm_clean_removal")? else { return Ok(()); };
+    let (dir, path) = committed_file()?;
+    let parent = tempfile::tempdir()?;
+    let linked = parent.path().join("linked");
+    let mut app = AppBuilder::new().with_file(&path, None).build()?;
+    press_keys(
+        &mut app,
+        &format!(":vcs-worktree-create {}<ret>", linked.display()),
+    )
+    .await?;
+    repository_status(&mut app, "Create linked worktree complete").await?;
+    assert!(linked.join("file.txt").is_file());
+    press_keys(
+        &mut app,
+        &format!("Ikeep<esc>:vcs-worktree-open {}<ret>", linked.display()),
+    )
+    .await?;
+    wait_for_review_screen(&mut app, "Files", "file.txt").await?;
+    press_keys(&mut app, "<esc>").await?;
+    assert_eq!(
+        current_ref!(app.editor).1.text().to_string(),
+        "keepcommitted\n"
+    );
+    assert_eq!(
+        stdx::path::canonicalize_existing(&stdx::env::current_working_dir()),
+        stdx::path::canonicalize_existing(&linked)
+    );
+    press_keys(
+        &mut app,
+        &format!(":vcs-worktree-remove {}<ret>", linked.display()),
+    )
+    .await?;
+    repository_status(&mut app, "Change directory out of this worktree").await?;
+    assert!(linked.is_dir());
+    press_keys(
+        &mut app,
+        &format!(
+            ":cd {}<ret>:vcs-worktree-remove {}<ret>",
+            dir.path().display(),
+            linked.display()
+        ),
+    )
+    .await?;
+    wait_for_review_screen(&mut app, "Remove linked worktree", "Cancel").await?;
+    press_keys(&mut app, "<ret>").await?;
+    assert!(linked.is_dir());
+    press_keys(
+        &mut app,
+        &format!(":vcs-worktree-remove {}<ret>", linked.display()),
+    )
+    .await?;
+    wait_for_review_screen(&mut app, "Remove linked worktree", "Cancel").await?;
+    press_keys(&mut app, "<down><ret>").await?;
+    repository_status(&mut app, "Remove linked worktree complete").await?;
+    assert!(!linked.exists());
+    assert_eq!(
+        current_ref!(app.editor).1.text().to_string(),
+        "keepcommitted\n"
+    );
+    assert!(app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn repository_remotes_expose_names_and_wait_for_an_explicit_operation() -> anyhow::Result<()>
+{
+    let (dir, path) = committed_file()?;
+    git(
+        dir.path(),
+        &[
+            "remote",
+            "add",
+            "origin",
+            "unavailable-protocol://credential-token@example.invalid/repo",
+        ],
+    );
+    let mut app = AppBuilder::new().with_file(&path, None).build()?;
+    press_keys(&mut app, ":vcs-remotes<ret>").await?;
+    wait_for_review_screen(&mut app, "Git remotes", "origin").await?;
+    let screen = review_screen(&app);
+    assert!(!screen.contains("credential-token") && !screen.contains("example.invalid"));
+    press_keys(&mut app, "<ret>").await?;
+    wait_for_review_screen(&mut app, "Remote origin", "Fetch remote").await?;
+    assert!(!dir.path().join(".git/FETCH_HEAD").exists());
+    assert!(!app.editor.handlers().git_operations.busy());
+    press_keys(&mut app, "<esc>").await?;
+    assert!(app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn repository_pull_checks_unsaved_buffers_before_contacting_a_remote() -> anyhow::Result<()> {
+    let (dir, path) = committed_file()?;
+    let remote = tempfile::tempdir()?;
+    git(remote.path(), &["init", "--bare"]);
+    git(
+        dir.path(),
+        &["remote", "add", "origin", remote.path().to_str().unwrap()],
+    );
+    let mut app = AppBuilder::new().with_file(&path, None).build()?;
+    press_keys(&mut app, "Iunsaved<esc>:vcs-pull origin<ret>").await?;
+    repository_status(&mut app, "Save or close unsaved buffer").await?;
+    assert!(!dir.path().join(".git/FETCH_HEAD").exists());
+    assert_eq!(
+        current_ref!(app.editor).1.text().to_string(),
+        "unsavedcommitted\n"
+    );
+    assert!(app.close().await.is_empty());
+    Ok(())
+}
+
 async fn press_keys(app: &mut Application, keys: &str) -> anyhow::Result<()> {
     let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
     for key in parse_macro(keys)? {
