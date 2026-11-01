@@ -294,15 +294,22 @@ If the file or staging area changes after you open a review, run
 
 Line and hunk actions require UTF-8 text and support normal line-ending
 conversions. Use whole-file actions in the changed-file picker for binary files,
-other encodings, submodules, and symlinks. Also stage the whole file if Git's file
-conversion changes its line count, or when changing the file's encoding. Stage a
+other encodings, submodules, and symlinks. Custom Git filter drivers also require
+whole-file actions, because their output can change which source lines are
+selected even when the line count stays the same. Stage the whole file when
+changing its encoding. Stage a
 rename as a whole file before staging individual text changes.
 
 The current-change popup (`Space i`) also offers `s` to stage the cursor's hunk,
 `u` to unstage it, and `S` to stage and select the next unstaged hunk. These actions
 add changes to or remove them from the staging area. The preview shows all
 changes since `HEAD`, including staged and unstaged changes. Actions close the
-popup; press `Space i` again to review the result. Remap them under `[keys.diff]`
+popup; press `Space i` again to review the result. If the index action differs
+from the inspected change, Mitos leaves the staging area untouched. Open
+`:diff buffer` to review and stage changes against the index, or `:diff staged`
+to review and unstage changes against `HEAD`.
+
+Remap popup actions under `[keys.diff]`
 using `stage`, `unstage`, and `stage_and_next`.
 
 ### Stashes

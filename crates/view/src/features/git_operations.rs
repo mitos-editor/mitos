@@ -116,11 +116,7 @@ impl GitRequest {
                                 == stdx::path::canonicalize_existing(path)),
                         "Source buffer belongs to another file"
                     );
-                    if let PartialSource::Buffer(text)
-                    | PartialSource::Snapshot {
-                        text, buffer: true, ..
-                    } = source
-                    {
+                    if let Some(text) = source.buffer_text() {
                         ensure!(
                             doc.text() == text.trim_start_matches('\u{feff}'),
                             "Source buffer changed since this review; refresh and try again"

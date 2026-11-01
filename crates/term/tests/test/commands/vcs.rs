@@ -1375,7 +1375,7 @@ async fn partial_staging_rejects_a_buffer_changed_after_preparation() -> anyhow:
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn partial_staging_popup_actions_use_index_comparisons_and_follow_remaps(
+async fn partial_staging_popup_requires_matching_comparisons_and_follows_remaps(
 ) -> anyhow::Result<()> {
     for (stage, unstage) in [("s", "u"), ("<A-s>", "<A-u>")] {
         let (dir, path) = committed_file()?;
@@ -1405,9 +1405,23 @@ async fn partial_staging_popup_actions_use_index_comparisons_and_follow_remaps(
         }
         press_keys(&mut app, stage).await?;
         finish_partial(&mut app).await?;
-        assert_eq!(partial_index(&path), "unsaved-staged\n");
+        assert_eq!(
+            partial_index(&path),
+            "staged\n",
+            "The HEAD preview does not show the index change being applied"
+        );
         assert!(!review_screen(&app).contains("Current change"));
-        press_keys(&mut app, "<space>i").await?;
+        press_keys(&mut app, ":diff buffer<ret>").await?;
+        wait_for_review_buffer(&mut app, "line", "unsaved-staged").await?;
+        let (view, doc) = current!(app.editor);
+        doc.set_selection(
+            view.id,
+            editor_core::Selection::single(0, doc.text().len_chars()),
+        );
+        press_keys(&mut app, ":vcs-stage-hunk<ret>").await?;
+        finish_partial(&mut app).await?;
+        assert_eq!(partial_index(&path), "unsaved-staged\n");
+        press_keys(&mut app, ":diff-open-file<ret><space>i").await?;
         wait_for_review_screen(&mut app, "Current change", "unstage: HEAD").await?;
         press_keys(&mut app, unstage).await?;
         finish_partial(&mut app).await?;

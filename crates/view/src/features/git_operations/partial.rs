@@ -28,7 +28,16 @@ pub struct NextPartialTarget {
 pub fn capture_cursor_hunk(
     editor: &Editor,
     kind: FileOperation,
+    inspected: &crate::features::change_review::HunkReviewSnapshot,
 ) -> Result<(GitRequest, Option<NextPartialTarget>)> {
+    ensure!(
+        inspected.is_current(editor),
+        "Change inspection is stale; inspect the change again before staging"
+    );
+    ensure!(
+        !inspected.review.truncated,
+        "This inspection is truncated; use whole-file staging"
+    );
     let (view, doc) = crate::current_ref!(editor);
     ensure!(
         !doc.is_binary() && !doc.is_content_readonly(),
@@ -49,7 +58,11 @@ pub fn capture_cursor_hunk(
         GitAction::Partial {
             path,
             kind,
-            source: PartialSource::Buffer(buffer_text(doc)),
+            source: PartialSource::Review {
+                comparison: vcs::ComparisonKind::Head,
+                before: inspected.source.before().to_string(),
+                after: buffer_text(doc),
+            },
             selection: PartialSelection::Hunks(
                 std::iter::once(line..line.saturating_add(1)).collect(),
             ),
@@ -123,7 +136,11 @@ pub fn capture(
         );
         ensure!(
             review.source_is_current(editor),
-            "Source buffer changed since this review; refresh and try again"
+            "Comparison changed since this review; refresh and try again"
+        );
+        ensure!(
+            selected_lines || !review.review().truncated,
+            "This review is truncated; select visible lines or use whole-file staging"
         );
         ensure!(!disk, "Disk staging commands are for editable file buffers");
         let source = review.source().context("Review source is not available")?;
@@ -143,22 +160,42 @@ pub fn capture(
         {
             text.insert(0, '\u{feff}');
         }
-        let input = match review.comparison() {
-            ReviewComparison::Staged => PartialSource::IndexSnapshot(text),
-            ReviewComparison::Buffer | ReviewComparison::Unstaged => PartialSource::Snapshot {
-                index: source.before().to_string(),
-                text,
-                buffer: review.comparison() == ReviewComparison::Buffer,
-            },
-            ReviewComparison::Head => PartialSource::Buffer(text),
-            ReviewComparison::HeadToWorktree => PartialSource::Worktree,
+        let has_buffer = review.source_document().is_some();
+        let comparison = match review.comparison() {
+            ReviewComparison::Staged => vcs::ComparisonKind::Staged,
+            ReviewComparison::Buffer if has_buffer => vcs::ComparisonKind::Index,
+            ReviewComparison::Buffer | ReviewComparison::Unstaged => vcs::ComparisonKind::Unstaged,
+            ReviewComparison::Head if has_buffer => vcs::ComparisonKind::Head,
+            ReviewComparison::Head | ReviewComparison::HeadToWorktree => {
+                vcs::ComparisonKind::HeadToWorktree
+            }
             ReviewComparison::Historical => unreachable!(),
         };
+        let input = PartialSource::Review {
+            comparison,
+            before: source.before().to_string(),
+            after: text,
+        };
+        // Resolve deleted-row anchors once, rather than scanning the suffix for
+        // every selected removal. Consecutive source lines remain ranges.
+        let row_count = doc.text().len_lines(stdx::rope::LINE_TYPE);
+        let mut next_after = vec![0; row_count];
+        let mut next = source
+            .after()
+            .len_lines(stdx::rope::LINE_TYPE)
+            .saturating_sub(1);
+        for row in (0..row_count).rev() {
+            if let Some(line) = review.row(row).and_then(|row| row.after) {
+                next = line;
+            }
+            next_after[row] = next;
+        }
+
         let mut ranges = Vec::new();
         let mut before_rows = Vec::new();
         let mut after_rows = Vec::new();
         for (start, end) in selection.line_ranges(doc.text().slice(..)) {
-            for row in start..=end {
+            for (row, &anchor) in next_after.iter().enumerate().take(end + 1).skip(start) {
                 let Some(mapped) = review.row(row) else {
                     continue;
                 };
@@ -166,24 +203,12 @@ pub fn capture(
                     continue;
                 }
                 if let Some(line) = mapped.before {
-                    before_rows.push(line as u32..(line as u32).saturating_add(1));
+                    push_line(&mut before_rows, line as u32);
                 }
                 if let Some(line) = mapped.after {
-                    after_rows.push(line as u32..(line as u32).saturating_add(1));
+                    push_line(&mut after_rows, line as u32);
                 }
-                let line = mapped
-                    .after
-                    .or_else(|| {
-                        ((row + 1)..doc.text().len_lines(stdx::rope::LINE_TYPE))
-                            .find_map(|row| review.row(row).and_then(|row| row.after))
-                    })
-                    .unwrap_or_else(|| {
-                        source
-                            .after()
-                            .len_lines(stdx::rope::LINE_TYPE)
-                            .saturating_sub(1)
-                    });
-                ranges.push(line as u32..(line as u32).saturating_add(1));
+                push_line(&mut ranges, anchor as u32);
             }
         }
         if selected_lines {
@@ -262,4 +287,12 @@ pub fn capture(
         selection: doc.selection(view.id).clone(),
     });
     Ok((request, next))
+}
+
+fn push_line(ranges: &mut Vec<std::ops::Range<u32>>, line: u32) {
+    if let Some(previous) = ranges.last_mut().filter(|range| range.end == line) {
+        previous.end = line.saturating_add(1);
+    } else if !ranges.last().is_some_and(|range| range.contains(&line)) {
+        ranges.push(line..line.saturating_add(1));
+    }
 }

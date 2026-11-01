@@ -41,6 +41,109 @@ fn staged_text(root: &Path, path: &str) -> String {
 }
 
 #[tokio::test]
+async fn partial_staging_rejects_custom_filters_even_when_line_count_is_unchanged() -> Result<()> {
+    let dir = initial();
+    let path = dir.path().join("file.txt");
+    std::fs::write(&path, "alpha\nbeta\n")?;
+    exec_git_cmd(&["add", "file.txt"], dir.path());
+    exec_git_cmd(&["commit", "-m", "two lines"], dir.path());
+    std::fs::write(
+        dir.path().join(".gitattributes"),
+        "file.txt filter=reorder\n",
+    )?;
+    exec_git_cmd(&["config", "filter.reorder.clean", "sort"], dir.path());
+    exec_git_cmd(&["config", "filter.reorder.smudge", "cat"], dir.path());
+    let result = GitRepository::discover(dir.path())?.prepare_partial(
+        &path,
+        FileOperation::Stage,
+        &PartialSource::Buffer("zeta\nbeta\n".into()),
+        PartialSelection::Lines(std::iter::once(0..1).collect()),
+        true,
+    );
+    assert!(
+        result.is_err(),
+        "A custom filter cannot establish source line coordinates"
+    );
+    assert_eq!(staged_text(dir.path(), "file.txt"), "alpha\nbeta\n");
+    Ok(())
+}
+
+#[tokio::test]
+async fn partial_review_revalidates_disk_after_capture() -> Result<()> {
+    for comparison in [
+        crate::ComparisonKind::Unstaged,
+        crate::ComparisonKind::HeadToWorktree,
+    ] {
+        let dir = initial();
+        let path = dir.path().join("file.txt");
+        let repo = GitRepository::discover(dir.path())?;
+        std::fs::write(&path, "unseen\n")?;
+        let source = PartialSource::Review {
+            comparison,
+            before: "head\n".into(),
+            after: "shown\n".into(),
+        };
+        assert!(repo
+            .prepare_partial(
+                &path,
+                FileOperation::Stage,
+                &source,
+                PartialSelection::Lines(std::iter::once(0..1).collect()),
+                true
+            )
+            .is_err());
+        assert_eq!(staged_text(dir.path(), "file.txt"), "head\n");
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn selecting_all_changes_stages_the_source_and_unstaging_restores_head() -> Result<()> {
+    for (before, after) in [
+        ("one\nkeep\nthree\n", "ONE\nkeep\nTHREE\n"),
+        ("one\ntwo\n", "added\none\ntwo\ntail\n"),
+        ("one\ntwo\nthree\n", "two\n"),
+        ("before", "after\n"),
+        ("α\n😀\n", "β\n😀\nγ"),
+        ("before\n", ""),
+    ] {
+        let dir = initial();
+        let path = dir.path().join("file.txt");
+        std::fs::write(&path, before)?;
+        exec_git_cmd(&["add", "file.txt"], dir.path());
+        exec_git_cmd(&["commit", "-m", "case"], dir.path());
+        let repo = GitRepository::discover(dir.path())?;
+        let all = PartialSelection::Hunks(std::iter::once(0..200_000).collect());
+        repo.prepare_partial(
+            &path,
+            FileOperation::Stage,
+            &PartialSource::Buffer(after.into()),
+            all.clone(),
+            true,
+        )?
+        .execute()
+        .await?;
+        assert_eq!(staged_text(dir.path(), "file.txt"), after);
+        repo.prepare_partial(
+            &path,
+            FileOperation::Unstage,
+            &PartialSource::Index,
+            all,
+            true,
+        )?
+        .execute()
+        .await?;
+        assert_eq!(staged_text(dir.path(), "file.txt"), before);
+        assert_eq!(
+            std::fs::read_to_string(&path)?,
+            before,
+            "Index actions must not write the file"
+        );
+    }
+    Ok(())
+}
+
+#[tokio::test]
 async fn partial_staging_preserves_existing_index_and_unsaved_disk_text() -> Result<()> {
     let dir = initial();
     let path = dir.path().join("file.txt");
@@ -169,22 +272,18 @@ async fn partial_staging_rejects_stale_index_and_preserves_lock() -> Result<()> 
 }
 
 #[tokio::test]
-async fn partial_staging_normalizes_crlf_and_applies_clean_filters() -> Result<()> {
+async fn partial_staging_normalizes_crlf() -> Result<()> {
     let dir = initial();
     let path = dir.path().join("file.txt");
     std::fs::write(
         dir.path().join(".gitattributes"),
-        "file.txt text eol=crlf filter=example\n",
+        "file.txt text eol=crlf\n",
     )?;
-    exec_git_cmd(
-        &["config", "filter.example.clean", "git stripspace"],
-        dir.path(),
-    );
     let repo = GitRepository::discover(dir.path())?;
     repo.prepare_partial(
         &path,
         FileOperation::Stage,
-        &PartialSource::Buffer("selected  \r\nsecond\r\n".into()),
+        &PartialSource::Buffer("selected\r\nsecond\r\n".into()),
         PartialSelection::Lines(std::iter::once(0..1).collect()),
         true,
     )?
@@ -299,10 +398,10 @@ async fn partial_staging_rejects_stale_review_and_ignored_files() -> Result<()> 
     let repo = GitRepository::discover(dir.path())?;
     std::fs::write(&path, "new index\n")?;
     exec_git_cmd(&["add", "file.txt"], dir.path());
-    let stale = PartialSource::Snapshot {
-        index: "head\n".into(),
-        text: "reviewed\n".into(),
-        buffer: true,
+    let stale = PartialSource::Review {
+        comparison: crate::ComparisonKind::Index,
+        before: "head\n".into(),
+        after: "reviewed\n".into(),
     };
     assert!(repo
         .prepare_partial(
@@ -377,10 +476,10 @@ async fn partial_staging_untracked_review_snapshot_preserves_utf8_bom() -> Resul
     repo.prepare_partial(
         &path,
         FileOperation::Stage,
-        &PartialSource::Snapshot {
-            index: String::new(),
-            text: "first\nsecond\n".into(),
-            buffer: false,
+        &PartialSource::Review {
+            comparison: crate::ComparisonKind::Unstaged,
+            before: String::new(),
+            after: "first\nsecond\n".into(),
         },
         PartialSelection::Lines(std::iter::once(1..2).collect()),
         true,
