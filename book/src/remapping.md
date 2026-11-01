@@ -153,6 +153,10 @@ belong in `keys.normal`, `keys.insert`, and `keys.select`.
 All component tables also accept `no_op` and `unbound`. Popup scrolling and menu
 paging move by half a page. Picker paging moves by a full page.
 
+Existing `actions` bindings still open the corresponding Git, stash, or history
+action menu. In `keys.git-picker`, `stashes` opens the stash browser. These
+actions have no default bindings; the direct shortcuts remain available.
+
 `keys.buffer-picker`, `keys.quicklist-picker`, `keys.git-picker`,
 `keys.stash-picker`, `keys.history-picker`, and `keys.file-explorer` inherit
 `keys.picker`.
