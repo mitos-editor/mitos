@@ -57,19 +57,30 @@ impl Folds {
     }
 
     pub(super) fn apply_changes(&mut self, changes: &ChangeSet) {
-        self.closed.retain_mut(|fold| {
+        if self.closed.is_empty() || changes.is_empty() {
+            return;
+        }
+        // ChangeIterator owns each inserted string. Only the old coordinates
+        // matter here; prepare them once without cloning a paste for every fold.
+        let edited: Vec<_> = changes.changed_ranges(0).map(|(old, _)| old).collect();
+        self.closed.retain(|fold| {
             // An edit touching concealed text opens it in every view. Changes
             // elsewhere track the same text, including undo and external edits.
-            if changes
-                .changes_iter()
-                .any(|(start, end, _)| start <= fold.range.end && end >= fold.range.start)
-            {
-                return false;
-            }
-            fold.range.start = changes.map_pos(fold.range.start, Assoc::After);
-            fold.range.end = changes.map_pos(fold.range.end, Assoc::Before);
-            fold.range.start < fold.range.end
+            !edited
+                .iter()
+                .any(|range| range.start <= fold.range.end && range.end >= fold.range.start)
         });
+        changes.update_positions(
+            self.closed
+                .iter_mut()
+                .map(|fold| (&mut fold.range.start, Assoc::After)),
+        );
+        changes.update_positions(
+            self.closed
+                .iter_mut()
+                .map(|fold| (&mut fold.range.end, Assoc::Before)),
+        );
+        self.closed.retain(|fold| fold.range.start < fold.range.end);
         self.rebuild();
     }
 }
@@ -274,6 +285,103 @@ mod tests {
     use arc_swap::ArcSwap;
     use editor_core::{Range, Rope, Transaction};
     use std::sync::Arc;
+
+    fn apply_changes_reference(folds: &mut Folds, changes: &ChangeSet) {
+        folds.closed.retain_mut(|fold| {
+            if changes
+                .changes_iter()
+                .any(|(start, end, _)| start <= fold.range.end && end >= fold.range.start)
+            {
+                return false;
+            }
+            fold.range.start = changes.map_pos(fold.range.start, Assoc::After);
+            fold.range.end = changes.map_pos(fold.range.end, Assoc::Before);
+            fold.range.start < fold.range.end
+        });
+        folds.rebuild();
+    }
+
+    #[test]
+    fn edit_ranges_preserve_endpoint_nested_and_multiple_edit_behavior() {
+        let text = Rope::from_str("αβγ\nword\nmore\nlast\n");
+        let folds = Folds {
+            closed: [2..15, 5..8, 10..12, 16..18]
+                .map(|range| Conceal { range })
+                .to_vec(),
+            visible: Vec::new(),
+        };
+        for start in 0..=text.len_chars() {
+            for end in start..=text.len_chars() {
+                for insert in [None, Some("é😀\n".into())] {
+                    let change = ChangeSet::from_change(&text, (start, end, insert));
+                    let mut expected = folds.clone();
+                    apply_changes_reference(&mut expected, &change);
+                    let mut actual = folds.clone();
+                    actual.rebuild();
+                    actual.apply_changes(&change);
+                    assert_eq!(actual.closed, expected.closed);
+                    assert_eq!(actual.visible, expected.visible);
+                }
+            }
+        }
+        let changes = ChangeSet::from_changes(
+            &text,
+            [
+                (0, 1, Some("prefix".into())),
+                (4, 5, None),
+                (15, 15, Some("😀".into())),
+            ]
+            .into_iter(),
+        );
+        let mut expected = folds.clone();
+        apply_changes_reference(&mut expected, &changes);
+        let mut actual = folds;
+        actual.apply_changes(&changes);
+        assert_eq!(actual.closed, expected.closed);
+    }
+
+    #[test]
+    #[ignore = "manual fold-edit performance probe"]
+    fn benchmark_fold_edit_ranges() {
+        use std::{hint::black_box, time::Instant};
+        let text = Rope::from_str(&"line with words\n".repeat(10_000));
+        for count in [0, 100, 1_000] {
+            for bytes in [1, 2_000_000] {
+                for (position, pos) in [("prefix", 0), ("append", text.len_chars())] {
+                    let changes =
+                        ChangeSet::from_change(&text, (pos, pos, Some("x".repeat(bytes).into())));
+                    let original = Folds {
+                        closed: (0..count)
+                            .map(|i| Conceal {
+                                range: i * 16 + 8..i * 16 + 12,
+                            })
+                            .collect(),
+                        visible: vec![],
+                    };
+                    let mut expected = original.clone();
+                    apply_changes_reference(&mut expected, &changes);
+                    for reference in [true, false] {
+                        let mut samples = Vec::new();
+                        for _ in 0..21 {
+                            let mut folds = original.clone();
+                            let start = Instant::now();
+                            if reference {
+                                apply_changes_reference(&mut folds, &changes);
+                            } else {
+                                folds.apply_changes(&changes);
+                            }
+                            black_box(&folds);
+                            samples.push(start.elapsed().as_secs_f64() * 1000.0);
+                            assert_eq!(folds.closed, expected.closed);
+                            assert_eq!(folds.visible, expected.visible);
+                        }
+                        samples.sort_by(f64::total_cmp);
+                        println!("folds={count} bytes={bytes} position={position} reference={reference} median_ms={:.6}",samples[10]);
+                    }
+                }
+            }
+        }
+    }
 
     fn fixture(text: &str, language: Option<&str>) -> (Document, View, View) {
         event::register_event::<DocumentDidChange>();
