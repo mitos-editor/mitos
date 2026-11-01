@@ -291,12 +291,18 @@ impl<T: ?Sized> Drop for RawBox<T> {
     }
 }
 
-/// Annotations that change that is displayed when the document is render.
+#[derive(Debug, Clone, Copy)]
+enum InlineHighlights<'a> {
+    Uniform(Option<Highlight>),
+    PerItem(&'a [Highlight]),
+}
+
+/// Annotations that change what is displayed when the document is rendered.
 /// Also commonly called virtual text.
 #[derive(Default)]
 pub struct TextAnnotations<'a> {
     replacements: Vec<(&'a LineReplacement, Option<Highlight>)>,
-    inline_annotations: Vec<Layer<'a, InlineAnnotation, Option<Highlight>>>,
+    inline_annotations: Vec<Layer<'a, InlineAnnotation, InlineHighlights<'a>>>,
     overlays: Vec<Layer<'a, Overlay, Option<Highlight>>>,
     conceals: &'a [Conceal],
     line_annotations: Vec<(Cell<usize>, RawBox<dyn LineAnnotation + 'a>)>,
@@ -461,7 +467,26 @@ impl<'a> TextAnnotations<'a> {
         highlight: Option<Highlight>,
     ) -> &mut Self {
         if !layer.is_empty() {
-            self.inline_annotations.push((layer, highlight).into());
+            self.inline_annotations
+                .push((layer, InlineHighlights::Uniform(highlight)).into());
+        }
+        self
+    }
+
+    /// Add sorted inline annotations with one highlight per entry.
+    ///
+    /// The slices must have equal lengths. Same-position ordering follows the
+    /// same rules as [`Self::add_inline_annotations`]. Keeping colors in one
+    /// layer avoids searching every document swatch for each rendered grapheme.
+    pub fn add_inline_annotations_with_highlights(
+        &mut self,
+        layer: &'a [InlineAnnotation],
+        highlights: &'a [Highlight],
+    ) -> &mut Self {
+        assert_eq!(layer.len(), highlights.len());
+        if !layer.is_empty() {
+            self.inline_annotations
+                .push((layer, InlineHighlights::PerItem(highlights)).into());
         }
         self
     }
@@ -504,8 +529,13 @@ impl<'a> TextAnnotations<'a> {
         char_idx: usize,
     ) -> Option<(&InlineAnnotation, Option<Highlight>)> {
         self.inline_annotations.iter().find_map(|layer| {
+            let index = layer.current_index.get();
             let annotation = layer.consume(char_idx, |annot| annot.char_idx)?;
-            Some((annotation, layer.metadata))
+            let highlight = match layer.metadata {
+                InlineHighlights::Uniform(highlight) => highlight,
+                InlineHighlights::PerItem(highlights) => Some(highlights[index]),
+            };
+            Some((annotation, highlight))
         })
     }
 
