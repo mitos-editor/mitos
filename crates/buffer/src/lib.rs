@@ -241,6 +241,34 @@ mod tests {
     use super::*;
 
     #[test]
+    fn large_deletion_replay_publishes_normal_changes_and_preserves_snapshots() {
+        let original = Rope::from("α😀界 words\r\n".repeat(20_000));
+        let mut buffer = Buffer::new(original.clone());
+        let snapshot = buffer.snapshot();
+        let transaction = Transaction::change(
+            buffer.text(),
+            [(0, original.len_chars(), Some("new".into()))].into_iter(),
+        );
+        buffer.apply(transaction.changes()).unwrap();
+        buffer.commit_changes().unwrap();
+        let after_delete = buffer.snapshot();
+        let undo = buffer.prepare_history(HistoryAction::Undo).pop().unwrap();
+        let applied = buffer.apply_history_step(&undo).unwrap();
+        assert_eq!(applied.before(), "new");
+        let mut consumer = applied.before().clone();
+        assert!(applied.changes().apply(&mut consumer));
+        assert_eq!(consumer, original);
+        assert_eq!(buffer.text(), &original);
+        assert_eq!(snapshot.text(), &original);
+        assert_eq!(after_delete.text(), "new");
+        assert!(!snapshot.is_current(&buffer));
+        assert!(!after_delete.is_current(&buffer));
+        let redo = buffer.prepare_history(HistoryAction::Redo).pop().unwrap();
+        buffer.apply_history_step(&redo).unwrap();
+        assert_eq!(buffer.text(), "new");
+    }
+
+    #[test]
     fn derived_replacement_invalidates_snapshots_without_undo_or_pending_edits() {
         let mut buffer = Buffer::new(Rope::from("before\n"));
         let old = buffer.snapshot();
