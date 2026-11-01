@@ -265,7 +265,7 @@ fn file_picker_paths(
         .build()
         .filter_map(|entry| {
             let entry = entry.ok()?;
-            if !entry.path().is_file() {
+            if !search::entry_file_type(&entry).is_some_and(|kind| kind.is_file()) {
                 return None;
             }
             Some(entry.into_path())
@@ -499,7 +499,7 @@ fn directory_content_cancellable(
             entry
                 .map(|entry| {
                     let path = entry.path();
-                    let is_dir = path.is_dir();
+                    let is_dir = search::entry_file_type(&entry).is_some_and(|kind| kind.is_dir());
                     (path.to_path_buf(), is_dir)
                 })
                 .ok()
@@ -792,7 +792,7 @@ pub mod completers {
                     }
 
                     let path = entry.path();
-                    let is_dir = path.is_dir();
+                    let is_dir = search::entry_file_type(&entry).is_some_and(|kind| kind.is_dir());
                     let file_type = entry.file_type();
                     let is_symlink = file_type.is_some_and(|ft| ft.is_symlink());
                     let mut path = if is_tilde {
