@@ -527,7 +527,7 @@ impl View {
             .show_cursorline_diagnostics(doc, self.id);
         let config =
             prepare_inline_diagnostics(&config.diagnostics.inline, width, enable_cursor_line);
-        if !config.disabled() {
+        if !config.disabled() && !doc.diagnostics().is_empty() {
             let cursor = doc
                 .selection(self.id)
                 .primary()

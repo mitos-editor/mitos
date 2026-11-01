@@ -9,3 +9,6 @@ mod renderer;
 
 pub use decorations::{Decoration, DecorationManager};
 pub use renderer::{render_text, LinePos, RenderSettings, TextRenderer};
+
+#[cfg(test)]
+mod long_line_tests;

@@ -89,6 +89,14 @@ pub struct FormattedGrapheme<'a> {
     pub char_idx: usize,
 }
 
+/// Exact geometry of a plain line tail advanced without formatting its graphemes.
+#[derive(Debug)]
+pub struct SkippedLineTail {
+    pub end_char: usize,
+    pub end_column: usize,
+    pub first_non_whitespace_column: Option<usize>,
+}
+
 impl FormattedGrapheme<'_> {
     pub fn is_virtual(&self) -> bool {
         self.source.is_virtual()
@@ -493,6 +501,52 @@ impl<'t> DocumentFormatter<'t> {
     /// returns the char index at the end of the last yielded grapheme
     pub fn next_char_pos(&self) -> usize {
         self.char_pos
+    }
+
+    /// Advance an unwrapped, annotation-free printable ASCII/tab tail.
+    ///
+    /// Newline/EOF is left for normal iteration, with its exact column intact.
+    /// `stop_before` is the next source position needed by the caller. A hook
+    /// at the line ending is allowed; one inside the tail prevents the skip.
+    /// Failure leaves all iterator state unchanged. Callers should attempt this
+    /// at most once per line, since validating an unsupported tail is linear.
+    pub fn try_skip_ascii_line_tail(&mut self, stop_before: usize) -> Option<SkippedLineTail> {
+        if self.text_fmt.soft_wrap || !self.annotations.is_empty() || self.exhausted {
+            return None;
+        }
+        let end_char = editor_core::line_ending::line_end_char_index(&self.text, self.line_pos);
+        if end_char <= self.char_pos || stop_before < end_char {
+            return None;
+        }
+        let mut column = self.visual_pos.col;
+        let mut first_non_whitespace_column = None;
+        let start_byte = self.text.char_to_byte_idx(self.char_pos);
+        let end_byte = self.text.char_to_byte_idx(end_char);
+        for chunk in self.text.slice(start_byte..end_byte).chunks() {
+            for (index, segment) in chunk.split('\t').enumerate() {
+                if index != 0 {
+                    column += self.text_fmt.tab_width as usize
+                        - column % self.text_fmt.tab_width as usize;
+                }
+                if !segment.bytes().all(|byte| (b' '..=b'~').contains(&byte)) {
+                    return None;
+                }
+                if first_non_whitespace_column.is_none()
+                    && let Some(offset) = segment.bytes().position(|byte| byte != b' ')
+                {
+                    first_non_whitespace_column = Some(column + offset);
+                }
+                column += segment.len();
+            }
+        }
+        self.char_pos = end_char;
+        self.visual_pos.col = column;
+        self.graphemes = self.text.slice_chars(end_char..).graphemes();
+        Some(SkippedLineTail {
+            end_char,
+            end_column: column,
+            first_non_whitespace_column,
+        })
     }
     /// returns the visual position at the end of the last yielded grapheme
     pub fn next_visual_pos(&self) -> DisplayPosition {
