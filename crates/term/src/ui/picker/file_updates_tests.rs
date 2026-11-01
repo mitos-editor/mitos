@@ -327,6 +327,8 @@ async fn file_refresh_keeps_the_query_and_selected_path() -> anyhow::Result<()> 
         picker.results.matcher.snapshot().item_count() == 3
     })
     .await?;
+    assert_eq!(picker.results.editor_data.files.lock().unwrap().scans, 1);
+    assert_eq!(picker.results.editor_data.files.lock().unwrap().updates, 1);
     let version = picker.results.version.load(atomic::Ordering::Relaxed);
     changed(&mut app.editor, &root.join("a-keep.txt"), EventType::Create);
     until(&mut picker, &mut app, |picker| {
@@ -544,5 +546,63 @@ async fn vcs_metadata_outside_the_worktree_refreshes_without_polling() -> anyhow
         picker.selection() == Some(&latest)
     })
     .await?;
+    Ok(())
+}
+
+/// Full frontend refresh, including path cloning, Nucleo reinjection and publication.
+/// Run explicitly with --release --ignored --nocapture; timing never gates CI.
+#[tokio::test]
+#[ignore = "manual file-picker performance probe"]
+async fn benchmark_incremental_file_picker_refresh() -> anyhow::Result<()> {
+    let mut app = application(false)?;
+    let dir = tempfile::tempdir()?;
+    let root = dir.path().canonicalize()?;
+    std::fs::write(root.join(".ignore"), "")?;
+    let directories: u32 = std::env::var("MITOS_BENCH_DIRECTORIES")
+        .ok()
+        .map(|value| value.parse().unwrap())
+        .unwrap_or(100);
+    let initial_count = directories * 100;
+    for directory in 0..directories {
+        let path = root.join(format!("dir{directory:03}"));
+        std::fs::create_dir(&path)?;
+        for file in 0..100 {
+            std::fs::write(path.join(format!("file{file:03}.rs")), "")?;
+        }
+    }
+    let mut picker = ui::file_picker(&app.editor, root.clone());
+    until(&mut picker, &mut app, |picker| {
+        picker.results.matcher.active_injectors() == 0
+            && picker.file_updates.as_ref().unwrap().pending.is_none()
+            && picker.results.matcher.snapshot().item_count() == initial_count
+    })
+    .await?;
+    let mut count = initial_count;
+    for incremental in [false, true] {
+        let mut samples = Vec::new();
+        for iteration in 0..21 {
+            let path = root.join(format!("new-{incremental}-{iteration}.rs"));
+            std::fs::write(&path, "")?;
+            count += 1;
+            let start = std::time::Instant::now();
+            if !incremental {
+                changed(&mut app.editor, &root.join(".ignore"), EventType::Modified);
+            }
+            changed(&mut app.editor, &path, EventType::Create);
+            until(&mut picker, &mut app, |picker| {
+                picker.results.matcher.active_injectors() == 0
+                    && picker.file_updates.as_ref().unwrap().pending.is_none()
+                    && picker.results.matcher.snapshot().item_count() == count
+            })
+            .await?;
+            samples.push(start.elapsed().as_secs_f64() * 1000.0);
+        }
+        samples.sort_by(f64::total_cmp);
+        println!(
+            "picker incremental={incremental}, files={initial_count}, median_publication_ms={:.6}",
+            samples[10]
+        );
+    }
+    assert_eq!(picker.results.editor_data.files.lock().unwrap().updates, 21);
     Ok(())
 }

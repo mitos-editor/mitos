@@ -10,7 +10,9 @@ use grep_regex::{RegexMatcher, RegexMatcherBuilder};
 use grep_searcher::{BinaryDetection, SearcherBuilder, Sink, SinkMatch};
 use ignore::WalkState;
 
+mod file_index;
 mod walk;
+pub use file_index::FileIndex;
 use std::{
     collections::HashMap,
     ops::ControlFlow,

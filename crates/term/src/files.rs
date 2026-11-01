@@ -36,3 +36,22 @@ pub(crate) fn explorer_options(config: &editor_config::FileExplorerConfig) -> se
 fn ignore_files() -> Vec<std::path::PathBuf> {
     vec![loader::config_dir().join("ignore"), ".mitos/ignore".into()]
 }
+
+mod picker;
+pub(crate) use picker::FilePickerCache;
+
+/// We want to exclude files that the editor can't handle yet
+pub(crate) fn excluded_types() -> ignore::types::Types {
+    use ignore::types::TypesBuilder;
+    let mut type_builder = TypesBuilder::new();
+    type_builder
+        .add(
+            "compressed",
+            "*.{zip,gz,bz2,zst,lzo,sz,tgz,tbz2,lz,lz4,lzma,lzo,z,Z,xz,7z,rar,cab}",
+        )
+        .expect("Invalid type definition");
+    type_builder.negate("all");
+    type_builder
+        .build()
+        .expect("failed to build excluded_types")
+}
