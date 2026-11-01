@@ -312,3 +312,29 @@ fn unsupported_tail_or_pending_anchor_does_not_advance_formatter() {
     assert_eq!(formatter.next_char_pos(), 1);
     assert_eq!(formatter.try_skip_ascii_line_tail(8).unwrap().end_column, 8);
 }
+#[test]
+fn ascii_tail_preserves_standalone_controls_and_unicode_separators() {
+    use editor_core::Rope;
+    for ending in ["\r", "\u{85}", "\u{2028}", "\u{2029}", "\x0b", "\x0c"] {
+        let text = Rope::from_str(&format!("short{ending}{}", "a".repeat(1_000)));
+        let format = TextFormat::new_test(false);
+        let annotations = TextAnnotations::default();
+        let mut formatter =
+            DocumentFormatter::new_at_prev_checkpoint(text.slice(..), &format, &annotations, 0);
+        let mut reference =
+            DocumentFormatter::new_at_prev_checkpoint(text.slice(..), &format, &annotations, 0);
+        for _ in 0..100 {
+            formatter.next().unwrap();
+            reference.next().unwrap();
+        }
+        let tail = formatter.try_skip_ascii_line_tail(usize::MAX);
+        if let Some(tail) = tail {
+            while reference.next_char_pos() < tail.end_char {
+                reference.next().unwrap();
+            }
+        }
+        let collect =
+            |formatter: DocumentFormatter| formatter.map(|g| format!("{g:?}")).collect::<Vec<_>>();
+        assert_eq!(collect(formatter), collect(reference));
+    }
+}
