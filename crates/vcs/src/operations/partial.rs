@@ -7,7 +7,7 @@ use gix::bstr::ByteSlice;
 use ropey::Rope;
 
 use super::{FileOperation, GitRepository, Operation, PreparedOperation};
-use crate::MAX_REVIEW_BYTES;
+use crate::{ComparisonKind, MAX_REVIEW_BYTES};
 
 /// Zero-based, end-exclusive source lines. Deletions use their following line as an anchor.
 #[derive(Clone, Debug)]
@@ -34,9 +34,50 @@ impl PartialSelection {
             }
         }
     }
-    fn contains(&self, line: u32) -> bool {
-        self.ranges().iter().any(|range| range.contains(&line))
+    fn normalize(&mut self) {
+        fn coalesce(ranges: &mut Vec<Range<u32>>) {
+            ranges.sort_unstable_by_key(|range| (range.start, range.end));
+            let mut count = 0;
+            for i in 0..ranges.len() {
+                let range = ranges[i].clone();
+                if range.is_empty() {
+                    continue;
+                }
+                if count != 0 && ranges[count - 1].end >= range.start {
+                    ranges[count - 1].end = ranges[count - 1].end.max(range.end);
+                } else {
+                    ranges[count] = range;
+                    count += 1;
+                }
+            }
+            ranges.truncate(count);
+        }
+        match self {
+            Self::Hunks(ranges) | Self::Lines(ranges) => coalesce(ranges),
+            Self::ReviewLines { before, after } => {
+                coalesce(before);
+                coalesce(after);
+            }
+        }
     }
+    fn contains(&self, line: u32) -> bool {
+        contains_line(self.ranges(), line)
+    }
+    fn intersects(&self, range: &Range<u32>) -> bool {
+        if range.is_empty() {
+            return self.contains(range.start);
+        }
+        let ranges = self.ranges();
+        ranges
+            .get(ranges.partition_point(|selected| selected.end <= range.start))
+            .is_some_and(|selected| selected.start < range.end)
+    }
+}
+
+fn contains_line(ranges: &[Range<u32>], line: u32) -> bool {
+    ranges
+        .get(ranges.partition_point(|range| range.end <= line))
+        .is_some_and(|range| range.contains(&line))
 }
 
 /// Staging a buffer explicitly includes its unsaved UTF-8 text without saving the file.
@@ -46,13 +87,47 @@ pub enum PartialSource {
     Buffer(String),
     Worktree,
     Index,
-    IndexSnapshot(String),
-    /// Exact live-review snapshots. A changed index invalidates the action.
-    Snapshot {
-        index: String,
-        text: String,
-        buffer: bool,
+    /// The exact endpoints displayed by a live review, in worktree representation.
+    Review {
+        comparison: ComparisonKind,
+        before: String,
+        after: String,
     },
+}
+
+impl PartialSource {
+    /// Buffer-backed endpoints must also be validated against the editor document.
+    pub fn buffer_text(&self) -> Option<&str> {
+        match self {
+            Self::Buffer(text) => Some(text),
+            Self::Review {
+                comparison: ComparisonKind::Head | ComparisonKind::Index,
+                after,
+                ..
+            } => Some(after),
+            _ => None,
+        }
+    }
+    fn is_index(&self) -> bool {
+        matches!(
+            self,
+            Self::Index
+                | Self::Review {
+                    comparison: ComparisonKind::Staged,
+                    ..
+                }
+        )
+    }
+    fn uses_worktree(&self) -> bool {
+        matches!(
+            self,
+            Self::Worktree
+                | Self::Review {
+                    comparison: ComparisonKind::Unstaged | ComparisonKind::HeadToWorktree,
+                    ..
+                }
+        )
+    }
 }
 
 impl GitRepository {
@@ -73,6 +148,24 @@ impl GitRepository {
         let path_bytes =
             gix::path::to_unix_separators_on_windows(gix::path::try_into_bstr(&relative)?);
         let index = repo.index_or_empty()?;
+        selection.normalize();
+        // Arbitrary drivers can reorder lines without changing their count. There is
+        // no general mapping back to selected source lines, in either direction.
+        let mut attributes = repo.attributes_only(
+            &index,
+            gix::worktree::stack::state::attributes::Source::WorktreeThenIdMapping,
+        )?;
+        let mut matches = gix::attrs::search::Outcome::default();
+        attributes
+            .at_path(&relative, None)?
+            .matching_attributes(&mut matches);
+        ensure!(
+            !matches
+                .iter()
+                .any(|attribute| attribute.assignment.name.as_str() == "filter"
+                    && matches!(attribute.assignment.state, gix::attrs::StateRef::Value(_))),
+            "Custom Git filters require whole-file staging and unstaging"
+        );
         ensure!(
             index
                 .entries()
@@ -171,69 +264,73 @@ impl GitRepository {
             PartialSource::Buffer(text) => text.as_bytes().to_owned(),
             PartialSource::Worktree => read_worktree(path)?,
             PartialSource::Index => worktree_index.clone(),
-            PartialSource::IndexSnapshot(expected) => {
-                ensure!(
-                    expected.trim_start_matches('\u{feff}')
-                        == index_text.trim_start_matches('\u{feff}'),
-                    "Git index changed since this review; refresh and try again"
-                );
-                worktree_index.clone()
-            }
-            PartialSource::Snapshot {
-                index,
-                text,
-                buffer,
+            PartialSource::Review {
+                comparison,
+                before,
+                after,
             } => {
+                let fallback = crate::FileStatus {
+                    staged: None,
+                    unstaged: Some(crate::FileChange::Modified {
+                        path: path.to_owned(),
+                    }),
+                };
+                let current = crate::review::read_git_comparison(
+                    status.as_ref().unwrap_or(&fallback),
+                    *comparison,
+                    true,
+                )?;
                 ensure!(
-                    index.trim_start_matches('\u{feff}')
-                        == index_text.trim_start_matches('\u{feff}'),
-                    "Git index changed since this review; refresh and try again"
+                    text(&current.before)?.trim_start_matches('\u{feff}')
+                        == before.trim_start_matches('\u{feff}')
+                        && (source.buffer_text().is_some()
+                            || text(&current.after)?.trim_start_matches('\u{feff}')
+                                == after.trim_start_matches('\u{feff}')),
+                    "Git comparison changed since this review; refresh and try again"
                 );
-                if !buffer {
-                    let current = read_worktree(path)?;
-                    ensure!(
-                        self::text(&current)?.trim_start_matches('\u{feff}')
-                            == text.trim_start_matches('\u{feff}'),
-                        "Source file changed since this review; refresh and try again"
-                    );
-                    current
+                if source.buffer_text().is_some() {
+                    after.as_bytes().to_owned()
                 } else {
-                    text.as_bytes().to_owned()
+                    current.after
                 }
             }
         };
         let input = text(&input)?;
+        let overview = match source {
+            PartialSource::Review {
+                comparison: ComparisonKind::Head | ComparisonKind::HeadToWorktree,
+                before,
+                after,
+            } => Some((
+                clean_text(&repo, &index, &relative, before)?,
+                clean_text(&repo, &index, &relative, after)?,
+            )),
+            _ => None,
+        };
         match kind {
             FileOperation::Stage => {
                 ensure!(
-                    !matches!(
-                        source,
-                        PartialSource::Index | PartialSource::IndexSnapshot(_)
-                    ),
+                    !source.is_index(),
                     "Choose a buffer or disk source to stage"
                 );
-                let (mut pipeline, _) = repo.filter_pipeline(None)?;
-                let mut cleaned = Vec::new();
-                pipeline
-                    .convert_to_git(input.as_bytes(), &relative, &index)?
-                    .take(MAX_REVIEW_BYTES as u64 + 1)
-                    .read_to_end(&mut cleaned)?;
-                let cleaned = text(&cleaned)?;
-                ensure!(
-                    line_count(input) == line_count(cleaned),
-                    "This file's Git filters change line positions; use whole-file staging"
-                );
+                let cleaned = clean_text(&repo, &index, &relative, input)?;
+                let cleaned = cleaned.as_str();
+                validate_review_hunks(
+                    overview.as_ref(),
+                    text(&indexed)?,
+                    cleaned,
+                    &selection,
+                    kind,
+                )?;
                 let mut changed = select_changes(
                     text(&indexed)?.trim_start_matches('\u{feff}'),
                     cleaned.trim_start_matches('\u{feff}'),
                     &selection,
                     Side::After,
                 )?;
-                let delete_file = matches!(
-                    source,
-                    PartialSource::Worktree | PartialSource::Snapshot { buffer: false, .. }
-                ) && std::fs::symlink_metadata(path)
-                    .is_err_and(|error| error.kind() == std::io::ErrorKind::NotFound);
+                let delete_file = source.uses_worktree()
+                    && std::fs::symlink_metadata(path)
+                        .is_err_and(|error| error.kind() == std::io::ErrorKind::NotFound);
                 // Text actions preserve an existing index BOM; new files use their source BOM.
                 let has_bom = if entry.is_none() {
                     cleaned.starts_with('\u{feff}')
@@ -272,10 +369,7 @@ impl GitRepository {
                 Ok(operation)
             }
             FileOperation::Unstage => {
-                if !matches!(
-                    source,
-                    PartialSource::Index | PartialSource::IndexSnapshot(_)
-                ) {
+                if !source.is_index() {
                     selection = map_to_index(
                         index_text.trim_start_matches('\u{feff}'),
                         input.trim_start_matches('\u{feff}'),
@@ -323,6 +417,13 @@ impl GitRepository {
                     None => Vec::new(),
                 };
                 let restored = text(&original)?.to_owned();
+                validate_review_hunks(
+                    overview.as_ref(),
+                    text(&indexed)?,
+                    &restored,
+                    &selection,
+                    kind,
+                )?;
                 let mut changed = select_changes(
                     text(&indexed)?.trim_start_matches('\u{feff}'),
                     restored.trim_start_matches('\u{feff}'),
@@ -391,6 +492,79 @@ impl GitRepository {
             expected,
         })
     }
+}
+
+/// A HEAD overview may use index actions only when the acted-on hunk is exactly
+/// the change shown. An adjacent staged edit must never enlarge that scope.
+fn validate_review_hunks(
+    overview: Option<&(String, String)>,
+    index: &str,
+    target: &str,
+    selection: &PartialSelection,
+    kind: FileOperation,
+) -> Result<()> {
+    let Some((before, after)) = overview else {
+        return Ok(());
+    };
+    let before = before.trim_start_matches('\u{feff}');
+    let after = after.trim_start_matches('\u{feff}');
+    let index = index.trim_start_matches('\u{feff}');
+    let target = target.trim_start_matches('\u{feff}');
+    let displayed = hunks(before, after);
+    let old_lines: Vec<_> = before.split_inclusive('\n').collect();
+    let new_lines: Vec<_> = after.split_inclusive('\n').collect();
+    let index_lines: Vec<_> = index.split_inclusive('\n').collect();
+    let lines = |range: &Range<u32>| range.start as usize..range.end as usize;
+    for hunk in hunks(index, target) {
+        let acted = if kind == FileOperation::Stage {
+            &hunk.after
+        } else {
+            &hunk.before
+        };
+        if !selection.intersects(acted) {
+            continue;
+        }
+        let shown = displayed
+            .binary_search_by_key(&(hunk.after.start, hunk.after.end), |shown| {
+                let range = if kind == FileOperation::Stage {
+                    &shown.after
+                } else {
+                    &shown.before
+                };
+                (range.start, range.end)
+            })
+            .ok()
+            .map(|position| &displayed[position]);
+        let matches = shown.is_some_and(|shown| {
+            if kind == FileOperation::Stage {
+                old_lines[lines(&shown.before)] == index_lines[lines(&hunk.before)]
+            } else {
+                new_lines[lines(&shown.after)] == index_lines[lines(&hunk.before)]
+            }
+        });
+        ensure!(matches, "Index changes differ from this HEAD preview; use :diff buffer to stage or :diff staged to unstage");
+    }
+    Ok(())
+}
+
+fn clean_text(
+    repo: &gix::Repository,
+    index: &gix::index::State,
+    path: &Path,
+    source: &str,
+) -> Result<String> {
+    let (mut pipeline, _) = repo.filter_pipeline(None)?;
+    let mut cleaned = Vec::new();
+    pipeline
+        .convert_to_git(source.as_bytes(), path, index)?
+        .take(MAX_REVIEW_BYTES as u64 + 1)
+        .read_to_end(&mut cleaned)?;
+    let cleaned = text(&cleaned)?;
+    ensure!(
+        line_count(source) == line_count(cleaned),
+        "This file's Git filters change line positions; use whole-file staging"
+    );
+    Ok(cleaned.to_owned())
 }
 
 fn text(bytes: &[u8]) -> Result<&str> {
@@ -463,14 +637,14 @@ fn select_changes(
         if let PartialSelection::ReviewLines { before, after } = selection {
             result.extend(old[previous..hunk.before.start as usize].iter().copied());
             for line in hunk.before.clone() {
-                if before.iter().any(|range| range.contains(&line)) {
+                if contains_line(before, line) {
                     selected = true;
                 } else {
                     result.push_str(old[line as usize]);
                 }
             }
             for line in hunk.after.clone() {
-                if after.iter().any(|range| range.contains(&line)) {
+                if contains_line(after, line) {
                     result.push_str(new[line as usize]);
                     selected = true;
                 }
@@ -482,11 +656,7 @@ fn select_changes(
             Side::Before => &hunk.before,
             Side::After => &hunk.after,
         };
-        let intersects = if range.is_empty() {
-            selection.contains(range.start)
-        } else {
-            range.clone().any(|line| selection.contains(line))
-        };
+        let intersects = selection.intersects(range);
         result.extend(old[previous..hunk.before.start as usize].iter().copied());
         if !intersects {
             result.extend(
@@ -528,29 +698,33 @@ fn select_changes(
 
 fn map_to_index(index: &str, input: &str, selection: PartialSelection) -> PartialSelection {
     let hunks = hunks(index, input);
-    let mut mapped = Vec::new();
+    let mut mapped: Vec<Range<u32>> = Vec::new();
+    let mut next_hunk = 0;
+    let mut shift = 0i64;
     for range in selection.ranges() {
         for line in range.clone() {
-            let mut shift = 0i64;
-            let mut mapped_line = None;
-            for hunk in &hunks {
-                if line < hunk.after.start {
-                    break;
-                }
-                if hunk.after.contains(&line) {
-                    let offset = line - hunk.after.start;
-                    mapped_line =
-                        (offset < hunk.before.len() as u32).then_some(hunk.before.start + offset);
-                    shift = i64::MIN;
+            while let Some(hunk) = hunks.get(next_hunk) {
+                if line < hunk.after.end || line < hunk.after.start {
                     break;
                 }
                 shift = i64::from(hunk.before.end) - i64::from(hunk.after.end);
+                next_hunk += 1;
             }
-            if shift != i64::MIN {
-                mapped_line = u32::try_from(i64::from(line) + shift).ok();
-            }
+            let mapped_line = if let Some(hunk) = hunks
+                .get(next_hunk)
+                .filter(|hunk| hunk.after.contains(&line))
+            {
+                let offset = line - hunk.after.start;
+                (offset < hunk.before.len() as u32).then_some(hunk.before.start + offset)
+            } else {
+                u32::try_from(i64::from(line) + shift).ok()
+            };
             if let Some(line) = mapped_line {
-                mapped.push(line..line.saturating_add(1));
+                if let Some(previous) = mapped.last_mut().filter(|previous| previous.end == line) {
+                    previous.end = line.saturating_add(1);
+                } else {
+                    mapped.push(line..line.saturating_add(1));
+                }
             }
         }
     }
