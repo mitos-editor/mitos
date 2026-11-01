@@ -53,6 +53,7 @@ async fn file_picker_match_text_and_order_ignore_icons() -> anyhow::Result<()> {
                 root: dir.path().to_owned(),
                 theme: Arc::new(app.editor.theme.clone()),
                 icons,
+                files: picker.results.editor_data.files.clone(),
             }),
             &picker.columns,
         );

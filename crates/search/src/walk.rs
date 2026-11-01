@@ -83,13 +83,15 @@ pub fn include_entry(entry: &DirEntry, root: &Path, dedup_symlinks: bool) -> boo
     should_include(entry, root, dedup_symlinks, true)
 }
 
+pub(crate) fn is_vcs_name(name: &std::ffi::OsStr) -> bool {
+    matches!(
+        name.to_str(),
+        Some(".git" | ".pijul" | ".jj" | ".hg" | ".svn")
+    )
+}
+
 fn should_include(entry: &DirEntry, root: &Path, dedup_symlinks: bool, exclude_vcs: bool) -> bool {
-    if exclude_vcs
-        && matches!(
-            entry.file_name().to_str(),
-            Some(".git" | ".pijul" | ".jj" | ".hg" | ".svn")
-        )
-    {
+    if exclude_vcs && is_vcs_name(entry.file_name()) {
         return false;
     }
 

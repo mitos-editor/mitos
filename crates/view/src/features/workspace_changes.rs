@@ -94,9 +94,15 @@ fn document_versions(
 }
 
 pub fn is_ignore_file(path: &Path) -> bool {
-    path.file_name()
-        .is_some_and(|name| name == ".gitignore" || name == ".ignore" || name == "filesentryignore")
-        || path.ends_with(".mitos/ignore")
+    path.file_name().is_some_and(|name| {
+        name == ".gitignore"
+            || name == ".ignore"
+            || name == "filesentryignore"
+            || name == ".filesentryignore"
+    }) || path.ends_with(".mitos/ignore")
+        || path.ends_with(".git/info/exclude")
+        || (path.file_name().is_some_and(|name| name == "ignore")
+            && path == stdx::path::canonicalize_existing(&loader::config_dir().join("ignore")))
 }
 
 impl WorkspaceChanges {
