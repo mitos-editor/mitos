@@ -5,7 +5,6 @@
 use editor_core::{chars::char_is_word, Rope, RopeSlice};
 use foldhash::HashMap;
 use std::{borrow::Cow, iter};
-use stdx::rope::RopeExt as _;
 use stdx::rope::RopeSliceExt as _;
 
 /// Minimum number of grapheme clusters required to include a word in the index
@@ -130,16 +129,21 @@ pub fn changed_words<'a>(
     // Matching byte suffixes can start inside two different UTF-8 characters.
     let suffix_start = old.ceil_char_boundary(old.len() - suffix_bytes);
     let suffix = old.len_chars() - old.byte_to_char_idx(suffix_start);
+    // The extra character prevents a truncated oversized word at either edge
+    // from becoming a valid MAX_WORD_LEN-character word after a join or split.
+    let padding = MAX_WORD_LEN + 1;
+    let start = prefix.saturating_sub(padding);
+    let old_end = (old.len_chars() - suffix + padding).min(old.len_chars());
+    let end = (text.len_chars() - suffix + padding).min(text.len_chars());
+    // A window beginning inside a combining cluster would lose its word base
+    // and could turn the remaining oversized run into an indexable fragment.
+    let start = old.floor_grapheme_boundary(old.char_to_byte_idx(start));
+    let old_end = old.ceil_grapheme_boundary(old.char_to_byte_idx(old_end));
+    let end = text.ceil_grapheme_boundary(text.char_to_byte_idx(end));
     if should_cancel() {
         return None;
     }
-    let start = prefix.saturating_sub(MAX_WORD_LEN);
-    let old_end = (old.len_chars() - suffix + MAX_WORD_LEN).min(old.len_chars());
-    let end = (text.len_chars() - suffix + MAX_WORD_LEN).min(text.len_chars());
-    Some((
-        old.slice_chars(start..old_end),
-        text.slice_chars(start..end),
-    ))
+    Some((old.slice(start..old_end), text.slice(start..end)))
 }
 
 /// Compare bounded byte spans, independently of the two ropes' chunk boundaries.
@@ -357,11 +361,11 @@ mod tests {
                 .zip(b[prefix..].iter().rev())
                 .take_while(|(a, b)| a == b)
                 .count();
-            let start = prefix.saturating_sub(MAX_WORD_LEN);
-            let expected_a: String = a[start..(a.len() - suffix + MAX_WORD_LEN).min(a.len())]
+            let start = prefix.saturating_sub(MAX_WORD_LEN + 1);
+            let expected_a: String = a[start..(a.len() - suffix + MAX_WORD_LEN + 1).min(a.len())]
                 .iter()
                 .collect();
-            let expected_b: String = b[start..(b.len() - suffix + MAX_WORD_LEN).min(b.len())]
+            let expected_b: String = b[start..(b.len() - suffix + MAX_WORD_LEN + 1).min(b.len())]
                 .iter()
                 .collect();
             let (actual_a, actual_b) = actual.unwrap();
@@ -393,6 +397,31 @@ mod tests {
                 check(&old, &edited);
                 edited.remove(0..1);
                 check(&old, &edited);
+            }
+        }
+    }
+
+    #[test]
+    fn snapshot_windows_do_not_index_truncated_oversized_words() {
+        for unit in ["a", "界", "e\u{301}"] {
+            let long = unit.repeat(100);
+            let indexed = unit.repeat(MAX_WORD_LEN / unit.chars().count());
+            for (before, after) in [
+                (format!(" {long} {indexed}"), format!("x{long} {indexed}")),
+                (format!("{indexed} {long} "), format!("{indexed} {long}x")),
+                (
+                    format!("{indexed} {long} xyz"),
+                    format!("{indexed} {long}xxyz"),
+                ),
+            ] {
+                let old = Rope::from(before);
+                let new = Rope::from(after);
+                let mut incremental = WordIndex::default();
+                incremental.add_document(&old, || false);
+                incremental.update(&old, &new, || false);
+                let mut fresh = WordIndex::default();
+                fresh.add_document(&new, || false);
+                assert_eq!(incremental.counts(), fresh.counts());
             }
         }
     }
