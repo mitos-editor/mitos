@@ -60,9 +60,9 @@ macro_rules! picker_actions {
         }
     };
 }
-picker_actions!(GitPickerAction, { "stage" => Stage, "unstage" => Unstage, "stash" => Stash });
-picker_actions!(HistoryPickerAction, { "open_version" => HistoryOpenVersion, "compare_buffer" => HistoryCompareBuffer, "compare_parent" => HistoryCompareParent, "back" => HistoryBack });
-picker_actions!(StashPickerAction, { "apply_stash" => ApplyStash, "apply_stash_with_index" => ApplyStashWithIndex });
+picker_actions!(GitPickerAction, { "stage" => Stage, "unstage" => Unstage, "stash" => Stash, "actions" => Actions, "stashes" => Stashes });
+picker_actions!(HistoryPickerAction, { "open_version" => HistoryOpenVersion, "compare_buffer" => HistoryCompareBuffer, "compare_parent" => HistoryCompareParent, "back" => HistoryBack, "actions" => Actions });
+picker_actions!(StashPickerAction, { "apply_stash" => ApplyStash, "apply_stash_with_index" => ApplyStashWithIndex, "actions" => Actions });
 
 /// User-facing `[keys]` table keeps editor and component schemas separate.
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]

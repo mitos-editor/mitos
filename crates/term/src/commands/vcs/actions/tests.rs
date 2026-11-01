@@ -38,10 +38,20 @@ fn key(
     key: &str,
 ) {
     let config = crate::config::Config::default();
+    key_with_config(app, compositor, jobs, &config, key);
+}
+
+fn key_with_config(
+    app: &mut Application,
+    compositor: &mut compositor::Compositor,
+    jobs: &mut crate::job::Jobs,
+    config: &crate::config::Config,
+    key: &str,
+) {
     let updates = tokio::sync::mpsc::unbounded_channel().0;
     let mut cx = Context {
         config: crate::config::Context {
-            current: &config,
+            current: config,
             updates: &updates,
         },
         editor: &mut app.editor,
@@ -51,6 +61,55 @@ fn key(
         is_cursor_owner: true,
     };
     assert!(compositor.handle_event(&Event::Key(key.parse().unwrap()), &mut cx));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn legacy_git_picker_bindings_open_actions_and_stashes() -> anyhow::Result<()> {
+    let dir = repo()?;
+    let mut app = application(false)?;
+    let mut compositor = compositor::Compositor::new(view::graphics::Rect::new(0, 0, 80, 24));
+    let mut jobs = crate::job::Jobs::new();
+    let config = crate::config::Config::load(
+        Ok(&"[keys.git-picker]\nA-a = 'actions'\nA-l = 'stashes'".into()),
+        Err(crate::config::ConfigLoadError::default()),
+    )
+    .map_err(|error| anyhow::anyhow!("{error}"))?;
+    let scope = vcs::ChangedFileScope::Repository(dir.path().into());
+    let workspace = dir.path().to_owned();
+    let mut picker = Picker::new(
+        app.editor.redraw().clone(),
+        [PickerColumn::new(
+            "file",
+            |file: &vcs::FileStatus, _: &()| file.path().display().to_string().into(),
+        )],
+        0,
+        [vcs::FileStatus {
+            staged: None,
+            unstaged: Some(vcs::FileChange::Modified {
+                path: dir.path().join("file.txt"),
+            }),
+        }],
+        (),
+        |_, _, _| {},
+    )
+    .with_item_actions(
+        |maps| &maps.git_picker,
+        move |cx, status, action| file_action(cx, status, None, action, &scope, &workspace),
+    );
+    until(&mut picker, &mut app, |picker| picker.selection().is_some()).await?;
+    compositor.push(Box::new(overlaid(picker)));
+    key_with_config(&mut app, &mut compositor, &mut jobs, &config, "A-a");
+    assert!(compositor.find::<ActionMenu>().is_some());
+    assert!(
+        !app.editor.handlers().git_operations.busy(),
+        "Opening a legacy action menu must not start a mutation"
+    );
+    key_with_config(&mut app, &mut compositor, &mut jobs, &config, "esc");
+    key_with_config(&mut app, &mut compositor, &mut jobs, &config, "A-l");
+    assert!(compositor
+        .find::<ui::overlay::Overlay<Picker<StashEntry, StashData>>>()
+        .is_some());
+    Ok(())
 }
 
 #[tokio::test(flavor = "multi_thread")]

@@ -324,6 +324,20 @@ fn workspace_keymap_replacements_do_not_restore_removed_defaults() {
 }
 
 #[test]
+fn legacy_git_picker_action_bindings_remain_usable() {
+    for source in [
+        "[keys.git-picker]\nA-a = 'actions'\nA-l = 'stashes'",
+        "[keys.history-picker]\nA-a = 'actions'",
+        "[keys.stash-picker]\nA-a = 'actions'",
+    ] {
+        assert!(
+            Config::load(Ok(&source.to_owned()), Err(ConfigLoadError::default())).is_ok(),
+            "{source}"
+        );
+    }
+}
+
+#[test]
 fn component_keys_reject_invalid_actions_shapes_and_contexts() {
     for config in [
         "[keys.unknown]\nj = 'move_down'",
@@ -333,10 +347,6 @@ fn component_keys_reject_invalid_actions_shapes_and_contexts() {
         "[keys.buffer-picker]\nA-s = 'stage'",
         "[keys.git-picker]\nA-s = 'apply_stash'",
         "[keys.stash-picker]\nA-s = 'stage'",
-        "[keys.git-picker]\nA-a = 'actions'",
-        "[keys.git-picker]\nA-l = 'stashes'",
-        "[keys.stash-picker]\nA-a = 'actions'",
-        "[keys.history-picker]\nA-a = 'actions'",
         "[keys.menu]\nC-x = 'close_buffer'",
         "[keys.buffer-picker]\nC-x = 'scroll_down'",
         "[keys.picker]\nC-x = 'remove_entry'",

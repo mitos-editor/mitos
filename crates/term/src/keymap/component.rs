@@ -69,6 +69,9 @@ pub enum PickerItemAction {
     Stash,
     ApplyStash,
     ApplyStashWithIndex,
+    /// Legacy, explicitly configured context menus; direct actions remain the defaults.
+    Actions,
+    Stashes,
     #[serde(rename = "open_version")]
     HistoryOpenVersion,
     #[serde(rename = "compare_buffer")]
