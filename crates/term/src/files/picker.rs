@@ -234,6 +234,27 @@ mod tests {
         Ok(())
     }
     #[tokio::test]
+    async fn repository_marker_creation_reloads_cached_gitignore_rules() -> anyhow::Result<()> {
+        for marker in [".git", ".jj"] {
+            let mut app = application(false)?;
+            let dir = tempfile::tempdir()?;
+            let root = dir.path().canonicalize()?;
+            std::fs::write(root.join(".gitignore"), "ignored.rs\n")?;
+            std::fs::write(root.join("ignored.rs"), "")?;
+            let mut cache = FilePickerCache::new(&app.editor);
+            let config = config();
+            cache.initial(&root, &config, || false, |_| true);
+            changed(&mut app.editor, &root.join("ignored.rs"), EventType::Create);
+            assert_eq!(cache.refresh(&root, &config, None, || false).len(), 1);
+            assert_eq!(cache.updates, 1);
+            std::fs::write(root.join(marker), "")?;
+            changed(&mut app.editor, &root.join(marker), EventType::Create);
+            assert!(cache.refresh(&root, &config, None, || false).is_empty());
+            assert_eq!(cache.scans, 2);
+        }
+        Ok(())
+    }
+    #[tokio::test]
     async fn ignore_changes_and_lost_event_batches_force_full_scans() -> anyhow::Result<()> {
         let mut app = application(false)?;
         let dir = tempfile::tempdir()?;

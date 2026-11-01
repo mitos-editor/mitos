@@ -96,6 +96,8 @@ fn document_versions(
 pub fn is_ignore_file(path: &Path) -> bool {
     path.file_name().is_some_and(|name| {
         name == ".gitignore"
+            || name == ".git"
+            || name == ".jj"
             || name == ".ignore"
             || name == "filesentryignore"
             || name == ".filesentryignore"
