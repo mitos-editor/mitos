@@ -1089,6 +1089,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             .style(text_style)
             .row_highlight_style(selected)
             .highlight_symbol(marker)
+            .highlight_spacing(tui::widgets::HighlightSpacing::Always)
             .column_spacing(1)
             .flex(tui::layout::Flex::Legacy);
 
