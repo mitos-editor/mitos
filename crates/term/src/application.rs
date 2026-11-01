@@ -179,11 +179,9 @@ impl Application {
                             && !self.editor.documents().any(|doc| doc.is_syntax_pending())
                             && !self.compositor.has_pending_render()
                         {
-                            use futures_util::FutureExt;
-
                             // An expired idle timer can win the select while input is
                             // still queued, especially when a CI runner is busy.
-                            if let Some(Some(event)) = input_stream.next().now_or_never() {
+                            if let Some(event) = ready_input(input_stream) {
                                 self.handle_terminal_events(event).await;
                             } else {
                                 return true;
@@ -345,3 +343,16 @@ impl Application {
 
 #[cfg(all(test, feature = "integration"))]
 mod save_tests;
+
+#[cfg(feature = "integration")]
+fn ready_input<S: Stream + Unpin>(input: &mut S) -> Option<S::Item> {
+    use futures_util::{FutureExt, StreamExt};
+    // This is a single integration-test readiness probe, not the event loop.
+    // A cooperative yield must not turn a nonempty input queue into "idle".
+    tokio::task::unconstrained(input.next())
+        .now_or_never()
+        .flatten()
+}
+
+#[cfg(all(test, feature = "integration"))]
+mod idle_tests;
