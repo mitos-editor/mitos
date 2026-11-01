@@ -83,7 +83,7 @@ C-n = "unbound" # Release this key to the picker's prompt.
 C-x = "close_buffer" # Close the selected buffer and keep the picker open.
 
 [keys.git-picker]
-C-x = "actions"
+C-x = "stage"
 
 [keys.stash-picker]
 C-x = "apply_stash"
@@ -139,15 +139,19 @@ belong in `keys.normal`, `keys.insert`, and `keys.select`.
 | `keys.quicklist-picker` | All `keys.picker` actions, plus `remove_entry` |
 | `keys.git-picker` | All `keys.picker` actions, plus `stage`, `unstage`, `stash`, `actions`, `stashes` |
 | `keys.stash-picker` | All `keys.picker` actions, plus `apply_stash`, `apply_stash_with_index`, `actions` |
-| `keys.history-picker` | All `keys.picker` actions, plus `actions`, `back` |
+| `keys.history-picker` | All `keys.picker` actions, plus `open_version`, `compare_buffer`, `compare_parent`, `back`, `actions` |
 | `keys.menu` | `accept`, `cancel`, `move_up`, `move_down`, `page_up`, `page_down` |
 | `keys.popup` | `cancel`, `scroll_up`, `scroll_down` |
 | `keys.hover`, `keys.signature-help` | `previous`, `next` |
 | `keys.blame` | `copy_commit_id`, `copy_message` |
-| `keys.diff` | `scroll_left`, `scroll_right`, `restore` (current-change popup only) |
+| `keys.diff` | `scroll_left`, `scroll_right`, plus `restore`, `stage`, `unstage`, `stage_and_next` in the current-change popup |
 
 All component tables also accept `no_op` and `unbound`. Popup scrolling and menu
 paging move by half a page. Picker paging moves by a full page.
+
+Existing `actions` bindings still open the corresponding Git, stash, or history
+action menu. In `keys.git-picker`, `stashes` opens the stash browser. These
+actions have no default bindings; the direct shortcuts remain available.
 
 `keys.buffer-picker`, `keys.quicklist-picker`, `keys.git-picker`,
 `keys.stash-picker`, and `keys.history-picker` inherit `keys.picker`.

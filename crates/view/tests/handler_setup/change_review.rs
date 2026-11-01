@@ -1436,3 +1436,225 @@ async fn inspected_hunk_restoration_rejects_changed_buffer_and_repository() -> a
     assert_eq!(current_ref!(f.editor).1.text().to_string(), "newer\n");
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn head_review_rejects_disk_changes_before_staging_selected_rows() -> anyhow::Result<()> {
+    let mut f = Fixture::new("before\n")?;
+    prepare(&mut f, "initial");
+    let path = current_ref!(f.editor).1.path().unwrap().to_owned();
+    std::fs::write(&path, "shown\n")?;
+    let id = f.editor.open_review(
+        review_request(&f, &path, ReviewComparison::HeadToWorktree),
+        Action::Replace,
+        None,
+    );
+    finish_review(&mut f, id).await?;
+    let (view, doc) = current!(f.editor);
+    let row = (0..doc.text().len_lines(stdx::rope::LINE_TYPE))
+        .find(|row| {
+            doc.review().unwrap().row(*row).is_some_and(|line| {
+                line.kind == view::features::change_review::ReviewLineKind::Added
+            })
+        })
+        .unwrap();
+    doc.set_selection(view.id, Selection::point(doc.text().line_to_char_idx(row)));
+    std::fs::write(&path, "unseen\n")?;
+    assert!(
+        view::features::git_operations::partial::capture(
+            &f.editor,
+            vcs::operations::FileOperation::Stage,
+            true,
+            false,
+        )
+        .is_err(),
+        "Staging must reject the changed comparison before recapturing disk text"
+    );
+    assert_eq!(index_text(&path)?, "before\n");
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn inspected_head_hunk_rejects_an_index_action_that_extends_beyond_the_preview(
+) -> anyhow::Result<()> {
+    for (kind, indexed) in [
+        (
+            vcs::operations::FileOperation::Stage,
+            "STAGED first\nsecond\nthird\n",
+        ),
+        (
+            vcs::operations::FileOperation::Unstage,
+            "STAGED first\nNEW second\nthird\n",
+        ),
+    ] {
+        let mut f = Fixture::new("first\nsecond\nthird\n")?;
+        prepare(&mut f, "initial");
+        let path = current_ref!(f.editor).1.path().unwrap().to_owned();
+        std::fs::write(&path, indexed)?;
+        git(f.dir.path(), &["add", "document.words"]);
+        f.replace("first\nNEW second\nthird\n");
+        let (view, doc) = current!(f.editor);
+        doc.set_selection(view.id, Selection::point(doc.text().line_to_char_idx(1)));
+        let inspected = Arc::new(HunkReviewRequest::capture(&f.editor)?)
+            .run()
+            .await?;
+        let (request, _) = view::features::git_operations::partial::capture_cursor_hunk(
+            &f.editor, kind, &inspected,
+        )?;
+        assert!(
+            request.prepare().await.is_err(),
+            "The index hunk also reverses an unseen staged edit"
+        );
+        assert_eq!(index_text(&path)?, indexed);
+    }
+    Ok(())
+}
+
+fn index_text(path: &std::path::Path) -> anyhow::Result<String> {
+    let output = std::process::Command::new("git")
+        .args([
+            "show",
+            &format!(":{}", path.file_name().unwrap().to_str().unwrap()),
+        ])
+        .current_dir(path.parent().unwrap())
+        .output()?;
+    anyhow::ensure!(output.status.success(), "git show failed");
+    Ok(String::from_utf8(output.stdout)?)
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn inspected_hunk_staging_preserves_separate_staged_changes_and_crlf() -> anyhow::Result<()> {
+    let mut f = Fixture::new("first\r\nkeep\r\nthird\r\n")?;
+    std::fs::write(f.dir.path().join(".gitattributes"), "* text eol=crlf\n")?;
+    prepare(&mut f, "initial");
+    let path = current_ref!(f.editor).1.path().unwrap().to_owned();
+    std::fs::write(&path, "STAGED first\r\nkeep\r\nthird\r\n")?;
+    git(f.dir.path(), &["add", "document.words"]);
+    f.replace("STAGED first\r\nkeep\r\nNEW third\r\n");
+    let (view, doc) = current!(f.editor);
+    doc.set_selection(view.id, Selection::point(doc.text().line_to_char_idx(2)));
+    let inspected = Arc::new(HunkReviewRequest::capture(&f.editor)?)
+        .run()
+        .await?;
+    let (request, _) = view::features::git_operations::partial::capture_cursor_hunk(
+        &f.editor,
+        vcs::operations::FileOperation::Stage,
+        &inspected,
+    )?;
+    request
+        .prepare()
+        .await?
+        .admit(&mut f.editor)?
+        .execute()
+        .await
+        .finish(&mut f.editor);
+    assert_eq!(index_text(&path)?, "STAGED first\nkeep\nNEW third\n");
+    let inspected = Arc::new(HunkReviewRequest::capture(&f.editor)?)
+        .run()
+        .await?;
+    let (request, _) = view::features::git_operations::partial::capture_cursor_hunk(
+        &f.editor,
+        vcs::operations::FileOperation::Unstage,
+        &inspected,
+    )?;
+    request
+        .prepare()
+        .await?
+        .admit(&mut f.editor)?
+        .execute()
+        .await
+        .finish(&mut f.editor);
+    assert_eq!(index_text(&path)?, "STAGED first\nkeep\nthird\n");
+
+    assert_eq!(
+        std::fs::read_to_string(&path)?,
+        "STAGED first\r\nkeep\r\nthird\r\n"
+    );
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn selected_deleted_review_rows_stage_a_large_file_without_writing_disk() -> anyhow::Result<()>
+{
+    let before = (0..19_990)
+        .map(|line| format!("line {line}\n"))
+        .collect::<String>();
+    let mut f = Fixture::new(&before)?;
+    prepare(&mut f, "initial");
+    let path = current_ref!(f.editor).1.path().unwrap().to_owned();
+    std::fs::remove_file(&path)?;
+    let id = f.editor.open_review(
+        review_request(&f, &path, ReviewComparison::Unstaged),
+        Action::Replace,
+        None,
+    );
+    finish_review(&mut f, id).await?;
+    let (view, doc) = current!(f.editor);
+    assert!(!doc.review().unwrap().review().truncated);
+    doc.set_selection(view.id, Selection::single(0, doc.text().len_chars()));
+    let (request, _) = view::features::git_operations::partial::capture(
+        &f.editor,
+        vcs::operations::FileOperation::Stage,
+        true,
+        false,
+    )?;
+    request
+        .prepare()
+        .await?
+        .admit(&mut f.editor)?
+        .execute()
+        .await
+        .finish(&mut f.editor);
+    assert!(
+        index_text(&path).is_err(),
+        "All selected deletions must remove the index entry"
+    );
+    assert!(!path.exists());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn saved_head_review_stages_disk_without_unsaved_buffer_edits() -> anyhow::Result<()> {
+    let mut f = Fixture::new("before\n")?;
+    prepare(&mut f, "initial");
+    let path = current_ref!(f.editor).1.path().unwrap().to_owned();
+    std::fs::write(&path, "saved\n")?;
+    f.replace("unsaved\n");
+    let request = review_request(&f, &path, ReviewComparison::HeadToWorktree);
+    let id = f.editor.open_review(request, Action::Replace, None);
+    finish_review(&mut f, id).await?;
+    let (view, doc) = current!(f.editor);
+    let row = (0..doc.text().len_lines(stdx::rope::LINE_TYPE))
+        .find(|row| {
+            doc.review().unwrap().row(*row).is_some_and(|line| {
+                line.kind == view::features::change_review::ReviewLineKind::Added
+            })
+        })
+        .unwrap();
+    doc.set_selection(view.id, Selection::point(doc.text().line_to_char_idx(row)));
+    let (request, _) = view::features::git_operations::partial::capture(
+        &f.editor,
+        vcs::operations::FileOperation::Stage,
+        false,
+        false,
+    )?;
+    request
+        .prepare()
+        .await?
+        .admit(&mut f.editor)?
+        .execute()
+        .await
+        .finish(&mut f.editor);
+    let output = std::process::Command::new("git")
+        .arg("show")
+        .arg(format!(":{}", path.file_name().unwrap().to_str().unwrap()))
+        .current_dir(f.dir.path())
+        .output()?;
+    assert!(output.status.success());
+    assert_eq!(String::from_utf8(output.stdout)?, "saved\n");
+    assert_eq!(std::fs::read_to_string(&path)?, "saved\n");
+    assert_eq!(
+        f.editor.document_by_path(&path).unwrap().text().to_string(),
+        "unsaved\n"
+    );
+    Ok(())
+}

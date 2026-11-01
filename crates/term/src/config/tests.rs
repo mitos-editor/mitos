@@ -324,6 +324,20 @@ fn workspace_keymap_replacements_do_not_restore_removed_defaults() {
 }
 
 #[test]
+fn legacy_git_picker_action_bindings_remain_usable() {
+    for source in [
+        "[keys.git-picker]\nA-a = 'actions'\nA-l = 'stashes'",
+        "[keys.history-picker]\nA-a = 'actions'",
+        "[keys.stash-picker]\nA-a = 'actions'",
+    ] {
+        assert!(
+            Config::load(Ok(&source.to_owned()), Err(ConfigLoadError::default())).is_ok(),
+            "{source}"
+        );
+    }
+}
+
+#[test]
 fn component_keys_reject_invalid_actions_shapes_and_contexts() {
     for config in [
         "[keys.unknown]\nj = 'move_down'",
@@ -919,6 +933,18 @@ fn git_picker_maps_inherit_shared_keys_and_keep_context_actions_scoped() {
         state.lookup(&maps.picker, "C-j".parse().unwrap()),
         Lookup::Actions(&[P::MoveUp])
     );
+    assert_eq!(
+        state.lookup(&maps.git_picker, "A-a".parse().unwrap()),
+        Lookup::Unbound
+    );
+    assert_eq!(
+        state.lookup(&maps.git_picker, "A-l".parse().unwrap()),
+        Lookup::Unbound
+    );
+    assert_eq!(
+        state.lookup(&maps.stash_picker, "A-a".parse().unwrap()),
+        Lookup::Unbound
+    );
     assert_eq!(serde_json::to_value(P::Item(I::Stage)).unwrap(), "stage");
 }
 
@@ -926,8 +952,41 @@ fn git_picker_maps_inherit_shared_keys_and_keep_context_actions_scoped() {
 fn history_picker_keys_inherit_navigation_and_only_accept_history_actions() {
     use crate::keymap::component::{PickerAction as P, PickerItemAction as I};
     use ui_core::keymap::{KeymapState, Lookup};
+    let defaults = Config::default();
+    let mut state = KeymapState::default();
+    for (key, action) in [
+        ("A-v", I::HistoryOpenVersion),
+        ("A-e", I::HistoryCompareBuffer),
+        ("A-p", I::HistoryCompareParent),
+    ] {
+        assert_eq!(
+            state.lookup(
+                &defaults.component_keys.history_picker,
+                key.parse().unwrap()
+            ),
+            Lookup::Actions(&[P::Item(action)])
+        );
+    }
+    assert_eq!(
+        state.lookup(
+            &defaults.component_keys.history_picker,
+            "A-a".parse().unwrap()
+        ),
+        Lookup::Unbound
+    );
+    assert_eq!(
+        state.lookup(
+            &defaults.component_keys.history_picker,
+            "A-b".parse().unwrap()
+        ),
+        Lookup::Unbound
+    );
+    assert_eq!(
+        state.lookup(&defaults.component_keys.prompt, "A-b".parse().unwrap()),
+        Lookup::Actions(&[crate::keymap::component::PromptAction::MoveWordLeft])
+    );
     let config = Config::load(
-        Ok(&"[keys.history-picker]\nC-j = 'actions'".to_owned()),
+        Ok(&"[keys.history-picker]\nC-j = 'compare_buffer'".to_owned()),
         Ok("[keys.picker]\nC-j = 'move_up'\nC-k = 'move_down'".to_owned()),
     )
     .unwrap();
@@ -937,7 +996,7 @@ fn history_picker_keys_inherit_navigation_and_only_accept_history_actions() {
             &config.component_keys.history_picker,
             "C-j".parse().unwrap()
         ),
-        Lookup::Actions(&[P::Item(I::Actions)])
+        Lookup::Actions(&[P::Item(I::HistoryCompareBuffer)])
     );
     assert_eq!(
         state.lookup(

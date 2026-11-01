@@ -38,10 +38,20 @@ fn key(
     key: &str,
 ) {
     let config = crate::config::Config::default();
+    key_with_config(app, compositor, jobs, &config, key);
+}
+
+fn key_with_config(
+    app: &mut Application,
+    compositor: &mut compositor::Compositor,
+    jobs: &mut crate::job::Jobs,
+    config: &crate::config::Config,
+    key: &str,
+) {
     let updates = tokio::sync::mpsc::unbounded_channel().0;
     let mut cx = Context {
         config: crate::config::Context {
-            current: &config,
+            current: config,
             updates: &updates,
         },
         editor: &mut app.editor,
@@ -51,6 +61,55 @@ fn key(
         is_cursor_owner: true,
     };
     assert!(compositor.handle_event(&Event::Key(key.parse().unwrap()), &mut cx));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn legacy_git_picker_bindings_open_actions_and_stashes() -> anyhow::Result<()> {
+    let dir = repo()?;
+    let mut app = application(false)?;
+    let mut compositor = compositor::Compositor::new(view::graphics::Rect::new(0, 0, 80, 24));
+    let mut jobs = crate::job::Jobs::new();
+    let config = crate::config::Config::load(
+        Ok(&"[keys.git-picker]\nA-a = 'actions'\nA-l = 'stashes'".into()),
+        Err(crate::config::ConfigLoadError::default()),
+    )
+    .map_err(|error| anyhow::anyhow!("{error}"))?;
+    let scope = vcs::ChangedFileScope::Repository(dir.path().into());
+    let workspace = dir.path().to_owned();
+    let mut picker = Picker::new(
+        app.editor.redraw().clone(),
+        [PickerColumn::new(
+            "file",
+            |file: &vcs::FileStatus, _: &()| file.path().display().to_string().into(),
+        )],
+        0,
+        [vcs::FileStatus {
+            staged: None,
+            unstaged: Some(vcs::FileChange::Modified {
+                path: dir.path().join("file.txt"),
+            }),
+        }],
+        (),
+        |_, _, _| {},
+    )
+    .with_item_actions(
+        |maps| &maps.git_picker,
+        move |cx, status, action| file_action(cx, status, None, action, &scope, &workspace),
+    );
+    until(&mut picker, &mut app, |picker| picker.selection().is_some()).await?;
+    compositor.push(Box::new(overlaid(picker)));
+    key_with_config(&mut app, &mut compositor, &mut jobs, &config, "A-a");
+    assert!(compositor.find::<ActionMenu>().is_some());
+    assert!(
+        !app.editor.handlers().git_operations.busy(),
+        "Opening a legacy action menu must not start a mutation"
+    );
+    key_with_config(&mut app, &mut compositor, &mut jobs, &config, "esc");
+    key_with_config(&mut app, &mut compositor, &mut jobs, &config, "A-l");
+    assert!(compositor
+        .find::<ui::overlay::Overlay<Picker<StashEntry, StashData>>>()
+        .is_some());
+    Ok(())
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -107,7 +166,7 @@ async fn stash_application_confirms_and_finishes_after_the_picker_closes() -> an
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn git_actions_are_available_without_a_selected_file() -> anyhow::Result<()> {
+async fn repository_stash_shortcut_is_available_without_a_selected_file() -> anyhow::Result<()> {
     let dir = repo()?;
     let mut app = application(false)?;
     let mut compositor = compositor::Compositor::new(view::graphics::Rect::new(0, 0, 80, 24));
@@ -131,7 +190,7 @@ async fn git_actions_are_available_without_a_selected_file() -> anyhow::Result<(
     );
     until(&mut picker, &mut app, |_| true).await?;
     compositor.push(Box::new(overlaid(picker)));
-    key(&mut app, &mut compositor, &mut jobs, "A-a");
+    key(&mut app, &mut compositor, &mut jobs, "A-z");
     assert!(compositor.find::<ActionMenu>().is_some());
     key(&mut app, &mut compositor, &mut jobs, "esc");
     assert!(compositor.find::<ActionMenu>().is_none());
@@ -302,13 +361,11 @@ async fn direct_git_shortcuts_clip_to_one_row_follow_remaps_and_preserve_paging(
                     "<A-s> stage"
                 }));
                 if width == 120 {
-                    for hint in ["<A-u> unstage", "<A-l> stashes", "<A-a> actions"] {
-                        assert!(screen.contains(hint), "Missing {hint:?}: {screen}");
-                    }
+                    assert!(screen.contains("<A-u> unstage"), "{screen}");
                     assert_eq!(screen.contains("<A-z> stash"), !remapped);
-                } else {
-                    assert!(!screen.contains("actions"), "{screen}");
                 }
+                assert!(!screen.contains("actions"), "{screen}");
+                assert!(!screen.contains("stashes"), "{screen}");
                 assert!(rows[..rows.len() - 1]
                     .iter()
                     .all(|row| !row.contains("stage")));
@@ -341,15 +398,15 @@ async fn direct_git_shortcuts_clip_to_one_row_follow_remaps_and_preserve_paging(
 }
 
 #[tokio::test]
-async fn action_choosers_keep_long_option_names_visible() -> anyhow::Result<()> {
+async fn stash_confirmation_keeps_long_option_names_visible() -> anyhow::Result<()> {
     let mut app = application(false)?;
     let mut jobs = crate::job::Jobs::new();
     let config = crate::config::Config::default();
     for width in [40, 80] {
         let mut menu = ActionMenu::new(
-            "Git actions".into(),
+            "Stash repository changes?".into(),
             vec![
-                Choice::new("Stage selected file on disk", Command::Cancel),
+                Choice::new("Cancel", Command::Cancel),
                 Choice::new("Stash all repository changes…", Command::Cancel),
             ],
             std::path::PathBuf::new(),
@@ -362,7 +419,7 @@ async fn action_choosers_keep_long_option_names_visible() -> anyhow::Result<()> 
             view::graphics::Rect::new(0, 0, width, 20),
         )
         .join("\n");
-        assert!(screen.contains("Stage selected file on disk"), "{screen}");
+        assert!(screen.contains("Cancel"), "{screen}");
         assert!(screen.contains("Stash all repository changes…"), "{screen}");
     }
     Ok(())

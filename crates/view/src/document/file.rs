@@ -568,6 +568,10 @@ impl Document {
         self.file.encoding
     }
 
+    pub fn has_bom(&self) -> bool {
+        self.file.has_bom
+    }
+
     /// sets the document path without sending events to various
     /// observers (like LSP), in most cases `Editor::set_doc_path`
     /// should be used instead

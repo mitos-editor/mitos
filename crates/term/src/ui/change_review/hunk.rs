@@ -12,6 +12,32 @@ pub struct HunkReviewView {
 }
 
 impl HunkReviewView {
+    fn stage(&self, cx: &mut Context, unstage: bool, advance: bool) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            self.snapshot.is_current(cx.editor),
+            "Change inspection is stale; inspect the change again before staging"
+        );
+        #[cfg(feature = "git")]
+        {
+            let kind = if unstage {
+                vcs::operations::FileOperation::Unstage
+            } else {
+                vcs::operations::FileOperation::Stage
+            };
+            let captured = view::features::git_operations::partial::capture_cursor_hunk(
+                cx.editor,
+                kind,
+                &self.snapshot,
+            )?;
+            crate::commands::start_partial_git(cx.editor, cx.jobs, captured, advance);
+            Ok(())
+        }
+        #[cfg(not(feature = "git"))]
+        {
+            let _ = (unstage, advance);
+            anyhow::bail!("No Git support included in this build")
+        }
+    }
     pub fn new(snapshot: Arc<HunkReviewSnapshot>) -> Self {
         Self {
             view: ReviewView::from_shared(
@@ -30,25 +56,38 @@ impl Component for HunkReviewView {
             return;
         }
         let mut content = area;
-        content.height = content.height.saturating_sub(1);
+        content.height = content.height.saturating_sub(2);
         self.view.render(content, surface, cx);
         let footer = panel::content_area(area);
-        surface.set_stringn(
-            footer.x,
-            area.bottom().saturating_sub(1),
+        let keys = &cx.config.current.component_keys.diff;
+        let rows = [
             format!(
-                "{} restore hunk from HEAD · undo with u",
-                action_hint(&cx.config.current.component_keys.diff, &DiffAction::Restore)
+                "{} restore hunk from HEAD (undo in buffer) · {} stage + next",
+                action_hint(keys, &DiffAction::Restore),
+                action_hint(keys, &DiffAction::StageAndNext)
             ),
-            footer.width as usize,
-            cx.editor.theme.get("ui.text.inactive"),
-        );
+            format!(
+                "{} stage: index → buffer · {} unstage: HEAD → index",
+                action_hint(keys, &DiffAction::Stage),
+                action_hint(keys, &DiffAction::Unstage)
+            ),
+        ];
+        let count = area.height.min(2);
+        for (row, text) in rows.iter().take(count as usize).enumerate() {
+            surface.set_stringn(
+                footer.x,
+                area.bottom() - count + row as u16,
+                text,
+                footer.width as usize,
+                cx.editor.theme.get("ui.text.inactive"),
+            );
+        }
     }
 
     fn required_size(&mut self, viewport: (u16, u16)) -> Option<(u16, u16)> {
         self.view
             .required_size(viewport)
-            .map(|(width, height)| (width, height.saturating_add(1)))
+            .map(|(width, height)| (width, height.saturating_add(2)))
     }
 
     fn has_pending_keys(&self) -> bool {
@@ -70,6 +109,20 @@ impl Component for HunkReviewView {
                     match action {
                         DiffAction::Restore => {
                             if let Err(error) = self.snapshot.restore(cx.editor) {
+                                cx.editor.set_error(|| error.to_string());
+                            }
+                            return EventResult::Consumed(Some(Box::new(|compositor, _| {
+                                compositor.remove(ReviewView::ID);
+                            })));
+                        }
+                        action @ (DiffAction::Stage
+                        | DiffAction::Unstage
+                        | DiffAction::StageAndNext) => {
+                            if let Err(error) = self.stage(
+                                cx,
+                                *action == DiffAction::Unstage,
+                                *action == DiffAction::StageAndNext,
+                            ) {
                                 cx.editor.set_error(|| error.to_string());
                             }
                             return EventResult::Consumed(Some(Box::new(|compositor, _| {

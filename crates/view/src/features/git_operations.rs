@@ -9,7 +9,11 @@ use std::{
         Arc,
     },
 };
-use vcs::operations::{FileOperation, GitRepository, PreparedOperation, StashEntry};
+use vcs::operations::{
+    FileOperation, GitRepository, PartialSelection, PartialSource, PreparedOperation, StashEntry,
+};
+
+pub mod partial;
 
 #[derive(Default)]
 pub struct GitOperationsHandler {
@@ -35,6 +39,12 @@ impl Drop for Admission {
 
 #[derive(Clone)]
 pub enum GitAction {
+    Partial {
+        path: PathBuf,
+        kind: FileOperation,
+        source: PartialSource,
+        selection: PartialSelection,
+    },
     File(vcs::FileStatus, FileOperation),
     Stash(PathBuf),
     Apply(GitRepository, StashEntry, bool),
@@ -44,6 +54,7 @@ pub struct GitRequest {
     action: GitAction,
     workspace: PathBuf,
     admission: Admission,
+    document: Option<(crate::DocumentId, buffer::Snapshot)>,
 }
 
 pub struct PreparedGitAction {
@@ -67,10 +78,25 @@ struct GitTaskState {
     writes: FileWriteBlock,
     changes_worktree: bool,
     label: &'static str,
+    next_line: Option<u32>,
 }
 
 impl GitRequest {
     pub fn capture(editor: &Editor, workspace: PathBuf, action: GitAction) -> Result<Self> {
+        Self::capture_with_document(editor, workspace, action, None)
+    }
+
+    /// Aggregate reviews can retain a source buffer opened through a lexical path alias.
+    pub fn capture_with_document(
+        editor: &Editor,
+        workspace: PathBuf,
+        action: GitAction,
+        source_document: Option<crate::DocumentId>,
+    ) -> Result<Self> {
+        ensure!(
+            source_document.is_none_or(|id| editor.document(id).is_some()),
+            "Source buffer was closed"
+        );
         ensure!(
             editor
                 .workspace_trust
@@ -79,6 +105,28 @@ impl GitRequest {
             "Git actions require workspace trust; run :workspace-trust first"
         );
         let busy = &editor.handlers().git_operations.busy;
+        let document = match &action {
+            GitAction::Partial { path, source, .. } => source_document
+                .and_then(|id| editor.document(id))
+                .or_else(|| editor.document_by_path(path))
+                .map(|doc| {
+                    ensure!(
+                        doc.path()
+                            .is_some_and(|source| stdx::path::canonicalize_existing(source)
+                                == stdx::path::canonicalize_existing(path)),
+                        "Source buffer belongs to another file"
+                    );
+                    if let Some(text) = source.buffer_text() {
+                        ensure!(
+                            doc.text() == text.trim_start_matches('\u{feff}'),
+                            "Source buffer changed since this review; refresh and try again"
+                        );
+                    }
+                    Ok((doc.id(), doc.snapshot()))
+                })
+                .transpose()?,
+            _ => None,
+        };
         ensure!(
             busy.compare_exchange(false, true, Ordering::Relaxed, Ordering::Relaxed)
                 .is_ok(),
@@ -88,12 +136,25 @@ impl GitRequest {
             action,
             workspace,
             admission: Admission(busy.clone()),
+            document,
         })
     }
 
     pub async fn prepare(self) -> Result<PreparedGitAction> {
         tokio::task::spawn_blocking(move || {
             let operation = match &self.action {
+                GitAction::Partial {
+                    path,
+                    kind,
+                    source,
+                    selection,
+                } => GitRepository::discover(path)?.prepare_partial(
+                    path,
+                    *kind,
+                    source,
+                    selection.clone(),
+                    true,
+                )?,
                 GitAction::Stash(path) => GitRepository::discover(path)?.prepare_stash(true)?,
                 GitAction::File(status, kind) => {
                     ensure!(
@@ -124,6 +185,15 @@ impl PreparedGitAction {
             "Git action belongs to another editor"
         );
         ensure!(
+            self.request
+                .document
+                .as_ref()
+                .is_none_or(|(id, snapshot)| editor
+                    .document(*id)
+                    .is_some_and(|doc| snapshot.is_current(&doc.buffer))),
+            "Source buffer changed while preparing Git action; try again"
+        );
+        ensure!(
             editor
                 .workspace_trust
                 .query(&self.request.workspace, workspace::trust::TrustQuery::Git)
@@ -150,6 +220,7 @@ impl PreparedGitAction {
             writes,
             changes_worktree,
             label: self.operation.label(),
+            next_line: self.operation.next_partial_line(),
         };
         Ok(GitTask {
             operation: self.operation,
@@ -170,6 +241,9 @@ impl GitTask {
 }
 
 impl GitCompletion {
+    pub fn next_partial_line(&self) -> Option<u32> {
+        self.result.as_ref().ok().and(self.state.next_line)
+    }
     pub fn finish(self, editor: &mut Editor) {
         if !Arc::ptr_eq(
             &self.state.admission.0,

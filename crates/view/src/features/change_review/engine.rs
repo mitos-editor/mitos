@@ -79,6 +79,9 @@ struct SourceSyntax {
 }
 
 impl ReviewSource {
+    pub fn before(&self) -> &Rope {
+        &self.before
+    }
     pub(super) fn loader(&self) -> Arc<Loader> {
         self.settings.loader.clone()
     }
