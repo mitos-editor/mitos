@@ -17,7 +17,7 @@ use std::{
     path::{Path, PathBuf},
     sync::atomic::{AtomicBool, Ordering},
 };
-pub use walk::{include_entry, Options};
+pub use walk::{entry_file_type, include_entry, Options};
 
 /// Zero-based line and character-column bounds for one matching line or block.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -139,7 +139,9 @@ impl Search {
                     return WalkState::Quit;
                 }
                 let entry = match entry {
-                    Ok(entry) if entry.path().is_file() => entry,
+                    Ok(entry) if entry_file_type(&entry).is_some_and(|kind| kind.is_file()) => {
+                        entry
+                    }
                     _ => return WalkState::Continue,
                 };
                 let snapshot = documents.get(entry.path()).or_else(|| {
