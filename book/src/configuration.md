@@ -154,9 +154,32 @@ For common examples, see [Configure Mitos](./editor.md).
 
 ### Popup borders
 
-`editor.border-style` supplies the default border style. Floating UI features
-can override it with their own `border-style`, using the same styles or
-`"inherit"` (the default). Omitted overrides follow the global setting.
+Mitos draws panels, popups, menus, and separators with borders.
+`editor.border-style` supplies the default border style. It accepts `"none"`,
+`"plain"`, `"rounded"` (the default), `"double"`, `"thick"`,
+`"quadrant-inside"`, or `"quadrant-outside"`. The style controls the glyphs
+only; themes supply the colors.
+
+Floating UI features can override the default with their own `border-style`.
+The override accepts the same styles or `"inherit"` (the default). An omitted
+or `"inherit"` value follows `editor.border-style`. A trusted project can also
+use `"inherit"` to clear a user-level override for that feature.
+
+| Feature | Border setting |
+| --- | --- |
+| Contextual information popup, such as keybinding hints | `editor.info.border-style` |
+| `:run-shell-command` output | `editor.shell-output.border-style` |
+| Command documentation popup | `editor.command-line.border-style` |
+| Completion menu and its documentation panel | `editor.completion.border-style` |
+| Hover popup, including syntax inspection hovers | `editor.lsp.hover.border-style` |
+| Signature help and its documentation separators | `editor.lsp.signature-help.border-style` |
+| Code action menu | `editor.lsp.code-actions.border-style` |
+| Code lens command menu | `editor.lsp.code-lenses.border-style` |
+| Blame details popup | `editor.inline-blame.border-style` |
+| Invalid search pattern popup | `editor.search.border-style` |
+
+Pickers and persistent panels do not have feature overrides; they always use
+`editor.border-style`.
 
 For example, keep rounded borders elsewhere while hiding hover and completion
 borders:
@@ -173,13 +196,13 @@ border-style = "none"
 ```
 
 A feature's setting also applies to its documentation panel and internal
-separators. `"none"` hides border glyphs while preserving spacing and scrolling.
-Pickers and persistent panels continue to use the global setting.
+separators. `"none"` hides border glyphs while preserving spacing and scrolling,
+so text does not shift when borders are disabled.
 
-Changes apply to open popups. For example, use `:set lsp.hover.border-style none`
-to hide hover borders or `:set lsp.hover.border-style inherit` to restore the
-global preference. A project can also explicitly use `"inherit"` to clear a
-user-level override for that feature.
+Changes apply to open popups. Use `:set lsp.hover.border-style none` to hide
+hover borders and `:set lsp.hover.border-style inherit` to restore the global
+preference. `:get lsp.hover.border-style` reports the current value, and
+`:toggle lsp.hover.border-style plain none` switches between two styles.
 
 ### `[editor.info]`
 

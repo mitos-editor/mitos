@@ -200,6 +200,7 @@ skip-levels = 1
 | <span id="editordiff-section"></span>Diff comparison engine | [Syntax-aware review](./version-control.md#syntax-aware-review) |
 | <span id="editorfile-picker-section"></span><span id="editorfile-explorer-section"></span>File navigation and ignore rules | [Pickers](./pickers.md#hidden-and-ignored-files) |
 | <span id="editorpicker-section"></span>Picker layout | [Picker layout](./pickers.md#layout) |
+| <span id="editorborder-style-section"></span>Popup and panel borders | [Popup borders](./configuration.md#popup-borders) |
 | <span id="editorbuffer-picker-section"></span>Buffer picker | [Initial selection](./configuration.md#editorbuffer-picker) |
 | <span id="editorauto-pairs-section"></span>Delimiter pairing | [Auto-pairs](./configuration.md#editorauto-pairs) |
 | <span id="editorfilesauto-save-section"></span>Saving and reloading | [Files, buffers, and splits](./files.md#changes-made-outside-mitos) |
