@@ -66,7 +66,7 @@ impl WordIndex {
         }
         // match_list already sorts descending. Score directly so this ascending
         // ordering is the only sort, and Unicode conversion reuses our matcher.
-        let mut matches = matcher.score_list(pattern, self.words());
+        let mut matches = matcher.score_list(pattern, self.words.keys());
         matches.sort_unstable_by_key(|(_, score)| *score);
         matches
             .into_iter()
@@ -289,7 +289,7 @@ mod tests {
             let mut matcher = Matcher::new(kind);
             for pattern in ["", "p", "pF", "PF", "é", "e", "rés", "γ", "xyz"] {
                 let mut expected = matcher
-                    .match_list(pattern, index.words())
+                    .match_list(pattern, index.words.keys())
                     .into_iter()
                     .map(|(word, _)| word.to_string())
                     .collect::<Vec<_>>();
