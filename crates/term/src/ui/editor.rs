@@ -1,3 +1,4 @@
+use crate::keymap::KeyTrieNodeExt as _;
 mod render;
 use super::highlights::primary_native_cursor_kind;
 use crate::repeat::InsertEvent;
@@ -80,7 +81,7 @@ impl EditorView {
         let mut last_mode = mode;
         self.pseudo_pending.extend(self.keymaps.pending());
         let key_result = self.keymaps.get(mode, event);
-        cxt.editor.autoinfo = self.keymaps.sticky().map(|node| node.infobox());
+        cxt.editor.autoinfo = self.keymaps.sticky();
 
         let mut execute_command = |command: &commands::MappableCommand| {
             command.execute(cxt);

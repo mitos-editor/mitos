@@ -138,8 +138,8 @@ fn bindings<A: Copy>(entries: &[(&str, A)]) -> Keymap<A> {
     let mut keys = Keymap::default();
     for &(key, action) in entries {
         assert!(
-            keys.0
-                .insert(key.parse().unwrap(), Binding::Actions(vec![action]))
+            keys.bindings
+                .insert(key.parse().unwrap(), Binding::Action(action))
                 .is_none(),
             "duplicate default binding: {key}"
         );
@@ -314,14 +314,12 @@ impl Default for ComponentKeymaps {
 }
 
 pub(crate) fn action_hint<A: PartialEq>(keys: &Keymap<A>, action: &A) -> String {
-    keys.0
+    keys.bindings
         .iter()
         .filter_map(|(key, binding)| {
             let suffix = match binding {
-                Binding::Actions(actions) if actions.as_slice() == std::slice::from_ref(action) => {
-                    String::new()
-                }
-                Binding::Keys(keys) => {
+                binding if binding.actions() == Some(std::slice::from_ref(action)) => String::new(),
+                Binding::Node(keys) => {
                     let hint = action_hint(keys, action);
                     if hint == "unbound" {
                         return None;

@@ -17,6 +17,7 @@ term = ["dep:termina", "dep:crossterm"]
 [dependencies]
 anyhow.workspace = true
 bitflags.workspace = true
+indexmap.workspace = true
 ratatui-core.workspace = true
 serde.workspace = true
 termina = { workspace = true, optional = true }
