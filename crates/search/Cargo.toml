@@ -23,5 +23,13 @@ anyhow.workspace = true
 tempfile.workspace = true
 
 [[bench]]
+name = "file_types"
+harness = false
+
+[[bench]]
+name = "file_index"
+harness = false
+
+[[bench]]
 name = "selected_replacement"
 harness = false

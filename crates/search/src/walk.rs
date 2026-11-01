@@ -64,19 +64,34 @@ impl Options {
     }
 }
 
+/// Use the walker's cached type, resolving an unfollowed symbolic link as
+/// `Path::is_file` and `Path::is_dir` do. Stdin and missing targets have no type.
+pub fn entry_file_type(entry: &DirEntry) -> Option<std::fs::FileType> {
+    match entry.file_type() {
+        Some(kind) if !kind.is_symlink() => Some(kind),
+        _ => entry
+            .path()
+            .metadata()
+            .ok()
+            .map(|metadata| metadata.file_type()),
+    }
+}
+
 /// Shared traversal policy for search and file/symbol pickers.
 /// Excludes VCS internals and optionally symlinks into the search root.
 pub fn include_entry(entry: &DirEntry, root: &Path, dedup_symlinks: bool) -> bool {
     should_include(entry, root, dedup_symlinks, true)
 }
 
+pub(crate) fn is_vcs_name(name: &std::ffi::OsStr) -> bool {
+    matches!(
+        name.to_str(),
+        Some(".git" | ".pijul" | ".jj" | ".hg" | ".svn")
+    )
+}
+
 fn should_include(entry: &DirEntry, root: &Path, dedup_symlinks: bool, exclude_vcs: bool) -> bool {
-    if exclude_vcs
-        && matches!(
-            entry.file_name().to_str(),
-            Some(".git" | ".pijul" | ".jj" | ".hg" | ".svn")
-        )
-    {
+    if exclude_vcs && is_vcs_name(entry.file_name()) {
         return false;
     }
 
@@ -96,6 +111,52 @@ fn should_include(entry: &DirEntry, root: &Path, dedup_symlinks: bool, exclude_v
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cached_types_distinguish_files_and_directories() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("file"), "text").unwrap();
+        std::fs::create_dir(dir.path().join("directory")).unwrap();
+        for entry in Options::default()
+            .walker(dir.path())
+            .build()
+            .map(Result::unwrap)
+        {
+            let kind = entry_file_type(&entry).unwrap();
+            assert_eq!(kind.is_file(), entry.path().is_file());
+            assert_eq!(kind.is_dir(), entry.path().is_dir());
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cached_types_preserve_followed_and_unfollowed_symlink_classification() {
+        use std::os::unix::fs::symlink;
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("file"), "text").unwrap();
+        std::fs::create_dir(dir.path().join("directory")).unwrap();
+        symlink("file", dir.path().join("file-link")).unwrap();
+        symlink("directory", dir.path().join("directory-link")).unwrap();
+        symlink("missing", dir.path().join("broken-link")).unwrap();
+        for follow_symlinks in [false, true] {
+            let options = Options {
+                follow_symlinks,
+                deduplicate_links: false,
+                ..Options::default()
+            };
+            for entry in options.walker(dir.path()).build().filter_map(Result::ok) {
+                let kind = entry_file_type(&entry);
+                assert_eq!(
+                    kind.is_some_and(|kind| kind.is_file()),
+                    entry.path().is_file()
+                );
+                assert_eq!(
+                    kind.is_some_and(|kind| kind.is_dir()),
+                    entry.path().is_dir()
+                );
+            }
+        }
+    }
 
     #[test]
     fn workspace_and_directory_walks_respect_metadata_and_depth_policies() {

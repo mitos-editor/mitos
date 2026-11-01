@@ -470,6 +470,9 @@ scope = "source.toml"
 injection-regex = "toml"
 file-types = [
   "toml",
+  { glob = "Pipfile" },
+  { glob = ".cargo/config" },
+  { glob = ".cargo/credentials" },
   { glob = "pdm.lock" },
   { glob = "poetry.lock" },
   { glob = "Cargo.lock" },
@@ -662,7 +665,6 @@ file-types = [
   "gltf",
   "webmanifest",
   { glob = "flake.lock" },
-  { glob = ".babelrc" },
   { glob = ".bowerrc" },
   { glob = ".jscrc" },
   { glob = "*.js.map" },
@@ -672,6 +674,7 @@ file-types = [
   "jsonl",
   { glob = ".vuerc" },
   { glob = "composer.lock" },
+  { glob = "Pipfile.lock" },
   { glob = ".watchmanconfig" },
   "avsc",
   "ldtk",
@@ -712,10 +715,13 @@ injection-regex = "jsonc"
 file-types = [
   "jsonc",
   { glob = "{t,j}sconfig.json" },
+  { glob = "{t,j}sconfig.*.json" },
+  { glob = ".eslintrc.json" },
   { glob = "bun.lock" },
   { glob = ".devcontainer.json" },
   { glob = "devcontainer.json" },
   { glob = ".vscode/*.json" },
+  "code-snippets",
   "code-workspace",
 ]
 comment-token = "//"
@@ -740,7 +746,12 @@ indent = { tab-width = 2, unit = "  " }
 name = "json5"
 scope = "source.json5"
 injection-regex = "json5"
-file-types = ["json5"]
+file-types = [
+  "json5",
+  { glob = ".babelrc" },
+  { glob = ".babelrc.json" },
+  { glob = "babel.config.json" },
+]
 language-servers = []
 comment-token = "//"
 indent = { tab-width = 4, unit = "    " }
@@ -1765,6 +1776,10 @@ file-types = [
   { glob = ".clangd" },
   { glob = ".clang-format" },
   { glob = ".clang-tidy" },
+  { glob = ".eslintrc" },
+  { glob = ".yamllint" },
+  { glob = "yamllint/config" },
+  { glob = ".yamlfmt" },
   { glob = ".gem/credentials" },
   { glob = ".kube/config" },
   { glob = ".kube/kuberc" },
@@ -2319,7 +2334,10 @@ language-id = "dockercompose"
 scope = "source.yaml.docker-compose"
 roots = ["docker-compose.yaml", "docker-compose.yml", "compose.yaml", "compose.yml"]
 language-servers = [{ alternatives = ["docker-language-server", "docker-compose-langserver", "yaml-language-server"] }]
-file-types = [{ glob = "docker-compose.yaml" }, { glob = "docker-compose.yml" }, { glob = "compose.yaml" }, { glob = "compose.yml" }]
+file-types = [
+  { glob = "{docker-compose,compose}.{yaml,yml}" },
+  { glob = "{docker-compose,compose}.*.{yaml,yml}" },
+]
 comment-token = "#"
 indent = { tab-width = 2, unit = "  " }
 grammar = "yaml"
@@ -2407,7 +2425,7 @@ source = { git = "https://github.com/the-mikedavis/tree-sitter-git-config", rev 
 [[language]]
 name = "git-attributes"
 scope = "source.gitattributes"
-file-types = [{ glob = ".gitattributes" }, { glob = ".config/git/attributes" }]
+file-types = [{ glob = ".gitattributes" }, { glob = ".config/git/attributes" }, { glob = ".git/info/attributes" }]
 injection-regex = "git-attributes"
 comment-token = "#"
 grammar = "gitattributes"
@@ -3583,6 +3601,13 @@ file-types = [
   { glob = "npmrc" },
   { glob = "rclone.conf" },
   { glob = ".aws/config" },
+  { glob = ".aws/credentials" },
+  { glob = ".sqlfluff" },
+  { glob = ".flake8" },
+  { glob = ".coveragerc" },
+  { glob = ".pylintrc" },
+  { glob = "pylintrc" },
+  { glob = ".pypirc" },
   "properties",
   "cfg",
   "directory",

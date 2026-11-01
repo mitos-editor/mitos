@@ -230,56 +230,27 @@ pub fn search_prompt(
     cx.push_layer(Box::new(prompt));
 }
 
-/// We want to exclude files that the editor can't handle yet
-fn get_excluded_types() -> ignore::types::Types {
-    use ignore::types::TypesBuilder;
-    let mut type_builder = TypesBuilder::new();
-    type_builder
-        .add(
-            "compressed",
-            "*.{zip,gz,bz2,zst,lzo,sz,tgz,tbz2,lz,lz4,lzma,lzo,z,Z,xz,7z,rar,cab}",
-        )
-        .expect("Invalid type definition");
-    type_builder.negate("all");
-    type_builder
-        .build()
-        .expect("failed to build excluded_types")
-}
-
 #[derive(Debug)]
 pub struct FilePickerData {
     root: PathBuf,
     theme: Arc<Theme>,
     icons: bool,
+    files: Arc<std::sync::Mutex<crate::files::FilePickerCache>>,
 }
 type FilePicker = Picker<PathBuf, FilePickerData>;
 
-fn file_picker_paths(
-    root: &Path,
-    config: &editor_config::FilePickerConfig,
-) -> impl Iterator<Item = PathBuf> + use<> {
-    crate::files::picker_options(config)
-        .walker(root)
-        .sort_by_file_name(|name1, name2| name1.cmp(name2))
-        .types(get_excluded_types())
-        .build()
-        .filter_map(|entry| {
-            let entry = entry.ok()?;
-            if !entry.path().is_file() {
-                return None;
-            }
-            Some(entry.into_path())
-        })
-}
-
 pub fn file_picker(editor: &Editor, root: PathBuf) -> FilePicker {
     let config = editor.config();
+    let files = Arc::new(std::sync::Mutex::new(crate::files::FilePickerCache::new(
+        editor,
+    )));
     let data = FilePickerData {
         root: root.clone(),
         theme: Arc::new(editor.theme.clone()),
         icons: config.icons,
+        files: files.clone(),
     };
-    let files = file_picker_paths(&root, &config.file_picker);
+    let initial_config = config.file_picker.clone();
 
     let columns = [
         PickerColumn::new("path", |item: &PathBuf, data: &FilePickerData| {
@@ -337,12 +308,18 @@ pub fn file_picker(editor: &Editor, root: PathBuf) -> FilePicker {
         editor,
         |data| &data.root,
         |_, editor, data, cancel| {
-            let config = editor.config().file_picker.clone();
+            let config = editor.config();
+            let poll = &config.files.reload.poll;
+            let interval = poll
+                .enable
+                .then(|| std::time::Duration::from_millis(poll.interval.max(100)));
+            let config = config.file_picker.clone();
             Box::pin(async move {
                 Ok(tokio::task::spawn_blocking(move || {
-                    file_picker_paths(&data.root, &config)
-                        .take_while(|_| !cancel.is_canceled())
-                        .collect()
+                    data.files
+                        .lock()
+                        .unwrap()
+                        .refresh(&data.root, &config, interval, || cancel.is_canceled())
                 })
                 .await?)
             })
@@ -351,11 +328,12 @@ pub fn file_picker(editor: &Editor, root: PathBuf) -> FilePicker {
     .with_item_key(|path| path.clone());
     let injector = picker.injector();
     tokio::task::spawn_blocking(move || {
-        for file in files {
-            if injector.push(file).is_err() {
-                break;
-            }
-        }
+        files.lock().unwrap().initial(
+            &root,
+            &initial_config,
+            || injector.is_shutdown(),
+            |path| injector.push(path.to_owned()).is_ok(),
+        );
     });
     picker
 }
@@ -492,14 +470,14 @@ fn directory_content_cancellable(
     std::fs::read_dir(root)?;
     let mut content: Vec<(PathBuf, bool)> = crate::files::explorer_options(config)
         .walker(root)
-        .types(get_excluded_types())
+        .types(crate::files::excluded_types())
         .build()
         .take_while(|_| !cancelled())
         .filter_map(|entry| {
             entry
                 .map(|entry| {
                     let path = entry.path();
-                    let is_dir = path.is_dir();
+                    let is_dir = search::entry_file_type(&entry).is_some_and(|kind| kind.is_dir());
                     (path.to_path_buf(), is_dir)
                 })
                 .ok()
@@ -792,7 +770,7 @@ pub mod completers {
                     }
 
                     let path = entry.path();
-                    let is_dir = path.is_dir();
+                    let is_dir = search::entry_file_type(&entry).is_some_and(|kind| kind.is_dir());
                     let file_type = entry.file_type();
                     let is_symlink = file_type.is_some_and(|ft| ft.is_symlink());
                     let mut path = if is_tilde {
