@@ -68,13 +68,9 @@ impl WordIndex {
         if pattern.is_empty() {
             return self.words().map(ToString::to_string).collect();
         }
-        let query = matcher.query(pattern);
         // match_list already sorts descending. Score directly so this ascending
         // ordering is the only sort, and Unicode conversion reuses our matcher.
-        let mut matches: Vec<_> = self
-            .words()
-            .filter_map(|word| matcher.score(&query, word).map(|score| (word, score)))
-            .collect();
+        let mut matches = matcher.score_list(pattern, self.words());
         matches.sort_unstable_by_key(|(_, score)| *score);
         matches
             .into_iter()

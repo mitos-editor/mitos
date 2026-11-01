@@ -107,6 +107,32 @@ impl Matcher {
         query.0.match_list(items, self.engine())
     }
 
+    /// Score a list without ordering it, reusing the engine and Unicode scratch.
+    /// Callers that need their own ordering can avoid match_list's initial sort.
+    pub fn score_list<T: AsRef<str>>(
+        &mut self,
+        pattern: &str,
+        items: impl IntoIterator<Item = T>,
+    ) -> Vec<(T, u16)> {
+        let query = self.query(pattern);
+        if pattern.is_empty() {
+            return items.into_iter().map(|item| (item, 0)).collect();
+        }
+        let inner = self
+            .inner
+            .get_or_insert_with(|| nucleo_matcher::Matcher::new(self.kind.config()));
+        let scratch = &mut self.scratch;
+        items
+            .into_iter()
+            .filter_map(|item| {
+                query
+                    .0
+                    .score(Utf32Str::new(item.as_ref(), scratch), inner)
+                    .map(|score| (item, score))
+            })
+            .collect()
+    }
+
     /// Append highlight indices for a query from an asynchronous Nucleo picker.
     pub fn indices(
         &mut self,
