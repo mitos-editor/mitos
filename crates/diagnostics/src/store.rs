@@ -18,7 +18,25 @@ impl DiagnosticStore {
 
     /// Map findings to the supplied post-edit text, dropping collapsed ranges.
     pub fn apply_changes(&mut self, changes: &ChangeSet, text: &Rope) {
-        changes.update_positions(self.entries.iter_mut().map(|diagnostic| {
+        if self.entries.is_empty() {
+            return;
+        }
+        let prefix = match changes.changes().first() {
+            Some(editor_core::Operation::Retain(len)) => *len,
+            _ => 0,
+        };
+        // Neither association can move an endpoint strictly before the first
+        // edit. In particular an EOF append need not remap an entire store.
+        if self.entries.iter().all(|diagnostic| {
+            diagnostic.range.start < prefix
+                && ((diagnostic.zero_width && diagnostic.range.end == diagnostic.range.start)
+                    || (diagnostic.range.start < diagnostic.range.end
+                        && diagnostic.range.end < prefix))
+        }) {
+            return;
+        }
+        let unchanged = self.entries.partition_point(|d| d.range.start < prefix);
+        changes.update_positions(self.entries[unchanged..].iter_mut().map(|diagnostic| {
             let assoc = if diagnostic.starts_at_word {
                 Assoc::BeforeWord
             } else {
@@ -39,13 +57,18 @@ impl DiagnosticStore {
             };
             Some((&mut diagnostic.range.end, assoc))
         }));
+        let mut index = 0;
         self.entries.retain_mut(|diagnostic| {
+            let update_line = index >= unchanged;
+            index += 1;
             if diagnostic.zero_width {
                 diagnostic.range.end = diagnostic.range.start
             } else if diagnostic.range.start >= diagnostic.range.end {
                 return false;
             }
-            diagnostic.line = text.char_to_line_idx(diagnostic.range.start);
+            if update_line {
+                diagnostic.line = text.char_to_line_idx(diagnostic.range.start);
+            }
             true
         });
 
@@ -134,6 +157,102 @@ impl DiagnosticStore {
 mod tests {
     use super::*;
     use crate::{Range, Severity};
+
+    #[test]
+    fn unchanged_prefix_optimization_matches_full_mapping() {
+        let text = Rope::from_str("α beta\n😀 gamma\nlast\n");
+        let mut original = DiagnosticStore::default();
+        original.replace(
+            (0..text.len_chars()).map(|start| {
+                let mut diagnostic = finding(
+                    start,
+                    (start + 4).min(text.len_chars()),
+                    DiagnosticProvider::Spelling,
+                );
+                diagnostic.line = text.char_to_line_idx(start);
+                diagnostic.starts_at_word = start % 2 == 0;
+                diagnostic.ends_at_word = start % 3 == 0;
+                diagnostic.zero_width = start % 4 == 0;
+                if diagnostic.zero_width {
+                    diagnostic.range.end = start;
+                }
+                diagnostic
+            }),
+            &[],
+            None,
+        );
+        for pos in 0..=text.len_chars() {
+            for replacement in ["", "x", "\n", "é😀\n"] {
+                let changes = ChangeSet::from_change(
+                    &text,
+                    (
+                        pos,
+                        (pos + 1).min(text.len_chars()),
+                        Some(replacement.into()),
+                    ),
+                );
+                compare_with_full_mapping(&original, &text, &changes);
+            }
+        }
+        let changes = ChangeSet::from_changes(
+            &text,
+            [(1, 2, Some("\n".into())), (9, 10, Some("é😀".into()))].into_iter(),
+        );
+        compare_with_full_mapping(&original, &text, &changes);
+        let mut inconsistent_point = original.clone();
+        inconsistent_point.entries[0].range.end = 2;
+        let append = ChangeSet::from_change(
+            &text,
+            (text.len_chars(), text.len_chars(), Some("x".into())),
+        );
+        compare_with_full_mapping(&inconsistent_point, &text, &append);
+    }
+
+    fn compare_with_full_mapping(original: &DiagnosticStore, before: &Rope, changes: &ChangeSet) {
+        let mut text = before.clone();
+        assert!(changes.apply(&mut text));
+        let mut expected = original.clone();
+        for diagnostic in &mut expected.entries {
+            diagnostic.range.start = changes.map_pos(
+                diagnostic.range.start,
+                if diagnostic.starts_at_word {
+                    Assoc::BeforeWord
+                } else {
+                    Assoc::After
+                },
+            );
+            diagnostic.range.end = if diagnostic.zero_width {
+                diagnostic.range.start
+            } else {
+                changes.map_pos(
+                    diagnostic.range.end,
+                    if diagnostic.ends_at_word {
+                        Assoc::AfterWord
+                    } else {
+                        Assoc::Before
+                    },
+                )
+            };
+        }
+        expected.entries.retain_mut(|diagnostic| {
+            if !diagnostic.zero_width && diagnostic.range.start >= diagnostic.range.end {
+                return false;
+            }
+            diagnostic.line = text.char_to_line_idx(diagnostic.range.start);
+            true
+        });
+        expected.sort();
+        let mut actual = original.clone();
+        actual.apply_changes(changes, &text);
+        let rows = |store: &DiagnosticStore| {
+            store
+                .entries
+                .iter()
+                .map(|d| (d.range, d.line))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(rows(&actual), rows(&expected));
+    }
 
     fn finding(start: usize, end: usize, provider: DiagnosticProvider) -> Diagnostic {
         Diagnostic {
