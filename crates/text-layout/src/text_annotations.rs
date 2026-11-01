@@ -312,6 +312,14 @@ impl Debug for TextAnnotations<'_> {
 }
 
 impl<'a> TextAnnotations<'a> {
+    pub(crate) fn is_empty(&self) -> bool {
+        self.replacements.is_empty()
+            && self.inline_annotations.is_empty()
+            && self.overlays.is_empty()
+            && self.conceals.is_empty()
+            && self.line_annotations.is_empty()
+    }
+
     /// Install disjoint conceal ranges shared by rendering and positioning.
     pub fn set_conceals(&mut self, conceals: &'a [Conceal]) {
         self.conceals = conceals;
