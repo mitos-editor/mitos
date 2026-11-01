@@ -263,22 +263,33 @@ impl TransportState {
         &self,
         server_stdin: &mut Box<dyn AsyncWrite + Unpin + Send>,
         mut payload: Payload,
+        json: &mut Vec<u8>,
     ) -> Result<()> {
         if let Payload::Request(request) = &mut payload
             && let Some(back) = request.back_ch.take()
         {
             self.pending_requests.lock().await.insert(request.seq, back);
         }
-        let json = serde_json::to_string(&payload)?;
-        self.send_string_to_server(server_stdin, json).await
+        json.clear();
+        sonic_rs::to_writer(&mut *json, &payload)?;
+        self.send_bytes_to_server(server_stdin, json).await?;
+        // Reuse ordinary messages without retaining an unusually large document.
+        if json.capacity() > 4 * 1024 * 1024 {
+            *json = Vec::new();
+        }
+        Ok(())
     }
 
-    async fn send_string_to_server(
+    async fn send_bytes_to_server(
         &self,
         server_stdin: &mut Box<dyn AsyncWrite + Unpin + Send>,
-        request: String,
+        request: &[u8],
     ) -> Result<()> {
-        info!("[{}] -> DAP {}", self.id, request);
+        info!(
+            "[{}] -> DAP {}",
+            self.id,
+            std::str::from_utf8(request).expect("JSON is valid UTF-8")
+        );
 
         // send the headers
         server_stdin
@@ -286,7 +297,7 @@ impl TransportState {
             .await?;
 
         // send the body
-        server_stdin.write_all(request.as_bytes()).await?;
+        server_stdin.write_all(request).await?;
 
         server_stdin.flush().await?;
 
@@ -391,10 +402,11 @@ impl TransportState {
         mut server_stdin: Box<dyn AsyncWrite + Unpin + Send>,
         mut client_rx: UnboundedReceiver<Outgoing>,
     ) -> Result<()> {
+        let mut json = Vec::new();
         while let Some(command) = client_rx.recv().await {
             match command {
                 Outgoing::Message(payload) => {
-                    self.send_payload_to_server(&mut server_stdin, payload)
+                    self.send_payload_to_server(&mut server_stdin, payload, &mut json)
                         .await?
                 }
                 Outgoing::Forget(sequence) => {
@@ -443,6 +455,35 @@ mod tests {
         }
         fn poll_shutdown(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<std::io::Result<()>> {
             Poll::Ready(Ok(()))
+        }
+    }
+
+    #[tokio::test]
+    async fn outgoing_buffer_reuses_small_capacity_and_releases_large_capacity() {
+        let state = TransportState {
+            id: DebugAdapterId::default(),
+            pending_requests: Mutex::new(HashMap::new()),
+        };
+        let mut writer: Box<dyn AsyncWrite + Unpin + Send> = Box::new(tokio::io::sink());
+        let mut json = Vec::new();
+        for (size, oversized) in [(4096, false), (1, false), (5 * 1024 * 1024, true)] {
+            state
+                .send_payload_to_server(
+                    &mut writer,
+                    Payload::Event(Event {
+                        seq: Some(1),
+                        event: "output".into(),
+                        body: Some(serde_json::json!({"text":"x".repeat(size)})),
+                    }),
+                    &mut json,
+                )
+                .await
+                .unwrap();
+            if oversized {
+                assert_eq!(json.capacity(), 0);
+            } else {
+                assert!(json.capacity() >= 4096);
+            }
         }
     }
 
