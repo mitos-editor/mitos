@@ -36,3 +36,7 @@ sonic-rs.workspace = true
 [dev-dependencies]
 slotmap.workspace = true
 tokio = { workspace = true, features = ["test-util"] }
+
+[[bench]]
+name = "json_output"
+harness = false

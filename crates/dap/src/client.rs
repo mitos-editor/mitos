@@ -535,6 +535,20 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn outgoing_response_frames_preserve_unicode_after_reusing_larger_buffers() {
+        let (client, _incoming, adapter) = connection();
+        let mut adapter = BufReader::new(adapter);
+        for text in ["α😀\"\n".repeat(10_000), "short\n".into(), String::new()] {
+            let body = json!({"text": text});
+            client
+                .reply(700, "runInTerminal", Ok(body.clone()))
+                .unwrap();
+            let received = read_message(&mut adapter).await;
+            assert_eq!(received["body"], body);
+        }
+    }
+
+    #[tokio::test]
     async fn requests_and_reverse_replies_share_wire_sequence() {
         let (client, _incoming, adapter) = connection();
         let mut adapter = BufReader::new(adapter);

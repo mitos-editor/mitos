@@ -167,6 +167,47 @@ impl Fixture {
 }
 
 #[tokio::test]
+async fn outgoing_frames_clear_reused_unicode_buffers_and_release_large_capacity() {
+    let mut fixture = Fixture::new(64, true);
+    for text in ["α😀\"\n".repeat(10_000), "short\n".into(), String::new()] {
+        let params = serde_json::json!({"text": text});
+        fixture
+            .sender
+            .send(Payload::Notification(jsonrpc::Notification {
+                jsonrpc: Some(jsonrpc::Version::V2),
+                method: "test/changed".into(),
+                params: params.clone().into(),
+            }))
+            .unwrap();
+        let received = fixture.next().await;
+        assert_eq!(received["params"], params);
+    }
+    let mut json = Vec::new();
+    let mut sink = BufWriter::new(tokio::io::sink());
+    for (size, oversized) in [(4096, false), (1, false), (5 * 1024 * 1024, true)] {
+        fixture
+            .transport
+            .send_payload_to_server(
+                &mut sink,
+                Payload::Notification(jsonrpc::Notification {
+                    jsonrpc: Some(jsonrpc::Version::V2),
+                    method: "test/changed".into(),
+                    params: serde_json::json!({"text":"x".repeat(size)}).into(),
+                }),
+                &mut json,
+            )
+            .await
+            .unwrap();
+        if oversized {
+            assert_eq!(json.capacity(), 0);
+        } else {
+            assert!(json.capacity() >= 4096);
+        }
+    }
+    assert!(fixture.finish().await.is_empty());
+}
+
+#[tokio::test]
 async fn dropping_an_unpolled_request_skips_transmission() {
     let mut fixture = Fixture::new(4096, true);
     let abandoned = fixture.request(1, 20);

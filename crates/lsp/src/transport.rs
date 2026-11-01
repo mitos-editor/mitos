@@ -186,40 +186,53 @@ impl Transport {
         &self,
         server_stdin: &mut BufWriter<W>,
         payload: Payload,
+        json: &mut Vec<u8>,
     ) -> Result<()> {
-        //TODO: reuse string
-        let json = match payload {
+        json.clear();
+        match payload {
             Payload::Request(value) => {
                 if !self.pending_requests.start(&value.id) {
                     return Ok(());
                 }
-                serde_json::to_string(&value)?
+                sonic_rs::to_writer(&mut *json, &value)?
             }
             Payload::Cancel { id, notify_server } => {
                 if !notify_server {
                     return Ok(());
                 }
-                serde_json::to_string(&jsonrpc::Notification {
-                    jsonrpc: Some(jsonrpc::Version::V2),
-                    method: lsp::notification::Cancel::METHOD.into(),
-                    params: jsonrpc::Params::Map(serde_json::Map::from_iter([(
-                        "id".into(),
-                        serde_json::to_value(id)?,
-                    )])),
-                })?
+                sonic_rs::to_writer(
+                    &mut *json,
+                    &jsonrpc::Notification {
+                        jsonrpc: Some(jsonrpc::Version::V2),
+                        method: lsp::notification::Cancel::METHOD.into(),
+                        params: jsonrpc::Params::Map(serde_json::Map::from_iter([(
+                            "id".into(),
+                            serde_json::to_value(id)?,
+                        )])),
+                    },
+                )?
             }
-            Payload::Notification(value) => serde_json::to_string(&value)?,
-            Payload::Response(error) => serde_json::to_string(&error)?,
+            Payload::Notification(value) => sonic_rs::to_writer(&mut *json, &value)?,
+            Payload::Response(error) => sonic_rs::to_writer(&mut *json, &error)?,
         };
-        self.send_string_to_server(server_stdin, json).await
+        self.send_bytes_to_server(server_stdin, json).await?;
+        // Reuse ordinary messages without retaining an unusually large document.
+        if json.capacity() > 4 * 1024 * 1024 {
+            *json = Vec::new();
+        }
+        Ok(())
     }
 
-    async fn send_string_to_server<W: tokio::io::AsyncWrite + Unpin>(
+    async fn send_bytes_to_server<W: tokio::io::AsyncWrite + Unpin>(
         &self,
         server_stdin: &mut BufWriter<W>,
-        request: String,
+        request: &[u8],
     ) -> Result<()> {
-        info!("{} -> {request}", self.name);
+        info!(
+            "{} -> {}",
+            self.name,
+            std::str::from_utf8(request).expect("JSON is valid UTF-8")
+        );
 
         // send the headers
         server_stdin
@@ -227,7 +240,7 @@ impl Transport {
             .await?;
 
         // send the body
-        server_stdin.write_all(request.as_bytes()).await?;
+        server_stdin.write_all(request).await?;
 
         server_stdin.flush().await?;
 
@@ -365,6 +378,7 @@ impl Transport {
         initialize_notify: Arc<Notify>,
     ) -> Result<()> {
         let mut pending_messages: Vec<Payload> = Vec::new();
+        let mut json = Vec::new();
         let mut is_pending = true;
 
         // Retain the notification future so initialization cannot lose a wakeup.
@@ -415,12 +429,12 @@ impl Transport {
                     }));
                     transport.process_server_message(&client_tx, notification)?;
                     for msg in pending_messages.drain(..) {
-                        transport.send_payload_to_server(&mut server_stdin, msg).await?;
+                        transport.send_payload_to_server(&mut server_stdin, msg, &mut json).await?;
                     }
                 }
                 msg = inject_rx.recv() => {
                     if let Some(msg) = msg {
-                        transport.send_payload_to_server(&mut server_stdin, msg).await?;
+                        transport.send_payload_to_server(&mut server_stdin, msg, &mut json).await?;
                     }
                 }
                 msg = client_rx.recv() => {
@@ -446,7 +460,7 @@ impl Transport {
                         transport.shutdown_requested.store(true, Ordering::Release);
                     }
                     let is_exit = is_exit(&msg);
-                    transport.send_payload_to_server(&mut server_stdin, msg).await?;
+                    transport.send_payload_to_server(&mut server_stdin, msg, &mut json).await?;
                     if is_exit {
                         transport.shutdown_flushed.notify_one();
                         break;
