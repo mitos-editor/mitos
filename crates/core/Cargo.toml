@@ -1,7 +1,7 @@
 [package]
 name = "core"
 description = "Text primitives and language-independent editing algorithms for Mitos"
-include = ["src/**/*", "README.md", "LICENSE"]
+include = ["src/**/*", "benches/**/*", "README.md", "LICENSE"]
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
@@ -48,3 +48,7 @@ textwrap.workspace = true
 [dev-dependencies]
 tempfile.workspace = true
 quickcheck.workspace = true
+
+[[bench]]
+name = "byte_transactions"
+harness = false

@@ -1,6 +1,6 @@
 use ropey::RopeSlice;
 use smallvec::SmallVec;
-use stdx::rope::{RopeExt as _, RopeMutExt as _};
+use stdx::rope::RopeExt as _;
 
 use crate::{chars::char_is_word, Range, Rope, Selection, Tendril};
 use std::{borrow::Cow, iter::once};
@@ -436,20 +436,26 @@ impl ChangeSet {
             return false;
         }
 
+        // A replacement inserts before deleting. Keep that byte position so
+        // the following delete need only convert its end, not its start again.
         let mut pos = 0;
-
+        let mut byte_pos = Some(0);
         for change in &self.changes {
             use Operation::*;
             match change {
                 Retain(n) => {
                     pos += n;
+                    byte_pos = None;
                 }
                 Delete(n) => {
-                    text.remove_chars(pos..pos + *n);
-                    // pos += n;
+                    let start = *byte_pos.get_or_insert_with(|| text.char_to_byte_idx(pos));
+                    let end = text.char_to_byte_idx(pos + n);
+                    text.remove(start..end);
                 }
                 Insert(s) => {
-                    text.insert_chars(pos, s);
+                    let start = *byte_pos.get_or_insert_with(|| text.char_to_byte_idx(pos));
+                    text.insert(start, s);
+                    byte_pos = Some(start + s.len());
                     pos += s.chars().count();
                 }
             }
@@ -1026,6 +1032,50 @@ mod test {
     struct State {
         doc: Rope,
         selection: Selection,
+    }
+
+    #[test]
+    fn apply_tracks_bytes_through_unicode_replacements_and_multiple_edits() {
+        use stdx::rope::RopeMutExt as _;
+        fn check(source: &str, edits: Vec<Change>) {
+            let original = Rope::from(source);
+            let tx = Transaction::change(&original, edits.into_iter());
+            let mut expected = original.clone();
+            let mut pos = 0;
+            for op in tx.changes().changes() {
+                match op {
+                    Operation::Retain(n) => pos += n,
+                    Operation::Delete(n) => expected.remove_chars(pos..pos + n),
+                    Operation::Insert(s) => {
+                        expected.insert_chars(pos, s);
+                        pos += s.chars().count();
+                    }
+                }
+            }
+            let mut actual = original.clone();
+            assert!(tx.apply(&mut actual));
+            assert_eq!(actual, expected);
+            assert!(tx.invert(&original).apply(&mut actual));
+            assert_eq!(actual, original);
+        }
+        for source in ["α😀界abc\r\n".repeat(500), String::new()] {
+            if source.is_empty() {
+                check(&source, vec![(0, 0, Some("界😀".into()))]);
+            } else {
+                check(
+                    &source,
+                    vec![
+                        (0, 1, Some("𐐀".into())),
+                        (2, 5, Some("é".into())),
+                        (3001, 3002, None),
+                    ],
+                );
+                check(
+                    &source,
+                    vec![(0, 0, Some("界".into())), (4000, 4000, Some("😀".into()))],
+                );
+            }
+        }
     }
 
     #[test]
