@@ -54,6 +54,12 @@ impl Search {
         let mut captures = self.matcher.new_captures()?;
         let mut changes = Vec::new();
         let mut invalid_boundary = false;
+        // Keep canonical non-overlapping capture iteration, but reject other
+        // matches before paying for two rope position conversions per match.
+        let target_bytes = target
+            .as_ref()
+            .filter(|range| range.start <= range.end && range.end <= text.len_chars())
+            .map(|range| text.char_to_byte_idx(range.start)..text.char_to_byte_idx(range.end));
         self.matcher
             .captures_iter(haystack.as_bytes(), &mut captures, |captures| {
                 let matched = captures.get(0).unwrap();
@@ -65,14 +71,19 @@ impl Search {
                     invalid_boundary |= matched.start() != matched.end();
                     return !invalid_boundary;
                 }
-                let start = text.byte_to_char_idx(matched.start());
-                let end = text.byte_to_char_idx(matched.end());
-                if target
-                    .as_ref()
-                    .is_some_and(|target| *target != (start..end))
-                {
-                    return true;
-                }
+                let (start, end) = if let Some(target) = &target {
+                    if target_bytes.as_ref().is_none_or(|range| {
+                        matched.start() != range.start || matched.end() != range.end
+                    }) {
+                        return true;
+                    }
+                    (target.start, target.end)
+                } else {
+                    (
+                        text.byte_to_char_idx(matched.start()),
+                        text.byte_to_char_idx(matched.end()),
+                    )
+                };
                 let mut expanded = Vec::new();
                 captures.interpolate(
                     |name| self.matcher.capture_index(name),
@@ -277,6 +288,42 @@ fn match_line_cols(
 mod tests {
     use super::*;
     use std::sync::{atomic::AtomicUsize, Mutex};
+
+    #[test]
+    fn selected_replacement_keeps_canonical_matches_and_validates_targets() {
+        for (pattern, text, target) in [
+            ("aa", "aaa", 1..3),
+            ("a*", "a", 1..1),
+            ("foo", "foo", 0..4),
+            ("foo", "foo", std::ops::Range { start: 3, end: 2 }),
+            ("foo", "foo", usize::MAX..usize::MAX),
+        ] {
+            assert!(Search::new(pattern, false)
+                .unwrap()
+                .replacement_changes(Rope::from_str(text).slice(..), "x", Some(target))
+                .unwrap()
+                .is_empty());
+        }
+        let text = Rope::from_str("é foo\n😀 foo\n");
+        let search = Search::new(r"(?m)^(😀) (foo)$", false).unwrap();
+        assert_eq!(
+            search
+                .replacement_changes(text.slice(..), "$2:$1", Some(6..11))
+                .unwrap(),
+            vec![(6, 11, Some("foo:😀".into()))]
+        );
+        assert!(Search::new(r"(?-u:\xA9)", false)
+            .unwrap()
+            .replacement_changes(Rope::from_str("é").slice(..), "x", Some(5..6))
+            .is_err());
+        assert_eq!(
+            Search::new("", false)
+                .unwrap()
+                .replacement_changes(Rope::from_str("é😀").slice(..), "x", Some(1..1))
+                .unwrap(),
+            vec![(1, 1, Some("x".into()))]
+        );
+    }
 
     #[test]
     fn replacement_expands_captures_for_all_matches() {
