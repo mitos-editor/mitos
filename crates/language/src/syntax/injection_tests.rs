@@ -6,6 +6,72 @@ use editor_core::{Rope, Transaction};
 /// Exercises both injections a Rust buffer usually has: doc comments and format strings.
 const RUST: &str = "/// Returns **one**.\nfn one() -> u8 {\n    println!(\"{}\", 1);\n    1\n}\n";
 
+#[test]
+fn json_query_prefilter_preserves_comments_overrides_and_edit_cleanup() {
+    let reference_dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(reference_dir.path().join("queries/json")).unwrap();
+    std::fs::write(
+        reference_dir.path().join("queries/json/injections.scm"),
+        "((comment) @injection.content (#set! injection.language \"comment\"))",
+    )
+    .unwrap();
+    let mut reference_paths = vec![reference_dir.path().to_owned()];
+    reference_paths.extend(loader::runtime_dirs().iter().cloned());
+    let reference = crate::loader::default_lang_loader(Resources::new(reference_paths));
+    let loader = crate::loader::default_lang_loader(Resources::default());
+    for loader in [&loader, &reference] {
+        loader.set_scopes(
+            ["comment", "string", "punctuation", "constant"]
+                .map(String::from)
+                .into(),
+        );
+    }
+    let language = loader.language_for_name("json").unwrap();
+    let reference_language = reference.language_for_name("json").unwrap();
+    let mut before = Rope::from_str("{\"name\":\"value\"}");
+    let mut syntax = Syntax::new(before.slice(..), language, &loader).unwrap();
+    for source in [
+        "{\"uri\":\"https://example.org\"}",
+        "/* todo */ {\"name\":\"value\"}",
+        "// note\n{\"name\":\"value\"}",
+        "{\"name\":\"value\"}",
+        "/* again */ {}",
+    ] {
+        let after = Rope::from_str(source);
+        let transaction = Transaction::change(
+            &before,
+            [(0, before.len_chars(), Some(source.into()))].into_iter(),
+        );
+        syntax
+            .update(
+                before.slice(..),
+                after.slice(..),
+                transaction.changes(),
+                &loader,
+            )
+            .unwrap();
+        let fresh = Syntax::new(after.slice(..), language, &loader).unwrap();
+        let original = Syntax::new(after.slice(..), reference_language, &reference).unwrap();
+        assert_eq!(
+            layer_languages(&syntax, &loader, &after),
+            layer_languages(&fresh, &loader, &after)
+        );
+        assert_eq!(
+            layer_languages(&syntax, &loader, &after),
+            layer_languages(&original, &reference, &after)
+        );
+        assert_eq!(
+            highlights(&syntax, &loader, &after),
+            highlights(&fresh, &loader, &after)
+        );
+        assert_eq!(
+            highlights(&syntax, &loader, &after),
+            highlights(&original, &reference, &after)
+        );
+        before = after;
+    }
+}
+
 fn rust_loader() -> (Loader, Language) {
     let loader = crate::loader::default_lang_loader(Resources::default());
     loader.set_scopes(
