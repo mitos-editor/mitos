@@ -25,3 +25,7 @@ log.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
+
+[[bench]]
+name = "json_updates"
+harness = false
