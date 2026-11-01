@@ -27,3 +27,7 @@ harness = false
 [[bench]]
 name = "changed_words"
 harness = false
+
+[[bench]]
+name = "lexical_matching"
+harness = false

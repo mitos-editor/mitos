@@ -63,8 +63,18 @@ impl WordIndex {
         std::mem::take(&mut self.words);
     }
 
+    /// Matches in ascending score order. Ordering within a score tie is unspecified.
     pub fn matches(&self, pattern: &str, matcher: &mut fuzzy::Matcher) -> Vec<String> {
-        let mut matches = matcher.match_list(pattern, self.words());
+        if pattern.is_empty() {
+            return self.words().map(ToString::to_string).collect();
+        }
+        let query = matcher.query(pattern);
+        // match_list already sorts descending. Score directly so this ascending
+        // ordering is the only sort, and Unicode conversion reuses our matcher.
+        let mut matches: Vec<_> = self
+            .words()
+            .filter_map(|word| matcher.score(&query, word).map(|score| (word, score)))
+            .collect();
         matches.sort_unstable_by_key(|(_, score)| *score);
         matches
             .into_iter()
@@ -273,6 +283,38 @@ fn words_cancellable(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn lexical_scoring_preserves_candidates_policy_and_ascending_scores() {
+        use fuzzy::{MatchKind, Matcher};
+        let mut index = super::WordIndex::default();
+        index.add_document(
+            &editor_core::Rope::from_str(
+                "parseEntry pathFile prefixFile café Cafe résumé αβγ élan Élan",
+            ),
+            || false,
+        );
+        for kind in [MatchKind::Text, MatchKind::Path, MatchKind::Completion] {
+            let mut matcher = Matcher::new(kind);
+            for pattern in ["", "p", "pF", "PF", "é", "e", "rés", "γ", "xyz"] {
+                let mut expected = matcher
+                    .match_list(pattern, index.words())
+                    .into_iter()
+                    .map(|(word, _)| word.to_string())
+                    .collect::<Vec<_>>();
+                let actual = index.matches(pattern, &mut matcher);
+                let query = matcher.query(pattern);
+                let scores: Vec<_> = actual
+                    .iter()
+                    .map(|word| matcher.score(&query, word).unwrap())
+                    .collect();
+                assert!(scores.is_sorted());
+                let mut sorted = actual;
+                sorted.sort();
+                expected.sort();
+                assert_eq!(sorted, expected);
+            }
+        }
+    }
     use std::collections::HashSet;
 
     use super::*;
