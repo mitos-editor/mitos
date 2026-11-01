@@ -109,32 +109,27 @@ pub fn changed_words<'a>(
     text: RopeSlice<'a>,
     should_cancel: impl Fn() -> bool,
 ) -> Option<(RopeSlice<'a>, RopeSlice<'a>)> {
-    fn common_prefix(
-        before: impl Iterator<Item = char>,
-        after: impl Iterator<Item = char>,
-        cancel: &impl Fn() -> bool,
-    ) -> Option<usize> {
-        let mut count = 0;
-        for (a, b) in before.zip(after) {
-            if count % CANCEL_CHECK_INTERVAL == 0 && cancel() {
-                return None;
-            }
-            if a != b {
-                break;
-            }
-            count += 1;
-        }
-        Some(count)
-    }
-    let prefix = common_prefix(old.chars(), text.chars(), &should_cancel)?;
-    if prefix == old.len_chars() && prefix == text.len_chars() {
+    let prefix_bytes = common_bytes(old.chunks(), text.chunks(), false, &should_cancel)?;
+    let prefix_bytes = old.floor_char_boundary(prefix_bytes);
+    if prefix_bytes == old.len() && prefix_bytes == text.len() {
         return None;
     }
-    let suffix = common_prefix(
-        old.slice_chars(prefix..).chars().reversed(),
-        text.slice_chars(prefix..).chars().reversed(),
+    let prefix = old.byte_to_char_idx(prefix_bytes);
+    let suffix_bytes = common_bytes(
+        old.slice(prefix_bytes..)
+            .chunks_at(old.len() - prefix_bytes)
+            .0
+            .reversed(),
+        text.slice(prefix_bytes..)
+            .chunks_at(text.len() - prefix_bytes)
+            .0
+            .reversed(),
+        true,
         &should_cancel,
     )?;
+    // Matching byte suffixes can start inside two different UTF-8 characters.
+    let suffix_start = old.ceil_char_boundary(old.len() - suffix_bytes);
+    let suffix = old.len_chars() - old.byte_to_char_idx(suffix_start);
     if should_cancel() {
         return None;
     }
@@ -145,6 +140,64 @@ pub fn changed_words<'a>(
         old.slice_chars(start..old_end),
         text.slice_chars(start..end),
     ))
+}
+
+/// Compare bounded byte spans, independently of the two ropes' chunk boundaries.
+fn common_bytes<'a>(
+    mut before: impl Iterator<Item = &'a str>,
+    mut after: impl Iterator<Item = &'a str>,
+    reverse: bool,
+    cancel: &impl Fn() -> bool,
+) -> Option<usize> {
+    let mut a = &[][..];
+    let mut b = &[][..];
+    let mut count = 0;
+    loop {
+        if a.is_empty() {
+            a = before
+                .find(|chunk| !chunk.is_empty())
+                .unwrap_or("")
+                .as_bytes();
+        }
+        if b.is_empty() {
+            b = after
+                .find(|chunk| !chunk.is_empty())
+                .unwrap_or("")
+                .as_bytes();
+        }
+        let len = a.len().min(b.len()).min(CANCEL_CHECK_INTERVAL);
+        if len == 0 {
+            return Some(count);
+        }
+        if cancel() {
+            return None;
+        }
+        let (left, right) = if reverse {
+            (&a[a.len() - len..], &b[b.len() - len..])
+        } else {
+            (&a[..len], &b[..len])
+        };
+        if left != right {
+            let equal = if reverse {
+                left.iter()
+                    .rev()
+                    .zip(right.iter().rev())
+                    .take_while(|(a, b)| a == b)
+                    .count()
+            } else {
+                left.iter().zip(right).take_while(|(a, b)| a == b).count()
+            };
+            return Some(count + equal);
+        }
+        count += len;
+        if reverse {
+            a = &a[..a.len() - len];
+            b = &b[..b.len() - len];
+        } else {
+            a = &a[len..];
+            b = &b[len..];
+        }
+    }
 }
 
 /// Extracts indexable words from a rope slice.
@@ -285,6 +338,63 @@ mod tests {
             &format!("prefix {} aaa", ".".repeat(200)),
             &format!("changed {} bbb", ".".repeat(200)),
         );
+    }
+
+    #[test]
+    fn chunk_windows_match_scalar_windows_for_unicode_and_different_chunk_layouts() {
+        fn check(old: &Rope, new: &Rope) {
+            let a: Vec<_> = old.chars().collect();
+            let b: Vec<_> = new.chars().collect();
+            let prefix = a.iter().zip(&b).take_while(|(a, b)| a == b).count();
+            let actual = changed_words(old.slice(..), new.slice(..), || false);
+            if prefix == a.len() && prefix == b.len() {
+                assert!(actual.is_none());
+                return;
+            }
+            let suffix = a[prefix..]
+                .iter()
+                .rev()
+                .zip(b[prefix..].iter().rev())
+                .take_while(|(a, b)| a == b)
+                .count();
+            let start = prefix.saturating_sub(MAX_WORD_LEN);
+            let expected_a: String = a[start..(a.len() - suffix + MAX_WORD_LEN).min(a.len())]
+                .iter()
+                .collect();
+            let expected_b: String = b[start..(b.len() - suffix + MAX_WORD_LEN).min(b.len())]
+                .iter()
+                .collect();
+            let (actual_a, actual_b) = actual.unwrap();
+            assert_eq!(actual_a, expected_a);
+            assert_eq!(actual_b, expected_b);
+        }
+        for (left, right) in [
+            ("α", "β"),
+            ("😀", "😁"),
+            ("é", "ĩ"),
+            ("", "界"),
+            ("abc", ""),
+        ] {
+            for padding in [0, 1, 127, 1024, 4097] {
+                let old = Rope::from(format!(
+                    "{}{left}{}",
+                    "前a".repeat(padding),
+                    "後😀".repeat(padding)
+                ));
+                let new = Rope::from(format!(
+                    "{}{right}{}",
+                    "前a".repeat(padding),
+                    "後😀".repeat(padding)
+                ));
+                check(&old, &new);
+                check(&old, &old);
+                let mut edited = old.clone();
+                edited.insert(0, "x");
+                check(&old, &edited);
+                edited.remove(0..1);
+                check(&old, &edited);
+            }
+        }
     }
 
     #[test]
