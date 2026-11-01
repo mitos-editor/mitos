@@ -45,8 +45,9 @@ pub mod text {
 pub mod widgets {
     pub use crate::table::{Cell, Row};
     pub use ratatui::widgets::{
-        Block, BorderType, Borders, Padding, Paragraph, Scrollbar, ScrollbarOrientation,
-        ScrollbarState, StatefulWidget, Table, TableState, Tabs, Widget, Wrap,
+        Block, BorderType, Borders, HighlightSpacing, Padding, Paragraph, Scrollbar,
+        ScrollbarOrientation, ScrollbarState, StatefulWidget, Table, TableState, Tabs, Widget,
+        Wrap,
     };
 }
 
