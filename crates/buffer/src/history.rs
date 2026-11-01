@@ -1,5 +1,8 @@
 use editor_core::regex::Regex;
-use editor_core::{ChangeSet, Rope, Transaction};
+use editor_core::{
+    ropey::extra::esoterica::disconnect_slice, ChangeSet, ChangeSetBuilder, Operation, Rope,
+    Transaction,
+};
 use std::num::NonZeroUsize;
 use std::sync::LazyLock;
 use std::time::{Duration, Instant};
@@ -78,8 +81,145 @@ struct Revision {
     transaction: Transaction,
     // We need an inversion for undos because delete transactions don't store
     // the deleted text.
-    inversion: Transaction,
+    inversion: Inversion,
     timestamp: Instant,
+}
+
+/// Keep ordinary edits compact. Large inverse inserts can share immutable rope
+/// storage until replay needs a contiguous transaction for document observers.
+#[derive(Debug, Clone)]
+enum Inversion {
+    Copied(Transaction),
+    Shared {
+        operations: Vec<InverseOperation>,
+        len_before: usize,
+        len_after: usize,
+    },
+}
+
+#[derive(Debug, Clone)]
+enum InverseOperation {
+    Retain(usize),
+    Delete(usize),
+    Insert(Rope),
+}
+
+impl Inversion {
+    fn new(changes: &ChangeSet, original: &Rope) -> Self {
+        const MIN_SHARED_BYTES: usize = 64 * 1024;
+        assert_eq!(original.len_chars(), changes.len_before());
+        let deleted_chars: usize = changes
+            .changes()
+            .iter()
+            .filter_map(|op| match op {
+                Operation::Delete(n) => Some(*n),
+                _ => None,
+            })
+            .sum();
+        // UTF-8 characters occupy at most four bytes. Avoid even collecting
+        // ranges for the small edits that dominate normal typing.
+        if deleted_chars < MIN_SHARED_BYTES / 4 {
+            return Self::Copied(Transaction::from(changes.invert(original)));
+        }
+        let mut pos = 0;
+        let mut deleted = Vec::new();
+        for operation in changes.changes() {
+            match operation {
+                Operation::Retain(n) => pos += n,
+                Operation::Delete(n) => {
+                    deleted.push(
+                        original.slice(
+                            original.char_to_byte_idx(pos)..original.char_to_byte_idx(pos + n),
+                        ),
+                    );
+                    pos += n;
+                }
+                Operation::Insert(_) => {}
+            }
+        }
+        let deleted_bytes: usize = deleted.iter().map(|text| text.len()).sum();
+        // Disconnected slices can retain their entire backing tree. Share only
+        // when that tree is at most twice the size of the deleted text in total.
+        if deleted_bytes < MIN_SHARED_BYTES || deleted_bytes < original.len().div_ceil(2) {
+            return Self::Copied(Transaction::from(changes.invert(original)));
+        }
+        let mut deleted = deleted.into_iter();
+        let mut operations = Vec::with_capacity(changes.changes().len());
+        for operation in changes.changes() {
+            match operation {
+                Operation::Retain(n) => operations.push(InverseOperation::Retain(*n)),
+                Operation::Insert(text) => {
+                    operations.push(InverseOperation::Delete(text.chars().count()))
+                }
+                Operation::Delete(_) => {
+                    let text = disconnect_slice(deleted.next().unwrap())
+                        .expect("history slices always originate from a rope");
+                    let insert = InverseOperation::Insert(text);
+                    // Match ChangeSetBuilder's canonical insert-before-delete order.
+                    if let Some(last @ InverseOperation::Delete(_)) = operations.last_mut() {
+                        let delete = std::mem::replace(last, insert);
+                        operations.push(delete);
+                    } else {
+                        operations.push(insert);
+                    }
+                }
+            }
+        }
+        Self::Shared {
+            operations,
+            len_before: changes.len_after(),
+            len_after: changes.len_before(),
+        }
+    }
+
+    fn transaction(&self) -> Transaction {
+        match self {
+            Self::Copied(transaction) => transaction.clone(),
+            Self::Shared { operations, .. } => {
+                let mut changes = ChangeSetBuilder::with_capacity(operations.len());
+                for operation in operations {
+                    match operation {
+                        InverseOperation::Retain(n) => changes.retain(*n),
+                        InverseOperation::Delete(n) => changes.delete(*n),
+                        InverseOperation::Insert(text) => {
+                            let mut fragment = String::with_capacity(text.len());
+                            for chunk in text.chunks() {
+                                fragment.push_str(chunk);
+                            }
+                            changes.insert(fragment.into());
+                        }
+                    }
+                }
+                Transaction::from(changes.finish())
+            }
+        }
+    }
+
+    fn matches(&self, changes: &ChangeSet) -> bool {
+        match self {
+            Self::Copied(transaction) => transaction.changes() == changes,
+            Self::Shared {
+                operations,
+                len_before,
+                len_after,
+            } => {
+                *len_before == changes.len_before()
+                    && *len_after == changes.len_after()
+                    && operations.len() == changes.changes().len()
+                    && operations
+                        .iter()
+                        .zip(changes.changes())
+                        .all(|(stored, supplied)| match (stored, supplied) {
+                            (InverseOperation::Retain(a), Operation::Retain(b))
+                            | (InverseOperation::Delete(a), Operation::Delete(b)) => a == b,
+                            (InverseOperation::Insert(a), Operation::Insert(b)) => {
+                                a.slice(..) == b.as_str()
+                            }
+                            _ => false,
+                        })
+            }
+        }
+    }
 }
 
 impl Default for History {
@@ -90,7 +230,7 @@ impl Default for History {
                 parent: 0,
                 last_child: None,
                 transaction: Transaction::from(ChangeSet::new("".into())),
-                inversion: Transaction::from(ChangeSet::new("".into())),
+                inversion: Inversion::Copied(Transaction::from(ChangeSet::new("".into()))),
                 timestamp: Instant::now(),
             }],
             current: 0,
@@ -111,7 +251,7 @@ impl History {
         timestamp: Instant,
     ) -> usize {
         let transaction = Transaction::from(changes.clone());
-        let inversion = transaction.invert(original);
+        let inversion = Inversion::new(changes, original);
         let new_current = self.revisions.len();
         self.revisions[self.current].last_child = NonZeroUsize::new(new_current);
         self.revisions.push(Revision {
@@ -144,7 +284,7 @@ impl History {
         let up_txns = up
             .iter()
             .rev()
-            .map(|&n| self.revisions[n].inversion.clone());
+            .map(|&n| self.revisions[n].inversion.transaction());
         let down_txns = down.iter().map(|&n| self.revisions[n].transaction.clone());
 
         down_txns.chain(up_txns).reduce(|acc, tx| tx.compose(acc))
@@ -176,7 +316,7 @@ impl History {
         HistoryStep {
             revision,
             transaction: match direction {
-                HistoryDirection::Undo => entry.inversion.clone(),
+                HistoryDirection::Undo => entry.inversion.transaction(),
                 HistoryDirection::Redo => entry.transaction.clone(),
             },
             direction,
@@ -314,7 +454,7 @@ impl History {
         let next = match step.direction {
             HistoryDirection::Undo
                 if self.current == step.revision
-                    && step.transaction.changes() == revision.inversion.changes() =>
+                    && revision.inversion.matches(step.transaction.changes()) =>
             {
                 revision.parent
             }
@@ -427,6 +567,84 @@ impl std::str::FromStr for UndoKind {
 #[cfg(test)]
 mod test {
     use super::*;
+    #[test]
+    fn large_inverse_payloads_share_storage_and_preserve_replay_and_branching() {
+        use editor_core::ropey::extra::esoterica::ropes_are_instances;
+        let original = Rope::from("α😀界 words\r\n".repeat(20_000));
+        let mut state = original.clone();
+        let mut history = History::default();
+        let change = Transaction::change(
+            &state,
+            [(0, state.len_chars(), Some("replacement".into()))].into_iter(),
+        );
+        let revision = history.commit_revision(change.changes(), &state);
+        let Inversion::Shared { operations, .. } = &history.revisions[revision].inversion else {
+            panic!("large deletion must share")
+        };
+        assert!(operations.iter().any(|op| matches!(op, InverseOperation::Insert(text) if ropes_are_instances(text, &original))));
+        assert!(change.apply(&mut state));
+        let undo = history.plan(HistoryAction::Undo).pop().unwrap();
+        let mut altered = undo.clone();
+        let mut wrong = original.clone();
+        wrong.remove(0.."α".len());
+        wrong.insert(0, "β");
+        altered.transaction = Transaction::change(
+            &state,
+            [(0, state.len_chars(), Some(wrong.to_string().into()))].into_iter(),
+        );
+        assert!(!history.advance(&altered));
+        assert!(history.advance(&undo));
+        assert!(undo.transaction.apply(&mut state));
+        assert_eq!(state, original);
+        let redo = history.redo().unwrap();
+        assert!(redo.transaction.apply(&mut state));
+        assert_eq!(state, "replacement");
+        let inverse = history.changes_since(0).unwrap().invert(&original);
+        assert!(inverse.apply(&mut state));
+        assert_eq!(state, original);
+        let undo = history.undo().unwrap();
+        let mut deleted_again = Rope::from("replacement");
+        assert!(undo.transaction.apply(&mut deleted_again));
+        assert_eq!(deleted_again, original);
+        let branch = Transaction::change(&state, [(0, state.len_chars(), None)].into_iter());
+        history.commit_revision(branch.changes(), &state);
+        branch.apply(&mut state);
+        let rewind = history.earlier(UndoKind::Steps(1));
+        for step in rewind {
+            assert!(step.transaction.apply(&mut state));
+        }
+        assert_eq!(state, "replacement");
+        let undo = history.undo().unwrap();
+        assert!(undo.transaction.apply(&mut state));
+        assert_eq!(state, original);
+    }
+
+    #[test]
+    fn small_deletions_and_large_deletions_of_small_fractions_are_copied() {
+        let original = Rope::from("a".repeat(1_000_000));
+        for end in [1, 100_000] {
+            let change = Transaction::change(&original, [(0, end, None)].into_iter());
+            assert!(matches!(
+                Inversion::new(change.changes(), &original),
+                Inversion::Copied(_)
+            ));
+        }
+        // Multiple distant deletions share collectively, with retained text and replacements.
+        let change = Transaction::change(
+            &original,
+            [(0, 300_000, Some("界".into())), (500_000, 900_000, None)].into_iter(),
+        );
+        let inversion = Inversion::new(change.changes(), &original);
+        assert!(matches!(inversion, Inversion::Shared { .. }));
+        let inverse = inversion.transaction();
+        assert!(inversion.matches(inverse.changes()));
+        assert_eq!(inverse.changes(), change.invert(&original).changes());
+        let mut state = original.clone();
+        assert!(change.apply(&mut state));
+        assert!(inverse.apply(&mut state));
+        assert_eq!(state, original);
+    }
+
     #[test]
     fn test_undo_redo() {
         let mut history = History::default();

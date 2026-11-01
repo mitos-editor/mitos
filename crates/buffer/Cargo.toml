@@ -13,3 +13,7 @@ homepage.workspace = true
 [dependencies]
 core.workspace = true
 thiserror.workspace = true
+
+[[bench]]
+name = "history_payloads"
+harness = false
