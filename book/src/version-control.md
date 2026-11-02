@@ -362,6 +362,24 @@ name and email, date, and commit message. Lines with uncommitted changes report
 Copy actions use `[keys.blame]` with `copy_commit_id` and `copy_message`.
 Scrolling and closing use `[keys.popup]`.
 
+### Ignored revisions
+
+Blame respects Git's `blame.ignoreRevsFile` configuration. Without that setting,
+Mitos uses `.git-blame-ignore-revs` in the working tree root if it exists.
+Both the popup and inline annotations attribute ignored changes to earlier
+commits where possible. Ignoring revisions requires `git` on your `PATH`.
+
+Ignore files contain one full commit ID per line; blank lines and `#` comments
+are allowed. Configure another file with:
+
+```sh
+git config blame.ignoreRevsFile path/to/ignored-revisions
+```
+
+The setting can be repeated to read several files. An empty value resets the
+file list and disables automatic `.git-blame-ignore-revs` discovery. Mitos also
+accepts repeated `blame.ignoreRevs` values for individual revisions.
+
 ## Inline blame
 
 Show who last changed the current line with `Space B`. Press it again to hide

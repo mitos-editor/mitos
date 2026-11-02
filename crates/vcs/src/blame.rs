@@ -7,6 +7,9 @@ use anyhow::Result;
 
 mod time;
 
+#[cfg(feature = "git")]
+mod ignored;
+
 /// Blame for the committed version of a file, with commit metadata prepared off-thread.
 #[derive(Debug)]
 pub struct FileBlame {
@@ -22,6 +25,7 @@ struct BlameSource {
     path: PathBuf,
     revision: gix::ObjectId,
     trust_full: bool,
+    ignored: ignored::IgnoredRevisions,
 }
 
 #[derive(Debug)]
@@ -46,7 +50,7 @@ impl FileBlame {
         Self::try_refresh(file, trust_full, None)
     }
 
-    /// Reuse a snapshot only when its canonical path, HEAD commit and trust match.
+    /// Reuse a snapshot only when its path, HEAD, trust and ignored revisions match.
     #[cfg(not(feature = "git"))]
     pub fn try_refresh(
         _file: PathBuf,
@@ -71,29 +75,32 @@ impl FileBlame {
             .context("Failed to open git repo")?
             .to_thread_local();
         let head = repo.head_commit()?.id;
+        let workdir = repo
+            .workdir()
+            .context("Git blame requires a working tree")?;
+        // Git's linked-worktree metadata can omit the Windows verbatim prefix.
+        let workdir = stdx::path::canonicalize_existing(workdir);
         let source = BlameSource {
             path: file.clone(),
             revision: head,
             trust_full,
+            ignored: ignored::IgnoredRevisions::read(&repo, &workdir)?,
         };
         if let Some(cached) = cached
             && cached.source == source
         {
             return Ok(cached);
         }
-        let workdir = repo
-            .workdir()
-            .context("Git blame requires a working tree")?;
-        // Git's linked-worktree metadata can omit the Windows verbatim prefix.
-        // Canonicalize both sides before comparing paths, allowing a missing file.
-        let workdir = stdx::path::canonicalize_existing(workdir);
         // Use the working tree root, including linked worktrees and subdirectories.
         let path = gix::path::to_unix_separators_on_windows(gix::path::try_into_bstr(
             file.strip_prefix(&workdir)?,
         )?);
-        let entries = repo
-            .blame_file(path.as_ref(), head, Default::default())?
-            .entries;
+        let entries = if source.ignored.is_empty() {
+            repo.blame_file(path.as_ref(), head, Default::default())?
+                .entries
+        } else {
+            source.ignored.blame(&repo, &workdir, path.as_ref(), head)?
+        };
         let mut commit_indices = HashMap::new();
         let mut commits = Vec::new();
         let mut ranges = Vec::with_capacity(entries.len());
