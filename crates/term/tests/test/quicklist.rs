@@ -1,18 +1,17 @@
-use std::{path::PathBuf, time::Duration};
+use std::path::PathBuf;
 
 use editor_core::Selection;
 use term::{
     application::Application,
     config::{Config, ConfigLoadError},
 };
-use ui_core::input::parse_macro;
 use view::{
     current_ref,
     editor::Action,
     quicklist::{QuicklistEntry, QuicklistPosition, QuicklistTarget},
 };
 
-use super::helpers::{run_event_loop_until_idle, AppBuilder};
+use super::helpers::AppBuilder;
 
 struct Fixture {
     app: Application,
@@ -61,20 +60,7 @@ impl Fixture {
     }
 
     async fn keys(&mut self, keys: &str) -> anyhow::Result<()> {
-        for key in parse_macro(keys)? {
-            #[cfg(not(windows))]
-            let event = termina::event::Event::Key(key.into());
-            #[cfg(windows)]
-            let event = crossterm::event::Event::Key(key.into());
-            self.app.handle_terminal_events(Ok(event)).await;
-        }
-        self.app.editor.reset_idle_timer();
-        tokio::time::timeout(
-            Duration::from_secs(10),
-            run_event_loop_until_idle(&mut self.app),
-        )
-        .await?;
-        Ok(())
+        super::helpers::keys(&mut self.app, keys).await
     }
 
     async fn finish(&mut self) {

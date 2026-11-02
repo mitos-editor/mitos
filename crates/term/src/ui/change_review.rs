@@ -56,6 +56,19 @@ impl ReviewView {
         }
     }
 
+    fn scroll_action(&mut self, action: crate::keymap::component::DiffAction) -> bool {
+        use crate::keymap::component::DiffAction;
+        self.horizontal = match action {
+            DiffAction::ScrollLeft => self.horizontal.saturating_sub(8),
+            DiffAction::ScrollRight => self
+                .horizontal
+                .saturating_add(8)
+                .min(self.review.max_line_chars()),
+            DiffAction::Restore => return false,
+        };
+        true
+    }
+
     fn heading_rows(&self) -> usize {
         1 + usize::from(self.review.fallback.is_some())
     }
@@ -179,7 +192,6 @@ impl Component for ReviewView {
         self.keys.is_pending()
     }
     fn handle_event(&mut self, event: &Event, cx: &mut Context) -> EventResult {
-        use crate::keymap::component::DiffAction;
         use ui_core::keymap::Lookup;
         let Event::Key(key) = event else {
             return EventResult::Ignored(None);
@@ -192,14 +204,9 @@ impl Component for ReviewView {
             Lookup::Unbound => EventResult::Ignored(None),
             Lookup::Actions(actions) => {
                 for action in actions {
-                    self.horizontal = match action {
-                        DiffAction::ScrollLeft => self.horizontal.saturating_sub(8),
-                        DiffAction::ScrollRight => self
-                            .horizontal
-                            .saturating_add(8)
-                            .min(self.review.max_line_chars()),
-                        DiffAction::Restore => return EventResult::Ignored(None),
-                    };
+                    if !self.scroll_action(*action) {
+                        return EventResult::Ignored(None);
+                    }
                 }
                 EventResult::Consumed(None)
             }

@@ -50,18 +50,7 @@ fn replace(app: &mut Application, start: usize, end: usize, replacement: &str) {
     view.sync_changes(doc);
 }
 
-async fn keys(app: &mut Application, keys: &str) -> anyhow::Result<()> {
-    for key in ui_core::input::parse_macro(keys)? {
-        #[cfg(not(windows))]
-        let event = termina::event::Event::Key(key.into());
-        #[cfg(windows)]
-        let event = crossterm::event::Event::Key(key.into());
-        app.handle_terminal_events(Ok(event)).await;
-    }
-    app.editor.reset_idle_timer();
-    tokio::time::timeout(Duration::from_secs(10), run_event_loop_until_idle(app)).await?;
-    Ok(())
-}
+use super::helpers::keys;
 
 async fn selected_code_action(app: &mut Application) -> anyhow::Result<Option<String>> {
     let (tx, rx) = tokio::sync::oneshot::channel();

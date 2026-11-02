@@ -98,84 +98,53 @@ fn goto_severity(cx: &mut Context, direction: Direction, boundary: bool, severit
     }
 }
 
+fn goto_diagnostic(editor: &mut Editor, direction: Direction, boundary: bool) {
+    let (view, doc) = current!(editor);
+    let cursor = doc
+        .selection(view.id)
+        .primary()
+        .cursor(doc.text().slice(..));
+    let backwards = direction == Direction::Backward;
+    let matches = |diag: &&::diagnostics::Diagnostic| {
+        boundary
+            || if backwards {
+                diag.range.start < cursor
+            } else {
+                diag.range.start > cursor
+            }
+    };
+    let diag = if backwards {
+        doc.diagnostics().iter().rev().find(matches)
+    } else {
+        doc.diagnostics().iter().find(matches)
+    };
+    let Some(diag) = diag else {
+        return;
+    };
+    let selection = if backwards && !boundary {
+        Selection::single(diag.range.end, diag.range.start)
+    } else {
+        Selection::single(diag.range.start, diag.range.end)
+    };
+    push_jump(view, doc);
+    doc.set_selection(view.id, selection);
+    view.diagnostics_handler
+        .immediately_show_diagnostic(doc, view.id);
+}
+
 pub(super) fn goto_first_diag(cx: &mut Context) {
-    let (view, doc) = current!(cx.editor);
-    let selection = match doc.diagnostics().first() {
-        Some(diag) => Selection::single(diag.range.start, diag.range.end),
-        None => return,
-    };
-    push_jump(view, doc);
-    doc.set_selection(view.id, selection);
-    view.diagnostics_handler
-        .immediately_show_diagnostic(doc, view.id);
+    goto_diagnostic(cx.editor, Direction::Forward, true);
 }
-
 pub(super) fn goto_last_diag(cx: &mut Context) {
-    let (view, doc) = current!(cx.editor);
-    let selection = match doc.diagnostics().last() {
-        Some(diag) => Selection::single(diag.range.start, diag.range.end),
-        None => return,
-    };
-    push_jump(view, doc);
-    doc.set_selection(view.id, selection);
-    view.diagnostics_handler
-        .immediately_show_diagnostic(doc, view.id);
+    goto_diagnostic(cx.editor, Direction::Backward, true);
 }
-
 pub(super) fn goto_next_diag(cx: &mut Context) {
-    let motion = move |editor: &mut Editor| {
-        let (view, doc) = current!(editor);
-
-        let cursor_pos = doc
-            .selection(view.id)
-            .primary()
-            .cursor(doc.text().slice(..));
-
-        let diag = doc
-            .diagnostics()
-            .iter()
-            .find(|diag| diag.range.start > cursor_pos);
-
-        let selection = match diag {
-            Some(diag) => Selection::single(diag.range.start, diag.range.end),
-            None => return,
-        };
-        push_jump(view, doc);
-        doc.set_selection(view.id, selection);
-        view.diagnostics_handler
-            .immediately_show_diagnostic(doc, view.id);
-    };
-
-    cx.editor.apply_motion(motion);
+    cx.editor
+        .apply_motion(|editor| goto_diagnostic(editor, Direction::Forward, false));
 }
-
 pub(super) fn goto_prev_diag(cx: &mut Context) {
-    let motion = move |editor: &mut Editor| {
-        let (view, doc) = current!(editor);
-
-        let cursor_pos = doc
-            .selection(view.id)
-            .primary()
-            .cursor(doc.text().slice(..));
-
-        let diag = doc
-            .diagnostics()
-            .iter()
-            .rev()
-            .find(|diag| diag.range.start < cursor_pos);
-
-        let selection = match diag {
-            // NOTE: the selection is reversed because we're jumping to the
-            // previous diagnostic.
-            Some(diag) => Selection::single(diag.range.end, diag.range.start),
-            None => return,
-        };
-        push_jump(view, doc);
-        doc.set_selection(view.id, selection);
-        view.diagnostics_handler
-            .immediately_show_diagnostic(doc, view.id);
-    };
-    cx.editor.apply_motion(motion)
+    cx.editor
+        .apply_motion(|editor| goto_diagnostic(editor, Direction::Backward, false));
 }
 
 struct DiagnosticStyles {
@@ -593,6 +562,41 @@ mod tests {
             source: None,
             data: None,
         }
+    }
+
+    #[tokio::test]
+    async fn diagnostic_jumps_preserve_boundaries_and_backward_selection() -> anyhow::Result<()> {
+        let mut app = application(false)?;
+        let file = tempfile::NamedTempFile::new()?;
+        std::fs::write(file.path(), "first second third\n")?;
+        app.editor.open(file.path(), Action::Replace)?;
+        let (view, doc) = current!(app.editor);
+        doc.replace_diagnostics(
+            [
+                diagnostic(0, "first"),
+                diagnostic(6, "second"),
+                diagnostic(13, "third"),
+            ],
+            &[],
+            None,
+        );
+        doc.set_selection(view.id, Selection::point(6));
+        for (direction, boundary, expected) in [
+            (Direction::Forward, false, (13, 14)),
+            (Direction::Forward, false, (13, 14)),
+            (Direction::Backward, false, (7, 6)),
+            (Direction::Backward, true, (13, 14)),
+            (Direction::Forward, true, (0, 1)),
+        ] {
+            goto_diagnostic(&mut app.editor, direction, boundary);
+            let (view, doc) = current!(app.editor);
+            assert_eq!(
+                doc.selection(view.id),
+                &Selection::single(expected.0, expected.1)
+            );
+        }
+        assert!(app.close().await.is_empty());
+        Ok(())
     }
 
     #[tokio::test]

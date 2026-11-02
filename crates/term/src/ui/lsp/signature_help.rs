@@ -1,5 +1,4 @@
 use std::sync::Arc;
-use ui_core::keymap::{KeymapState, Lookup};
 
 use arc_swap::ArcSwap;
 use editor_core::highlight::OverlayHighlights;
@@ -13,7 +12,6 @@ use view::graphics::Rect;
 
 use crate::compositor::{Component, Compositor, Context, EventResult};
 
-use crate::keymap::component::PageAction;
 use crate::ui::{panel, Markdown};
 
 use crate::ui::Popup;
@@ -26,10 +24,9 @@ pub struct Signature {
 }
 
 pub struct SignatureHelp {
-    keys: KeymapState,
+    page: super::PageSelection,
     language: String,
     config_loader: Arc<ArcSwap<syntax::Loader>>,
-    active_signature: usize,
     lsp_signature: Option<usize>,
     signatures: Vec<Signature>,
 }
@@ -46,16 +43,18 @@ impl SignatureHelp {
     ) -> Self {
         Self {
             language,
-            keys: KeymapState::default(),
+            page: super::PageSelection {
+                index: active_signature,
+                ..Default::default()
+            },
             config_loader,
-            active_signature,
             lsp_signature,
             signatures,
         }
     }
 
     pub fn active_signature(&self) -> usize {
-        self.active_signature
+        self.page.index
     }
 
     pub fn lsp_signature(&self) -> Option<usize> {
@@ -67,47 +66,21 @@ impl SignatureHelp {
     }
 
     fn signature_index(&self) -> String {
-        format!("({}/{})", self.active_signature + 1, self.signatures.len())
+        format!("({}/{})", self.page.index + 1, self.signatures.len())
     }
 }
 
 impl Component for SignatureHelp {
     fn has_pending_keys(&self) -> bool {
-        self.keys.is_pending()
+        self.page.keys.is_pending()
     }
 
     fn handle_event(&mut self, event: &Event, cx: &mut Context) -> EventResult {
-        let Event::Key(event) = event else {
-            if matches!(event, Event::Paste(_)) {
-                self.keys.clear();
-            }
-            return EventResult::Ignored(None);
-        };
-        let actions = match self
-            .keys
-            .lookup(&cx.config.current.component_keys.signature_help, *event)
-        {
-            Lookup::Actions(actions) => actions,
-            Lookup::Pending => return EventResult::Consumed(None),
-            Lookup::Unbound => return EventResult::Ignored(None),
-        };
-        for &action in actions {
-            if self.signatures.len() <= 1 {
-                continue;
-            }
-            match action {
-                PageAction::Previous => {
-                    self.active_signature = self
-                        .active_signature
-                        .checked_sub(1)
-                        .unwrap_or(self.signatures.len() - 1);
-                }
-                PageAction::Next => {
-                    self.active_signature = (self.active_signature + 1) % self.signatures.len();
-                }
-            }
-        }
-        EventResult::Consumed(None)
+        self.page.handle_event(
+            event,
+            &cx.config.current.component_keys.signature_help,
+            self.signatures.len(),
+        )
     }
 
     fn render(&mut self, area: Rect, surface: &mut Buffer, cx: &mut Context) {
@@ -115,7 +88,7 @@ impl Component for SignatureHelp {
 
         let signature = self
             .signatures
-            .get(self.active_signature)
+            .get(self.page.index)
             .unwrap_or_else(|| &self.signatures[0]);
 
         let active_param_span = signature.active_param_range.map(|(start, end)| {
@@ -185,7 +158,7 @@ impl Component for SignatureHelp {
 
         let signature = self
             .signatures
-            .get(self.active_signature)
+            .get(self.page.index)
             .unwrap_or_else(|| &self.signatures[0]);
 
         let max_text_width = viewport.0.saturating_sub(PADDING).clamp(10, 120);

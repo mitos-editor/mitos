@@ -2,13 +2,12 @@
 
 use super::*;
 use crate::keymap::component::{action_hint, DiffAction};
-use ui_core::keymap::{KeymapState, Lookup};
+use ui_core::keymap::Lookup;
 use view::features::change_review::HunkReviewSnapshot;
 
 pub struct HunkReviewView {
     view: ReviewView,
     snapshot: Arc<HunkReviewSnapshot>,
-    keys: KeymapState,
 }
 
 impl HunkReviewView {
@@ -19,7 +18,6 @@ impl HunkReviewView {
                 snapshot.review.clone(),
             ),
             snapshot,
-            keys: KeymapState::default(),
         }
     }
 }
@@ -52,7 +50,7 @@ impl Component for HunkReviewView {
     }
 
     fn has_pending_keys(&self) -> bool {
-        self.keys.is_pending() || self.view.has_pending_keys()
+        self.view.has_pending_keys()
     }
 
     fn handle_event(&mut self, event: &Event, cx: &mut Context) -> EventResult {
@@ -60,6 +58,7 @@ impl Component for HunkReviewView {
             return EventResult::Ignored(None);
         };
         match self
+            .view
             .keys
             .lookup(&cx.config.current.component_keys.diff, *key)
         {
@@ -76,15 +75,8 @@ impl Component for HunkReviewView {
                                 compositor.remove(ReviewView::ID);
                             })));
                         }
-                        DiffAction::ScrollLeft => {
-                            self.view.horizontal = self.view.horizontal.saturating_sub(8)
-                        }
-                        DiffAction::ScrollRight => {
-                            self.view.horizontal = self
-                                .view
-                                .horizontal
-                                .saturating_add(8)
-                                .min(self.view.review.max_line_chars())
+                        action => {
+                            self.view.scroll_action(*action);
                         }
                     }
                 }

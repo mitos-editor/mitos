@@ -572,7 +572,7 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
         name: "buffer-close",
         aliases: &["bc", "bclose"],
         doc: "Close the current buffer.",
-        fun: super::buffers::typed::buffer_close,
+        fun: super::buffers::typed::buffer_close::<false>,
         completer: CommandCompleter::all(completers::buffer),
         signature: Signature {
             positionals: (0, None),
@@ -583,7 +583,7 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
         name: "buffer-close!",
         aliases: &["bc!", "bclose!"],
         doc: "Close the current buffer forcefully, ignoring unsaved changes.",
-        fun: super::buffers::typed::force_buffer_close,
+        fun: super::buffers::typed::buffer_close::<true>,
         completer: CommandCompleter::all(completers::buffer),
         signature: Signature {
             positionals: (0, None),
@@ -594,7 +594,7 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
         name: "buffer-close-others",
         aliases: &["bco", "bcloseother"],
         doc: "Close all buffers but the currently focused one.",
-        fun: super::buffers::typed::buffer_close_others,
+        fun: super::buffers::typed::buffer_close_others::<false>,
         completer: CommandCompleter::none(),
         signature: BUFFER_CLOSE_OTHERS_SIGNATURE,
     },
@@ -602,7 +602,7 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
         name: "buffer-close-others!",
         aliases: &["bco!", "bcloseother!"],
         doc: "Force close all buffers but the currently focused one.",
-        fun: super::buffers::typed::force_buffer_close_others,
+        fun: super::buffers::typed::buffer_close_others::<true>,
         completer: CommandCompleter::none(),
         signature: BUFFER_CLOSE_OTHERS_SIGNATURE,
     },
@@ -610,7 +610,7 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
         name: "buffer-close-all",
         aliases: &["bca", "bcloseall"],
         doc: "Close all buffers without quitting.",
-        fun: super::buffers::typed::buffer_close_all,
+        fun: super::buffers::typed::buffer_close_all::<false>,
         completer: CommandCompleter::none(),
         signature: Signature {
             positionals: (0, Some(0)),
@@ -621,7 +621,7 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
         name: "buffer-close-all!",
         aliases: &["bca!", "bcloseall!"],
         doc: "Force close all buffers ignoring unsaved changes without quitting.",
-        fun: super::buffers::typed::force_buffer_close_all,
+        fun: super::buffers::typed::buffer_close_all::<true>,
         completer: CommandCompleter::none(),
         signature: Signature {
             positionals: (0, Some(0)),

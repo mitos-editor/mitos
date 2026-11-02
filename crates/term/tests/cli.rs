@@ -1,5 +1,30 @@
 use std::process::{Command, Output};
 
+fn isolated_command(root: &std::path::Path, with_home: bool) -> Command {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_ms"));
+    command.env_clear().current_dir(root);
+    if with_home {
+        for (key, directory) in [
+            ("HOME", "home"),
+            ("USERPROFILE", "home"),
+            ("APPDATA", "config"),
+            ("LOCALAPPDATA", "cache"),
+            ("XDG_CONFIG_HOME", "config"),
+            ("XDG_CACHE_HOME", "cache"),
+        ] {
+            command.env(key, root.join(directory));
+        }
+    } else {
+        // Guard the OS-provided home directory if startup regresses.
+        command
+            .arg("--config")
+            .arg(root.join("config/config.toml"))
+            .arg("--log")
+            .arg(root.join("cache/mitos.log"));
+    }
+    command
+}
+
 fn assert_information_output(args: &[&str], output: &Output) {
     assert!(output.status.success(), "{args:?}: {output:?}");
     assert!(output.stderr.is_empty(), "{args:?}: {output:?}");
@@ -51,16 +76,8 @@ templates = []
             ),
         )
         .unwrap();
-        let output = Command::new(executable)
+        let output = isolated_command(root.path(), true)
             .args(["--health", "health-test"])
-            .env_clear()
-            .env("HOME", root.path().join("home"))
-            .env("USERPROFILE", root.path().join("home"))
-            .env("APPDATA", root.path().join("config"))
-            .env("LOCALAPPDATA", root.path().join("cache"))
-            .env("XDG_CONFIG_HOME", root.path().join("config"))
-            .env("XDG_CACHE_HOME", root.path().join("cache"))
-            .current_dir(root.path())
             .output()
             .unwrap();
         assert!(output.status.success(), "{output:?}");
@@ -79,16 +96,8 @@ templates = []
 fn information_flags_do_not_create_user_directories() {
     for args in INFORMATION_ARGS {
         let root = tempfile::tempdir().unwrap();
-        let output = Command::new(env!("CARGO_BIN_EXE_ms"))
+        let output = isolated_command(root.path(), true)
             .args(*args)
-            .env_clear()
-            .env("HOME", root.path().join("home"))
-            .env("USERPROFILE", root.path().join("home"))
-            .env("APPDATA", root.path().join("config"))
-            .env("LOCALAPPDATA", root.path().join("cache"))
-            .env("XDG_CONFIG_HOME", root.path().join("config"))
-            .env("XDG_CACHE_HOME", root.path().join("cache"))
-            .current_dir(root.path())
             .output()
             .unwrap();
         assert_information_output(args, &output);
@@ -104,16 +113,8 @@ fn information_flags_do_not_create_user_directories() {
 fn information_flags_work_without_home_environment_variables() {
     for args in INFORMATION_ARGS {
         let root = tempfile::tempdir().unwrap();
-        // The OS may still supply a home directory. Explicit paths keep the test
-        // from creating files there if startup regresses.
-        let output = Command::new(env!("CARGO_BIN_EXE_ms"))
+        let output = isolated_command(root.path(), false)
             .args(*args)
-            .arg("--config")
-            .arg(root.path().join("config/config.toml"))
-            .arg("--log")
-            .arg(root.path().join("cache/mitos.log"))
-            .env_clear()
-            .current_dir(root.path())
             .output()
             .unwrap();
         assert_information_output(args, &output);

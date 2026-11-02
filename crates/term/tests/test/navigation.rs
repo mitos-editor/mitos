@@ -109,21 +109,7 @@ impl Fixture {
     }
 
     async fn wait_message(&self, method: &str) -> anyhow::Result<serde_json::Value> {
-        tokio::time::timeout(Duration::from_secs(5), async {
-            loop {
-                if let Some(message) = std::fs::read_to_string(&self.logs[0])
-                    .unwrap_or_default()
-                    .lines()
-                    .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
-                    .find(|message| message["method"] == method)
-                {
-                    return message;
-                }
-                tokio::time::sleep(Duration::from_millis(5)).await;
-            }
-        })
-        .await
-        .with_context(|| format!("server did not receive {method}"))
+        lsp::wait_message(&self.logs[0], method).await
     }
 }
 

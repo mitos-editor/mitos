@@ -154,6 +154,76 @@ pub fn syntax_loader(
     )))
 }
 
+type FeatureCallbacks =
+    tokio::sync::mpsc::UnboundedReceiver<(bool, view::callbacks::EditorCallback)>;
+
+pub fn feature_app<'a>(
+    dir: &Path,
+    text: &str,
+    language: &str,
+    names: &[&'a str],
+    mut config: term::config::Config,
+    server: impl Fn(&'a str) -> ServerConfig<'a>,
+    setup: impl FnOnce(
+            &mut view::handlers::Handlers,
+            view::callbacks::EditorCallbackSender,
+            &editor_config::Config,
+        ) + 'static,
+) -> anyhow::Result<(Application, FeatureCallbacks, Gate)> {
+    let gate = Gate::new(dir.join("initialize-ready"));
+    gate.close()?;
+    let servers = names
+        .iter()
+        .map(|name| server(name).initialize_gate(&gate).toml())
+        .collect::<String>();
+    config.editor.lsp.enable = true;
+    let (sender, callbacks) = super::callbacks::deferred(|blocking, callback| (blocking, callback));
+    let mut app = AppBuilder::new()
+        .with_config(config)
+        .with_lang_loader(syntax_loader(language, language, names, &servers))
+        .with_handler_setup(move |handlers, config| {
+            let sender = sender(handlers.redraw().clone());
+            setup(handlers, sender, config);
+        })
+        .build()?;
+    let path = dir.join(format!("document.{language}"));
+    std::fs::write(&path, text)?;
+    app.editor.open(&path, Action::Replace)?;
+    let (view, doc) = view::current!(app.editor);
+    doc.set_selection(
+        view.id,
+        editor_core::Selection::point(doc.text().len_chars() - 1),
+    );
+    Ok((app, callbacks, gate))
+}
+
+pub async fn wait_message(path: &Path, method: &str) -> anyhow::Result<serde_json::Value> {
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            let records = match read_log(path) {
+                Ok(records) => records,
+                Err(error)
+                    if error
+                        .downcast_ref::<std::io::Error>()
+                        .is_some_and(|error| error.kind() == std::io::ErrorKind::NotFound) =>
+                {
+                    Vec::new()
+                }
+                Err(error) => return Err(error),
+            };
+            if let Some(message) = records
+                .into_iter()
+                .find(|message| message["method"] == method)
+            {
+                return Ok(message);
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .with_context(|| format!("server did not receive {method}"))?
+}
+
 /// Wait for editor-side initialization, not just transport readiness. Processing
 /// the notifications sends didOpen before a test starts observing feature requests.
 pub async fn initialize(app: &mut Application, servers: usize) -> anyhow::Result<()> {
