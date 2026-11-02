@@ -154,16 +154,16 @@ For common examples, see [Configure Mitos](./editor.md).
 
 ### Popup borders
 
-Mitos draws panels, popups, menus, and separators with borders.
-`editor.border-style` supplies the default border style. It accepts `"none"`,
-`"plain"`, `"rounded"` (the default), `"double"`, `"thick"`,
-`"quadrant-inside"`, or `"quadrant-outside"`. The style controls the glyphs
-only; themes supply the colors.
+`editor.border-style` sets the default border style for panels, popups, menus,
+and separators. It accepts `"none"`, `"plain"`, `"rounded"` (the default),
+`"double"`, `"thick"`,
+`"quadrant-inside"`, or `"quadrant-outside"`. The style controls the border
+characters; the theme controls their colors.
 
-Floating UI features can override the default with their own `border-style`.
-The override accepts the same styles or `"inherit"` (the default). An omitted
-or `"inherit"` value follows `editor.border-style`. A trusted project can also
-use `"inherit"` to clear a user-level override for that feature.
+Individual popups can use their own `border-style`. Each setting accepts the
+same styles or `"inherit"` (the default), which follows `editor.border-style`.
+A trusted project's configuration can use `"inherit"` to clear a user override
+for that popup. Omitting the project setting keeps the user preference.
 
 | Feature | Border setting |
 | --- | --- |
@@ -178,8 +178,7 @@ use `"inherit"` to clear a user-level override for that feature.
 | Blame details popup | `editor.inline-blame.border-style` |
 | Invalid search pattern popup | `editor.search.border-style` |
 
-Pickers and persistent panels do not have feature overrides; they always use
-`editor.border-style`.
+Pickers and persistent panels always use `editor.border-style`.
 
 For example, keep rounded borders elsewhere while hiding hover and completion
 borders:
@@ -195,8 +194,8 @@ border-style = "none"
 border-style = "none"
 ```
 
-A feature's setting also applies to its documentation panel and internal
-separators. `"none"` hides border glyphs while preserving spacing and scrolling,
+A popup's setting also applies to its documentation panel and internal
+separators. `"none"` hides the borders while preserving spacing and scrolling,
 so text does not shift when borders are disabled.
 
 Changes apply to open popups. Use `:set lsp.hover.border-style none` to hide
