@@ -319,32 +319,6 @@ impl Drop for PollTask {
 }
 
 impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
-    pub fn stream(
-        redraw: event::Redraw,
-        columns: impl IntoIterator<Item = Column<T, D>>,
-        editor_data: D,
-    ) -> (Nucleo<T>, Injector<T, D>) {
-        let columns: Arc<[_]> = columns.into_iter().collect();
-        let matcher_columns = columns.iter().filter(|col| col.filter).count() as u32;
-        assert!(matcher_columns > 0);
-        let matcher = Nucleo::new(
-            Config::DEFAULT,
-            Arc::new(redraw.callback()),
-            None,
-            matcher_columns,
-        );
-        let streamer = Injector {
-            dst: matcher.injector(),
-            columns,
-            editor_data: Arc::new(editor_data),
-            version: 0,
-            picker_version: Arc::new(AtomicUsize::new(0)),
-            redraw: redraw.clone(),
-            _redraw: redraw.on_drop(),
-        };
-        (matcher, streamer)
-    }
-
     pub fn new<C, O, F>(
         redraw: event::Redraw,
         columns: C,
@@ -408,26 +382,6 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             Arc::new(editor_data),
             Arc::new(AtomicUsize::new(0)),
             callback_fn,
-        )
-    }
-
-    pub fn with_stream(
-        matcher: Nucleo<T>,
-        primary_column: usize,
-        injector: Injector<T, D>,
-        callback_fn: impl Fn(&mut Context, &T, Action) + 'static,
-    ) -> Self {
-        Self::with(
-            injector.redraw.clone(),
-            matcher,
-            injector.columns,
-            primary_column,
-            injector.editor_data,
-            injector.picker_version,
-            move |cx, item, action| {
-                callback_fn(cx, item, action);
-                PickerCallbackResult::Close
-            },
         )
     }
 

@@ -518,7 +518,7 @@ mod tests {
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].line_start, 0);
         assert_eq!(results[0].match_start_col, 6);
-        let (mut matcher, injector) = Picker::stream(
+        let mut picker = Picker::new(
             app.editor.redraw().clone(),
             [PickerColumn::new(
                 "path",
@@ -526,12 +526,16 @@ mod tests {
                     item.path.to_string_lossy().into_owned().into()
                 },
             )],
+            0,
+            [],
             GlobalSearchConfig {
                 search: config.search.clone(),
                 case_sensitive: AtomicBool::new(false),
                 style: PathStyleConfig::new(&app.editor),
             },
+            |_, _, _| {},
         );
+        let injector = picker.injector();
         query_global_search("other", &mut app.editor, config.clone(), &injector).await?;
         query_global_search("", &mut app.editor, config.clone(), &injector).await?;
         assert!(
@@ -550,14 +554,14 @@ mod tests {
         query_global_search("", &mut app.editor, config.clone(), &injector).await?;
         assert!(app.editor.get_status().is_none());
         drop(injector);
-        tokio::time::timeout(std::time::Duration::from_secs(5), async {
-            while matcher.tick(10).running {
-                tokio::task::yield_now().await;
-            }
+        crate::ui::picker::test::until(&mut picker, &mut app, |picker| {
+            crate::ui::picker::test::all_items(picker).count() == 1
         })
         .await?;
-        assert_eq!(matcher.snapshot().item_count(), 1);
-        assert_eq!(matcher.snapshot().get_item(0).unwrap().data, &results[0]);
+        assert_eq!(
+            crate::ui::picker::test::all_items(&picker).collect::<Vec<_>>(),
+            [&results[0]]
+        );
         assert!(
             refresh_global_search("needle", &app.editor, config.clone(), task.restart())
                 .await?

@@ -11,11 +11,6 @@ use crate::{
 };
 
 pub type OnKeyCallback = Box<dyn FnOnce(&mut Context, KeyEvent)>;
-#[derive(PartialEq, Eq, Clone, Copy, Debug)]
-pub enum OnKeyCallbackKind {
-    PseudoPending,
-    Fallback,
-}
 
 pub struct Context<'a> {
     pub config: crate::config::Context<'a>,
@@ -24,7 +19,7 @@ pub struct Context<'a> {
     pub editor: &'a mut Editor,
 
     pub callback: Vec<crate::compositor::Callback>,
-    pub on_next_key_callback: Option<(OnKeyCallback, OnKeyCallbackKind)>,
+    pub on_next_key_callback: Option<OnKeyCallback>,
     pub jobs: &'a mut Jobs,
 }
 
@@ -45,32 +40,12 @@ impl Context<'_> {
             }));
     }
 
-    /// Call `replace_or_push` on the Compositor
-    pub fn replace_or_push_layer<T: Component>(&mut self, id: &'static str, component: T) {
-        self.callback
-            .push(Box::new(move |compositor: &mut Compositor, _| {
-                compositor.replace_or_push(id, component);
-            }));
-    }
-
     #[inline]
     pub fn on_next_key(
         &mut self,
         on_next_key_callback: impl FnOnce(&mut Context, KeyEvent) + 'static,
     ) {
-        self.on_next_key_callback = Some((
-            Box::new(on_next_key_callback),
-            OnKeyCallbackKind::PseudoPending,
-        ));
-    }
-
-    #[inline]
-    pub fn on_next_key_fallback(
-        &mut self,
-        on_next_key_callback: impl FnOnce(&mut Context, KeyEvent) + 'static,
-    ) {
-        self.on_next_key_callback =
-            Some((Box::new(on_next_key_callback), OnKeyCallbackKind::Fallback));
+        self.on_next_key_callback = Some(Box::new(on_next_key_callback));
     }
 
     #[inline]

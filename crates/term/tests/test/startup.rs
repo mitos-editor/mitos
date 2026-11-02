@@ -45,17 +45,7 @@ async fn syntax_completion_retries_and_handles_closed_documents_without_terminal
     let path = dir.path().join("queued.json");
     std::fs::write(&path, "{}\n")?;
     let (tx, mut rx) = tokio::sync::mpsc::channel(1);
-    let blocking_tx = tx.clone();
-    let sender = view::callbacks::EditorCallbackSender::new(
-        event::Redraw::default(),
-        move |callback| {
-            let tx = tx.clone();
-            async move {
-                let _ = tx.send(callback).await;
-            }
-        },
-        move |callback| event::send_blocking(&blocking_tx, callback),
-    );
+    let sender = super::helpers::callbacks::bounded_sender(&tx, |_, callback| callback);
     let mut app = AppBuilder::new()
         .with_file(&path, None)
         .with_handler_setup(move |handlers, _| {
@@ -295,17 +285,7 @@ async fn rust_syntax_is_shown_before_its_injected_languages_compile() -> anyhow:
     let path = dir.path().join("staged.rs");
     std::fs::write(&path, "/// Returns **one**.\nfn one() -> u8 {\n    1\n}\n")?;
     let (tx, mut rx) = tokio::sync::mpsc::channel(1);
-    let blocking_tx = tx.clone();
-    let sender = view::callbacks::EditorCallbackSender::new(
-        event::Redraw::default(),
-        move |callback| {
-            let tx = tx.clone();
-            async move {
-                let _ = tx.send(callback).await;
-            }
-        },
-        move |callback| event::send_blocking(&blocking_tx, callback),
-    );
+    let sender = super::helpers::callbacks::bounded_sender(&tx, |_, callback| callback);
     let mut app = AppBuilder::new()
         .with_file(&path, None)
         .with_handler_setup(move |handlers, _| {

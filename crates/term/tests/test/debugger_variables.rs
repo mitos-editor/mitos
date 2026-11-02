@@ -1,7 +1,6 @@
 use std::time::Duration;
 
 use term::application::Application;
-use ui_core::input::parse_macro;
 
 use super::helpers::{run_event_loop_until_idle, AppBuilder};
 
@@ -14,18 +13,7 @@ fn screen(app: &Application) -> String {
         .collect()
 }
 
-async fn keys(app: &mut Application, keys: &str) -> anyhow::Result<()> {
-    for key in parse_macro(keys)? {
-        #[cfg(not(windows))]
-        let event = termina::event::Event::Key(key.into());
-        #[cfg(windows)]
-        let event = crossterm::event::Event::Key(key.into());
-        app.handle_terminal_events(Ok(event)).await;
-    }
-    app.editor.reset_idle_timer();
-    tokio::time::timeout(Duration::from_secs(10), run_event_loop_until_idle(app)).await?;
-    Ok(())
-}
+use super::helpers::keys;
 
 async fn wait_for_text(app: &mut Application, expected: &str) -> anyhow::Result<()> {
     tokio::time::timeout(Duration::from_secs(10), async {
@@ -141,15 +129,7 @@ async fn variable_browser_expands_nested_values_and_preserves_parent_navigation(
     wait_for_row(&mut app, "item199").await?;
     app.editor.handle_debugger_message(id, serde_json::from_value(serde_json::json!({"type":"event","seq":0,"event":"invalidated","body":{"areas":["variables"]}}))?).await;
     keys(&mut app, "<esc>").await?;
-    app.editor
-        .debugger_command(view::debugger::DebuggerCommand::Terminate)?;
-    tokio::time::timeout(Duration::from_secs(10), async {
-        while app.editor.debugger().get_session(id).is_some() {
-            run_event_loop_until_idle(&mut app).await;
-        }
-    })
-    .await?;
-    assert!(app.close().await.is_empty());
+    super::helpers::finish_debugger(&mut app, id).await?;
     Ok(())
 }
 

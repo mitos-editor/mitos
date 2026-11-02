@@ -18,7 +18,7 @@ use view::{
 };
 
 use super::helpers::lsp::{self, Gate, ServerConfig};
-use super::helpers::{run_event_loop_until_idle, test_config, AppBuilder};
+use super::helpers::{run_event_loop_until_idle, test_config};
 
 struct Fixture {
     app: Application,
@@ -37,39 +37,25 @@ impl Fixture {
     }
 
     fn uninitialized(dir: &Path, text: &str, names: &[&str]) -> anyhow::Result<Self> {
-        let gate = Gate::new(dir.join("initialize-ready"));
-        gate.close()?;
         let response_gate = dir.join("respond-ready");
         std::fs::write(&response_gate, "ready")?;
-        let mut servers = String::new();
-        for name in names {
-            servers.push_str(
-                &ServerConfig::feature(name, "--signature-help", dir)
-                    .initialize_gate(&gate)
+        let mut config = test_config();
+        config.editor.lsp.signature_help.auto_trigger = true;
+        let (app, callbacks, gate) = lsp::feature_app(
+            dir,
+            text,
+            "signature-test",
+            names,
+            config,
+            |name| {
+                ServerConfig::feature(name, "--signature-help", dir)
                     .arg("--response-gate")
                     .arg(&response_gate)
-                    .toml(),
-            );
-        }
-        let loader = lsp::syntax_loader("signature-test", "signature-test", names, &servers);
-        let mut config = test_config();
-        config.editor.lsp.enable = true;
-        config.editor.lsp.signature_help.auto_trigger = true;
-        let (sender, callbacks) =
-            super::helpers::callbacks::deferred(|blocking, callback| (blocking, callback));
-        let mut app = AppBuilder::new()
-            .with_config(config)
-            .with_lang_loader(loader)
-            .with_handler_setup(move |handlers, _| {
-                handlers.signature_hints =
-                    SignatureHelpHandler::new(sender(handlers.redraw().clone()));
-            })
-            .build()?;
-        let path = dir.join("document.signature-test");
-        std::fs::write(&path, text)?;
-        app.editor.open(&path, Action::Replace)?;
-        let (view, doc) = current!(app.editor);
-        doc.set_selection(view.id, Selection::point(doc.text().len_chars() - 1));
+            },
+            |handlers, sender, _| {
+                handlers.signature_hints = SignatureHelpHandler::new(sender);
+            },
+        )?;
         Ok(Self {
             app,
             callbacks,

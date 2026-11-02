@@ -19,7 +19,7 @@ use view::{
 };
 
 use super::helpers::lsp::{self, Gate, ServerConfig};
-use super::helpers::{test_config, AppBuilder};
+use super::helpers::test_config;
 
 struct Fixture {
     app: Application,
@@ -47,47 +47,34 @@ impl Fixture {
         names: &[&str],
         mut config: term::config::Config,
     ) -> anyhow::Result<Self> {
-        let gate = Gate::new(dir.join("initialize-ready"));
-        gate.close()?;
         let response_gate = dir.join("alpha-ready");
         std::fs::write(&response_gate, "ready")?;
-        let mut servers = String::new();
-        for name in names {
-            let response_gate = dir.join(format!("{name}-ready"));
-            std::fs::write(&response_gate, "ready")?;
-            let resolve_gate = dir.join(format!("{name}-resolve-ready"));
-            std::fs::write(&resolve_gate, "ready")?;
-            servers.push_str(
-                &ServerConfig::feature(name, "--completion", dir)
-                    .initialize_gate(&gate)
-                    .arg("--response-gate")
-                    .arg(&response_gate)
-                    .arg("--resolve-gate")
-                    .arg(&resolve_gate)
-                    .arg("--resolve-log")
-                    .arg(dir.join(format!("{name}-resolves.jsonl")))
-                    .toml(),
-            );
-        }
-        let loader = lsp::syntax_loader("completion-test", "completion-test", names, &servers);
-        config.editor.lsp.enable = true;
         config.editor.completion.auto_trigger = false;
         config.editor.completion.path.enable = false;
-        let (sender, callbacks) =
-            super::helpers::callbacks::deferred(|blocking, callback| (blocking, callback));
-        let mut app = AppBuilder::new()
-            .with_config(config)
-            .with_lang_loader(loader)
-            .with_handler_setup(move |handlers, config| {
-                handlers.completions =
-                    CompletionHandler::new(sender(handlers.redraw().clone()), config);
-            })
-            .build()?;
-        let path = dir.join("document.completion-test");
-        std::fs::write(&path, text)?;
-        app.editor.open(&path, Action::Replace)?;
-        let (view, doc) = current!(app.editor);
-        doc.set_selection(view.id, Selection::point(doc.text().len_chars() - 1));
+        // Provider-specific response and resolve gates remain independently controllable.
+        for name in names {
+            std::fs::write(dir.join(format!("{name}-ready")), "ready")?;
+            std::fs::write(dir.join(format!("{name}-resolve-ready")), "ready")?;
+        }
+        let (mut app, callbacks, gate) = lsp::feature_app(
+            dir,
+            text,
+            "completion-test",
+            names,
+            config,
+            |name| {
+                ServerConfig::feature(name, "--completion", dir)
+                    .arg("--response-gate")
+                    .arg(dir.join(format!("{name}-ready")))
+                    .arg("--resolve-gate")
+                    .arg(dir.join(format!("{name}-resolve-ready")))
+                    .arg("--resolve-log")
+                    .arg(dir.join(format!("{name}-resolves.jsonl")))
+            },
+            |handlers, sender, config| {
+                handlers.completions = CompletionHandler::new(sender, config);
+            },
+        )?;
         app.editor.set_mode(Mode::Insert);
         while completion::next_update(&mut app.editor).is_some() {}
         Ok(Self {
