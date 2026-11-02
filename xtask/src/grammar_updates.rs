@@ -32,14 +32,7 @@ impl Options {
             match arg.as_str() {
                 "--dry-run" => options.dry_run = true,
                 "--jobs" => {
-                    options.jobs = args
-                        .next()
-                        .ok_or("--jobs requires a count")?
-                        .parse()
-                        .map_err(|_| "--jobs must be a positive integer")?;
-                    if options.jobs == 0 {
-                        return Err("--jobs must be at least 1".into());
-                    }
+                    options.jobs = crate::parse_job_count(args.next())?.get();
                 }
                 _ if arg.starts_with('-') => {
                     return Err(format!("unexpected argument: {arg}").into());

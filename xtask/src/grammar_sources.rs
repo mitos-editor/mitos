@@ -151,14 +151,7 @@ fn parse_jobs(mut args: impl Iterator<Item = String>) -> Result<usize, DynError>
     if argument != "--jobs" {
         return Err(format!("unexpected argument: {argument}").into());
     }
-    let jobs: usize = args
-        .next()
-        .ok_or("--jobs requires a count")?
-        .parse()
-        .map_err(|_| "--jobs must be a positive integer")?;
-    if jobs == 0 {
-        return Err("--jobs must be at least 1".into());
-    }
+    let jobs = crate::parse_job_count(args.next())?.get();
     if let Some(argument) = args.next() {
         return Err(format!("unexpected argument: {argument}").into());
     }
