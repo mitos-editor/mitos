@@ -130,6 +130,7 @@ try:
     drain(0.5)
     first_frame, first_byte = frames, len(output)
     samples, frames_per_key = [], []
+    burst_start_ns = time.monotonic_ns()
     for index in range(args.keys):
         key = ([b"x", b"\x7f"][index % 2] if args.mode == "typing" else [b"l", b"h"][index % 2] if args.mode == "motion" else b"j" if index < args.keys // 2 else b"k")
         old_frames = frames
@@ -145,9 +146,11 @@ try:
         while time.monotonic() < deadline:
             read(min(0.002, deadline - time.monotonic()))
         frames_per_key.append(frames - old_frames)
+    steady_end_ns = time.monotonic_ns()
     steady_frames = frames - first_frame
     (work / "measured-terminal.bin").write_bytes(output[first_byte:])
     drain(1)
+    settled_end_ns = time.monotonic_ns()
     settled_frames = frames - first_frame
     send(b"\x1b")
     send(b":qa!\r", 0.4)
@@ -161,7 +164,7 @@ try:
     if not reaped or result[1]:
         raise RuntimeError("Editor did not exit successfully")
     ordered = sorted(samples)
-    result = dict(fixture=str(args.fixture), bytes=fixture.stat().st_size, mode=args.mode, keys=args.keys, interval_ms=args.interval_ms, p50_ms=statistics.median(samples), p95_ms=ordered[int((len(ordered)-1)*0.95)], steady_frames=steady_frames, settled_frames=settled_frames, frames_per_key=frames_per_key, samples_ms=samples)
+    result = dict(fixture=str(args.fixture), bytes=fixture.stat().st_size, mode=args.mode, keys=args.keys, interval_ms=args.interval_ms, burst_start_ns=burst_start_ns, steady_end_ns=steady_end_ns, settled_end_ns=settled_end_ns, p50_ms=statistics.median(samples), p95_ms=ordered[int((len(ordered)-1)*0.95)], steady_frames=steady_frames, settled_frames=settled_frames, frames_per_key=frames_per_key, samples_ms=samples)
     (work / "result.json").write_text(json.dumps(result, indent=2) + "\n")
     print(json.dumps({k: v for k, v in result.items() if k not in ("frames_per_key", "samples_ms")}))
 finally:
