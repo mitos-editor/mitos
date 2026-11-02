@@ -6,7 +6,23 @@ use futures_util::future::BoxFuture;
 
 use crate::Editor;
 
-pub type EditorCallback = Box<dyn FnOnce(&mut Editor) + Send>;
+/// Whether applying a callback changed presentation. Existing callbacks redraw by default.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CallbackOutcome {
+    None,
+    Redraw,
+}
+impl From<()> for CallbackOutcome {
+    fn from(_: ()) -> Self {
+        Self::Redraw
+    }
+}
+impl CallbackOutcome {
+    pub fn needs_redraw(self) -> bool {
+        self == Self::Redraw
+    }
+}
+pub type EditorCallback = Box<dyn FnOnce(&mut Editor) -> CallbackOutcome + Send>;
 
 /// A completion destination bound to one editor by its application.
 ///
@@ -53,11 +69,26 @@ impl EditorCallbackSender {
         Arc::ptr_eq(&self.send, &other.send)
     }
 
-    pub async fn send(&self, callback: impl FnOnce(&mut Editor) + Send + 'static) {
-        (self.send)(Box::new(callback)).await;
+    pub async fn send<R: Into<CallbackOutcome>>(
+        &self,
+        callback: impl FnOnce(&mut Editor) -> R + Send + 'static,
+    ) {
+        (self.send)(Box::new(move |editor| callback(editor).into())).await;
     }
 
-    pub fn send_blocking(&self, callback: impl FnOnce(&mut Editor) + Send + 'static) {
-        (self.send_blocking)(Box::new(callback));
+    pub fn send_blocking<R: Into<CallbackOutcome>>(
+        &self,
+        callback: impl FnOnce(&mut Editor) -> R + Send + 'static,
+    ) {
+        (self.send_blocking)(Box::new(move |editor| callback(editor).into()));
+    }
+
+    /// Queue work that does not change presentation. Visible fallback paths must
+    /// explicitly request a redraw; delivery and ordering match ordinary sends.
+    pub fn send_work_blocking(&self, callback: impl FnOnce(&mut Editor) + Send + 'static) {
+        self.send_blocking(move |editor| {
+            callback(editor);
+            CallbackOutcome::None
+        });
     }
 }

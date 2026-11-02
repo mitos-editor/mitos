@@ -1,4 +1,7 @@
-use std::{path::Path, time::Duration};
+use std::{
+    path::{Path, PathBuf},
+    time::Duration,
+};
 
 use anyhow::Context as _;
 use editor_core::{Selection, Transaction};
@@ -30,6 +33,7 @@ enum Feature {
 struct Fixture {
     app: Application,
     gates: Vec<Gate>,
+    logs: Vec<PathBuf>,
     callbacks: mpsc::Receiver<(Feature, bool, EditorCallback)>,
 }
 
@@ -66,11 +70,19 @@ impl Fixture {
             .iter()
             .map(|name| Gate::new(path.with_extension(format!("{name}.initialize-ready"))))
             .collect();
+        let logs: Vec<_> = servers
+            .iter()
+            .map(|name| path.with_extension(format!("{name}.requests")))
+            .collect();
         let server_config = servers
             .iter()
             .zip(&gates)
-            .map(|(name, gate)| {
-                let server = ServerConfig::new(name).initialize_gate(gate);
+            .zip(&logs)
+            .map(|((name, gate), log)| {
+                let server = ServerConfig::new(name)
+                    .initialize_gate(gate)
+                    .arg("--request-log")
+                    .arg(log);
                 if resolve_links {
                     server
                         .arg("--resolve-links")
@@ -107,6 +119,7 @@ impl Fixture {
         Ok(Self {
             app,
             gates,
+            logs,
             callbacks,
         })
     }
@@ -519,5 +532,60 @@ async fn origin_changes_cancel_pending_link_resolution() -> anyhow::Result<()> {
         gate.release()?;
         assert!(fixture.app.close().await.is_empty());
     }
+    Ok(())
+}
+
+fn highlight_request_count(fixture: &Fixture) -> usize {
+    fixture
+        .logs
+        .iter()
+        .map(|path| {
+            std::fs::read_to_string(path)
+                .unwrap()
+                .lines()
+                .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+                .filter(|value| value["method"] == "textDocument/documentHighlight")
+                .count()
+        })
+        .sum()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn one_edit_schedules_one_highlight_request_for_the_final_selection() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let mut fixture = Fixture::new(&dir.path().join("coalesce.feature-test"), "😀 original\n")?;
+    let initial = fixture.initialize().await?;
+    fixture.apply(initial);
+    let before = highlight_request_count(&fixture);
+    let (view, doc) = current!(fixture.app.editor);
+    let change = Transaction::change(doc.text(), [(2, 2, Some("x".into()))].into_iter())
+        .with_selection(Selection::point(3));
+    view::editing::apply(doc, &change, view.id)?;
+    let responses = fixture.batch(ALL).await?;
+    fixture.apply(responses);
+    assert_eq!(highlight_request_count(&fixture) - before, 1);
+    assert!(fixture.app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn dropping_a_scheduled_highlight_does_not_block_a_later_selection() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let mut fixture = Fixture::new(&dir.path().join("drop.feature-test"), "😀 original\n")?;
+    let initial = fixture.initialize().await?;
+    fixture.apply(initial);
+    let before = highlight_request_count(&fixture);
+    let (view, doc) = current!(fixture.app.editor);
+    doc.set_selection(view.id, Selection::point(3));
+    let (kind, scheduling, callback) = fixture.callbacks.recv().await.unwrap();
+    assert_eq!(kind, Feature::Highlights);
+    assert!(scheduling);
+    drop(callback);
+    let (view, doc) = current!(fixture.app.editor);
+    doc.set_selection(view.id, Selection::point(4));
+    let responses = fixture.batch(&[Feature::Highlights]).await?;
+    fixture.apply(responses);
+    assert_eq!(highlight_request_count(&fixture) - before, 1);
+    assert!(fixture.app.close().await.is_empty());
     Ok(())
 }

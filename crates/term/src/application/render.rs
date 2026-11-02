@@ -13,6 +13,12 @@ const SYNTAX_GRACE: Duration = Duration::from_millis(16);
 const CALLBACK_BATCH_SIZE: usize = 64;
 
 #[derive(Default)]
+pub(super) struct CallbackBatch {
+    pub handled: usize,
+    pub needs_redraw: bool,
+}
+
+#[derive(Default)]
 pub(super) struct RenderState {
     /// Documents presented in the previous frame, including unfocused splits.
     visible_documents: HashSet<DocumentId>,
@@ -57,8 +63,7 @@ impl Application {
             is_cursor_owner: false,
         };
 
-        cx.editor.redraw().start_frame();
-        cx.editor.needs_redraw = false;
+        cx.editor.begin_frame();
 
         tui::terminal::draw_with_cursor(&mut self.terminal, |buffer| {
             self.compositor.render(buffer.area, buffer, &mut cx)
@@ -106,20 +111,20 @@ impl Application {
     }
 
     /// Process a bounded batch without waiting for background work to finish.
-    pub(super) fn drain_ready_callbacks(&mut self) -> bool {
-        let mut handled_callbacks = false;
+    pub(super) fn drain_ready_callbacks(&mut self) -> CallbackBatch {
+        let mut batch = CallbackBatch::default();
         for _ in 0..CALLBACK_BATCH_SIZE {
             let Ok(callback) = self.jobs.callbacks.try_recv() else {
                 break;
             };
-            self.apply_callback(callback);
-            handled_callbacks = true;
+            batch.handled += 1;
+            batch.needs_redraw |= self.apply_callback(callback);
         }
-        handled_callbacks
+        batch
     }
 
-    fn apply_callback(&mut self, callback: Callback) {
-        if let Some(job) = self.jobs.handle_callback(
+    fn apply_callback(&mut self, callback: Callback) -> bool {
+        let (job, outcome) = self.jobs.handle_callback(
             crate::config::Context {
                 current: &self.config.load(),
                 updates: &self.config_updates.0,
@@ -127,9 +132,11 @@ impl Application {
             &mut self.editor,
             &mut self.compositor,
             Ok(Some(callback)),
-        ) {
+        );
+        if let Some(job) = job {
             self.jobs.add(job);
         }
+        outcome.needs_redraw()
     }
 }
 

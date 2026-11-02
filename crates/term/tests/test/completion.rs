@@ -518,6 +518,7 @@ async fn queued_stale_response_does_not_hide_fresh_completions() -> anyhow::Resu
     let stale: EditorCallback = Box::new(move |editor| {
         stale(editor);
         assert!(completion::next_update(editor).is_none());
+        view::callbacks::CallbackOutcome::Redraw
     });
     let (sender, callbacks) = mpsc::unbounded_channel();
     assert!(sender.send((false, stale)).is_ok());

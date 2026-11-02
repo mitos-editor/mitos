@@ -770,6 +770,16 @@ impl Editor {
         }
     }
 
+    /// Consume requests represented by this frame; requests raised while drawing
+    /// remain pending for the next turn.
+    pub fn begin_frame(&mut self) {
+        self.redraw().start_frame();
+        self.needs_redraw = false;
+        self.redraw_timer
+            .as_mut()
+            .reset(Instant::now() + Duration::from_secs(86400 * 365 * 30));
+    }
+
     pub async fn flush_writes(&mut self) -> anyhow::Result<()> {
         let mut first_error = None;
         while self.writes.has_pending() {

@@ -96,6 +96,7 @@ impl Watcher {
                         if batch.is_current(&editor.file_watcher.native) {
                             editor.handle_file_events(&batch.events);
                         }
+                        crate::callbacks::CallbackOutcome::Redraw
                     }) as EditorCallback)
                 },
             ),
@@ -168,7 +169,7 @@ mod tests {
         let (native, events) = mpsc::unbounded_channel();
         let mut delivery = event::TaskController::new();
         let task = tokio::spawn(event::cancelable_future(
-            forward_events(events, sender, |_| Some(Box::new(|_| {}))),
+            forward_events(events, sender, |_| Some(Box::new(|_| ().into()))),
             delivery.restart(),
         ));
         for _ in 0..140 {

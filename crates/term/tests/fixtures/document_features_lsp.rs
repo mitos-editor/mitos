@@ -84,6 +84,11 @@ fn main() -> anyhow::Result<()> {
     } else {
         None
     };
+    let mut extra_request_log = args
+        .iter()
+        .position(|arg| arg == "--request-log")
+        .map(|index| std::fs::File::create(&args[index + 1]))
+        .transpose()?;
     loop {
         let mut length = None;
         loop {
@@ -101,6 +106,10 @@ fn main() -> anyhow::Result<()> {
         let mut bytes = vec![0; length.ok_or_else(|| anyhow::anyhow!("missing Content-Length"))?];
         input.read_exact(&mut bytes)?;
         let message: Value = serde_json::from_slice(&bytes)?;
+        if let Some(log) = &mut extra_request_log {
+            writeln!(log, "{message}")?;
+            log.flush()?;
+        }
         let method = message["method"].as_str().unwrap_or_default();
         let params = &message["params"];
         let uri = params["textDocument"]["uri"].as_str().unwrap_or_default();

@@ -111,14 +111,21 @@ impl Application {
             // One input event can enqueue several callbacks. Drain a bounded
             // batch before accepting more input so synchronous event hooks do
             // not spend every keystroke waiting for space in their own queue.
-            if self.drain_ready_callbacks() {
-                self.render().await;
+            let batch = self.drain_ready_callbacks();
+            if batch.handled > 0 {
+                if batch.needs_redraw {
+                    self.render().await;
+                }
                 #[cfg(feature = "integration")]
                 self.editor.reset_idle_timer();
                 // Callbacks can close the editor as well as change its state.
                 if self.editor.should_close() {
                     return false;
                 }
+            }
+
+            if self.editor.should_close() {
+                return false;
             }
 
             use futures_util::StreamExt;
@@ -149,16 +156,14 @@ impl Application {
                     self.render().await;
                 }
                 Some(callback) = self.jobs.callbacks.recv() => {
-                    if let Some(job) = self.jobs.handle_callback(crate::config::Context { current: &self.config.load(), updates: &self.config_updates.0 }, &mut self.editor, &mut self.compositor, Ok(Some(callback))) {
-                        self.jobs.add(job);
-                    }
-                    self.render().await;
+                    let (job, outcome) = self.jobs.handle_callback(crate::config::Context { current: &self.config.load(), updates: &self.config_updates.0 }, &mut self.editor, &mut self.compositor, Ok(Some(callback)));
+                    if let Some(job) = job { self.jobs.add(job); }
+                    if outcome.needs_redraw() { self.render().await; }
                 }
                 Some(callback) = self.jobs.wait_futures.next() => {
-                    if let Some(job) = self.jobs.handle_callback(crate::config::Context { current: &self.config.load(), updates: &self.config_updates.0 }, &mut self.editor, &mut self.compositor, callback) {
-                        self.jobs.add(job);
-                    }
-                    self.render().await;
+                    let (job, outcome) = self.jobs.handle_callback(crate::config::Context { current: &self.config.load(), updates: &self.config_updates.0 }, &mut self.editor, &mut self.compositor, callback);
+                    if let Some(job) = job { self.jobs.add(job); }
+                    if outcome.needs_redraw() { self.render().await; }
                 }
                 event = self.editor.wait_event() => {
                     let _idle_handled = self.handle_editor_event(event).await;

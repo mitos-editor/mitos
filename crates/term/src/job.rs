@@ -1,6 +1,6 @@
 use event::send_blocking;
 use std::collections::VecDeque;
-use view::callbacks::{EditorCallback, EditorCallbackSender};
+use view::callbacks::{CallbackOutcome, EditorCallback, EditorCallbackSender};
 use view::Editor;
 
 use crate::compositor::Compositor;
@@ -40,7 +40,8 @@ pub type ContextCallback = Box<dyn FnOnce(&mut Compositor, &mut crate::composito
 pub enum Callback {
     Context(ContextCallback),
     EditorCompositor(EditorCompositorCallback),
-    Editor(EditorCallback),
+    Editor(Box<dyn FnOnce(&mut Editor) + Send>),
+    EditorOutcome(EditorCallback),
     Followup(EditorCallbackFollowup),
 }
 
@@ -106,10 +107,10 @@ impl Jobs {
             move |callback| {
                 let sender = editor_sender.clone();
                 async move {
-                    let _ = sender.send(Callback::Editor(callback)).await;
+                    let _ = sender.send(Callback::EditorOutcome(callback)).await;
                 }
             },
-            move |callback| send_blocking(&blocking_sender, Callback::Editor(callback)),
+            move |callback| send_blocking(&blocking_sender, Callback::EditorOutcome(callback)),
         );
         let (interactive_sender, interactive_requests) = channel(1);
         Self {
@@ -154,13 +155,13 @@ impl Jobs {
         editor: &mut Editor,
         compositor: &mut Compositor,
         call: anyhow::Result<Option<Callback>>,
-    ) -> Option<Job> {
-        match self.try_handle_callback(config, editor, compositor, call) {
-            Ok(job) => job,
+    ) -> (Option<Job>, CallbackOutcome) {
+        match self.apply_callback(config, editor, compositor, call) {
+            Ok(result) => result,
             Err(error) => {
                 self.cancel_after_writes();
                 editor.set_error(|| format!("Async job failed: {error}"));
-                None
+                (None, CallbackOutcome::Redraw)
             }
         }
     }
@@ -173,25 +174,40 @@ impl Jobs {
         compositor: &mut Compositor,
         call: anyhow::Result<Option<Callback>>,
     ) -> anyhow::Result<Option<Job>> {
-        if let Some(call) = call? {
-            match call {
-                Callback::Context(call) => call(
-                    compositor,
-                    &mut crate::compositor::Context {
-                        config,
-                        editor,
-                        jobs: self,
-                        scroll: None,
-                        image_picker: None,
-                        is_cursor_owner: false,
-                    },
-                ),
-                Callback::EditorCompositor(call) => call(editor, compositor),
-                Callback::Editor(call) => call(editor),
-                Callback::Followup(call) => return call(editor),
+        self.apply_callback(config, editor, compositor, call)
+            .map(|(job, _)| job)
+    }
+
+    fn apply_callback(
+        &mut self,
+        config: crate::config::Context<'_>,
+        editor: &mut Editor,
+        compositor: &mut Compositor,
+        call: anyhow::Result<Option<Callback>>,
+    ) -> anyhow::Result<(Option<Job>, CallbackOutcome)> {
+        let Some(call) = call? else {
+            return Ok((None, CallbackOutcome::None));
+        };
+        match call {
+            Callback::Context(call) => call(
+                compositor,
+                &mut crate::compositor::Context {
+                    config,
+                    editor,
+                    jobs: self,
+                    scroll: None,
+                    image_picker: None,
+                    is_cursor_owner: false,
+                },
+            ),
+            Callback::EditorCompositor(call) => call(editor, compositor),
+            Callback::Editor(call) => call(editor),
+            Callback::EditorOutcome(call) => return Ok((None, call(editor))),
+            Callback::Followup(call) => {
+                return call(editor).map(|job| (job, CallbackOutcome::Redraw))
             }
         }
-        Ok(None)
+        Ok((None, CallbackOutcome::Redraw))
     }
 
     pub fn add(&self, j: Job) {
@@ -281,7 +297,7 @@ mod tests {
         sender.send_blocking(|_| {});
         assert!(matches!(
             first.callbacks.try_recv(),
-            Ok(Callback::Editor(_))
+            Ok(Callback::EditorOutcome(_))
         ));
         assert!(second.callbacks.try_recv().is_err());
 
@@ -292,7 +308,7 @@ mod tests {
         assert!(futures_util::poll!(&mut pending).is_pending());
         assert!(matches!(
             first.callbacks.recv().await,
-            Some(Callback::Editor(_))
+            Some(Callback::EditorOutcome(_))
         ));
         pending.await;
         assert!(second.callbacks.try_recv().is_err());
