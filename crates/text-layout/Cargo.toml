@@ -14,3 +14,7 @@ homepage.workspace = true
 core.workspace = true
 stdx.workspace = true
 unicode-segmentation.workspace = true
+
+[[bench]]
+name = "inline_colors"
+harness = false

@@ -20,3 +20,5 @@ pub use display_position::DisplayPosition;
 
 #[cfg(test)]
 mod folding_tests;
+#[cfg(test)]
+mod highlighted_inline_tests;
