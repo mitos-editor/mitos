@@ -270,11 +270,6 @@ impl History {
         self.current
     }
 
-    #[inline]
-    pub const fn at_root(&self) -> bool {
-        self.current == 0
-    }
-
     /// Returns the changes since the given revision composed into a transaction.
     /// Returns None if there are no changes between the current and given revisions.
     pub fn changes_since(&self, revision: usize) -> Option<Transaction> {
@@ -288,22 +283,6 @@ impl History {
         let down_txns = down.iter().map(|&n| self.revisions[n].transaction.clone());
 
         down_txns.chain(up_txns).reduce(|acc, tx| tx.compose(acc))
-    }
-
-    /// Undo text independently of any editor's cursor state.
-    pub fn undo(&mut self) -> Option<HistoryStep> {
-        if self.at_root() {
-            return None;
-        }
-        let revision = self.current;
-        self.current = self.revisions[revision].parent;
-        Some(self.step(revision, HistoryDirection::Undo))
-    }
-
-    pub fn redo(&mut self) -> Option<HistoryStep> {
-        let revision = self.revisions[self.current].last_child?.get();
-        self.current = revision;
-        Some(self.step(revision, HistoryDirection::Redo))
     }
 
     /// Text changes at the current revision, without editor selection metadata.
@@ -324,21 +303,16 @@ impl History {
     }
 
     fn lowest_common_ancestor(&self, mut a: usize, mut b: usize) -> usize {
-        use std::collections::HashSet;
-        let mut a_path_set = HashSet::new();
-        let mut b_path_set = HashSet::new();
-        loop {
-            a_path_set.insert(a);
-            b_path_set.insert(b);
-            if a_path_set.contains(&b) {
-                return b;
+        // Revisions are appended, so every parent has a smaller ID than its children.
+        // Advance the newer revision until both paths meet, without allocating paths.
+        while a != b {
+            if a > b {
+                a = self.revisions[a].parent;
+            } else {
+                b = self.revisions[b].parent;
             }
-            if b_path_set.contains(&a) {
-                return a;
-            }
-            a = self.revisions[a].parent; // Relies on the parent of 0 being 0.
-            b = self.revisions[b].parent; // Same as above.
         }
+        a
     }
 
     /// List of nodes on the way from `n` to 'a`. Doesn't include `a`.
@@ -350,13 +324,6 @@ impl History {
             n = self.revisions[n].parent;
         }
         path
-    }
-
-    /// Return the text steps needed to reach a revision, including across branches.
-    fn jump_to(&mut self, to: usize) -> Vec<HistoryStep> {
-        let steps = self.steps_to(to);
-        self.current = to;
-        steps
     }
 
     fn steps_to(&self, to: usize) -> Vec<HistoryStep> {
@@ -469,16 +436,6 @@ impl History {
         self.current = next;
         true
     }
-
-    /// Navigate earlier by revision count or duration.
-    pub fn earlier(&mut self, kind: UndoKind) -> Vec<HistoryStep> {
-        self.jump_to(self.target_for(HistoryAction::Earlier(kind)))
-    }
-
-    /// Navigate later by revision count or duration.
-    pub fn later(&mut self, kind: UndoKind) -> Vec<HistoryStep> {
-        self.jump_to(self.target_for(HistoryAction::Later(kind)))
-    }
 }
 
 /// Whether to undo by a number of edits or a duration of time.
@@ -567,6 +524,14 @@ impl std::str::FromStr for UndoKind {
 #[cfg(test)]
 mod test {
     use super::*;
+
+    fn replay(history: &mut History, state: &mut Rope, action: HistoryAction) {
+        for step in history.plan(action) {
+            assert!(history.advance(&step));
+            assert!(step.transaction.apply(state));
+        }
+    }
+
     #[test]
     fn large_inverse_payloads_share_storage_and_preserve_replay_and_branching() {
         use editor_core::ropey::extra::esoterica::ropes_are_instances;
@@ -596,25 +561,29 @@ mod test {
         assert!(history.advance(&undo));
         assert!(undo.transaction.apply(&mut state));
         assert_eq!(state, original);
-        let redo = history.redo().unwrap();
+        let redo = history.plan(HistoryAction::Redo).pop().unwrap();
+        assert!(history.advance(&redo));
         assert!(redo.transaction.apply(&mut state));
         assert_eq!(state, "replacement");
         let inverse = history.changes_since(0).unwrap().invert(&original);
         assert!(inverse.apply(&mut state));
         assert_eq!(state, original);
-        let undo = history.undo().unwrap();
+        let undo = history.plan(HistoryAction::Undo).pop().unwrap();
+        assert!(history.advance(&undo));
         let mut deleted_again = Rope::from("replacement");
         assert!(undo.transaction.apply(&mut deleted_again));
         assert_eq!(deleted_again, original);
         let branch = Transaction::change(&state, [(0, state.len_chars(), None)].into_iter());
         history.commit_revision(branch.changes(), &state);
         branch.apply(&mut state);
-        let rewind = history.earlier(UndoKind::Steps(1));
+        let rewind = history.plan(HistoryAction::Earlier(UndoKind::Steps(1)));
         for step in rewind {
+            assert!(history.advance(&step));
             assert!(step.transaction.apply(&mut state));
         }
         assert_eq!(state, "replacement");
-        let undo = history.undo().unwrap();
+        let undo = history.plan(HistoryAction::Undo).pop().unwrap();
+        assert!(history.advance(&undo));
         assert!(undo.transaction.apply(&mut state));
         assert_eq!(state, original);
     }
@@ -671,14 +640,10 @@ mod test {
 
         // ---
         fn undo(history: &mut History, state: &mut Rope) {
-            if let Some(step) = history.undo() {
-                step.transaction.apply(state);
-            }
+            replay(history, state, HistoryAction::Undo);
         }
         fn redo(history: &mut History, state: &mut Rope) {
-            if let Some(step) = history.redo() {
-                step.transaction.apply(state);
-            }
+            replay(history, state, HistoryAction::Redo);
         }
 
         undo(&mut history, &mut state);
@@ -701,23 +666,15 @@ mod test {
         let mut state = doc;
 
         fn undo(history: &mut History, state: &mut Rope) {
-            if let Some(step) = history.undo() {
-                step.transaction.apply(state);
-            }
+            replay(history, state, HistoryAction::Undo);
         }
 
         fn earlier(history: &mut History, state: &mut Rope, uk: UndoKind) {
-            let txns = history.earlier(uk);
-            for txn in txns {
-                txn.transaction.apply(state);
-            }
+            replay(history, state, HistoryAction::Earlier(uk));
         }
 
         fn later(history: &mut History, state: &mut Rope, uk: UndoKind) {
-            let txns = history.later(uk);
-            for txn in txns {
-                txn.transaction.apply(state);
-            }
+            replay(history, state, HistoryAction::Later(uk));
         }
 
         fn commit_change(

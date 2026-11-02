@@ -97,133 +97,48 @@ pub fn from_reader<R: std::io::Read + ?Sized>(
     reader: &mut R,
     encoding: Option<&'static Encoding>,
 ) -> Result<(Rope, &'static Encoding, bool), io::Error> {
-    // These two buffers are 8192 bytes in size each and are used as
-    // intermediaries during the decoding process. Text read into `buf`
-    // from `reader` is decoded into `buf_out` as UTF-8. Once either
-    // `buf_out` is full or the end of the reader was reached, the
-    // contents are appended to `builder`.
-    let mut buf = [0u8; BUF_SIZE];
-    let mut buf_out = [0u8; BUF_SIZE];
     let mut builder = RopeBuilder::new();
-
-    let (encoding, has_bom, mut decoder, read) =
-        read_and_detect_encoding(reader, encoding, &mut buf)?;
-
-    let mut slice = &buf[..read];
-    let mut is_empty = read == 0;
-
-    // `RopeBuilder::append()` expects a `&str`, so this is the "real"
-    // output buffer. When decoding, the number of bytes in the output
-    // buffer will often exceed the number of bytes in the input buffer.
-    // The `result` returned by `decode_to_str()` will state whether or
-    // not that happened. The contents of `buf_str` is appended to
-    // `builder` and it is reused for the next iteration of the decoding
-    // loop.
-    //
-    // As it is possible to read less than the buffer's maximum from `read()`
-    // even when the end of the reader has yet to be reached, the end of
-    // the reader is determined only when a `read()` call returns `0`.
-    //
-    // SAFETY: `buf_out` is a zero-initialized array, thus it will always
-    // contain valid UTF-8.
-    let buf_str = unsafe { std::str::from_utf8_unchecked_mut(&mut buf_out[..]) };
-    let mut total_written = 0usize;
-    loop {
-        let mut total_read = 0usize;
-
-        // An inner loop is necessary as it is possible that the input buffer
-        // may not be completely decoded on the first `decode_to_str()` call
-        // which would happen in cases where the output buffer is filled to
-        // capacity.
-        loop {
-            let (result, read, written, ..) = decoder.decode_to_str(
-                &slice[total_read..],
-                &mut buf_str[total_written..],
-                is_empty,
-            );
-
-            // These variables act as the read and write cursors of `buf` and `buf_str` respectively.
-            // They are necessary in case the output buffer fills before decoding of the entire input
-            // loop is complete. Otherwise, the loop would endlessly iterate over the same `buf` and
-            // the data inside the output buffer would be overwritten.
-            total_read += read;
-            total_written += written;
-            match result {
-                encoding::CoderResult::InputEmpty => {
-                    debug_assert_eq!(slice.len(), total_read);
-                    break;
-                }
-                encoding::CoderResult::OutputFull => {
-                    debug_assert!(slice.len() > total_read);
-                    builder.append(&buf_str[..total_written]);
-                    total_written = 0;
-                }
-            }
-        }
-        // Once the end of the stream is reached, the output buffer is
-        // flushed and the loop terminates.
-        if is_empty {
-            debug_assert_eq!(reader.read(&mut buf)?, 0);
-            builder.append(&buf_str[..total_written]);
-            break;
-        }
-
-        // Once the previous input has been processed and decoded, the next set of
-        // data is fetched from the reader. The end of the reader is determined to
-        // be when exactly `0` bytes were read from the reader, as per the invariants
-        // of the `Read` trait.
-        let read = reader.read(&mut buf)?;
-        slice = &buf[..read];
-        is_empty = read == 0;
-    }
-    let rope = builder.finish();
-    Ok((rope, encoding, has_bom))
+    let (encoding, has_bom) = decode(reader, encoding, |text| builder.append(text))?;
+    Ok((builder.finish(), encoding, has_bom))
 }
 
 pub fn read_to_string<R: std::io::Read + ?Sized>(
     reader: &mut R,
     encoding: Option<&'static Encoding>,
 ) -> Result<(String, &'static Encoding, bool), Error> {
-    let mut buf = [0u8; BUF_SIZE];
+    let mut text = String::new();
+    let (encoding, has_bom) = decode(reader, encoding, |chunk| text.push_str(chunk))?;
+    Ok((text, encoding, has_bom))
+}
 
+/// Decode bounded chunks once for both rope and string consumers.
+fn decode<R: io::Read + ?Sized>(
+    reader: &mut R,
+    encoding: Option<&'static Encoding>,
+    mut append: impl FnMut(&str),
+) -> io::Result<(&'static Encoding, bool)> {
+    let mut input = [0; BUF_SIZE];
     let (encoding, has_bom, mut decoder, read) =
-        read_and_detect_encoding(reader, encoding, &mut buf)?;
-
-    let mut slice = &buf[..read];
-    let mut is_empty = read == 0;
-    let mut buf_string = String::with_capacity(buf.len());
-
+        read_and_detect_encoding(reader, encoding, &mut input)?;
+    let mut remaining = &input[..read];
+    let mut eof = read == 0;
+    let mut output = String::with_capacity(BUF_SIZE);
     loop {
-        let mut total_read = 0usize;
-
-        loop {
-            let (result, read, ..) =
-                decoder.decode_to_string(&slice[total_read..], &mut buf_string, is_empty);
-
-            total_read += read;
-
-            match result {
-                encoding::CoderResult::InputEmpty => {
-                    debug_assert_eq!(slice.len(), total_read);
-                    break;
-                }
-                encoding::CoderResult::OutputFull => {
-                    debug_assert!(slice.len() > total_read);
-                    buf_string.reserve(buf.len())
-                }
+        let (result, read, _) = decoder.decode_to_string(remaining, &mut output, eof);
+        append(&output);
+        output.clear();
+        remaining = &remaining[read..];
+        if result == encoding::CoderResult::InputEmpty {
+            debug_assert!(remaining.is_empty());
+            if eof {
+                break;
             }
+            let read = reader.read(&mut input)?;
+            remaining = &input[..read];
+            eof = read == 0;
         }
-
-        if is_empty {
-            debug_assert_eq!(reader.read(&mut buf)?, 0);
-            break;
-        }
-
-        let read = reader.read(&mut buf)?;
-        slice = &buf[..read];
-        is_empty = read == 0;
     }
-    Ok((buf_string, encoding, has_bom))
+    Ok((encoding, has_bom))
 }
 
 /// Reads the first chunk from a Reader into the given buffer
@@ -452,13 +367,19 @@ mod tests {
                 assert!(path.exists());
                 assert!(ref_path.exists());
 
-                let mut file = std::fs::File::open(path).unwrap();
+                let mut file = std::fs::File::open(&path).unwrap();
                 let text = from_reader(&mut file, Some(encoding.into()))
                     .unwrap()
                     .0
                     .to_string();
                 let expectation = std::fs::read_to_string(ref_path).unwrap();
                 assert_eq!(text[..], expectation[..]);
+                let (string, detected, has_bom) =
+                    read_to_string(&mut std::fs::File::open(path).unwrap(), Some(encoding))
+                        .unwrap();
+                assert_eq!(string, expectation);
+                assert_eq!(detected, encoding);
+                assert!(!has_bom);
             }
         };
         ($name:ident, $label:expr) => {

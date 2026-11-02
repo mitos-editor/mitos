@@ -664,71 +664,40 @@ impl<K: Key, P: Pane<K>> Tree<K, P> {
         // If the child is a container the search finds the closest container child
         // visually based on screen location.
         while let Content::Container(container) = &self.nodes[child_id].content {
-            match (direction, container.layout) {
-                (_, Layout::Vertical) => {
-                    // find closest split based on x because y is irrelevant
-                    // in a vertical container (and already correct based on previous search)
-                    child_id = *container.children.iter().min_by_key(|id| {
-                        let x = match &self.nodes[**id].content {
-                            Content::Pane(pane) => pane.area().left(),
-                            Content::Container(container) => container.area.left(),
-                        };
-                        current_x.abs_diff(x)
-                    })?;
-                }
-                (_, Layout::Horizontal) => {
-                    // find closest split based on y because x is irrelevant
-                    // in a horizontal container (and already correct based on previous search)
-                    child_id = *container.children.iter().min_by_key(|id| {
-                        let y = match &self.nodes[**id].content {
-                            Content::Pane(pane) => pane.area().top(),
-                            Content::Container(container) => container.area.top(),
-                        };
-                        current_y.abs_diff(y)
-                    })?;
-                }
-            }
+            let coordinate = |area: Rect| match container.layout {
+                Layout::Vertical => area.left(),
+                Layout::Horizontal => area.top(),
+            };
+            let current = match container.layout {
+                Layout::Vertical => current_x,
+                Layout::Horizontal => current_y,
+            };
+            child_id = *container.children.iter().min_by_key(|&&id| {
+                let area = match &self.nodes[id].content {
+                    Content::Pane(pane) => pane.area(),
+                    Content::Container(container) => container.area,
+                };
+                current.abs_diff(coordinate(area))
+            })?;
         }
         Some(child_id)
     }
 
     pub fn prev(&self) -> K {
-        // This function is very dumb, but that's because we don't store any parent links.
-        // (we'd be able to go parent.prev_sibling() recursively until we find something)
-        // For now that's okay though, since it's unlikely you'll be able to open a large enough
-        // number of splits to notice.
-
-        let mut panes = self
-            .traverse()
-            .rev()
-            .skip_while(|&(id, _pane)| id != self.focus)
-            .skip(1); // Skip focused value
-        if let Some((id, _)) = panes.next() {
-            id
-        } else {
-            // extremely crude, take the last item
-            let (key, _) = self.traverse().next_back().unwrap();
-            key
-        }
+        self.cycle_focus(self.traverse().rev())
     }
 
     pub fn next(&self) -> K {
-        // This function is very dumb, but that's because we don't store any parent links.
-        // (we'd be able to go parent.next_sibling() recursively until we find something)
-        // For now that's okay though, since it's unlikely you'll be able to open a large enough
-        // number of splits to notice.
+        self.cycle_focus(self.traverse())
+    }
 
-        let mut panes = self
-            .traverse()
-            .skip_while(|&(id, _pane)| id != self.focus)
-            .skip(1); // Skip focused value
-        if let Some((id, _)) = panes.next() {
-            id
-        } else {
-            // extremely crude, take the first item again
-            let (key, _) = self.traverse().next().unwrap();
-            key
+    fn cycle_focus<'a>(&'a self, mut panes: impl Iterator<Item = (K, &'a P)>) -> K {
+        let first = panes.next().unwrap().0;
+        if first == self.focus {
+            return panes.next().map_or(first, |(id, _)| id);
         }
+        panes.find(|(id, _)| *id == self.focus);
+        panes.next().map_or(first, |(id, _)| id)
     }
 
     pub fn transpose(&mut self) {

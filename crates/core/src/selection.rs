@@ -434,18 +434,6 @@ impl Selection {
         &mut self.ranges[self.primary_index]
     }
 
-    /// Ensure selection containing only the primary selection.
-    pub fn into_single(self) -> Self {
-        if self.ranges.len() == 1 {
-            self
-        } else {
-            Self {
-                ranges: smallvec![self.ranges[self.primary_index]],
-                primary_index: 0,
-            }
-        }
-    }
-
     /// Adds a new range to the selection and makes it the primary range.
     pub fn push(mut self, range: Range) -> Self {
         self.ranges.push(range);
