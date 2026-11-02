@@ -124,7 +124,7 @@ impl menu::Item for CompletionItem {
         );
 
         if data.icons && kind_name != "color" {
-            let icons = ICONS.load();
+            let icons = &*ICONS;
             if let Some(icon) = icons.kind().get(kind_name) {
                 return menu::Row::new([
                     menu::Cell::from(icon_span(icon.with_padding(0, 1))),

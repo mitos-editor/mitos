@@ -61,12 +61,13 @@ impl PathStyleConfig {
         if !self.icons {
             return None;
         }
-        ICONS.load().fs().file().map(|file| {
-            icon_span(
-                file.get_with_style_or_default(path, self.theme.as_ref())
-                    .with_no_left_padding(),
-            )
-        })
+        Some(icon_span(
+            ICONS
+                .fs()
+                .file()
+                .get_with_style_or_default(path, self.theme.as_ref())
+                .with_no_left_padding(),
+        ))
     }
 }
 

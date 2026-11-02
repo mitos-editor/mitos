@@ -274,15 +274,12 @@ pub fn file_picker(editor: &Editor, root: PathBuf) -> FilePicker {
             Line::from(spans).into()
         })
         .with_prefix(|item, data| {
-            data.icons
-                .then(|| ICONS.load().fs().file())
-                .flatten()
-                .map(|file| {
-                    icon_span(
-                        file.get_with_style_or_default(item, &data.theme)
-                            .with_no_left_padding(),
-                    )
-                })
+            data.icons.then(|| ICONS.fs().file()).map(|file| {
+                icon_span(
+                    file.get_with_style_or_default(item, &data.theme)
+                        .with_no_left_padding(),
+                )
+            })
         }),
     ];
     let picker = Picker::new(
@@ -362,31 +359,20 @@ pub fn file_explorer(root: PathBuf, editor: &Editor) -> Result<FileExplorer, std
         if !show_icons {
             return None;
         }
-        let icons = ICONS.load();
-        if *is_dir {
+        let icon = if *is_dir {
             let name = path.file_name();
             let is_open = name.is_none();
             let name = name.map_or_else(|| Cow::Borrowed(".."), |name| name.to_string_lossy());
-            icons.fs().directory().map(|directory| {
-                icon_span(
-                    directory
-                        .get_with_style_or_default(
-                            &name,
-                            is_open,
-                            theme,
-                            theme.get("ui.text.directory"),
-                        )
-                        .with_no_left_padding(),
-                )
-            })
+            ICONS.fs().directory().get_with_style_or_default(
+                &name,
+                is_open,
+                theme,
+                theme.get("ui.text.directory"),
+            )
         } else {
-            icons.fs().file().map(|file| {
-                icon_span(
-                    file.get_with_style_or_default(path, theme)
-                        .with_no_left_padding(),
-                )
-            })
-        }
+            ICONS.fs().file().get_with_style_or_default(path, theme)
+        };
+        Some(icon_span(icon.with_no_left_padding()))
     })];
     let picker = Picker::new_with_callback_result(
         editor.redraw().clone(),

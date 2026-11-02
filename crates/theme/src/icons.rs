@@ -29,12 +29,6 @@ pub struct Icons {
 impl Icons {
     #[inline]
     #[must_use]
-    pub const fn load(&self) -> &Self {
-        self
-    }
-
-    #[inline]
-    #[must_use]
     pub const fn fs(&self) -> &Fs {
         &self.fs
     }
@@ -105,19 +99,13 @@ macro_rules! icon {
             padding: None,
         }
     };
-    ( $glyph:expr ) => {
-        Icon {
-            glyph: Some(StackString::from($glyph).unwrap()),
-            style: None,
-            padding: None,
-        }
-    };
+    ( $glyph:expr ) => { icon!(glyph: $glyph) };
 }
 
 macro_rules! icons {
     ( $( $key:literal => { $($body:tt)* } ),* $(,)? ) => {{
-        HashMap::from_iter(
-            vec![
+        HashMap::from(
+            [
                 $(
                     (SmartString::from($key), icon!( $($body)* )),
                 )*
@@ -126,7 +114,7 @@ macro_rules! icons {
     }};
 }
 
-#[derive(Debug, Default, Eq, Clone, Copy)]
+#[derive(Debug, Default, PartialEq, Eq, Clone, Copy)]
 pub struct Icon {
     glyph: Option<StackString>,
     style: Option<Style>,
@@ -142,11 +130,6 @@ impl Icon {
         let mut glyph = StackString::new();
         write!(&mut glyph, "{self}").unwrap();
         glyph
-    }
-
-    #[inline]
-    pub fn set_glyph(&mut self, glyph: &'static str) {
-        self.glyph = Some(StackString::from(glyph).unwrap());
     }
 
     #[inline]
@@ -236,18 +219,6 @@ struct Padding {
 impl PartialEq<str> for Icon {
     fn eq(&self, other: &str) -> bool {
         self.glyph().as_str() == other
-    }
-}
-
-impl PartialEq for Icon {
-    fn eq(&self, other: &Self) -> bool {
-        let Self {
-            glyph,
-            style,
-            padding,
-        } = self;
-
-        *padding == other.padding && *style == other.style && *glyph == other.glyph
     }
 }
 
@@ -429,14 +400,14 @@ pub struct Fs {
 impl Fs {
     #[inline]
     #[must_use]
-    pub const fn directory(&self) -> Option<&Directory> {
-        Some(&self.directory)
+    pub const fn directory(&self) -> &Directory {
+        &self.directory
     }
 
     #[inline]
     #[must_use]
-    pub const fn file(&self) -> Option<&File> {
-        Some(&self.file)
+    pub const fn file(&self) -> &File {
+        &self.file
     }
 }
 
@@ -1008,23 +979,7 @@ impl File {
     #[inline]
     #[must_use]
     pub fn get_with_style_or_default<P: AsRef<Path>>(&self, path: P, theme: &Theme) -> Icon {
-        let path = path.as_ref();
-
-        let name = path.file_name().map(|name| name.display());
-        let ext = path.extension().map(|ext| ext.display());
-
-        let mut icon = self.get_or_default(path);
-
-        // Order matters: exact filenames take precedence over extensions.
-        let style = [name.as_ref(), ext.as_ref()]
-            .into_iter()
-            .flatten()
-            .find_map(|scope| self.get_style_from_theme(theme, scope))
-            .map_or_else(|| icon.style(), |style| icon.style().patch(style));
-
-        icon.set_style(style);
-
-        icon
+        self.styled(path.as_ref(), theme, Style::default(), false)
     }
 
     #[inline]
@@ -1035,25 +990,24 @@ impl File {
         theme: &Theme,
         base: Style,
     ) -> Icon {
-        let path = path.as_ref();
+        self.styled(path.as_ref(), theme, base, true)
+    }
 
-        let name = path.file_name().map(|name| name.display());
-        let ext = path.extension().map(|ext| ext.display());
-
+    fn styled(&self, path: &Path, theme: &Theme, base: Style, active: bool) -> Icon {
         let mut icon = self.get_or_default(path);
-
-        // Order matters: exact filenames take precedence over extensions.
-        let style = [name, ext]
+        // Exact filenames take precedence over extensions, including active fallback.
+        let style = [path.file_name(), path.extension()]
             .into_iter()
             .flatten()
-            .find_map(|scope| self.get_active_style_from_theme(theme, scope))
-            .map_or_else(
-                || base.patch(icon.style()),
-                |style| base.patch(icon.style()).patch(style),
-            );
-
-        icon.set_style(style);
-
+            .find_map(|scope| {
+                if active {
+                    self.get_active_style_from_theme(theme, scope.display())
+                } else {
+                    self.get_style_from_theme(theme, scope.display())
+                }
+            });
+        let base = base.patch(icon.style());
+        icon.set_style(style.map_or(base, |style| base.patch(style)));
         icon
     }
 
@@ -1390,6 +1344,46 @@ mod test {
     use super::*;
 
     #[test]
+    fn file_styles_keep_filename_precedence_active_fallback_and_base_patching() {
+        let file = File::default();
+        let theme = Theme::from(toml::Value::Table(toml::toml! {
+            "icons.file" = "magenta"
+            "icons.file.rs" = "green"
+            "icons.file.rs.active" = "yellow"
+            "icons.file.main.rs" = "red"
+        }));
+        assert_eq!(
+            file.get_with_style_or_default("main.rs", &theme).style().fg,
+            Some(Color::Red)
+        );
+        assert_eq!(
+            file.get_with_style_or_default("other.rs", &theme)
+                .style()
+                .fg,
+            Some(Color::Green)
+        );
+        let base = Style::default().bg(Color::Blue);
+        let active = file
+            .get_with_active_style_or_default("main.rs", &theme, base)
+            .style();
+        assert_eq!(
+            (active.fg, active.bg),
+            (Some(Color::Red), Some(Color::Blue))
+        );
+        assert_eq!(
+            file.get_with_active_style_or_default("other.rs", &theme, base)
+                .style()
+                .fg,
+            Some(Color::Yellow)
+        );
+        assert_eq!(
+            file.get_with_style_or_default("unknown.extension", &theme)
+                .style(),
+            file.get_or_default("unknown.extension").style()
+        );
+    }
+
+    #[test]
     fn kind_should_always_contain_color_icon() {
         let icons = Icons::default();
         let icon = icons.kind().color();
@@ -1399,7 +1393,7 @@ mod test {
     #[test]
     fn bundled_icons_cover_files_and_symbol_kinds() {
         let icons = Icons::default();
-        assert!(icons.fs().file().unwrap().get("main.rs").is_some());
+        assert!(icons.fs().file().get("main.rs").is_some());
         assert!(icons.kind().get("function").is_some());
     }
 

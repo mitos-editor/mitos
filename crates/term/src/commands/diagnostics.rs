@@ -423,7 +423,7 @@ fn diag_picker(
             if !styles.icons {
                 return None;
             }
-            let icons = ICONS.load();
+            let icons = &*ICONS;
             let (icon, style) = match item.severity {
                 Some(Severity::Hint) => (icons.diagnostic().hint(), styles.hint),
                 Some(Severity::Info) => (icons.diagnostic().info(), styles.info),

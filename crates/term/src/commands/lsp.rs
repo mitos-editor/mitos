@@ -283,7 +283,6 @@ fn symbol_kind_icon(
         return None;
     }
     ICONS
-        .load()
         .kind()
         .get(item.symbol.kind.as_str())
         .map(|icon| ui::icon_span(icon.with_no_left_padding()))

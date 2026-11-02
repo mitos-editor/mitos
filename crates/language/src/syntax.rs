@@ -126,17 +126,7 @@ impl LanguageData {
     }
 
     fn indent_query(&self, loader: &Loader) -> Option<&IndentQuery> {
-        self.indent_query
-            .get_or_init(|| {
-                let grammar = self.syntax_config(loader)?.grammar;
-                self.load_indent_query(grammar, loader)
-                    .map_err(|err| {
-                        log::error!("{err}");
-                    })
-                    .ok()
-                    .flatten()
-            })
-            .as_ref()
+        self.query(loader, &self.indent_query, Self::load_indent_query)
     }
 
     fn load_textobject_query(
@@ -153,17 +143,7 @@ impl LanguageData {
     }
 
     fn textobject_query(&self, loader: &Loader) -> Option<&TextObjectQuery> {
-        self.textobject_query
-            .get_or_init(|| {
-                let grammar = self.syntax_config(loader)?.grammar;
-                self.load_textobject_query(grammar, loader)
-                    .map_err(|err| {
-                        log::error!("{err}");
-                    })
-                    .ok()
-                    .flatten()
-            })
-            .as_ref()
+        self.query(loader, &self.textobject_query, Self::load_textobject_query)
     }
 
     fn load_tag_query(&self, grammar: Grammar, loader: &Loader) -> Result<Option<TagQuery>> {
@@ -172,17 +152,7 @@ impl LanguageData {
     }
 
     fn tag_query(&self, loader: &Loader) -> Option<&TagQuery> {
-        self.tag_query
-            .get_or_init(|| {
-                let grammar = self.syntax_config(loader)?.grammar;
-                self.load_tag_query(grammar, loader)
-                    .map_err(|err| {
-                        log::error!("{err}");
-                    })
-                    .ok()
-                    .flatten()
-            })
-            .as_ref()
+        self.query(loader, &self.tag_query, Self::load_tag_query)
     }
 
     fn load_rainbow_query(
@@ -195,17 +165,7 @@ impl LanguageData {
     }
 
     fn rainbow_query(&self, loader: &Loader) -> Option<&RainbowQuery> {
-        self.rainbow_query
-            .get_or_init(|| {
-                let grammar = self.syntax_config(loader)?.grammar;
-                self.load_rainbow_query(grammar, loader)
-                    .map_err(|err| {
-                        log::error!("{err}");
-                    })
-                    .ok()
-                    .flatten()
-            })
-            .as_ref()
+        self.query(loader, &self.rainbow_query, Self::load_rainbow_query)
     }
 
     fn load_spellcheck_query(
@@ -222,17 +182,7 @@ impl LanguageData {
     }
 
     fn spellcheck_query(&self, loader: &Loader) -> Option<&SpellcheckQuery> {
-        self.spellcheck_query
-            .get_or_init(|| {
-                let grammar = self.syntax_config(loader)?.grammar;
-                self.load_spellcheck_query(grammar, loader)
-                    .map_err(|err| {
-                        log::error!("{err}");
-                    })
-                    .ok()
-                    .flatten()
-            })
-            .as_ref()
+        self.query(loader, &self.spellcheck_query, Self::load_spellcheck_query)
     }
 
     fn load_fold_query(&self, grammar: Grammar, loader: &Loader) -> Result<Option<FoldQuery>> {
@@ -241,11 +191,20 @@ impl LanguageData {
     }
 
     fn fold_query(&self, loader: &Loader) -> Option<&FoldQuery> {
-        self.fold_query
+        self.query(loader, &self.fold_query, Self::load_fold_query)
+    }
+
+    fn query<'a, T>(
+        &self,
+        loader: &Loader,
+        cache: &'a OnceLock<Option<T>>,
+        load: fn(&Self, Grammar, &Loader) -> Result<Option<T>>,
+    ) -> Option<&'a T> {
+        cache
             .get_or_init(|| {
                 let grammar = self.syntax_config(loader)?.grammar;
-                self.load_fold_query(grammar, loader)
-                    .map_err(|err| log::error!("{err:#}"))
+                load(self, grammar, loader)
+                    .inspect_err(|error| log::error!("{error:#}"))
                     .ok()
                     .flatten()
             })

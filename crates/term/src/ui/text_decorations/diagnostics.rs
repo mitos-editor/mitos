@@ -111,7 +111,7 @@ impl Renderer<'_, '_> {
         let mut draw_col = (col + 1) as u16;
 
         if self.icons {
-            let icons = ICONS.load();
+            let icons = &*ICONS;
             let icon = match diag.severity() {
                 Severity::Hint => icons.diagnostic().hint(),
                 Severity::Info => icons.diagnostic().info(),

@@ -81,10 +81,10 @@ impl<'a> Parser<'a> for &'static str {
     type Output = &'a str;
 
     fn parse(&self, input: &'a str) -> ParseResult<'a, Self::Output> {
-        match input.get(0..self.len()) {
-            Some(actual) if actual == *self => Ok((&input[self.len()..], &input[0..self.len()])),
-            _ => Err(input),
-        }
+        input
+            .strip_prefix(*self)
+            .map(|rest| (rest, &input[..self.len()]))
+            .ok_or(input)
     }
 }
 
@@ -465,17 +465,7 @@ pub fn zero_or_more<'a, P, T>(parser: P) -> impl Parser<'a, Output = Vec<T>>
 where
     P: Parser<'a, Output = T>,
 {
-    let parser = non_empty(parser);
-    move |mut input| {
-        let mut values = Vec::new();
-
-        while let Ok((next_input, value)) = parser.parse(input) {
-            input = next_input;
-            values.push(value);
-        }
-
-        Ok((input, values))
-    }
+    repeat(parser, false)
 }
 
 /// A parser combinator which matches the given parser against the input one or
@@ -498,25 +488,7 @@ pub fn one_or_more<'a, P, T>(parser: P) -> impl Parser<'a, Output = Vec<T>>
 where
     P: Parser<'a, Output = T>,
 {
-    let parser = non_empty(parser);
-    move |mut input| {
-        let mut values = Vec::new();
-
-        match parser.parse(input) {
-            Ok((next_input, value)) => {
-                input = next_input;
-                values.push(value);
-            }
-            Err(err) => return Err(err),
-        }
-
-        while let Ok((next_input, value)) = parser.parse(input) {
-            input = next_input;
-            values.push(value);
-        }
-
-        Ok((input, values))
-    }
+    repeat(parser, true)
 }
 
 /// A parser combinator which matches one or more instances of the given parser
@@ -576,5 +548,42 @@ pub fn non_empty<'a, T>(p: impl Parser<'a, Output = T>) -> impl Parser<'a, Outpu
         } else {
             Ok((new_input, res))
         }
+    }
+}
+
+fn repeat<'a, P: Parser<'a>>(
+    parser: P,
+    require_one: bool,
+) -> impl Parser<'a, Output = Vec<P::Output>> {
+    let parser = non_empty(parser);
+    move |mut input| {
+        let mut values = Vec::new();
+        loop {
+            match parser.parse(input) {
+                Ok((rest, value)) => {
+                    input = rest;
+                    values.push(value);
+                }
+                Err(error) if require_one && values.is_empty() => return Err(error),
+                Err(_) => return Ok((input, values)),
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn repetitions_stop_on_zero_width_success_and_preserve_first_errors() {
+        assert_eq!(
+            zero_or_more(optional("a")).parse("aab"),
+            Ok(("b", vec![Some("a"), Some("a")]))
+        );
+        assert_eq!(one_or_more(optional("a")).parse("b"), Err("b"));
+        let failure = |input: &'static str| -> ParseResult<'static, ()> { Err(&input[1..]) };
+        assert_eq!(one_or_more(failure).parse("ab"), Err("b"));
+        assert_eq!(zero_or_more(failure).parse("ab"), Ok(("ab", vec![])));
     }
 }

@@ -62,7 +62,7 @@ fn diagnostic<'doc>(
                 });
             diagnostics_on_line.max_by_key(|d| d.severity).map(|d| {
                 let icon = if editor.config().icons {
-                    let icons = ICONS.load();
+                    let icons = &*ICONS;
                     Some(match d.severity {
                         Some(Severity::Error) => icons.diagnostic().error(),
                         Some(Severity::Warning) | None => icons.diagnostic().warning(),
@@ -77,7 +77,7 @@ fn diagnostic<'doc>(
                     "{}",
                     icon.map_or_else(
                         || {
-                            let icons = ICONS.load();
+                            let icons = &*ICONS;
                             match d.severity {
                                 Some(Severity::Error) => icons.diagnostic().error(),
                                 Some(Severity::Info) => icons.diagnostic().info(),

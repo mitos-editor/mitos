@@ -613,15 +613,15 @@ impl PaneRenderer {
                 let modified = if doc.is_modified() { "[+]" } else { "" };
 
                 if show_file_icon && let Some(path) = source_path {
-                    let icons = ICONS.load();
-                    if let Some(file) = icons.fs().file() {
-                        let icon =
-                            file.get_with_active_style_or_default(path, &editor.theme, style);
-                        return Line::from(vec![
-                            super::super::icon_span(icon),
-                            Span::styled(format!("{fname}{modified} "), style),
-                        ]);
-                    }
+                    let icon = ICONS.fs().file().get_with_active_style_or_default(
+                        path,
+                        &editor.theme,
+                        style,
+                    );
+                    return Line::from(vec![
+                        super::super::icon_span(icon),
+                        Span::styled(format!("{fname}{modified} "), style),
+                    ]);
                 }
 
                 Line::styled(format!(" {fname}{modified} "), style)

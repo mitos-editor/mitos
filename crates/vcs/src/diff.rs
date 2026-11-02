@@ -150,6 +150,14 @@ pub struct Diff<'a> {
     pending_updates: &'a AtomicUsize,
 }
 
+fn hunk_range(hunk: &Hunk, inverted: bool) -> &std::ops::Range<u32> {
+    if inverted {
+        &hunk.before
+    } else {
+        &hunk.after
+    }
+}
+
 impl Diff<'_> {
     /// Whether all queued updates have been published with this snapshot.
     pub fn is_current(&self) -> bool {
@@ -172,10 +180,6 @@ impl Diff<'_> {
         } else {
             &self.diff.doc
         }
-    }
-
-    pub fn is_inverted(&self) -> bool {
-        self.inverted
     }
 
     /// Returns the `Hunk` for the `n`th change in this file.
@@ -223,16 +227,10 @@ impl Diff<'_> {
 
     /// Gives the index of the first hunk after the given line, if one exists.
     pub fn next_hunk(&self, line: u32) -> Option<u32> {
-        let hunk_range = if self.inverted {
-            |hunk: &Hunk| hunk.before.clone()
-        } else {
-            |hunk: &Hunk| hunk.after.clone()
-        };
-
         let res = self
             .diff
             .hunks
-            .binary_search_by_key(&line, |hunk| hunk_range(hunk).start);
+            .binary_search_by_key(&line, |hunk| hunk_range(hunk, self.inverted).start);
 
         match res {
             // Search found a hunk that starts exactly at this line, return the next hunk if it exists.
@@ -250,15 +248,10 @@ impl Diff<'_> {
 
     /// Gives the index of the first hunk before the given line, if one exists.
     pub fn prev_hunk(&self, line: u32) -> Option<u32> {
-        let hunk_range = if self.inverted {
-            |hunk: &Hunk| hunk.before.clone()
-        } else {
-            |hunk: &Hunk| hunk.after.clone()
-        };
         let res = self
             .diff
             .hunks
-            .binary_search_by_key(&line, |hunk| hunk_range(hunk).end);
+            .binary_search_by_key(&line, |hunk| hunk_range(hunk, self.inverted).end);
 
         match res {
             // Search found a hunk that ends exactly at this line (so it does not include the current line).
@@ -266,7 +259,9 @@ impl Diff<'_> {
             // which represents a pure removal.
             // Removals are technically empty but are still shown as single line hunks
             // and as such we must jump to the previous hunk (if it exists) if we are already inside the removal
-            Ok(pos) if !hunk_range(&self.diff.hunks[pos]).is_empty() => Some(pos as u32),
+            Ok(pos) if !hunk_range(&self.diff.hunks[pos], self.inverted).is_empty() => {
+                Some(pos as u32)
+            }
 
             // No hunk ends exactly at this line, so the search returns
             // the position where a hunk ending at this line should be inserted.
@@ -294,16 +289,10 @@ impl Diff<'_> {
 
     /// Returns the index of the hunk containing the given line if it exists.
     pub fn hunk_at(&self, line: u32, include_removal: bool) -> Option<u32> {
-        let hunk_range = if self.inverted {
-            |hunk: &Hunk| hunk.before.clone()
-        } else {
-            |hunk: &Hunk| hunk.after.clone()
-        };
-
         let res = self
             .diff
             .hunks
-            .binary_search_by_key(&line, |hunk| hunk_range(hunk).start);
+            .binary_search_by_key(&line, |hunk| hunk_range(hunk, self.inverted).start);
 
         match res {
             // Search found a hunk that starts exactly at this line, return it
@@ -314,7 +303,7 @@ impl Diff<'_> {
             // The previous hunk contains this hunk if it exists and doesn't end before this line
             Err(0) => None,
             Err(pos) => {
-                let hunk = hunk_range(&self.diff.hunks[pos - 1]);
+                let hunk = hunk_range(&self.diff.hunks[pos - 1], self.inverted);
                 if hunk.end > line || include_removal && hunk.start == line && hunk.is_empty() {
                     Some(pos as u32 - 1)
                 } else {
@@ -336,22 +325,17 @@ impl<'a, I: Iterator<Item = (usize, usize)>> Iterator for HunksInLineRangesIter<
     type Item = &'a Hunk;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let hunk_range = if self.inverted {
-            |hunk: &Hunk| hunk.before.clone()
-        } else {
-            |hunk: &Hunk| hunk.after.clone()
-        };
-
         loop {
             let (start_line, end_line) = self.line_ranges.peek()?;
             let hunk = self.hunks.get(self.cursor)?;
 
-            if (hunk_range(hunk).end as usize) < *start_line {
+            if (hunk_range(hunk, self.inverted).end as usize) < *start_line {
                 // If the hunk under the cursor comes before this range, jump the cursor
                 // ahead to the next hunk that overlaps with the line range.
-                self.cursor += self.hunks[self.cursor..]
-                    .partition_point(|hunk| (hunk_range(hunk).end as usize) < *start_line);
-            } else if (hunk_range(hunk).start as usize) <= *end_line {
+                self.cursor += self.hunks[self.cursor..].partition_point(|hunk| {
+                    (hunk_range(hunk, self.inverted).end as usize) < *start_line
+                });
+            } else if (hunk_range(hunk, self.inverted).start as usize) <= *end_line {
                 // If the hunk under the cursor overlaps with this line range, emit it
                 // and move the cursor up so that the hunk cannot be emitted twice.
                 self.cursor += 1;

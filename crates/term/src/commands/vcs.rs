@@ -290,7 +290,7 @@ fn changed_file_picker_for_scope(cx: &mut Context, scope: vcs::ChangedFileScope)
 
     fn change_prefix(change: Option<&FileChange>, data: &FileChangeData) -> Option<Span<'static>> {
         let change = change?;
-        let icons = ICONS.load();
+        let icons = &*ICONS;
         let (plain, icon, style) = match change {
             FileChange::Untracked { .. } | FileChange::Added { .. } => {
                 ("+ ", icons.vcs().added(), data.style_untracked)

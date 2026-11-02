@@ -100,7 +100,7 @@ impl Loader {
     /// Loads a theme searching directories in priority order, returning any warnings
     pub fn load_with_warnings(&self, name: &str) -> Result<(Theme, Vec<String>)> {
         if name == "default" {
-            return Ok((self.default(), Vec::new()));
+            return Ok((self.default_theme(), Vec::new()));
         }
         if name == "base16_default" {
             return Ok((self.base16_default(), Vec::new()));
@@ -116,11 +116,6 @@ impl Loader {
     }
 
     pub fn default_theme(&self) -> Theme {
-        self.default()
-    }
-
-    /// Returns the default theme
-    pub fn default(&self) -> Theme {
         DEFAULT_THEME.clone()
     }
 
@@ -308,8 +303,7 @@ impl Theme {
     /// scopes. For example if `ui.text.focus` is not defined in the theme,
     /// `ui.text` is tried and then `ui` is tried.
     pub fn try_get(&self, scope: &str) -> Option<Style> {
-        std::iter::successors(Some(scope), |s| Some(s.rsplit_once('.')?.0))
-            .find_map(|s| self.styles.get(s).copied())
+        scope_prefixes(scope).find_map(|s| self.styles.get(s).copied())
     }
 
     /// Get the style of a scope, without falling back to dot separated broader
@@ -328,14 +322,8 @@ impl Theme {
         self.scope_index.get(scope).copied()
     }
 
-    pub fn find_highlight(&self, mut scope: &str) -> Option<Highlight> {
-        loop {
-            if let Some(highlight) = self.find_highlight_exact(scope) {
-                return Some(highlight);
-            }
-            let new_end = scope.rfind('.')?;
-            scope = &scope[..new_end];
-        }
+    pub fn find_highlight(&self, scope: &str) -> Option<Highlight> {
+        scope_prefixes(scope).find_map(|scope| self.find_highlight_exact(scope))
     }
 
     pub fn is_16_color(&self) -> bool {
@@ -379,6 +367,10 @@ impl Theme {
         };
         (theme, load_errors)
     }
+}
+
+fn scope_prefixes(scope: &str) -> impl Iterator<Item = &str> {
+    std::iter::successors(Some(scope), |scope| Some(scope.rsplit_once('.')?.0))
 }
 
 struct ThemePalette {
@@ -448,8 +440,7 @@ impl ThemePalette {
         self.palette
             .get(value)
             .copied()
-            .ok_or("")
-            .or_else(|_| Self::string_to_rgb(value))
+            .map_or_else(|| Self::string_to_rgb(value), Ok)
     }
 
     pub fn parse_modifier(value: &Value) -> Result<Modifier, String> {
@@ -514,18 +505,17 @@ impl ThemePalette {
     }
 
     fn parse_style_array(&self, value: Value) -> Result<Vec<Style>, String> {
-        let mut styles = Vec::new();
-
-        for v in value
-            .as_array()
-            .ok_or_else(|| format!("Could not parse value as an array: '{value}'"))?
-        {
-            let mut style = Style::default();
-            self.parse_style(&mut style, v.clone())?;
-            styles.push(style);
-        }
-
-        Ok(styles)
+        let Value::Array(values) = value else {
+            return Err(format!("Could not parse value as an array: '{value}'"));
+        };
+        values
+            .into_iter()
+            .map(|value| {
+                let mut style = Style::default();
+                self.parse_style(&mut style, value)?;
+                Ok(style)
+            })
+            .collect()
     }
 }
 
@@ -616,7 +606,7 @@ mod tests {
     fn builtin_themes_keep_names_styles_and_warning_behavior() {
         let loader = Loader::new(Resources::new(vec![]));
         for (name, expected) in [
-            ("default", loader.default()),
+            ("default", loader.default_theme()),
             ("base16_default", loader.base16_default()),
         ] {
             let (theme, warnings) = loader.load_with_warnings(name).unwrap();

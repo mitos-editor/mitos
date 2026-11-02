@@ -237,17 +237,12 @@ where
                     .editor
                     .config()
                     .icons
-                    .then(|| ICONS.load().diagnostic().hint().to_string());
+                    .then(|| ICONS.diagnostic().hint().to_string());
                 write(
                     context,
                     Span::styled(
                         glyph.unwrap_or_else(|| {
-                            ICONS
-                                .load()
-                                .diagnostic()
-                                .hint()
-                                .with_no_padding()
-                                .to_string()
+                            ICONS.diagnostic().hint().with_no_padding().to_string()
                         }),
                         context.editor.theme.get("hint"),
                     ),
@@ -259,17 +254,12 @@ where
                     .editor
                     .config()
                     .icons
-                    .then(|| ICONS.load().diagnostic().info().to_string());
+                    .then(|| ICONS.diagnostic().info().to_string());
                 write(
                     context,
                     Span::styled(
                         glyph.unwrap_or_else(|| {
-                            ICONS
-                                .load()
-                                .diagnostic()
-                                .info()
-                                .with_no_padding()
-                                .to_string()
+                            ICONS.diagnostic().info().with_no_padding().to_string()
                         }),
                         context.editor.theme.get("info"),
                     ),
@@ -281,17 +271,12 @@ where
                     .editor
                     .config()
                     .icons
-                    .then(|| ICONS.load().diagnostic().warning().to_string());
+                    .then(|| ICONS.diagnostic().warning().to_string());
                 write(
                     context,
                     Span::styled(
                         glyph.unwrap_or_else(|| {
-                            ICONS
-                                .load()
-                                .diagnostic()
-                                .warning()
-                                .with_no_padding()
-                                .to_string()
+                            ICONS.diagnostic().warning().with_no_padding().to_string()
                         }),
                         context.editor.theme.get("warning"),
                     ),
@@ -303,17 +288,12 @@ where
                     .editor
                     .config()
                     .icons
-                    .then(|| ICONS.load().diagnostic().error().to_string());
+                    .then(|| ICONS.diagnostic().error().to_string());
                 write(
                     context,
                     Span::styled(
                         glyph.unwrap_or_else(|| {
-                            ICONS
-                                .load()
-                                .diagnostic()
-                                .error()
-                                .with_no_padding()
-                                .to_string()
+                            ICONS.diagnostic().error().with_no_padding().to_string()
                         }),
                         context.editor.theme.get("error"),
                     ),
@@ -388,17 +368,12 @@ where
                     .editor
                     .config()
                     .icons
-                    .then(|| ICONS.load().diagnostic().hint().to_string());
+                    .then(|| ICONS.diagnostic().hint().to_string());
                 write(
                     context,
                     Span::styled(
                         glyph.unwrap_or_else(|| {
-                            ICONS
-                                .load()
-                                .diagnostic()
-                                .hint()
-                                .with_no_padding()
-                                .to_string()
+                            ICONS.diagnostic().hint().with_no_padding().to_string()
                         }),
                         context.editor.theme.get("hint"),
                     ),
@@ -410,17 +385,12 @@ where
                     .editor
                     .config()
                     .icons
-                    .then(|| ICONS.load().diagnostic().info().to_string());
+                    .then(|| ICONS.diagnostic().info().to_string());
                 write(
                     context,
                     Span::styled(
                         glyph.unwrap_or_else(|| {
-                            ICONS
-                                .load()
-                                .diagnostic()
-                                .info()
-                                .with_no_padding()
-                                .to_string()
+                            ICONS.diagnostic().info().with_no_padding().to_string()
                         }),
                         context.editor.theme.get("info"),
                     ),
@@ -432,17 +402,12 @@ where
                     .editor
                     .config()
                     .icons
-                    .then(|| ICONS.load().diagnostic().warning().to_string());
+                    .then(|| ICONS.diagnostic().warning().to_string());
                 write(
                     context,
                     Span::styled(
                         glyph.unwrap_or_else(|| {
-                            ICONS
-                                .load()
-                                .diagnostic()
-                                .warning()
-                                .with_no_padding()
-                                .to_string()
+                            ICONS.diagnostic().warning().with_no_padding().to_string()
                         }),
                         context.editor.theme.get("warning"),
                     ),
@@ -454,17 +419,12 @@ where
                     .editor
                     .config()
                     .icons
-                    .then(|| ICONS.load().diagnostic().error().to_string());
+                    .then(|| ICONS.diagnostic().error().to_string());
                 write(
                     context,
                     Span::styled(
                         glyph.unwrap_or_else(|| {
-                            ICONS
-                                .load()
-                                .diagnostic()
-                                .error()
-                                .with_no_padding()
-                                .to_string()
+                            ICONS.diagnostic().error().with_no_padding().to_string()
                         }),
                         context.editor.theme.get("error"),
                     ),
@@ -589,11 +549,16 @@ where
     let file_type = context.doc.language_name().unwrap_or(DEFAULT_LANGUAGE_NAME);
 
     if context.editor.config().icons
-        && let (Some(file), Some(path)) = (ICONS.load().fs().file(), context.doc.path())
+        && let Some(path) = context.doc.path()
     {
         write(
             context,
-            icon_span(file.get_with_style_or_default(path, &context.editor.theme)),
+            icon_span(
+                ICONS
+                    .fs()
+                    .file()
+                    .get_with_style_or_default(path, &context.editor.theme),
+            ),
         );
         write(context, format!("{file_type} ").into());
         return;
@@ -763,7 +728,7 @@ where
 
     if context.editor.config().icons
         && !head.is_empty()
-        && let Some(icon) = ICONS.load().vcs().branch()
+        && let Some(icon) = ICONS.vcs().branch()
     {
         write(context, icon_span(icon));
         write(context, format!("{head} ").into());
