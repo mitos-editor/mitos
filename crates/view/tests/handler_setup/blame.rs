@@ -273,6 +273,50 @@ async fn manual_blame_uses_each_editors_callback_and_maps_unsaved_lines() -> any
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn visible_blame_refreshes_when_ignore_files_are_created_or_edited() -> anyhow::Result<()> {
+    use view::file_watcher::{CanonicalPathBuf, Event, EventType, Events};
+
+    let mut f = Fixture::new("first = 1\n")?;
+    prepare(&mut f, "initial");
+    let file = current_ref!(f.editor).1.path().unwrap().to_path_buf();
+    std::fs::write(&file, "first  =  1\n")?;
+    commit(&f, "formatting");
+    current!(f.editor)
+        .1
+        .reload(&f.editor.diff_providers, true)?;
+    f.configure(|config| {
+        config.inline_blame.show = InlineBlameShow::CursorLine;
+        config.files.watch.watch_vcs = true;
+    });
+    wait_for_blame(&mut f).await?;
+    f.editor.refresh_vcs_watches();
+    let path = f.dir.path().canonicalize()?.join(".git-blame-ignore-revs");
+    let ignored = current_ref!(f.editor)
+        .1
+        .line_blame_details(0)
+        .unwrap()
+        .commit_id
+        .clone();
+    for (contents, title) in [
+        (format!("{ignored}\n"), "initial"),
+        (String::new(), "formatting"),
+    ] {
+        std::fs::write(&path, contents)?;
+        f.editor.handle_file_events(&Events::from(vec![Event {
+            path: CanonicalPathBuf::assert_canonicalized(&path),
+            ty: EventType::Modified,
+        }]));
+        assert!(current_ref!(f.editor).1.file_blame().is_none());
+        wait_for_blame(&mut f).await?;
+        assert_eq!(
+            current_ref!(f.editor).1.line_blame(0, "{title}").unwrap(),
+            title
+        );
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn visible_blame_refreshes_after_head_changes_and_file_opens() -> anyhow::Result<()> {
     let mut f = Fixture::new("before\n")?;
     prepare(&mut f, "before commit");

@@ -62,9 +62,30 @@ mod git {
     #[test]
     fn configured_ignore_revs_reassigns_commits() {
         let (repo, file, initial, ignored) = ignored_history();
-        exec_git_cmd(&["config", "blame.ignoreRevs", &ignored], repo.path());
+        exec_git_cmd(
+            &["config", "--add", "blame.ignoreRevs", "missing"],
+            repo.path(),
+        );
+        exec_git_cmd(&["config", "--add", "blame.ignoreRevs", ""], repo.path());
+        exec_git_cmd(
+            &["config", "--add", "blame.ignoreRevs", &ignored],
+            repo.path(),
+        );
         let blame = FileBlame::try_new(file, true).unwrap();
         assert_eq!(blame.blame_for_line(0).unwrap().commit_id, initial);
+    }
+
+    #[test]
+    fn refresh_tracks_moved_ignored_revision_names() {
+        let (repo, file, initial, ignored) = ignored_history();
+        exec_git_cmd(&["tag", "ignored", &ignored], repo.path());
+        exec_git_cmd(&["config", "blame.ignoreRevs", "ignored"], repo.path());
+        let original = FileBlame::try_new(file.clone(), true).unwrap();
+        assert_eq!(original.blame_for_line(0).unwrap().commit_id, initial);
+        exec_git_cmd(&["tag", "-f", "ignored", &initial], repo.path());
+        let refreshed = FileBlame::try_refresh(file, true, Some(original.clone())).unwrap();
+        assert!(!Arc::ptr_eq(&original, &refreshed));
+        assert_eq!(refreshed.blame_for_line(0).unwrap().commit_id, ignored);
     }
 
     #[test]

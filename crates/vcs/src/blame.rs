@@ -34,6 +34,37 @@ struct BlameRange {
     commit: usize,
 }
 
+#[cfg(feature = "git")]
+pub(super) fn watched_paths(repo: &gix::Repository) -> Result<Vec<PathBuf>> {
+    let mut paths = match repo.workdir() {
+        Some(workdir) => ignored::IgnoredRevisions::paths(repo, workdir),
+        None => Ok(Vec::new()),
+    }?;
+    let config = repo.config_snapshot();
+    let revisions = config
+        .plumbing()
+        .strings("blame.ignoreRevs")
+        .unwrap_or_default();
+    for revision in revisions
+        .rsplit(|value| value.is_empty())
+        .next()
+        .unwrap_or_default()
+    {
+        if let Ok(spec) = repo.rev_parse(revision.as_ref())
+            && let Some(reference) = spec.first_reference()
+        {
+            let name = reference.name.as_bstr();
+            let directory = if name.starts_with(b"refs/") {
+                repo.common_dir()
+            } else {
+                repo.git_dir()
+            };
+            paths.push(directory.join(&*gix::path::try_from_bstr(name)?));
+        }
+    }
+    Ok(paths)
+}
+
 impl FileBlame {
     /// Borrow metadata for a zero-based line in the committed file.
     pub fn blame_for_line(&self, line: u32) -> Option<&LineBlame> {
