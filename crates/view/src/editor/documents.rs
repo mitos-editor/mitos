@@ -421,9 +421,4 @@ impl Editor {
         self.documents()
             .find(|doc| doc.path().is_some_and(|p| p == path.as_ref()))
     }
-
-    pub fn document_by_path_mut<P: AsRef<Path>>(&mut self, path: P) -> Option<&mut Document> {
-        self.documents_mut()
-            .find(|doc| doc.path().is_some_and(|p| p == path.as_ref()))
-    }
 }

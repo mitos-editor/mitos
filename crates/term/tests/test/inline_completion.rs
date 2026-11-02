@@ -366,27 +366,6 @@ async fn inline_requests_do_not_use_the_ordinary_completion_popup_preview() -> a
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn replacing_inline_completion_rejects_a_queued_response() -> anyhow::Result<()> {
-    let dir = tempfile::tempdir()?;
-    let mut f = Fixture::new(dir.path(), false, "🙂 pr!\nnext\n").await?;
-    f.trigger();
-    let response = f.response().await?;
-    f.app
-        .editor
-        .replace_inline_completion_handler(InlineCompletionHandler::new(
-            view::callbacks::EditorCallbackSender::new(
-                f.app.editor.redraw().clone(),
-                |_| async {},
-                |_| {},
-            ),
-        ));
-    response(&mut f.app.editor);
-    assert!(f.preview().is_none());
-    assert!(f.app.close().await.is_empty());
-    Ok(())
-}
-
-#[tokio::test(flavor = "multi_thread")]
 async fn removing_a_view_cancels_its_queued_inline_completion() -> anyhow::Result<()> {
     let dir = tempfile::tempdir()?;
     let mut f = Fixture::new(dir.path(), false, "🙂 pr!\nnext\n").await?;

@@ -193,6 +193,10 @@ impl Document {
         let Some(marker) = markers.get(index).filter(|marker| marker.line == line) else {
             return false;
         };
+        self.conflict_marker_unfolded(view, marker)
+    }
+
+    fn conflict_marker_unfolded(&self, view: ViewId, marker: &ConflictMarker) -> bool {
         let range = &marker.replacement.range;
         let folds = self.folded_ranges(view);
         let next = folds.partition_point(|fold| fold.range.end <= range.start);
@@ -211,7 +215,7 @@ impl Document {
             return;
         }
         for marker in &self.conflict_presentation().markers {
-            if !self.conflict_marker_hidden(view, marker.line) {
+            if !self.conflict_marker_unfolded(view, marker) {
                 continue;
             }
             let highlight = theme.and_then(|theme| {

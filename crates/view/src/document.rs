@@ -23,9 +23,8 @@ pub use crate::features::inline_completion::InlineCompletion;
 pub use crate::features::{
     code_lenses::CodeLens,
     document_colors::DocumentColorSwatches,
-    document_highlight::DocumentHighlights,
     document_links::DocumentLink,
-    document_symbols::{Breadcrumbs, Crumb},
+    document_symbols::Crumb,
     inlay_hints::{DocumentInlayHints, DocumentInlayHintsId},
 };
 
@@ -66,8 +65,7 @@ use crate::{
     features::{
         code_lenses::DocumentCodeLenses, document_colors::DocumentColors,
         document_highlight::DocumentHighlightsState, document_links::DocumentLinks,
-        document_symbols::DocumentSymbols, hover::HoverState, inlay_hints::InlayHintsState,
-        navigation::NavigationState,
+        document_symbols::DocumentSymbols, inlay_hints::InlayHintsState,
     },
     view::ViewPosition,
     DocumentId, ViewId,
@@ -177,16 +175,14 @@ pub struct Document {
     status: Option<event::status::StatusSender>,
     pub(crate) id: DocumentId,
     pub(crate) buffer: buffer::Buffer,
-    view_states: HashMap<ViewId, DocumentViewState>,
+    pub(crate) view_states: HashMap<ViewId, DocumentViewState>,
+    pub(crate) pending_navigation: Option<Selection>,
     snippet: Option<SnippetSession>,
     pub(crate) breakpoint_saved_text: Option<Rope>,
     pub(crate) breakpoint_source: Option<::debugger::SourceBreakpoints>,
 
-    // Each feature owns its cache, scheduling handle, and request controllers.
-    // Dropping the document drops those controllers and cancels in-flight work.
-    pub(crate) hover: HoverState,
-    pub(crate) navigation: NavigationState,
-    pub(crate) shell_filters: crate::features::shell::ShellFilters,
+    // Document-wide feature state. View-bound request controllers live in view_states.
+    // Dropping either owner cancels its in-flight work.
     pub(crate) rename: event::TaskController,
     pub(crate) inlay_hints: InlayHintsState,
     pub(crate) inline_completions: InlineCompletions,
@@ -196,7 +192,6 @@ pub struct Document {
     pub(crate) document_links: DocumentLinks,
     pub(crate) document_highlights: DocumentHighlightsState,
     pub(crate) code_action_hints: CodeActionHints,
-    pub(crate) code_actions: crate::features::code_actions::CodeActionsState,
     pub(crate) conflicts:
         std::sync::OnceLock<Arc<crate::features::conflicts::ConflictPresentation>>,
     pub(crate) document_symbols: DocumentSymbols,
@@ -301,10 +296,8 @@ impl Document {
             file: file::FileState::new(encoding, has_bom),
             buffer: buffer::Buffer::new(text),
             view_states: HashMap::default(),
+            pending_navigation: None,
             inlay_hints: Default::default(),
-            hover: Default::default(),
-            navigation: Default::default(),
-            shell_filters: Default::default(),
             rename: Default::default(),
             inline_completions: Default::default(),
             accepted_completions: Default::default(),
@@ -338,7 +331,6 @@ impl Document {
             focused_at: std::time::Instant::now(),
             document_highlights: Default::default(),
             code_action_hints: Default::default(),
-            code_actions: Default::default(),
             conflicts: Default::default(),
             document_links: Default::default(),
             document_colors: Default::default(),
@@ -460,7 +452,7 @@ impl Document {
 
     /// Initialize this document/view relationship without resetting existing state.
     pub fn ensure_view_init(&mut self, view_id: ViewId) {
-        if let Some(selection) = self.navigation.take_pending_location() {
+        if let Some(selection) = self.pending_navigation.take() {
             self.set_selection(view_id, selection);
         } else if !self.view_states.contains_key(&view_id) {
             self.reset_selection(view_id);
@@ -480,10 +472,6 @@ impl Document {
     pub fn remove_view(&mut self, view_id: ViewId) {
         self.view_states.remove(&view_id);
         self.inlay_hints.remove_view(view_id);
-        self.hover.remove_view(view_id);
-        self.code_actions.remove_view(view_id);
-        self.navigation.remove_view(view_id);
-        self.shell_filters.remove_view(view_id);
         self.document_links.cancel_navigation_for(view_id);
         self.document_symbols.remove_view(view_id);
         self.document_highlights.remove_view(view_id);
@@ -745,7 +733,7 @@ impl Document {
         self.view_states.keys().copied()
     }
 
-    fn view_state_mut(&mut self, view_id: ViewId) -> &mut DocumentViewState {
+    pub(crate) fn view_state_mut(&mut self, view_id: ViewId) -> &mut DocumentViewState {
         let text = self.buffer.text().slice(..);
         self.view_states
             .entry(view_id)
@@ -863,6 +851,23 @@ pub(crate) fn test_document(text: &str) -> Document {
         Arc::new(ArcSwap::from_pointee(Config::default())),
         Arc::new(syntax::Loader::default()),
     )
+}
+
+#[cfg(test)]
+pub(crate) fn check_document_request_lifetime(
+    controller: fn(&mut Document) -> &mut event::TaskController,
+    clear: fn(&mut Document),
+) {
+    let mut doc = test_document("sample text");
+    let view = crate::ViewId::default();
+    doc.ensure_view_init(view);
+    let request = controller(&mut doc).restart();
+    doc.remove_view(view);
+    assert!(!request.is_canceled());
+    clear(&mut doc);
+    assert!(!request.is_canceled());
+    drop(doc);
+    assert!(request.is_canceled());
 }
 
 #[cfg(test)]

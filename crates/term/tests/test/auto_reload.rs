@@ -205,25 +205,21 @@ struct SharedReload {
 
 impl SharedReload {
     fn new(path: &Path) -> anyhow::Result<Self> {
-        let app = app(path)?;
-        let (_, callbacks) = tokio::sync::mpsc::unbounded_channel();
-        let mut fixture = Self { app, callbacks };
-        fixture.replace_handler();
-        Ok(fixture)
-    }
-
-    fn replace_handler(&mut self) {
-        use view::features::auto_reload::AutoReloadHandler;
-        let (callbacks, rx) = super::helpers::callbacks::channel();
-        self.app
-            .editor
-            .replace_auto_reload_handler(AutoReloadHandler::new(
-                callbacks.clone(),
-                &self.app.editor.config(),
-            ));
-        self.app.editor.file_watcher =
-            view::file_watcher::Watcher::new(&self.app.editor.config().files.watch, callbacks);
-        self.callbacks = rx;
+        let (sender, callbacks) = super::helpers::callbacks::channel();
+        let mut config = test_config();
+        config.editor.files.reload.enable = true;
+        let watcher_callbacks = sender.clone();
+        let mut app = AppBuilder::new()
+            .with_config(config)
+            .with_handler_setup(move |handlers, config| {
+                handlers.auto_reload =
+                    view::features::auto_reload::AutoReloadHandler::new(sender, config);
+            })
+            .with_file(path, None)
+            .build()?;
+        app.editor.file_watcher =
+            view::file_watcher::Watcher::new(&app.editor.config().files.watch, watcher_callbacks);
+        Ok(Self { app, callbacks })
     }
 
     async fn wait_for_watch(&self, path: &Path) -> anyhow::Result<()> {
@@ -329,7 +325,10 @@ async fn native_events_stay_with_their_editor_and_old_watchers_cannot_apply_call
     first.wait_for_watch(&path).await?;
     changed(&path, "replacement watcher\n", 5)?;
     let stale = first.callback().await?;
-    first.replace_handler();
+    let (sender, callbacks) = super::helpers::callbacks::channel();
+    first.app.editor.file_watcher =
+        view::file_watcher::Watcher::new(&first.app.editor.config().files.watch, sender);
+    first.callbacks = callbacks;
     stale(&mut first.app.editor);
     assert_eq!(text(&first.app), "first update\n");
     first.app.editor.handle_file_events(&fs_events(&[&path]));
