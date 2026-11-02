@@ -121,6 +121,18 @@ impl Registers {
         }
     }
 
+    /// Store a prompt history value once, retaining its most recent position.
+    /// Clipboard-backed registers keep their external append semantics.
+    pub fn push_unique(&mut self, name: char, value: String) -> Result<()> {
+        if matches!(name, '_' | '#' | '.' | '%' | '*' | '+') {
+            return self.push(name, value);
+        }
+        let values = self.inner.entry(name).or_default();
+        values.retain(|entry| entry != &value);
+        values.push(value);
+        Ok(())
+    }
+
     pub fn iter_preview(&self) -> impl Iterator<Item = (char, &str)> {
         self.inner
             .iter()
