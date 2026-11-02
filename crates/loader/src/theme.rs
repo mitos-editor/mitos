@@ -1,6 +1,5 @@
 //! Theme source discovery and inheritance, independent of editor styles.
 
-use crate::merge_toml_values;
 use anyhow::{anyhow, Result};
 use std::{
     collections::HashSet,
@@ -111,28 +110,23 @@ impl Resources {
 
     // merge one theme into the parent theme
     fn merge_themes(&self, parent_theme_toml: Value, theme_toml: Value) -> Value {
-        let parent_palette = parent_theme_toml.get("palette");
-        let palette = theme_toml.get("palette");
-
-        // handle the table separately since it needs a `merge_depth` of 2
-        // this would conflict with the rest of the theme merge strategy
-        let palette_values = match (parent_palette, palette) {
-            (Some(parent_palette), Some(palette)) => {
-                merge_toml_values(parent_palette.clone(), palette.clone(), 2)
+        let Value::Table(mut parent) = parent_theme_toml else {
+            unreachable!("theme source is a TOML document")
+        };
+        let Value::Table(mut theme) = theme_toml else {
+            unreachable!("theme source is a TOML document")
+        };
+        let palette = match (parent.remove("palette"), theme.remove("palette")) {
+            (Some(Value::Table(mut parent)), Some(Value::Table(theme))) => {
+                parent.extend(theme);
+                Value::Table(parent)
             }
-            (Some(parent_palette), None) => parent_palette.clone(),
-            (None, Some(palette)) => palette.clone(),
+            (_, Some(palette)) | (Some(palette), None) => palette,
             (None, None) => Map::new().into(),
         };
-
-        // add the palette correctly as nested table
-        let mut palette = Map::new();
-        palette.insert(String::from("palette"), palette_values);
-
-        // merge the theme into the parent theme
-        let theme = merge_toml_values(parent_theme_toml, theme_toml, 1);
-        // merge the before specially handled palette into the theme
-        merge_toml_values(theme, palette.into(), 1)
+        parent.extend(theme);
+        parent.insert("palette".into(), palette);
+        parent.into()
     }
 
     // Loads the theme data as `toml::Value`

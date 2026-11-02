@@ -67,17 +67,13 @@ pub fn which<T: AsRef<OsStr>>(
 }
 
 fn find_brace_end(src: &[u8]) -> Option<usize> {
-    use regex_automata::meta::Regex;
-
-    static REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::builder().build("[{}]").unwrap());
     let mut depth = 0;
-    for mat in REGEX.find_iter(src) {
-        let pos = mat.start();
-        match src[pos] {
+    for (pos, byte) in src.iter().enumerate() {
+        match byte {
             b'{' => depth += 1,
             b'}' if depth == 0 => return Some(pos),
             b'}' => depth -= 1,
-            _ => unreachable!(),
+            _ => {}
         }
     }
     None

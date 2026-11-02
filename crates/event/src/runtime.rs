@@ -11,31 +11,14 @@
 //! export the macro but the macro still need to construct these internals so it's marked
 //! `doc(hidden)` instead
 
+#[cfg(feature = "integration_test")]
 use std::ops::Deref;
-
-#[cfg(not(feature = "integration_test"))]
-pub struct RuntimeLocal<T: 'static> {
-    /// inner API used in the macro, not part of public API
-    #[doc(hidden)]
-    pub __data: T,
-}
-
-#[cfg(not(feature = "integration_test"))]
-impl<T> Deref for RuntimeLocal<T> {
-    type Target = T;
-
-    fn deref(&self) -> &Self::Target {
-        &self.__data
-    }
-}
 
 #[cfg(not(feature = "integration_test"))]
 #[macro_export]
 macro_rules! runtime_local {
     ($($(#[$attr:meta])* $vis: vis static $name:ident: $ty: ty = $init: expr;)*) => {
-        $($(#[$attr])* $vis static $name: $crate::runtime::RuntimeLocal<$ty> = $crate::runtime::RuntimeLocal {
-            __data: $init
-        };)*
+        $($(#[$attr])* $vis static $name: $ty = $init;)*
     };
 }
 

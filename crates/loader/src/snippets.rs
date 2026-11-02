@@ -83,10 +83,9 @@ fn collect_files(directory: &Path, files: &mut Vec<PathBuf>) -> Result<()> {
                 .with_context(|| format!("cannot read snippets directory {}", directory.display()))
         }
     };
-    let mut entries = entries
+    let entries = entries
         .collect::<std::io::Result<Vec<_>>>()
         .with_context(|| format!("cannot list snippets directory {}", directory.display()))?;
-    entries.sort_by_key(|entry| entry.path());
     for entry in entries {
         let path = entry.path();
         let kind = entry
