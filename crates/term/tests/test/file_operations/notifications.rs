@@ -1,10 +1,69 @@
-use std::path::Path;
+use std::{path::Path, time::Duration};
 
+use anyhow::Context as _;
 use lsp_client::{lsp, OffsetEncoding, Url};
 use serde_json::{json, Value};
-use view::{current_ref, editor::Action};
+use view::{
+    current_ref,
+    editor::{Action, FileOperation},
+};
 
 use super::fixture::Fixture;
+
+#[tokio::test(flavor = "multi_thread")]
+async fn copying_notifies_creation_and_keeps_the_source_document() -> anyhow::Result<()> {
+    let mut fixture = Fixture::new().await?;
+    fixture.flush_notifications().await?;
+    let id = current_ref!(fixture.app.editor).1.id();
+    fixture.change(id, "edit")?;
+    let revision = fixture.app.editor.file_operation_revision();
+    fixture
+        .app
+        .editor
+        .request_file_operation(FileOperation::Copy {
+            from: fixture.source.clone(),
+            to: fixture.target.clone(),
+        })?;
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while !fixture.target.exists() {
+            let callback = fixture
+                .callbacks
+                .recv()
+                .await
+                .context("missing copy callback")?;
+            callback(&mut fixture.app.editor);
+        }
+        anyhow::Ok(())
+    })
+    .await??;
+
+    assert_eq!(std::fs::read_to_string(&fixture.source)?, "source\n");
+    assert_eq!(std::fs::read_to_string(&fixture.target)?, "source\n");
+    let doc = fixture.app.editor.document(id).unwrap();
+    assert_eq!(
+        doc.path(),
+        Some(stdx::path::canonicalize(&fixture.source).as_path())
+    );
+    assert_eq!(doc.text(), "typed source\n");
+    assert_eq!(fixture.app.editor.file_operation_revision(), revision + 1);
+
+    let target = uri(&fixture.target);
+    let log = fixture.flush_notifications().await?;
+    let operations: Vec<_> = log
+        .iter()
+        .filter(|message| message["params"]["files"][0]["uri"] == target.as_str())
+        .map(|message| message["method"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        operations,
+        ["workspace/willCreateFiles", "workspace/didCreateFiles"]
+    );
+    assert!(!log.iter().any(|message| {
+        message["method"] == "textDocument/didClose"
+            || message["method"] == "workspace/didRenameFiles"
+    }));
+    Ok(())
+}
 
 fn uri(path: &Path) -> Url {
     Url::from_file_path(stdx::path::canonicalize(path)).unwrap()

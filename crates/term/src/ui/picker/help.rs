@@ -38,6 +38,11 @@ impl<T: Send + Sync + 'static, D: Send + Sync + 'static> Picker<T, D> {
                     PickerAction::Item(PickerItemAction::RemoveQuicklistEntry),
                     "remove entry",
                 ),
+                (PickerAction::Item(PickerItemAction::CreatePath), "new"),
+                (PickerAction::Item(PickerItemAction::MovePath), "move"),
+                (PickerAction::Item(PickerItemAction::CopyPath), "copy"),
+                (PickerAction::Item(PickerItemAction::DeletePath), "delete"),
+                (PickerAction::Item(PickerItemAction::YankPath), "yank path"),
             ]);
         }
         if self.show_preview && self.file_fn.is_some() && self.custom_preview.is_none() {

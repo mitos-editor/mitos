@@ -15,9 +15,23 @@ use crate::Editor;
 
 /// An explicit filesystem target, independent of the currently focused document.
 pub enum FileOperation {
-    Create { path: PathBuf, is_dir: bool },
-    Move { from: PathBuf, to: PathBuf },
-    Delete { path: PathBuf, recursive: bool },
+    Create {
+        path: PathBuf,
+        is_dir: bool,
+    },
+    Move {
+        from: PathBuf,
+        to: PathBuf,
+    },
+    /// Copy one file. The destination must not exist.
+    Copy {
+        from: PathBuf,
+        to: PathBuf,
+    },
+    Delete {
+        path: PathBuf,
+        recursive: bool,
+    },
 }
 
 impl FileOperation {
@@ -32,6 +46,10 @@ impl FileOperation {
                 from: canonicalize(from),
                 to: canonicalize(to),
             },
+            Self::Copy { from, to } => Self::Copy {
+                from: canonicalize(from),
+                to: canonicalize(to),
+            },
             Self::Delete { path, recursive } => Self::Delete {
                 path: canonicalize(path),
                 recursive,
@@ -42,7 +60,7 @@ impl FileOperation {
     fn paths(&self) -> Vec<&std::path::Path> {
         match self {
             Self::Create { path, .. } | Self::Delete { path, .. } => vec![path],
-            Self::Move { from, to } => vec![from, to],
+            Self::Move { from, to } | Self::Copy { from, to } => vec![from, to],
         }
     }
 
@@ -57,6 +75,8 @@ impl FileOperation {
             Self::Move { from, to } => server
                 .will_rename(from, to, from.is_dir())
                 .map(FutureExt::boxed),
+            // LSP has no copy request; to a server the copy is a new file.
+            Self::Copy { to, .. } => server.will_create(to, false).map(FutureExt::boxed),
             Self::Delete { path, .. } => server
                 .will_delete(path, path.is_dir())
                 .map(FutureExt::boxed),
@@ -69,6 +89,7 @@ impl FileOperation {
                 editor.create_path(&path, is_dir, ExistingTarget::Reject)
             }
             Self::Move { from, to } => editor.move_path(&from, &to, ExistingTarget::Reject),
+            Self::Copy { from, to } => editor.copy_path(&from, &to),
             Self::Delete { path, recursive } => editor.delete_path(&path, recursive),
         }
     }
@@ -189,6 +210,20 @@ impl Editor {
         let operation = operation.normalize();
         if matches!(&operation, FileOperation::Move { from, to } if from == to) {
             return Ok(());
+        }
+        if let FileOperation::Copy { from, to } = &operation {
+            ensure!(from != to, "Cannot copy {} onto itself", from.display());
+            let metadata = fs::metadata(from)?;
+            ensure!(
+                !metadata.is_dir(),
+                "Copying directories is not supported: {} is a directory",
+                from.display()
+            );
+            ensure!(
+                metadata.is_file(),
+                "Only regular files can be copied: {}",
+                from.display()
+            );
         }
         for path in operation.paths() {
             self.ensure_path_not_writing(path)?;

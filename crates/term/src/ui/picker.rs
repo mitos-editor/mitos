@@ -583,9 +583,22 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
 
     /// Install the bindings and selected-item actions for a specific picker.
     pub(crate) fn with_item_actions(
-        mut self,
+        self,
         keymap: fn(&ComponentKeymaps) -> &Keymap<PickerAction>,
         callback: impl Fn(&mut Context, Option<&T>, PickerItemAction) -> PickerCallbackResult<T, D>
+            + 'static,
+    ) -> Self {
+        self.with_item_data_actions(keymap, move |cx, item, _, action| {
+            callback(cx, item, action)
+        })
+    }
+
+    /// Like [`Self::with_item_actions`], for actions that also need the picker's data,
+    /// such as the directory a file explorer is showing.
+    pub(crate) fn with_item_data_actions(
+        mut self,
+        keymap: fn(&ComponentKeymaps) -> &Keymap<PickerAction>,
+        callback: impl Fn(&mut Context, Option<&T>, &D, PickerItemAction) -> PickerCallbackResult<T, D>
             + 'static,
     ) -> Self {
         self.keymap = keymap;
@@ -670,7 +683,6 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             PickerCallbackResult::Close => PickerClose::Close(None),
             PickerCallbackResult::CloseWithCallback(callback) => PickerClose::Close(Some(callback)),
             PickerCallbackResult::KeepOpen => PickerClose::KeepOpen(None),
-            #[cfg(feature = "git")]
             PickerCallbackResult::KeepOpenWithCallback(callback) => {
                 PickerClose::KeepOpen(Some(callback))
             }
@@ -1457,7 +1469,8 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                 }
                 PickerAction::Item(action) => {
                     if let Some(handler) = &self.item_action_fn {
-                        let result = handler(ctx, self.selection(), action);
+                        let data = self.results.editor_data.clone();
+                        let result = handler(ctx, self.selection(), &data, action);
                         match self.apply_callback_result(result, ctx.editor) {
                             PickerClose::Close(callback) => return close_fn(self, callback),
                             PickerClose::KeepOpen(callback) => {
@@ -1645,7 +1658,6 @@ pub(crate) enum PickerCallbackResult<T, D> {
     Close,
     CloseWithCallback(compositor::Callback),
     KeepOpen,
-    #[cfg(feature = "git")]
     KeepOpenWithCallback(compositor::Callback),
     Replace {
         options: Vec<T>,
@@ -1660,7 +1672,7 @@ pub(crate) enum PickerCallbackResult<T, D> {
 
 type PickerCallback<T, D> = Box<dyn Fn(&mut Context, &T, Action) -> PickerCallbackResult<T, D>>;
 type PickerItemCallback<T, D> =
-    Box<dyn Fn(&mut Context, Option<&T>, PickerItemAction) -> PickerCallbackResult<T, D>>;
+    Box<dyn Fn(&mut Context, Option<&T>, &D, PickerItemAction) -> PickerCallbackResult<T, D>>;
 
 /// First visible result for `rows` rows, keeping the cursor in view with minimal scrolling.
 ///

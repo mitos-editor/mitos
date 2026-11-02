@@ -103,6 +103,25 @@ go to its parent. The query filters entries in the directory being displayed.
 
 Supported [images](./image-previews.md) also appear in the preview pane.
 
+Manage files without leaving the explorer:
+
+| Key | Action |
+| --- | --- |
+| `Alt-n` | Create a file in the shown directory. End the path with `/` to create a directory. |
+| `Alt-m` | Move or rename the selected entry. The cursor starts before the file extension. Open buffers follow the move. |
+| `Alt-c` | Copy the selected file's saved contents. Copying directories is not supported. |
+| `Alt-d` | Delete the selected entry after you type `y` and press `Enter`. Directories are deleted with their contents. |
+| `Alt-y` | Yank the selected path to the default yank register. |
+
+Create, move, and copy open a path prompt. Edit the path and press `Enter` to
+apply the change, or press `Esc` to cancel. Paths are relative to the working
+directory unless you enter an absolute path or start with `~`. The create prompt
+starts with the directory being displayed.
+
+Moving or copying onto an existing directory puts the entry inside it. Existing
+paths are never overwritten, and missing parent directories are created. Remap
+these keys under [`[keys.file-explorer]`](./remapping.md#component-keys).
+
 ## Hidden and ignored files
 
 The file picker and global search omit hidden and ignored files by default.

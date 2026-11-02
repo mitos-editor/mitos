@@ -123,7 +123,6 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
     }
 
     /// Refresh after an explicit operation even when filesystem watching and polling are disabled.
-    #[cfg(feature = "git")]
     pub(crate) fn with_refresh_generation(
         mut self,
         editor: &Editor,
