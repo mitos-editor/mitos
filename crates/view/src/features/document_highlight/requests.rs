@@ -45,11 +45,16 @@ fn request_document_highlights(editor: &mut Editor, doc_id: DocumentId, view_id:
     };
 
     if !doc.has_language_server_with_feature(LanguageServerFeature::DocumentHighlight) {
+        let visible = doc.document_highlights(view_id).is_some();
         doc.clear_document_highlights(view_id);
+        if visible {
+            callbacks.redraw().request();
+        }
         return;
     }
 
     doc.ensure_view_init(view_id);
+    let cancel = doc.document_highlight_controller(view_id).restart();
     let Some((server_id, offset_encoding, future)) = (match doc
         .language_servers_with_feature(LanguageServerFeature::DocumentHighlight)
         .next()
@@ -63,12 +68,15 @@ fn request_document_highlights(editor: &mut Editor, doc_id: DocumentId, view_id:
         }
         None => None,
     }) else {
+        let visible = doc.document_highlights(view_id).is_some();
         doc.clear_document_highlights(view_id);
+        if visible {
+            callbacks.redraw().request();
+        }
         return;
     };
 
     let text = doc.text().clone();
-    let cancel = doc.document_highlight_controller(view_id).restart();
 
     let selection = doc.selection(view_id).clone();
     let request = DocumentRequest::new(doc, cancel, vec![server_id]);
@@ -193,10 +201,12 @@ pub(crate) fn register_hooks() {
         {
             let doc_id = event.doc.id();
             let view_id = event.view;
-            event.doc.document_highlight_controller(view_id).cancel();
+            let scheduled = event.doc.document_highlight_controller(view_id).restart();
             if let Some(handler) = &event.doc.document_highlights.handler {
-                handler.callbacks.send_blocking(move |editor| {
-                    request_document_highlights(editor, doc_id, view_id);
+                handler.callbacks.send_work_blocking(move |editor| {
+                    if !scheduled.is_canceled() {
+                        request_document_highlights(editor, doc_id, view_id);
+                    }
                 });
             }
         }
@@ -223,10 +233,12 @@ pub(crate) fn register_hooks() {
                 .has_language_server_with_feature(LanguageServerFeature::DocumentHighlight)
         {
             let doc_id = event.doc.id();
-            event.doc.document_highlight_controller(view_id).cancel();
+            let scheduled = event.doc.document_highlight_controller(view_id).restart();
             if let Some(handler) = &event.doc.document_highlights.handler {
-                handler.callbacks.send_blocking(move |editor| {
-                    request_document_highlights(editor, doc_id, view_id);
+                handler.callbacks.send_work_blocking(move |editor| {
+                    if !scheduled.is_canceled() {
+                        request_document_highlights(editor, doc_id, view_id);
+                    }
                 });
             }
         }

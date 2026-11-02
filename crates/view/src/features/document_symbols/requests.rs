@@ -99,6 +99,9 @@ pub(crate) fn register_hooks() {
         // Cancel the ongoing request, if present.
         event.doc.document_symbols.request.cancel();
         event.doc.document_symbols.picker.cancel();
+        if !event.doc.breadcrumb_enabled() {
+            return Ok(());
+        }
         let view_id = event.view;
         let doc_id = event.doc.id();
         // PERF: Enabled breadcrumbs request fresh LSP symbols after every real edit for live

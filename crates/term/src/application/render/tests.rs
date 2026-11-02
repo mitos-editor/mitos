@@ -419,3 +419,91 @@ async fn compositor_resolves_native_blocks_and_prompt_cursors() -> anyhow::Resul
     assert!(app.close().await.is_empty());
     Ok(())
 }
+
+#[tokio::test]
+async fn disabled_breadcrumb_edit_does_not_require_a_callback_frame() -> anyhow::Result<()> {
+    let (mut app, _) = application(Args::default())?;
+    app.drain_ready_callbacks();
+    for key in ui_core::input::parse_macro("ix")? {
+        #[cfg(not(windows))]
+        let event = termina::event::Event::Key(key.into());
+        #[cfg(windows)]
+        let event = crossterm::event::Event::Key(key.into());
+        app.handle_terminal_events(Ok(event)).await;
+    }
+    assert!(
+        !app.drain_ready_callbacks().needs_redraw,
+        "disabled features must not require another frame"
+    );
+    assert!(app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_direct_frame_consumes_the_armed_redraw_deadline() -> anyhow::Result<()> {
+    let (mut app, _) = application(Args::default())?;
+    for _ in 0..16 {
+        let Some(event) = app.editor.wait_event().now_or_never() else {
+            break;
+        };
+        app.handle_editor_event(event).await;
+    }
+    app.editor.reset_idle_timer();
+    tokio::time::pause();
+    app.editor.redraw().request();
+    assert!(app.editor.wait_event().now_or_never().is_none());
+    app.render().await;
+    tokio::time::advance(Duration::from_millis(34)).await;
+    assert!(
+        app.editor.wait_event().now_or_never().is_none(),
+        "an already presented request must not draw again"
+    );
+    assert!(app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test]
+async fn work_callbacks_keep_fifo_order_and_legacy_callbacks_still_redraw() -> anyhow::Result<()> {
+    let (mut app, _) = application(Args::default())?;
+    app.drain_ready_callbacks();
+    let order = Arc::new(Mutex::new(Vec::new()));
+    let sender = app.jobs.editor_callback_sender();
+    let first = order.clone();
+    sender.send_work_blocking(move |_| first.lock().unwrap().push(1));
+    let batch = app.drain_ready_callbacks();
+    assert_eq!(batch.handled, 1);
+    assert!(!batch.needs_redraw);
+    let second = order.clone();
+    sender.send_blocking(move |_| second.lock().unwrap().push(2));
+    let third = order.clone();
+    sender.send_work_blocking(move |_| third.lock().unwrap().push(3));
+    let batch = app.drain_ready_callbacks();
+    assert_eq!(batch.handled, 2);
+    assert!(batch.needs_redraw);
+    assert_eq!(*order.lock().unwrap(), [1, 2, 3]);
+    assert!(app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_new_request_after_a_direct_frame_still_draws() -> anyhow::Result<()> {
+    let (mut app, _) = application(Args::default())?;
+    for _ in 0..16 {
+        let Some(event) = app.editor.wait_event().now_or_never() else {
+            break;
+        };
+        app.handle_editor_event(event).await;
+    }
+    app.editor.reset_idle_timer();
+    tokio::time::pause();
+    app.render().await;
+    app.editor.redraw().request();
+    assert!(app.editor.wait_event().now_or_never().is_none());
+    tokio::time::advance(Duration::from_millis(34)).await;
+    assert!(matches!(
+        app.editor.wait_event().now_or_never(),
+        Some(view::editor::EditorEvent::Redraw)
+    ));
+    assert!(app.close().await.is_empty());
+    Ok(())
+}

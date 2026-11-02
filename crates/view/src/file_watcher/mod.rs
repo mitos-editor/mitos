@@ -96,6 +96,7 @@ impl Watcher {
                         if batch.is_current(&editor.file_watcher.native) {
                             editor.handle_file_events(&batch.events);
                         }
+                        crate::callbacks::CallbackOutcome::Redraw
                     }) as EditorCallback)
                 },
             ),

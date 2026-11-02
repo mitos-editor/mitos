@@ -146,6 +146,7 @@ impl Fixture {
                 &mut self.compositor,
                 Ok(Some(callback))
             )
+            .0
             .is_none());
     }
 }

@@ -88,7 +88,7 @@ impl Fixture {
                     .await
                     .context("callback queue closed")?;
                 if blocking {
-                    callback(&mut self.app.editor)
+                    callback(&mut self.app.editor);
                 } else {
                     return Ok(callback);
                 }
@@ -462,7 +462,7 @@ async fn visible_titles_resolve_automatically_and_repeated_frames_reuse_attempts
     fixture
         .app
         .job_sender()
-        .send_callback(term::job::Callback::Editor(title))
+        .send_callback(term::job::Callback::EditorOutcome(title))
         .await;
     fixture.keys("").await?;
     let doc = fixture.app.editor.document(fixture.doc).unwrap();
