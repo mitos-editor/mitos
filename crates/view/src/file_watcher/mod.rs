@@ -169,7 +169,7 @@ mod tests {
         let (native, events) = mpsc::unbounded_channel();
         let mut delivery = event::TaskController::new();
         let task = tokio::spawn(event::cancelable_future(
-            forward_events(events, sender, |_| Some(Box::new(|_| {}))),
+            forward_events(events, sender, |_| Some(Box::new(|_| ().into()))),
             delivery.restart(),
         ));
         for _ in 0..140 {
