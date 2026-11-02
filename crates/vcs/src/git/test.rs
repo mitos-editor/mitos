@@ -407,7 +407,7 @@ fn ignored_revision_paths_use_the_git_installation_prefix() {
         .unwrap();
     assert!(output.status.success());
     let expected = Path::new(std::str::from_utf8(&output.stdout).unwrap().trim_end());
-    let paths = git::get_watched_paths(repo.path(), false).unwrap();
+    let paths = git::get_watched_files(repo.path(), false).unwrap();
     assert!(paths.contains(&expected.to_path_buf()));
 }
 
@@ -420,8 +420,11 @@ fn watched_paths_include_ignored_revision_files_before_creation() {
     exec_git_cmd(&["config", "blame.ignoreRevs", "ignored"], repo.path());
     let conventional = repo.path().join(".git-blame-ignore-revs");
     let paths = git::get_watched_paths(repo.path(), false).unwrap();
-    assert!(paths.contains(&conventional));
     assert!(paths.contains(&repo.path().join(".git/refs/tags/ignored")));
+    assert!(!paths.contains(&conventional));
+    assert!(git::get_watched_files(repo.path(), false)
+        .unwrap()
+        .contains(&conventional));
     let external = tempfile::tempdir().unwrap();
     let configured = external.path().join("ignored revisions");
     exec_git_cmd(
@@ -432,14 +435,14 @@ fn watched_paths_include_ignored_revision_files_before_creation() {
         ],
         repo.path(),
     );
-    let paths = git::get_watched_paths(repo.path(), false).unwrap();
+    let paths = git::get_watched_files(repo.path(), false).unwrap();
     assert!(paths.contains(&configured));
     assert!(!paths.contains(&conventional));
     exec_git_cmd(
         &["config", "--add", "blame.ignoreRevsFile", ""],
         repo.path(),
     );
-    let paths = git::get_watched_paths(repo.path(), false).unwrap();
+    let paths = git::get_watched_files(repo.path(), false).unwrap();
     assert!(!paths.contains(&configured));
     assert!(!paths.contains(&conventional));
 }

@@ -149,6 +149,7 @@ impl IgnoreFiles {
 /// VCS files) so ignoring a file is a performance optimization.
 pub(super) struct WatchFilter {
     extra_paths: Vec<PathBuf>,
+    extra_files: Vec<PathBuf>,
     filesentry_ignores: Gitignore,
     ignore_files: Vec<IgnoreFiles>,
     global_ignores: Vec<Arc<Gitignore>>,
@@ -175,6 +176,7 @@ impl WatchFilter {
             .collect();
         WatchFilter {
             extra_paths: Vec::new(),
+            extra_files: Vec::new(),
             filesentry_ignores,
             ignore_files,
             global_ignores,
@@ -194,9 +196,21 @@ impl WatchFilter {
         self
     }
 
-    /// Include only explicit metadata and its ancestors, retaining user watch exclusions.
+    pub(super) fn with_extra_files(mut self, files: impl Iterator<Item = PathBuf>) -> Self {
+        if self.watch_vcs {
+            self.extra_files = files.collect();
+        }
+        self
+    }
+
+    /// Include explicit VCS paths without excluding source files beside watched files.
     fn extra_path(&self, path: &Path, is_dir: Option<bool>) -> Option<bool> {
-        if self.extra_paths.iter().any(|extra| extra.starts_with(path)) {
+        if self
+            .extra_paths
+            .iter()
+            .chain(&self.extra_files)
+            .any(|extra| extra.starts_with(path))
+        {
             Some(
                 self.filesentry_ignores
                     .matched_path_or_any_parents(path, is_dir.unwrap_or(false))
@@ -207,6 +221,15 @@ impl WatchFilter {
             .iter()
             .filter_map(|extra| extra.parent())
             .any(|parent| path.starts_with(parent))
+            || (!self
+                .ignore_files
+                .iter()
+                .any(|files| path.starts_with(&files.root))
+                && self
+                    .extra_files
+                    .iter()
+                    .filter_map(|file| file.parent())
+                    .any(|parent| path.starts_with(parent)))
         {
             // A metadata directory may have an arbitrary name. Never crawl its objects or siblings.
             Some(true)
@@ -386,6 +409,43 @@ fn is_vcs_ignore(path: &Path, watch_vcs: bool) -> bool {
 #[cfg(test)]
 mod tests {
     #[test]
+    fn watched_files_preserve_source_siblings_and_bound_external_coverage() {
+        use super::{Options, WatchFilter};
+        use filesentry::Filter;
+
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        let external = tempfile::tempdir().unwrap();
+        let external = external.path().canonicalize().unwrap();
+        let filter = WatchFilter::new(&Options::default(), &root, std::iter::empty())
+            .with_extra_paths([root.join(".git/index")].into_iter())
+            .with_extra_files(
+                [
+                    root.join(".git-blame-ignore-revs"),
+                    root.join("src/ignored-revisions"),
+                    external.join("ignored-revisions"),
+                ]
+                .into_iter(),
+            );
+        for path in [
+            "file.txt",
+            "src/file.txt",
+            ".git-blame-ignore-revs",
+            "src/ignored-revisions",
+        ] {
+            assert!(
+                !filter.ignore_path_rec(&root.join(path), Some(false)),
+                "{path}"
+            );
+        }
+        assert!(filter.ignore_path_rec(&root.join(".git/objects/blob"), Some(false)));
+        assert!(filter.ignore_path_rec(&root.join(".hidden"), Some(false)));
+        assert!(!filter.ignore_path_rec(&external.join("ignored-revisions"), Some(false)));
+        assert!(filter.ignore_path_rec(&external.join("sibling.txt"), Some(false)));
+        assert!(filter.ignore_path(&external.join("nested"), Some(true)));
+    }
+
+    #[test]
     fn caller_supplied_ignore_files_control_native_coverage() {
         use super::{Options, WatchFilter};
         use filesentry::Filter;
@@ -483,6 +543,7 @@ mod tests {
         let ignores = builder.build().unwrap();
         let filter = WatchFilter {
             extra_paths: Vec::new(),
+            extra_files: Vec::new(),
             filesentry_ignores: Gitignore::empty(),
             ignore_files: vec![IgnoreFiles {
                 root: "/repo".into(),

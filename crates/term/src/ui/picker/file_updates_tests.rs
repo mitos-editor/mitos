@@ -519,7 +519,7 @@ async fn vcs_metadata_outside_the_worktree_refreshes_without_polling() -> anyhow
     std::fs::write(&index, "index")?;
     app.editor
         .file_watcher
-        .set_extra_watched_paths(vec![index.clone()]);
+        .set_extra_watched_paths(vec![index.clone()], Vec::new());
     let latest = worktree.path().join("latest.txt");
     let mut picker = Picker::new(
         app.editor.redraw().clone(),

@@ -115,6 +115,11 @@ pub fn get_watched_paths(path: &Path, trust_full: bool) -> Result<Vec<PathBuf>> 
     repository_watched_paths(&repo)
 }
 
+pub fn get_watched_files(path: &Path, trust_full: bool) -> Result<Vec<PathBuf>> {
+    let repo = open_repo(path, trust_full)?.to_thread_local();
+    crate::blame::watched_files(&repo)
+}
+
 pub(super) fn repository_watched_paths(repo: &Repository) -> Result<Vec<PathBuf>> {
     let git_dir = repo.git_dir().canonicalize()?;
     let common_dir = repo.common_dir().canonicalize()?;

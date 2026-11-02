@@ -125,8 +125,8 @@ impl Watcher {
         self.native.add_root(root);
         self.start_delivery();
     }
-    pub fn set_extra_watched_paths(&mut self, paths: Vec<PathBuf>) {
-        self.native.set_extra_watched_paths(paths);
+    pub fn set_extra_watched_paths(&mut self, paths: Vec<PathBuf>, files: Vec<PathBuf>) {
+        self.native.set_extra_watched_paths(paths, files);
         self.start_delivery();
     }
     pub fn poll_extra_paths(&mut self) -> bool {

@@ -36,10 +36,7 @@ struct BlameRange {
 
 #[cfg(feature = "git")]
 pub(super) fn watched_paths(repo: &gix::Repository) -> Result<Vec<PathBuf>> {
-    let mut paths = match repo.workdir() {
-        Some(workdir) => ignored::IgnoredRevisions::paths(repo, workdir),
-        None => Ok(Vec::new()),
-    }?;
+    let mut paths = Vec::new();
     let config = repo.config_snapshot();
     let revisions = config
         .plumbing()
@@ -63,6 +60,14 @@ pub(super) fn watched_paths(repo: &gix::Repository) -> Result<Vec<PathBuf>> {
         }
     }
     Ok(paths)
+}
+
+#[cfg(feature = "git")]
+pub(super) fn watched_files(repo: &gix::Repository) -> Result<Vec<PathBuf>> {
+    match repo.workdir() {
+        Some(workdir) => ignored::IgnoredRevisions::paths(repo, workdir),
+        None => Ok(Vec::new()),
+    }
 }
 
 impl FileBlame {
