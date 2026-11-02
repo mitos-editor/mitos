@@ -12,7 +12,10 @@ use std::{
     fmt, iter,
     ops::{self, RangeBounds},
     path::Path,
-    sync::{Arc, OnceLock},
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc, OnceLock,
+    },
     time::Duration,
 };
 
@@ -43,6 +46,18 @@ pub use tree_house::{
     query_iter::{CapturedMatch, QueryIterEvent, QueryMatchIter, QueryMatchIterEvent},
     Error as HighlighterError, LanguageLoader, TreeCursor, TREE_SITTER_MATCH_LIMIT,
 };
+
+static NEXT_REVISION: AtomicU64 = AtomicU64::new(1);
+fn next_revision() -> u64 {
+    NEXT_REVISION.fetch_add(1, Ordering::Relaxed)
+}
+#[derive(Debug)]
+struct HighlightRevision(AtomicU64);
+impl Default for HighlightRevision {
+    fn default() -> Self {
+        Self(AtomicU64::new(next_revision()))
+    }
+}
 
 #[derive(Debug)]
 pub struct LanguageData {
@@ -280,6 +295,7 @@ pub struct Loader {
     languages_glob_matcher: FileTypeGlobMatcher,
     language_server_configs: HashMap<String, LanguageServerConfiguration>,
     scopes: ArcSwap<Vec<String>>,
+    highlight_revision: HighlightRevision,
 }
 
 pub type LoaderError = globset::Error;
@@ -326,6 +342,7 @@ impl Loader {
             languages_glob_matcher: FileTypeGlobMatcher::new(file_type_globs)?,
             language_server_configs: config.language_server,
             scopes: ArcSwap::from_pointee(Vec::new()),
+            highlight_revision: HighlightRevision::default(),
         })
     }
 
@@ -476,14 +493,25 @@ impl Loader {
         self.refresh_highlights();
     }
 
+    /// Identity of the current highlight configuration, including in-place refreshes.
+    pub fn highlight_revision(&self) -> u64 {
+        self.highlight_revision.0.load(Ordering::Acquire)
+    }
+
     /// Apply the current theme's scopes to initialized languages.
     /// Background syntax initialization calls this before publishing its result,
     /// since a theme change may have missed queries that were still compiling.
     pub fn refresh_highlights(&self) {
+        self.highlight_revision
+            .0
+            .store(next_revision(), Ordering::Release);
         let scopes = self.scopes();
         for data in &self.languages {
             data.reconfigure(&scopes);
         }
+        self.highlight_revision
+            .0
+            .store(next_revision(), Ordering::Release);
     }
 }
 
@@ -607,11 +635,17 @@ impl FileTypeGlobMatcher {
 #[derive(Debug, Clone)]
 pub struct Syntax {
     inner: tree_house::Syntax,
+    revision: u64,
 }
 
 const PARSE_TIMEOUT: Duration = Duration::from_millis(500);
 
 impl Syntax {
+    /// Identity of this parsed state, including publication at an unchanged text version.
+    pub fn revision(&self) -> u64 {
+        self.revision
+    }
+
     /// Parse using the editor's interactive time budget.
     pub fn new(source: RopeSlice, language: Language, loader: &Loader) -> Result<Self, Error> {
         Self::new_with_timeout(source, language, loader, PARSE_TIMEOUT)
@@ -628,7 +662,10 @@ impl Syntax {
         timeout: Duration,
     ) -> Result<Self, Error> {
         let inner = tree_house::Syntax::new(source, language, timeout, loader)?;
-        Ok(Self { inner })
+        Ok(Self {
+            inner,
+            revision: next_revision(),
+        })
     }
 
     /// Parse, compiling only the root language's queries.
@@ -644,7 +681,13 @@ impl Syntax {
         loader.language(language).syntax_config(loader);
         let compiled = CompiledLanguages::new(loader);
         let inner = tree_house::Syntax::new(source, language, PARSE_TIMEOUT, &compiled)?;
-        Ok((Self { inner }, compiled.missing.into_inner()))
+        Ok((
+            Self {
+                inner,
+                revision: next_revision(),
+            },
+            compiled.missing.into_inner(),
+        ))
     }
 
     /// Like [`Self::update`], but never compiles queries for newly injected languages.
@@ -662,6 +705,7 @@ impl Syntax {
         if edits.is_empty() {
             Ok(())
         } else {
+            self.revision = next_revision();
             self.inner.update(
                 source,
                 PARSE_TIMEOUT,
@@ -682,6 +726,7 @@ impl Syntax {
         if edits.is_empty() {
             Ok(())
         } else {
+            self.revision = next_revision();
             self.inner.update(source, PARSE_TIMEOUT, &edits, loader)
         }
     }

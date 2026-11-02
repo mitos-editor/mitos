@@ -130,8 +130,18 @@ impl Loader {
     }
 }
 
+#[derive(Debug, Clone)]
+struct ThemeRevision(u64);
+impl Default for ThemeRevision {
+    fn default() -> Self {
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+        Self(NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed))
+    }
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct Theme {
+    revision: ThemeRevision,
     name: String,
 
     // UI styles are stored in a HashMap
@@ -248,6 +258,11 @@ fn default_rainbow() -> Vec<Style> {
     ]
 }
 impl Theme {
+    /// Identity of immutable resolved styles. Clones retain the same revision.
+    pub fn revision(&self) -> u64 {
+        self.revision.0
+    }
+
     /// To allow `Highlight` to represent arbitrary RGB colors without turning it into an enum,
     /// we interpret the last 256^3 numbers as RGB.
     const RGB_START: u32 = (u32::MAX << (8 + 8 + 8)) - 1 - (u32::MAX - Highlight::MAX);

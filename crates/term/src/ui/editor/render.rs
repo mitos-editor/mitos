@@ -29,6 +29,8 @@ use view::{
     Document, Editor, View, ViewId,
 };
 
+mod syntax_cache;
+
 #[derive(Clone, Copy)]
 pub(super) struct PaneOptions {
     pub area: Rect,
@@ -39,6 +41,7 @@ pub(super) struct PaneOptions {
 
 #[derive(Default)]
 pub(super) struct PaneRenderer {
+    syntax: HashMap<ViewId, syntax_cache::ViewportSyntaxCache>,
     spinners: ProgressSpinners,
     images: HashMap<ViewId, ImageDocumentView>,
 }
@@ -66,6 +69,8 @@ impl PaneRenderer {
                     .is_some_and(Document::is_binary)
             })
         });
+        self.syntax
+            .retain(|id, _| editor.tree.try_get(*id).is_some());
         for (view, is_focused) in editor.tree.views() {
             let doc = editor.document(view.document_id()).unwrap();
             let content = view.content_area(doc);
@@ -86,6 +91,7 @@ impl PaneRenderer {
                 }
             }
             Self::render_view(
+                self.syntax.entry(view.id).or_default(),
                 editor,
                 options,
                 editor.completion_presentation(doc),
@@ -263,8 +269,9 @@ impl PaneRenderer {
             .render(footer_area, surface);
     }
 
-    #[allow(clippy::too_many_lines)]
+    #[allow(clippy::too_many_lines, clippy::too_many_arguments)]
     fn render_view(
+        syntax_cache: &mut syntax_cache::ViewportSyntaxCache,
         editor: &Editor,
         options: PaneOptions,
         doc: &Document,
@@ -273,6 +280,9 @@ impl PaneRenderer {
         surface: &mut Surface,
         is_focused: bool,
     ) {
+        if doc.is_binary() || doc.review().is_some() {
+            *syntax_cache = syntax_cache::ViewportSyntaxCache::default();
+        }
         if doc.is_binary() {
             Self::render_view_border(editor, view, viewport, surface);
             return;
@@ -465,7 +475,22 @@ impl PaneRenderer {
                 hidden_line,
             ));
         }
-        render_document(surface, doc, &layout, overlays, theme, decorations);
+        if doc.review().is_some() {
+            render_document(surface, doc, &layout, overlays, theme, decorations);
+        } else {
+            let styles = syntax_cache.styles(doc, &layout, editor.theme.revision(), || {
+                highlights::document_syntax_styles(doc, &layout, theme)
+            });
+            super::super::document::render_document_with_styles(
+                surface,
+                doc,
+                &layout,
+                overlays,
+                theme,
+                decorations,
+                styles,
+            );
+        }
 
         if editor.config().welcome_screen && doc.version() == 0 && doc.is_welcome {
             Self::render_welcome(theme, inner, surface, options.true_color);
