@@ -1,7 +1,200 @@
 #[cfg(feature = "git")]
 mod git {
     use super::super::*;
-    use crate::git::test::{create_commit_with_message, empty_git_repo};
+    use crate::git::test::{create_commit_with_message, empty_git_repo, exec_git_cmd};
+
+    fn ignored_history() -> (tempfile::TempDir, PathBuf, String, String) {
+        let repo = empty_git_repo();
+        let file = repo.path().join("file.txt");
+        std::fs::write(repo.path().join(".gitattributes"), "* text eol=lf\n").unwrap();
+        std::fs::write(&file, "first = 1\nsecond = 2\n").unwrap();
+        create_commit_with_message(repo.path(), true, "initial");
+        let head = || {
+            crate::git::open_repo(repo.path(), true)
+                .unwrap()
+                .to_thread_local()
+                .head_commit()
+                .unwrap()
+                .id
+                .to_string()
+        };
+        let initial = head();
+        std::fs::write(&file, "first  =  1\nsecond  =  2\n").unwrap();
+        create_commit_with_message(repo.path(), true, "formatting");
+        let ignored = head();
+        (repo, file, initial, ignored)
+    }
+
+    #[test]
+    fn configured_ignore_revs_file_reassigns_commits() {
+        let (repo, file, initial, ignored) = ignored_history();
+        std::fs::write(
+            repo.path().join("ignored revisions"),
+            format!("# formatting commits\n\n{ignored} # reformat\n"),
+        )
+        .unwrap();
+        exec_git_cmd(
+            &["config", "blame.ignoreRevsFile", "ignored revisions"],
+            repo.path(),
+        );
+        std::fs::write(&file, "first  =  1\nsecond = 3\n").unwrap();
+        create_commit_with_message(repo.path(), true, "change value");
+        std::fs::write(&file, "uncommitted\n").unwrap();
+        for trusted in [true, false] {
+            let blame = FileBlame::try_new(file.clone(), trusted).unwrap();
+            assert_eq!(blame.blame_for_line(0).unwrap().commit_id, initial);
+            assert_eq!(
+                blame.blame_for_line(1).unwrap().parse_format("{title}"),
+                "change value"
+            );
+            assert!(blame.blame_for_line(2).is_none());
+        }
+    }
+
+    #[test]
+    fn conventional_ignore_revs_file_is_used_without_configuration() {
+        let (repo, file, initial, ignored) = ignored_history();
+        std::fs::write(repo.path().join(".git-blame-ignore-revs"), ignored).unwrap();
+        let blame = FileBlame::try_new(file, true).unwrap();
+        assert_eq!(blame.blame_for_line(0).unwrap().commit_id, initial);
+    }
+
+    #[test]
+    fn configured_ignore_revs_reassigns_commits() {
+        let (repo, file, initial, ignored) = ignored_history();
+        exec_git_cmd(
+            &["config", "--add", "blame.ignoreRevs", "missing"],
+            repo.path(),
+        );
+        exec_git_cmd(&["config", "--add", "blame.ignoreRevs", ""], repo.path());
+        exec_git_cmd(
+            &["config", "--add", "blame.ignoreRevs", &ignored],
+            repo.path(),
+        );
+        let blame = FileBlame::try_new(file, true).unwrap();
+        assert_eq!(blame.blame_for_line(0).unwrap().commit_id, initial);
+    }
+
+    #[test]
+    fn refresh_tracks_moved_ignored_revision_names() {
+        let (repo, file, initial, ignored) = ignored_history();
+        exec_git_cmd(&["tag", "ignored", &ignored], repo.path());
+        exec_git_cmd(&["config", "blame.ignoreRevs", "ignored"], repo.path());
+        let original = FileBlame::try_new(file.clone(), true).unwrap();
+        assert_eq!(original.blame_for_line(0).unwrap().commit_id, initial);
+        exec_git_cmd(&["tag", "-f", "ignored", &initial], repo.path());
+        let refreshed = FileBlame::try_refresh(file, true, Some(original.clone())).unwrap();
+        assert!(!Arc::ptr_eq(&original, &refreshed));
+        assert_eq!(refreshed.blame_for_line(0).unwrap().commit_id, ignored);
+    }
+
+    #[test]
+    fn refresh_tracks_ignore_configuration_and_file_contents() {
+        let (repo, file, initial, ignored) = ignored_history();
+        let original = FileBlame::try_new(file.clone(), true).unwrap();
+        let ignore_file = repo.path().join(".git-blame-ignore-revs");
+        std::fs::write(&ignore_file, &ignored).unwrap();
+        let refreshed = FileBlame::try_refresh(file.clone(), true, Some(original.clone())).unwrap();
+        assert!(!Arc::ptr_eq(&original, &refreshed));
+        assert_eq!(refreshed.blame_for_line(0).unwrap().commit_id, initial);
+        let cached = FileBlame::try_refresh(file.clone(), true, Some(refreshed.clone())).unwrap();
+        assert!(Arc::ptr_eq(&refreshed, &cached));
+        std::fs::write(&ignore_file, "").unwrap();
+        let cleared = FileBlame::try_refresh(file.clone(), true, Some(refreshed)).unwrap();
+        assert_eq!(cleared.blame_for_line(0).unwrap().commit_id, ignored);
+        exec_git_cmd(&["config", "blame.ignoreRevs", &ignored], repo.path());
+        let configured = FileBlame::try_refresh(file, true, Some(cleared)).unwrap();
+        assert_eq!(configured.blame_for_line(0).unwrap().commit_id, initial);
+    }
+
+    #[test]
+    fn ignore_revs_file_configuration_can_be_reset() {
+        let (repo, file, initial, ignored) = ignored_history();
+        std::fs::write(repo.path().join(".git-blame-ignore-revs"), &ignored).unwrap();
+        exec_git_cmd(
+            &[
+                "config",
+                "--add",
+                "blame.ignoreRevsFile",
+                ".git-blame-ignore-revs",
+            ],
+            repo.path(),
+        );
+        exec_git_cmd(
+            &["config", "--add", "blame.ignoreRevsFile", ""],
+            repo.path(),
+        );
+        let reset = FileBlame::try_new(file.clone(), true).unwrap();
+        assert_eq!(reset.blame_for_line(0).unwrap().commit_id, ignored);
+        exec_git_cmd(
+            &[
+                "config",
+                "--add",
+                "blame.ignoreRevsFile",
+                ".git-blame-ignore-revs",
+            ],
+            repo.path(),
+        );
+        let blame = FileBlame::try_refresh(file.clone(), true, Some(reset)).unwrap();
+        assert_eq!(blame.blame_for_line(0).unwrap().commit_id, initial);
+        std::fs::write(
+            repo.path().join(".git-blame-ignore-revs"),
+            "invalid revision\n",
+        )
+        .unwrap();
+        assert!(FileBlame::try_refresh(file, true, Some(blame)).is_err());
+    }
+
+    #[test]
+    fn ignored_history_follows_renames_in_linked_worktrees() {
+        let (repo, _file, initial, ignored) = ignored_history();
+        std::fs::create_dir(repo.path().join("nested")).unwrap();
+        let renamed = "nested/-renamed é.txt";
+        exec_git_cmd(&["mv", "file.txt", renamed], repo.path());
+        create_commit_with_message(repo.path(), true, "rename");
+        exec_git_cmd(
+            &["worktree", "add", "-b", "linked", "worktree"],
+            repo.path(),
+        );
+        let worktree = repo.path().join("worktree");
+        std::fs::write(worktree.join(".git-blame-ignore-revs"), ignored).unwrap();
+        let file = worktree.join(renamed);
+        for file in [file.clone(), file.canonicalize().unwrap()] {
+            let blame = FileBlame::try_new(file, false).unwrap();
+            assert_eq!(blame.blame_for_line(0).unwrap().commit_id, initial);
+            assert_eq!(blame.blame_for_line(1).unwrap().commit_id, initial);
+        }
+    }
+
+    #[test]
+    fn ignored_revisions_do_not_run_repository_programs() {
+        let (repo, file, initial, ignored) = ignored_history();
+        std::fs::write(repo.path().join(".git-blame-ignore-revs"), ignored).unwrap();
+        std::fs::write(
+            repo.path().join(".gitattributes"),
+            "* text eol=lf diff=external filter=external\n",
+        )
+        .unwrap();
+        let marker = repo.path().join("blame-command-ran");
+        for key in [
+            "diff.external",
+            "diff.external.command",
+            "diff.external.textconv",
+            "filter.external.smudge",
+            "filter.external.clean",
+            "core.fsmonitor",
+        ] {
+            exec_git_cmd(
+                &["config", key, "echo executed > blame-command-ran"],
+                repo.path(),
+            );
+        }
+        for trusted in [false, true] {
+            let blame = FileBlame::try_new(file.clone(), trusted).unwrap();
+            assert_eq!(blame.blame_for_line(0).unwrap().commit_id, initial);
+            assert!(!marker.exists(), "Blame ran a repository program");
+        }
+    }
 
     #[test]
     fn committed_history_tracks_insertions_deletions_and_replacements() {

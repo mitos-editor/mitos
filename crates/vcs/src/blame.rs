@@ -7,6 +7,9 @@ use anyhow::Result;
 
 mod time;
 
+#[cfg(feature = "git")]
+mod ignored;
+
 /// Blame for the committed version of a file, with commit metadata prepared off-thread.
 #[derive(Debug)]
 pub struct FileBlame {
@@ -22,12 +25,49 @@ struct BlameSource {
     path: PathBuf,
     revision: gix::ObjectId,
     trust_full: bool,
+    ignored: ignored::IgnoredRevisions,
 }
 
 #[derive(Debug)]
 struct BlameRange {
     lines: Range<u32>,
     commit: usize,
+}
+
+#[cfg(feature = "git")]
+pub(super) fn watched_paths(repo: &gix::Repository) -> Result<Vec<PathBuf>> {
+    let mut paths = Vec::new();
+    let config = repo.config_snapshot();
+    let revisions = config
+        .plumbing()
+        .strings("blame.ignoreRevs")
+        .unwrap_or_default();
+    for revision in revisions
+        .rsplit(|value| value.is_empty())
+        .next()
+        .unwrap_or_default()
+    {
+        if let Ok(spec) = repo.rev_parse(revision.as_ref())
+            && let Some(reference) = spec.first_reference()
+        {
+            let name = reference.name.as_bstr();
+            let directory = if name.starts_with(b"refs/") {
+                repo.common_dir()
+            } else {
+                repo.git_dir()
+            };
+            paths.push(directory.join(&*gix::path::try_from_bstr(name)?));
+        }
+    }
+    Ok(paths)
+}
+
+#[cfg(feature = "git")]
+pub(super) fn watched_files(repo: &gix::Repository) -> Result<Vec<PathBuf>> {
+    match repo.workdir() {
+        Some(workdir) => ignored::IgnoredRevisions::paths(repo, workdir),
+        None => Ok(Vec::new()),
+    }
 }
 
 impl FileBlame {
@@ -46,7 +86,7 @@ impl FileBlame {
         Self::try_refresh(file, trust_full, None)
     }
 
-    /// Reuse a snapshot only when its canonical path, HEAD commit and trust match.
+    /// Reuse a snapshot only when its path, HEAD, trust and ignored revisions match.
     #[cfg(not(feature = "git"))]
     pub fn try_refresh(
         _file: PathBuf,
@@ -71,29 +111,32 @@ impl FileBlame {
             .context("Failed to open git repo")?
             .to_thread_local();
         let head = repo.head_commit()?.id;
+        let workdir = repo
+            .workdir()
+            .context("Git blame requires a working tree")?;
+        // Git's linked-worktree metadata can omit the Windows verbatim prefix.
+        let workdir = stdx::path::canonicalize_existing(workdir);
         let source = BlameSource {
             path: file.clone(),
             revision: head,
             trust_full,
+            ignored: ignored::IgnoredRevisions::read(&repo, &workdir)?,
         };
         if let Some(cached) = cached
             && cached.source == source
         {
             return Ok(cached);
         }
-        let workdir = repo
-            .workdir()
-            .context("Git blame requires a working tree")?;
-        // Git's linked-worktree metadata can omit the Windows verbatim prefix.
-        // Canonicalize both sides before comparing paths, allowing a missing file.
-        let workdir = stdx::path::canonicalize_existing(workdir);
         // Use the working tree root, including linked worktrees and subdirectories.
         let path = gix::path::to_unix_separators_on_windows(gix::path::try_into_bstr(
             file.strip_prefix(&workdir)?,
         )?);
-        let entries = repo
-            .blame_file(path.as_ref(), head, Default::default())?
-            .entries;
+        let entries = if source.ignored.is_empty() {
+            repo.blame_file(path.as_ref(), head, Default::default())?
+                .entries
+        } else {
+            source.ignored.blame(&repo, &workdir, path.as_ref(), head)?
+        };
         let mut commit_indices = HashMap::new();
         let mut commits = Vec::new();
         let mut ranges = Vec::with_capacity(entries.len());

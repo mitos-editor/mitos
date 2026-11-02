@@ -835,6 +835,7 @@ impl Editor {
     /// Include the workspace and repositories for every open document, including linked worktrees.
     pub fn refresh_vcs_watches(&mut self) {
         let mut paths = Vec::new();
+        let mut files = Vec::new();
         for doc in self.documents.values() {
             if let Some(review) = doc.review().filter(|review| review.is_live())
                 && let Some(parent) = review.path().parent()
@@ -849,6 +850,7 @@ impl Editor {
                 .query(&root, workspace::trust::TrustQuery::Git)
                 .is_trusted();
             paths.extend(self.diff_providers.get_watched_paths(&root, trusted));
+            files.extend(self.diff_providers.get_watched_files(&root, trusted));
             for doc in self.documents.values() {
                 let Some(path) = doc
                     .path()
@@ -869,9 +871,10 @@ impl Editor {
                     .query(workspace, workspace::trust::TrustQuery::Git)
                     .is_trusted();
                 paths.extend(self.diff_providers.get_watched_paths(path, trust_full));
+                files.extend(self.diff_providers.get_watched_files(path, trust_full));
             }
         }
-        self.file_watcher.set_extra_watched_paths(paths);
+        self.file_watcher.set_extra_watched_paths(paths, files);
     }
 
     /// The frontend destination bound to this editor during construction.

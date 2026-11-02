@@ -66,6 +66,18 @@ pub struct DiffProviderRegistry {
 }
 
 impl DiffProviderRegistry {
+    /// Files whose changes invalidate VCS state without excluding neighboring source files.
+    pub fn get_watched_files(&self, _path: &Path, _trust_full: bool) -> Vec<PathBuf> {
+        self.providers
+            .iter()
+            .flat_map(|provider| match provider {
+                #[cfg(feature = "git")]
+                DiffProvider::Git => git::get_watched_files(_path, _trust_full).unwrap_or_default(),
+                DiffProvider::None => Vec::new(),
+            })
+            .collect()
+    }
+
     /// Git metadata whose changes invalidate status, branch names, and document diff bases.
     pub fn get_watched_paths(&self, path: &Path, trust_full: bool) -> Vec<PathBuf> {
         self.providers

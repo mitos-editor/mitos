@@ -77,6 +77,7 @@ pub struct Watcher {
     config: Options,
     is_workspace: bool,
     extra_watched_paths: Vec<(PathBuf, Option<SystemTime>)>,
+    extra_watched_files: Vec<PathBuf>,
 }
 
 impl Watcher {
@@ -103,6 +104,7 @@ impl Watcher {
             config: config.clone(),
             is_workspace,
             extra_watched_paths: Vec::new(),
+            extra_watched_files: Vec::new(),
         };
         watcher.reload(config, &workspace, is_workspace);
         (watcher, receiver)
@@ -135,8 +137,10 @@ impl Watcher {
             .with_extra_paths(
                 self.extra_watched_paths
                     .iter()
+                    .filter(|(path, _)| !self.extra_watched_files.contains(path))
                     .map(|(path, _)| path.clone()),
-            ),
+            )
+            .with_extra_files(self.extra_watched_files.iter().cloned()),
         );
         let has_metadata = config.watch_vcs && !self.extra_watched_paths.is_empty();
         if !config.enable
@@ -223,8 +227,10 @@ impl Watcher {
             .with_extra_paths(
                 self.extra_watched_paths
                     .iter()
+                    .filter(|(path, _)| !self.extra_watched_files.contains(path))
                     .map(|(path, _)| path.clone()),
-            ),
+            )
+            .with_extra_files(self.extra_watched_files.iter().cloned()),
         );
         if let Some((watcher, _)) = &self.watcher {
             watcher.set_filter(self.filter.clone(), true);
@@ -253,23 +259,32 @@ impl Watcher {
         }
     }
 
-    /// Watch explicit VCS metadata, retaining polling when native watching is unavailable.
+    /// Watch VCS metadata and individual files, retaining polling when native watching is unavailable.
+    /// Metadata excludes siblings; individual files preserve normal source-file coverage.
     /// Preserve timestamps when the set is refreshed so changes are not swallowed.
-    pub fn set_extra_watched_paths(&mut self, mut paths: Vec<PathBuf>) {
+    pub fn set_extra_watched_paths(&mut self, mut paths: Vec<PathBuf>, mut files: Vec<PathBuf>) {
+        for file in &mut files {
+            *file = canonicalize_existing(file);
+        }
+        files.sort();
+        files.dedup();
+        paths.extend(files.iter().cloned());
         for path in &mut paths {
             // Keep the native representation, including verbatim Windows prefixes.
             *path = canonicalize_existing(path);
         }
         paths.sort();
         paths.dedup();
-        if self
-            .extra_watched_paths
-            .iter()
-            .map(|(path, _)| path)
-            .eq(paths.iter())
+        if self.extra_watched_files == files
+            && self
+                .extra_watched_paths
+                .iter()
+                .map(|(path, _)| path)
+                .eq(paths.iter())
         {
             return;
         }
+        self.extra_watched_files = files;
         let old = std::mem::take(&mut self.extra_watched_paths);
         self.extra_watched_paths = paths
             .into_iter()
@@ -345,12 +360,12 @@ mod tests {
             dir.path(),
             true,
         );
-        watcher.set_extra_watched_paths(vec![path.clone()]);
+        watcher.set_extra_watched_paths(vec![path.clone()], Vec::new());
         let native_path = dir.path().canonicalize().unwrap().join("HEAD");
         assert!(watcher.is_vcs_path(&native_path));
         assert!(!watcher.poll_extra_paths());
         std::fs::write(&path, "ref: refs/heads/main\n").unwrap();
-        watcher.set_extra_watched_paths(vec![path.clone(), path.clone()]);
+        watcher.set_extra_watched_paths(vec![path.clone(), path.clone()], Vec::new());
         assert!(watcher.is_vcs_path(&path.canonicalize().unwrap()));
         assert!(watcher.poll_extra_paths());
         assert!(!watcher.poll_extra_paths());

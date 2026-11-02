@@ -389,6 +389,65 @@ fn symlink_to_git_repo() {
 }
 
 #[test]
+fn ignored_revision_paths_use_the_git_installation_prefix() {
+    let repo = empty_git_repo();
+    exec_git_cmd(
+        &[
+            "config",
+            "blame.ignoreRevsFile",
+            "%(prefix)/ignored-revisions",
+        ],
+        repo.path(),
+    );
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(repo.path())
+        .args(["config", "--path", "--get", "blame.ignoreRevsFile"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let expected = Path::new(std::str::from_utf8(&output.stdout).unwrap().trim_end());
+    let paths = git::get_watched_files(repo.path(), false).unwrap();
+    assert!(paths.contains(&expected.to_path_buf()));
+}
+
+#[test]
+fn watched_paths_include_ignored_revision_files_before_creation() {
+    let repo = empty_git_repo();
+    std::fs::write(repo.path().join("file.txt"), "line\n").unwrap();
+    create_commit_with_message(repo.path(), true, "initial");
+    exec_git_cmd(&["tag", "ignored"], repo.path());
+    exec_git_cmd(&["config", "blame.ignoreRevs", "ignored"], repo.path());
+    let conventional = repo.path().join(".git-blame-ignore-revs");
+    let paths = git::get_watched_paths(repo.path(), false).unwrap();
+    assert!(paths.contains(&repo.path().join(".git/refs/tags/ignored")));
+    assert!(!paths.contains(&conventional));
+    assert!(git::get_watched_files(repo.path(), false)
+        .unwrap()
+        .contains(&conventional));
+    let external = tempfile::tempdir().unwrap();
+    let configured = external.path().join("ignored revisions");
+    exec_git_cmd(
+        &[
+            "config",
+            "blame.ignoreRevsFile",
+            configured.to_str().unwrap(),
+        ],
+        repo.path(),
+    );
+    let paths = git::get_watched_files(repo.path(), false).unwrap();
+    assert!(paths.contains(&configured));
+    assert!(!paths.contains(&conventional));
+    exec_git_cmd(
+        &["config", "--add", "blame.ignoreRevsFile", ""],
+        repo.path(),
+    );
+    let paths = git::get_watched_files(repo.path(), false).unwrap();
+    assert!(!paths.contains(&configured));
+    assert!(!paths.contains(&conventional));
+}
+
+#[test]
 fn watched_paths_include_branch_refs_and_linked_worktree_metadata() {
     let repo = empty_git_repo();
     std::fs::write(repo.path().join("file.txt"), "hello\n").unwrap();
