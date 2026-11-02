@@ -73,6 +73,11 @@ pub enum PickerItemAction {
     ApplyStashWithIndex,
     #[serde(rename = "back")]
     HistoryBack,
+    CreatePath,
+    MovePath,
+    CopyPath,
+    DeletePath,
+    YankPath,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
@@ -126,6 +131,7 @@ pub struct ComponentKeymaps {
     pub git_picker: Keymap<PickerAction>,
     pub stash_picker: Keymap<PickerAction>,
     pub history_picker: Keymap<PickerAction>,
+    pub file_explorer: Keymap<PickerAction>,
     pub menu: Keymap<MenuAction>,
     pub popup: Keymap<PopupAction>,
     pub hover: Keymap<PageAction>,
@@ -174,6 +180,18 @@ impl ComponentKeymaps {
         shared.merge(bindings(&[
             ("A-a", PickerAction::Item(PickerItemAction::Actions)),
             ("A-h", PickerAction::Item(PickerItemAction::HistoryBack)),
+        ]));
+        shared
+    }
+
+    pub fn file_explorer(mut shared: Keymap<PickerAction>) -> Keymap<PickerAction> {
+        use PickerItemAction as I;
+        shared.merge(bindings(&[
+            ("A-n", PickerAction::Item(I::CreatePath)),
+            ("A-m", PickerAction::Item(I::MovePath)),
+            ("A-c", PickerAction::Item(I::CopyPath)),
+            ("A-d", PickerAction::Item(I::DeletePath)),
+            ("A-y", PickerAction::Item(I::YankPath)),
         ]));
         shared
     }
@@ -274,6 +292,7 @@ impl Default for ComponentKeymaps {
             git_picker: Self::git_picker(picker.clone()),
             stash_picker: Self::stash_picker(picker.clone()),
             history_picker: Self::history_picker(picker.clone()),
+            file_explorer: Self::file_explorer(picker.clone()),
             picker,
             menu: bindings(&[
                 ("esc", M::Cancel),

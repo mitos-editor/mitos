@@ -462,6 +462,63 @@ fn quicklist_picker_keys_inherit_shared_bindings_with_specific_overrides() {
 }
 
 #[test]
+fn file_explorer_keys_default_to_alt_actions_and_can_be_remapped() {
+    use crate::keymap::component::{PickerAction as P, PickerItemAction as I};
+    use ui_core::keymap::{KeymapState, Lookup};
+
+    let mut state = KeymapState::default();
+    let defaults = Config::default().component_keys;
+    for (key, action) in [
+        ("A-n", I::CreatePath),
+        ("A-m", I::MovePath),
+        ("A-c", I::CopyPath),
+        ("A-d", I::DeletePath),
+        ("A-y", I::YankPath),
+    ] {
+        assert_eq!(
+            state.lookup(&defaults.file_explorer, key.parse().unwrap()),
+            Lookup::Actions(&[P::Item(action)])
+        );
+    }
+    // Other pickers keep their bindings for the same keys.
+    assert_eq!(
+        state.lookup(&defaults.picker, "A-c".parse().unwrap()),
+        Lookup::Actions(&[P::ToggleCaseSensitive])
+    );
+
+    let global = r#"
+        [keys.picker]
+        C-j = 'move_down'
+        [keys.file-explorer]
+        A-d = 'unbound'
+        F2 = 'move_path'
+        S-del = 'delete_path'
+    "#
+    .to_owned();
+    let config = Config::load(Ok(&global), Ok(String::new())).unwrap();
+    let keys = &config.component_keys.file_explorer;
+    assert_eq!(state.lookup(keys, "A-d".parse().unwrap()), Lookup::Unbound);
+    assert_eq!(
+        state.lookup(keys, "F2".parse().unwrap()),
+        Lookup::Actions(&[P::Item(I::MovePath)])
+    );
+    assert_eq!(
+        state.lookup(keys, "S-del".parse().unwrap()),
+        Lookup::Actions(&[P::Item(I::DeletePath)])
+    );
+    assert_eq!(
+        state.lookup(keys, "C-j".parse().unwrap()),
+        Lookup::Actions(&[P::MoveDown])
+    );
+    // Explorer actions are local to the explorer table.
+    assert!(Config::load(
+        Ok(&"[keys.picker]\nF2 = 'move_path'".to_owned()),
+        Ok(String::new())
+    )
+    .is_err());
+}
+
+#[test]
 fn terminal_settings_keep_editor_table_and_merge_precedence() {
     assert_eq!(Config::load_test("").terminal, TerminalConfig::default());
     let global = "[editor]\ntrue-color = true\nundercurl = true\nkitty-keyboard-protocol = 'disabled'\nscrolloff = 7".to_owned();

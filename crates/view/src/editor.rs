@@ -93,6 +93,7 @@ pub struct Editor {
 
     writes: WriteQueue,
     file_operation: event::TaskController,
+    file_operation_revision: u64,
 
     pub count: Option<std::num::NonZeroUsize>,
     pub selected_register: Option<char>,
@@ -242,6 +243,7 @@ impl Editor {
             documents: Documents::new(),
             writes: WriteQueue::default(),
             file_operation: event::TaskController::default(),
+            file_operation_revision: 0,
             count: None,
             selected_register: None,
             macro_recording: None,

@@ -167,6 +167,36 @@
 | `` <C-t> `` | `` toggle_preview `` |
 | `` <A-r> `` | `` toggle_replacement `` |
 
+## File explorer
+
+| Key | Action |
+| --- | --- |
+| `` <ret> `` | `` accept `` |
+| `` <C-s> `` | `` accept_horizontal_split `` |
+| `` <A-ret> `` | `` accept_keep_open `` |
+| `` <C-v> `` | `` accept_vertical_split `` |
+| `` <C-c> ``, `` <esc> `` | `` cancel `` |
+| `` <A-c> `` | `` copy_path `` |
+| `` <A-n> `` | `` create_path `` |
+| `` <A-d> `` | `` delete_path `` |
+| `` <C-n> ``, `` <tab> ``, `` <down> `` | `` move_down `` |
+| `` <end> `` | `` move_end `` |
+| `` <A-m> `` | `` move_path `` |
+| `` <home> `` | `` move_start `` |
+| `` <up> ``, `` <C-p> ``, `` <S-tab> `` | `` move_up `` |
+| `` <A-o> `` | `` open_preview `` |
+| `` <C-d> ``, `` <pagedown> `` | `` page_down `` |
+| `` <C-u> ``, `` <pageup> `` | `` page_up `` |
+| `` <C-q> `` | `` populate_quicklist `` |
+| `` <A-right> `` | `` preview_next `` |
+| `` <A-left> `` | `` preview_previous `` |
+| `` <A-j> ``, `` <A-down> `` | `` preview_scroll_down `` |
+| `` <A-k> ``, `` <A-up> `` | `` preview_scroll_up `` |
+| `` <C-ret> ``, `` <Meta-ret> `` | `` replace_all `` |
+| `` <C-t> `` | `` toggle_preview `` |
+| `` <A-r> `` | `` toggle_replacement `` |
+| `` <A-y> `` | `` yank_path `` |
+
 ## Prompt
 
 | Key | Action |

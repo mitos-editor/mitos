@@ -6,6 +6,7 @@ pub(crate) mod debugger_stack;
 pub(crate) mod debugger_variables;
 mod document;
 pub(crate) mod editor;
+mod file_explorer;
 mod gutter;
 pub(crate) mod highlights;
 mod icons;
@@ -338,7 +339,7 @@ pub fn file_picker(editor: &Editor, root: PathBuf) -> FilePicker {
     picker
 }
 
-type FileExplorer = Picker<(PathBuf, bool), (PathBuf, Arc<Theme>, bool)>;
+type FileExplorer = Picker<file_explorer::ExplorerItem, file_explorer::ExplorerData>;
 
 pub fn file_explorer(root: PathBuf, editor: &Editor) -> Result<FileExplorer, std::io::Error> {
     let options = directory_content(&root, &editor.config().file_explorer)?;
@@ -449,7 +450,9 @@ pub fn file_explorer(root: PathBuf, editor: &Editor) -> Result<FileExplorer, std
             })
         },
     )
-    .with_item_key(|(path, _)| path.clone());
+    .with_refresh_generation(editor, Editor::file_operation_revision)
+    .with_item_key(|(path, _)| path.clone())
+    .with_item_data_actions(|maps| &maps.file_explorer, file_explorer::action);
 
     Ok(picker)
 }

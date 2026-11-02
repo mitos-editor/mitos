@@ -103,6 +103,22 @@ go to its parent. The query filters entries in the directory being displayed.
 
 Supported [images](./image-previews.md) also appear in the preview pane.
 
+Manage files without leaving the explorer:
+
+| Key | Action |
+| --- | --- |
+| `Alt-n` | Create a file in the shown directory. End the path with `/` to create a directory. |
+| `Alt-m` | Move or rename the selected entry. Open buffers follow the move. |
+| `Alt-c` | Copy the selected file. |
+| `Alt-d` | Delete the selected entry after you answer `y`. Directories are deleted with their contents. |
+| `Alt-y` | Yank the selected path to the default yank register. |
+
+Paths are shown relative to the working directory. Moving or copying onto an
+existing directory puts the entry inside it. Existing files are never
+overwritten, and missing parent directories are created. Language servers are
+notified of each change, as with `:move`. Remap these keys under
+[`[keys.file-explorer]`](./remapping.md).
+
 ## Hidden and ignored files
 
 The file picker and global search omit hidden and ignored files by default.

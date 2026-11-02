@@ -88,6 +88,9 @@ C-x = "actions"
 [keys.stash-picker]
 C-x = "apply_stash"
 
+[keys.file-explorer]
+F2 = "move_path"
+
 [keys.prompt]
 C-j = "accept"
 C-x = { h = "move_start", l = "move_end" }
@@ -140,6 +143,7 @@ belong in `keys.normal`, `keys.insert`, and `keys.select`.
 | `keys.git-picker` | All `keys.picker` actions, plus `stage`, `unstage`, `stash`, `actions`, `stashes` |
 | `keys.stash-picker` | All `keys.picker` actions, plus `apply_stash`, `apply_stash_with_index`, `actions` |
 | `keys.history-picker` | All `keys.picker` actions, plus `actions`, `back` |
+| `keys.file-explorer` | All `keys.picker` actions, plus `create_path`, `move_path`, `copy_path`, `delete_path`, `yank_path` |
 | `keys.menu` | `accept`, `cancel`, `move_up`, `move_down`, `page_up`, `page_down` |
 | `keys.popup` | `cancel`, `scroll_up`, `scroll_down` |
 | `keys.hover`, `keys.signature-help` | `previous`, `next` |
@@ -150,7 +154,8 @@ All component tables also accept `no_op` and `unbound`. Popup scrolling and menu
 paging move by half a page. Picker paging moves by a full page.
 
 `keys.buffer-picker`, `keys.quicklist-picker`, `keys.git-picker`,
-`keys.stash-picker`, and `keys.history-picker` inherit `keys.picker`.
+`keys.stash-picker`, `keys.history-picker`, and `keys.file-explorer` inherit
+`keys.picker`.
 Picker-specific bindings take priority over shared picker bindings, including
 ones from project configuration. The quicklist picker also binds `Ctrl-x` to
 `remove_entry` by default.

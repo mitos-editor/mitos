@@ -85,6 +85,7 @@ impl Editor {
             if existing.mutation_outcome(result)? == MutationOutcome::Ignored {
                 return Ok(());
             }
+            self.file_operation_revision += 1;
         }
 
         self.retarget_moved_documents(old_path, &new_path);
@@ -162,6 +163,7 @@ impl Editor {
         if existing.mutation_outcome(result)? == MutationOutcome::Ignored {
             return Ok(());
         }
+        self.file_operation_revision += 1;
 
         for ls in self.language_servers.iter_clients() {
             if !ls.is_initialized() {
@@ -175,6 +177,58 @@ impl Editor {
                 .file_changed(path, lsp::FileChangeType::CREATED);
         }
         Ok(())
+    }
+
+    /// Copy a regular file to a new path, creating missing parent directories.
+    /// An existing destination is never overwritten.
+    pub(crate) fn copy_path(&mut self, from: &Path, to: &Path) -> io::Result<()> {
+        let to = canonicalize(to);
+        if fs::metadata(from)?.is_dir() {
+            return Err(io::Error::new(
+                io::ErrorKind::IsADirectory,
+                format!(
+                    "Copying directories is not supported: {} is a directory",
+                    from.display()
+                ),
+            ));
+        }
+        self.prepare_resource_target(&to, ExistingTarget::Reject)?;
+        self.ensure_path_not_writing(&to)?;
+        if let Some(dir) = to.parent()
+            && !dir.is_dir()
+        {
+            fs::create_dir_all(dir)?;
+        }
+        let mut source = fs::File::open(from)?;
+        // `create_new` keeps a file created after the existence check intact.
+        let mut target = fs::File::create_new(&to)?;
+        let copied = io::copy(&mut source, &mut target)
+            .and_then(|_| target.set_permissions(source.metadata()?.permissions()));
+        if let Err(error) = copied {
+            drop(target);
+            let _ = fs::remove_file(&to);
+            return Err(error);
+        }
+        self.file_operation_revision += 1;
+
+        for ls in self.language_servers.iter_clients() {
+            if !ls.is_initialized() {
+                continue;
+            }
+            ls.did_create(&to, false);
+        }
+        if !self.file_watcher.is_watching(&to) {
+            self.language_servers
+                .file_event_handler
+                .file_changed(to, lsp::FileChangeType::CREATED);
+        }
+        Ok(())
+    }
+
+    /// Increases after each create, move, copy or delete applied by the editor,
+    /// so views of the filesystem can refresh even without a file watcher.
+    pub fn file_operation_revision(&self) -> u64 {
+        self.file_operation_revision
     }
 
     fn prepare_resource_target(&self, path: &Path, existing: ExistingTarget) -> io::Result<bool> {
@@ -224,6 +278,7 @@ impl Editor {
         } else {
             fs::remove_file(&path)?;
         }
+        self.file_operation_revision += 1;
 
         for ls in self.language_servers.iter_clients() {
             if !ls.is_initialized() {
@@ -291,6 +346,62 @@ impl Editor {
         doc.refresh_vcs(&self.diff_providers, trust_full);
         self.refresh_doc_language(doc_id);
         self.refresh_vcs_watches();
+    }
+}
+
+#[cfg(test)]
+mod copy_tests {
+    use super::*;
+    use crate::editor::tests::editor;
+
+    #[tokio::test]
+    async fn copying_a_file_creates_parents_keeps_the_source_and_bumps_the_revision() {
+        let (mut editor, directory) = editor("#[|a]#\n");
+        let source = directory.path().join("source.txt");
+        fs::write(&source, "contents").unwrap();
+        let revision = editor.file_operation_revision();
+        let target = directory.path().join("new/target.txt");
+        editor.copy_path(&source, &target).unwrap();
+        assert_eq!(fs::read_to_string(&source).unwrap(), "contents");
+        assert_eq!(fs::read_to_string(&target).unwrap(), "contents");
+        assert_eq!(editor.file_operation_revision(), revision + 1);
+    }
+
+    #[tokio::test]
+    async fn copying_never_overwrites_and_rejects_directories() {
+        let (mut editor, directory) = editor("#[|a]#\n");
+        let source = directory.path().join("source.txt");
+        let target = directory.path().join("target.txt");
+        fs::write(&source, "new").unwrap();
+        fs::write(&target, "old").unwrap();
+        let revision = editor.file_operation_revision();
+        let error = editor.copy_path(&source, &target).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::AlreadyExists);
+        assert_eq!(fs::read_to_string(&target).unwrap(), "old");
+
+        let error = editor
+            .copy_path(directory.path(), &directory.path().join("copy"))
+            .unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::IsADirectory);
+        assert!(!directory.path().join("copy").exists());
+        assert_eq!(editor.file_operation_revision(), revision);
+    }
+
+    #[tokio::test]
+    async fn create_move_and_delete_bump_the_revision_once_each() {
+        let (mut editor, directory) = editor("#[|a]#\n");
+        let file = directory.path().join("file.txt");
+        let moved = directory.path().join("moved.txt");
+        let start = editor.file_operation_revision();
+        editor
+            .create_path(&file, false, ExistingTarget::Reject)
+            .unwrap();
+        editor
+            .move_path(&canonicalize(&file), &moved, ExistingTarget::Reject)
+            .unwrap();
+        editor.delete_path(&moved, false).unwrap();
+        assert!(!moved.exists());
+        assert_eq!(editor.file_operation_revision(), start + 3);
     }
 }
 

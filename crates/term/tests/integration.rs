@@ -37,6 +37,7 @@ mod test {
     mod debugger_variables;
     mod document_features;
     mod document_symbols;
+    mod file_explorer;
     mod file_operations;
     mod folding;
     mod formatting;
