@@ -213,9 +213,15 @@ impl Editor {
         }
         if let FileOperation::Copy { from, to } = &operation {
             ensure!(from != to, "Cannot copy {} onto itself", from.display());
+            let metadata = fs::metadata(from)?;
             ensure!(
-                !from.is_dir(),
+                !metadata.is_dir(),
                 "Copying directories is not supported: {} is a directory",
+                from.display()
+            );
+            ensure!(
+                metadata.is_file(),
+                "Only regular files can be copied: {}",
                 from.display()
             );
         }

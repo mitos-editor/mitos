@@ -15,7 +15,7 @@ use super::{wait_for_request, FileOperation};
 
 pub(super) struct Fixture {
     pub(super) app: Application,
-    callbacks: mpsc::UnboundedReceiver<EditorCallback>,
+    pub(super) callbacks: mpsc::UnboundedReceiver<EditorCallback>,
     pub(super) dir: tempfile::TempDir,
     gate: Gate,
     pub(super) source: PathBuf,

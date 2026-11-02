@@ -10,6 +10,7 @@ use std::{
     sync::Arc,
 };
 
+use editor_core::unicode::segmentation::UnicodeSegmentation;
 use theme::Theme;
 use view::{editor::FileOperation, Editor};
 
@@ -124,7 +125,7 @@ fn directory_prefix(directory: &Path) -> String {
 }
 
 fn input_path(input: &str) -> PathBuf {
-    stdx::path::canonicalize(input.trim())
+    stdx::path::canonicalize(input)
 }
 
 /// Moving or copying onto an existing directory puts the entry inside it, like `:move`.
@@ -140,8 +141,9 @@ fn before_extension(path: &Path, is_dir: bool) -> Option<Movement> {
     if is_dir {
         return None;
     }
-    path.extension()
-        .map(|extension| Movement::BackwardChar(extension.len() + 1))
+    path.extension().map(|extension| {
+        Movement::BackwardChar(extension.to_string_lossy().graphemes(false).count() + 1)
+    })
 }
 
 fn yank(editor: &mut Editor, path: &Path) {

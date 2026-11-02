@@ -183,7 +183,8 @@ impl Editor {
     /// An existing destination is never overwritten.
     pub(crate) fn copy_path(&mut self, from: &Path, to: &Path) -> io::Result<()> {
         let to = canonicalize(to);
-        if fs::metadata(from)?.is_dir() {
+        let metadata = fs::metadata(from)?;
+        if metadata.is_dir() {
             return Err(io::Error::new(
                 io::ErrorKind::IsADirectory,
                 format!(
@@ -192,7 +193,14 @@ impl Editor {
                 ),
             ));
         }
+        if !metadata.is_file() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("Only regular files can be copied: {}", from.display()),
+            ));
+        }
         self.prepare_resource_target(&to, ExistingTarget::Reject)?;
+        self.ensure_path_not_writing(from)?;
         self.ensure_path_not_writing(&to)?;
         if let Some(dir) = to.parent()
             && !dir.is_dir()
@@ -384,6 +392,46 @@ mod copy_tests {
             .unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::IsADirectory);
         assert!(!directory.path().join("copy").exists());
+        assert_eq!(editor.file_operation_revision(), revision);
+    }
+
+    #[tokio::test]
+    async fn copying_waits_for_a_pending_source_save() {
+        let (mut editor, directory) = editor("#[|a]#\n");
+        let source = directory.path().join("source.txt");
+        fs::write(&source, "old\n").unwrap();
+        let id = crate::current_ref!(editor).1.id();
+        editor.set_doc_path(id, &source);
+        let target = directory.path().join("copy.txt");
+        let revision = editor.file_operation_revision();
+        editor.save(id, None::<std::path::PathBuf>, true).unwrap();
+        let error = editor.copy_path(&source, &target).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::WouldBlock);
+        assert!(!target.exists());
+        assert_eq!(editor.file_operation_revision(), revision);
+
+        editor.flush_writes().await.unwrap();
+        editor.copy_path(&source, &target).unwrap();
+        assert_eq!(fs::read_to_string(target).unwrap(), "a\n");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn copying_rejects_special_files_before_creating_the_target() {
+        let (mut editor, directory) = editor("#[|a]#\n");
+        let target = directory.path().join("new/target.txt");
+        let revision = editor.file_operation_revision();
+        let error = editor
+            .copy_path(Path::new("/dev/null"), &target)
+            .unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+        assert!(editor
+            .request_file_operation(FileOperation::Copy {
+                from: "/dev/null".into(),
+                to: target.clone(),
+            })
+            .is_err());
+        assert!(!target.parent().unwrap().exists());
         assert_eq!(editor.file_operation_revision(), revision);
     }
 

@@ -108,16 +108,19 @@ Manage files without leaving the explorer:
 | Key | Action |
 | --- | --- |
 | `Alt-n` | Create a file in the shown directory. End the path with `/` to create a directory. |
-| `Alt-m` | Move or rename the selected entry. Open buffers follow the move. |
-| `Alt-c` | Copy the selected file. |
-| `Alt-d` | Delete the selected entry after you answer `y`. Directories are deleted with their contents. |
+| `Alt-m` | Move or rename the selected entry. The cursor starts before the file extension. Open buffers follow the move. |
+| `Alt-c` | Copy the selected file's saved contents. Copying directories is not supported. |
+| `Alt-d` | Delete the selected entry after you type `y` and press `Enter`. Directories are deleted with their contents. |
 | `Alt-y` | Yank the selected path to the default yank register. |
 
-Paths are shown relative to the working directory. Moving or copying onto an
-existing directory puts the entry inside it. Existing files are never
-overwritten, and missing parent directories are created. Language servers are
-notified of each change, as with `:move`. Remap these keys under
-[`[keys.file-explorer]`](./remapping.md).
+Create, move, and copy open a path prompt. Edit the path and press `Enter` to
+apply the change, or press `Esc` to cancel. Paths are relative to the working
+directory unless you enter an absolute path or start with `~`. The create prompt
+starts with the directory being displayed.
+
+Moving or copying onto an existing directory puts the entry inside it. Existing
+paths are never overwritten, and missing parent directories are created. Remap
+these keys under [`[keys.file-explorer]`](./remapping.md#component-keys).
 
 ## Hidden and ignored files
 
