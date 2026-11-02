@@ -49,7 +49,7 @@ use globset::{Glob, GlobSet, GlobSetBuilder};
 use parking_lot::Mutex;
 use sha2::{Digest, Sha256};
 
-use crate::{find_workspace, find_workspace_in};
+use crate::find_workspace;
 
 /// Checks whether a specific capability is trusted
 #[derive(Debug, Clone, Copy)]
@@ -81,14 +81,6 @@ pub enum TrustStatus {
 impl TrustStatus {
     pub fn is_trusted(&self) -> bool {
         matches!(self, Self::Trusted)
-    }
-
-    pub fn is_stale(&self) -> bool {
-        matches!(self, Self::Stale)
-    }
-
-    pub fn is_excluded(&self) -> bool {
-        matches!(self, Self::Excluded)
     }
 }
 
@@ -262,15 +254,6 @@ impl WorkspaceTrust {
         }
 
         demote_for_query(raw, query)
-    }
-
-    /// Query trust for the workspace containing `file`.
-    pub fn query_for_file(&self, file: &Path, query: TrustQuery) -> TrustStatus {
-        let workspace = file
-            .parent()
-            .map(|dir| find_workspace_in(dir).0)
-            .unwrap_or_else(|| find_workspace().0);
-        self.query(&workspace, query)
     }
 
     /// Query trust for the current working directory's workspace.

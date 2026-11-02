@@ -770,14 +770,7 @@ pub struct Args<'a> {
 
 impl Default for Args<'_> {
     fn default() -> Self {
-        Self {
-            signature: Signature::DEFAULT,
-            validate: Default::default(),
-            only_positionals: Default::default(),
-            state: CompletionState::default(),
-            positionals: Default::default(),
-            flags: Default::default(),
-        }
+        Self::new(Signature::DEFAULT, false)
     }
 }
 
