@@ -493,13 +493,14 @@ impl Loader {
         self.refresh_highlights();
     }
 
-    /// Apply the current theme's scopes to initialized languages.
-    /// Background syntax initialization calls this before publishing its result,
-    /// since a theme change may have missed queries that were still compiling.
+    /// Identity of the current highlight configuration, including in-place refreshes.
     pub fn highlight_revision(&self) -> u64 {
         self.highlight_revision.0.load(Ordering::Acquire)
     }
 
+    /// Apply the current theme's scopes to initialized languages.
+    /// Background syntax initialization calls this before publishing its result,
+    /// since a theme change may have missed queries that were still compiling.
     pub fn refresh_highlights(&self) {
         self.highlight_revision
             .0
