@@ -7,6 +7,29 @@ use crate::{
     PartialResultParams, Range, StaticRegistrationOptions, TextDocumentIdentifier,
     TextDocumentRegistrationOptions, WorkDoneProgressOptions, WorkDoneProgressParams,
 };
+macro_rules! string_impls {
+    ($ty:ident) => {
+        impl $ty {
+            pub const fn new(tag: &'static str) -> Self {
+                Self(Cow::Borrowed(tag))
+            }
+            pub fn as_str(&self) -> &str {
+                &self.0
+            }
+        }
+        impl From<String> for $ty {
+            fn from(value: String) -> Self {
+                Self(Cow::Owned(value))
+            }
+        }
+        impl From<&'static str> for $ty {
+            fn from(value: &'static str) -> Self {
+                Self::new(value)
+            }
+        }
+    };
+}
+
 /// A set of predefined token types. This set is not fixed
 /// and clients can specify additional token types via the
 /// corresponding client capabilities.
@@ -41,27 +64,9 @@ impl SemanticTokenType {
 
     /// @since 3.17.0
     pub const DECORATOR: SemanticTokenType = SemanticTokenType::new("decorator");
-
-    pub const fn new(tag: &'static str) -> Self {
-        SemanticTokenType(Cow::Borrowed(tag))
-    }
-
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
 }
 
-impl From<String> for SemanticTokenType {
-    fn from(from: String) -> Self {
-        SemanticTokenType(Cow::from(from))
-    }
-}
-
-impl From<&'static str> for SemanticTokenType {
-    fn from(from: &'static str) -> Self {
-        SemanticTokenType::new(from)
-    }
-}
+string_impls!(SemanticTokenType);
 
 /// A set of predefined token modifiers. This set is not fixed
 /// and clients can specify additional token types via the
@@ -82,54 +87,18 @@ impl SemanticTokenModifier {
     pub const MODIFICATION: SemanticTokenModifier = SemanticTokenModifier::new("modification");
     pub const DOCUMENTATION: SemanticTokenModifier = SemanticTokenModifier::new("documentation");
     pub const DEFAULT_LIBRARY: SemanticTokenModifier = SemanticTokenModifier::new("defaultLibrary");
-
-    pub const fn new(tag: &'static str) -> Self {
-        SemanticTokenModifier(Cow::Borrowed(tag))
-    }
-
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
 }
 
-impl From<String> for SemanticTokenModifier {
-    fn from(from: String) -> Self {
-        SemanticTokenModifier(Cow::from(from))
-    }
-}
-
-impl From<&'static str> for SemanticTokenModifier {
-    fn from(from: &'static str) -> Self {
-        SemanticTokenModifier::new(from)
-    }
-}
+string_impls!(SemanticTokenModifier);
 
 #[derive(Debug, Eq, PartialEq, Hash, PartialOrd, Clone, Deserialize, Serialize)]
 pub struct TokenFormat(Cow<'static, str>);
 
 impl TokenFormat {
     pub const RELATIVE: TokenFormat = TokenFormat::new("relative");
-
-    pub const fn new(tag: &'static str) -> Self {
-        TokenFormat(Cow::Borrowed(tag))
-    }
-
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
 }
 
-impl From<String> for TokenFormat {
-    fn from(from: String) -> Self {
-        TokenFormat(Cow::from(from))
-    }
-}
-
-impl From<&'static str> for TokenFormat {
-    fn from(from: &'static str) -> Self {
-        TokenFormat::new(from)
-    }
-}
+string_impls!(TokenFormat);
 
 /// @since 3.16.0
 #[derive(Debug, Eq, PartialEq, Clone, Default, Deserialize, Serialize)]

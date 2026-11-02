@@ -58,18 +58,6 @@ const fn fmt_pascal_case_const(name: &str) -> (PascalCaseBuf, usize) {
     (buf, buf_i)
 }
 
-fn fmt_pascal_case(f: &mut std::fmt::Formatter<'_>, name: &str) -> std::fmt::Result {
-    for word in name.split('_') {
-        let mut chars = word.chars();
-        let first = chars.next().unwrap();
-        write!(f, "{}", first)?;
-        for rest in chars {
-            write!(f, "{}", rest.to_lowercase())?;
-        }
-    }
-    Ok(())
-}
-
 macro_rules! lsp_enum {
     (impl $typ: ident { $( $(#[$attr:meta])* pub const $name: ident : $enum_type: ty = $value: expr; )* }) => {
         impl $typ {
@@ -83,7 +71,10 @@ macro_rules! lsp_enum {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
                 match *self {
                     $(
-                    Self::$name => crate::fmt_pascal_case(f, stringify!($name)),
+                    Self::$name => {
+                        const NAME: (crate::PascalCaseBuf, usize) = crate::fmt_pascal_case_const(stringify!($name));
+                        f.write_str(std::str::from_utf8(&NAME.0[..NAME.1]).expect("enum identifiers are ASCII"))
+                    },
                     )*
                     _ => write!(f, "{}({})", stringify!($typ), self.0),
                 }

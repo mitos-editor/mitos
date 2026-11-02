@@ -427,39 +427,26 @@ fn id_deserialize() {
 }
 
 #[test]
-fn success_output_deserialize() {
-    use serde_json;
-
-    let dso = r#"{"jsonrpc":"2.0","result":1,"id":1}"#;
-
-    let deserialized: Output = serde_json::from_str(dso).unwrap();
-    assert_eq!(
-        deserialized,
-        Output::Success(Success {
-            jsonrpc: Some(Version::V2),
-            result: Value::from(1),
-            id: Id::Num(1)
-        })
-    );
+fn success_output_deserialize_with_or_without_extra_fields() {
+    for raw in [
+        r#"{"jsonrpc":"2.0","result":1,"id":1}"#,
+        // https://github.com/helix-editor/helix/issues/2786
+        r#"{"jsonrpc":"2.0","result":1,"id":1,"requestMethod":"initialize"}"#,
+    ] {
+        assert_eq!(
+            serde_json::from_str::<Output>(raw).unwrap(),
+            Output::Success(Success {
+                jsonrpc: Some(Version::V2),
+                result: Value::from(1),
+                id: Id::Num(1)
+            })
+        );
+    }
 }
 
 #[test]
-fn success_output_deserialize_with_extra_fields() {
-    use serde_json::{self, json};
-
-    // https://github.com/helix-editor/helix/issues/2786
-    let dso = r#"{"jsonrpc":"2.0","result":1,"id":1,"requestMethod":"initialize"}"#;
-
-    let deserialized: Output = serde_json::from_str(dso).unwrap();
-    assert_eq!(
-        deserialized,
-        Output::Success(Success {
-            jsonrpc: Some(Version::V2),
-            result: Value::from(1),
-            id: Id::Num(1)
-        })
-    );
-
+fn notification_deserialize_with_extra_fields() {
+    use serde_json::json;
     // https://github.com/helix-editor/helix/issues/15078
     let json = r#"{"traceparent":"00-84b1954eb787286f09bf07937689f8cb-5f78c8b6ed6bc71a-00","jsonrpc":"2.0","method":"window/logMessage","params":{"type":5,"message":"Initialized"}}"#;
     assert_eq!(

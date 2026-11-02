@@ -33,6 +33,13 @@ pub struct Breakpoint {
 }
 
 impl Breakpoint {
+    fn changed(&mut self) {
+        self.revision = self
+            .revision
+            .checked_add(1)
+            .expect("breakpoint revision exhausted");
+    }
+
     pub fn identity(&self) -> BreakpointId {
         self.identity
     }
@@ -59,10 +66,7 @@ impl Breakpoint {
             BreakpointProperty::Condition => self.condition = value,
             BreakpointProperty::LogMessage => self.log_message = value,
         }
-        self.revision = self
-            .revision
-            .checked_add(1)
-            .expect("breakpoint revision exhausted");
+        self.changed();
         Ok(())
     }
 }
@@ -268,6 +272,11 @@ impl BreakpointBindings {
     }
 }
 
+fn deduplicate_lines(definitions: &mut Vec<Breakpoint>) {
+    let mut lines = std::collections::HashSet::new();
+    definitions.retain(|definition| lines.insert(definition.line));
+}
+
 /// The editor and an open document share one source's definitions. Queries return
 /// snapshots so no lock is held while applying editor effects or adapter replies.
 #[derive(Clone, Default)]
@@ -282,15 +291,11 @@ impl SourceBreakpoints {
     /// line; if markers collapse onto one line, retain the oldest identity.
     pub fn map_positions(&self, mut map: impl FnMut(&Breakpoint) -> (usize, Option<usize>)) {
         let mut definitions = self.0.write();
-        let mut lines = std::collections::HashSet::new();
         for definition in definitions.iter_mut() {
             (definition.line, definition.column) = map(definition);
-            definition.revision = definition
-                .revision
-                .checked_add(1)
-                .expect("breakpoint revision exhausted");
+            definition.changed();
         }
-        definitions.retain(|definition| lines.insert(definition.line));
+        deduplicate_lines(&mut definitions);
     }
 }
 
@@ -333,13 +338,9 @@ impl BreakpointStore {
             let mut definitions = destination.0.write();
             definitions.extend(moved);
             definitions.sort_unstable_by_key(|definition| definition.identity.0);
-            let mut lines = std::collections::HashSet::new();
-            definitions.retain(|definition| lines.insert(definition.line));
+            deduplicate_lines(&mut definitions);
             for definition in definitions.iter_mut() {
-                definition.revision = definition
-                    .revision
-                    .checked_add(1)
-                    .expect("breakpoint revision exhausted");
+                definition.changed();
             }
         }
         paths
