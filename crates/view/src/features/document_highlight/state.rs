@@ -9,7 +9,7 @@ use crate::{Document, ViewId};
 
 #[derive(Default)]
 pub(crate) struct DocumentHighlightsState {
-    cache: HashMap<ViewId, DocumentHighlights>,
+    cache: HashMap<ViewId, Vec<std::ops::Range<usize>>>,
     requests: HashMap<ViewId, TaskController>,
     pub(super) handler: Option<DocumentHighlightHandler>,
 }
@@ -38,8 +38,8 @@ impl DocumentHighlightsState {
 
     pub(crate) fn apply_changes(&mut self, changes: &ChangeSet, text_len: usize) {
         for highlights in self.cache.values_mut() {
-            let mut updated = Vec::with_capacity(highlights.ranges.len());
-            for mut range in highlights.ranges.drain(..) {
+            let mut updated = Vec::with_capacity(highlights.len());
+            for mut range in highlights.drain(..) {
                 changes.update_positions(
                     [
                         (&mut range.start, Assoc::After),
@@ -55,15 +55,9 @@ impl DocumentHighlightsState {
                     updated.push(range.start..end);
                 }
             }
-            highlights.ranges = updated;
+            *highlights = updated;
         }
     }
-}
-
-/// Highlight ranges returned by LSP `textDocument/documentHighlight` for a view.
-#[derive(Debug, Clone, Default)]
-pub struct DocumentHighlights {
-    pub ranges: Vec<std::ops::Range<usize>>,
 }
 
 impl Document {
@@ -75,9 +69,7 @@ impl Document {
         if ranges.is_empty() {
             self.document_highlights.cache.remove(&view_id);
         } else {
-            self.document_highlights
-                .cache
-                .insert(view_id, DocumentHighlights { ranges });
+            self.document_highlights.cache.insert(view_id, ranges);
         }
     }
 
@@ -95,7 +87,7 @@ impl Document {
         self.document_highlights
             .cache
             .get(&view_id)
-            .map(|highlights| highlights.ranges.as_slice())
+            .map(Vec::as_slice)
     }
 
     pub(crate) fn document_highlight_controller(&mut self, view_id: ViewId) -> &mut TaskController {

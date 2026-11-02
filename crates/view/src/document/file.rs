@@ -517,7 +517,7 @@ impl Document {
             text: rope, binary, ..
         } = read_file(&mut file, Some(encoding))?;
         self.accepted_completions.cancel();
-        self.shell_filters.clear();
+        self.cancel_view_requests(|state| &mut state.shell_filters);
         // Reload may change the content type. Allow this replacement, then restore
         // the binary write guard before returning to the editor.
         let was_binary = std::mem::replace(&mut self.file.binary, false);
@@ -531,8 +531,8 @@ impl Document {
         self.file.binary = binary;
         self.detect_readonly();
         if binary {
-            self.hover.clear();
-            self.navigation.clear();
+            self.cancel_view_requests(|state| &mut state.hover);
+            self.cancel_view_requests(|state| &mut state.navigation);
             self.document_links.cancel_navigation();
             self.reset_all_inlay_hints();
             self.language = None;
@@ -576,11 +576,11 @@ impl Document {
             return;
         }
         self.invalidate_blame();
-        self.hover.clear();
-        self.navigation.clear();
+        self.cancel_view_requests(|state| &mut state.hover);
+        self.cancel_view_requests(|state| &mut state.navigation);
         self.document_links.cancel_navigation();
         self.reset_all_inlay_hints();
-        self.shell_filters.clear();
+        self.cancel_view_requests(|state| &mut state.shell_filters);
         self.file.set_path(path);
 
         self.detect_readonly();
@@ -619,11 +619,6 @@ impl Document {
         self.file.last_saved_revision = rev;
         self.file.last_saved_time = save_time;
         self.file.auto_reload_seen_mtime = None;
-    }
-
-    /// Get the document's latest saved revision.
-    pub fn get_last_saved_revision(&self) -> usize {
-        self.file.last_saved_revision
     }
 
     #[inline]

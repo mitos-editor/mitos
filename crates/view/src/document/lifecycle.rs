@@ -11,10 +11,10 @@ impl Document {
             state.expansion_history.clear();
             state.folds = Default::default();
         }
-        self.hover.clear();
-        self.navigation.clear();
+        self.cancel_view_requests(|state| &mut state.hover);
+        self.cancel_view_requests(|state| &mut state.navigation);
         self.rename.cancel();
-        self.code_actions.clear();
+        self.cancel_view_requests(|state| &mut state.code_actions);
         self.workspace_symbols.cancel();
         self.inlay_hints.clear();
         self.inline_completions.clear();

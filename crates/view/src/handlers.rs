@@ -161,62 +161,6 @@ impl Editor {
     pub fn dismiss_completions(&mut self) {
         self.finish_completion();
     }
-
-    /// Replace autosave coordination, rejecting queued saves from its previous owner.
-    /// Existing documents schedule subsequent edits through the new handler.
-    pub fn replace_auto_save_handler(&mut self, handler: auto_save::AutoSaveHandler) {
-        self.handlers.auto_save = handler;
-        for doc in self.documents.values_mut() {
-            doc.auto_save_trigger = Some(self.handlers.auto_save.trigger());
-        }
-    }
-
-    /// Replace signature help and rebind existing documents. Pending results from
-    /// the previous handler retain its owner identity and cannot publish.
-    pub fn replace_signature_help_handler(
-        &mut self,
-        handler: signature_help::SignatureHelpHandler,
-    ) {
-        self.handlers.signature_hints.cancel();
-        self.handlers.signature_hints = handler;
-        self.handlers.signature_hints.dismiss_replaced();
-        for doc in self.documents.values_mut() {
-            doc.signature_help_trigger = Some(self.handlers.signature_hints.document_trigger());
-        }
-    }
-
-    /// Replace completion coordination and cancel its pending and displayed work.
-    pub fn replace_completion_handler(&mut self, handler: CompletionHandler) {
-        self.handlers.completions.event(CompletionEvent::Cancel);
-        self.finish_completion();
-        self.handlers.completions = handler;
-        self.handlers.completions.invalidate();
-    }
-
-    /// Rebind documents and invalidate work from the previous inline-completion service.
-    pub fn replace_inline_completion_handler(
-        &mut self,
-        handler: inline_completion::InlineCompletionHandler,
-    ) {
-        self.handlers.inline_completions.cancel();
-        self.handlers.inline_completions = handler;
-        for doc in self.documents.values_mut() {
-            doc.inline_completions.clear();
-            doc.inline_completions
-                .bind_handler(&self.handlers.inline_completions);
-        }
-    }
-
-    /// Replace reload coordination, invalidating prompts and results from the old owner.
-    /// File-watcher delivery remains independent of the reload handler's callback queue.
-    pub fn replace_auto_reload_handler(&mut self, handler: auto_reload::AutoReloadHandler) {
-        self.handlers.auto_reload = handler;
-    }
-
-    /// Forget queued trust prompts and their decisions without changing trust policy.
-    pub fn reset_workspace_trust_prompts(&mut self) {
-        self.handlers.workspace_trust = workspace_trust::WorkspaceTrustHandler::default();
-    }
 }
 
 // This is the only entry point for shared hook registration. Keep the guard scoped

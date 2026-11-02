@@ -79,7 +79,7 @@ async fn prompts_are_delivered_once_per_editor_and_survive_config_reload() -> an
 async fn stale_workspace_prompts_are_rejected_before_delivery_and_resolution() -> anyhow::Result<()>
 {
     for before_delivery in [true, false] {
-        for change in ["config", "close", "rename", "policy", "handler", "implicit"] {
+        for change in ["config", "close", "rename", "policy", "implicit"] {
             let mut f = Fixture::new("")?;
             let workspace = restrict(&mut f)?;
             let request = (!before_delivery).then(|| next_request(&mut f.editor).unwrap());
@@ -100,7 +100,6 @@ async fn stale_workspace_prompts_are_rejected_before_delivery_and_resolution() -
                     prompt: false,
                     ..Config::default()
                 }),
-                "handler" => f.editor.reset_workspace_trust_prompts(),
                 "implicit" => {
                     f.editor.workspace_trust = workspace::trust::WorkspaceTrust::fully_trusted(
                         loader::workspace_trust_dir(),

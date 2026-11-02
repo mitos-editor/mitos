@@ -10,7 +10,7 @@ use crate::{
         ConfigDidChange, DocumentDidChange, DocumentDidOpen, DocumentLanguageDidChange,
         LanguageServerExited, LanguageServerInitialized, SelectionDidChange,
     },
-    features::request::DocumentRequest,
+    features::request::SelectionRequest,
     DocumentId, Editor, ViewId,
 };
 
@@ -44,15 +44,6 @@ fn request_document_highlights(editor: &mut Editor, doc_id: DocumentId, view_id:
         return;
     };
 
-    if !doc.has_language_server_with_feature(LanguageServerFeature::DocumentHighlight) {
-        let visible = doc.document_highlights(view_id).is_some();
-        doc.clear_document_highlights(view_id);
-        if visible {
-            callbacks.redraw().request();
-        }
-        return;
-    }
-
     doc.ensure_view_init(view_id);
     let cancel = doc.document_highlight_controller(view_id).restart();
     let Some((server_id, offset_encoding, future)) = (match doc
@@ -78,11 +69,10 @@ fn request_document_highlights(editor: &mut Editor, doc_id: DocumentId, view_id:
 
     let text = doc.text().clone();
 
-    let selection = doc.selection(view_id).clone();
-    let request = DocumentRequest::new(doc, cancel, vec![server_id]);
+    let request = SelectionRequest::new(doc, view_id, cancel, vec![server_id]);
 
     tokio::spawn(async move {
-        let response = match cancelable_future(future, &request.cancel).await {
+        let response = match cancelable_future(future, request.cancel_handle()).await {
             Some(Ok(response)) => response,
             Some(Err(err)) => {
                 log::error!("document highlight request failed: {err}");
@@ -97,17 +87,7 @@ fn request_document_highlights(editor: &mut Editor, doc_id: DocumentId, view_id:
 
         callbacks
             .send(move |editor| {
-                if !request.is_current(editor) {
-                    return;
-                }
-                if !editor
-                    .tree
-                    .try_get(view_id)
-                    .is_some_and(|view| view.doc == doc_id)
-                    || editor
-                        .document(doc_id)
-                        .is_none_or(|doc| doc.selection(view_id) != &selection)
-                {
+                if request.get(editor).is_none() {
                     return;
                 }
                 apply_document_highlights(editor, doc_id, view_id, ranges);
@@ -186,6 +166,22 @@ fn apply_document_highlights(
     doc.set_document_highlights(view_id, ranges);
 }
 
+fn schedule(doc: &mut crate::Document, view: ViewId) {
+    if doc.config.load().lsp.document_highlight.auto_trigger
+        && doc.has_language_server_with_feature(LanguageServerFeature::DocumentHighlight)
+    {
+        let doc_id = doc.id();
+        let scheduled = doc.document_highlight_controller(view).restart();
+        if let Some(handler) = &doc.document_highlights.handler {
+            handler.callbacks.send_work_blocking(move |editor| {
+                if !scheduled.is_canceled() {
+                    request_document_highlights(editor, doc_id, view);
+                }
+            });
+        }
+    }
+}
+
 pub(crate) fn register_hooks() {
     register_hook!(move |event: &mut DocumentLanguageDidChange<'_>| {
         let view_id = event.editor.tree.focus();
@@ -194,22 +190,7 @@ pub(crate) fn register_hooks() {
     });
 
     register_hook!(move |event: &mut SelectionDidChange<'_>| {
-        if event.doc.config.load().lsp.document_highlight.auto_trigger
-            && event
-                .doc
-                .has_language_server_with_feature(LanguageServerFeature::DocumentHighlight)
-        {
-            let doc_id = event.doc.id();
-            let view_id = event.view;
-            let scheduled = event.doc.document_highlight_controller(view_id).restart();
-            if let Some(handler) = &event.doc.document_highlights.handler {
-                handler.callbacks.send_work_blocking(move |editor| {
-                    if !scheduled.is_canceled() {
-                        request_document_highlights(editor, doc_id, view_id);
-                    }
-                });
-            }
-        }
+        schedule(event.doc, event.view);
         Ok(())
     });
 
@@ -226,21 +207,8 @@ pub(crate) fn register_hooks() {
     });
 
     register_hook!(move |event: &mut DocumentDidChange<'_>| {
-        if event.doc.config.load().lsp.document_highlight.auto_trigger
-            && let Some(view_id) = event.view
-            && event
-                .doc
-                .has_language_server_with_feature(LanguageServerFeature::DocumentHighlight)
-        {
-            let doc_id = event.doc.id();
-            let scheduled = event.doc.document_highlight_controller(view_id).restart();
-            if let Some(handler) = &event.doc.document_highlights.handler {
-                handler.callbacks.send_work_blocking(move |editor| {
-                    if !scheduled.is_canceled() {
-                        request_document_highlights(editor, doc_id, view_id);
-                    }
-                });
-            }
+        if let Some(view) = event.view {
+            schedule(event.doc, view);
         }
         Ok(())
     });

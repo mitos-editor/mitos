@@ -1,8 +1,8 @@
 //! Interactive code-action gathering shared by editor frontends.
 
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
-use event::{cancelable_future, register_hook, TaskController, TaskHandle};
+use event::{cancelable_future, register_hook};
 use futures_util::{future::BoxFuture, stream::FuturesUnordered, FutureExt, StreamExt};
 use lsp_client::lsp::{self, CodeActionOrCommand};
 
@@ -15,27 +15,8 @@ use crate::{
         ConfigDidChange, DocumentDidChange, DocumentFocusLost, LanguageServerExited, ModeDidChange,
         SelectionDidChange,
     },
-    Editor, ViewId,
+    Editor,
 };
-
-#[derive(Default)]
-pub(crate) struct CodeActionsState {
-    requests: HashMap<ViewId, TaskController>,
-}
-
-impl CodeActionsState {
-    fn restart(&mut self, view: ViewId) -> TaskHandle {
-        self.requests.entry(view).or_default().restart()
-    }
-
-    pub(crate) fn remove_view(&mut self, view: ViewId) {
-        self.requests.remove(&view);
-    }
-
-    pub(crate) fn clear(&mut self) {
-        self.requests.clear();
-    }
-}
 
 struct Context {
     owner: EditorCallbackSender,
@@ -126,7 +107,11 @@ impl Editor {
             }
         }
         providers.push(spelling.boxed());
-        let cancel = doc.code_actions.restart(view.id);
+        let cancel = doc
+            .view_state_mut(view.id)
+            .code_actions
+            .get_or_insert_default()
+            .restart();
         let context = Context {
             owner,
             target: Arc::new(SelectionRequest::new(doc, view.id, cancel, Vec::new())),
@@ -155,34 +140,38 @@ pub(crate) fn register_hooks() {
     register_hook!(move |event: &mut LanguageServerExited<'_>| {
         for doc in event.editor.documents_mut() {
             if doc.supports_language_server(event.server_id) {
-                doc.code_actions.clear();
+                doc.cancel_view_requests(|state| &mut state.code_actions);
             }
         }
         Ok(())
     });
     register_hook!(move |event: &mut ModeDidChange<'_>| {
         for doc in event.editor.documents_mut() {
-            doc.code_actions.clear();
+            doc.cancel_view_requests(|state| &mut state.code_actions);
         }
         Ok(())
     });
     register_hook!(move |event: &mut DocumentDidChange<'_>| {
-        event.doc.code_actions.clear();
+        event
+            .doc
+            .cancel_view_requests(|state| &mut state.code_actions);
         Ok(())
     });
     register_hook!(move |event: &mut SelectionDidChange<'_>| {
-        event.doc.code_actions.remove_view(event.view);
+        event
+            .doc
+            .cancel_view_request(event.view, |state| &mut state.code_actions);
         Ok(())
     });
     register_hook!(move |event: &mut DocumentFocusLost<'_>| {
         if let Some(doc) = event.editor.document_mut(event.doc) {
-            doc.code_actions.remove_view(event.view);
+            doc.cancel_view_request(event.view, |state| &mut state.code_actions);
         }
         Ok(())
     });
     register_hook!(move |event: &mut ConfigDidChange<'_>| {
         for doc in event.editor.documents_mut() {
-            doc.code_actions.clear();
+            doc.cancel_view_requests(|state| &mut state.code_actions);
         }
         Ok(())
     });

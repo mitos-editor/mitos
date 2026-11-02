@@ -1047,62 +1047,24 @@ impl Editor {
             }
         };
 
-        match &entry.position {
-            QuicklistPosition::None => {
-                // TODO: extend quicklist capture for more pickers so fewer
-                // entries need to fall back to the document's restored cursor.
-                true
-            }
+        let doc = doc_mut!(self, &doc_id);
+        let text = doc.text();
+        let selection = match &entry.position {
+            QuicklistPosition::None => return true,
             QuicklistPosition::Selection(selection) => {
-                let scrolloff = self.config.load().scroll.padding;
-                let target_view_id = match action {
-                    Action::Replace => view_id,
-                    Action::HorizontalSplit | Action::VerticalSplit => self.tree.focus(),
-                    Action::Load => view_id,
-                };
-                let view = view_mut!(self, target_view_id);
-                let doc = doc_mut!(self, &doc_id);
-                let selection = selection.clone().ensure_invariants(doc.text().slice(..));
-                doc.set_selection(view.id, selection);
-                if action.align_view(view, doc.id()) {
-                    view.ensure_cursor_in_view_center(doc, scrolloff);
-                }
-                true
+                selection.clone().ensure_invariants(text.slice(..))
             }
-            QuicklistPosition::LineRange {
-                start: line_start,
-                end: line_end,
-            } => {
-                let (start, end) = {
-                    let doc = doc_mut!(self, &doc_id);
-                    let text = doc.text();
-
-                    if *line_start >= text.len_lines(stdx::rope::LINE_TYPE) {
-                        self.set_error(|| {
-                            "The quicklist entry no longer points to a valid line in the file."
-                        });
-                        return false;
-                    }
-                    let start = text.line_to_char_idx(*line_start);
-                    let end = text.line_to_char_idx(
-                        (*line_end + 1).min(text.len_lines(stdx::rope::LINE_TYPE)),
-                    );
-                    (start, end)
-                };
-
-                let scrolloff = self.config.load().scroll.padding;
-                let target_view_id = match action {
-                    Action::Replace => view_id,
-                    Action::HorizontalSplit | Action::VerticalSplit => self.tree.focus(),
-                    Action::Load => view_id,
-                };
-                let view = view_mut!(self, target_view_id);
-                let doc = doc_mut!(self, &doc_id);
-                doc.set_selection(view.id, Selection::single(start, end));
-                if action.align_view(view, doc.id()) {
-                    view.ensure_cursor_in_view_center(doc, scrolloff);
+            QuicklistPosition::LineRange { start, end } => {
+                if *start >= text.len_lines(stdx::rope::LINE_TYPE) {
+                    self.set_error(|| {
+                        "The quicklist entry no longer points to a valid line in the file."
+                    });
+                    return false;
                 }
-                true
+                Selection::single(
+                    text.line_to_char_idx(*start),
+                    text.line_to_char_idx((*end + 1).min(text.len_lines(stdx::rope::LINE_TYPE))),
+                )
             }
             QuicklistPosition::LineColRange {
                 start_line,
@@ -1110,71 +1072,46 @@ impl Editor {
                 end_line,
                 end_col,
             } => {
-                let selection = {
-                    let doc = doc_mut!(self, &doc_id);
-                    let text = doc.text();
-
-                    if *start_line >= text.len_lines(stdx::rope::LINE_TYPE)
-                        || *end_line >= text.len_lines(stdx::rope::LINE_TYPE)
-                    {
-                        self.set_error(|| {
-                            "The quicklist entry no longer points to a valid location in the file."
-                        });
-                        return false;
-                    }
-
-                    let start = text
-                        .line_to_char_idx(*start_line)
-                        .saturating_add(*start_col);
-                    let end = text.line_to_char_idx(*end_line).saturating_add(*end_col);
-                    Selection::single(start, end).ensure_invariants(text.slice(..))
-                };
-
-                let scrolloff = self.config.load().scroll.padding;
-                let target_view_id = match action {
-                    Action::Replace => view_id,
-                    Action::HorizontalSplit | Action::VerticalSplit => self.tree.focus(),
-                    Action::Load => view_id,
-                };
-                let view = view_mut!(self, target_view_id);
-                let doc = doc_mut!(self, &doc_id);
-                doc.set_selection(view.id, selection);
-                if action.align_view(view, doc.id()) {
-                    view.ensure_cursor_in_view_center(doc, scrolloff);
+                if *start_line >= text.len_lines(stdx::rope::LINE_TYPE)
+                    || *end_line >= text.len_lines(stdx::rope::LINE_TYPE)
+                {
+                    self.set_error(|| {
+                        "The quicklist entry no longer points to a valid location in the file."
+                    });
+                    return false;
                 }
-                true
+                Selection::single(
+                    text.line_to_char_idx(*start_line)
+                        .saturating_add(*start_col),
+                    text.line_to_char_idx(*end_line).saturating_add(*end_col),
+                )
+                .ensure_invariants(text.slice(..))
             }
             QuicklistPosition::LspRange {
                 range,
                 offset_encoding,
             } => {
-                let selection = {
-                    let doc = doc_mut!(self, &doc_id);
-                    let Some(range) = lsp_range_to_range(doc.text(), *range, *offset_encoding)
-                    else {
-                        self.set_error(|| {
-                            "The quicklist entry no longer points to a valid location in the file."
-                        });
-                        return false;
-                    };
-                    Selection::single(range.head, range.anchor)
+                let Some(range) = lsp_range_to_range(text, *range, *offset_encoding) else {
+                    self.set_error(|| {
+                        "The quicklist entry no longer points to a valid location in the file."
+                    });
+                    return false;
                 };
-
-                let scrolloff = self.config.load().scroll.padding;
-                let target_view_id = match action {
-                    Action::Replace => view_id,
-                    Action::HorizontalSplit | Action::VerticalSplit => self.tree.focus(),
-                    Action::Load => view_id,
-                };
-                let view = view_mut!(self, target_view_id);
-                let doc = doc_mut!(self, &doc_id);
-                doc.set_selection(view.id, selection);
-                if action.align_view(view, doc.id()) {
-                    view.ensure_cursor_in_view_center(doc, scrolloff);
-                }
-                true
+                Selection::single(range.head, range.anchor)
             }
+        };
+        let scrolloff = self.config.load().scroll.padding;
+        let target_view_id = match action {
+            Action::Replace | Action::Load => view_id,
+            Action::HorizontalSplit | Action::VerticalSplit => self.tree.focus(),
+        };
+        let view = view_mut!(self, target_view_id);
+        let doc = doc_mut!(self, &doc_id);
+        doc.set_selection(view.id, selection);
+        if action.align_view(view, doc.id()) {
+            view.ensure_cursor_in_view_center(doc, scrolloff);
         }
+        true
     }
 }
 

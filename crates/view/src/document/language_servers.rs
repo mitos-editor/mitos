@@ -22,8 +22,8 @@ impl Document {
         let server = self.language_servers.remove(name);
         if let Some(server) = &server {
             self.opened_language_servers.remove(&server.id());
-            self.hover.clear();
-            self.navigation.clear();
+            self.cancel_view_requests(|state| &mut state.hover);
+            self.cancel_view_requests(|state| &mut state.navigation);
             self.document_links.cancel_navigation();
             self.reset_all_inlay_hints();
         }

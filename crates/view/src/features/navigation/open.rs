@@ -36,7 +36,7 @@ impl Editor {
                     doc.set_selection(view, selection);
                     align_view(doc, self.tree.get_mut(view), Align::Center);
                 } else {
-                    doc.navigation.pending_location = Some(selection);
+                    doc.pending_navigation = Some(selection);
                 }
             } else {
                 log::warn!("LSP document position out of bounds: {range:?}");

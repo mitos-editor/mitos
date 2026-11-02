@@ -8,7 +8,7 @@ use editor_core::Selection;
 use term::application::Application;
 use tokio::sync::mpsc;
 use view::{
-    callbacks::{EditorCallback, EditorCallbackSender},
+    callbacks::EditorCallback,
     current, current_ref,
     document::Mode,
     editor::{Action, EditorEvent},
@@ -311,7 +311,7 @@ async fn typing_survives_but_cancel_mode_rename_and_focus_reject_old_results() -
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn editor_ownership_and_handler_replacement_reject_queued_work() -> anyhow::Result<()> {
+async fn editor_ownership_rejects_queued_work() -> anyhow::Result<()> {
     let a = tempfile::tempdir()?;
     let b = tempfile::tempdir()?;
     let mut first = Fixture::new(a.path(), "😀 ap\n", &["alpha"]).await?;
@@ -324,27 +324,6 @@ async fn editor_ownership_and_handler_replacement_reject_queued_work() -> anyhow
     assert!(update.apply(&mut second.app.editor).is_none());
     second.trigger();
     assert_eq!(second.items().await?.len(), 2);
-    first.trigger();
-    let old = first.response().await?;
-    first
-        .app
-        .editor
-        .replace_completion_handler(CompletionHandler::new(
-            EditorCallbackSender::new(first.app.editor.redraw().clone(), |_| async {}, |_| {}),
-            &first.app.editor.config(),
-        ));
-    old(&mut first.app.editor);
-    let update = completion::next_update(&mut first.app.editor).unwrap();
-    assert!(matches!(
-        update.apply(&mut first.app.editor),
-        Some(CompletionChange::Hide)
-    ));
-    assert!(completion::next_update(&mut first.app.editor).is_none());
-    assert!(
-        tokio::time::timeout(Duration::from_secs(5), first.callbacks.recv())
-            .await?
-            .is_none()
-    );
     assert!(first.app.close().await.is_empty());
     assert!(second.app.close().await.is_empty());
     Ok(())
@@ -700,62 +679,6 @@ async fn terminal_insert_repeat_uses_the_original_request_savepoint() -> anyhow:
     f.key(".").await?;
     assert_eq!(f.text(), "apricot\napricot\n");
     assert!(f.app.close().await.is_empty());
-    Ok(())
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn replacing_completion_dismisses_presented_menu_and_restores_preview() -> anyhow::Result<()>
-{
-    let dir = tempfile::tempdir()?;
-    let mut f = Fixture::new(dir.path(), "😀 ap\n", &["alpha"]).await?;
-    f.show().await?;
-    f.key("<C-n>").await?;
-    assert_eq!(f.presentation_text(), "😀 apricot\n");
-    f.app
-        .editor
-        .replace_completion_handler(CompletionHandler::new(
-            EditorCallbackSender::new(f.app.editor.redraw().clone(), |_| async {}, |_| {}),
-            &f.app.editor.config(),
-        ));
-    let update = completion::next_update(&mut f.app.editor).unwrap();
-    f.app
-        .handle_editor_event(EditorEvent::Completion(update))
-        .await;
-    assert_eq!(f.text(), "😀 ap\n");
-    assert!(!completion::is_shown(&f.app.editor));
-    // Input after dismissal must not select an item whose provider state was retired.
-    f.key("<C-n>").await?;
-    f.key("<ret>").await?;
-    assert!(!f.text().contains("apricot"));
-    assert!(f.app.close().await.is_empty());
-    Ok(())
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn replacement_rejects_menu_input_before_dismissal_is_delivered() -> anyhow::Result<()> {
-    for key in ["<C-n>", "<ret>"] {
-        let dir = tempfile::tempdir()?;
-        let mut f = Fixture::new(dir.path(), "😀 ap\n", &["alpha"]).await?;
-        f.show().await?;
-        f.key("<C-n>").await?;
-        assert_eq!(f.presentation_text(), "😀 apricot\n");
-        f.app
-            .editor
-            .replace_completion_handler(CompletionHandler::new(
-                EditorCallbackSender::new(f.app.editor.redraw().clone(), |_| async {}, |_| {}),
-                &f.app.editor.config(),
-            ));
-        let hide = completion::next_update(&mut f.app.editor).unwrap();
-        // Input can arrive before the event loop processes the replacement's Hide update.
-        f.key(key).await?;
-        assert!(!f.text().contains("apricot"));
-        assert!(!completion::is_shown(&f.app.editor));
-        f.app
-            .handle_editor_event(EditorEvent::Completion(hide))
-            .await;
-        assert!(!f.text().contains("apricot"));
-        assert!(f.app.close().await.is_empty());
-    }
     Ok(())
 }
 

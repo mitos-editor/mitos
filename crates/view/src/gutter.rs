@@ -37,16 +37,11 @@ fn line_numbers_width(view: &View, doc: &Document) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
 
     use super::*;
-    use crate::document::Document;
     use crate::graphics::Rect;
     use crate::DocumentId;
-    use arc_swap::ArcSwap;
-    use editor_config::{Config, GutterConfig, GutterLineNumbersConfig};
-    use editor_core::Rope;
-    use language::syntax;
+    use editor_config::{GutterConfig, GutterLineNumbersConfig};
 
     #[test]
     fn test_default_gutter_widths() {
@@ -57,13 +52,7 @@ mod tests {
         );
         view.area = Rect::new(40, 40, 40, 40);
 
-        let rope = Rope::from_str("abc\n\tdef");
-        let doc = Document::from(
-            rope,
-            None,
-            Arc::new(ArcSwap::new(Arc::new(Config::default()))),
-            Arc::new(syntax::Loader::default()),
-        );
+        let doc = crate::document::test_document("abc\n\tdef");
 
         assert_eq!(view.gutters.layout.len(), 5);
         assert_eq!(width(view.gutters.layout[0], &view, &doc), 1);
@@ -83,13 +72,7 @@ mod tests {
         let mut view = View::new(DocumentId::default(), gutters, event::Redraw::default());
         view.area = Rect::new(40, 40, 40, 40);
 
-        let rope = Rope::from_str("abc\n\tdef");
-        let doc = Document::from(
-            rope,
-            None,
-            Arc::new(ArcSwap::new(Arc::new(Config::default()))),
-            Arc::new(syntax::Loader::default()),
-        );
+        let doc = crate::document::test_document("abc\n\tdef");
 
         assert_eq!(view.gutters.layout.len(), 1);
         assert_eq!(width(view.gutters.layout[0], &view, &doc), 1);
@@ -102,13 +85,7 @@ mod tests {
         let mut view = View::new(DocumentId::default(), gutters, event::Redraw::default());
         view.area = Rect::new(40, 40, 40, 40);
 
-        let rope = Rope::from_str("abc\n\tdef");
-        let doc = Document::from(
-            rope,
-            None,
-            Arc::new(ArcSwap::new(Arc::new(Config::default()))),
-            Arc::new(syntax::Loader::default()),
-        );
+        let doc = crate::document::test_document("abc\n\tdef");
 
         assert_eq!(view.gutters.layout.len(), 2);
         assert_eq!(width(view.gutters.layout[0], &view, &doc), 1);
@@ -125,21 +102,10 @@ mod tests {
         let mut view = View::new(DocumentId::default(), gutters, event::Redraw::default());
         view.area = Rect::new(40, 40, 40, 40);
 
-        let rope = Rope::from_str("a\nb");
-        let doc_short = Document::from(
-            rope,
-            None,
-            Arc::new(ArcSwap::new(Arc::new(Config::default()))),
-            Arc::new(syntax::Loader::default()),
-        );
+        let doc_short = crate::document::test_document("a\nb");
 
-        let rope = Rope::from_str("a\nb\nc\nd\ne\nf\ng\nh\ni\nj\nk\nl\nm\nn\no\np");
-        let doc_long = Document::from(
-            rope,
-            None,
-            Arc::new(ArcSwap::new(Arc::new(Config::default()))),
-            Arc::new(syntax::Loader::default()),
-        );
+        let doc_long =
+            crate::document::test_document("a\nb\nc\nd\ne\nf\ng\nh\ni\nj\nk\nl\nm\nn\no\np");
 
         assert_eq!(view.gutters.layout.len(), 2);
         assert_eq!(width(view.gutters.layout[1], &view, &doc_short), 1);
