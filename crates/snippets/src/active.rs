@@ -129,28 +129,18 @@ impl ActiveSnippet {
                 });
             }
 
-            if self.active_tabstops.contains(&TabstopIdx(i)) {
-                let positions_to_map = tabstop.ranges.iter_mut().flat_map(|range| {
-                    [
-                        (&mut range.start, Assoc::After),
-                        (&mut range.end, Assoc::After),
-                    ]
-                });
-                changes.update_positions(positions_to_map);
-            } else {
-                let positions_to_map = tabstop.ranges.iter_mut().flat_map(|range| {
-                    let end_assoc = if range.start == range.end {
-                        Assoc::After
-                    } else {
-                        Assoc::Before
-                    };
-                    [
-                        (&mut range.start, Assoc::After),
-                        (&mut range.end, end_assoc),
-                    ]
-                });
-                changes.update_positions(positions_to_map);
-            }
+            let active = self.active_tabstops.contains(&TabstopIdx(i));
+            changes.update_positions(tabstop.ranges.iter_mut().flat_map(|range| {
+                let end_assoc = if active || range.is_empty() {
+                    Assoc::After
+                } else {
+                    Assoc::Before
+                };
+                [
+                    (&mut range.start, Assoc::After),
+                    (&mut range.end, end_assoc),
+                ]
+            }));
             let mut prev = Range { start: 0, end: 0 };
             tabstop.retain_ranges(|range, owner| {
                 let snippet_range = &self.ranges[owner];

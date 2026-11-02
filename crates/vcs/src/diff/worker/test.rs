@@ -49,90 +49,73 @@ async fn readiness_tracks_initial_and_queued_snapshots() {
 }
 
 #[tokio::test]
-async fn append_line() {
-    let (differ, handle) = DiffHandle::new_test("foo\n", "foo\nbar\n");
-    let line_diffs = differ.into_diff(handle).await;
-    assert_eq!(
-        &line_diffs,
-        &[Hunk {
-            before: 1..1,
-            after: 1..2
-        }]
-    )
-}
-
-#[tokio::test]
-async fn prepend_line() {
-    let (differ, handle) = DiffHandle::new_test("foo\n", "bar\nfoo\n");
-    let line_diffs = differ.into_diff(handle).await;
-    assert_eq!(
-        &line_diffs,
-        &[Hunk {
-            before: 0..0,
-            after: 0..1
-        }]
-    )
-}
-
-#[tokio::test]
-async fn modify() {
-    let (differ, handle) = DiffHandle::new_test("foo\nbar\n", "foo bar\nbar\n");
-    let line_diffs = differ.into_diff(handle).await;
-    assert_eq!(
-        &line_diffs,
-        &[Hunk {
-            before: 0..1,
-            after: 0..1
-        }]
-    )
-}
-
-#[tokio::test]
-async fn delete_line() {
-    let (differ, handle) = DiffHandle::new_test("foo\nfoo bar\nbar\n", "foo\nbar\n");
-    let line_diffs = differ.into_diff(handle).await;
-    assert_eq!(
-        &line_diffs,
-        &[Hunk {
-            before: 1..2,
-            after: 1..1
-        }]
-    )
-}
-
-#[tokio::test]
-async fn delete_line_and_modify() {
-    let (differ, handle) = DiffHandle::new_test("foo\nbar\ntest\nfoo", "foo\ntest\nfoo bar");
-    let line_diffs = differ.into_diff(handle).await;
-    assert_eq!(
-        &line_diffs,
-        &[
-            Hunk {
+async fn initial_line_diffs() {
+    let cases: &[(&str, &str, &str, &[Hunk])] = &[
+        (
+            "append",
+            "foo\n",
+            "foo\nbar\n",
+            &[Hunk {
+                before: 1..1,
+                after: 1..2,
+            }],
+        ),
+        (
+            "prepend",
+            "foo\n",
+            "bar\nfoo\n",
+            &[Hunk {
+                before: 0..0,
+                after: 0..1,
+            }],
+        ),
+        (
+            "modify",
+            "foo\nbar\n",
+            "foo bar\nbar\n",
+            &[Hunk {
+                before: 0..1,
+                after: 0..1,
+            }],
+        ),
+        (
+            "delete",
+            "foo\nfoo bar\nbar\n",
+            "foo\nbar\n",
+            &[Hunk {
                 before: 1..2,
-                after: 1..1
-            },
-            Hunk {
-                before: 3..4,
-                after: 2..3
-            },
-        ]
-    )
-}
-
-#[tokio::test]
-async fn add_use() {
-    let (differ, handle) = DiffHandle::new_test(
-        "use ropey::Rope;\nuse tokio::task::JoinHandle;\n",
-        "use ropey::Rope;\nuse ropey::RopeSlice;\nuse tokio::task::JoinHandle;\n",
-    );
-    let line_diffs = differ.into_diff(handle).await;
-    assert_eq!(
-        &line_diffs,
-        &[Hunk {
-            before: 1..1,
-            after: 1..2
-        },]
-    )
+                after: 1..1,
+            }],
+        ),
+        (
+            "delete and modify",
+            "foo\nbar\ntest\nfoo",
+            "foo\ntest\nfoo bar",
+            &[
+                Hunk {
+                    before: 1..2,
+                    after: 1..1,
+                },
+                Hunk {
+                    before: 3..4,
+                    after: 2..3,
+                },
+            ],
+        ),
+        (
+            "add use",
+            "use ropey::Rope;\nuse tokio::task::JoinHandle;\n",
+            "use ropey::Rope;\nuse ropey::RopeSlice;\nuse tokio::task::JoinHandle;\n",
+            &[Hunk {
+                before: 1..1,
+                after: 1..2,
+            }],
+        ),
+    ];
+    for &(name, before, after, expected) in cases {
+        let (differ, handle) = DiffHandle::new_test(before, after);
+        assert_eq!(differ.into_diff(handle).await, expected, "{name}");
+    }
 }
 
 #[tokio::test]

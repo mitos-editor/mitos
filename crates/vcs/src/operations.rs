@@ -206,26 +206,21 @@ impl GitRepository {
         );
 
         let repo = self.open(true)?;
-        match kind {
-            FileOperation::Stage => ensure!(
-                status.unstaged.is_some(),
-                "This file has no unstaged changes"
-            ),
-            FileOperation::Unstage => {
-                ensure!(status.staged.is_some(), "This file has no staged changes")
-            }
-        }
-        let mut paths = Vec::new();
-        let changes: Vec<_> = match kind {
-            FileOperation::Stage => status.unstaged.iter().collect(),
-            FileOperation::Unstage => status.staged.iter().collect(),
+        let change = match kind {
+            FileOperation::Stage => status
+                .unstaged
+                .as_ref()
+                .context("This file has no unstaged changes")?,
+            FileOperation::Unstage => status
+                .staged
+                .as_ref()
+                .context("This file has no staged changes")?,
         };
-        for change in changes {
-            if let FileChange::Renamed { from_path, .. } = change {
-                paths.push(self.relative(from_path)?);
-            }
-            paths.push(self.relative(change.path())?);
+        let mut paths = Vec::with_capacity(2);
+        if let FileChange::Renamed { from_path, .. } = change {
+            paths.push(self.relative(from_path)?);
         }
+        paths.push(self.relative(change.path())?);
         paths.sort();
         paths.dedup();
         ensure!(!paths.is_empty(), "No file changes selected");

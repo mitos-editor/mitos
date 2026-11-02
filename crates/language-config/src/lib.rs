@@ -58,14 +58,14 @@ pub struct LanguageConfiguration {
     #[serde(
         default,
         skip_serializing,
-        deserialize_with = "from_comment_tokens",
+        deserialize_with = "deserialize_one_or_many",
         alias = "comment-token"
     )]
     pub comment_tokens: Option<Vec<String>>,
     #[serde(
         default,
         skip_serializing,
-        deserialize_with = "from_block_comment_tokens"
+        deserialize_with = "deserialize_one_or_many"
     )]
     pub block_comment_tokens: Option<Vec<BlockCommentToken>>,
     pub text_width: Option<usize>,
@@ -133,9 +133,8 @@ pub struct LanguageConfiguration {
 impl LanguageConfiguration {
     /// Single servers and contiguous groups of ordered alternatives.
     pub fn language_server_groups(&self) -> impl Iterator<Item = &[LanguageServerFeatures]> {
-        self.language_servers.chunk_by(|a, b| {
-            a.alternative_group.is_some() && a.alternative_group == b.alternative_group
-        })
+        self.language_servers
+            .chunk_by(LanguageServerFeatures::same_group)
     }
 }
 
@@ -219,90 +218,41 @@ impl<'de> Deserialize<'de> for FileType {
     where
         D: serde::de::Deserializer<'de>,
     {
-        struct FileTypeVisitor;
-
-        impl<'de> serde::de::Visitor<'de> for FileTypeVisitor {
-            type Value = FileType;
-
-            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-                formatter.write_str("string or table")
-            }
-
-            fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
-            where
-                E: serde::de::Error,
-            {
-                Ok(FileType::Extension(value.to_string()))
-            }
-
-            fn visit_map<M>(self, mut map: M) -> Result<Self::Value, M::Error>
-            where
-                M: serde::de::MapAccess<'de>,
-            {
-                match map.next_entry::<String, String>()? {
-                    Some((key, mut glob)) if key == "glob" => {
-                        // If the glob isn't an absolute path or already starts
-                        // with a glob pattern, add a leading glob so we
-                        // properly match relative paths.
-                        if !glob.starts_with('/') && !glob.starts_with("*/") {
-                            glob.insert_str(0, "*/");
-                        }
-
-                        globset::Glob::new(glob.as_str())
-                            .map(FileType::Glob)
-                            .map_err(|err| {
-                                serde::de::Error::custom(format!("invalid `glob` pattern: {}", err))
-                            })
-                    }
-                    Some((key, _value)) => Err(serde::de::Error::custom(format!(
-                        "unknown key in `file-types` list: {}",
-                        key
-                    ))),
-                    None => Err(serde::de::Error::custom(
-                        "expected a `suffix` key in the `file-types` entry",
-                    )),
+        #[derive(Deserialize)]
+        #[serde(untagged, deny_unknown_fields)]
+        enum Input {
+            Extension(String),
+            Glob { glob: String },
+        }
+        match Input::deserialize(deserializer)? {
+            Input::Extension(extension) => Ok(Self::Extension(extension)),
+            Input::Glob { mut glob } => {
+                if !glob.starts_with('/') && !glob.starts_with("*/") {
+                    glob.insert_str(0, "*/");
                 }
+                globset::Glob::new(&glob).map(Self::Glob).map_err(|error| {
+                    serde::de::Error::custom(format!("invalid `glob` pattern: {error}"))
+                })
             }
         }
-
-        deserializer.deserialize_any(FileTypeVisitor)
     }
 }
 
-fn from_comment_tokens<'de, D>(deserializer: D) -> Result<Option<Vec<String>>, D::Error>
+fn deserialize_one_or_many<'de, D, T>(deserializer: D) -> Result<Option<Vec<T>>, D::Error>
 where
     D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
 {
     #[derive(Deserialize)]
     #[serde(untagged)]
-    enum CommentTokens {
-        Multiple(Vec<String>),
-        Single(String),
+    enum OneOrMany<T> {
+        Multiple(Vec<T>),
+        Single(T),
     }
     Ok(
-        Option::<CommentTokens>::deserialize(deserializer)?.map(|tokens| match tokens {
-            CommentTokens::Single(val) => vec![val],
-            CommentTokens::Multiple(vals) => vals,
-        }),
-    )
-}
-
-fn from_block_comment_tokens<'de, D>(
-    deserializer: D,
-) -> Result<Option<Vec<BlockCommentToken>>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    #[derive(Deserialize)]
-    #[serde(untagged)]
-    enum BlockCommentTokens {
-        Multiple(Vec<BlockCommentToken>),
-        Single(BlockCommentToken),
-    }
-    Ok(
-        Option::<BlockCommentTokens>::deserialize(deserializer)?.map(|tokens| match tokens {
-            BlockCommentTokens::Single(val) => vec![val],
-            BlockCommentTokens::Multiple(vals) => vals,
+        Option::<OneOrMany<T>>::deserialize(deserializer)?.map(|value| match value {
+            OneOrMany::Multiple(values) => values,
+            OneOrMany::Single(value) => vec![value],
         }),
     )
 }
@@ -405,6 +355,10 @@ pub struct LanguageServerFeatures {
 }
 
 impl LanguageServerFeatures {
+    fn same_group(&self, other: &Self) -> bool {
+        self.alternative_group.is_some() && self.alternative_group == other.alternative_group
+    }
+
     pub fn has_feature(&self, feature: LanguageServerFeature) -> bool {
         (self.only.is_empty() || self.only.contains(&feature)) && !self.excluded.contains(&feature)
     }
@@ -492,9 +446,7 @@ where
     S: serde::Serializer,
 {
     let mut serializer = serializer.serialize_seq(None)?;
-    for group in servers.chunk_by(|a, b| {
-        a.alternative_group.is_some() && a.alternative_group == b.alternative_group
-    }) {
+    for group in servers.chunk_by(LanguageServerFeatures::same_group) {
         let entry = if group[0].alternative_group.is_some() {
             LanguageServerEntry::Alternatives {
                 alternatives: group.iter().map(Into::into).collect(),
@@ -694,4 +646,65 @@ where
 
 fn default_timeout() -> u64 {
     20
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn file_types_preserve_extensions_and_normalize_only_relative_globs() {
+        assert_eq!(
+            serde_json::from_value::<FileType>(json!("rs")).unwrap(),
+            FileType::Extension("rs".into())
+        );
+        for (source, expected) in [
+            ("src/*.rs", "*/src/*.rs"),
+            ("/src/*.rs", "/src/*.rs"),
+            ("*/src/*.rs", "*/src/*.rs"),
+        ] {
+            let FileType::Glob(glob) =
+                serde_json::from_value::<FileType>(json!({"glob": source})).unwrap()
+            else {
+                panic!("expected glob")
+            };
+            assert_eq!(glob.glob(), expected);
+        }
+        for invalid in [
+            json!({}),
+            json!({"suffix":"rs"}),
+            json!({"glob":"*.rs", "extra":"x"}),
+            json!({"glob":true}),
+            json!(4),
+        ] {
+            assert!(serde_json::from_value::<FileType>(invalid).is_err());
+        }
+        assert!(serde_json::from_value::<FileType>(json!({"glob":"["}))
+            .unwrap_err()
+            .to_string()
+            .contains("invalid `glob` pattern"));
+    }
+
+    #[test]
+    fn comment_token_scalar_list_and_legacy_shapes_remain_accepted() {
+        for (comments, blocks, expected_comments, expected_blocks) in [
+            (json!("#"), json!({"start":"/*", "end":"*/"}), vec!["#"], 1),
+            (
+                json!(["#", "//"]),
+                json!([{"start":"/*", "end":"*/"}, {"start":"(*", "end":"*)"}]),
+                vec!["#", "//"],
+                2,
+            ),
+            (json!("#"), json!(["/*", "*/"]), vec!["#"], 1),
+        ] {
+            let config: LanguageConfiguration = serde_json::from_value(json!({
+                "name":"test", "scope":"source.test", "file-types":[],
+                "comment-token":comments, "block-comment-tokens":blocks,
+            }))
+            .unwrap();
+            assert_eq!(config.comment_tokens.unwrap(), expected_comments);
+            assert_eq!(config.block_comment_tokens.unwrap().len(), expected_blocks);
+        }
+    }
 }

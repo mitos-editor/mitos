@@ -249,7 +249,7 @@ impl Editor {
             selected_register: None,
             macro_recording: None,
             macro_replaying: Vec::new(),
-            theme: theme_loader.default(),
+            theme: theme_loader.default_theme(),
             language_servers,
             initialized_language_servers: HashSet::new(),
             diagnostics: LspDiagnostics::new(),

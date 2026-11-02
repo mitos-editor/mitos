@@ -804,36 +804,26 @@ mod test {
                 default: None,
             }],
         );
-        assert_snippet(
+        for input in [
             "${foo/.*/complex${1:else}/i}",
-            &[Variable {
-                name: "foo".into(),
-                transform: Some(Transform {
-                    regex: ".*".into(),
-                    replacement: vec![
-                        FormatItem::Text("complex".into()),
-                        FormatItem::Conditional(1, Tendril::new(), "else".into()),
-                    ],
-                    options: "i".into(),
-                }),
-                default: None,
-            }],
-        );
-        assert_snippet(
             "${foo/.*/complex${1:-else}/i}",
-            &[Variable {
-                name: "foo".into(),
-                transform: Some(Transform {
-                    regex: ".*".into(),
-                    replacement: vec![
-                        FormatItem::Text("complex".into()),
-                        FormatItem::Conditional(1, Tendril::new(), "else".into()),
-                    ],
-                    options: "i".into(),
-                }),
-                default: None,
-            }],
-        );
+        ] {
+            assert_snippet(
+                input,
+                &[Variable {
+                    name: "foo".into(),
+                    transform: Some(Transform {
+                        regex: ".*".into(),
+                        replacement: vec![
+                            FormatItem::Text("complex".into()),
+                            FormatItem::Conditional(1, Tendril::new(), "else".into()),
+                        ],
+                        options: "i".into(),
+                    }),
+                    default: None,
+                }],
+            );
+        }
         assert_snippet(
             "${foo/.*/complex${1:+if}/i}",
             &[Variable {
