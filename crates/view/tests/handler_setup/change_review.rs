@@ -1320,7 +1320,7 @@ pub(super) async fn settle_review_events(f: &mut Fixture) {
     loop {
         tokio::select! {
             _ = &mut until => break,
-            callback = f.callbacks.recv() => callback.unwrap()(&mut f.editor),
+            callback = f.callbacks.recv() => { callback.unwrap()(&mut f.editor); },
         }
     }
 }
