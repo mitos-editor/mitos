@@ -41,6 +41,7 @@ pub mod movement;
 mod position;
 pub mod search;
 pub mod selection;
+#[cfg(any(test, feature = "integration"))]
 pub mod test;
 pub mod textobject;
 mod transaction;

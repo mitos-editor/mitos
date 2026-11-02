@@ -122,14 +122,6 @@ pub fn is_valid_bracket(ch: char) -> bool {
     BRACKETS.iter().any(|(l, r)| *l == ch || *r == ch)
 }
 
-pub fn is_open_pair(ch: char) -> bool {
-    PAIRS.iter().any(|(l, _)| *l == ch)
-}
-
-pub fn is_close_pair(ch: char) -> bool {
-    PAIRS.iter().any(|(_, r)| *r == ch)
-}
-
 pub fn is_valid_pair(ch: char) -> bool {
     PAIRS.iter().any(|(l, r)| *l == ch || *r == ch)
 }

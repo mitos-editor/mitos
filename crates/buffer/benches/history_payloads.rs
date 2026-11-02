@@ -1,5 +1,5 @@
 //! Measures commit/replay separately, including allocations during each operation.
-use buffer::history::History;
+use buffer::history::{History, HistoryAction};
 use editor_core::{Rope, Transaction};
 use std::{
     alloc::{GlobalAlloc, Layout, System},
@@ -53,7 +53,8 @@ fn main() {
             commit_bytes.push(allocated);
             ALLOCATED.store(0, Ordering::Relaxed);
             let start = Instant::now();
-            let step = history.undo().unwrap();
+            let step = history.plan(HistoryAction::Undo).pop().unwrap();
+            assert!(history.advance(&step));
             let elapsed = start.elapsed().as_secs_f64() * 1_000_000.0;
             let allocated = ALLOCATED.load(Ordering::Relaxed);
             replays.push(elapsed);

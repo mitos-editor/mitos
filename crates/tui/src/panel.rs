@@ -31,11 +31,6 @@ pub fn horizontally_padded(style: Style, border_set: border::Set<'static>) -> Bl
     bordered(style, border_set).padding(Padding::horizontal(PADDING))
 }
 
-/// Creates a bordered block with one cell of padding on every side.
-pub fn uniformly_padded(style: Style, border_set: border::Set<'static>) -> Block<'static> {
-    bordered(style, border_set).padding(Padding::uniform(PADDING))
-}
-
 /// Creates a separator block with only a top border.
 pub fn top_border(style: Style, border_set: border::Set<'static>) -> Block<'static> {
     bordered(style, border_set).borders(Borders::TOP)

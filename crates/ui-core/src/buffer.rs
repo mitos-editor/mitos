@@ -1,14 +1,10 @@
 use crate::graphics::Style;
-use ratatui_core::{buffer::Buffer, text::Line};
+use ratatui_core::buffer::Buffer;
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
 /// Editor-specific operations on Ratatui's screen buffer.
 pub trait BufferExt {
-    /// Returns whether the coordinate belongs to this buffer's area.
-    fn in_bounds(&self, x: u16, y: u16) -> bool;
-    /// Writes a styled line into at most `width` cells.
-    fn set_spans(&mut self, x: u16, y: u16, spans: &Line<'_>, width: u16) -> (u16, u16);
     /// Writes one grapheme and clears continuation cells for wide graphemes.
     ///
     /// The caller must ensure the full grapheme width fits in the buffer.
@@ -62,14 +58,6 @@ fn visible_graphemes(string: &str) -> impl DoubleEndedIterator<Item = (usize, &s
 }
 
 impl BufferExt for Buffer {
-    fn in_bounds(&self, x: u16, y: u16) -> bool {
-        self.cell((x, y)).is_some()
-    }
-
-    fn set_spans(&mut self, x: u16, y: u16, spans: &Line<'_>, width: u16) -> (u16, u16) {
-        self.set_line(x, y, spans, width)
-    }
-
     #[inline]
     fn set_grapheme(&mut self, x: u16, y: u16, grapheme: &str, width: usize, style: Style) {
         let index = self.index_of(x, y);
