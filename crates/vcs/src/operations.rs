@@ -16,6 +16,8 @@ use tokio::{
 use crate::{FileChange, FileStatus};
 
 pub mod history;
+pub mod repository;
+pub use repository::RepositoryOperation;
 mod stash;
 pub use stash::{StashEntry, StashFile, StashLayer};
 
@@ -44,6 +46,7 @@ impl FileOperation {
 
 #[derive(Clone, Debug)]
 enum Operation {
+    Repository(RepositoryOperation),
     File {
         kind: FileOperation,
         paths: Vec<PathBuf>,
@@ -69,6 +72,9 @@ impl PreparedOperation {
     }
 
     pub fn changes_worktree(&self) -> bool {
+        if let Operation::Repository(operation) = &self.operation {
+            return operation.changes_worktree();
+        }
         !matches!(
             self.operation,
             Operation::File {
@@ -81,6 +87,7 @@ impl PreparedOperation {
     /// File paths, or the entire worktree for stash application, whose writes must be suspended.
     pub fn affected_paths(&self) -> Vec<PathBuf> {
         match &self.operation {
+            Operation::Repository(operation) => operation.affected_paths(&self.repository),
             Operation::File { paths, .. } => paths
                 .iter()
                 .map(|path| self.repository.root.join(path))
@@ -91,6 +98,7 @@ impl PreparedOperation {
 
     pub fn label(&self) -> &'static str {
         match &self.operation {
+            Operation::Repository(operation) => operation.label(),
             Operation::File { kind, .. } => kind.label(),
             Operation::Stash => "Stash all repository changes",
             Operation::Apply { .. } => "Apply stash (keep stash)",
@@ -110,8 +118,12 @@ impl PreparedOperation {
             Ok::<_, anyhow::Error>(self)
         })
         .await??;
+        if let Operation::Repository(operation) = &prepared.operation {
+            return operation.execute(&prepared.repository).await;
+        }
         let mut command = prepared.repository.command();
         match &prepared.operation {
+            Operation::Repository(_) => unreachable!(),
             Operation::File {
                 kind: FileOperation::Stage,
                 paths,

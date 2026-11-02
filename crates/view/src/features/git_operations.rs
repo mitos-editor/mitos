@@ -11,6 +11,37 @@ use std::{
 };
 use vcs::operations::{FileOperation, GitRepository, PreparedOperation, StashEntry};
 
+/// Capture editor-owned repository context before any background discovery.
+#[derive(Clone, Debug)]
+pub struct GitScope {
+    pub path: PathBuf,
+    pub workspace: PathBuf,
+}
+
+impl GitScope {
+    pub fn capture(editor: &Editor) -> Self {
+        let (_, doc) = crate::current_ref!(editor);
+        if let Some(review) = doc.review() {
+            return Self {
+                path: review.path().to_owned(),
+                workspace: review.workspace().to_owned(),
+            };
+        }
+        if let Some(historical) = &doc.historical {
+            return Self {
+                path: historical.path.clone(),
+                workspace: historical.workspace.clone(),
+            };
+        }
+        Self {
+            path: doc
+                .path()
+                .map_or_else(stdx::env::current_working_dir, |path| path.to_owned()),
+            workspace: doc.workspace_root().to_owned(),
+        }
+    }
+}
+
 #[derive(Default)]
 pub struct GitOperationsHandler {
     busy: Arc<AtomicBool>,
@@ -35,6 +66,7 @@ impl Drop for Admission {
 
 #[derive(Clone)]
 pub enum GitAction {
+    Repository(GitRepository, vcs::operations::RepositoryOperation),
     File(vcs::FileStatus, FileOperation),
     Stash(PathBuf),
     Apply(GitRepository, StashEntry, bool),
@@ -94,6 +126,9 @@ impl GitRequest {
     pub async fn prepare(self) -> Result<PreparedGitAction> {
         tokio::task::spawn_blocking(move || {
             let operation = match &self.action {
+                GitAction::Repository(repository, operation) => {
+                    repository.prepare_repository(operation.clone(), true)?
+                }
                 GitAction::Stash(path) => GitRepository::discover(path)?.prepare_stash(true)?,
                 GitAction::File(status, kind) => {
                     ensure!(
@@ -116,6 +151,17 @@ impl GitRequest {
 impl PreparedGitAction {
     /// Called on the editor mutation path after off-thread preflight, immediately before execution.
     pub fn admit(self, editor: &mut Editor) -> Result<GitTask> {
+        if let GitAction::Repository(
+            _,
+            vcs::operations::RepositoryOperation::RemoveWorktree { path },
+        ) = &self.request.action
+        {
+            ensure!(
+                !stdx::path::canonicalize_existing(&stdx::env::current_working_dir())
+                    .starts_with(stdx::path::canonicalize_existing(path)),
+                "Change directory out of this worktree before removing it"
+            );
+        }
         ensure!(
             Arc::ptr_eq(
                 &self.request.admission.0,
