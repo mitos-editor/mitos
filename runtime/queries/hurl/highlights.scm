@@ -22,6 +22,7 @@
 (value_string) @string
 (quoted_string) @string
 (json_string) @string
+(multiline_string_content) @string
 (file_value) @string.special.path
 (regex) @string.regexp
 
@@ -32,7 +33,6 @@
   (key_string_escaped_char)
   (value_string_escaped_char)
   (oneline_string_escaped_char)
-  (multiline_string_escaped_char)
   (filename_escaped_char)
   (json_string_escaped_char)
 ] @constant.character.escape

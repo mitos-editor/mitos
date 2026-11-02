@@ -2,3 +2,9 @@ process : [Nat] -> Nat
 process xs =
     total = List.foldLeft (+) 0 xs
     total
+
+choose n =
+    if n == 0 then
+        true
+    else
+        false

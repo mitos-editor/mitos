@@ -10,5 +10,6 @@
 ((multiline_string
   (multiline_string_type) @injection.language
   (multiline_string_content) @injection.content)
+  (#not-eq? @injection.language "raw")
   (#set! injection.include-children)
   (#set! injection.combined))

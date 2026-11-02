@@ -2,7 +2,7 @@
   name: (regular_identifier) @name) @definition.function
 
 (type_declaration
-  (type_kw)
+  "type"
   (type_constructor
     (type_name (regular_identifier) @name))) @definition.type
 

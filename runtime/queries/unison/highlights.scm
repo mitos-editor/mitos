@@ -8,25 +8,26 @@
 
 ;; Keywords
 [
-  (kw_forall)
-  (kw_equals)
-  (do)
-  (kw_let)
-  (ability)
-  (where)
-  (kw_namespace)
+  "forall"
+  "∀"
+  "="
+  "do"
+  "let"
+  "ability"
+  "where"
+  "namespace"
 ] @keyword
 
-(kw_let) @keyword.function
-(type_kw) @keyword.storage.modifier
-(structural) @keyword.storage.modifier
+"let" @keyword.function
+"type" @keyword.storage.modifier
+"structural" @keyword.storage.modifier
 ("use") @keyword.control.import
-(unique) @keyword.storage.modifier
+"unique" @keyword.storage.modifier
 
 [
   (operator)
-  (pipe)
-  (arrow_symbol)
+  "|"
+  "->"
   (effect_arrow)
   (or)
   (and)
@@ -36,9 +37,9 @@
   "if"
   "else"
   "then"
-  (match)
-  (with)
-  (cases)
+  "match"
+  "with"
+  "cases"
 ] @keyword.control.conditional
 
 (blank_pattern) @variable.builtin
@@ -101,10 +102,7 @@
   param: (regular_identifier) @variable.parameter)
 
 ;; Punctuation
-[
-  (type_signature_colon)
-  ":"
-] @punctuation.delimiter
+":" @punctuation.delimiter
 
 [
   "("
