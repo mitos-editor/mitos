@@ -1,3 +1,3 @@
 ((comment) @injection.content
- (#set! injection.required-byte "/")
+ (#match? @injection.content "^/")
  (#set! injection.language "comment"))

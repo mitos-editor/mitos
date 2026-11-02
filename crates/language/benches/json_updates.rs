@@ -9,13 +9,21 @@ fn main() {
     let loader = default_lang_loader(loader::syntax::Resources::default());
     let language = loader.language_for_name("json").unwrap();
     for count in [1_000, 10_000, 100_000] {
-        for slash in [false, true] {
-            let entry = if slash {
+        for case in ["plain", "slash", "comments"] {
+            let entry = if case == "slash" {
                 "{\"name\":\"value/path\"},\n"
             } else {
                 "{\"name\":\"value\"},\n"
             };
-            let text = Rope::from_str(&format!("[{}{{}}]\n", entry.repeat(count)));
+            let mut body = String::new();
+            for index in 0..count {
+                if case == "comments" && index % 100 == 0 {
+                    body.push_str("{\"name\":\"value\"}, // TODO\n");
+                } else {
+                    body.push_str(entry);
+                }
+            }
+            let text = Rope::from_str(&format!("[{body}{{}}]\n"));
             let mut syntax = Syntax::new_with_timeout(
                 text.slice(..),
                 language,
@@ -23,7 +31,7 @@ fn main() {
                 Duration::from_secs(10),
             )
             .unwrap();
-            let pos = 1 + (count / 2) * entry.len();
+            let pos = 1 + body.match_indices("{\"name\":").nth(count / 2).unwrap().0;
             let changes = ChangeSet::from_change(&text, (pos, pos, Some(" ".into())));
             let mut after = text.clone();
             assert!(changes.apply(&mut after));
@@ -49,9 +57,10 @@ fn main() {
                 .collect();
             samples.sort_by(f64::total_cmp);
             println!(
-                "elements={count} bytes={} slash={slash} pair_ms={:.6}",
+                "case={case} elements={count} bytes={} pair_ms={:.6} p95_ms={:.6} samples={samples:?}",
                 text.len(),
-                samples[7]
+                samples[7],
+                samples[14]
             );
         }
     }
