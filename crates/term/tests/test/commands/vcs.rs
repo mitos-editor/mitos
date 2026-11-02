@@ -534,6 +534,57 @@ async fn show_change_displays_deleted_and_unsaved_text_without_writing() -> anyh
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn show_change_near_bottom_displays_the_hunk_above_the_cursor() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let path = dir.path().join("file.txt");
+    let original: String = (0..150).map(|line| format!("old{line:03}\n")).collect();
+    std::fs::write(&path, &original)?;
+    std::fs::write(dir.path().join(".gitattributes"), "* text eol=lf\n")?;
+    git(dir.path(), &["init"]);
+    git(dir.path(), &["add", "-A"]);
+    git(dir.path(), &["commit", "-m", "initial"]);
+    let changed: String = (0..150)
+        .map(|line| {
+            if (136..142).contains(&line) {
+                format!("new{line:03}\n")
+            } else {
+                format!("old{line:03}\n")
+            }
+        })
+        .collect();
+    std::fs::write(&path, &changed)?;
+    let mut app = AppBuilder::new().with_file(&path, None).build()?;
+    press_keys(&mut app, "141gg").await?;
+    let cursor = app.editor.cursor().0.unwrap();
+    let viewport = app.terminal_backend().buffer().area;
+    let rows_below = viewport.bottom() as usize - cursor.row - 1;
+    assert!((6..=10).contains(&rows_below), "{cursor:?}, {viewport:?}");
+    let (view, doc) = current_ref!(app.editor);
+    let selection = doc.selection(view.id).clone();
+
+    press_keys(&mut app, "<space>gi").await?;
+    wait_for_review_screen(&mut app, "Current change", "+ new141").await?;
+    assert!(review_screen(&app).contains("− old136"));
+    let buffer = app.terminal_backend().buffer();
+    let heading_row = (0..viewport.height)
+        .find(|&row| {
+            (0..viewport.width)
+                .map(|col| buffer[(col, row)].symbol())
+                .collect::<String>()
+                .contains("Current change")
+        })
+        .unwrap();
+    assert!((heading_row as usize) < cursor.row);
+    assert_eq!(app.editor.cursor().0, Some(cursor));
+    let (view, doc) = current_ref!(app.editor);
+    assert_eq!(doc.selection(view.id), &selection);
+    assert_eq!(std::fs::read_to_string(&path)?, changed);
+    press_keys(&mut app, "<esc>").await?;
+    assert!(app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn change_popup_restores_with_default_and_remapped_shortcuts() -> anyhow::Result<()> {
     for shortcut in ["r", "<A-r>"] {
         let (dir, path) = committed_file()?;
