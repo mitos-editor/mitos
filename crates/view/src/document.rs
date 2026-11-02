@@ -712,6 +712,10 @@ impl Document {
     }
 
     /// Capture immutable text and its identity for saving or background work.
+    pub fn is_snapshot_current(&self, snapshot: &buffer::Snapshot) -> bool {
+        snapshot.is_current(&self.buffer)
+    }
+
     pub fn snapshot(&self) -> buffer::Snapshot {
         self.buffer.snapshot()
     }

@@ -17,6 +17,36 @@ pub fn render_document(
     theme: &Theme,
     decorations: DecorationManager,
 ) {
+    let review_styles = super::change_review::document::syntax_styles(doc, layout, theme);
+    let ordinary_styles = super::highlights::document_syntax_styles(doc, layout, theme).take(
+        if review_styles.is_some() {
+            0
+        } else {
+            usize::MAX
+        },
+    );
+    let syntax_styles = review_styles.into_iter().flatten().chain(ordinary_styles);
+    render_document_with_styles(
+        surface,
+        doc,
+        layout,
+        overlay_highlights,
+        theme,
+        decorations,
+        syntax_styles,
+    );
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn render_document_with_styles(
+    surface: &mut Surface,
+    doc: &Document,
+    layout: &ViewLayout,
+    overlay_highlights: Vec<editor_core::highlight::OverlayHighlights>,
+    theme: &Theme,
+    decorations: DecorationManager,
+    syntax_styles: impl Iterator<Item = (usize, theme::Style)>,
+) {
     let config = doc.config.load();
     let mut renderer = TextRenderer::new(
         surface,
@@ -28,15 +58,6 @@ pub fn render_document(
         ),
         layout.viewport,
     );
-    let review_styles = super::change_review::document::syntax_styles(doc, layout, theme);
-    let ordinary_styles = super::highlights::document_syntax_styles(doc, layout, theme).take(
-        if review_styles.is_some() {
-            0
-        } else {
-            usize::MAX
-        },
-    );
-    let syntax_styles = review_styles.into_iter().flatten().chain(ordinary_styles);
     render_text(
         &mut renderer,
         layout.text,
