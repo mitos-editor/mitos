@@ -21,18 +21,17 @@ pub fn ts_lang_support(feat: QueryFeature) -> Vec<String> {
 
 // naive implementation, but suffices for our needs
 pub fn find_files(dir: &Path, filename: &str) -> Vec<PathBuf> {
-    std::fs::read_dir(dir)
-        .unwrap()
-        .filter_map(|entry| {
-            let path = entry.ok()?.path();
+    fn collect(dir: &Path, filename: &str, files: &mut Vec<PathBuf>) {
+        for entry in std::fs::read_dir(dir).unwrap().filter_map(Result::ok) {
+            let path = entry.path();
             if path.is_dir() {
-                Some(find_files(&path, filename))
-            } else if path.file_name()?.to_string_lossy() == filename {
-                Some(vec![path])
-            } else {
-                None
+                collect(&path, filename, files);
+            } else if path.file_name().is_some_and(|name| name == filename) {
+                files.push(path);
             }
-        })
-        .flatten()
-        .collect()
+        }
+    }
+    let mut files = Vec::new();
+    collect(dir, filename, &mut files);
+    files
 }

@@ -271,89 +271,6 @@ pub fn spelling_ignore_file(language: &str) -> PathBuf {
         .join(format!("{language}.ignore"))
 }
 
-/// Merge two TOML documents, merging values from `right` onto `left`
-///
-/// `merge_depth` sets the nesting depth up to which values are merged instead
-/// of overridden.
-///
-/// When a table exists in both `left` and `right`, the merged table consists of
-/// all keys in `left`'s table unioned with all keys in `right` with the values
-/// of `right` being merged recursively onto values of `left`.
-///
-/// `crate::merge_toml_values(a, b, 3)` combines, for example:
-///
-/// b:
-/// ```toml
-/// [[language]]
-/// name = "toml"
-/// language-server = { command = "taplo", args = ["lsp", "stdio"] }
-/// ```
-/// a:
-/// ```toml
-/// [[language]]
-/// language-server = { command = "/usr/bin/taplo" }
-/// ```
-///
-/// into:
-/// ```toml
-/// [[language]]
-/// name = "toml"
-/// language-server = { command = "/usr/bin/taplo" }
-/// ```
-///
-/// thus it overrides the third depth-level of b with values of a if they exist,
-/// but otherwise merges their values
-pub fn merge_toml_values(left: toml::Value, right: toml::Value, merge_depth: usize) -> toml::Value {
-    use toml::Value;
-
-    fn get_name(v: &Value) -> Option<&str> {
-        v.get("name").and_then(Value::as_str)
-    }
-
-    match (left, right) {
-        (Value::Array(mut left_items), Value::Array(right_items)) => {
-            if merge_depth > 0 {
-                left_items.reserve(right_items.len());
-                for rvalue in right_items {
-                    let lvalue = get_name(&rvalue)
-                        .and_then(|rname| {
-                            left_items.iter().position(|v| get_name(v) == Some(rname))
-                        })
-                        .map(|lpos| left_items.remove(lpos));
-                    let mvalue = match lvalue {
-                        Some(lvalue) => merge_toml_values(lvalue, rvalue, merge_depth - 1),
-                        None => rvalue,
-                    };
-                    left_items.push(mvalue);
-                }
-                Value::Array(left_items)
-            } else {
-                Value::Array(right_items)
-            }
-        }
-        (Value::Table(mut left_map), Value::Table(right_map)) => {
-            if merge_depth > 0 {
-                for (rname, rvalue) in right_map {
-                    match left_map.remove(&rname) {
-                        Some(lvalue) => {
-                            let merged_value = merge_toml_values(lvalue, rvalue, merge_depth - 1);
-                            left_map.insert(rname, merged_value);
-                        }
-                        None => {
-                            left_map.insert(rname, rvalue);
-                        }
-                    }
-                }
-                Value::Table(left_map)
-            } else {
-                Value::Table(right_map)
-            }
-        }
-        // Catch everything else we didn't handle, and use the right value
-        (_, value) => value,
-    }
-}
-
 fn default_config_file() -> PathBuf {
     config_dir().join("config.toml")
 }
@@ -495,10 +412,10 @@ mod directory_tests {
 }
 
 #[cfg(test)]
-mod merge_toml_tests {
+mod language_merge_tests {
     use std::str;
 
-    use super::merge_toml_values;
+    use super::config::migration::merge_languages;
     use toml::Value;
 
     #[test]
@@ -515,7 +432,7 @@ mod merge_toml_tests {
         let base: Value = toml::from_str(base).expect("Couldn't parse built-in languages config");
         let user: Value = toml::from_str(USER).unwrap();
 
-        let merged = merge_toml_values(base, user, 3);
+        let merged = merge_languages(base, user);
         let languages = merged.get("language").unwrap().as_array().unwrap();
         let nix = languages
             .iter()
@@ -549,7 +466,7 @@ mod merge_toml_tests {
         let base: Value = toml::from_str(base).expect("Couldn't parse built-in languages config");
         let user: Value = toml::from_str(USER).unwrap();
 
-        let merged = merge_toml_values(base, user, 3);
+        let merged = merge_languages(base, user);
         let languages = merged.get("language").unwrap().as_array().unwrap();
         let ts = languages
             .iter()

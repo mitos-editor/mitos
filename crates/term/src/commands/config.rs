@@ -56,6 +56,33 @@ pub(super) fn theme(
     Ok(())
 }
 
+fn option_path(key: &str) -> (String, String) {
+    let key = loader::config::migration::editor_path(&key.to_lowercase());
+    let pointer = format!("/{}", key.replace('.', "/"));
+    (key, pointer)
+}
+
+fn publish_settings(
+    cx: &mut compositor::Context,
+    mut settings: Box<EditorSettings>,
+) -> anyhow::Result<()> {
+    settings.editor.commands = cx.editor.config().commands.clone();
+    cx.config.updates.send(ConfigEvent::Update(settings))?;
+    Ok(())
+}
+
+fn next_option<T: PartialEq + Clone>(values: &[T], current: &T) -> anyhow::Result<T> {
+    let first = values
+        .first()
+        .ok_or_else(|| anyhow!("No values supplied for toggle"))?;
+    Ok(values
+        .iter()
+        .skip_while(|value| *value != current)
+        .nth(1)
+        .unwrap_or(first)
+        .clone())
+}
+
 // Fetch the current value of a config option and output as status.
 #[cold]
 pub(super) fn get_option(
@@ -67,11 +94,10 @@ pub(super) fn get_option(
         return Ok(());
     }
 
-    let key = &loader::config::migration::editor_path(&args[0].to_lowercase());
+    let (key, pointer) = option_path(&args[0]);
     let key_error = || anyhow::anyhow!("Unknown key `{}`", key);
 
     let config = serde_json::json!(cx.config.current.editor_settings());
-    let pointer = format!("/{}", key.replace('.', "/"));
     let value = config.pointer(&pointer).ok_or_else(key_error)?;
 
     cx.editor.set_status(value.to_string());
@@ -90,16 +116,13 @@ pub(super) fn set_option(
         return Ok(());
     }
 
-    let (key, arg) = (
-        &loader::config::migration::editor_path(&args[0].to_lowercase()),
-        args[1].trim(),
-    );
+    let (key, pointer) = option_path(&args[0]);
+    let arg = args[1].trim();
 
     let key_error = || anyhow::anyhow!("Unknown key `{}`", key);
     let field_error = |_| anyhow::anyhow!("Could not parse field `{}`", arg);
 
     let mut config = serde_json::json!(cx.config.current.editor_settings());
-    let pointer = format!("/{}", key.replace('.', "/"));
     let value = config.pointer_mut(&pointer).ok_or_else(key_error)?;
 
     *value = if value.is_string() {
@@ -108,11 +131,7 @@ pub(super) fn set_option(
     } else {
         arg.parse().map_err(field_error)?
     };
-    let mut config: Box<EditorSettings> = serde_json::from_value(config).map_err(field_error)?;
-    config.editor.commands = cx.editor.config().commands.clone();
-
-    cx.config.updates.send(ConfigEvent::Update(config))?;
-    Ok(())
+    publish_settings(cx, serde_json::from_value(config).map_err(field_error)?)
 }
 
 /// Toggle boolean config option at runtime. Access nested values by dot
@@ -128,12 +147,11 @@ pub(super) fn toggle_option(
         return Ok(());
     }
 
-    let key = &loader::config::migration::editor_path(&args[0].to_lowercase());
+    let (key, pointer) = option_path(&args[0]);
 
     let key_error = || anyhow::anyhow!("Unknown key `{}`", key);
 
     let mut config = serde_json::json!(cx.config.current.editor_settings());
-    let pointer = format!("/{}", key.replace('.', "/"));
     let value = config.pointer_mut(&pointer).ok_or_else(key_error)?;
 
     *value = match value {
@@ -155,15 +173,7 @@ pub(super) fn toggle_option(
                 .collect::<Result<_, _>>()
                 .map_err(|err| anyhow!("failed to parse values: {err}"))?;
 
-            Value::String(
-                values
-                    .iter()
-                    .skip_while(|e| *e != value)
-                    .nth(1)
-                    .map(AsRef::as_ref)
-                    .unwrap_or_else(|| &values[0])
-                    .to_string(),
-            )
+            Value::String(next_option(&values, &value.as_str().into())?.into_owned())
         }
         Value::Null => bail!("Configuration {key} cannot be toggled"),
         Value::Number(_) | Value::Array(_) | Value::Object(_) => {
@@ -191,21 +201,14 @@ pub(super) fn toggle_option(
                 bail!("value '{wrongly_typed_value}' has a different type than '{value}'");
             }
 
-            values
-                .iter()
-                .skip_while(|e| *e != value)
-                .nth(1)
-                .unwrap_or(&values[0])
-                .clone()
+            next_option(&values, value)?
         }
     };
 
     let status = format!("'{key}' is now set to {value}");
-    let mut config: Box<EditorSettings> = serde_json::from_value(config)
+    let config: Box<EditorSettings> = serde_json::from_value(config)
         .map_err(|err| anyhow::anyhow!("Failed to parse config: {err}"))?;
-    config.editor.commands = cx.editor.config().commands.clone();
-
-    cx.config.updates.send(ConfigEvent::Update(config))?;
+    publish_settings(cx, config)?;
     cx.editor.set_status(status);
     Ok(())
 }

@@ -19,7 +19,7 @@ use std::{
     path::{Path, PathBuf},
     sync::atomic::{AtomicBool, Ordering},
 };
-pub use walk::{entry_file_type, include_entry, Options};
+pub use walk::{entry_file_type, Options};
 
 /// Zero-based line and character-column bounds for one matching line or block.
 #[derive(Debug, Clone, PartialEq, Eq)]

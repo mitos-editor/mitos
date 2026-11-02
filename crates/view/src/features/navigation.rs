@@ -8,7 +8,7 @@ use std::{
 };
 
 use editor_core::{Selection, Uri};
-use event::{cancelable_future, register_hook, TaskController, TaskHandle};
+use event::{cancelable_future, register_hook};
 use futures_util::{
     future::BoxFuture, stream::FuturesUnordered, FutureExt, StreamExt, TryFutureExt,
 };
@@ -138,52 +138,6 @@ fn definition_locations(response: Option<lsp::GotoDefinitionResponse>) -> Respon
     })
 }
 
-/// A document owns cancellation even if its view or frontend disappears.
-#[derive(Default)]
-pub(crate) struct NavigationState {
-    request: Option<(ViewId, TaskController)>,
-    // A location requested while this document has no displayed view.
-    pending_location: Option<Selection>,
-}
-
-impl NavigationState {
-    pub(crate) fn take_pending_location(&mut self) -> Option<Selection> {
-        self.pending_location.take()
-    }
-
-    pub(crate) fn map_pending_location(
-        &mut self,
-        changes: &editor_core::ChangeSet,
-        text: editor_core::RopeSlice<'_>,
-    ) {
-        if let Some(selection) = self.pending_location.take() {
-            self.pending_location = Some(selection.map(changes).ensure_invariants(text));
-        }
-    }
-
-    fn restart(&mut self, view: ViewId) -> TaskHandle {
-        let (target, controller) = self
-            .request
-            .get_or_insert_with(|| (view, TaskController::default()));
-        *target = view;
-        controller.restart()
-    }
-
-    pub(crate) fn remove_view(&mut self, view: ViewId) {
-        if self
-            .request
-            .as_ref()
-            .is_some_and(|(target, _)| *target == view)
-        {
-            self.clear();
-        }
-    }
-
-    pub(crate) fn clear(&mut self) {
-        self.request = None;
-    }
-}
-
 #[derive(Default)]
 struct Session {
     target: Option<(DocumentId, ViewId)>,
@@ -248,7 +202,7 @@ fn cancel(editor: &mut Editor) {
     if let Some((doc, view)) = previous
         && let Some(doc) = editor.document_mut(doc)
     {
-        doc.navigation.remove_view(view);
+        doc.cancel_view_request(view, |state| &mut state.navigation);
     }
 }
 
@@ -290,7 +244,11 @@ pub fn request(editor: &mut Editor, kind: NavigationKind) {
         no_provider(editor, kind);
         return;
     }
-    let cancel = doc.navigation.restart(view.id);
+    let cancel = doc
+        .view_state_mut(view.id)
+        .navigation
+        .get_or_insert_default()
+        .restart();
     shared.session.lock().target = Some((doc.id(), view.id));
     let request = Request {
         owner: Arc::downgrade(&shared),
@@ -408,19 +366,21 @@ pub fn next_update(editor: &Editor) -> Option<NavigationUpdate> {
 
 pub(crate) fn register_hooks() {
     register_hook!(move |event: &mut SelectionDidChange<'_>| {
-        event.doc.navigation.remove_view(event.view);
+        event
+            .doc
+            .cancel_view_request(event.view, |state| &mut state.navigation);
         Ok(())
     });
     register_hook!(move |event: &mut DocumentFocusLost<'_>| {
         if let Some(doc) = event.editor.document_mut(event.doc) {
-            doc.navigation.clear();
+            doc.cancel_view_requests(|state| &mut state.navigation);
         }
         Ok(())
     });
     register_hook!(move |event: &mut ConfigDidChange<'_>| {
         if !event.new.lsp.enable {
             for doc in event.editor.documents_mut() {
-                doc.navigation.clear();
+                doc.cancel_view_requests(|state| &mut state.navigation);
             }
         }
         Ok(())
@@ -428,7 +388,7 @@ pub(crate) fn register_hooks() {
     register_hook!(move |event: &mut LanguageServerExited<'_>| {
         for doc in event.editor.documents_mut() {
             if doc.supports_language_server(event.server_id) {
-                doc.navigation.clear();
+                doc.cancel_view_requests(|state| &mut state.navigation);
             }
         }
         Ok(())

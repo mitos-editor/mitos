@@ -2,7 +2,7 @@ mod render;
 use super::highlights::primary_native_cursor_kind;
 use crate::repeat::InsertEvent;
 use crate::{
-    commands::{self, OnKeyCallback, OnKeyCallbackKind},
+    commands::{self, OnKeyCallback},
     compositor::{Component, Context, Cursor, Event, EventResult},
     events::OnModeSwitch,
     key,
@@ -34,7 +34,7 @@ use tui::{
 
 pub struct EditorView {
     pub keymaps: Keymaps,
-    on_next_key: Option<(OnKeyCallback, OnKeyCallbackKind)>,
+    on_next_key: Option<OnKeyCallback>,
     pseudo_pending: Vec<KeyEvent>,
     pub(crate) repeat: crate::repeat::RepeatController,
     pub(crate) completion: Option<Completion>,
@@ -56,10 +56,7 @@ impl EditorView {
         }
     }
 
-    pub(crate) fn set_next_key_callback(
-        &mut self,
-        callback: (commands::OnKeyCallback, OnKeyCallbackKind),
-    ) {
+    pub(crate) fn set_next_key_callback(&mut self, callback: commands::OnKeyCallback) {
         self.on_next_key = Some(callback);
     }
 
@@ -135,9 +132,7 @@ impl EditorView {
         if let Some(keyresult) = self.handle_keymap_event(Mode::Insert, cx, event) {
             match keyresult {
                 KeymapResult::NotFound => {
-                    if !self.on_next_key(OnKeyCallbackKind::Fallback, cx, event)
-                        && let Some(ch) = event.char()
-                    {
+                    if let Some(ch) = event.char() {
                         commands::insert::try_insert_char(cx, ch)?
                     }
                 }
@@ -199,10 +194,8 @@ impl EditorView {
                 // set the register
                 cxt.register = cxt.editor.selected_register.take();
 
-                let res = self.handle_keymap_event(mode, cxt, event);
-                if matches!(&res, Some(KeymapResult::NotFound)) {
-                    self.on_next_key(OnKeyCallbackKind::Fallback, cxt, event);
-                }
+                self.handle_keymap_event(mode, cxt, event);
+
                 if self.keymaps.pending().is_empty() {
                     cxt.editor.count = None
                 } else {
@@ -274,7 +267,7 @@ impl EditorView {
             modifiers: KeyModifiers::empty(),
         };
         // dismiss any pending keys
-        if let Some((on_next_key, _)) = self.on_next_key.take() {
+        if let Some(on_next_key) = self.on_next_key.take() {
             on_next_key(cxt, null_key_event);
         }
         self.handle_keymap_event(cxt.editor.mode(), cxt, null_key_event);
@@ -516,23 +509,12 @@ impl EditorView {
             _ => EventResult::Ignored(None),
         }
     }
-    fn on_next_key(
-        &mut self,
-        kind: OnKeyCallbackKind,
-        ctx: &mut commands::Context,
-        event: KeyEvent,
-    ) -> bool {
-        match self.on_next_key.take() {
-            Some((on_next_key, kind_)) => {
-                if kind == kind_ {
-                    on_next_key(ctx, event);
-                    true
-                } else {
-                    self.on_next_key = Some((on_next_key, kind_));
-                    false
-                }
-            }
-            _ => false,
+    fn on_next_key(&mut self, ctx: &mut commands::Context, event: KeyEvent) -> bool {
+        if let Some(callback) = self.on_next_key.take() {
+            callback(ctx, event);
+            true
+        } else {
+            false
         }
     }
 }
@@ -600,7 +582,7 @@ impl Component for EditorView {
 
                 let mode = cx.editor.mode();
 
-                if !self.on_next_key(OnKeyCallbackKind::PseudoPending, &mut cx, key) {
+                if !self.on_next_key(&mut cx, key) {
                     match mode {
                         Mode::Insert => {
                             // let completion swallow the event if necessary
@@ -650,9 +632,10 @@ impl Component for EditorView {
                 }
 
                 self.on_next_key = cx.on_next_key_callback.take();
-                match self.on_next_key {
-                    Some((_, OnKeyCallbackKind::PseudoPending)) => self.pseudo_pending.push(key),
-                    _ => self.pseudo_pending.clear(),
+                if self.on_next_key.is_some() {
+                    self.pseudo_pending.push(key);
+                } else {
+                    self.pseudo_pending.clear();
                 }
 
                 // appease borrowck

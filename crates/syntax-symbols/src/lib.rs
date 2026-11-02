@@ -51,7 +51,7 @@ impl Query {
     }
 }
 
-type SyntaxCache = DashMap<PathBuf, Option<(Rope, Syntax)>>;
+type SyntaxCache = DashMap<PathBuf, Arc<Option<(Rope, Syntax)>>>;
 
 /// Workspace root, traversal policy, and parsed-file cache shared across queries.
 pub struct Index {
@@ -136,7 +136,7 @@ impl Scan {
                     Ok(entry) => entry,
                     Err(_) => return WalkState::Continue,
                 };
-                if !entry.path().is_file() {
+                if !search::entry_file_type(&entry).is_some_and(|kind| kind.is_file()) {
                     return WalkState::Continue;
                 }
                 let path = entry.path();
@@ -146,14 +146,11 @@ impl Scan {
                 };
                 let mut quit = false;
                 let sink = sinks::UTF8(|_line, _content| {
-                    if !syntax_cache.contains_key(path) {
-                        // Read the file into a Rope and attempt to recognize the language
-                        // and parse it with tree-sitter. Save the Rope and Syntax for future
-                        // queries.
-                        syntax_cache.insert(path.to_path_buf(), syntax_for_path(path, &loader));
-                    };
-                    let entry = syntax_cache.get(path).unwrap();
-                    let Some((text, syntax)) = entry.value() else {
+                    let entry = syntax_cache
+                        .entry(path.to_path_buf())
+                        .or_insert_with(|| Arc::new(syntax_for_path(path, &loader)))
+                        .clone();
+                    let Some((text, syntax)) = entry.as_ref() else {
                         // If the file couldn't be parsed, move on.
                         return Ok(false);
                     };
@@ -242,6 +239,27 @@ roots = []
             || false,
         );
         names.into_inner().unwrap()
+    }
+
+    #[test]
+    fn concurrent_scans_share_cached_syntax_without_retaining_map_locks_in_sinks() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("source.rs");
+        std::fs::write(&path, "fn sample_name() {}\n").unwrap();
+        let worker = Index::new(dir.path().to_owned(), search::Options::default());
+        std::thread::scope(|scope| {
+            for _ in 0..4 {
+                let worker = &worker;
+                scope.spawn(move || assert_eq!(names(prepare(worker)), ["sample_name"]));
+            }
+        });
+        prepare(&worker).run(
+            |_, _| {
+                assert!(worker.cache.load().try_get_mut(&path).is_present());
+                ControlFlow::Continue(())
+            },
+            || false,
+        );
     }
 
     #[test]

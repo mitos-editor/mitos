@@ -16,7 +16,10 @@ use crate::{
         ConfigDidChange, DocumentDidChange, DocumentDidClose, DocumentDidOpen,
         LanguageServerExited, LanguageServerInitialized,
     },
-    features::{debounce::debounce_documents, request::DocumentRequest},
+    features::{
+        debounce::debounce_documents,
+        request::{collect_responses, DocumentRequest},
+    },
     DocumentId, Editor,
 };
 
@@ -60,7 +63,7 @@ fn request_document_code_lenses(
     doc.code_lenses.version = None;
     let cancel = doc.code_lenses.request.restart();
     let mut servers = HashSet::new();
-    let mut futures: FuturesUnordered<_> = doc
+    let futures: FuturesUnordered<_> = doc
         .language_servers_with_feature(LanguageServerFeature::CodeLens)
         // Exit hooks run before removal from the registry.
         .filter(|server| Some(server.id()) != exited_server)
@@ -101,15 +104,10 @@ fn request_document_code_lenses(
     }
     let request = DocumentRequest::new(doc, cancel, servers.into_iter().collect());
     tokio::spawn(async move {
-        let mut lenses = Vec::new();
-        loop {
-            match cancelable_future(futures.next(), &request.cancel).await {
-                Some(Some(Ok(items))) => lenses.extend(items),
-                Some(Some(Err(err))) => log::error!("code lens request failed: {err}"),
-                Some(None) => break,
-                None => return,
-            }
-        }
+        let Some(mut lenses) = collect_responses(futures, &request.cancel, "code lens").await
+        else {
+            return;
+        };
         lenses.sort_by_key(|lens| (lens.char_idx, lens.language_server_id));
         callbacks
             .send(move |editor| {

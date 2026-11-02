@@ -69,88 +69,69 @@ pub(super) fn default_provider() -> ClipboardProvider {
         ClipboardProvider::None
     }
 }
+fn commands(provider: &ClipboardProvider) -> Option<(&str, &CommandProvider)> {
+    Some(match provider {
+        ClipboardProvider::Pasteboard => ("pasteboard", &PASTEBOARD),
+        ClipboardProvider::Wayland => ("wayland", &WL_CLIPBOARD),
+        ClipboardProvider::XClip => ("x-clip", &XCLIP),
+        ClipboardProvider::XSel => ("x-sel", &XSEL),
+        ClipboardProvider::Win32Yank => ("win32-yank", &WIN32),
+        ClipboardProvider::Tmux => ("tmux", &TMUX),
+        ClipboardProvider::Termux => ("termux", &TERMUX),
+        ClipboardProvider::Custom(commands) => ("custom", commands),
+        _ => return None,
+    })
+}
+
 impl ClipboardBackend for NativeClipboard {
     fn name(&self, provider: &ClipboardProvider) -> String {
-        fn builtin_name<'a>(
-            name: &'static str,
-            provider: &'static CommandProvider,
-        ) -> Cow<'a, str> {
-            if provider.yank.command != provider.paste.command {
-                Cow::Owned(format!(
-                    "{} ({}+{})",
-                    name, provider.yank.command, provider.paste.command
-                ))
+        if let Some((name, commands)) = commands(provider) {
+            return if name == "custom" || commands.yank.command != commands.paste.command {
+                format!(
+                    "{name} ({}+{})",
+                    commands.yank.command, commands.paste.command
+                )
             } else {
-                Cow::Owned(format!("{} ({})", name, provider.yank.command))
-            }
+                format!("{name} ({})", commands.yank.command)
+            };
         }
-
-        let name: Cow<'_, str> = match provider {
-            // These names should match the config option names from Serde
-            ClipboardProvider::Pasteboard => builtin_name("pasteboard", &PASTEBOARD),
-            ClipboardProvider::Wayland => builtin_name("wayland", &WL_CLIPBOARD),
-            ClipboardProvider::XClip => builtin_name("x-clip", &XCLIP),
-            ClipboardProvider::XSel => builtin_name("x-sel", &XSEL),
-            ClipboardProvider::Win32Yank => builtin_name("win32-yank", &WIN32),
-            ClipboardProvider::Tmux => builtin_name("tmux", &TMUX),
-            ClipboardProvider::Termux => builtin_name("termux", &TERMUX),
+        match provider {
             #[cfg(windows)]
-            ClipboardProvider::Windows => "windows".into(),
-            ClipboardProvider::Termcode => "termcode".into(),
-            ClipboardProvider::Custom(command_provider) => Cow::Owned(format!(
-                "custom ({}+{})",
-                command_provider.yank.command, command_provider.paste.command
-            )),
-            ClipboardProvider::None => "none".into(),
-        };
-        name.into_owned()
+            ClipboardProvider::Windows => "windows",
+            ClipboardProvider::Termcode => "termcode",
+            ClipboardProvider::None => "none",
+            _ => unreachable!("command providers are handled above"),
+        }
+        .into()
     }
 
-    fn get_contents(
-        &self,
-        provider: &ClipboardProvider,
-        clipboard_type: ClipboardType,
-    ) -> Result<String> {
-        fn yank_from_builtin(
-            provider: CommandProvider,
-            clipboard_type: ClipboardType,
-        ) -> Result<String> {
-            match clipboard_type {
-                ClipboardType::Clipboard => execute_command(&provider.yank, None, true)?
-                    .ok_or(ClipboardError::MissingStdout),
-                ClipboardType::Selection => {
-                    if let Some(cmd) = provider.yank_primary.as_ref() {
-                        return execute_command(cmd, None, true)?
-                            .ok_or(ClipboardError::MissingStdout);
-                    }
-
-                    Ok(String::new())
+    fn get_contents(&self, provider: &ClipboardProvider, kind: ClipboardType) -> Result<String> {
+        if let Some((_, commands)) = commands(provider) {
+            let command = match (kind, provider) {
+                (ClipboardType::Clipboard, _) | (_, ClipboardProvider::Custom(_)) => {
+                    Some(&commands.yank)
                 }
-            }
+                (ClipboardType::Selection, _) => commands.yank_primary.as_ref(),
+            };
+            return match command {
+                Some(command) => {
+                    execute_command(command, None, true)?.ok_or(ClipboardError::MissingStdout)
+                }
+                None => Ok(String::new()),
+            };
         }
-
         match provider {
-            ClipboardProvider::Pasteboard => yank_from_builtin(PASTEBOARD, clipboard_type),
-            ClipboardProvider::Wayland => yank_from_builtin(WL_CLIPBOARD, clipboard_type),
-            ClipboardProvider::XClip => yank_from_builtin(XCLIP, clipboard_type),
-            ClipboardProvider::XSel => yank_from_builtin(XSEL, clipboard_type),
-            ClipboardProvider::Win32Yank => yank_from_builtin(WIN32, clipboard_type),
-            ClipboardProvider::Tmux => yank_from_builtin(TMUX, clipboard_type),
-            ClipboardProvider::Termux => yank_from_builtin(TERMUX, clipboard_type),
-            #[cfg(target_os = "windows")]
-            ClipboardProvider::Windows => match clipboard_type {
-                ClipboardType::Clipboard => {
-                    let contents = clipboard_win::get_clipboard(clipboard_win::formats::Unicode)?;
-                    Ok(contents)
-                }
+            #[cfg(windows)]
+            ClipboardProvider::Windows => match kind {
+                ClipboardType::Clipboard => Ok(clipboard_win::get_clipboard(
+                    clipboard_win::formats::Unicode,
+                )?),
                 ClipboardType::Selection => Ok(String::new()),
             },
-            ClipboardProvider::Termcode => Err(ClipboardError::ReadingNotSupported),
-            ClipboardProvider::Custom(command_provider) => {
-                execute_command(&command_provider.yank, None, true)?
-                    .ok_or(ClipboardError::MissingStdout)
+            ClipboardProvider::Termcode | ClipboardProvider::None => {
+                Err(ClipboardError::ReadingNotSupported)
             }
-            ClipboardProvider::None => Err(ClipboardError::ReadingNotSupported),
+            _ => unreachable!("command providers are handled above"),
         }
     }
 
@@ -158,57 +139,30 @@ impl ClipboardBackend for NativeClipboard {
         &self,
         provider: &ClipboardProvider,
         content: &str,
-        clipboard_type: ClipboardType,
+        kind: ClipboardType,
     ) -> Result<()> {
-        fn paste_to_builtin(
-            provider: CommandProvider,
-            content: &str,
-            clipboard_type: ClipboardType,
-        ) -> Result<()> {
-            let cmd = match clipboard_type {
-                ClipboardType::Clipboard => &provider.paste,
-                ClipboardType::Selection => {
-                    if let Some(cmd) = provider.paste_primary.as_ref() {
-                        cmd
-                    } else {
-                        return Ok(());
-                    }
-                }
+        if let Some((_, commands)) = commands(provider) {
+            let command = match kind {
+                ClipboardType::Clipboard => Some(&commands.paste),
+                ClipboardType::Selection => commands.paste_primary.as_ref(),
             };
-
-            execute_command(cmd, Some(content), false).map(|_| ())
+            return match command {
+                Some(command) => execute_command(command, Some(content), false).map(|_| ()),
+                None => Ok(()),
+            };
         }
-
         match provider {
-            ClipboardProvider::Pasteboard => paste_to_builtin(PASTEBOARD, content, clipboard_type),
-            ClipboardProvider::Wayland => paste_to_builtin(WL_CLIPBOARD, content, clipboard_type),
-            ClipboardProvider::XClip => paste_to_builtin(XCLIP, content, clipboard_type),
-            ClipboardProvider::XSel => paste_to_builtin(XSEL, content, clipboard_type),
-            ClipboardProvider::Win32Yank => paste_to_builtin(WIN32, content, clipboard_type),
-            ClipboardProvider::Tmux => paste_to_builtin(TMUX, content, clipboard_type),
-            ClipboardProvider::Termux => paste_to_builtin(TERMUX, content, clipboard_type),
-            #[cfg(target_os = "windows")]
-            ClipboardProvider::Windows => match clipboard_type {
-                ClipboardType::Clipboard => {
-                    clipboard_win::set_clipboard(clipboard_win::formats::Unicode, content)?;
-                    Ok(())
-                }
+            #[cfg(windows)]
+            ClipboardProvider::Windows => match kind {
+                ClipboardType::Clipboard => Ok(clipboard_win::set_clipboard(
+                    clipboard_win::formats::Unicode,
+                    content,
+                )?),
                 ClipboardType::Selection => Ok(()),
             },
             ClipboardProvider::Termcode => Err(ClipboardError::Unavailable),
-            ClipboardProvider::Custom(command_provider) => match clipboard_type {
-                ClipboardType::Clipboard => {
-                    execute_command(&command_provider.paste, Some(content), false).map(|_| ())
-                }
-                ClipboardType::Selection => {
-                    if let Some(cmd) = &command_provider.paste_primary {
-                        execute_command(cmd, Some(content), false).map(|_| ())
-                    } else {
-                        Ok(())
-                    }
-                }
-            },
             ClipboardProvider::None => Ok(()),
+            _ => unreachable!("command providers are handled above"),
         }
     }
 }

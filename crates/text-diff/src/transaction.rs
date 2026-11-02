@@ -46,29 +46,18 @@ impl ChangeSetBuilder<'_> {
             if len_after > 500 {
                 // copying a rope line by line is slower then copying the entire
                 // rope. Use to_string for very large changes instead..
-                if self.file.after.len() == after.end as usize {
-                    if after.start == 0 {
-                        fragment = self.after.to_string().into();
+                let byte_offset = |line| {
+                    if line == self.file.after.len() {
+                        self.after.len()
                     } else {
-                        let start = self
-                            .after
-                            .line_to_byte_idx(after.start as usize, stdx::rope::LINE_TYPE);
-                        fragment = self.after.slice(start..).to_string().into();
+                        self.after.line_to_byte_idx(line, stdx::rope::LINE_TYPE)
                     }
-                } else if after.start == 0 {
-                    let end = self
-                        .after
-                        .line_to_byte_idx(after.end as usize, stdx::rope::LINE_TYPE);
-                    fragment = self.after.slice(..end).to_string().into();
-                } else {
-                    let start = self
-                        .after
-                        .line_to_byte_idx(after.start as usize, stdx::rope::LINE_TYPE);
-                    let end = self
-                        .after
-                        .line_to_byte_idx(after.end as usize, stdx::rope::LINE_TYPE);
-                    fragment = self.after.slice(start..end).to_string().into();
-                }
+                };
+                fragment = self
+                    .after
+                    .slice(byte_offset(after.start as usize)..byte_offset(after.end as usize))
+                    .to_string()
+                    .into();
             } else {
                 for &line in &self.file.after[after.start as usize..after.end as usize] {
                     for chunk in self.file.interner[line].chunks() {

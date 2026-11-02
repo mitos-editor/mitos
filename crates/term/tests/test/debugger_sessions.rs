@@ -4,22 +4,10 @@ use dap::DebugAdapterId;
 use language_config::DebugAdapterConfig;
 use term::application::Application;
 use tokio::net::TcpListener;
-use ui_core::input::parse_macro;
 
 use super::helpers::{run_event_loop_until_idle, test_syntax_loader, AppBuilder};
 
-async fn keys(app: &mut Application, keys: &str) -> anyhow::Result<()> {
-    for key in parse_macro(keys)? {
-        #[cfg(not(windows))]
-        let event = termina::event::Event::Key(key.into());
-        #[cfg(windows)]
-        let event = crossterm::event::Event::Key(key.into());
-        app.handle_terminal_events(Ok(event)).await;
-    }
-    app.editor.reset_idle_timer();
-    tokio::time::timeout(Duration::from_secs(10), run_event_loop_until_idle(app)).await?;
-    Ok(())
-}
+use super::helpers::keys;
 
 fn screen(app: &Application) -> String {
     app.terminal_backend()
@@ -256,15 +244,7 @@ async fn managed_tcp_startup_waits_for_adapter_readiness() -> anyhow::Result<()>
         .get_session(id)
         .unwrap()
         .is_connected());
-    app.editor
-        .debugger_command(view::debugger::DebuggerCommand::Terminate)?;
-    tokio::time::timeout(Duration::from_secs(10), async {
-        while app.editor.debugger().get_session(id).is_some() {
-            run_event_loop_until_idle(&mut app).await;
-        }
-    })
-    .await?;
-    assert!(app.close().await.is_empty());
+    super::helpers::finish_debugger(&mut app, id).await?;
     Ok(())
 }
 

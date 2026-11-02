@@ -477,60 +477,48 @@ mod tests {
     }
 
     #[test]
-    fn quicklist_filters_to_current_file() {
-        let mut quicklist = Quicklist::default();
-        quicklist.replace(vec![
-            entry("a.rs", 0),
-            entry("b.rs", 1),
-            entry("a.rs", 2),
-            entry("c.rs", 3),
-        ]);
-
-        let path = PathBuf::from("a.rs");
-        assert_eq!(
-            quicklist
-                .next_entry(1, DocumentId::default(), Some(&path), true)
-                .map(|entry| entry.index),
-            Some(0),
-        );
-        quicklist.set_current(Some(0));
-        assert_eq!(
-            quicklist
-                .next_entry(1, DocumentId::default(), Some(&path), true)
-                .map(|entry| entry.index),
-            Some(2),
-        );
-        assert_eq!(
-            quicklist
-                .prev_entry(1, DocumentId::default(), Some(&path), true)
-                .map(|entry| entry.index),
-            Some(2),
-        );
-    }
-
-    #[test]
-    fn quicklist_filters_to_current_file_with_canonicalized_entry_path() {
-        let mut quicklist = Quicklist::default();
-        quicklist.replace(vec![
-            entry("./a.rs", 0),
-            entry("b.rs", 1),
-            entry("dir/../a.rs", 2),
-        ]);
-
-        let path = stdx::path::canonicalize("a.rs");
-        assert_eq!(
-            quicklist
-                .next_entry(1, DocumentId::default(), Some(&path), true)
-                .map(|entry| entry.index),
-            Some(0),
-        );
-        quicklist.set_current(Some(0));
-        assert_eq!(
-            quicklist
-                .next_entry(1, DocumentId::default(), Some(&path), true)
-                .map(|entry| entry.index),
-            Some(2),
-        );
+    fn quicklist_filters_to_current_file_with_raw_and_canonical_paths() {
+        for (entries, path) in [
+            (
+                vec![
+                    entry("a.rs", 0),
+                    entry("b.rs", 1),
+                    entry("a.rs", 2),
+                    entry("c.rs", 3),
+                ],
+                PathBuf::from("a.rs"),
+            ),
+            (
+                vec![
+                    entry("./a.rs", 0),
+                    entry("b.rs", 1),
+                    entry("dir/../a.rs", 2),
+                ],
+                stdx::path::canonicalize("a.rs"),
+            ),
+        ] {
+            let mut quicklist = Quicklist::default();
+            quicklist.replace(entries);
+            assert_eq!(
+                quicklist
+                    .next_entry(1, DocumentId::default(), Some(&path), true)
+                    .map(|entry| entry.index),
+                Some(0)
+            );
+            quicklist.set_current(Some(0));
+            assert_eq!(
+                quicklist
+                    .next_entry(1, DocumentId::default(), Some(&path), true)
+                    .map(|entry| entry.index),
+                Some(2)
+            );
+            assert_eq!(
+                quicklist
+                    .prev_entry(1, DocumentId::default(), Some(&path), true)
+                    .map(|entry| entry.index),
+                Some(2)
+            );
+        }
     }
 
     #[test]

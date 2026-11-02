@@ -296,10 +296,11 @@ impl Review {
             self.truncated = true;
             return;
         }
-        let text = text.to_string();
-        let content = text.trim_end_matches(['\r', '\n']).to_owned();
-        self.push(kind, before, after, content);
-        if kind != ReviewLineKind::Context && !text.ends_with('\n') {
+        let mut text = text.to_string();
+        let has_newline = text.ends_with('\n');
+        text.truncate(text.trim_end_matches(['\r', '\n']).len());
+        self.push(kind, before, after, text);
+        if kind != ReviewLineKind::Context && !has_newline {
             self.push(
                 ReviewLineKind::Notice,
                 None,

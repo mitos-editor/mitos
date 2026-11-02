@@ -7,5 +7,5 @@ mod state;
 
 pub(crate) use requests::register_hooks;
 pub use requests::DocumentSymbolsHandler;
+pub use state::Crumb;
 pub(crate) use state::DocumentSymbols;
-pub use state::{Breadcrumbs, Crumb};

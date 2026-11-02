@@ -147,44 +147,23 @@ fn deserialize_gutter_seq_or_struct<'de, D>(deserializer: D) -> Result<GutterCon
 where
     D: Deserializer<'de>,
 {
-    struct GutterVisitor;
-
-    impl<'de> serde::de::Visitor<'de> for GutterVisitor {
-        type Value = GutterConfig;
-
-        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-            write!(
-                formatter,
-                "an array of gutter names or a detailed gutter configuration"
-            )
-        }
-
-        fn visit_seq<S>(self, mut seq: S) -> Result<Self::Value, S::Error>
-        where
-            S: serde::de::SeqAccess<'de>,
-        {
-            let mut gutters = Vec::new();
-            while let Some(gutter) = seq.next_element::<String>()? {
-                gutters.push(
-                    gutter
-                        .parse::<GutterType>()
-                        .map_err(serde::de::Error::custom)?,
-                )
-            }
-
-            Ok(gutters.into())
-        }
-
-        fn visit_map<M>(self, map: M) -> Result<Self::Value, M::Error>
-        where
-            M: serde::de::MapAccess<'de>,
-        {
-            let deserializer = serde::de::value::MapAccessDeserializer::new(map);
-            Deserialize::deserialize(deserializer)
-        }
+    #[derive(Deserialize)]
+    #[serde(
+        untagged,
+        expecting = "an array of gutter names or a detailed gutter configuration"
+    )]
+    enum Input {
+        Names(Vec<String>),
+        Config(GutterConfig),
     }
-
-    deserializer.deserialize_any(GutterVisitor)
+    match Input::deserialize(deserializer)? {
+        Input::Names(names) => names
+            .into_iter()
+            .map(|name| name.parse().map_err(serde::de::Error::custom))
+            .collect::<Result<Vec<_>, _>>()
+            .map(Into::into),
+        Input::Config(config) => Ok(config),
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -1690,6 +1669,31 @@ impl Default for PathCompletionConfig {
 mod tests {
     use super::*;
 
+    fn round_trip<T>(config: &T) -> String
+    where
+        T: Serialize + serde::de::DeserializeOwned + PartialEq + std::fmt::Debug,
+    {
+        let serialized = toml::to_string(config).unwrap();
+        assert_eq!(&toml::from_str::<T>(&serialized).unwrap(), config);
+        serialized
+    }
+
+    #[test]
+    fn gutter_shapes_preserve_case_insensitive_names_and_reject_unknown_fields() {
+        let short: Config = toml::from_str("gutters = ['DIFF', 'line-numbers']").unwrap();
+        let detailed: Config =
+            toml::from_str("[gutters]\nlayout = ['diff', 'line-numbers']").unwrap();
+        assert_eq!(short.gutters, detailed.gutters);
+        round_trip(&detailed);
+        for source in [
+            "gutters = ['unknown']",
+            "[gutters]\nunknown = true",
+            "gutters = 1",
+        ] {
+            assert!(toml::from_str::<Config>(source).is_err(), "{source}");
+        }
+    }
+
     #[test]
     fn popup_border_overrides_inherit_round_trip_and_validate() {
         let paths = [
@@ -1719,8 +1723,7 @@ mod tests {
             ] {
                 let source = format!("border-style = 'double'\n[{path}]\nborder-style = '{name}'");
                 let config: Config = toml::from_str(&source).unwrap();
-                let serialized = toml::to_string(&config).unwrap();
-                assert_eq!(toml::from_str::<Config>(&serialized).unwrap(), config);
+                let serialized = round_trip(&config);
                 let table: toml::Value = toml::from_str(&serialized).unwrap();
                 let section = path.split('.').fold(&table, |value, key| &value[key]);
                 assert_eq!(section["border-style"].as_str(), Some(name));
@@ -1754,8 +1757,7 @@ mod tests {
             let config: Config =
                 toml::from_str(&format!("[command-line]\nshow = '{value}'")).unwrap();
             assert_eq!(config.command_line.show, expected);
-            let serialized = toml::to_string(&config).unwrap();
-            assert_eq!(toml::from_str::<Config>(&serialized).unwrap(), config);
+            round_trip(&config);
         }
         let partial: Config = toml::from_str("[command-line]").unwrap();
         assert_eq!(partial.command_line, CommandLineConfig::default());
@@ -1787,10 +1789,7 @@ mod tests {
                 toml::from_str(&format!("columns = [80, 120]\ncharacter = '{character}'")).unwrap();
             assert_eq!(config.character, character);
             assert_eq!(config.columns, [80, 120]);
-            assert_eq!(
-                toml::from_str::<RulersConfig>(&toml::to_string(&config).unwrap()).unwrap(),
-                config
-            );
+            round_trip(&config);
         }
     }
 
@@ -1803,10 +1802,7 @@ mod tests {
             let config: RulersConfig = toml::from_str(&format!("style = '{name}'")).unwrap();
             assert_eq!(config.style, expected);
             assert_eq!(config.character, '┊');
-            assert_eq!(
-                toml::from_str::<RulersConfig>(&toml::to_string(&config).unwrap()).unwrap(),
-                config
-            );
+            round_trip(&config);
         }
     }
 
@@ -1945,11 +1941,7 @@ mod tests {
         assert_eq!(shapes.normal, CursorKind::Block);
         assert_eq!(shapes.select, CursorKind::Block);
         assert_eq!(shapes.insert, CursorKind::Bar);
-        let serialized = toml::to_string(&shapes).unwrap();
-        assert_eq!(
-            toml::from_str::<CursorShapeConfig>(&serialized).unwrap(),
-            shapes
-        );
+        round_trip(&shapes);
         assert!(toml::from_str::<CursorShapeConfig>("unknown = 'bar'").is_err());
     }
 
@@ -1968,10 +1960,7 @@ mod tests {
         assert_eq!(config.block_rendering, BlockCursorRendering::Native);
         assert_eq!(config.shape.normal, CursorKind::Block);
         assert_eq!(config.shape.insert, CursorKind::Bar);
-        assert_eq!(
-            toml::from_str::<CursorConfig>(&toml::to_string(&config).unwrap()).unwrap(),
-            config
-        );
+        round_trip(&config);
         for value in ["'invalid'", "true", "42"] {
             assert!(toml::from_str::<CursorConfig>(&format!("block-rendering = {value}")).is_err());
         }
@@ -2009,8 +1998,7 @@ mod tests {
             .unwrap();
             assert_eq!(config.search.match_limit(), limit);
             assert!(config.statusline.shows_search_position());
-            let serialized = toml::to_string(&config).unwrap();
-            assert_eq!(toml::from_str::<Config>(&serialized).unwrap(), config);
+            round_trip(&config);
         }
         for value in ["-1", "'unlimited'", "true", "1.5"] {
             assert!(toml::from_str::<Config>(&format!("[search]\nmax-matches = {value}")).is_err());

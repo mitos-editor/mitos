@@ -99,6 +99,16 @@
 | `:vcs-conflict-toggle-markers` | Show or hide raw conflict markers in the current view. |
 | `:vcs-conflict-source` | Open the base, current, or incoming version of a conflicted file in a read-only split. |
 | `:blame`, `:vcs-blame` | Show commit details for the current line, with actions to copy the commit ID or message. |
+| `:vcs-branches`, `:git-branches` | Browse local branches. Press Enter to switch to the selected branch. |
+| `:vcs-branch-create`, `:git-branch-create` | Create a local branch at the current commit without switching to it. |
+| `:vcs-branch-switch`, `:git-branch-switch` | Switch to an existing local branch. Save edited files first; Git refuses to overwrite changes. |
+| `:vcs-worktrees`, `:git-worktrees` | Browse worktrees. Enter opens the selected worktree's file picker. |
+| `:vcs-worktree-create`, `:git-worktree-create` | Create a worktree in a new folder. Give an existing branch name, or omit it to use the current commit without a branch. |
+| `:vcs-worktree-open`, `:git-worktree-open` | Change directory to a worktree and open its file picker, keeping your open files. |
+| `:vcs-worktree-remove`, `:git-worktree-remove` | Confirm removal of a clean worktree, keeping its branch. |
+| `:vcs-fetch`, `:git-fetch` | Download remote commits without changing your files. Give a remote name when several are configured. |
+| `:vcs-pull`, `:git-pull` | Download changes and move the current branch forward without creating a merge commit. Optionally give a remote name. |
+| `:vcs-push`, `:git-push` | Upload commits from the current branch. Optionally give a remote name. |
 | `:show-change`, `:vcs-show-change` | Inspect the current change against HEAD, including deleted lines and unsaved edits. |
 | `:diff`, `:vcs-diff` | Review the current file. Choose head (all changes), staged (next commit), unstaged (saved changes), or buffer (unstaged and unsaved changes). |
 | `:git-history`, `:vcs-history` | Browse repository commits. Select a commit, then a file to review its changes. |

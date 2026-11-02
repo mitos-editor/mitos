@@ -5,10 +5,9 @@ use term::{
     application::Application,
     config::{Config, ConfigLoadError},
 };
-use ui_core::input::parse_macro;
 use view::{current, current_ref, editor::Action, DocumentId};
 
-use super::helpers::{run_event_loop_until_idle, test_config, AppBuilder};
+use super::helpers::{test_config, AppBuilder};
 
 struct Fixture {
     app: Application,
@@ -57,22 +56,7 @@ impl Fixture {
     }
 
     async fn keys(&mut self, keys: &str) -> anyhow::Result<()> {
-        for key in parse_macro(keys)? {
-            #[cfg(not(windows))]
-            let event = termina::event::Event::Key(key.into());
-            #[cfg(windows)]
-            let event = crossterm::event::Event::Key(key.into());
-            self.app.handle_terminal_events(Ok(event)).await;
-        }
-        // Mirror the event loop resetting its timer after each input event.
-        self.app.editor.reset_idle_timer();
-        // Also render asynchronous matching and lifecycle callbacks before asserting.
-        tokio::time::timeout(
-            Duration::from_secs(10),
-            run_event_loop_until_idle(&mut self.app),
-        )
-        .await?;
-        Ok(())
+        super::helpers::keys(&mut self.app, keys).await
     }
 
     fn current(&self) -> DocumentId {

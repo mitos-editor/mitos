@@ -4,23 +4,6 @@
 use std::io;
 use std::path::Path;
 
-use bitflags::bitflags;
-
-// Licensed under MIT from faccess
-bitflags! {
-    /// Access mode flags for `access` function to test for.
-    pub struct AccessMode: u8 {
-        /// Path exists
-        const EXISTS  = 0b0001;
-        /// Path can likely be read
-        const READ    = 0b0010;
-        /// Path can likely be written to
-        const WRITE   = 0b0100;
-        /// Path can likely be executed
-        const EXECUTE = 0b1000;
-    }
-}
-
 #[cfg(unix)]
 mod imp {
     use super::*;
@@ -28,7 +11,7 @@ mod imp {
     use rustix::fs::Access;
     use std::os::unix::fs::{MetadataExt, PermissionsExt};
 
-    pub fn access(p: &Path, mode: AccessMode) -> io::Result<()> {
+    pub fn write_access(p: &Path) -> io::Result<()> {
         #[cfg(target_os = "linux")]
         {
             // If mitos has ambient CAP_DAC_OVERRIDE, everything is accessible regardless of mode bits
@@ -38,25 +21,7 @@ mod imp {
             }
         }
 
-        let mut imode = Access::empty();
-
-        if mode.contains(AccessMode::EXISTS) {
-            imode |= Access::EXISTS;
-        }
-
-        if mode.contains(AccessMode::READ) {
-            imode |= Access::READ_OK;
-        }
-
-        if mode.contains(AccessMode::WRITE) {
-            imode |= Access::WRITE_OK;
-        }
-
-        if mode.contains(AccessMode::EXECUTE) {
-            imode |= Access::EXEC_OK;
-        }
-
-        rustix::fs::access(p, imode)?;
+        rustix::fs::access(p, Access::WRITE_OK)?;
         Ok(())
     }
 
@@ -119,8 +84,8 @@ mod imp {
         SID_IDENTIFIER_AUTHORITY, TOKEN_DUPLICATE, TOKEN_QUERY,
     };
     use windows_sys::Win32::Storage::FileSystem::{
-        GetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION, FILE_ACCESS_RIGHTS,
-        FILE_ALL_ACCESS, FILE_GENERIC_EXECUTE, FILE_GENERIC_READ, FILE_GENERIC_WRITE,
+        GetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION, FILE_ALL_ACCESS,
+        FILE_GENERIC_EXECUTE, FILE_GENERIC_READ, FILE_GENERIC_WRITE,
     };
     use windows_sys::Win32::System::Threading::{GetCurrentThread, OpenThreadToken};
 
@@ -265,31 +230,17 @@ mod imp {
 
     // Based roughly on Tcl's NativeAccess()
     // https://github.com/tcltk/tcl/blob/2ee77587e4dc2150deb06b48f69db948b4ab0584/win/tclWinFile.c
-    fn eaccess(p: &Path, mut mode: FILE_ACCESS_RIGHTS) -> io::Result<()> {
+    pub fn write_access(p: &Path) -> io::Result<()> {
+        let mut mode = FILE_GENERIC_WRITE;
         let md = p.metadata()?;
 
         if !md.is_dir() {
             // Read Only is ignored for directories
-            if mode & FILE_GENERIC_WRITE == FILE_GENERIC_WRITE && md.permissions().readonly() {
+            if md.permissions().readonly() {
                 return Err(io::Error::new(
                     io::ErrorKind::PermissionDenied,
                     "File is read only",
                 ));
-            }
-
-            // If it doesn't have the correct extension it isn't executable
-            if mode & FILE_GENERIC_EXECUTE == FILE_GENERIC_EXECUTE {
-                if let Some(ext) = p.extension().and_then(|s| s.to_str()) {
-                    match ext {
-                        "exe" | "com" | "bat" | "cmd" => (),
-                        _ => {
-                            return Err(io::Error::new(
-                                io::ErrorKind::InvalidData,
-                                "File not executable",
-                            ))
-                        }
-                    }
-                }
             }
 
             return std::fs::OpenOptions::new()
@@ -353,32 +304,6 @@ mod imp {
             }
         } else {
             Err(io::Error::last_os_error())
-        }
-    }
-
-    pub fn access(p: &Path, mode: AccessMode) -> io::Result<()> {
-        let mut imode = 0;
-
-        if mode.contains(AccessMode::READ) {
-            imode |= FILE_GENERIC_READ;
-        }
-
-        if mode.contains(AccessMode::WRITE) {
-            imode |= FILE_GENERIC_WRITE;
-        }
-
-        if mode.contains(AccessMode::EXECUTE) {
-            imode |= FILE_GENERIC_EXECUTE;
-        }
-
-        if imode == 0 {
-            if p.exists() {
-                Ok(())
-            } else {
-                Err(io::Error::new(io::ErrorKind::NotFound, "Not Found"))
-            }
-        } else {
-            eaccess(p, imode)
         }
     }
 
@@ -465,22 +390,14 @@ mod imp {
 mod imp {
     use super::*;
 
-    pub fn access(p: &Path, mode: AccessMode) -> io::Result<()> {
-        if mode.contains(AccessMode::WRITE) {
-            if std::fs::metadata(p)?.permissions().readonly() {
-                return Err(io::Error::new(
-                    io::ErrorKind::PermissionDenied,
-                    "Path is read only",
-                ));
-            } else {
-                return Ok(());
-            }
-        }
-
-        if p.exists() {
-            Ok(())
+    pub fn write_access(p: &Path) -> io::Result<()> {
+        if std::fs::metadata(p)?.permissions().readonly() {
+            Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "Path is read only",
+            ))
         } else {
-            Err(io::Error::new(io::ErrorKind::NotFound, "Path not found"))
+            Ok(())
         }
     }
 
@@ -494,7 +411,7 @@ mod imp {
 }
 
 pub fn readonly(p: &Path) -> bool {
-    match imp::access(p, AccessMode::WRITE) {
+    match imp::write_access(p) {
         Ok(_) => false,
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => false,
         Err(_) => true,

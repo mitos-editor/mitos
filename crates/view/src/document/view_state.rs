@@ -5,14 +5,18 @@ use editor_core::Selection;
 use text_layout::text_annotations::Overlay;
 
 #[derive(Debug)]
-pub(super) struct DocumentViewState {
+pub(crate) struct DocumentViewState {
     pub selection: Selection,
-    pub folds: super::folding::Folds,
+    pub(super) folds: super::folding::Folds,
     pub position: ViewPosition,
     pub jump_labels: Vec<Overlay>,
     pub restore_append_cursor: bool,
     pub raw_conflicts: bool,
     pub expansion_history: Vec<Selection>,
+    pub hover: Option<event::TaskController>,
+    pub navigation: Option<event::TaskController>,
+    pub code_actions: Option<event::TaskController>,
+    pub shell_filters: Option<event::TaskController>,
     pub search: crate::features::buffer_search::State,
 }
 
@@ -26,6 +30,10 @@ impl Clone for DocumentViewState {
             restore_append_cursor: self.restore_append_cursor,
             raw_conflicts: self.raw_conflicts,
             expansion_history: self.expansion_history.clone(),
+            hover: Default::default(),
+            navigation: Default::default(),
+            code_actions: Default::default(),
+            shell_filters: Default::default(),
             search: self.search.presentation(),
         }
     }
@@ -41,6 +49,10 @@ impl DocumentViewState {
             restore_append_cursor: false,
             raw_conflicts: false,
             expansion_history: Vec::new(),
+            hover: Default::default(),
+            navigation: Default::default(),
+            code_actions: Default::default(),
+            shell_filters: Default::default(),
             search: Default::default(),
         }
     }
@@ -114,5 +126,26 @@ impl super::Document {
     pub fn toggle_conflict_markers(&mut self, view: crate::ViewId) {
         let state = self.view_state_mut(view);
         state.raw_conflicts = !state.raw_conflicts;
+    }
+}
+
+impl super::Document {
+    pub(crate) fn cancel_view_request(
+        &mut self,
+        view: crate::ViewId,
+        request: fn(&mut DocumentViewState) -> &mut Option<event::TaskController>,
+    ) {
+        if let Some(state) = self.view_states.get_mut(&view) {
+            *request(state) = None;
+        }
+    }
+
+    pub(crate) fn cancel_view_requests(
+        &mut self,
+        request: fn(&mut DocumentViewState) -> &mut Option<event::TaskController>,
+    ) {
+        for state in self.view_states.values_mut() {
+            *request(state) = None;
+        }
     }
 }

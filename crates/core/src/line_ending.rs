@@ -85,8 +85,8 @@ impl LineEnding {
     }
 
     // Normally we'd want to implement the FromStr trait, but in this case
-    // that would force us into a different return type than from_char or
-    // or from_rope_slice, which would be weird.
+    // that would force us into a different return type than from_char,
+    // which would be weird.
     #[allow(clippy::should_implement_trait)]
     #[inline]
     pub fn from_str(g: &str) -> Option<LineEnding> {
@@ -107,19 +107,6 @@ impl LineEnding {
             "\u{2029}" => Some(LineEnding::PS),
             // Not a line ending
             _ => None,
-        }
-    }
-
-    #[inline]
-    pub fn from_rope_slice(g: &RopeSlice) -> Option<LineEnding> {
-        if let Some(text) = g.as_str() {
-            LineEnding::from_str(text)
-        } else {
-            // Non-contiguous, so it can't be a line ending.
-            // Specifically, Ropey guarantees that CRLF is always
-            // contiguous.  And the remaining line endings are all
-            // single `char`s, and therefore trivially contiguous.
-            None
         }
     }
 }
@@ -227,12 +214,6 @@ pub fn line_without_line_ending<'a>(slice: &'a RopeSlice, line_idx: usize) -> Ro
     slice.slice(start..end)
 }
 
-/// Returns the char index of the end of the given RopeSlice, not including
-/// any final line ending.
-pub fn rope_end_without_line_ending(slice: &RopeSlice) -> usize {
-    slice.len_chars() - get_line_ending(slice).map(|le| le.len_chars()).unwrap_or(0)
-}
-
 #[cfg(test)]
 mod line_ending_tests {
     use super::*;
@@ -292,25 +273,6 @@ mod line_ending_tests {
         assert_eq!(LineEnding::from_str("\n"), Some(LineEnding::LF));
         assert_eq!(LineEnding::from_str("\r\n"), Some(LineEnding::Crlf));
         assert_eq!(LineEnding::from_str("hello\n"), None);
-    }
-
-    #[test]
-    fn rope_slice_to_line_ending() {
-        let r = Rope::from_str("hello\r\n");
-        #[cfg(feature = "unicode-lines")]
-        assert_eq!(
-            LineEnding::from_rope_slice(&r.slice_chars(5..6)),
-            Some(LineEnding::CR)
-        );
-        assert_eq!(
-            LineEnding::from_rope_slice(&r.slice_chars(6..7)),
-            Some(LineEnding::LF)
-        );
-        assert_eq!(
-            LineEnding::from_rope_slice(&r.slice_chars(5..7)),
-            Some(LineEnding::Crlf)
-        );
-        assert_eq!(LineEnding::from_rope_slice(&r.slice(..)), None);
     }
 
     #[test]

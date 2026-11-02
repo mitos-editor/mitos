@@ -123,8 +123,8 @@ impl Document {
         self.map_snippet(changes);
 
         self.inlay_hints.apply_changes(changes);
-        self.hover.clear();
-        self.navigation.clear();
+        self.cancel_view_requests(|state| &mut state.hover);
+        self.cancel_view_requests(|state| &mut state.navigation);
 
         self.document_highlights
             .apply_changes(changes, self.buffer.text().len_chars());
@@ -158,8 +158,13 @@ impl Document {
 
         self.conflicts.take();
         self.modified_since_accessed = true;
-        self.navigation
-            .map_pending_location(changes, self.buffer.text().slice(..));
+        if let Some(selection) = self.pending_navigation.take() {
+            self.pending_navigation = Some(
+                selection
+                    .map(changes)
+                    .ensure_invariants(self.buffer.text().slice(..)),
+            );
+        }
         self.map_presentation(change, selection, view_id);
         // start computing the diff in parallel
         if let Some(diff_handle) = &self.diff_handle {

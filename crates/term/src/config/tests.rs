@@ -354,110 +354,71 @@ fn component_keys_reject_invalid_actions_shapes_and_contexts() {
 }
 
 #[test]
-fn buffer_picker_keys_inherit_shared_bindings_with_specific_overrides() {
-    use crate::keymap::component::{PickerAction as P, PickerItemAction};
-    use ui_core::keymap::{KeymapState, Lookup};
-
-    let global = r#"
-            [keys.picker]
-            C-j = 'move_down'
-            g = { j = 'move_up' }
-            [keys.buffer-picker]
-            C-j = 'move_up'
-            C-x = ['move_down', 'close_buffer']
-            g = { x = 'close_buffer' }
-        "#
-    .to_owned();
-    let local = r#"
-            [keys.picker]
-            C-j = 'move_start'
-            g = { j = 'move_end' }
-            [keys.buffer-picker]
-            C-n = 'unbound'
-            C-p = 'no_op'
-        "#
-    .to_owned();
-    let config = Config::load(Ok(&global), Ok(local)).unwrap();
-    let mut state = KeymapState::default();
-    let keys = &config.component_keys.buffer_picker;
-    let mut lookup = |key: &str| state.lookup(keys, key.parse().unwrap());
-    assert_eq!(lookup("C-j"), Lookup::Actions(&[P::MoveUp]));
-    assert_eq!(
-        lookup("C-x"),
-        Lookup::Actions(&[P::MoveDown, P::Item(PickerItemAction::CloseBuffer)])
-    );
-    assert_eq!(lookup("C-n"), Lookup::Unbound);
-    assert_eq!(lookup("C-p"), Lookup::Actions(&[]));
-    assert_eq!(lookup("tab"), Lookup::Actions(&[P::MoveDown]));
-    assert_eq!(lookup("g"), Lookup::Pending);
-    assert_eq!(lookup("j"), Lookup::Actions(&[P::MoveEnd]));
-    assert_eq!(lookup("g"), Lookup::Pending);
-    assert_eq!(
-        lookup("x"),
-        Lookup::Actions(&[P::Item(PickerItemAction::CloseBuffer)])
-    );
-    assert_eq!(
-        state.lookup(&config.component_keys.picker, "C-j".parse().unwrap()),
-        Lookup::Actions(&[P::MoveStart])
-    );
-    assert_eq!(
-        state.lookup(&config.component_keys.picker, "C-x".parse().unwrap()),
-        Lookup::Unbound
-    );
+fn picker_keys_inherit_shared_bindings_with_context_specific_overrides() {
+    use crate::keymap::component::{PickerAction as P, PickerItemAction as I};
+    use ui_core::keymap::{Keymap, KeymapState, Lookup};
+    type Map = fn(&ComponentKeymaps) -> &Keymap<P>;
+    let contexts: [(&str, Map, I); 5] = [
+        ("buffer-picker", |maps| &maps.buffer_picker, I::CloseBuffer),
+        (
+            "quicklist-picker",
+            |maps| &maps.quicklist_picker,
+            I::RemoveQuicklistEntry,
+        ),
+        ("git-picker", |maps| &maps.git_picker, I::Stage),
+        (
+            "stash-picker",
+            |maps| &maps.stash_picker,
+            I::ApplyStashWithIndex,
+        ),
+        ("history-picker", |maps| &maps.history_picker, I::Actions),
+    ];
+    for (context, map, action) in contexts {
+        let action_name = serde_json::to_value(P::Item(action)).unwrap();
+        let global = format!("[keys.picker]\nC-j = 'move_down'\ng = {{ j = 'move_up' }}\n[keys.{context}]\nC-j = 'move_up'\nC-x = ['move_down', {action_name}]\nA-z = 'unbound'\ng = {{ x = {action_name} }}");
+        let local = format!("[keys.picker]\nC-j = 'move_start'\nC-k = 'move_down'\ng = {{ j = 'move_end' }}\n[keys.{context}]\nC-n = 'unbound'\nC-p = 'no_op'");
+        let config = Config::load(Ok(&global), Ok(local)).unwrap();
+        let mut state = KeymapState::default();
+        let keys = map(&config.component_keys);
+        let mut lookup = |key: &str| state.lookup(keys, key.parse().unwrap());
+        assert_eq!(lookup("C-j"), Lookup::Actions(&[P::MoveUp]), "{context}");
+        assert_eq!(lookup("C-k"), Lookup::Actions(&[P::MoveDown]));
+        assert_eq!(
+            lookup("C-x"),
+            Lookup::Actions(&[P::MoveDown, P::Item(action)])
+        );
+        assert_eq!(lookup("A-z"), Lookup::Unbound);
+        assert_eq!(lookup("C-n"), Lookup::Unbound);
+        assert_eq!(lookup("C-p"), Lookup::Actions(&[]));
+        assert_eq!(lookup("tab"), Lookup::Actions(&[P::MoveDown]));
+        assert_eq!(lookup("g"), Lookup::Pending);
+        assert_eq!(lookup("j"), Lookup::Actions(&[P::MoveEnd]));
+        assert_eq!(lookup("g"), Lookup::Pending);
+        assert_eq!(lookup("x"), Lookup::Actions(&[P::Item(action)]));
+        assert_eq!(
+            state.lookup(&config.component_keys.picker, "C-j".parse().unwrap()),
+            Lookup::Actions(&[P::MoveStart])
+        );
+        assert_eq!(
+            state.lookup(&config.component_keys.picker, "C-x".parse().unwrap()),
+            Lookup::Unbound
+        );
+    }
     let defaults = Config::default().component_keys;
     assert_eq!(defaults.buffer_picker, defaults.picker);
-}
-
-#[test]
-fn quicklist_picker_keys_inherit_shared_bindings_with_specific_overrides() {
-    use crate::keymap::component::{PickerAction as P, PickerItemAction};
-    use ui_core::keymap::{KeymapState, Lookup};
-
-    let global = r#"
-        [keys.picker]
-        C-j = 'move_down'
-        [keys.quicklist-picker]
-        C-j = 'move_up'
-        C-x = 'unbound'
-        C-r = ['move_down', 'remove_entry']
-    "#
-    .to_owned();
-    let local =
-        "[keys.picker]\nC-j = 'move_start'\n[keys.quicklist-picker]\nC-n = 'no_op'".to_owned();
-    let config = Config::load(Ok(&global), Ok(local)).unwrap();
-    let mut state = KeymapState::default();
-    let keys = &config.component_keys.quicklist_picker;
     assert_eq!(
-        state.lookup(keys, "C-j".parse().unwrap()),
-        Lookup::Actions(&[P::MoveUp])
+        KeymapState::default().lookup(&defaults.quicklist_picker, "C-x".parse().unwrap()),
+        Lookup::Actions(&[P::Item(I::RemoveQuicklistEntry)])
     );
-    assert_eq!(state.lookup(keys, "C-x".parse().unwrap()), Lookup::Unbound);
+    assert_eq!(serde_json::to_value(P::Item(I::Stage)).unwrap(), "stage");
+    assert!(Config::load_test_result("[keys.history-picker]\nC-j = 'stage'").is_err());
+    let quicklist = Config::load_test("[keys.quicklist-picker]\nC-x = 'unbound'");
     assert_eq!(
-        state.lookup(keys, "C-n".parse().unwrap()),
-        Lookup::Actions(&[])
-    );
-    assert_eq!(
-        state.lookup(keys, "tab".parse().unwrap()),
-        Lookup::Actions(&[P::MoveDown])
-    );
-    assert_eq!(
-        state.lookup(keys, "C-r".parse().unwrap()),
-        Lookup::Actions(&[P::MoveDown, P::Item(PickerItemAction::RemoveQuicklistEntry)])
-    );
-    assert_eq!(
-        state.lookup(&config.component_keys.picker, "C-j".parse().unwrap()),
-        Lookup::Actions(&[P::MoveStart])
-    );
-    assert_eq!(
-        state.lookup(&config.component_keys.picker, "C-x".parse().unwrap()),
-        Lookup::Unbound
-    );
-    assert_eq!(
-        state.lookup(
-            &Config::default().component_keys.quicklist_picker,
+        KeymapState::default().lookup(
+            &quicklist.component_keys.quicklist_picker,
             "C-x".parse().unwrap()
         ),
-        Lookup::Actions(&[P::Item(PickerItemAction::RemoveQuicklistEntry)])
+        Lookup::Unbound
     );
 }
 
@@ -600,59 +561,38 @@ fn inline_blame_settings_round_trip_with_grouped_editor_settings() {
 }
 
 #[test]
-fn icons_are_controlled_by_one_editor_option() {
-    assert!(!Config::load_test("").editor.icons);
-    assert!(Config::load_test("[editor]\nicons = true").editor.icons);
-}
-
-#[test]
-fn breadcrumbs_are_disabled_by_default_and_configurable() {
-    use editor_config::BreadcrumbPathOptions;
-
-    let default = Config::load_test("").editor.breadcrumb;
-    assert!(!default.enable);
-    assert_eq!(default.path, BreadcrumbPathOptions::Full);
-
-    let configured = Config::load_test("[editor.breadcrumb]\nenable = true\npath = \"file\"")
-        .editor
-        .breadcrumb;
-    assert!(configured.enable);
-    assert_eq!(configured.path, BreadcrumbPathOptions::File);
-}
-
-#[test]
-fn welcome_screen_is_enabled_by_default_and_can_be_disabled() {
-    assert!(Config::load_test("").editor.welcome_screen);
-    assert!(
-        !Config::load_test("[editor]\nwelcome-screen = false")
-            .editor
-            .welcome_screen
-    );
-}
-
-#[test]
-fn border_style_is_an_editor_setting_independent_of_the_theme() {
-    let config = Config::load_test("theme = 'default'\n[editor]\nborder-style = 'rounded'");
-    assert_eq!(
-        config.editor.border_style,
-        editor_config::BorderStyle::Rounded
-    );
-}
-
-#[test]
-fn picker_settings_are_shared_by_all_pickers() {
-    assert_eq!(
-        Config::load_test("").editor.picker.layout,
-        editor_config::PickerLayout::Auto
-    );
-    assert!(Config::load_test("").editor.picker.show_keybindings);
-    let config =
-        Config::load_test("[editor.picker]\nlayout = 'centered'\nshow-keybindings = false");
-    assert!(!config.editor.picker.show_keybindings);
-    assert_eq!(
-        config.editor.picker.layout,
-        editor_config::PickerLayout::Centered
-    );
+fn editor_presentation_options_keep_defaults_and_accept_configuration() {
+    use editor_config::{BorderStyle, BreadcrumbPathOptions, PickerLayout};
+    let defaults = Config::load_test("").editor;
+    assert!(!defaults.icons);
+    assert!(!defaults.breadcrumb.enable);
+    assert_eq!(defaults.breadcrumb.path, BreadcrumbPathOptions::Full);
+    assert!(defaults.welcome_screen);
+    assert_eq!(defaults.picker.layout, PickerLayout::Auto);
+    assert!(defaults.picker.show_keybindings);
+    let configured = Config::load_test(
+        r#"
+        theme = 'default'
+        [editor]
+        icons = true
+        welcome-screen = false
+        border-style = 'rounded'
+        [editor.breadcrumb]
+        enable = true
+        path = 'file'
+        [editor.picker]
+        layout = 'centered'
+        show-keybindings = false
+    "#,
+    )
+    .editor;
+    assert!(configured.icons);
+    assert!(configured.breadcrumb.enable);
+    assert_eq!(configured.breadcrumb.path, BreadcrumbPathOptions::File);
+    assert!(!configured.welcome_screen);
+    assert_eq!(configured.border_style, BorderStyle::Rounded);
+    assert_eq!(configured.picker.layout, PickerLayout::Centered);
+    assert!(!configured.picker.show_keybindings);
 }
 
 #[test]
@@ -944,70 +884,6 @@ fn rulers_normalize_legacy_arrays_before_layering() {
     }
     assert!(Config::load_test_result("[editor.rulers]\nchar = '|'").is_err());
     assert!(Config::load_test_result("[editor]\nrulers = [80]\nrulers.columns = [40]").is_err());
-}
-
-#[test]
-fn git_picker_maps_inherit_shared_keys_and_keep_context_actions_scoped() {
-    use crate::keymap::component::{PickerAction as P, PickerItemAction as I};
-    use ui_core::keymap::{KeymapState, Lookup};
-    let config = Config::load(
-        Ok(&"[keys.git-picker]\nC-j = 'stage'\nA-z = 'unbound'\n[keys.stash-picker]\nC-j = 'apply_stash_with_index'".to_owned()),
-        Ok("[keys.picker]\nC-j = 'move_up'\nC-k = 'move_down'".to_owned()),
-    ).unwrap();
-    let maps = &config.component_keys;
-    let mut state = KeymapState::default();
-    assert_eq!(
-        state.lookup(&maps.git_picker, "C-j".parse().unwrap()),
-        Lookup::Actions(&[P::Item(I::Stage)])
-    );
-    assert_eq!(
-        state.lookup(&maps.stash_picker, "C-j".parse().unwrap()),
-        Lookup::Actions(&[P::Item(I::ApplyStashWithIndex)])
-    );
-    assert_eq!(
-        state.lookup(&maps.git_picker, "C-k".parse().unwrap()),
-        Lookup::Actions(&[P::MoveDown])
-    );
-    assert_eq!(
-        state.lookup(&maps.git_picker, "A-z".parse().unwrap()),
-        Lookup::Unbound
-    );
-    assert_eq!(
-        state.lookup(&maps.picker, "C-j".parse().unwrap()),
-        Lookup::Actions(&[P::MoveUp])
-    );
-    assert_eq!(serde_json::to_value(P::Item(I::Stage)).unwrap(), "stage");
-}
-
-#[test]
-fn history_picker_keys_inherit_navigation_and_only_accept_history_actions() {
-    use crate::keymap::component::{PickerAction as P, PickerItemAction as I};
-    use ui_core::keymap::{KeymapState, Lookup};
-    let config = Config::load(
-        Ok(&"[keys.history-picker]\nC-j = 'actions'".to_owned()),
-        Ok("[keys.picker]\nC-j = 'move_up'\nC-k = 'move_down'".to_owned()),
-    )
-    .unwrap();
-    let mut state = KeymapState::default();
-    assert_eq!(
-        state.lookup(
-            &config.component_keys.history_picker,
-            "C-j".parse().unwrap()
-        ),
-        Lookup::Actions(&[P::Item(I::Actions)])
-    );
-    assert_eq!(
-        state.lookup(
-            &config.component_keys.history_picker,
-            "C-k".parse().unwrap()
-        ),
-        Lookup::Actions(&[P::MoveDown])
-    );
-    assert!(Config::load(
-        Ok(&"[keys.history-picker]\nC-j = 'stage'".to_owned()),
-        Ok(String::new())
-    )
-    .is_err());
 }
 
 #[test]

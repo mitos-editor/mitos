@@ -8,7 +8,7 @@ use editor_core::{Selection, Transaction};
 use term::{application::Application, ui::lsp::signature_help::SignatureHelp};
 use tokio::sync::mpsc;
 use view::{
-    callbacks::{EditorCallback, EditorCallbackSender},
+    callbacks::EditorCallback,
     current, current_ref,
     document::Mode,
     editor::{Action, ConfigEvent, EditorEvent},
@@ -18,7 +18,7 @@ use view::{
 };
 
 use super::helpers::lsp::{self, Gate, ServerConfig};
-use super::helpers::{run_event_loop_until_idle, test_config, AppBuilder};
+use super::helpers::{run_event_loop_until_idle, test_config};
 
 struct Fixture {
     app: Application,
@@ -37,39 +37,25 @@ impl Fixture {
     }
 
     fn uninitialized(dir: &Path, text: &str, names: &[&str]) -> anyhow::Result<Self> {
-        let gate = Gate::new(dir.join("initialize-ready"));
-        gate.close()?;
         let response_gate = dir.join("respond-ready");
         std::fs::write(&response_gate, "ready")?;
-        let mut servers = String::new();
-        for name in names {
-            servers.push_str(
-                &ServerConfig::feature(name, "--signature-help", dir)
-                    .initialize_gate(&gate)
+        let mut config = test_config();
+        config.editor.lsp.signature_help.auto_trigger = true;
+        let (app, callbacks, gate) = lsp::feature_app(
+            dir,
+            text,
+            "signature-test",
+            names,
+            config,
+            |name| {
+                ServerConfig::feature(name, "--signature-help", dir)
                     .arg("--response-gate")
                     .arg(&response_gate)
-                    .toml(),
-            );
-        }
-        let loader = lsp::syntax_loader("signature-test", "signature-test", names, &servers);
-        let mut config = test_config();
-        config.editor.lsp.enable = true;
-        config.editor.lsp.signature_help.auto_trigger = true;
-        let (sender, callbacks) =
-            super::helpers::callbacks::deferred(|blocking, callback| (blocking, callback));
-        let mut app = AppBuilder::new()
-            .with_config(config)
-            .with_lang_loader(loader)
-            .with_handler_setup(move |handlers, _| {
-                handlers.signature_hints =
-                    SignatureHelpHandler::new(sender(handlers.redraw().clone()));
-            })
-            .build()?;
-        let path = dir.join("document.signature-test");
-        std::fs::write(&path, text)?;
-        app.editor.open(&path, Action::Replace)?;
-        let (view, doc) = current!(app.editor);
-        doc.set_selection(view.id, Selection::point(doc.text().len_chars() - 1));
+            },
+            |handlers, sender, _| {
+                handlers.signature_hints = SignatureHelpHandler::new(sender);
+            },
+        )?;
         Ok(Self {
             app,
             callbacks,
@@ -331,7 +317,7 @@ async fn cancellation_stops_inflight_work_and_later_requests_still_succeed() -> 
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn server_exit_replacement_and_drop_invalidate_work() -> anyhow::Result<()> {
+async fn server_exit_and_drop_invalidate_work() -> anyhow::Result<()> {
     let dir = tempfile::tempdir()?;
     let mut f = Fixture::new(dir.path(), "😀 call(\n", &["alpha"]).await?;
     f.trigger(SignatureHelpInvoked::Manual);
@@ -347,31 +333,6 @@ async fn server_exit_replacement_and_drop_invalidate_work() -> anyhow::Result<()
     assert!(matches!(f.take_change(), Some(SignatureHelpChange::Hide)));
     assert!(f.app.close().await.is_empty());
 
-    let mut f = Fixture::new(dir.path(), "😀 call(\n", &["alpha"]).await?;
-    f.trigger(SignatureHelpInvoked::Manual);
-    let old = f.response().await?;
-    let (sender, callbacks) =
-        super::helpers::callbacks::deferred(|blocking, callback| (blocking, callback));
-    f.app
-        .editor
-        .replace_signature_help_handler(SignatureHelpHandler::new(sender(
-            f.app.editor.redraw().clone(),
-        )));
-    old(&mut f.app.editor);
-    assert!(matches!(f.take_change(), Some(SignatureHelpChange::Hide)));
-    assert!(
-        tokio::time::timeout(Duration::from_secs(5), f.callbacks.recv())
-            .await?
-            .is_none()
-    );
-    f.callbacks = callbacks;
-    f.app.editor.set_mode(Mode::Insert);
-    f.trigger(SignatureHelpInvoked::Manual);
-    assert_eq!(f.label().await?, "alpha: 😀 call(");
-    // Document edits must retrigger the replacement handler without a manual request.
-    f.edit("😀 rebound(\n");
-    assert_eq!(f.label().await?, "alpha: 😀 rebound(");
-    assert!(f.app.close().await.is_empty());
     let f = Fixture::new(dir.path(), "😀 call(\n", &["alpha"]).await?;
     let Fixture {
         app, mut callbacks, ..
@@ -452,34 +413,6 @@ async fn missing_provider_is_reported_only_manually_and_retries_after_startup() 
     f.initialize().await?;
     f.edit("😀 ready(\n");
     assert_eq!(f.label().await?, "alpha: 😀 ready(");
-    assert!(f.app.close().await.is_empty());
-    Ok(())
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn replacing_signature_help_dismisses_presented_popup() -> anyhow::Result<()> {
-    let dir = tempfile::tempdir()?;
-    let mut f = Fixture::new(dir.path(), "😀 call(\n", &["alpha"]).await?;
-    f.trigger(SignatureHelpInvoked::Manual);
-    let update = f.update().await?;
-    f.app
-        .handle_editor_event(EditorEvent::SignatureHelp(update))
-        .await;
-    assert_eq!(f.popup_selection().await?, Some(0));
-    f.app
-        .editor
-        .replace_signature_help_handler(SignatureHelpHandler::new(EditorCallbackSender::new(
-            f.app.editor.redraw().clone(),
-            |_| async {},
-            |_| {},
-        )));
-    let update = signature_help::next_update(&f.app.editor).unwrap();
-    f.app
-        .handle_editor_event(EditorEvent::SignatureHelp(update))
-        .await;
-    assert_eq!(f.popup_selection().await?, None);
-    f.key("<A-n>").await?;
-    assert_eq!(f.popup_selection().await?, None);
     assert!(f.app.close().await.is_empty());
     Ok(())
 }

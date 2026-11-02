@@ -1,10 +1,7 @@
 //! A lazy variable browser. Retained parent pickers preserve their query and cursor.
 
 use super::{picker::PickerCallbackResult, Picker, PickerColumn};
-use crate::{
-    compositor::{Component, Context, Cursor, Event, EventResult},
-    job::Callback,
-};
+use crate::compositor::{Component, Context, Cursor, Event, EventResult};
 use event::TaskController;
 use std::{cell::Cell, rc::Rc, sync::Arc};
 use tui::buffer::Buffer;
@@ -146,50 +143,36 @@ impl Variables {
             }
         };
         self.refreshing = true;
-        let load = self.load.restart();
-        cx.jobs.callback(async move {
-            let update = tokio::select! {
-                biased;
-                _ = load.canceled() => return Ok(Callback::Editor(Box::new(|_| {}))),
-                update = task.run() => update,
-            };
-            Ok(Callback::EditorCompositor(Box::new(
-                move |editor, compositor| {
-                    if load.is_canceled() {
-                        return;
-                    }
-                    let Some(browser) = compositor.find_id::<Variables>("dap-variables") else {
-                        return;
-                    };
-                    browser.refreshing = false;
-                    match update.and_then(|update| update.into_result(editor)) {
-                        Some(Ok(mut pages)) => {
-                            let current = pages.pop().expect("refresh always returns scopes");
-                            if pages.len() < browser.parents.len() {
-                                browser.current = browser.parents.remove(pages.len());
-                                browser.parents.truncate(pages.len());
-                            }
-                            for (index, (page, data)) in
-                                browser.parents.iter_mut().zip(pages).enumerate()
-                            {
-                                page.refresh(data, index != 0);
-                            }
-                            browser
-                                .current
-                                .refresh(current, !browser.parents.is_empty());
+        cx.jobs
+            .debugger_callback(&mut self.load, task, move |editor, compositor, update| {
+                let Some(browser) = compositor.find_id::<Variables>("dap-variables") else {
+                    return;
+                };
+                browser.refreshing = false;
+                match update.and_then(|update| update.into_result(editor)) {
+                    Some(Ok(mut pages)) => {
+                        let current = pages.pop().expect("refresh always returns scopes");
+                        if pages.len() < browser.parents.len() {
+                            browser.current = browser.parents.remove(pages.len());
+                            browser.parents.truncate(pages.len());
                         }
-                        Some(Err(error)) => {
-                            browser.refresh_failed = true;
-                            editor.set_error(|| {
-                                format!("Could not refresh debugger values: {error}")
-                            });
+                        for (index, (page, data)) in
+                            browser.parents.iter_mut().zip(pages).enumerate()
+                        {
+                            page.refresh(data, index != 0);
                         }
-                        None => {} // A newer invalidation will be retried on the next render.
+                        browser
+                            .current
+                            .refresh(current, !browser.parents.is_empty());
                     }
-                    editor.redraw().request();
-                },
-            )))
-        });
+                    Some(Err(error)) => {
+                        browser.refresh_failed = true;
+                        editor.set_error(|| format!("Could not refresh debugger values: {error}"));
+                    }
+                    None => {} // A newer invalidation will be retried on the next render.
+                }
+                editor.redraw().request();
+            });
     }
 
     fn expand(&mut self, cx: &mut Context, index: usize) {
@@ -218,40 +201,28 @@ impl Variables {
         task: view::debugger::DebuggerTask<DebuggerVariables>,
         append: bool,
     ) {
-        let load = self.load.restart();
-        cx.jobs.callback(async move {
-            let update = tokio::select! {
-                biased;
-                _ = load.canceled() => return Ok(Callback::Editor(Box::new(|_| {}))),
-                update = task.run() => update,
-            };
-            Ok(Callback::EditorCompositor(Box::new(
-                move |editor, compositor| {
-                    if load.is_canceled() {
-                        return;
-                    }
-                    let Some(browser) = compositor.find_id::<Variables>("dap-variables") else {
-                        return;
-                    };
-                    let Some(update) = update else {
-                        return;
-                    };
-                    match update.into_result(editor) {
-                        Some(Ok(data)) => {
-                            if append {
-                                browser.current.refresh(data, !browser.parents.is_empty());
-                            } else {
-                                browser.push(editor, data);
-                            }
+        cx.jobs
+            .debugger_callback(&mut self.load, task, move |editor, compositor, update| {
+                let Some(browser) = compositor.find_id::<Variables>("dap-variables") else {
+                    return;
+                };
+                let Some(update) = update else {
+                    return;
+                };
+                match update.into_result(editor) {
+                    Some(Ok(data)) => {
+                        if append {
+                            browser.current.refresh(data, !browser.parents.is_empty());
+                        } else {
+                            browser.push(editor, data);
                         }
-                        Some(Err(error)) => {
-                            editor.set_error(|| format!("Debugger request failed: {error}"))
-                        }
-                        None => {}
                     }
-                },
-            )))
-        });
+                    Some(Err(error)) => {
+                        editor.set_error(|| format!("Debugger request failed: {error}"))
+                    }
+                    None => {}
+                }
+            });
     }
 }
 

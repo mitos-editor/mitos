@@ -500,3 +500,17 @@ pub fn reload_file(file: &mut NamedTempFile) -> anyhow::Result<()> {
     *file.as_file_mut() = f;
     Ok(())
 }
+
+/// Terminate the selected adapter session and process its final messages before closing.
+pub async fn finish_debugger(app: &mut Application, id: dap::DebugAdapterId) -> anyhow::Result<()> {
+    app.editor
+        .debugger_command(view::debugger::DebuggerCommand::Terminate)?;
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while app.editor.debugger().get_session(id).is_some() {
+            run_event_loop_until_idle(app).await;
+        }
+    })
+    .await?;
+    assert!(app.close().await.is_empty());
+    Ok(())
+}

@@ -100,6 +100,13 @@ mod tests {
         doc.ensure_view_init(view);
         doc.set_document_highlights(view, std::iter::once(1..4).collect());
         let request = doc.rename.restart();
+        let state = doc.view_state_mut(view);
+        let view_requests = [
+            state.hover.get_or_insert_default().restart(),
+            state.navigation.get_or_insert_default().restart(),
+            state.code_actions.get_or_insert_default().restart(),
+            state.shell_filters.get_or_insert_default().restart(),
+        ];
         let before = doc.snapshot();
         let selection = doc.selection(view).clone();
         let transaction =
@@ -118,6 +125,7 @@ mod tests {
         assert_eq!(events.load(Ordering::Relaxed), 0);
         drop(presentation);
         assert!(!request.is_canceled());
+        assert!(view_requests.iter().all(|request| !request.is_canceled()));
         crate::editing::apply(&mut doc, &transaction, view).unwrap();
         assert_eq!(events.load(Ordering::Relaxed), 1);
     }

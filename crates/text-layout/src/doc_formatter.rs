@@ -494,10 +494,6 @@ impl<'t> DocumentFormatter<'t> {
     pub fn next_char_pos(&self) -> usize {
         self.char_pos
     }
-    /// returns the visual position at the end of the last yielded grapheme
-    pub fn next_visual_pos(&self) -> DisplayPosition {
-        self.visual_pos
-    }
 }
 
 impl<'t> Iterator for DocumentFormatter<'t> {

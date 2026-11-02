@@ -244,11 +244,7 @@ pub struct TextRenderer<'a> {
     classify_trailing: bool,
     indent_guide_char: String,
     indent_guide_style: Style,
-    newline: String,
-    nbsp: String,
-    nnbsp: String,
-    space: String,
-    tab: String,
+    whitespace: WhitespacePalette,
     virtual_tab: String,
     indent_width: u16,
     starting_indent: usize,
@@ -281,11 +277,7 @@ impl<'a> TextRenderer<'a> {
         TextRenderer {
             surface,
             indent_guide_char: settings.indent_guides.character.into(),
-            newline: regular.newline,
-            nbsp: regular.nbsp,
-            nnbsp: regular.nnbsp,
-            space: regular.space,
-            tab: regular.tab,
+            whitespace: regular,
             virtual_tab: " ".repeat(tab_width),
             trailing_whitespace,
             classify_trailing: {
@@ -388,47 +380,33 @@ impl<'a> TextRenderer<'a> {
 
         let width = grapheme.width();
         let mut is_tab = false;
-        let palette = &self.trailing_whitespace;
-        let space = if is_virtual {
-            " "
-        } else if trailing {
-            &palette.space
+        let palette = if trailing {
+            &self.trailing_whitespace
         } else {
-            &self.space
-        };
-        let nbsp = if is_virtual {
-            " "
-        } else if trailing {
-            &palette.nbsp
-        } else {
-            &self.nbsp
-        };
-        let nnbsp = if is_virtual {
-            " "
-        } else if trailing {
-            &palette.nnbsp
-        } else {
-            &self.nnbsp
-        };
-        let tab = if is_virtual {
-            &self.virtual_tab
-        } else if trailing {
-            &palette.tab
-        } else {
-            &self.tab
+            &self.whitespace
         };
         let grapheme = match grapheme.raw {
             Grapheme::Tab { width } => {
                 is_tab = true;
+                let tab = if is_virtual {
+                    &self.virtual_tab
+                } else {
+                    &palette.tab
+                };
                 let grapheme_tab_width = char_to_byte_idx(tab, width);
                 &tab[..grapheme_tab_width]
             }
+            Grapheme::Other { ref g }
+                if is_virtual && matches!(&**g, " " | "\u{00A0}" | "\u{202F}") =>
+            {
+                " "
+            }
             // TODO special rendering for other whitespaces?
-            Grapheme::Other { ref g } if g == " " && !grapheme.source.is_eof() => space,
-            Grapheme::Other { ref g } if g == "\u{00A0}" => nbsp,
-            Grapheme::Other { ref g } if g == "\u{202F}" => nnbsp,
+            Grapheme::Other { ref g } if g == " " && !grapheme.source.is_eof() => &palette.space,
+            Grapheme::Other { ref g } if g == "\u{00A0}" => &palette.nbsp,
+            Grapheme::Other { ref g } if g == "\u{202F}" => &palette.nnbsp,
             Grapheme::Other { ref g } => g,
-            Grapheme::Newline => &self.newline,
+            Grapheme::Newline => &self.whitespace.newline,
         };
 
         let in_bounds = self.column_in_bounds(position.col, width);
@@ -536,7 +514,7 @@ impl<'a> TextRenderer<'a> {
             let x = (self.viewport.x as usize + (i * self.indent_width as usize) - self.offset.col)
                 as u16;
             let y = self.viewport.y + row;
-            debug_assert!(self.surface.in_bounds(x, y));
+            debug_assert!(self.surface.area.contains((x, y).into()));
             self.surface
                 .set_string(x, y, &self.indent_guide_char, self.indent_guide_style);
         }
