@@ -131,6 +131,7 @@
   "constset"
   "distinct"
   "faultset"
+  "excuse"
   "enum"
   "faultdef"
   "interface"
@@ -161,7 +162,6 @@
 [
   "const"
   "constdef"
-  "faultconst"
   "extern"
   "inline"
   "static"

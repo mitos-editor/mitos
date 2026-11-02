@@ -1,0 +1,26 @@
+namespace example
+--^ @keyword
+--        ^ @namespace
+
+identity : forall a. a -> a
+--       ^ @punctuation.delimiter
+--         ^ @keyword
+--                     ^ @operator
+identity x = x
+--         ^ @keyword
+
+structural type Optional a = None | Some a
+--^ @keyword.storage.modifier
+--         ^ @keyword.storage.modifier
+--                                ^ @operator
+
+choose n =
+    if n == 0 then
+--  ^ @keyword.control.conditional
+--            ^ @keyword.control.conditional
+        true
+--      ^ @constant.builtin.boolean
+    else
+--  ^ @keyword.control.conditional
+        false
+--      ^ @constant.builtin.boolean

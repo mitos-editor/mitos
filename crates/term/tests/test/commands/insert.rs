@@ -764,6 +764,33 @@ async fn counted_insert_repetition_preserves_the_recording_for_later_dots() -> a
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn newline_between_pairs_preserves_closing_indent() -> anyhow::Result<()> {
+    for heuristic in ["hybrid", "tree-sitter"] {
+        for (language, input, expected) in [
+            ("rust", "fn main() {#[|}]#\n", "fn main() {\n    #[|\n]#}\n"),
+            (
+                "rust",
+                "fn main() {\n    let items = [#[|]]#;\n}\n",
+                "fn main() {\n    let items = [\n        #[|\n]#    ];\n}\n",
+            ),
+            (
+                "kotlin",
+                "fun main() {\n    val items = listOf(#[|)]#\n}\n",
+                "fun main() {\n    val items = listOf(\n        #[|\n]#    )\n}\n",
+            ),
+        ] {
+            test((
+                input,
+                format!(":lang {language}<ret>:set indent.heuristic {heuristic}<ret>i<ret>"),
+                expected,
+            ))
+            .await?;
+        }
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn kotlin_else_newline() -> anyhow::Result<()> {
     for heuristic in ["hybrid", "tree-sitter"] {
         test((

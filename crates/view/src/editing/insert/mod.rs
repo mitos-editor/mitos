@@ -131,6 +131,9 @@ pub fn insert_newline(
             contents.char_at(pos - 1)
         };
         let curr = contents.get_char_at(pos).unwrap_or(' ');
+        let on_auto_pair = auto_pairs
+            .and_then(|pairs| pairs.get(prev))
+            .is_some_and(|pair| pair.open == prev && pair.close == curr);
 
         let current_line = text.char_to_line_idx(pos);
         let line_start = text.line_to_char_idx(current_line);
@@ -167,7 +170,9 @@ pub fn insert_newline(
                     doc.tab_width(),
                     text,
                     current_line,
-                    pos,
+                    // The paired closing delimiter stays outside the new inner line.
+                    // Compute its indent after the pair, then add the inner level below.
+                    pos + usize::from(on_auto_pair),
                     current_line,
                 ),
             };
@@ -175,10 +180,6 @@ pub fn insert_newline(
             // If we are between pairs (such as brackets), we want to
             // insert an additional line which is indented one level
             // more and place the cursor there
-            let on_auto_pair = auto_pairs
-                .and_then(|pairs| pairs.get(prev))
-                .is_some_and(|pair| pair.open == prev && pair.close == curr);
-
             let local_offs = if let Some(token) = continue_comment_token {
                 new_text.reserve_exact(line_ending.len() + indent.len() + token.len() + 1);
                 new_text.push_str(line_ending);
