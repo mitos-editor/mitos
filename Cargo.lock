@@ -4593,7 +4593,7 @@ checksum = "7d56353a2a665ad0f41a421187180aab746c8c325620617ad883a99a1cbe66d2"
 [[package]]
 name = "tree-house"
 version = "0.4.0"
-source = "git+https://github.com/mitos-editor/tree-house?rev=2d78a2c24005d704ef91f6a02dd462830d2d377b#2d78a2c24005d704ef91f6a02dd462830d2d377b"
+source = "git+https://github.com/mitos-editor/tree-house?rev=9f1d731a3226ee0fc5f58879ac3b880846ae8691#9f1d731a3226ee0fc5f58879ac3b880846ae8691"
 dependencies = [
  "arc-swap",
  "hashbrown 0.15.5",
@@ -4608,7 +4608,7 @@ dependencies = [
 [[package]]
 name = "tree-house-bindings"
 version = "0.3.2"
-source = "git+https://github.com/mitos-editor/tree-house?rev=2d78a2c24005d704ef91f6a02dd462830d2d377b#2d78a2c24005d704ef91f6a02dd462830d2d377b"
+source = "git+https://github.com/mitos-editor/tree-house?rev=9f1d731a3226ee0fc5f58879ac3b880846ae8691#9f1d731a3226ee0fc5f58879ac3b880846ae8691"
 dependencies = [
  "cc",
  "libloading",
