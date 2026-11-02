@@ -149,6 +149,34 @@ impl Jobs {
         self.add(Job::with_callback(f));
     }
 
+    pub(crate) fn debugger_callback<T: Send + 'static>(
+        &mut self,
+        controller: &mut event::TaskController,
+        task: view::debugger::DebuggerTask<T>,
+        apply: impl FnOnce(&mut Editor, &mut Compositor, Option<view::debugger::DebuggerUpdate<T>>)
+            + Send
+            + 'static,
+    ) {
+        let load = controller.restart();
+        self.add(Job {
+            wait: false,
+            future: Box::pin(async move {
+                let update = tokio::select! {
+                    biased;
+                    _ = load.canceled() => return Ok(None),
+                    update = task.run() => update,
+                };
+                Ok(Some(Callback::EditorCompositor(Box::new(
+                    move |editor, compositor| {
+                        if !load.is_canceled() {
+                            apply(editor, compositor, update);
+                        }
+                    },
+                ))))
+            }),
+        });
+    }
+
     pub fn handle_callback(
         &mut self,
         config: crate::config::Context<'_>,

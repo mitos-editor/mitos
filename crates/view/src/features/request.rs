@@ -125,3 +125,20 @@ impl SelectionRequest {
         (doc.try_selection(view.id) == Some(&self.selection)).then_some((view, doc))
     }
 }
+
+/// Gather successful provider results, abandoning all publication when canceled.
+pub(crate) async fn collect_responses<T, E: std::fmt::Display>(
+    mut responses: impl futures_util::Stream<Item = Result<Vec<T>, E>> + Unpin,
+    cancel: &event::TaskHandle,
+    feature: &str,
+) -> Option<Vec<T>> {
+    use futures_util::StreamExt;
+    let mut items = Vec::new();
+    while let Some(response) = event::cancelable_future(responses.next(), cancel).await? {
+        match response {
+            Ok(response) => items.extend(response),
+            Err(error) => log::error!("{feature} request failed: {error}"),
+        }
+    }
+    Some(items)
+}

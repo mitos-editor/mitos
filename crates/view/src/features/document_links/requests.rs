@@ -2,8 +2,8 @@
 
 use std::collections::HashSet;
 
-use event::{cancelable_future, register_hook};
-use futures_util::{stream::FuturesUnordered, StreamExt};
+use event::register_hook;
+use futures_util::stream::FuturesUnordered;
 use language_config::LanguageServerFeature;
 
 use crate::{
@@ -12,7 +12,10 @@ use crate::{
         DocumentDidChange, DocumentDidOpen, DocumentFocusLost, DocumentLanguageDidChange,
         LanguageServerExited, LanguageServerInitialized, SelectionDidChange,
     },
-    features::{debounce::debounce_documents, request::DocumentRequest},
+    features::{
+        debounce::debounce_documents,
+        request::{collect_responses, DocumentRequest},
+    },
     DocumentId, Editor,
 };
 
@@ -49,7 +52,7 @@ fn request_document_links(
 
     // Exit hooks run before the server is removed from the registry.
     let mut seen_language_servers = HashSet::new();
-    let mut futures: FuturesUnordered<_> = doc
+    let futures: FuturesUnordered<_> = doc
         .language_servers_with_feature(LanguageServerFeature::DocumentLinks)
         .filter(|ls| Some(ls.id()) != exited_server)
         .filter(|ls| seen_language_servers.insert(ls.id()))
@@ -97,15 +100,10 @@ fn request_document_links(
     let request = DocumentRequest::new(doc, cancel, seen_language_servers.into_iter().collect());
 
     tokio::spawn(async move {
-        let mut all_links = Vec::new();
-        loop {
-            match cancelable_future(futures.next(), &request.cancel).await {
-                Some(Some(Ok(items))) => all_links.extend(items),
-                Some(Some(Err(err))) => log::error!("document link request failed: {err}"),
-                Some(None) => break,
-                None => return,
-            }
-        }
+        let Some(all_links) = collect_responses(futures, &request.cancel, "document link").await
+        else {
+            return;
+        };
 
         callbacks
             .send(move |editor| {

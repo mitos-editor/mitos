@@ -77,12 +77,6 @@ pub fn entry_file_type(entry: &DirEntry) -> Option<std::fs::FileType> {
     }
 }
 
-/// Shared traversal policy for search and file/symbol pickers.
-/// Excludes VCS internals and optionally symlinks into the search root.
-pub fn include_entry(entry: &DirEntry, root: &Path, dedup_symlinks: bool) -> bool {
-    should_include(entry, root, dedup_symlinks, true)
-}
-
 pub(crate) fn is_vcs_name(name: &std::ffi::OsStr) -> bool {
     matches!(
         name.to_str(),

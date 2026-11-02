@@ -269,7 +269,7 @@ pub(super) mod typed {
     }
 
     #[cold]
-    pub(in crate::commands) fn buffer_close(
+    pub(in crate::commands) fn buffer_close<const FORCE: bool>(
         cx: &mut compositor::Context,
         args: Args,
         event: PromptEvent,
@@ -279,21 +279,7 @@ pub(super) mod typed {
         }
 
         let document_ids = buffer_gather_paths_impl(cx.editor, args);
-        buffer_close_by_ids_impl(cx, &document_ids, false)
-    }
-
-    #[cold]
-    pub(in crate::commands) fn force_buffer_close(
-        cx: &mut compositor::Context,
-        args: Args,
-        event: PromptEvent,
-    ) -> anyhow::Result<()> {
-        if event != PromptEvent::Validate {
-            return Ok(());
-        }
-
-        let document_ids = buffer_gather_paths_impl(cx.editor, args);
-        buffer_close_by_ids_impl(cx, &document_ids, true)
+        buffer_close_by_ids_impl(cx, &document_ids, FORCE)
     }
 
     fn buffer_gather_others_impl(editor: &mut Editor, skip_visible: bool) -> Vec<DocumentId> {
@@ -319,7 +305,7 @@ pub(super) mod typed {
     }
 
     #[cold]
-    pub(in crate::commands) fn buffer_close_others(
+    pub(in crate::commands) fn buffer_close_others<const FORCE: bool>(
         cx: &mut compositor::Context,
         args: Args,
         event: PromptEvent,
@@ -329,21 +315,7 @@ pub(super) mod typed {
         }
 
         let document_ids = buffer_gather_others_impl(cx.editor, args.has_flag("skip-visible"));
-        buffer_close_by_ids_impl(cx, &document_ids, false)
-    }
-
-    #[cold]
-    pub(in crate::commands) fn force_buffer_close_others(
-        cx: &mut compositor::Context,
-        args: Args,
-        event: PromptEvent,
-    ) -> anyhow::Result<()> {
-        if event != PromptEvent::Validate {
-            return Ok(());
-        }
-
-        let document_ids = buffer_gather_others_impl(cx.editor, args.has_flag("skip-visible"));
-        buffer_close_by_ids_impl(cx, &document_ids, true)
+        buffer_close_by_ids_impl(cx, &document_ids, FORCE)
     }
 
     fn buffer_gather_all_impl(editor: &mut Editor) -> Vec<DocumentId> {
@@ -351,7 +323,7 @@ pub(super) mod typed {
     }
 
     #[cold]
-    pub(in crate::commands) fn buffer_close_all(
+    pub(in crate::commands) fn buffer_close_all<const FORCE: bool>(
         cx: &mut compositor::Context,
         _args: Args,
         event: PromptEvent,
@@ -361,21 +333,7 @@ pub(super) mod typed {
         }
 
         let document_ids = buffer_gather_all_impl(cx.editor);
-        buffer_close_by_ids_impl(cx, &document_ids, false)
-    }
-
-    #[cold]
-    pub(in crate::commands) fn force_buffer_close_all(
-        cx: &mut compositor::Context,
-        _args: Args,
-        event: PromptEvent,
-    ) -> anyhow::Result<()> {
-        if event != PromptEvent::Validate {
-            return Ok(());
-        }
-
-        let document_ids = buffer_gather_all_impl(cx.editor);
-        buffer_close_by_ids_impl(cx, &document_ids, true)
+        buffer_close_by_ids_impl(cx, &document_ids, FORCE)
     }
 
     #[cold]

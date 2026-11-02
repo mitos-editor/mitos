@@ -132,48 +132,40 @@ pub(crate) fn path_completion(
     Some(future)
 }
 
-#[cfg(unix)]
 fn path_documentation(md: &fs::Metadata, full_path: &Path, kind: &str) -> String {
     let full_path = fold_home_dir(canonicalize(full_path));
     let full_path_name = full_path.to_string_lossy();
+    let mut documentation = format!("type: `{kind}`\n");
+    #[cfg(unix)]
+    {
+        use std::os::unix::prelude::PermissionsExt;
+        let mode = md.permissions().mode();
 
-    use std::os::unix::prelude::PermissionsExt;
-    let mode = md.permissions().mode();
+        let perms = [
+            (libc::S_IRUSR, 'r'),
+            (libc::S_IWUSR, 'w'),
+            (libc::S_IXUSR, 'x'),
+            (libc::S_IRGRP, 'r'),
+            (libc::S_IWGRP, 'w'),
+            (libc::S_IXGRP, 'x'),
+            (libc::S_IROTH, 'r'),
+            (libc::S_IWOTH, 'w'),
+            (libc::S_IXOTH, 'x'),
+        ]
+        .into_iter()
+        .fold(String::with_capacity(9), |mut acc, (p, s)| {
+            // This cast is necessary on some platforms such as macos as `mode_t` is u16 there
+            #[allow(clippy::unnecessary_cast)]
+            acc.push(if mode & (p as u32) > 0 { s } else { '-' });
+            acc
+        });
 
-    let perms = [
-        (libc::S_IRUSR, 'r'),
-        (libc::S_IWUSR, 'w'),
-        (libc::S_IXUSR, 'x'),
-        (libc::S_IRGRP, 'r'),
-        (libc::S_IWGRP, 'w'),
-        (libc::S_IXGRP, 'x'),
-        (libc::S_IROTH, 'r'),
-        (libc::S_IWOTH, 'w'),
-        (libc::S_IXOTH, 'x'),
-    ]
-    .into_iter()
-    .fold(String::with_capacity(9), |mut acc, (p, s)| {
-        // This cast is necessary on some platforms such as macos as `mode_t` is u16 there
-        #[allow(clippy::unnecessary_cast)]
-        acc.push(if mode & (p as u32) > 0 { s } else { '-' });
-        acc
-    });
-
-    // TODO it would be great to be able to individually color the documentation,
-    // but this will likely require a custom doc implementation (i.e. not `lsp::Documentation`)
-    // and/or different rendering in completion.rs
-    format!(
-        "type: `{kind}`\n\
-         permissions: `[{perms}]`\n\
-         full path: `{full_path_name}`",
-    )
-}
-
-#[cfg(not(unix))]
-fn path_documentation(_md: &fs::Metadata, full_path: &Path, kind: &str) -> String {
-    let full_path = fold_home_dir(canonicalize(full_path));
-    let full_path_name = full_path.to_string_lossy();
-    format!("type: `{kind}`\nfull path: `{full_path_name}`",)
+        documentation.push_str(&format!("permissions: `[{perms}]`\n"));
+    }
+    #[cfg(not(unix))]
+    let _ = md;
+    documentation.push_str(&format!("full path: `{full_path_name}`"));
+    documentation
 }
 
 #[cfg(unix)]

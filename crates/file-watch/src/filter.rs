@@ -107,36 +107,20 @@ impl IgnoreFiles {
         path: &Path,
         is_dir: Option<bool>,
     ) -> Option<bool> {
-        match is_dir {
-            Some(is_dir) => {
-                for ignore in ignores {
-                    match ignore.borrow().matched(path, is_dir) {
-                        ignore::Match::None => continue,
-                        ignore::Match::Ignore(_) => return Some(true),
-                        ignore::Match::Whitelist(_) => return Some(false),
-                    }
+        for ignore in ignores {
+            let ignore = ignore.borrow();
+            let matched = ignore.matched(path, is_dir.unwrap_or(true));
+            // Unknown file kinds must not be excluded by a directory-only rule.
+            let matched = match &matched {
+                ignore::Match::Ignore(glob) if is_dir.is_none() && glob.is_only_dir() => {
+                    ignore.matched(path, false)
                 }
-            }
-            None => {
-                // if we don't know whether this is a directory (on windows)
-                // then we are conservative and allow the dirs
-                for ignore in ignores {
-                    match ignore.borrow().matched(path, true) {
-                        ignore::Match::None => continue,
-                        ignore::Match::Ignore(glob) => {
-                            if glob.is_only_dir() {
-                                match ignore.borrow().matched(path, false) {
-                                    ignore::Match::None => continue,
-                                    ignore::Match::Ignore(_) => return Some(true),
-                                    ignore::Match::Whitelist(_) => return Some(false),
-                                }
-                            } else {
-                                return Some(true);
-                            }
-                        }
-                        ignore::Match::Whitelist(_) => return Some(false),
-                    }
-                }
+                _ => matched,
+            };
+            match matched {
+                ignore::Match::None => continue,
+                ignore::Match::Ignore(_) => return Some(true),
+                ignore::Match::Whitelist(_) => return Some(false),
             }
         }
         None
@@ -153,9 +137,6 @@ pub(super) struct WatchFilter {
     filesentry_ignores: Gitignore,
     ignore_files: Vec<IgnoreFiles>,
     global_ignores: Vec<Arc<Gitignore>>,
-    hidden: bool,
-    watch_vcs: bool,
-    max_depth: Option<usize>,
     config: Options,
     workspace_ignore: Option<Arc<Gitignore>>,
     nested_ignores:
@@ -180,9 +161,6 @@ impl WatchFilter {
             filesentry_ignores,
             ignore_files,
             global_ignores,
-            hidden: config.hidden,
-            watch_vcs: config.watch_vcs,
-            max_depth: config.max_depth,
             config: config.clone(),
             workspace_ignore,
             nested_ignores: Default::default(),
@@ -190,14 +168,14 @@ impl WatchFilter {
     }
 
     pub(super) fn with_extra_paths(mut self, paths: impl Iterator<Item = PathBuf>) -> Self {
-        if self.watch_vcs {
+        if self.config.watch_vcs {
             self.extra_paths = paths.collect();
         }
         self
     }
 
     pub(super) fn with_extra_files(mut self, files: impl Iterator<Item = PathBuf>) -> Self {
-        if self.watch_vcs {
+        if self.config.watch_vcs {
             self.extra_files = files.collect();
         }
         self
@@ -282,10 +260,10 @@ impl WatchFilter {
             return ignore;
         }
         // ignore .git directory except .git/HEAD (and .git itself)
-        if is_vcs_ignore(path, self.watch_vcs) {
+        if is_vcs_ignore(path, self.config.watch_vcs) {
             return true;
         }
-        self.hidden && is_hidden(path)
+        self.config.hidden && is_hidden(path)
     }
 }
 
@@ -305,7 +283,7 @@ impl filesentry::Filter for WatchFilter {
         if path == root {
             return false;
         }
-        if self.max_depth.is_some_and(|depth| {
+        if self.config.max_depth.is_some_and(|depth| {
             path.strip_prefix(root)
                 .is_ok_and(|p| p.components().count() > depth)
         }) {
@@ -331,7 +309,7 @@ impl filesentry::Filter for WatchFilter {
             .map_or((Path::new(""), &self.global_ignores), |files| {
                 (&files.root, &files.ignores)
             });
-        if self.max_depth.is_some_and(|depth| {
+        if self.config.max_depth.is_some_and(|depth| {
             path.strip_prefix(root)
                 .is_ok_and(|p| p.components().count() > depth)
         }) {
@@ -550,10 +528,10 @@ mod tests {
                 ignores: vec![Arc::new(ignores)],
             }],
             global_ignores: Vec::new(),
-            hidden: true,
-            watch_vcs: true,
-            max_depth: None,
-            config: Options::default(),
+            config: Options {
+                max_depth: None,
+                ..Options::default()
+            },
             workspace_ignore: None,
             nested_ignores: Default::default(),
         };

@@ -34,10 +34,6 @@ impl WordIndex {
             .map(|(word, count)| (word.as_str(), *count))
     }
 
-    fn words(&self) -> impl Iterator<Item = &Word> {
-        self.words.keys()
-    }
-
     fn insert(&mut self, word: RopeSlice) {
         let word: Cow<str> = word.into();
         if let Some(rc) = self.words.get_mut(word.as_ref()) {
@@ -64,7 +60,7 @@ impl WordIndex {
     }
 
     pub fn matches(&self, pattern: &str, matcher: &mut fuzzy::Matcher) -> Vec<String> {
-        let mut matches = matcher.match_list(pattern, self.words());
+        let mut matches = matcher.match_list(pattern, self.words.keys());
         matches.sort_unstable_by_key(|(_, score)| *score);
         matches
             .into_iter()

@@ -3,47 +3,6 @@ pub use ratatui_core::style::{Color, Modifier, Style};
 use serde::{Deserialize, Serialize};
 use std::{fmt, str::FromStr};
 
-#[must_use]
-const fn from_nibble(h: u8) -> u8 {
-    match h {
-        b'A'..=b'F' => h - b'A' + 10,
-        b'a'..=b'f' => h - b'a' + 10,
-        b'0'..=b'9' => h - b'0',
-        _ => 0xff, // Err
-    }
-}
-
-/// Decodes nibble, repeating its value on each half,
-/// i.e. the value is its own padding.
-///
-/// # Errors
-/// If `h` isn't a nibble
-#[must_use]
-const fn dupe_from_nibble(mut h: u8) -> Option<u8> {
-    h = from_nibble(h);
-    if h > 0xf {
-        return None;
-    }
-    Some((h << 4) | h)
-}
-
-/// Decodes big-endian nibble-pair.
-///
-/// # Errors
-/// If any byte isn't a nibble
-const fn byte_from_hex(mut h: [u8; 2]) -> Option<u8> {
-    // reuse memory
-    h[0] = from_nibble(h[0]);
-    h[1] = from_nibble(h[1]);
-    // we could split this in 2 `if`s,
-    // to avoid calling `from_nibble`,
-    // but that might be slower
-    if h[0] > 0xf || h[1] > 0xf {
-        return None;
-    }
-    Some((h[0] << 4) | h[1])
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 /// A visible cursor shape. Visibility and rendering ownership are separate.
@@ -65,7 +24,6 @@ pub trait RectExt {
     fn clip_top(self, height: u16) -> Rect;
     fn clip_bottom(self, height: u16) -> Rect;
     fn with_height(self, height: u16) -> Rect;
-    fn with_width(self, width: u16) -> Rect;
 }
 
 impl RectExt for Rect {
@@ -103,10 +61,6 @@ impl RectExt for Rect {
 
     fn with_height(self, height: u16) -> Rect {
         Self::new(self.x, self.y, self.width, height)
-    }
-
-    fn with_width(self, width: u16) -> Rect {
-        Self::new(self.x, self.y, width, self.height)
     }
 }
 
@@ -154,32 +108,26 @@ impl ColorExt for Color {
     /// let color3 = Color::from_hex("#012").unwrap();
     /// assert_eq!(color3, Color::Rgb(0, 17, 34));
     /// ```
-    fn from_hex(h: &str) -> Result<Self, MalformedHex> {
-        let h = h.as_bytes();
-        if !h.starts_with(b"#") {
-            return Err(MalformedHex::NoHash);
+    fn from_hex(value: &str) -> Result<Self, MalformedHex> {
+        let digits = value.strip_prefix('#').ok_or(MalformedHex::NoHash)?;
+        if !matches!(digits.len(), 3 | 6) {
+            return Err(MalformedHex::LenOOB);
         }
-
-        use byte_from_hex as pair;
-        use dupe_from_nibble as nibble;
-
-        match h.len() {
-            7 => match (|| {
-                Some(Self::Rgb(
-                    pair([h[1], h[2]])?,
-                    pair([h[3], h[4]])?,
-                    pair([h[5], h[6]])?,
-                ))
-            })() {
-                Some(c) => Ok(c),
-                None => Err(MalformedHex::NotANibble),
-            },
-            4 => match (|| Some(Self::Rgb(nibble(h[1])?, nibble(h[2])?, nibble(h[3])?)))() {
-                Some(c) => Ok(c),
-                None => Err(MalformedHex::NotANibble),
-            },
-            _ => Err(MalformedHex::LenOOB),
+        // Integer parsing also accepts signs; theme colors accept only ASCII hex digits.
+        if !digits.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+            return Err(MalformedHex::NotANibble);
         }
+        let rgb = u32::from_str_radix(digits, 16).map_err(|_| MalformedHex::NotANibble)?;
+        let (red, green, blue) = if digits.len() == 3 {
+            (
+                ((rgb >> 8) & 0xf) * 17,
+                ((rgb >> 4) & 0xf) * 17,
+                (rgb & 0xf) * 17,
+            )
+        } else {
+            (rgb >> 16, (rgb >> 8) & 0xff, rgb & 0xff)
+        };
+        Ok(Self::Rgb(red as u8, green as u8, blue as u8))
     }
 }
 
@@ -292,23 +240,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_rect_size_preservation() {
-        for width in 0..256u16 {
-            for height in 0..256u16 {
-                let rect = Rect::new(0, 0, width, height);
-                rect.area(); // Should not panic.
-                assert_eq!(rect.width, width);
-                assert_eq!(rect.height, height);
-            }
-        }
-
-        // One dimension below 255, one above. Area below max u16.
-        let rect = Rect::new(0, 0, 300, 100);
-        assert_eq!(rect.width, 300);
-        assert_eq!(rect.height, 100);
-    }
-
-    #[test]
     fn test_rect_chop_from_left() {
         let rect = Rect::new(0, 0, 20, 30);
         assert_eq!(Rect::new(10, 0, 10, 30), rect.clip_left(10));
@@ -340,39 +271,6 @@ mod tests {
     fn test_rect_chop_from_bottom() {
         let rect = Rect::new(0, 0, 20, 30);
         assert_eq!(Rect::new(0, 0, 20, 20), rect.clip_bottom(10));
-    }
-
-    fn styles() -> Vec<Style> {
-        vec![
-            Style::default(),
-            Style::default().fg(Color::Yellow),
-            Style::default().bg(Color::Yellow),
-            Style::default().add_modifier(Modifier::BOLD),
-            Style::default().remove_modifier(Modifier::BOLD),
-            Style::default().add_modifier(Modifier::ITALIC),
-            Style::default().remove_modifier(Modifier::ITALIC),
-            Style::default().add_modifier(Modifier::ITALIC | Modifier::BOLD),
-            Style::default().remove_modifier(Modifier::ITALIC | Modifier::BOLD),
-        ]
-    }
-
-    #[test]
-    fn combined_patch_gives_same_result_as_individual_patch() {
-        let styles = styles();
-        for &a in &styles {
-            for &b in &styles {
-                for &c in &styles {
-                    for &d in &styles {
-                        let combined = a.patch(b.patch(c.patch(d)));
-
-                        assert_eq!(
-                            Style::default().patch(a).patch(b).patch(c).patch(d),
-                            Style::default().patch(combined)
-                        );
-                    }
-                }
-            }
-        }
     }
 
     #[test]
@@ -414,81 +312,33 @@ mod tests {
     }
 
     #[test]
-    fn sanity_nibble_lowercase() {
-        for i in 0..0x10_u8 {
-            let c = format!("{:x}", i);
-            assert_eq!(c.len(), 1);
-            assert_eq!(
-                u8::from_str_radix(&c, 0x10).unwrap(),
-                from_nibble(c.as_bytes()[0])
-            );
-        }
-    }
-    #[test]
-    fn sanity_nibble_uppercase() {
-        for i in 0..0x10_u8 {
-            let c = format!("{:X}", i);
-            assert_eq!(c.len(), 1);
-            assert_eq!(
-                u8::from_str_radix(&c, 0x10).unwrap(),
-                from_nibble(c.as_bytes()[0])
-            );
-        }
-    }
-
-    #[test]
-    fn sanity_nibble2() {
-        assert_eq!(dupe_from_nibble(b'0'), Some(0));
-        assert_eq!(dupe_from_nibble(b'1'), Some(0x11));
-        assert_eq!(dupe_from_nibble(b'7'), Some(0x77));
-        assert_eq!(dupe_from_nibble(b'a'), Some(0xaa));
-        assert_eq!(dupe_from_nibble(b'f'), Some(0xff));
-    }
-
-    #[test]
-    fn invalid_nibble() {
-        for c in *b"gGzZ+-" {
-            assert_eq!(from_nibble(c), 0xff);
-        }
-    }
-
-    #[test]
-    fn pair_endian() {
-        assert_eq!(byte_from_hex(*b"00"), Some(0));
-        assert_eq!(byte_from_hex(*b"fF"), Some(0xff));
-        assert_eq!(byte_from_hex(*b"c3"), Some(0xc3));
-    }
-    #[test]
-    fn invalid_pair() {
-        assert!(byte_from_hex(*b"+1").is_none());
-        assert!(byte_from_hex(*b"-1").is_none());
-        assert!(byte_from_hex(*b"Gg").is_none());
-        assert!(byte_from_hex(*b"0x").is_none());
-    }
-
-    #[test]
-    fn hex_color_no_regress() {
-        assert_eq!(Color::from_hex("#+a+b+c"), Err(MalformedHex::NotANibble));
-        assert_eq!(Color::from_hex("#+0+1+2"), Err(MalformedHex::NotANibble));
-    }
-    #[test]
-    fn hex_color_sanity() {
-        assert_eq!(Color::from_hex("#01fe3a"), Ok(Color::Rgb(0x01, 0xfe, 0x3a)));
-        assert_eq!(Color::from_hex("#abc"), Ok(Color::Rgb(0xaa, 0xbb, 0xcc)));
-    }
-    #[test]
-    fn hex_color_invalid_len() {
-        for h in [
-            "#0",
-            "#00",
-            "#0000",
-            "#00000",
-            "#0000000",
-            "#00000000",
-            "#000000000",
-            "#0000000000",
+    fn hex_colors_accept_ascii_hex_and_reject_malformed_values() {
+        for (value, expected) in [
+            ("#01fe3a", Ok(Color::Rgb(0x01, 0xfe, 0x3a))),
+            ("#c3Ff00", Ok(Color::Rgb(0xc3, 0xff, 0))),
+            ("#abc", Ok(Color::Rgb(0xaa, 0xbb, 0xcc))),
+            ("#ABC", Ok(Color::Rgb(0xaa, 0xbb, 0xcc))),
+            ("#000", Ok(Color::Rgb(0, 0, 0))),
+            ("#fff", Ok(Color::Rgb(255, 255, 255))),
+            ("abc", Err(MalformedHex::NoHash)),
+            ("", Err(MalformedHex::NoHash)),
+            ("#+a+b+c", Err(MalformedHex::NotANibble)),
+            ("#+0+1+2", Err(MalformedHex::NotANibble)),
+            ("#+ab", Err(MalformedHex::NotANibble)),
+            ("#-ab", Err(MalformedHex::NotANibble)),
+            ("#gGz", Err(MalformedHex::NotANibble)),
+            ("#00x", Err(MalformedHex::NotANibble)),
+            ("#é0", Err(MalformedHex::NotANibble)),
         ] {
-            assert_eq!(Color::from_hex(h), Err(MalformedHex::LenOOB));
+            assert_eq!(Color::from_hex(value), expected, "{value}");
+        }
+        for digits in 0..=10 {
+            if !matches!(digits, 3 | 6) {
+                assert_eq!(
+                    Color::from_hex(&format!("#{}", "0".repeat(digits))),
+                    Err(MalformedHex::LenOOB)
+                );
+            }
         }
     }
 }

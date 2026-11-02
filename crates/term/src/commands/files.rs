@@ -28,14 +28,8 @@ fn goto_file_impl(cx: &mut Context, action: Action) {
 
     match prepare_navigation(cx.editor) {
         FileNavigation::Ready(update) => {
-            if let Some(targets) = update.into_targets(cx.editor) {
-                for target in targets {
-                    if let Some(layer) =
-                        open_navigation_target(cx.editor, &cx.jobs.sender(), target, action)
-                    {
-                        cx.push_layer(layer);
-                    }
-                }
+            for layer in open_navigation_targets(cx.editor, &cx.jobs.sender(), update, action) {
+                cx.push_layer(layer);
             }
         }
         FileNavigation::Pending(task) => {
@@ -44,21 +38,28 @@ fn goto_file_impl(cx: &mut Context, action: Action) {
                 let update = task.run().await;
                 Ok(Callback::EditorCompositor(Box::new(
                     move |editor, compositor| {
-                        let Some(targets) = update.into_targets(editor) else {
-                            return;
-                        };
-                        for target in targets {
-                            if let Some(layer) =
-                                open_navigation_target(editor, &jobs, target, action)
-                            {
-                                compositor.push(layer);
-                            }
+                        for layer in open_navigation_targets(editor, &jobs, update, action) {
+                            compositor.push(layer);
                         }
                     },
                 )))
             });
         }
     }
+}
+
+fn open_navigation_targets(
+    editor: &mut Editor,
+    jobs: &job::JobSender,
+    update: view::features::document_links::FileNavigationUpdate,
+    action: Action,
+) -> Vec<Box<dyn crate::compositor::Component>> {
+    update
+        .into_targets(editor)
+        .into_iter()
+        .flatten()
+        .filter_map(|target| open_navigation_target(editor, jobs, target, action))
+        .collect()
 }
 
 /// One opening policy for immediate targets and queued link resolutions.
@@ -121,103 +122,71 @@ fn launch_url(jobs: &job::JobSender, url: Url) {
     });
 }
 
+#[derive(Clone, Copy)]
+enum Directory {
+    Workspace,
+    Buffer,
+    Current,
+}
+
+fn browse_directory(cx: &mut Context, source: Directory, explorer: bool) {
+    let kind = if explorer {
+        "file explorer"
+    } else {
+        "file picker"
+    };
+    let (path, error) = match source {
+        Directory::Workspace => (find_workspace().0, "Workspace directory does not exist"),
+        Directory::Current => (
+            stdx::env::current_working_dir(),
+            "Current working directory does not exist",
+        ),
+        Directory::Buffer => {
+            match doc!(cx.editor).path().and_then(|path| path.parent()) {
+                Some(path) => (path.to_owned(), "Current working directory does not exist"),
+                None => {
+                    let cwd = stdx::env::current_working_dir();
+                    if !cwd.exists() {
+                        cx.editor.set_error(|| "Current buffer has no parent and current working directory does not exist");
+                        return;
+                    }
+                    cx.editor.set_error(|| format!("Current buffer has no parent, opening {kind} in current working directory"));
+                    (cwd, "Current working directory does not exist")
+                }
+            }
+        }
+    };
+    // A saved buffer's directory follows the widget's existing opening policy.
+    if !matches!(source, Directory::Buffer) && !path.exists() {
+        cx.editor.set_error(|| error);
+        return;
+    }
+    if explorer {
+        if let Ok(picker) = ui::file_explorer(path, cx.editor) {
+            cx.push_layer(Box::new(overlaid(picker)));
+        }
+    } else {
+        cx.push_layer(Box::new(overlaid(ui::file_picker(cx.editor, path))));
+    }
+}
+
 pub(super) fn file_picker(cx: &mut Context) {
-    let root = find_workspace().0;
-    if !root.exists() {
-        cx.editor.set_error(|| "Workspace directory does not exist");
-        return;
-    }
-    let picker = ui::file_picker(cx.editor, root);
-    cx.push_layer(Box::new(overlaid(picker)));
+    browse_directory(cx, Directory::Workspace, false);
 }
-
 pub(super) fn file_picker_in_current_buffer_directory(cx: &mut Context) {
-    let doc_dir = doc!(cx.editor)
-        .path()
-        .and_then(|path| path.parent().map(|path| path.to_path_buf()));
-
-    let path = match doc_dir {
-        Some(path) => path,
-        None => {
-            let cwd = stdx::env::current_working_dir();
-            if !cwd.exists() {
-                cx.editor.set_error(|| {
-                    "Current buffer has no parent and current working directory does not exist"
-                });
-                return;
-            }
-            cx.editor.set_error(|| {
-                "Current buffer has no parent, opening file picker in current working directory"
-            });
-            cwd
-        }
-    };
-
-    let picker = ui::file_picker(cx.editor, path);
-    cx.push_layer(Box::new(overlaid(picker)));
+    browse_directory(cx, Directory::Buffer, false);
 }
-
 pub(super) fn file_picker_in_current_directory(cx: &mut Context) {
-    let cwd = stdx::env::current_working_dir();
-    if !cwd.exists() {
-        cx.editor
-            .set_error(|| "Current working directory does not exist");
-        return;
-    }
-    let picker = ui::file_picker(cx.editor, cwd);
-    cx.push_layer(Box::new(overlaid(picker)));
+    browse_directory(cx, Directory::Current, false);
 }
-
 pub(super) fn file_explorer(cx: &mut Context) {
-    let root = find_workspace().0;
-    if !root.exists() {
-        cx.editor.set_error(|| "Workspace directory does not exist");
-        return;
-    }
-
-    if let Ok(picker) = ui::file_explorer(root, cx.editor) {
-        cx.push_layer(Box::new(overlaid(picker)));
-    }
+    browse_directory(cx, Directory::Workspace, true);
 }
-
 pub(super) fn file_explorer_in_current_buffer_directory(cx: &mut Context) {
-    let doc_dir = doc!(cx.editor)
-        .path()
-        .and_then(|path| path.parent().map(|path| path.to_path_buf()));
-
-    let path = match doc_dir {
-        Some(path) => path,
-        None => {
-            let cwd = stdx::env::current_working_dir();
-            if !cwd.exists() {
-                cx.editor.set_error(|| {
-                    "Current buffer has no parent and current working directory does not exist"
-                });
-                return;
-            }
-            cx.editor.set_error(|| {
-                "Current buffer has no parent, opening file explorer in current working directory"
-            });
-            cwd
-        }
-    };
-
-    if let Ok(picker) = ui::file_explorer(path, cx.editor) {
-        cx.push_layer(Box::new(overlaid(picker)));
-    }
+    browse_directory(cx, Directory::Buffer, true);
 }
-
 pub(super) fn file_explorer_in_current_directory(cx: &mut Context) {
-    let cwd = stdx::env::current_working_dir();
-    if !cwd.exists() {
-        cx.editor
-            .set_error(|| "Current working directory does not exist");
-        return;
-    }
-
-    if let Ok(picker) = ui::file_explorer(cwd, cx.editor) {
-        cx.push_layer(Box::new(overlaid(picker)));
-    }
+    browse_directory(cx, Directory::Current, true);
 }
 
 pub(super) mod typed {

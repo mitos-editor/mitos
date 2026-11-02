@@ -49,11 +49,7 @@ impl Registers {
             '*' | '+' => Some(read_from_clipboard(
                 &self.clipboard,
                 self.inner.get(&name),
-                match name {
-                    '+' => ClipboardType::Clipboard,
-                    '*' => ClipboardType::Selection,
-                    _ => unreachable!(),
-                },
+                clipboard_type(name).unwrap(),
             )),
             _ => self
                 .inner
@@ -64,27 +60,17 @@ impl Registers {
 
     pub fn write(&mut self, name: char, mut values: Vec<String>) -> Result<()> {
         match name {
-            '_' => Ok(()),
-            '#' | '.' | '%' => Err(anyhow::anyhow!("Register {name} does not support writing")),
-            '*' | '+' => {
-                self.clipboard.set_contents(
-                    &values.join(NATIVE_LINE_ENDING.as_str()),
-                    match name {
-                        '+' => ClipboardType::Clipboard,
-                        '*' => ClipboardType::Selection,
-                        _ => unreachable!(),
-                    },
-                )?;
-                values.reverse();
-                self.inner.insert(name, values);
-                Ok(())
-            }
-            _ => {
-                values.reverse();
-                self.inner.insert(name, values);
-                Ok(())
-            }
+            '_' => return Ok(()),
+            '#' | '.' | '%' => anyhow::bail!("Register {name} does not support writing"),
+            _ => {}
         }
+        if let Some(clipboard_type) = clipboard_type(name) {
+            self.clipboard
+                .set_contents(&values.join(NATIVE_LINE_ENDING.as_str()), clipboard_type)?;
+        }
+        values.reverse();
+        self.inner.insert(name, values);
+        Ok(())
     }
 
     pub fn push(&mut self, name: char, value: String) -> Result<()> {
@@ -92,11 +78,7 @@ impl Registers {
             '_' => Ok(()),
             '#' | '.' | '%' => Err(anyhow::anyhow!("Register {name} does not support pushing")),
             '*' | '+' => {
-                let clipboard_type = match name {
-                    '+' => ClipboardType::Clipboard,
-                    '*' => ClipboardType::Selection,
-                    _ => unreachable!(),
-                };
+                let clipboard_type = clipboard_type(name).unwrap();
                 let contents = self.clipboard.get_contents(clipboard_type)?;
                 let saved_values = self.inner.get(&name).map(Vec::as_slice).unwrap_or_default();
 
@@ -168,11 +150,7 @@ impl Registers {
     pub fn remove(&mut self, name: char) -> bool {
         match name {
             '*' | '+' => {
-                self.clear_clipboard(match name {
-                    '+' => ClipboardType::Clipboard,
-                    '*' => ClipboardType::Selection,
-                    _ => unreachable!(),
-                });
+                self.clear_clipboard(clipboard_type(name).unwrap());
                 self.inner.remove(&name);
 
                 true
@@ -337,4 +315,12 @@ pub(crate) fn read_contextual<'a>(
         '%' => Some(RegisterValues::new(iter::once(document.display_name()))),
         _ => None,
     })
+}
+
+fn clipboard_type(name: char) -> Option<ClipboardType> {
+    match name {
+        '+' => Some(ClipboardType::Clipboard),
+        '*' => Some(ClipboardType::Selection),
+        _ => None,
+    }
 }

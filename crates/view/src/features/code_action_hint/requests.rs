@@ -4,13 +4,13 @@ use std::{collections::HashSet, time::Duration};
 
 use ::diagnostics::DiagnosticProvider;
 use editor_core::Range;
-use event::{cancelable_future, register_hook, send_blocking, AsyncHook};
+use event::{cancelable_future, register_hook, send_blocking};
 use futures_util::stream::FuturesUnordered;
 use lsp_client::lsp::{CodeAction, CodeActionOrCommand, CodeActionTriggerKind};
-use tokio::{sync::mpsc::Sender, time::Instant};
+use tokio::sync::mpsc::Sender;
 use tokio_stream::StreamExt;
 
-use crate::features::request::DocumentRequest;
+use crate::features::{debounce::debounce, request::SelectionRequest};
 use crate::{
     action::code_actions_for_range_filtered,
     callbacks::EditorCallbackSender,
@@ -30,35 +30,12 @@ pub struct CodeActionHintHandler {
 
 impl CodeActionHintHandler {
     pub fn new(callbacks: EditorCallbackSender) -> Self {
-        let events = Debounce {
-            callbacks: callbacks.clone(),
-            targets: HashSet::new(),
-        }
-        .spawn();
+        let events = debounce(
+            callbacks.clone(),
+            Duration::from_millis(200),
+            |editor, (doc, view)| request_code_action_hint(editor, doc, view),
+        );
         Self { callbacks, events }
-    }
-}
-
-struct Debounce {
-    callbacks: EditorCallbackSender,
-    targets: HashSet<(DocumentId, ViewId)>,
-}
-
-impl AsyncHook for Debounce {
-    type Event = (DocumentId, ViewId);
-
-    fn handle_event(&mut self, event: Self::Event, _timeout: Option<Instant>) -> Option<Instant> {
-        self.targets.insert(event);
-        Some(Instant::now() + Duration::from_millis(200))
-    }
-
-    fn finish_debounce(&mut self) {
-        let targets = std::mem::take(&mut self.targets);
-        self.callbacks.send_blocking(move |editor| {
-            for (doc_id, view_id) in targets {
-                request_code_action_hint(editor, doc_id, view_id);
-            }
-        });
     }
 }
 
@@ -99,8 +76,7 @@ fn request_code_action_hint(editor: &mut Editor, doc_id: DocumentId, view_id: Vi
     };
     doc.ensure_view_init(view_id);
     let cancel = doc.code_action_controller(view_id).restart();
-    let selection = doc.selection(view_id).clone();
-    let range = selection.primary();
+    let range = doc.selection(view_id).primary();
 
     // Every overlapping spelling finding offers at least "add to dictionary",
     // including buffers without an attached language server.
@@ -122,11 +98,11 @@ fn request_code_action_hint(editor: &mut Editor, doc_id: DocumentId, view_id: Vi
         apply_code_action_hint(doc, view_id, has_spelling_action);
         return;
     }
-    let request = DocumentRequest::new(doc, cancel, servers);
+    let request = SelectionRequest::new(doc, view_id, cancel, servers);
     tokio::spawn(async move {
         let mut available = has_spelling_action;
         loop {
-            match cancelable_future(futures.next(), &request.cancel).await {
+            match cancelable_future(futures.next(), request.cancel_handle()).await {
                 Some(Some(Ok(actions))) => {
                     available |= actions.unwrap_or_default().iter().any(|action| {
                         matches!(
@@ -146,19 +122,10 @@ fn request_code_action_hint(editor: &mut Editor, doc_id: DocumentId, view_id: Vi
         }
         callbacks
             .send(move |editor| {
-                if !request.is_current(editor)
-                    || !editor.config().code_action_hint()
-                    || !editor
-                        .tree
-                        .try_get(view_id)
-                        .is_some_and(|view| view.doc == doc_id)
-                {
+                if request.get(editor).is_none() || !editor.config().code_action_hint() {
                     return;
                 }
                 let doc = editor.document_mut(doc_id).unwrap();
-                if doc.selection(view_id) != &selection {
-                    return;
-                }
                 apply_code_action_hint(doc, view_id, available);
             })
             .await;

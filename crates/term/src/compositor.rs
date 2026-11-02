@@ -7,7 +7,6 @@ use view::graphics::Rect;
 use tui::buffer::Buffer as Surface;
 
 pub type Callback = Box<dyn FnOnce(&mut Compositor, &mut Context)>;
-pub type SyncCallback = Box<dyn FnOnce(&mut Compositor, &mut Context) + Sync>;
 
 // Cursive-inspired
 pub enum EventResult {
@@ -175,12 +174,6 @@ impl Compositor {
         let layer = self.layers.remove(idx);
         self.refresh_prompt_sessions();
         Some(layer)
-    }
-
-    pub fn remove_type<T: 'static>(&mut self) {
-        self.layers
-            .retain(|component| !component.as_any().is::<T>());
-        self.refresh_prompt_sessions();
     }
 
     pub(crate) fn prompt_sessions(&self) -> PromptSessions {

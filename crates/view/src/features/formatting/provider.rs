@@ -1,5 +1,5 @@
 //! Formatter execution and provider selection for explicit formatting and saves.
-use std::{fmt::Display, path::Path};
+use std::path::Path;
 
 use command_line::Token;
 use editor_core::{indent::IndentStyle, Rope, Transaction};
@@ -184,48 +184,25 @@ impl Document {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, thiserror::Error)]
 pub enum FormatterError {
+    #[error("Failed to expand formatter arguments: {0}")]
     ExpansionFailed(String),
-    InvalidEdits(crate::language_servers::edits::TextEditError),
+    #[error("Invalid formatter edits: {0}")]
+    InvalidEdits(#[source] crate::language_servers::edits::TextEditError),
+    #[error("Failed to spawn formatter {command}: {error:?}")]
     SpawningFailed {
         command: String,
         error: std::io::ErrorKind,
     },
+    #[error("Formatter timed out after {0} seconds")]
     Timeout(u64),
+    #[error("Could not write to formatter stdin")]
     BrokenStdin,
+    #[error("Waiting for formatter output failed")]
     WaitForOutputFailed,
+    #[error("Invalid UTF-8 formatter output")]
     InvalidUtf8Output,
+    #[error("{}", .0.as_ref().map_or_else(|| "Formatter exited with non zero exit status".to_owned(), |output| format!("Formatter error: {output}")))]
     NonZeroExitStatus(Option<String>),
-}
-
-impl std::error::Error for FormatterError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            Self::InvalidEdits(error) => Some(error),
-            _ => None,
-        }
-    }
-}
-
-impl Display for FormatterError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::ExpansionFailed(error) => {
-                write!(f, "Failed to expand formatter arguments: {error}")
-            }
-            Self::InvalidEdits(error) => write!(f, "Invalid formatter edits: {error}"),
-            Self::SpawningFailed { command, error } => {
-                write!(f, "Failed to spawn formatter {}: {:?}", command, error)
-            }
-            Self::Timeout(seconds) => write!(f, "Formatter timed out after {seconds} seconds"),
-            Self::BrokenStdin => write!(f, "Could not write to formatter stdin"),
-            Self::WaitForOutputFailed => write!(f, "Waiting for formatter output failed"),
-            Self::InvalidUtf8Output => write!(f, "Invalid UTF-8 formatter output"),
-            Self::NonZeroExitStatus(Some(output)) => write!(f, "Formatter error: {}", output),
-            Self::NonZeroExitStatus(None) => {
-                write!(f, "Formatter exited with non zero exit status")
-            }
-        }
-    }
 }

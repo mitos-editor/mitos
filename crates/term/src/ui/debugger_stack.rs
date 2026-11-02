@@ -1,9 +1,6 @@
 //! A frame picker that extends its loaded prefix without losing the query or selection.
 use super::{picker::PickerCallbackResult, Picker, PickerColumn};
-use crate::{
-    compositor::{Component, Context, Cursor, Event, EventResult},
-    job::Callback,
-};
+use crate::compositor::{Component, Context, Cursor, Event, EventResult};
 use event::TaskController;
 use std::{cell::Cell, rc::Rc, sync::Arc};
 use tui::buffer::Buffer;
@@ -97,38 +94,26 @@ impl Frames {
                 return;
             }
         };
-        let load = self.load.restart();
-        cx.jobs.callback(async move {
-            let update = tokio::select! {
-                biased;
-                _ = load.canceled() => return Ok(Callback::Editor(Box::new(|_| {}))),
-                update = task.run() => update,
-            };
-            Ok(Callback::EditorCompositor(Box::new(
-                move |editor, compositor| {
-                    if load.is_canceled() {
-                        return;
-                    }
-                    let Some(picker) = compositor.find_id::<Frames>("dap-frames") else {
-                        return;
-                    };
-                    match update.and_then(|update| update.into_result(editor)) {
-                        Some(Ok(page)) => {
-                            if let Some(data) = page.apply(editor) {
-                                picker
-                                    .picker
-                                    .refresh_options(Self::rows(&data), Arc::new(()));
-                                picker.data = data;
-                            }
+        cx.jobs
+            .debugger_callback(&mut self.load, task, move |editor, compositor, update| {
+                let Some(picker) = compositor.find_id::<Frames>("dap-frames") else {
+                    return;
+                };
+                match update.and_then(|update| update.into_result(editor)) {
+                    Some(Ok(page)) => {
+                        if let Some(data) = page.apply(editor) {
+                            picker
+                                .picker
+                                .refresh_options(Self::rows(&data), Arc::new(()));
+                            picker.data = data;
                         }
-                        Some(Err(error)) => {
-                            editor.set_error(|| format!("Could not load stack frames: {error}"))
-                        }
-                        None => {}
                     }
-                },
-            )))
-        });
+                    Some(Err(error)) => {
+                        editor.set_error(|| format!("Could not load stack frames: {error}"))
+                    }
+                    None => {}
+                }
+            });
     }
 }
 

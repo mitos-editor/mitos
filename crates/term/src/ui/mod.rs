@@ -85,19 +85,6 @@ pub fn prompt(
     cx.push_layer(Box::new(prompt));
 }
 
-pub fn prompt_with_input(
-    cx: &mut crate::commands::Context,
-    prompt: std::borrow::Cow<'static, str>,
-    input: String,
-    history_register: Option<char>,
-    completion_fn: impl FnMut(&Editor, &str) -> Vec<prompt::Completion> + 'static,
-    callback_fn: impl FnMut(&mut crate::compositor::Context, &str, PromptEvent) + 'static,
-) {
-    let prompt = Prompt::new(prompt, history_register, completion_fn, callback_fn)
-        .with_line(input, cx.editor);
-    cx.push_layer(Box::new(prompt));
-}
-
 pub fn regex_prompt(
     cx: &mut crate::commands::Context,
     prompt: std::borrow::Cow<'static, str>,

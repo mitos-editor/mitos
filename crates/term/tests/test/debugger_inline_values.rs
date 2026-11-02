@@ -151,14 +151,6 @@ async fn inline_debug_values_combine_lsp_ranges_with_dap_values_and_support_serv
     })
     .await
     .context("inline values did not follow updated adapter capabilities")?;
-    app.editor
-        .debugger_command(view::debugger::DebuggerCommand::Terminate)?;
-    tokio::time::timeout(Duration::from_secs(10), async {
-        while app.editor.debugger().get_session(id).is_some() {
-            run_event_loop_until_idle(&mut app).await;
-        }
-    })
-    .await?;
-    assert!(app.close().await.is_empty());
+    super::helpers::finish_debugger(&mut app, id).await?;
     Ok(())
 }

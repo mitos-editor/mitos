@@ -84,18 +84,11 @@ impl Document {
 
 #[cfg(test)]
 mod tests {
-
     #[tokio::test]
     async fn requests_outlive_views_and_cache_clears_but_not_the_document() {
-        let mut doc = crate::document::test_document("sample text");
-        let view = crate::ViewId::default();
-        doc.ensure_view_init(view);
-        let request = doc.document_links.request.restart();
-        doc.remove_view(view);
-        assert!(!request.is_canceled());
-        doc.document_links.clear_cache();
-        assert!(!request.is_canceled());
-        drop(doc);
-        assert!(request.is_canceled());
+        crate::document::check_document_request_lifetime(
+            |doc| &mut doc.document_links.request,
+            |doc| doc.document_links.clear_cache(),
+        );
     }
 }

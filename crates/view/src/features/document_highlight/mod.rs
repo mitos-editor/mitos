@@ -5,5 +5,4 @@ mod state;
 
 pub(crate) use requests::register_hooks;
 pub use requests::DocumentHighlightHandler;
-pub use state::DocumentHighlights;
 pub(crate) use state::DocumentHighlightsState;

@@ -88,7 +88,7 @@ async fn insert_mode_defers_saves_until_the_terminal_forwards_exit() -> anyhow::
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn replaced_handlers_and_closed_documents_reject_old_work() -> anyhow::Result<()> {
+async fn closed_documents_reject_old_work_and_drop_releases_callbacks() -> anyhow::Result<()> {
     let dir = tempfile::tempdir()?;
     let mut f = Fixture::new(dir.path())?;
     f.edit("closed\n");
@@ -99,31 +99,6 @@ async fn replaced_handlers_and_closed_documents_reject_old_work() -> anyhow::Res
     f.app.editor.flush_writes().await?;
     assert_eq!(f.disk(), "before\n");
 
-    f.app.editor.open(&f.path, Action::Replace)?;
-    f.edit("replaced\n");
-    let old = f.next().await?;
-    let (sender, callbacks) = super::helpers::callbacks::channel();
-    f.app
-        .editor
-        .replace_auto_save_handler(AutoSaveHandler::new(sender));
-    old(&mut f.app.editor);
-    f.app.editor.flush_writes().await?;
-    assert_eq!(f.disk(), "before\n");
-    assert!(
-        tokio::time::timeout(Duration::from_secs(5), f.callbacks.recv())
-            .await?
-            .is_none()
-    );
-
-    f.callbacks = callbacks;
-    // The existing document must no longer retain the retired autosave trigger.
-    f.edit("rebound\n");
-    f.publish().await?;
-    assert_eq!(f.disk(), "rebound\n");
-
-    // Documents opened after replacement use the same new handler.
-    let id = current_ref!(f.app.editor).1.id();
-    assert!(f.app.editor.close_document(id, true).is_ok());
     f.app.editor.open(&f.path, Action::Replace)?;
     f.edit("reopened\n");
     f.publish().await?;

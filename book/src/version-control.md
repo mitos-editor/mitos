@@ -285,6 +285,85 @@ fails. Mitos refreshes the resulting files and staged changes.
 Remap Git and stash actions under `[keys.git-picker]` and `[keys.stash-picker]`.
 See [Component keys](./remapping.md#component-keys).
 
+## Branches and worktrees
+
+Run `:vcs-branches` to browse local branches. Select a branch and press `Enter`
+to switch to it. Save edited files in that repository first.
+
+These commands use the current file's repository, or the original repository
+when viewing a review or an older file version. In an unnamed buffer, they use
+the current directory. Actions that change the repository require
+[workspace trust](./workspace-trust.md).
+
+| Command | Action |
+| --- | --- |
+| `:vcs-branches` | Browse local branches; `Enter` switches to the selected branch |
+| `:vcs-branch-create <name>` | Create a branch at the current commit without switching |
+| `:vcs-branch-switch <name>` | Switch to an existing local branch |
+
+Git refuses to switch if it would overwrite your changes. To check out a remote
+branch for the first time, use Git in your terminal.
+
+### Worktrees
+
+A worktree is a separate folder where you can work on another branch of the same
+repository. Run `:vcs-worktrees` to browse worktrees, then press `Enter` to open
+one in the file picker. Your open buffers and unsaved edits are kept.
+
+| Command | Action |
+| --- | --- |
+| `:vcs-worktrees` | Browse worktrees; `Enter` opens the selected worktree |
+| `:vcs-worktree-create <path> [branch]` | Create a linked worktree at a new path |
+| `:vcs-worktree-open <path>` | Change directory and open that worktree's file picker |
+| `:vcs-worktree-remove <path>` | Confirm removal of a clean linked worktree |
+
+To create a branch and work in a separate folder, run these commands from the
+repository folder:
+
+```text
+:vcs-branch-create fix-login
+:vcs-worktree-create ../project-fix-login fix-login
+:vcs-worktree-open ../project-fix-login
+```
+
+Choose a new folder outside the current checkout. The branch must already exist
+and cannot be open in another worktree. Omit the branch name to check out the
+current commit without a branch (`detached HEAD`).
+
+To remove a worktree, open a file in another worktree and change directory out
+of the one you want to remove. Save or close its edited files first. It must have
+no modified, untracked, or ignored files. Removal asks for confirmation and keeps
+the branch. The main checkout and locked worktrees cannot be removed.
+
+Reopen the picker to see branch or worktree changes made outside Mitos.
+
+## Fetch, pull, and push
+
+Use these commands to download and upload commits. They use your configured Git
+remotes, such as `origin`, and require [workspace trust](./workspace-trust.md).
+
+| Command | Action |
+| --- | --- |
+| `:vcs-fetch [remote]` | Download remote commits without changing working files |
+| `:vcs-pull [remote]` | Download changes and move the current branch forward |
+| `:vcs-push [remote]` | Upload commits from the current branch |
+
+When exactly one remote is configured, its name is optional. With several
+remotes, include its name, for example `:vcs-fetch origin`.
+
+Save edited files before pulling. Pull updates the current branch only when it
+can move forward without a merge (`fast-forward`). If both your branch and the
+remote have new commits, use Git in your terminal to merge or rebase them.
+
+Push uploads only the current branch, using its upstream branch name on the
+chosen remote if one is configured. Otherwise, it uses the local branch name.
+Tags are not included. Pull and push require a local branch; they cannot run
+from `detached HEAD`.
+
+Mitos uses your Git authentication settings. If Git needs you to sign in, set up
+authentication in your terminal, then retry in Mitos. For details about a
+connection failure, run the matching Git command in your terminal.
+
 ## Git history
 
 Use history to review older changes or compare a past version with your current

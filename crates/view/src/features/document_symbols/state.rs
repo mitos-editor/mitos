@@ -13,7 +13,7 @@ use crate::{Document, ViewId};
 #[derive(Default)]
 pub(crate) struct DocumentSymbols {
     cache: Option<DocumentSymbolCache>,
-    breadcrumbs: HashMap<ViewId, Breadcrumbs>,
+    breadcrumbs: HashMap<ViewId, Vec<Crumb>>,
     pub(super) request: TaskController,
     pub(super) picker: TaskController,
     pub(super) handler: Option<DocumentSymbolsHandler>,
@@ -71,32 +71,10 @@ impl From<DocumentSymbol> for ThinDocumentSymbol {
             name: symbol.name.into(),
             kind: symbol.kind,
             range: symbol.range,
-            children: symbol.children.map(|children| {
-                let mut vec = Vec::with_capacity(children.len());
-                vec.extend(children.into_iter().map(Self::from));
-                vec.into_boxed_slice()
-            }),
+            children: symbol
+                .children
+                .map(|children| children.into_iter().map(Self::from).collect()),
         }
-    }
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct Breadcrumbs(Vec<Crumb>);
-
-impl Breadcrumbs {
-    #[inline]
-    pub fn push(&mut self, crumb: Crumb) {
-        self.0.push(crumb);
-    }
-
-    #[inline]
-    pub fn clear(&mut self) {
-        self.0.clear();
-    }
-
-    #[inline]
-    pub fn iter(&self) -> impl Iterator<Item = &Crumb> {
-        self.0.iter()
     }
 }
 
@@ -129,11 +107,7 @@ impl Document {
         }
 
         self.document_symbols.cache = Some(DocumentSymbolCache {
-            tree: {
-                let mut tree = Vec::with_capacity(symbols.len());
-                tree.extend(symbols.into_iter().map(ThinDocumentSymbol::from));
-                tree
-            },
+            tree: symbols.into_iter().map(ThinDocumentSymbol::from).collect(),
             offset_encoding,
         });
 
@@ -152,8 +126,11 @@ impl Document {
     }
 
     #[inline]
-    pub fn breadcrumbs(&self, view_id: ViewId) -> Option<&Breadcrumbs> {
-        self.document_symbols.breadcrumbs.get(&view_id)
+    pub fn breadcrumbs(&self, view_id: ViewId) -> Option<&[Crumb]> {
+        self.document_symbols
+            .breadcrumbs
+            .get(&view_id)
+            .map(Vec::as_slice)
     }
 
     // For all non-hotpaths, we use this function to prevent code bloat.
@@ -304,7 +281,7 @@ mod tests {
             ["A", "b"]
         );
         let cached_parent_name = &doc.document_symbols.cache.as_ref().unwrap().tree[0].name;
-        assert!(Arc::ptr_eq(cached_parent_name, &breadcrumb.0[0].name));
+        assert!(Arc::ptr_eq(cached_parent_name, &breadcrumb[0].name));
 
         let child_end = doc.text().line_to_char_idx(1) + 10;
         doc.set_selection(view, Selection::single(child_end, child_end));
@@ -337,18 +314,11 @@ mod tests {
         assert!(doc.document_symbols.cache.is_none());
         assert!(request.is_canceled());
     }
-
     #[tokio::test]
     async fn requests_outlive_views_and_cache_clears_but_not_the_document() {
-        let mut doc = crate::document::test_document("sample text");
-        let view = crate::ViewId::default();
-        doc.ensure_view_init(view);
-        let request = doc.document_symbols.request.restart();
-        doc.remove_view(view);
-        assert!(!request.is_canceled());
-        doc.clear_document_symbols();
-        assert!(!request.is_canceled());
-        drop(doc);
-        assert!(request.is_canceled());
+        crate::document::check_document_request_lifetime(
+            |doc| &mut doc.document_symbols.request,
+            |doc| doc.document_symbols.clear_cache(),
+        );
     }
 }
