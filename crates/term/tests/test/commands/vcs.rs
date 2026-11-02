@@ -170,33 +170,6 @@ async fn repository_worktree_commands_open_keep_buffers_and_confirm_clean_remova
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn repository_remotes_expose_names_and_wait_for_an_explicit_operation() -> anyhow::Result<()>
-{
-    let (dir, path) = committed_file()?;
-    git(
-        dir.path(),
-        &[
-            "remote",
-            "add",
-            "origin",
-            "unavailable-protocol://credential-token@example.invalid/repo",
-        ],
-    );
-    let mut app = AppBuilder::new().with_file(&path, None).build()?;
-    press_keys(&mut app, ":vcs-remotes<ret>").await?;
-    wait_for_review_screen(&mut app, "Git remotes", "origin").await?;
-    let screen = review_screen(&app);
-    assert!(!screen.contains("credential-token") && !screen.contains("example.invalid"));
-    press_keys(&mut app, "<ret>").await?;
-    wait_for_review_screen(&mut app, "Remote origin", "Fetch remote").await?;
-    assert!(!dir.path().join(".git/FETCH_HEAD").exists());
-    assert!(!app.editor.handlers().git_operations.busy());
-    press_keys(&mut app, "<esc>").await?;
-    assert!(app.close().await.is_empty());
-    Ok(())
-}
-
-#[tokio::test(flavor = "multi_thread")]
 async fn repository_pull_checks_unsaved_buffers_before_contacting_a_remote() -> anyhow::Result<()> {
     let (dir, path) = committed_file()?;
     let remote = tempfile::tempdir()?;

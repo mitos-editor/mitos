@@ -21,7 +21,6 @@ pub(super) enum Command {
     WorktreeCreate,
     WorktreeOpen,
     WorktreeRemove,
-    Remotes,
     Fetch,
     Pull,
     Push,
@@ -41,7 +40,7 @@ enum Request {
 pub(super) fn execute(cx: &mut Context, args: Args, command: Command) -> Result<()> {
     let scope = view::features::git_operations::GitScope::capture(cx.editor);
     let request = match command {
-        Command::Branches | Command::Worktrees | Command::Remotes => Request::Picker(command),
+        Command::Branches | Command::Worktrees => Request::Picker(command),
         Command::BranchCreate => Request::Operation(RepositoryOperation::CreateBranch {
             name: args[0].to_owned(),
         }),
@@ -74,25 +73,14 @@ pub(super) fn execute(cx: &mut Context, args: Args, command: Command) -> Result<
     };
     cx.editor.set_status("Reading Git repository…");
     cx.jobs.callback(async move {
-        let (repo, request, names) = tokio::task::spawn_blocking(move || {
-            let repo = GitRepository::discover(&scope.path)?;
-            let names = if matches!(&request, Request::Picker(Command::Remotes)) {
-                Some(repo.remote_names()?)
-            } else {
-                None
-            };
-            Ok::<_, anyhow::Error>((repo, request, names))
-        })
-        .await??;
+        let repo =
+            tokio::task::spawn_blocking(move || GitRepository::discover(&scope.path)).await??;
         Ok(Callback::Context(Box::new(
             move |compositor, cx| match request {
                 Request::Picker(command) => {
                     let picker = match command {
                         Command::Branches => branches(cx.editor, repo, scope.workspace),
                         Command::Worktrees => worktrees(cx.editor, repo),
-                        Command::Remotes => {
-                            remotes(cx.editor, repo, scope.workspace, names.unwrap_or_default())
-                        }
                         _ => unreachable!("only browse commands create a picker"),
                     };
                     compositor.push(picker);
@@ -225,71 +213,4 @@ fn request_open_worktree(cx: &mut Context, repo: GitRepository, path: PathBuf) {
             },
         )))
     });
-}
-
-fn remotes(
-    editor: &Editor,
-    repo: GitRepository,
-    workspace: PathBuf,
-    names: Vec<String>,
-) -> Box<dyn Component> {
-    let picker = Picker::new_with_callback_result(
-        editor.redraw().clone(),
-        [PickerColumn::new("remote", |name: &String, _: &()| {
-            name.as_str().into()
-        })],
-        0,
-        names,
-        (),
-        move |_, remote, _| {
-            let remote = remote.clone();
-            let repo = repo.clone();
-            let workspace = workspace.clone();
-            PickerCallbackResult::CloseWithCallback(Box::new(move |compositor, cx| {
-                compositor.push(Box::new(overlaid(remote_actions(
-                    cx.editor, repo, workspace, remote,
-                ))));
-            }))
-        },
-    )
-    .with_title("Git remotes · choose an operation");
-    Box::new(overlaid(picker))
-}
-
-fn remote_actions(
-    editor: &Editor,
-    repo: GitRepository,
-    workspace: PathBuf,
-    remote: String,
-) -> Picker<RepositoryOperation, ()> {
-    let title = format!("Remote {remote}");
-    let operations = vec![
-        RepositoryOperation::Fetch {
-            remote: Some(remote.clone()),
-        },
-        RepositoryOperation::Pull {
-            remote: Some(remote.clone()),
-        },
-        RepositoryOperation::Push {
-            remote: Some(remote),
-        },
-    ];
-    Picker::new_with_callback_result(
-        editor.redraw().clone(),
-        [PickerColumn::new(
-            "action",
-            |operation: &RepositoryOperation, _: &()| operation.label().into(),
-        )],
-        0,
-        operations,
-        (),
-        move |_, operation, _| {
-            let action = GitAction::Repository(repo.clone(), operation.clone());
-            let workspace = workspace.clone();
-            PickerCallbackResult::CloseWithCallback(Box::new(move |_, cx| {
-                super::actions::start(cx, workspace, action)
-            }))
-        },
-    )
-    .with_title(title)
 }

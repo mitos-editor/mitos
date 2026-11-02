@@ -276,7 +276,6 @@ async fn remote_selection_and_errors_expose_names_without_credentials() -> Resul
         dir.path(),
     );
     let repo = GitRepository::discover(dir.path())?;
-    assert_eq!(repo.remote_names()?, vec!["broken"]);
     let error = execute(&repo, RepositoryOperation::Fetch { remote: None })
         .await
         .unwrap_err()

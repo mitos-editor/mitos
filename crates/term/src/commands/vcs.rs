@@ -701,7 +701,6 @@ pub(super) mod typed {
     repository_command!(worktree_create, WorktreeCreate);
     repository_command!(worktree_open, WorktreeOpen);
     repository_command!(worktree_remove, WorktreeRemove);
-    repository_command!(remotes, Remotes);
     repository_command!(fetch, Fetch);
     repository_command!(pull, Pull);
     repository_command!(push, Push);

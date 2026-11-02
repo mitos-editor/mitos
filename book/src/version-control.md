@@ -287,28 +287,38 @@ See [Component keys](./remapping.md#component-keys).
 
 ## Branches and worktrees
 
-These commands use the current file's repository. A review continues to use the
-repository it was opened from. In an unnamed file, commands use the current
-directory. Changing a repository requires
+Run `:vcs-branches` to browse local branches. Select a branch and press `Enter`
+to switch to it. Save edited files in that repository first.
+
+These commands use the current file's repository, or the original repository
+when viewing a review or an older file version. In an unnamed buffer, they use
+the current directory. Actions that change the repository require
 [workspace trust](./workspace-trust.md).
 
 | Command | Action |
 | --- | --- |
 | `:vcs-branches` | Browse local branches; `Enter` switches to the selected branch |
-| `:vcs-branch-create <name>` | Create a branch at `HEAD` without switching |
+| `:vcs-branch-create <name>` | Create a branch at the current commit without switching |
 | `:vcs-branch-switch <name>` | Switch to an existing local branch |
+
+Git refuses to switch if it would overwrite your changes. To check out a remote
+branch for the first time, use Git in your terminal.
+
+### Worktrees
+
+A worktree is a separate folder where you can work on another branch of the same
+repository. Run `:vcs-worktrees` to browse worktrees, then press `Enter` to open
+one in the file picker. Your open buffers and unsaved edits are kept.
+
+| Command | Action |
+| --- | --- |
 | `:vcs-worktrees` | Browse worktrees; `Enter` opens the selected worktree |
 | `:vcs-worktree-create <path> [branch]` | Create a linked worktree at a new path |
 | `:vcs-worktree-open <path>` | Change directory and open that worktree's file picker |
 | `:vcs-worktree-remove <path>` | Confirm removal of a clean linked worktree |
 
-Save edited files before switching branches. Git refuses a switch that would
-overwrite your changes, including ignored files. The branch must already exist
-locally. To check out a remote branch for the first time, use Git in your terminal.
-
-A worktree is a separate folder where you can work on another branch of the same
-repository. Choose a new folder outside the current checkout. To create a branch
-and open it in a worktree, run these commands from the repository folder:
+To create a branch and work in a separate folder, run these commands from the
+repository folder:
 
 ```text
 :vcs-branch-create fix-login
@@ -316,28 +326,21 @@ and open it in a worktree, run these commands from the repository folder:
 :vcs-worktree-open ../project-fix-login
 ```
 
-Pass an existing local branch name to `:vcs-worktree-create`. Git refuses a branch
-that is already open in another worktree. If you omit the branch name, the new
-worktree opens the current commit without a branch (`detached HEAD`).
+Choose a new folder outside the current checkout. The branch must already exist
+and cannot be open in another worktree. Omit the branch name to check out the
+current commit without a branch (`detached HEAD`).
 
-Opening a worktree keeps your open files and unsaved edits. Choose a file from
-the new worktree's picker to start working there.
-
-Removing a worktree asks for confirmation and keeps its branch. Save and commit
-or stash your changes, then check for untracked and ignored files. Open a file in
-another worktree and change directory out of the one you want to remove. Main
-and locked worktrees cannot be removed. If Git is set to hide changes in some
-files, Mitos asks you to check them with Git first.
+To remove a worktree, open a file in another worktree and change directory out
+of the one you want to remove. Save or close its edited files first. It must have
+no modified, untracked, or ignored files. Removal asks for confirmation and keeps
+the branch. The main checkout and locked worktrees cannot be removed.
 
 Reopen the picker to see branch or worktree changes made outside Mitos.
 
 ## Fetch, pull, and push
 
-A remote is another repository you can download from or upload to, referred to
-by a name such as `origin`. Run `:vcs-remotes` to choose a remote, then choose
-fetch, pull, or push.
-These actions require [workspace trust](./workspace-trust.md). You can also run
-them directly:
+Use these commands to download and upload commits. They use your configured Git
+remotes, such as `origin`, and require [workspace trust](./workspace-trust.md).
 
 | Command | Action |
 | --- | --- |
@@ -348,19 +351,18 @@ them directly:
 When exactly one remote is configured, its name is optional. With several
 remotes, include its name, for example `:vcs-fetch origin`.
 
-Save edited files before pulling. Pull updates the branch only when Git can move
-it forward without creating a merge commit (`fast-forward`). If both your branch
-and the remote have new commits, use Git in your terminal to merge or rebase them.
-Pull also stops if it would overwrite files or the branch changes during the
-update. Check the reported problem before trying again.
+Save edited files before pulling. Pull updates the current branch only when it
+can move forward without a merge (`fast-forward`). If both your branch and the
+remote have new commits, use Git in your terminal to merge or rebase them.
 
-Push sends only the current branch. If it tracks a branch on the chosen remote,
-that branch name is used; otherwise it uses the local branch name. Tags are not
-included. Choose a local branch before pulling or pushing from `detached HEAD`.
+Push uploads only the current branch, using its upstream branch name on the
+chosen remote if one is configured. Otherwise, it uses the local branch name.
+Tags are not included. Pull and push require a local branch; they cannot run
+from `detached HEAD`.
 
-Mitos uses your Git authentication settings. If Git needs a password or login,
-set it up in your terminal, then retry. For full authentication or connection
-errors, run the same Git command in your terminal.
+Mitos uses your Git authentication settings. If Git needs you to sign in, set up
+authentication in your terminal, then retry in Mitos. For details about a
+connection failure, run the matching Git command in your terminal.
 
 ## Git history
 

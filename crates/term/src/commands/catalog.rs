@@ -1610,7 +1610,7 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
     TypableCommand {
         name: "vcs-branches",
         aliases: &["git-branches"],
-        doc: "Browse local branches. Enter switches to the selected branch without discarding changes.",
+        doc: "Browse local branches. Press Enter to switch to the selected branch.",
         fun: super::vcs::typed::branches,
         completer: CommandCompleter::none(),
         signature: Signature { positionals: (0, Some(0)), ..Signature::DEFAULT },
@@ -1618,7 +1618,7 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
     TypableCommand {
         name: "vcs-branch-create",
         aliases: &["git-branch-create"],
-        doc: "Create a local branch at HEAD without switching to it.",
+        doc: "Create a local branch at the current commit without switching to it.",
         fun: super::vcs::typed::branch_create,
         completer: CommandCompleter::none(),
         signature: Signature { positionals: (1, Some(1)), ..Signature::DEFAULT },
@@ -1642,7 +1642,7 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
     TypableCommand {
         name: "vcs-worktree-create",
         aliases: &["git-worktree-create"],
-        doc: "Create a worktree in a new folder. Give an existing branch name, or open the current commit without a branch.",
+        doc: "Create a worktree in a new folder. Give an existing branch name, or omit it to use the current commit without a branch.",
         fun: super::vcs::typed::worktree_create,
         completer: CommandCompleter::none(),
         signature: Signature { positionals: (1, Some(2)), ..Signature::DEFAULT },
@@ -1662,14 +1662,6 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
         fun: super::vcs::typed::worktree_remove,
         completer: CommandCompleter::none(),
         signature: Signature { positionals: (1, Some(1)), ..Signature::DEFAULT },
-    },
-    TypableCommand {
-        name: "vcs-remotes",
-        aliases: &["git-remotes"],
-        doc: "Choose a remote, then fetch, pull, or push.",
-        fun: super::vcs::typed::remotes,
-        completer: CommandCompleter::none(),
-        signature: Signature { positionals: (0, Some(0)), ..Signature::DEFAULT },
     },
     TypableCommand {
         name: "vcs-fetch",

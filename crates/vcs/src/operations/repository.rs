@@ -280,14 +280,6 @@ impl GitRepository {
         Ok(result)
     }
 
-    /// Names only. Do not expose URLs: they can contain credentials.
-    pub fn remote_names(&self) -> Result<Vec<String>> {
-        let repo = self
-            .open(false)
-            .map_err(|_| anyhow::anyhow!("Could not read Git repository settings"))?;
-        configured_remotes(&repo)
-    }
-
     pub fn prepare_repository(
         &self,
         mut operation: RepositoryOperation,
