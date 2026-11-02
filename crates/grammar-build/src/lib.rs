@@ -21,63 +21,38 @@ use tempfile::TempPath;
 const BUILD_TARGET: &str = env!("BUILD_TARGET");
 const REMOTE_NAME: &str = "origin";
 
-fn ensure_git_is_available() -> Result<()> {
-    stdx::env::which("git")?;
-    Ok(())
-}
-
 pub fn fetch_grammars(
     grammars: Vec<GrammarConfiguration>,
     runtime_directory: &Path,
     strict: bool,
 ) -> Result<()> {
-    ensure_git_is_available()?;
+    stdx::env::which("git")?;
 
     // We do not need to fetch local grammars.
     let mut grammars = grammars;
     let runtime_directory = runtime_directory.to_owned();
     grammars.retain(|grammar| !matches!(grammar.source, GrammarSource::Local { .. }));
 
-    let total = grammars.len();
-    let counter = Arc::new(AtomicUsize::new(0));
-
-    println!("Fetching {} grammars", total);
-    let counter = Arc::clone(&counter);
-
-    let results = run_parallel(grammars, move |grammar| {
-        let current = counter.fetch_add(1, Ordering::Relaxed) + 1;
-
-        println!(
-            "Fetching grammars ({}/{}): {}",
-            current, total, grammar.grammar_id
-        );
+    let results = run_parallel(grammars, "Fetching", move |grammar| {
         fetch_grammar(grammar, &runtime_directory)
     });
 
     let mut errors = Vec::new();
     let mut git_updated = Vec::new();
     let mut git_up_to_date = 0;
-    let mut non_git = Vec::new();
 
     for (grammar_id, res) in results {
         match res {
             Ok(FetchStatus::GitUpToDate) => git_up_to_date += 1,
             Ok(FetchStatus::GitUpdated { revision }) => git_updated.push((grammar_id, revision)),
-            Ok(FetchStatus::NonGit) => non_git.push(grammar_id),
             Err(e) => errors.push((grammar_id, e)),
         }
     }
 
-    non_git.sort_unstable();
     git_updated.sort_unstable_by(|a, b| a.0.cmp(&b.0));
 
     if git_up_to_date != 0 {
         println!("{} up to date git grammars", git_up_to_date);
-    }
-
-    if !non_git.is_empty() {
-        println!("{} non git grammars", non_git.len());
-        println!("\t{:?}", non_git);
     }
 
     if !git_updated.is_empty() {
@@ -94,17 +69,7 @@ pub fn fetch_grammars(
         }
     }
 
-    if !errors.is_empty() {
-        let len = errors.len();
-        for (i, (grammar, error)) in errors.into_iter().enumerate() {
-            println!("Failure {}/{len}: {grammar} {error}", i + 1);
-        }
-        if strict {
-            bail!("{len} grammars failed to fetch");
-        }
-    }
-
-    Ok(())
+    report_failures(errors, strict, "fetch")
 }
 
 pub fn build_grammars(
@@ -113,23 +78,8 @@ pub fn build_grammars(
     target: Option<String>,
     strict: bool,
 ) -> Result<()> {
-    ensure_git_is_available()?;
-
     let runtime_directory = runtime_directory.to_owned();
-
-    let total = grammars.len();
-    let counter = Arc::new(AtomicUsize::new(0));
-
-    println!("Building {} grammars", grammars.len());
-
-    let counter = Arc::clone(&counter);
-    let results = run_parallel(grammars, move |grammar| {
-        let current = counter.fetch_add(1, Ordering::Relaxed) + 1;
-
-        println!(
-            "Building grammars ({}/{}): {}",
-            current, total, grammar.grammar_id
-        );
+    let results = run_parallel(grammars, "Building", move |grammar| {
         build_grammar(grammar, &runtime_directory, target.as_deref())
     });
 
@@ -156,32 +106,46 @@ pub fn build_grammars(
         println!("\t{:?}", built);
     }
 
-    if !errors.is_empty() {
-        let len = errors.len();
-        for (i, (grammar_id, error)) in errors.into_iter().enumerate() {
-            println!("Failure {}/{len}: {grammar_id} {error}", i + 1);
-        }
-        if strict {
-            bail!("{len} grammars failed to build");
-        }
-    }
+    report_failures(errors, strict, "build")
+}
 
+fn report_failures(errors: Vec<(String, anyhow::Error)>, strict: bool, action: &str) -> Result<()> {
+    let len = errors.len();
+    for (i, (grammar, error)) in errors.into_iter().enumerate() {
+        println!("Failure {}/{len}: {grammar} {error}", i + 1);
+    }
+    if strict && len != 0 {
+        bail!("{len} grammars failed to {action}");
+    }
     Ok(())
 }
 
-fn run_parallel<F, Res>(grammars: Vec<GrammarConfiguration>, job: F) -> Vec<(String, Result<Res>)>
+fn run_parallel<F, Res>(
+    grammars: Vec<GrammarConfiguration>,
+    action: &'static str,
+    job: F,
+) -> Vec<(String, Result<Res>)>
 where
     F: Fn(GrammarConfiguration) -> Result<Res> + Send + 'static + Clone,
     Res: Send + 'static,
 {
     let pool = threadpool::Builder::new().build();
     let (tx, rx) = channel();
+    let total = grammars.len();
+    let counter = Arc::new(AtomicUsize::new(0));
+    println!("{action} {total} grammars");
 
     for grammar in grammars {
         let tx = tx.clone();
         let job = job.clone();
+        let counter = Arc::clone(&counter);
 
         pool.execute(move || {
+            let current = counter.fetch_add(1, Ordering::Relaxed) + 1;
+            println!(
+                "{action} grammars ({current}/{total}): {}",
+                grammar.grammar_id
+            );
             // Ignore any SendErrors, if any job in another thread has encountered an
             // error the Receiver will be closed causing this send to fail.
             let _ = tx.send((grammar.grammar_id.clone(), job(grammar)));
@@ -196,7 +160,6 @@ where
 enum FetchStatus {
     GitUpToDate,
     GitUpdated { revision: String },
-    NonGit,
 }
 
 #[derive(Copy, Clone)]
@@ -311,7 +274,7 @@ fn fetch_grammar(grammar: GrammarConfiguration, runtime_directory: &Path) -> Res
         remote, revision, ..
     } = grammar.source
     else {
-        return Ok(FetchStatus::NonGit);
+        unreachable!("local grammars are filtered before fetching");
     };
 
     let repo = VendoredGrammar::new(&grammar.grammar_id, runtime_directory);
@@ -456,13 +419,7 @@ fn build_tree_sitter_library(
         .host(BUILD_TARGET)
         .target(target.unwrap_or(BUILD_TARGET));
     let compiler = config.get_compiler();
-    let mut command = Command::new(compiler.path());
-    command.current_dir(src_path);
-    for (key, value) in compiler.get_envs() {
-        command.env(key, value);
-    }
-
-    command.args(compiler.args());
+    let mut command = compiler_command(&compiler, src_path);
     // used to delay dropping the temporary object file until after the compilation is complete
     let _path_guard;
 
@@ -476,12 +433,7 @@ fn build_tree_sitter_library(
             if scanner_path.extension() == Some("c".as_ref()) {
                 command.arg(scanner_path);
             } else {
-                let mut cpp_command = Command::new(compiler.path());
-                cpp_command.current_dir(src_path);
-                for (key, value) in compiler.get_envs() {
-                    cpp_command.env(key, value);
-                }
-                cpp_command.args(compiler.args());
+                let mut cpp_command = compiler_command(&compiler, src_path);
                 let object_file =
                     library_path.with_file_name(format!("{}_scanner.obj", grammar.grammar_id));
                 cpp_command
@@ -492,17 +444,7 @@ fn build_tree_sitter_library(
                     .arg(format!("/Fo{}", object_file.display()))
                     .arg("/c")
                     .arg(scanner_path);
-                let output = cpp_command
-                    .output()
-                    .context("Failed to execute C++ compiler")?;
-
-                if !output.status.success() {
-                    return Err(anyhow!(
-                        "Parser compilation failed.\nStdout: {}\nStderr: {}",
-                        String::from_utf8_lossy(&output.stdout),
-                        String::from_utf8_lossy(&output.stderr)
-                    ));
-                }
+                run_compiler(&mut cpp_command, "Failed to execute C++ compiler")?;
                 command.arg(&object_file);
                 _path_guard = TempPath::try_from_path(object_file).unwrap();
             }
@@ -528,12 +470,7 @@ fn build_tree_sitter_library(
             if scanner_path.extension() == Some("c".as_ref()) {
                 command.arg("-xc").arg("-std=c11").arg(scanner_path);
             } else {
-                let mut cpp_command = Command::new(compiler.path());
-                cpp_command.current_dir(src_path);
-                for (key, value) in compiler.get_envs() {
-                    cpp_command.env(key, value);
-                }
-                cpp_command.args(compiler.args());
+                let mut cpp_command = compiler_command(&compiler, src_path);
                 let object_file =
                     library_path.with_file_name(format!("{}_scanner.o", grammar.grammar_id));
 
@@ -549,17 +486,7 @@ fn build_tree_sitter_library(
                     .arg("-std=c++14")
                     .arg("-c")
                     .arg(scanner_path);
-                let output = cpp_command
-                    .output()
-                    .context("Failed to execute C++ compiler")?;
-                if !output.status.success() {
-                    return Err(anyhow!(
-                        "Parser compilation failed.\nStdout: {}\nStderr: {}",
-                        String::from_utf8_lossy(&output.stdout),
-                        String::from_utf8_lossy(&output.stderr)
-                    ));
-                }
-
+                run_compiler(&mut cpp_command, "Failed to execute C++ compiler")?;
                 command.arg(&object_file);
                 _path_guard = TempPath::try_from_path(object_file).unwrap();
             }
@@ -573,18 +500,30 @@ fn build_tree_sitter_library(
         }
     }
 
-    let output = command
-        .output()
-        .context("Failed to execute C/C++ compiler")?;
+    run_compiler(&mut command, "Failed to execute C/C++ compiler")?;
+
+    Ok(BuildStatus::Built)
+}
+
+fn compiler_command(compiler: &cc::Tool, src_path: &Path) -> Command {
+    let mut command = Command::new(compiler.path());
+    command.current_dir(src_path).args(compiler.args());
+    for (key, value) in compiler.get_envs() {
+        command.env(key, value);
+    }
+    command
+}
+
+fn run_compiler(command: &mut Command, context: &'static str) -> Result<()> {
+    let output = command.output().context(context)?;
     if !output.status.success() {
-        return Err(anyhow!(
+        bail!(
             "Parser compilation failed.\nStdout: {}\nStderr: {}",
             String::from_utf8_lossy(&output.stdout),
             String::from_utf8_lossy(&output.stderr)
-        ));
+        );
     }
-
-    Ok(BuildStatus::Built)
+    Ok(())
 }
 
 fn needs_recompile(
@@ -670,37 +609,53 @@ mod tests {
 
     #[test]
     fn local_grammar_build_uses_supplied_runtime_and_reuses_existing_library() {
-        let source = tempfile::tempdir().unwrap();
-        let runtime = tempfile::tempdir().unwrap();
-        let src = source.path().join("src");
-        fs::create_dir(&src).unwrap();
-        fs::write(
-            src.join("parser.c"),
-            "int tree_sitter_fixture(void) { return 0; }\n",
-        )
-        .unwrap();
-        let grammar = || GrammarConfiguration {
-            grammar_id: "fixture".into(),
-            source: GrammarSource::Local {
-                path: source.path().to_str().unwrap().into(),
-            },
-        };
+        for scanner in [None, Some("scanner.c"), Some("scanner.cc")] {
+            let source = tempfile::tempdir().unwrap();
+            let runtime = tempfile::tempdir().unwrap();
+            let src = source.path().join("src");
+            fs::create_dir(&src).unwrap();
+            fs::write(
+                src.join("parser.c"),
+                "int tree_sitter_fixture(void) { return 0; }\n",
+            )
+            .unwrap();
+            if let Some(scanner) = scanner {
+                fs::write(
+                    src.join(scanner),
+                    "int scanner_fixture(void) { return 0; }\n",
+                )
+                .unwrap();
+            }
+            let grammar = || GrammarConfiguration {
+                grammar_id: "fixture".into(),
+                source: GrammarSource::Local {
+                    path: source.path().to_str().unwrap().into(),
+                },
+            };
 
-        assert!(matches!(
-            build_grammar(grammar(), runtime.path(), None).unwrap(),
-            BuildStatus::Built
-        ));
-        let library = runtime
-            .path()
-            .join("grammars")
-            .join("fixture")
-            .with_extension(DYLIB_EXTENSION);
-        assert!(library.is_file());
-        let modified = mtime(&library).unwrap();
-        assert!(matches!(
-            build_grammar(grammar(), runtime.path(), None).unwrap(),
-            BuildStatus::AlreadyBuilt
-        ));
-        assert_eq!(mtime(&library).unwrap(), modified);
+            assert!(matches!(
+                build_grammar(grammar(), runtime.path(), None).unwrap(),
+                BuildStatus::Built
+            ));
+            let library = runtime
+                .path()
+                .join("grammars")
+                .join("fixture")
+                .with_extension(DYLIB_EXTENSION);
+            assert!(library.is_file());
+            let modified = mtime(&library).unwrap();
+            assert!(matches!(
+                build_grammar(grammar(), runtime.path(), None).unwrap(),
+                BuildStatus::AlreadyBuilt
+            ));
+            assert_eq!(mtime(&library).unwrap(), modified);
+            build_grammars(vec![grammar()], runtime.path(), None, true).unwrap();
+            for extension in ["o", "obj"] {
+                assert!(!runtime
+                    .path()
+                    .join(format!("grammars/fixture_scanner.{extension}"))
+                    .exists());
+            }
+        }
     }
 }

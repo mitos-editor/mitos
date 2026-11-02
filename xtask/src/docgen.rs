@@ -31,7 +31,7 @@ fn md_mono(s: &str) -> String {
     format!("`{}`", s)
 }
 
-pub fn typable_commands() -> Result<String, DynError> {
+pub fn typable_commands() -> String {
     let mut md = String::new();
     md.push_str(&md_table_heading(&[
         "Name".to_owned(),
@@ -53,10 +53,10 @@ pub fn typable_commands() -> Result<String, DynError> {
         md.push_str(&md_table_row(&[names.to_owned(), doc.to_owned()]));
     }
 
-    Ok(md)
+    md
 }
 
-pub fn static_commands() -> Result<String, DynError> {
+pub fn static_commands() -> String {
     let mut md = String::new();
     let keymap = term::keymap::default();
     let keymaps = [
@@ -92,7 +92,7 @@ pub fn static_commands() -> Result<String, DynError> {
                             .collect();
                         // sort for stable output. sorting by length puts simple
                         // keybindings first and groups similar keys together
-                        bind_strings.sort_by_key(|s| (s.len(), s.to_owned()));
+                        bind_strings.sort_by(|a, b| a.len().cmp(&b.len()).then_with(|| a.cmp(b)));
                         bind_strings.join(", ")
                     })
                     .unwrap_or_default();
@@ -115,10 +115,10 @@ pub fn static_commands() -> Result<String, DynError> {
         ]));
     }
 
-    Ok(md)
+    md
 }
 
-pub fn lang_features() -> Result<String, DynError> {
+pub fn lang_features() -> String {
     let mut md = String::new();
     let ts_features = QueryFeature::all();
 
@@ -134,12 +134,8 @@ pub fn lang_features() -> Result<String, DynError> {
     md.push_str(&md_table_heading(&cols));
     let config = language::loader::default_lang_config();
 
-    let mut langs = config
-        .language
-        .iter()
-        .map(|l| l.language_id.clone())
-        .collect::<Vec<_>>();
-    langs.sort_unstable();
+    let mut langs: Vec<_> = config.language.iter().collect();
+    langs.sort_unstable_by(|a, b| a.language_id.cmp(&b.language_id));
 
     let mut ts_features_to_langs = Vec::new();
     for &feat in ts_features {
@@ -147,17 +143,12 @@ pub fn lang_features() -> Result<String, DynError> {
     }
 
     let mut row = Vec::new();
-    for lang in langs {
-        let lc = config
-            .language
-            .iter()
-            .find(|l| l.language_id == lang)
-            .unwrap(); // lang comes from config
+    for lc in langs {
         row.push(lc.language_id.clone());
 
         for (_feat, support_list) in &ts_features_to_langs {
             row.push(
-                if support_list.contains(&lang) {
+                if support_list.contains(&lc.language_id) {
                     "✓"
                 } else {
                     ""
@@ -193,7 +184,7 @@ pub fn lang_features() -> Result<String, DynError> {
         row.clear();
     }
 
-    Ok(md)
+    md
 }
 
 pub fn write(filename: &str, data: &str) {
@@ -317,7 +308,7 @@ fn component_table<A: serde::Serialize>(keys: &Keymap<A>) -> Result<String, DynE
     collect(keys, "", &mut rows)?;
     let mut md = md_table_heading(&["Key".to_owned(), "Action".to_owned()]);
     for (action, mut keys) in rows {
-        keys.sort_by_key(|key| (key.len(), key.clone()));
+        keys.sort_by(|a, b| a.len().cmp(&b.len()).then_with(|| a.cmp(b)));
         md.push_str(&md_table_row(&[
             keys.iter()
                 .map(|key| key_code(key))

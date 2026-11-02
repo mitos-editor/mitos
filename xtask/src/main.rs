@@ -22,9 +22,9 @@ pub mod tasks {
 
     pub fn docgen() -> Result<(), DynError> {
         use crate::docgen::*;
-        write(TYPABLE_COMMANDS_MD_OUTPUT, &typable_commands()?);
-        write(STATIC_COMMANDS_MD_OUTPUT, &static_commands()?);
-        write(LANG_SUPPORT_MD_OUTPUT, &lang_features()?);
+        write(TYPABLE_COMMANDS_MD_OUTPUT, &typable_commands());
+        write(STATIC_COMMANDS_MD_OUTPUT, &static_commands());
+        write(LANG_SUPPORT_MD_OUTPUT, &lang_features());
         for (filename, contents) in keymaps() {
             write(&filename, &contents);
         }
@@ -573,22 +573,28 @@ Usage: Run with `cargo xtask <task>`, eg. `cargo xtask docgen`.
     }
 }
 
+/// Shared --jobs value rules; commands retain their own defaults and argument layout.
+fn parse_job_count(value: Option<String>) -> Result<std::num::NonZeroUsize, DynError> {
+    let jobs: usize = value
+        .ok_or("--jobs requires a count")?
+        .parse()
+        .map_err(|_| "--jobs must be a positive integer")?;
+    std::num::NonZeroUsize::new(jobs).ok_or_else(|| "--jobs must be at least 1".into())
+}
+
 fn main() -> Result<(), DynError> {
     let mut args = env::args().skip(1);
-    let task = args.next();
-    match task {
+    match args.next().as_deref() {
         None => tasks::print_help(),
-        Some(t) => match t.as_str() {
-            "install" => install::install(args)?,
-            "docgen" => tasks::docgen()?,
-            "query-check" => tasks::querycheck(args)?,
-            "indent-check" => tasks::indentcheck(args)?,
-            "highlight-check" => tasks::highlightcheck(args)?,
-            "theme-check" => tasks::themecheck(args)?,
-            "update-nix-grammar-sources" => grammar_sources::update(args)?,
-            "update-grammars" => grammar_updates::update(args)?,
-            invalid => return Err(format!("Invalid task name: {}", invalid).into()),
-        },
-    };
+        Some("install") => install::install(args)?,
+        Some("docgen") => tasks::docgen()?,
+        Some("query-check") => tasks::querycheck(args)?,
+        Some("indent-check") => tasks::indentcheck(args)?,
+        Some("highlight-check") => tasks::highlightcheck(args)?,
+        Some("theme-check") => tasks::themecheck(args)?,
+        Some("update-nix-grammar-sources") => grammar_sources::update(args)?,
+        Some("update-grammars") => grammar_updates::update(args)?,
+        Some(invalid) => return Err(format!("Invalid task name: {invalid}").into()),
+    }
     Ok(())
 }
