@@ -156,7 +156,7 @@ regex = "1"
 regex-automata = "0.4.14"
 # Match tree-house's cursor revision so both forks share one implementation.
 regex-cursor = { git = "https://github.com/mitos-editor/regex-cursor", rev = "4db0a68e0c518af353126f0528f0db52c85bc6a0" }
-tree-house = { git = "https://github.com/mitos-editor/tree-house", rev = "075a28d6ceae54a07537892a80137077932d15e4", default-features = false }
+tree-house = { git = "https://github.com/mitos-editor/tree-house", rev = "c778ad5c3da71b3d8596dd8fcf0527d20e4b91c3", default-features = false }
 
 # Serialization and configuration
 serde = { version = "1.0.228", features = ["derive"] }

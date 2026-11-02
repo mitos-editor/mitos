@@ -4618,7 +4618,7 @@ checksum = "7d56353a2a665ad0f41a421187180aab746c8c325620617ad883a99a1cbe66d2"
 [[package]]
 name = "tree-house"
 version = "0.4.0"
-source = "git+https://github.com/mitos-editor/tree-house?rev=075a28d6ceae54a07537892a80137077932d15e4#075a28d6ceae54a07537892a80137077932d15e4"
+source = "git+https://github.com/mitos-editor/tree-house?rev=c778ad5c3da71b3d8596dd8fcf0527d20e4b91c3#c778ad5c3da71b3d8596dd8fcf0527d20e4b91c3"
 dependencies = [
  "arc-swap",
  "hashbrown 0.15.5",
@@ -4633,11 +4633,12 @@ dependencies = [
 [[package]]
 name = "tree-house-bindings"
 version = "0.3.2"
-source = "git+https://github.com/mitos-editor/tree-house?rev=075a28d6ceae54a07537892a80137077932d15e4#075a28d6ceae54a07537892a80137077932d15e4"
+source = "git+https://github.com/mitos-editor/tree-house?rev=c778ad5c3da71b3d8596dd8fcf0527d20e4b91c3#c778ad5c3da71b3d8596dd8fcf0527d20e4b91c3"
 dependencies = [
  "cc",
  "libloading",
  "regex-cursor",
+ "regex-syntax",
  "ropey",
  "thiserror 2.0.21",
 ]
