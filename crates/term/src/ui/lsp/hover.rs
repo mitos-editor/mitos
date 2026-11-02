@@ -144,6 +144,29 @@ impl Component for Hover {
     }
 }
 
+/// Markdown for every server's response, as `goto_hover` writes it into a buffer.
+/// With several servers, each response gets the popup's header and they are
+/// separated by thematic breaks.
+pub fn buffer_text(hovers: Vec<(String, lsp::Hover)>) -> String {
+    let n_hovers = hovers.len();
+    let mut text = hovers
+        .into_iter()
+        .enumerate()
+        .map(|(idx, (server_name, hover))| {
+            let body = hover_contents_to_string(hover.contents);
+            let body = body.trim();
+            if n_hovers > 1 {
+                format!("**[{}/{}] {}**\n\n{body}", idx + 1, n_hovers, server_name)
+            } else {
+                body.to_owned()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n---\n\n");
+    text.push('\n');
+    text
+}
+
 fn hover_contents_to_string(contents: lsp::HoverContents) -> String {
     fn marked_string_to_markdown(contents: lsp::MarkedString) -> String {
         match contents {
@@ -165,5 +188,60 @@ fn hover_contents_to_string(contents: lsp::HoverContents) -> String {
             .collect::<Vec<_>>()
             .join("\n\n"),
         lsp::HoverContents::Markup(contents) => contents.value,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::buffer_text;
+    use lsp_client::lsp;
+
+    fn markup(value: &str) -> lsp::Hover {
+        lsp::Hover {
+            contents: lsp::HoverContents::Markup(lsp::MarkupContent {
+                kind: lsp::MarkupKind::Markdown,
+                value: value.to_owned(),
+            }),
+            range: None,
+        }
+    }
+
+    #[test]
+    fn a_single_response_is_written_without_a_header() {
+        let text = buffer_text(vec![(
+            "rust-analyzer".into(),
+            markup("\n```rust\nfn one()\n```\n\n"),
+        )]);
+        assert_eq!(text, "```rust\nfn one()\n```\n");
+    }
+
+    #[test]
+    fn several_responses_get_headers_and_thematic_breaks() {
+        let text = buffer_text(vec![
+            ("alpha".into(), markup("first")),
+            ("beta".into(), markup("second\n")),
+        ]);
+        assert_eq!(
+            text,
+            "**[1/2] alpha**\n\nfirst\n\n---\n\n**[2/2] beta**\n\nsecond\n"
+        );
+    }
+
+    #[test]
+    fn language_strings_become_fenced_code_and_arrays_are_joined() {
+        let hover = lsp::Hover {
+            contents: lsp::HoverContents::Array(vec![
+                lsp::MarkedString::LanguageString(lsp::LanguageString {
+                    language: "python".into(),
+                    value: "def f(): ...".into(),
+                }),
+                lsp::MarkedString::String("Docs for `f`.".into()),
+            ]),
+            range: None,
+        };
+        assert_eq!(
+            buffer_text(vec![("pyright".into(), hover)]),
+            "```python\ndef f(): ...\n```\n\nDocs for `f`.\n"
+        );
     }
 }

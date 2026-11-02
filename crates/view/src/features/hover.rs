@@ -29,9 +29,19 @@ impl HoverHandler {
     }
 }
 
+/// Where a frontend presents a hover response.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HoverDisplay {
+    /// A popup at the cursor.
+    Popup,
+    /// A new scratch buffer in the requesting view, like `goto_definition`.
+    Buffer,
+}
+
 struct Request {
     owner: Weak<EditorCallbackSender>,
     target: SelectionRequest,
+    display: HoverDisplay,
 }
 
 impl Request {
@@ -48,6 +58,12 @@ impl Request {
 
 /// Request hover at the focused selection, superseding its previous request.
 pub fn request(editor: &mut Editor) {
+    request_with(editor, HoverDisplay::Popup);
+}
+
+/// Request hover for presentation as `display`, superseding the previous request
+/// of either kind.
+pub fn request_with(editor: &mut Editor, display: HoverDisplay) {
     let shared = editor.handlers.hover.callbacks.clone();
     editor
         .handlers
@@ -93,6 +109,7 @@ pub fn request(editor: &mut Editor) {
     let request = Request {
         owner: Arc::downgrade(&shared),
         target: SelectionRequest::new(doc, view.id, cancel, servers),
+        display,
     };
     editor.handlers.hover.target = Some(target);
     let callbacks = (*shared).clone();
@@ -130,6 +147,10 @@ impl std::fmt::Debug for HoverUpdate {
 }
 
 impl HoverUpdate {
+    pub fn display(&self) -> HoverDisplay {
+        self.request.display
+    }
+
     pub fn resolve(self, editor: &Editor) -> Option<Vec<(String, lsp::Hover)>> {
         self.request.is_current(editor).then_some(self.hovers)
     }

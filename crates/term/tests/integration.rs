@@ -45,6 +45,7 @@ mod test {
     mod formatting;
     #[cfg(feature = "git")]
     mod git_diff;
+    mod goto_hover;
     mod inline_completion;
     mod language_features;
     mod lsp_alternatives;
