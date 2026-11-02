@@ -711,11 +711,12 @@ impl Document {
         self.path().is_some() && self.config.load().breadcrumb.enable
     }
 
-    /// Capture immutable text and its identity for saving or background work.
+    /// Whether a snapshot still represents this document's current text.
     pub fn is_snapshot_current(&self, snapshot: &buffer::Snapshot) -> bool {
         snapshot.is_current(&self.buffer)
     }
 
+    /// Capture immutable text and its identity for saving or background work.
     pub fn snapshot(&self) -> buffer::Snapshot {
         self.buffer.snapshot()
     }

@@ -20,6 +20,8 @@ struct Key {
 }
 struct Entry {
     key: Key,
+    // Buffer identity matters as well as its version: presentation documents
+    // can have the same document id and numeric version as another buffer.
     snapshot: Snapshot,
     prefix: Prefix,
 }
@@ -93,6 +95,8 @@ impl<I: Iterator<Item = Event>, F: FnOnce() -> I> Iterator for Styles<'_, I, F> 
         if self.prefix.exhausted {
             return None;
         }
+        // Recreate the highlighter only when replay reaches the end of the
+        // prefix. Skipping its old events restores enclosing syntax scopes.
         let input = self
             .input
             .get_or_insert_with(|| self.fresh.take().unwrap()().skip(self.index));
@@ -102,7 +106,7 @@ impl<I: Iterator<Item = Event>, F: FnOnce() -> I> Iterator for Styles<'_, I, F> 
                     if self.prefix.events.len() < MAX_EVENTS {
                         self.prefix.events.push(event);
                     } else {
-                        self.prefix.events.clear();
+                        self.prefix.events = Vec::new();
                         self.prefix.bypass = true;
                     }
                 }
@@ -124,7 +128,7 @@ impl<I: Iterator<Item = Event>, F> Drop for Styles<'_, I, F> {
             .loader
             .is_some_and(|(loader, revision)| loader.highlight_revision() != revision)
         {
-            self.prefix.events.clear();
+            self.prefix.events = Vec::new();
             self.prefix.invalidated = true;
         }
     }
@@ -191,15 +195,23 @@ mod tests {
         assert_eq!(
             stream(&mut prefix, || (0..MAX_EVENTS + 2)
                 .map(|i| (i, Style::default())))
+            .take(MAX_EVENTS)
             .count(),
-            MAX_EVENTS + 2
+            MAX_EVENTS
         );
+        assert!(!prefix.bypass);
+        assert!(stream(&mut prefix, || (0..MAX_EVENTS + 2)
+            .map(|i| (i, Style::default())))
+        .map(|event| event.0)
+        .eq(0..MAX_EVENTS + 2));
         assert!(prefix.bypass);
         assert!(prefix.events.is_empty());
+        assert_eq!(prefix.events.capacity(), 0, "bypass must release storage");
         assert_eq!(
             stream(&mut prefix, || (0..5).map(|i| (i, Style::default()))).count(),
             5
         );
+        assert_eq!(prefix.events.capacity(), 0);
     }
 }
 
@@ -281,6 +293,7 @@ mod identity_tests {
             doc.syntax_loader().refresh_highlights();
         }
         assert!(cache.entry.as_ref().unwrap().prefix.invalidated);
+        assert_eq!(cache.entry.as_ref().unwrap().prefix.events.capacity(), 0);
         assert_eq!(
             cache
                 .styles(&doc, &layout, 0, || [(2, Style::default())].into_iter())
@@ -289,6 +302,30 @@ mod identity_tests {
                 .0,
             2
         );
+    }
+
+    #[tokio::test]
+    async fn equal_length_edits_and_undo_invalidate_cached_styles() {
+        let (mut doc, view) = fixture();
+        let mut cache = ViewportSyntaxCache::default();
+        let read = |cache: &mut ViewportSyntaxCache, doc: &Document, value| {
+            cache
+                .styles(doc, &view.layout(doc, None), 0, || {
+                    [(value, Style::default())].into_iter()
+                })
+                .next()
+                .unwrap()
+                .0
+        };
+        assert_eq!(read(&mut cache, &doc, 0), 0);
+        let initial = doc.text().clone();
+        let change =
+            editor_core::Transaction::change(doc.text(), [(2, 3, Some("s".into()))].into_iter());
+        view::editing::apply(&mut doc, &change, view.id).unwrap();
+        assert_eq!(read(&mut cache, &doc, 1), 1);
+        assert!(doc.undo());
+        assert_eq!(doc.text(), &initial);
+        assert_eq!(read(&mut cache, &doc, 2), 2);
     }
 }
 
