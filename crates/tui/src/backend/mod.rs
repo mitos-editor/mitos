@@ -20,6 +20,8 @@ pub use self::crossterm::CrosstermBackend;
 
 #[cfg(feature = "native")]
 pub mod native;
+#[cfg(feature = "native")]
+mod output;
 
 mod test;
 pub use self::test::TestBackend;
