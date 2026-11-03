@@ -4859,7 +4859,7 @@ indent = { tab-width = 4, unit = "    " }
 
 [[grammar]]
 name = "cylc"
-source = { git = "https://github.com/elliotfontaine/tree-sitter-cylc", rev = "6d1d81137112299324b526477ce1db989ab58fb8" }
+source = { git = "https://github.com/seanwallawalla/ElliotFontaine_Tree-Sitter-Cylc", rev = "6d1d81137112299324b526477ce1db989ab58fb8" }
 
 [[language]]
 name = "quint"
