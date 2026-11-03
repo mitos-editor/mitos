@@ -36,7 +36,7 @@ impl Fixture {
             if inter_file {
                 server = server.arg("--inter-file");
             }
-            servers.push_str(&server.toml());
+            servers.push_str(&server.toml(env!("CARGO_BIN_EXE_mitos-test-lsp")));
             logs.push(lsp::log_path(directory, name));
         }
         let loader = lsp::syntax_loader("pull-diagnostic-test", "pull-test", names, &servers);

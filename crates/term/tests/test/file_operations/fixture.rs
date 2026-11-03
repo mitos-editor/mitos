@@ -34,7 +34,7 @@ impl Fixture {
             .arg(gate.path())
             .arg("--preflight-edit")
             .arg(dir.path().join("edit.json"))
-            .toml();
+            .toml(env!("CARGO_BIN_EXE_mitos-test-lsp"));
         let mut config = test_config();
         config.editor.lsp.enable = true;
         let (sender, callbacks) = callbacks::deferred(|_, callback| callback);

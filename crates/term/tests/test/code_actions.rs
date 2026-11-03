@@ -75,7 +75,7 @@ impl Fixture {
             } else {
                 "--interactive-actions"
             })
-            .toml();
+            .toml(env!("CARGO_BIN_EXE_mitos-test-lsp"));
         let kinds = serde_json::to_string(kinds)?;
         let formatter = if format {
             r#"formatter = { command = "bash", args = ["-c", "tr '[:lower:]' '[:upper:]'"] }"#
