@@ -79,10 +79,13 @@ impl Application {
 
     pub(super) fn refresh_config(&mut self) {
         let mut refresh_config = || -> Result<(), Error> {
-            let default_config = Config::load_default()
+            let workspace = workspace::ResolvedWorkspace::current();
+            let default_config = Config::load_for(&workspace)
                 .map_err(|err| anyhow::anyhow!("Failed to load config: {}", err))?;
 
-            let lang_loader = self.editor.load_language_config(&default_config.editor)?;
+            let lang_loader = self
+                .editor
+                .load_language_config(&default_config.editor, workspace)?;
             let theme = Self::configured_theme(
                 &self.editor,
                 &default_config,

@@ -243,10 +243,6 @@ pub fn workspace_config_file() -> PathBuf {
     find_workspace().0.join(".mitos").join("config.toml")
 }
 
-pub fn workspace_lang_config_file() -> PathBuf {
-    find_workspace().0.join(".mitos").join("languages.toml")
-}
-
 pub fn lang_config_file() -> PathBuf {
     config_dir().join("languages.toml")
 }

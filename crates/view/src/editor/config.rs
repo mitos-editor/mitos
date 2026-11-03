@@ -15,11 +15,13 @@ impl Editor {
     pub fn load_language_config(
         &mut self,
         config: &Config,
+        workspace: workspace::ResolvedWorkspace,
     ) -> Result<syntax::Loader, LanguageLoaderError> {
         self.workspace_trust
             .set_config((&config.workspace_trust).into());
+        self.workspace = workspace;
         language::loader::user_lang_loader(
-            &self.workspace_trust,
+            &loader::config::ConfigSources::new(&self.workspace, &self.workspace_trust),
             self.syn_loader.load().resources().clone(),
         )
     }

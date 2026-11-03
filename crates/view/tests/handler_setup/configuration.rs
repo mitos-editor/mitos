@@ -30,7 +30,9 @@ async fn language_reload_retains_each_editors_selected_runtime() -> anyhow::Resu
     )?;
     for (fixture, expected) in [(&mut a, "; first source"), (&mut b, "; second source")] {
         let config = (*fixture.editor.config()).clone();
-        let language_loader = fixture.editor.load_language_config(&config)?;
+        let language_loader = fixture
+            .editor
+            .load_language_config(&config, workspace::ResolvedWorkspace::current())?;
         assert_eq!(
             language_loader
                 .resources()
@@ -131,5 +133,26 @@ async fn invalid_theme_keeps_the_previous_theme_and_still_refreshes_documents() 
             .language_id,
         "new-config-test"
     );
+    Ok(())
+}
+
+#[tokio::test]
+async fn installing_workspace_context_preserves_document_roots_and_other_editors(
+) -> anyhow::Result<()> {
+    let mut first = Fixture::new("first\n")?;
+    let second = Fixture::new("second\n")?;
+    let document_root = current_ref!(first.editor).1.workspace_root().to_owned();
+    let other_workspace = second.editor.workspace().root().to_owned();
+    let directory = tempfile::tempdir()?;
+    std::fs::create_dir(directory.path().join(".mitos"))?;
+    let root = directory.path().canonicalize()?;
+    let config = (*first.editor.config()).clone();
+    first
+        .editor
+        .load_language_config(&config, workspace::ResolvedWorkspace::resolve(&root))?;
+    assert_eq!(first.editor.workspace().root(), root);
+    assert!(first.editor.workspace().is_workspace());
+    assert_eq!(current_ref!(first.editor).1.workspace_root(), document_root);
+    assert_eq!(second.editor.workspace().root(), other_workspace);
     Ok(())
 }

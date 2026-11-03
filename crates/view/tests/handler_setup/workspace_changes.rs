@@ -104,6 +104,7 @@ async fn event_loss_and_watcher_replacement_invalidate_and_resume_delivery() -> 
     assert!(!changes.changed(&f.editor, &root));
     f.editor.file_watcher = Watcher::new(
         &f.editor.config().files.watch,
+        f.editor.workspace(),
         f.editor.callback_sender().clone(),
     );
     assert!(changes.changed(&f.editor, &root));

@@ -1,7 +1,9 @@
 //! Trusted filesystem loading and explicitly requested configuration migration.
-use super::{Config, ConfigLoadError};
+use super::{sources::parse_source, Config, ConfigLoadError};
 use loader::config::migration;
+use loader::config::ConfigSources;
 use std::fs;
+use workspace::ResolvedWorkspace;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MigrationScope {
@@ -41,7 +43,12 @@ fn migrate_file(
 impl Config {
     /// Load user and trusted workspace configuration without rewriting files.
     pub fn load_default() -> Result<Config, ConfigLoadError> {
-        Self::load_default_impl(None).map(|(config, _)| config)
+        Self::load_for(&ResolvedWorkspace::current())
+    }
+
+    /// Load all layers against one explicitly resolved workspace.
+    pub fn load_for(workspace: &ResolvedWorkspace) -> Result<Config, ConfigLoadError> {
+        Self::load_default_impl(workspace, None).map(|(config, _)| config)
     }
 
     /// Persist known renames in the selected configuration scope.
@@ -49,14 +56,15 @@ impl Config {
     pub fn migrate(scope: MigrationScope) -> anyhow::Result<Vec<ConfigMigration>> {
         let path = Self::migration_path(scope)?;
         fs::read_to_string(&path)?;
-        Self::load_default_impl(Some(scope))
+        Self::load_default_impl(&ResolvedWorkspace::current(), Some(scope))
             .map(|(_, notices)| notices)
             .map_err(|err| anyhow::anyhow!(err.to_string()))
     }
 
     /// Check the loaded configuration and trust policy before offering a rewrite.
     pub fn migration_path(scope: MigrationScope) -> anyhow::Result<std::path::PathBuf> {
-        let config = Self::load_default().map_err(|err| anyhow::anyhow!(err.to_string()))?;
+        let workspace = ResolvedWorkspace::current();
+        let config = Self::load_for(&workspace).map_err(|err| anyhow::anyhow!(err.to_string()))?;
         match scope {
             MigrationScope::User => Ok(loader::config_file()),
             MigrationScope::Workspace => {
@@ -66,29 +74,33 @@ impl Config {
                     loader::workspace_trust_dir(),
                 );
                 anyhow::ensure!(
-                    trust.query_current(TrustQuery::LocalConfig).is_trusted(),
+                    trust
+                        .query(workspace.root(), TrustQuery::LocalConfig)
+                        .is_trusted(),
                     "Workspace configuration is not trusted; review and trust it before migrating"
                 );
-                Ok(loader::workspace_config_file())
+                Ok(workspace.root().join(".mitos/config.toml"))
             }
         }
     }
 
     fn load_default_impl(
+        workspace: &ResolvedWorkspace,
         scope: Option<MigrationScope>,
     ) -> Result<(Config, Vec<ConfigMigration>), ConfigLoadError> {
-        use workspace::trust::{TrustQuery, TrustStatus, WorkspaceTrust};
+        use workspace::trust::{TrustStatus, WorkspaceTrust};
         let user_path = loader::config_file();
         let (global_config, user_exists) = match fs::read_to_string(&user_path) {
             Ok(source) => (source, true),
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => (String::new(), false),
             Err(err) => return Err(ConfigLoadError::Error(err)),
         };
-        let global_parsed = Config::load(Ok(&global_config), Err(ConfigLoadError::default()))?;
+        let global_layer = parse_source(&global_config)?;
+        let global_parsed = Config::from_layers(Ok(global_layer.clone()), Ok(Default::default()))?;
         let trust_config = (&global_parsed.editor.workspace_trust).into();
         let trust = WorkspaceTrust::new(trust_config, loader::workspace_trust_dir());
-        let workspace = workspace::find_workspace().0;
-        let project_path = workspace.join(".mitos/config.toml");
+        let sources = ConfigSources::new(workspace, &trust);
+        let workspace = workspace.root();
         let mut paths = Vec::new();
         if user_exists {
             paths.push((user_path, true));
@@ -96,16 +108,16 @@ impl Config {
 
         let mut local_source = None;
         // Check user-scope trust before even reading the project config.
-        let config = if trust
-            .query(&workspace, TrustQuery::LocalConfig)
-            .is_trusted()
-        {
+        let config = if let Some(project_path) = sources.local_file("config.toml") {
             let local = fs::read_to_string(&project_path).map_err(ConfigLoadError::Error);
             if let Ok(source) = &local {
                 local_source = Some(source.clone());
                 paths.push((project_path, false));
             }
-            let mut merged = Config::load(Ok(&global_config), local)?;
+            let mut merged = Config::from_layers(
+                Ok(global_layer),
+                local.and_then(|source| parse_source(&source)),
+            )?;
             // A project cannot change the policy used to decide whether to load it.
             merged.editor.workspace_trust = global_parsed.editor.workspace_trust;
             merged
@@ -123,9 +135,9 @@ impl Config {
                     Ok(Some(written)) => {
                         // Never create a grant for implicit trust. Preserve an existing
                         // grant only when the exact migration accounts for the changes.
-                        if trust.status(&workspace) == TrustStatus::Trusted
+                        if trust.status(workspace) == TrustStatus::Trusted
                             && !trust.record_config_migration(
-                                &workspace,
+                                workspace,
                                 &workspace::trust::ConfigMigration {
                                     target: &written.target,
                                     backup: &written.backup,
@@ -137,7 +149,7 @@ impl Config {
                                 (&config.editor.workspace_trust).into(),
                                 loader::workspace_trust_dir(),
                             )
-                            .status(&workspace)
+                            .status(workspace)
                                 != TrustStatus::Trusted
                         {
                             notices.push(ConfigMigration::Warning(

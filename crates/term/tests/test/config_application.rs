@@ -105,7 +105,9 @@ async fn language_loading_applies_new_trust_before_reading_local_files() -> anyh
     let active = app.editor.syn_loader.load_full();
     let mut config = (*app.editor.config()).clone();
     config.workspace_trust.level = ImplicitTrustLevelConfig::None;
-    let loader = app.editor.load_language_config(&config)?;
+    let loader = app
+        .editor
+        .load_language_config(&config, workspace::ResolvedWorkspace::current())?;
     let width = |loader: &language::syntax::Loader| {
         loader
             .language_configs()
@@ -117,17 +119,25 @@ async fn language_loading_applies_new_trust_before_reading_local_files() -> anyh
     assert!(!app
         .editor
         .workspace_trust
-        .query_current(TrustQuery::LocalConfig)
+        .query(app.editor.workspace().root(), TrustQuery::LocalConfig)
         .is_trusted());
     config.workspace_trust.level = ImplicitTrustLevelConfig::Insecure;
-    let loader = app.editor.load_language_config(&config)?;
+    let loader = app
+        .editor
+        .load_language_config(&config, workspace::ResolvedWorkspace::current())?;
     assert_eq!(width(&loader), Some(99));
     assert!(Arc::ptr_eq(&active, &app.editor.syn_loader.load_full()));
     std::fs::write(&local, "invalid = [")?;
     config.workspace_trust.level = ImplicitTrustLevelConfig::None;
-    assert!(app.editor.load_language_config(&config).is_ok());
+    assert!(app
+        .editor
+        .load_language_config(&config, workspace::ResolvedWorkspace::current())
+        .is_ok());
     config.workspace_trust.level = ImplicitTrustLevelConfig::Insecure;
-    assert!(app.editor.load_language_config(&config).is_err());
+    assert!(app
+        .editor
+        .load_language_config(&config, workspace::ResolvedWorkspace::current())
+        .is_err());
     assert!(matches!(
         app.editor.workspace_trust.implicit_level(),
         ImplicitTrustLevel::Insecure

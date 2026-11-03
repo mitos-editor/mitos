@@ -147,9 +147,10 @@ async fn native_watcher_detects_atomic_replacement() -> anyhow::Result<()> {
     let path = dir.path().join("file.txt");
     changed(&path, "before\n", 1)?;
     let mut app = app(&path)?;
-    app.editor
-        .file_watcher
-        .reload(&editor_config::WatchConfig::default());
+    app.editor.file_watcher.reload(
+        &editor_config::WatchConfig::default(),
+        &workspace::ResolvedWorkspace::current(),
+    );
     app.editor.file_watcher.add_root(dir.path());
     tokio::time::timeout(Duration::from_secs(10), async {
         while !app.editor.file_watcher.is_watching(&path) {
@@ -221,8 +222,11 @@ impl SharedReload {
             })
             .with_file(path, None)
             .build()?;
-        app.editor.file_watcher =
-            view::file_watcher::Watcher::new(&app.editor.config().files.watch, watcher_callbacks);
+        app.editor.file_watcher = view::file_watcher::Watcher::new(
+            &app.editor.config().files.watch,
+            app.editor.workspace(),
+            watcher_callbacks,
+        );
         Ok(Self { app, callbacks })
     }
 
@@ -276,11 +280,10 @@ async fn native_events_stay_with_their_editor_and_old_watchers_cannot_apply_call
     let mut first = SharedReload::new(&path)?;
     let mut second = SharedReload::new(&path)?;
     // Both editors have the same file open. Only the first owns a native watch.
-    first
-        .app
-        .editor
-        .file_watcher
-        .reload(&editor_config::WatchConfig::default());
+    first.app.editor.file_watcher.reload(
+        &editor_config::WatchConfig::default(),
+        &workspace::ResolvedWorkspace::current(),
+    );
     first.app.editor.file_watcher.add_root(dir.path());
     first.wait_for_watch(&path).await?;
     changed(&path, "first update\n", 2)?;
@@ -305,14 +308,13 @@ async fn native_events_stay_with_their_editor_and_old_watchers_cannot_apply_call
     assert_eq!(text(&second.app), "original\n");
     changed(&path, "disabled watcher\n", 4)?;
     let stale = first.callback().await?;
-    first
-        .app
-        .editor
-        .file_watcher
-        .reload(&editor_config::WatchConfig {
+    first.app.editor.file_watcher.reload(
+        &editor_config::WatchConfig {
             enable: false,
             ..Default::default()
-        });
+        },
+        &workspace::ResolvedWorkspace::current(),
+    );
     stale(&mut first.app.editor);
     assert_eq!(text(&first.app), "first update\n");
     while let Ok(callback) = first.callbacks.try_recv() {
@@ -320,18 +322,20 @@ async fn native_events_stay_with_their_editor_and_old_watchers_cannot_apply_call
     }
     assert_eq!(text(&first.app), "first update\n");
     // Replacing an active watcher must also reject callbacks already queued.
-    first
-        .app
-        .editor
-        .file_watcher
-        .reload(&editor_config::WatchConfig::default());
+    first.app.editor.file_watcher.reload(
+        &editor_config::WatchConfig::default(),
+        &workspace::ResolvedWorkspace::current(),
+    );
     // Restarting a native watcher installs its watches asynchronously.
     first.wait_for_watch(&path).await?;
     changed(&path, "replacement watcher\n", 5)?;
     let stale = first.callback().await?;
     let (sender, callbacks) = super::helpers::callbacks::channel();
-    first.app.editor.file_watcher =
-        view::file_watcher::Watcher::new(&first.app.editor.config().files.watch, sender);
+    first.app.editor.file_watcher = view::file_watcher::Watcher::new(
+        &first.app.editor.config().files.watch,
+        first.app.editor.workspace(),
+        sender,
+    );
     first.callbacks = callbacks;
     stale(&mut first.app.editor);
     assert_eq!(text(&first.app), "first update\n");

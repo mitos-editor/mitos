@@ -156,6 +156,7 @@ pub struct Editor {
     pub cursor_cache: CursorCache,
     pub file_watcher: Watcher,
     pub workspace_trust: WorkspaceTrust,
+    pub(crate) workspace: workspace::ResolvedWorkspace,
 }
 
 pub type Motion = Box<dyn Fn(&mut Editor)>;
@@ -228,7 +229,8 @@ impl Editor {
         let auto_pairs = (&conf.auto_pairs).into();
 
         // Initialize file watcher and diff providers
-        let file_watcher = Watcher::new(&conf.files.watch, handlers.callbacks.clone());
+        let workspace = workspace::ResolvedWorkspace::current();
+        let file_watcher = Watcher::new(&conf.files.watch, &workspace, handlers.callbacks.clone());
         let diff_providers = DiffProviderRegistry::default();
 
         // The frontend refines this area with its remaining application chrome.
@@ -281,6 +283,7 @@ impl Editor {
             file_watcher,
             dir_stack: VecDeque::with_capacity(DIR_STACK_CAP),
             workspace_trust,
+            workspace,
         }
     }
 
@@ -857,13 +860,13 @@ impl Editor {
             }
         }
         if self.config().files.watch.watch_vcs {
-            let root = workspace::find_workspace().0;
+            let root = self.workspace.root();
             let trusted = self
                 .workspace_trust
-                .query(&root, workspace::trust::TrustQuery::Git)
+                .query(root, workspace::trust::TrustQuery::Git)
                 .is_trusted();
-            paths.extend(self.diff_providers.get_watched_paths(&root, trusted));
-            files.extend(self.diff_providers.get_watched_files(&root, trusted));
+            paths.extend(self.diff_providers.get_watched_paths(root, trusted));
+            files.extend(self.diff_providers.get_watched_files(root, trusted));
             for doc in self.documents.values() {
                 let Some(path) = doc
                     .path()
@@ -904,10 +907,16 @@ impl Editor {
         &self.handlers.callbacks
     }
 
+    pub fn workspace(&self) -> &workspace::ResolvedWorkspace {
+        &self.workspace
+    }
+
     pub fn set_cwd(&mut self, path: &Path) -> std::io::Result<()> {
         self.last_cwd = stdx::env::set_current_working_dir(path)?;
         self.clear_doc_relative_paths();
-        self.file_watcher.reload(&self.config().files.watch.clone());
+        self.workspace = workspace::ResolvedWorkspace::current();
+        self.file_watcher
+            .reload(&self.config().files.watch.clone(), &self.workspace);
         self.refresh_vcs_watches();
         Ok(())
     }

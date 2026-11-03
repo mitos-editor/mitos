@@ -203,7 +203,7 @@ fn register_hooks(events: &event::EventHub) {
     crate::debugger::register_hooks(events);
     word_index::register_hooks(events);
     register_hook!(events => move |event: &mut ConfigDidChange<'_>| {
-        event.editor.file_watcher.reload(&event.new.files.watch);
+        event.editor.file_watcher.reload(&event.new.files.watch, &event.editor.workspace);
         event.editor.refresh_vcs_watches();
         Ok(())
     });

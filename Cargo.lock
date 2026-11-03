@@ -2077,6 +2077,7 @@ dependencies = [
  "stdx",
  "tempfile",
  "threadpool",
+ "workspace",
 ]
 
 [[package]]
