@@ -44,7 +44,7 @@ impl Fixture {
             for flag in flags {
                 server = server.arg(flag);
             }
-            servers.push_str(&server.toml());
+            servers.push_str(&server.toml(env!("CARGO_BIN_EXE_mitos-test-lsp")));
             logs.push(lsp::log_path(dir.path(), name));
             gates.push(gate);
         }
@@ -129,7 +129,7 @@ impl Fixture {
                 let (tx, rx) = tokio::sync::oneshot::channel();
                 self.app
                     .job_sender()
-                    .send(move |_, compositor| {
+                    .send(move |compositor, _| {
                         let open = compositor
                             .find_id::<Popup<Menu<CodeLensCommand>>>("code-lens")
                             .is_some();
@@ -462,7 +462,7 @@ async fn visible_titles_resolve_automatically_and_repeated_frames_reuse_attempts
     fixture
         .app
         .job_sender()
-        .send_callback(term::job::Callback::EditorOutcome(title))
+        .send_callback(term::job::Callback::Editor(title))
         .await;
     fixture.keys("").await?;
     let doc = fixture.app.editor.document(fixture.doc).unwrap();

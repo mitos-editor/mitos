@@ -133,29 +133,28 @@ fn request_change(editor: &mut Editor, jobs: &mut crate::job::Jobs) {
     let worker = request.clone();
     jobs.callback(async move {
         let result = worker.run().await;
-        Ok(crate::job::Callback::EditorCompositor(Box::new(
-            move |editor, compositor| {
-                if !request.is_current(editor) {
-                    return;
+        Ok(crate::job::Callback::ui(move |compositor, cx| {
+            let editor = &mut *cx.editor;
+            if !request.is_current(editor) {
+                return;
+            }
+            match result {
+                Ok(snapshot)
+                    if snapshot.review.additions != 0
+                        || snapshot.review.deletions != 0
+                        || snapshot.review.truncated =>
+                {
+                    let view = crate::ui::change_review::HunkReviewView::new(snapshot);
+                    compositor.replace_or_push(
+                        crate::ui::change_review::ReviewView::ID,
+                        crate::ui::Popup::new(crate::ui::change_review::ReviewView::ID, view)
+                            .auto_close(true),
+                    );
                 }
-                match result {
-                    Ok(snapshot)
-                        if snapshot.review.additions != 0
-                            || snapshot.review.deletions != 0
-                            || snapshot.review.truncated =>
-                    {
-                        let view = crate::ui::change_review::HunkReviewView::new(snapshot);
-                        compositor.replace_or_push(
-                            crate::ui::change_review::ReviewView::ID,
-                            crate::ui::Popup::new(crate::ui::change_review::ReviewView::ID, view)
-                                .auto_close(true),
-                        );
-                    }
-                    Ok(_) => editor.set_status("There is no change at the current line"),
-                    Err(error) => editor.set_error(|| error.to_string()),
-                }
-            },
-        )))
+                Ok(_) => editor.set_status("There is no change at the current line"),
+                Err(error) => editor.set_error(|| error.to_string()),
+            }
+        }))
     });
 }
 
@@ -616,23 +615,21 @@ pub(super) mod typed {
         command: fn(&mut super::Context),
     ) -> anyhow::Result<()> {
         cx.jobs.callback(async move {
-            Ok(crate::job::Callback::Context(Box::new(
-                move |compositor, cx| {
-                    let mut command_cx = super::Context {
-                        config: cx.config,
-                        register: None,
-                        count: None,
-                        editor: cx.editor,
-                        callback: Vec::new(),
-                        on_next_key_callback: None,
-                        jobs: cx.jobs,
-                    };
-                    command(&mut command_cx);
-                    for callback in command_cx.callback {
-                        callback(compositor, cx);
-                    }
-                },
-            )))
+            Ok(crate::job::Callback::ui(move |compositor, cx| {
+                let mut command_cx = super::Context {
+                    config: cx.config,
+                    register: None,
+                    count: None,
+                    editor: cx.editor,
+                    callback: Vec::new(),
+                    on_next_key_callback: None,
+                    jobs: cx.jobs,
+                };
+                command(&mut command_cx);
+                for callback in command_cx.callback {
+                    callback(compositor, cx);
+                }
+            }))
         });
 
         Ok(())
@@ -744,19 +741,18 @@ pub(super) mod typed {
         #[cfg(feature = "git")]
         {
             cx.jobs.callback(async move {
-                Ok(crate::job::Callback::EditorCompositor(Box::new(
-                    move |editor, compositor| {
-                        let result = if repository {
-                            super::history::repository_history(editor)
-                        } else {
-                            super::history::file_history(editor)
-                        };
-                        match result {
-                            Ok(picker) => compositor.push(picker),
-                            Err(error) => editor.set_error(|| error.to_string()),
-                        }
-                    },
-                )))
+                Ok(crate::job::Callback::ui(move |compositor, cx| {
+                    let editor = &mut *cx.editor;
+                    let result = if repository {
+                        super::history::repository_history(editor)
+                    } else {
+                        super::history::file_history(editor)
+                    };
+                    match result {
+                        Ok(picker) => compositor.push(picker),
+                        Err(error) => editor.set_error(|| error.to_string()),
+                    }
+                }))
             });
             Ok(())
         }

@@ -85,7 +85,7 @@ pub(super) fn source(cx: &mut compositor::Context, args: Args) -> Result<()> {
                 vcs::conflict::read_source(&path, &side, trusted)
             })
             .await?;
-            Ok(Callback::Editor(Box::new(move |editor| {
+            Ok(Callback::editor(move |editor| {
                 if editor.tree.focus() != view_id
                     || editor.tree.try_get(view_id).is_none_or(|view| {
                         view.document_id() != doc_id || view.binding_revision() != binding
@@ -119,7 +119,7 @@ pub(super) fn source(cx: &mut compositor::Context, args: Args) -> Result<()> {
                     }
                     Err(error) => editor.set_error(|| error.to_string()),
                 }
-            })))
+            }))
         });
         Ok(())
     }

@@ -15,7 +15,11 @@ name = "lsp_client"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[features]
+test-support = ["dep:toml"]
+
 [dependencies]
+toml = { workspace = true, optional = true }
 diagnostics.workspace = true
 stdx.workspace = true
 core.workspace = true
@@ -34,6 +38,7 @@ thiserror.workspace = true
 sonic-rs.workspace = true
 
 [dev-dependencies]
+tempfile.workspace = true
 slotmap.workspace = true
 tokio = { workspace = true, features = ["test-util"] }
 

@@ -28,7 +28,6 @@ mod statusline;
 mod text;
 mod text_decorations;
 
-use crate::compositor::Compositor;
 use crate::job::{self, Callback};
 pub use completion::Completion;
 pub use editor::EditorView;
@@ -183,8 +182,9 @@ pub fn search_prompt(
 
                             if event == PromptEvent::Validate {
                                 let callback = async move {
-                                    let call: job::Callback = Callback::EditorCompositor(Box::new(
-                                        move |editor: &mut Editor, compositor: &mut Compositor| {
+                                    let call: job::Callback =
+                                        Callback::ui(move |compositor, cx| {
+                                            let editor = &mut *cx.editor;
                                             let contents = Text::new(err.root_cause().to_string());
                                             let size = compositor.size();
                                             let editor_area = size.clip_bottom(
@@ -198,8 +198,7 @@ pub fn search_prompt(
                                                 )))
                                                 .auto_close(true);
                                             compositor.replace_or_push("invalid-regex", popup);
-                                        },
-                                    ));
+                                        });
                                     Ok(call)
                                 };
 

@@ -181,17 +181,18 @@ pub(super) fn start(cx: &mut Context, workspace: PathBuf, action: GitAction) {
     cx.jobs.add(
         Job::with_callback(async move {
             let result = request.prepare().await;
-            Ok(Callback::Followup(Box::new(move |editor| {
+            Ok(Callback::Ui(Box::new(move |_, cx| {
+                let editor = &mut *cx.editor;
+                let jobs = &mut *cx.jobs;
                 let task = result.and_then(|prepared| prepared.admit(editor))?;
-                Ok(Some(
+                jobs.add(
                     Job::with_callback(async move {
                         let completion = task.execute().await;
-                        Ok(Callback::Editor(Box::new(move |editor| {
-                            completion.finish(editor)
-                        })))
+                        Ok(Callback::editor(move |editor| completion.finish(editor)))
                     })
                     .wait_before_exiting(),
-                ))
+                );
+                Ok(view::callbacks::CallbackOutcome::Redraw)
             })))
         })
         .wait_before_exiting(),

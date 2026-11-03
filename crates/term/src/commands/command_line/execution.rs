@@ -178,7 +178,7 @@ impl Sequence {
                     let cancel = cx.jobs.command_expansion.restart();
                     cx.jobs.callback(async move {
                         let result = event::cancelable_future(args, &cancel).await;
-                        Ok(job::Callback::Context(Box::new(move |compositor, cx| {
+                        Ok(job::Callback::ui(move |compositor, cx| {
                             if cancel.is_canceled() || !target.is_current(cx.editor) {
                                 return;
                             }
@@ -202,7 +202,7 @@ impl Sequence {
                                 }
                                 Err(error) => cx.editor.set_error(|| error.to_string()),
                             }
-                        })))
+                        }))
                     });
                     return Ok(callbacks);
                 }

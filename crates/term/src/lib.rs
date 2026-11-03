@@ -82,7 +82,7 @@ fn open_external_url_callback(
                 }
             };
             if output.status.success() {
-                return Ok(job::Callback::Editor(Box::new(|_| {})));
+                return Ok(job::Callback::editor(|_| {}));
             }
             let stderr = String::from_utf8_lossy(&output.stderr);
             let stdout = String::from_utf8_lossy(&output.stdout);
@@ -93,9 +93,9 @@ fn open_external_url_callback(
                 stderr.trim()
             );
         }
-        Ok(job::Callback::Editor(Box::new(move |editor| {
+        Ok(job::Callback::editor(move |editor| {
             editor.set_error(|| "Opening URL in external program failed")
-        })))
+        }))
     }
 }
 

@@ -22,19 +22,18 @@ fn debugger_query<T: Send + 'static>(
 ) {
     jobs.callback(async move {
         let update = task.run().await;
-        Ok(Callback::EditorCompositor(Box::new(
-            move |editor, compositor| {
-                let Some(update) = update else { return };
-                let context = update.context();
-                match update.into_result(editor) {
-                    Some(Ok(result)) => callback(editor, compositor, context, result),
-                    Some(Err(error)) => {
-                        editor.set_error(|| format!("Debugger request failed: {error}"))
-                    }
-                    None => {}
+        Ok(Callback::ui(move |compositor, cx| {
+            let editor = &mut *cx.editor;
+            let Some(update) = update else { return };
+            let context = update.context();
+            match update.into_result(editor) {
+                Some(Ok(result)) => callback(editor, compositor, context, result),
+                Some(Err(error)) => {
+                    editor.set_error(|| format!("Debugger request failed: {error}"))
                 }
-            },
-        )))
+                None => {}
+            }
+        }))
     });
 }
 
@@ -185,12 +184,11 @@ pub fn dap_launch(cx: &mut Context) {
                 let completions = template.completion.clone();
                 let name = template.name.clone();
                 let callback = Box::pin(async move {
-                    let call: Callback =
-                        Callback::EditorCompositor(Box::new(move |_editor, compositor| {
-                            let prompt =
-                                debug_parameter_prompt(document, completions, name, Vec::new());
-                            compositor.push(Box::new(prompt));
-                        }));
+                    let call: Callback = Callback::ui(move |compositor, _cx| {
+                        let prompt =
+                            debug_parameter_prompt(document, completions, name, Vec::new());
+                        compositor.push(Box::new(prompt));
+                    });
                     Ok(call)
                 });
                 cx.jobs.callback(callback);
@@ -239,12 +237,11 @@ fn debug_parameter_prompt(
                 let config_name = config_name.clone();
                 let params = params.clone();
                 let callback = Box::pin(async move {
-                    let call: Callback =
-                        Callback::EditorCompositor(Box::new(move |_editor, compositor| {
-                            let prompt =
-                                debug_parameter_prompt(document, completions, config_name, params);
-                            compositor.push(Box::new(prompt));
-                        }));
+                    let call: Callback = Callback::ui(move |compositor, _cx| {
+                        let prompt =
+                            debug_parameter_prompt(document, completions, config_name, params);
+                        compositor.push(Box::new(prompt));
+                    });
                     Ok(call)
                 });
                 cx.jobs.callback(callback);
@@ -350,7 +347,8 @@ pub fn dap_edit_condition(cx: &mut Context) {
             return;
         };
         let callback = Box::pin(async move {
-            let call: Callback = Callback::EditorCompositor(Box::new(move |editor, compositor| {
+            let call: Callback = Callback::ui(move |compositor, cx| {
+                let editor = &mut *cx.editor;
                 let mut prompt = Prompt::new(
                     "condition:".into(),
                     None,
@@ -376,7 +374,7 @@ pub fn dap_edit_condition(cx: &mut Context) {
                     prompt.insert_str(&condition, editor)
                 }
                 compositor.push(Box::new(prompt));
-            }));
+            });
             Ok(call)
         });
         cx.jobs.callback(callback);
@@ -390,7 +388,8 @@ pub fn dap_edit_log(cx: &mut Context) {
             return;
         };
         let callback = Box::pin(async move {
-            let call: Callback = Callback::EditorCompositor(Box::new(move |editor, compositor| {
+            let call: Callback = Callback::ui(move |compositor, cx| {
+                let editor = &mut *cx.editor;
                 let mut prompt = Prompt::new(
                     "log-message:".into(),
                     None,
@@ -416,7 +415,7 @@ pub fn dap_edit_log(cx: &mut Context) {
                     prompt.insert_str(&log_message, editor);
                 }
                 compositor.push(Box::new(prompt));
-            }));
+            });
             Ok(call)
         });
         cx.jobs.callback(callback);

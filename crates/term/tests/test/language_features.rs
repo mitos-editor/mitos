@@ -42,7 +42,7 @@ impl Fixture {
         for arg in args {
             server = server.arg(arg);
         }
-        let servers = server.toml();
+        let servers = server.toml(env!("CARGO_BIN_EXE_mitos-test-lsp"));
         let mut config = test_config();
         config.editor.lsp.enable = true;
         config.editor.lsp.inlay_hints.enable = true;

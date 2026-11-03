@@ -681,8 +681,10 @@ loop. Its private modules separate startup, live configuration, editor/terminal
 event adaptation, LSP presentation and dispatch, and frame rendering. Adapter
 methods remain available through `Application`; component state stays private.
 
-`term::Application` decodes incoming notifications and calls these operations;
-exit status text, progress displays, and interactive prompts stay in the frontend.
+`Editor::handle_language_server_message` decodes incoming notifications and applies
+shared editor effects and message status. It returns concrete host actions for
+progress displays, choice prompts and document display. The terminal supplies
+prompt visibility, overlay focus policy and external URL launching.
 `view::features::lsp_progress` owns work tokens and completion-triggered diagnostic
 refreshes. It processes notifications even while a prompt suppresses status text,
 and server cleanup removes its tokens. Terminal spinners follow the shared active
@@ -693,10 +695,12 @@ application results, and dynamic file-watcher registration. It uses the server's
 negotiated position encoding, preserves partial edit failures, and adds relative
 watch roots before registering interests. `lsp::Client::configuration` resolves
 ordered configuration sections; workspace folders remain on the client.
-`term::Application` decodes requests, calls these typed operations, and serializes
-and sends replies. Diagnostic refresh uses the existing shared pull-diagnostic
-entry point. Unsupported capability registrations retain their compatibility
-acknowledgement; progress presentation and interactive requests stay with the frontend.
+The shared dispatcher calls these operations and sends ordinary replies. Deferred
+host actions carry a single-use reply addressed to the original client instance;
+it retains only a weak client reference. The terminal completes it on accept or
+abort, while prompt replacement/drop stays silent. Diagnostic refresh uses the
+existing shared entry point. Unsupported registrations retain their compatibility
+acknowledgement; progress presentation stays with the frontend.
 
 `workspace::trust` owns trust policy, persisted grants/exclusions, and
 workspace configuration hashing. `view::features::workspace_trust` owns each
@@ -1016,6 +1020,22 @@ its owning editor's callback destination. Cancellation must also be checked when
 a queued callback is applied, since canceling a request cannot retract a callback
 already delivered to the frontend.
 
+`view::presentation::Inbox` holds ready presentation state for one editor. Hover,
+navigation and signature help replace their previous ready result; completion
+input/provider deltas and reload/trust prompts retain their FIFO order. Signature
+help's document-only triggers retain the same inbox. Publication and presentation
+keep their existing request guards. The event loop takes ready work in its existing
+feature priority; blame remains a lazy probe of shared cached data rather than a
+second stored result. Selective feature readers support headless consumers without
+owning another queue.
+
+Terminal callbacks have two destinations: editor mutations return
+`CallbackOutcome`, and frontend callbacks receive the compositor and its context.
+`Jobs` applies both through the same fallible outcome boundary. Shared editor
+callbacks transfer their existing box directly into the bounded queue. Required
+save/Git continuations use the frontend context to register their next exit-waiting
+job; callbacks no longer bubble optional jobs through each event-loop consumer.
+
 `view::editing::replace_selections` replaces a document's selections through one
 transaction and commits pending edits to history. It takes a `Document`, a `View`,
 and replacement text, preserving selection direction and the primary selection.
@@ -1332,11 +1352,13 @@ Headless tests in `crates/view/tests` exercise shared editor coordination with a
 explicit callback queue. Use them for editor isolation, cancellation, stale
 publication, configuration application, and lifecycle behavior. Terminal integration
 tests in `crates/term/tests` exercise input, prompts, rendering adapters, and the
-application event loop. The fake LSP executable in `crates/term/tests/fixtures`
-provides controlled responses and gates for asynchronous protocol tests. Shared
-helpers configure its command arguments, TOML language definitions, log paths,
-and initialization gates; each feature suite keeps its response scenarios and
-assertions explicit.
+application event loop. `lsp::test_support` owns the fake server, configuration,
+log and gate helpers behind an explicit feature. Thin term/view fixture binaries
+supply executable paths; neither default production graph includes the fixture.
+Headless navigation integrations use the production shared dispatcher. Direct
+private snapshot/adapter tests cover local state transitions; wire cancellation,
+provider/encoding behavior and full queued-callback stale checks keep real servers.
+Each suite keeps its response scenarios and assertions explicit.
 
 Place algorithm tests in the owning feature crate. Reuse existing fixtures and
 keep assertions about observable behavior; moving code alone does not require a

@@ -911,7 +911,7 @@ fn spawn_image_preview<T: 'static + Send + Sync, D: 'static + Send + Sync>(
         tokio::time::sleep(IMAGE_PREVIEW_DELAY).await;
         let result = load_image(cache, task_path, image_picker, size).await;
 
-        jobs.send(move |_editor, compositor| {
+        jobs.send(move |compositor, _| {
             let Some(Overlay {
                 content: picker, ..
             }) = compositor.find::<Overlay<Picker<T, D>>>()
@@ -966,28 +966,27 @@ fn highlight_preview<T: 'static + Send + Sync, D: 'static + Send + Sync>(
             let Some(result) = request.compute().await else {
                 return Ok(None);
             };
-            Ok(Some(job::Callback::EditorCompositor(Box::new(
-                move |editor, compositor| {
-                    let Some(Overlay {
-                        content: picker, ..
-                    }) = compositor.find::<Overlay<Picker<T, D>>>()
-                    else {
-                        return;
-                    };
-                    let Some(CachedPreview::Document(doc)) = picker
-                        .preview
-                        .preview_cache
-                        .get_mut(&path)
-                        .map(|entry| &mut entry.preview)
-                    else {
-                        return;
-                    };
-                    if request.complete(doc, result) {
-                        let diagnostics = editor.diagnostics_for_document(doc);
-                        doc.replace_diagnostics(diagnostics, &[], None);
-                    }
-                },
-            ))))
+            Ok(Some(job::Callback::ui(move |compositor, cx| {
+                let editor = &mut *cx.editor;
+                let Some(Overlay {
+                    content: picker, ..
+                }) = compositor.find::<Overlay<Picker<T, D>>>()
+                else {
+                    return;
+                };
+                let Some(CachedPreview::Document(doc)) = picker
+                    .preview
+                    .preview_cache
+                    .get_mut(&path)
+                    .map(|entry| &mut entry.preview)
+                else {
+                    return;
+                };
+                if request.complete(doc, result) {
+                    let diagnostics = editor.diagnostics_for_document(doc);
+                    doc.replace_diagnostics(diagnostics, &[], None);
+                }
+            })))
         }),
         wait: false,
     });

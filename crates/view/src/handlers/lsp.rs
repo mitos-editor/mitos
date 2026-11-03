@@ -1,3 +1,5 @@
+mod dispatch;
+pub use dispatch::{HostAction, Reply};
 mod workspace;
 
 use crate::events::LanguageServerExited;

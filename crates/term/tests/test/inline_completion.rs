@@ -31,7 +31,12 @@ impl Fixture {
         if array {
             server = server.arg("--array");
         }
-        let loader = lsp::syntax_loader("inline-test", "inline-test", &["inline"], &server.toml());
+        let loader = lsp::syntax_loader(
+            "inline-test",
+            "inline-test",
+            &["inline"],
+            &server.toml(env!("CARGO_BIN_EXE_mitos-test-lsp")),
+        );
         let mut config = test_config();
         config.editor.lsp.enable = true;
         config.editor.completion.auto_trigger = false;

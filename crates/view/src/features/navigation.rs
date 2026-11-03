@@ -15,7 +15,6 @@ use futures_util::{
 };
 use language_config::LanguageServerFeature;
 use lsp_client::{lsp, Client, OffsetEncoding};
-use parking_lot::Mutex;
 
 use super::request::SelectionRequest;
 use crate::{
@@ -142,35 +141,23 @@ fn definition_locations(response: Option<lsp::GotoDefinitionResponse>) -> Respon
     })
 }
 
-#[derive(Default)]
-struct Session {
-    target: Option<(DocumentId, ViewId)>,
-    pending: Option<NavigationUpdate>,
-}
-
-struct Shared {
-    callbacks: EditorCallbackSender,
-    session: Mutex<Session>,
-}
-
 /// Coordinates manual navigation for one editor.
 pub struct NavigationHandler {
-    shared: Arc<Shared>,
+    callbacks: Arc<EditorCallbackSender>,
+    target: Option<(DocumentId, ViewId)>,
 }
 
 impl NavigationHandler {
     pub fn new(callbacks: EditorCallbackSender) -> Self {
         Self {
-            shared: Arc::new(Shared {
-                callbacks,
-                session: Mutex::new(Session::default()),
-            }),
+            callbacks: Arc::new(callbacks),
+            target: None,
         }
     }
 }
 
 struct Request {
-    owner: Weak<Shared>,
+    owner: Weak<EditorCallbackSender>,
     target: SelectionRequest,
     kind: NavigationKind,
     mode: Mode,
@@ -179,7 +166,7 @@ struct Request {
 impl Request {
     fn is_current(&self, editor: &Editor) -> bool {
         self.owner
-            .ptr_eq(&Arc::downgrade(&editor.handlers.navigation.shared))
+            .ptr_eq(&Arc::downgrade(&editor.handlers.navigation.callbacks))
             && editor.mode() == self.mode
             && editor.config().lsp.enable
             && self
@@ -198,11 +185,11 @@ fn no_provider(editor: &mut Editor, kind: NavigationKind) {
 }
 
 fn cancel(editor: &mut Editor) {
-    let previous = {
-        let mut session = editor.handlers.navigation.shared.session.lock();
-        session.pending = None;
-        session.target.take()
-    };
+    editor
+        .handlers
+        .presentations
+        .with(|pending| pending.navigation = None);
+    let previous = editor.handlers.navigation.target.take();
     if let Some((doc, view)) = previous
         && let Some(doc) = editor.document_mut(doc)
     {
@@ -220,7 +207,7 @@ pub(crate) fn mode_changed(editor: &mut Editor, old: Mode) {
 /// Request navigation at the focused selection, replacing older navigation work.
 pub fn request(editor: &mut Editor, kind: NavigationKind) {
     cancel(editor);
-    let shared = editor.handlers.navigation.shared.clone();
+    let shared = editor.handlers.navigation.callbacks.clone();
     if !editor.config().lsp.enable {
         no_provider(editor, kind);
         return;
@@ -253,14 +240,15 @@ pub fn request(editor: &mut Editor, kind: NavigationKind) {
         .navigation
         .get_or_insert_default()
         .restart();
-    shared.session.lock().target = Some((doc.id(), view.id));
+    let target = (doc.id(), view.id);
     let request = Request {
         owner: Arc::downgrade(&shared),
         target: SelectionRequest::new(doc, view.id, cancel, servers.into_iter().collect()),
         kind,
         mode,
     };
-    let callbacks = shared.callbacks.clone();
+    editor.handlers.navigation.target = Some(target);
+    let callbacks = (*shared).clone();
     tokio::spawn(async move {
         let mut locations = Vec::new();
         let mut highlights = None;
@@ -289,8 +277,9 @@ pub fn request(editor: &mut Editor, kind: NavigationKind) {
                         select_highlights(editor, &request, encoding, highlights);
                     }
                 } else {
-                    editor.handlers.navigation.shared.session.lock().pending =
-                        Some(NavigationUpdate { request, locations });
+                    editor.present(|pending| {
+                        pending.navigation = Some(NavigationUpdate { request, locations })
+                    });
                 }
                 editor.redraw().request();
             })
@@ -360,12 +349,8 @@ impl NavigationUpdate {
 pub fn next_update(editor: &Editor) -> Option<NavigationUpdate> {
     editor
         .handlers
-        .navigation
-        .shared
-        .session
-        .lock()
-        .pending
-        .take()
+        .presentations
+        .with(|pending| pending.navigation.take())
 }
 
 pub(crate) fn register_hooks(events: &event::EventHub) {
@@ -398,3 +383,6 @@ pub(crate) fn register_hooks(events: &event::EventHub) {
         Ok(())
     });
 }
+
+#[cfg(test)]
+mod tests;

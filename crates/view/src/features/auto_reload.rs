@@ -5,7 +5,6 @@
 //! including reload contributions by Anthony Rubick.
 
 use std::{
-    collections::VecDeque,
     path::PathBuf,
     sync::{Arc, Weak},
     time::{Duration, SystemTime},
@@ -27,7 +26,6 @@ enum PollEvent {
 pub struct AutoReloadHandler {
     callbacks: Arc<EditorCallbackSender>,
     events: Sender<PollEvent>,
-    confirmations: VecDeque<ReloadRequest>,
 }
 
 impl AutoReloadHandler {
@@ -38,11 +36,7 @@ impl AutoReloadHandler {
             callbacks: weak.clone(),
         }
         .spawn();
-        let handler = Self {
-            callbacks,
-            events,
-            confirmations: VecDeque::new(),
-        };
+        let handler = Self { callbacks, events };
         handler.configure(config, false);
         handler
     }
@@ -134,7 +128,7 @@ impl ReloadRequest {
             .ptr_eq(&Arc::downgrade(&editor.handlers.auto_reload.callbacks))
     }
 
-    fn is_current(&self, editor: &Editor) -> bool {
+    pub(crate) fn is_current(&self, editor: &Editor) -> bool {
         self.belongs_to(editor)
             && editor.config().files.reload.enable
             && editor.config().files.reload.prompt_if_modified
@@ -148,7 +142,7 @@ impl ReloadRequest {
             && self.path.metadata().and_then(|meta| meta.modified()).ok() == Some(self.modified)
     }
 
-    fn discard_stale(&self, editor: &mut Editor) {
+    pub(crate) fn discard_stale(&self, editor: &mut Editor) {
         if self.belongs_to(editor)
             && let Some(doc) = editor.documents.get_mut(&self.doc)
             && doc.path() == Some(self.path.as_path())
@@ -169,7 +163,11 @@ pub enum ReloadDecision {
 
 /// Drain valid requests without requiring a compositor or terminal event loop.
 pub fn next_reload_request(editor: &mut Editor) -> Option<ReloadRequest> {
-    while let Some(request) = editor.handlers.auto_reload.confirmations.pop_front() {
+    while let Some(request) = editor
+        .handlers
+        .presentations
+        .with(|pending| pending.reload.pop_front())
+    {
         if request.is_current(editor) {
             return Some(request);
         }
@@ -263,7 +261,7 @@ fn handle_document_change(editor: &mut Editor, doc_id: DocumentId) {
                 saved: doc.last_saved_time(),
                 modified: mtime,
             };
-            editor.handlers.auto_reload.confirmations.push_back(request);
+            editor.present(|pending| pending.reload.push_back(request));
         } else {
             editor.set_warning(|| {
                 format!(

@@ -9,7 +9,6 @@ use event::{cancelable_future, register_hook};
 use futures_util::{stream::FuturesUnordered, StreamExt};
 use language_config::LanguageServerFeature;
 use lsp_client::lsp;
-use parking_lot::Mutex;
 
 use super::request::SelectionRequest;
 use crate::{
@@ -18,42 +17,30 @@ use crate::{
     DocumentId, Editor, ViewId,
 };
 
-struct Shared {
-    callbacks: EditorCallbackSender,
-    session: Mutex<Session>,
-}
-
-#[derive(Default)]
-struct Session {
-    target: Option<(DocumentId, ViewId)>,
-    pending: Option<HoverUpdate>,
-}
-
 /// One editor's result destination. Request lifetimes are owned by its documents.
 pub struct HoverHandler {
-    shared: Arc<Shared>,
+    callbacks: Arc<EditorCallbackSender>,
+    target: Option<(DocumentId, ViewId)>,
 }
 
 impl HoverHandler {
     pub fn new(callbacks: EditorCallbackSender) -> Self {
         Self {
-            shared: Arc::new(Shared {
-                callbacks,
-                session: Mutex::new(Session::default()),
-            }),
+            callbacks: Arc::new(callbacks),
+            target: None,
         }
     }
 }
 
 struct Request {
-    owner: Weak<Shared>,
+    owner: Weak<EditorCallbackSender>,
     target: SelectionRequest,
 }
 
 impl Request {
     fn is_current(&self, editor: &Editor) -> bool {
         self.owner
-            .ptr_eq(&Arc::downgrade(&editor.handlers.hover.shared))
+            .ptr_eq(&Arc::downgrade(&editor.handlers.hover.callbacks))
             && editor.config().lsp.enable
             && self
                 .target
@@ -64,12 +51,12 @@ impl Request {
 
 /// Request hover at the focused selection, superseding its previous request.
 pub fn request(editor: &mut Editor) {
-    let shared = editor.handlers.hover.shared.clone();
-    let previous = {
-        let mut session = shared.session.lock();
-        session.pending = None;
-        session.target.take()
-    };
+    let shared = editor.handlers.hover.callbacks.clone();
+    editor
+        .handlers
+        .presentations
+        .with(|pending| pending.hover = None);
+    let previous = editor.handlers.hover.target.take();
     if let Some((doc, view)) = previous
         && let Some(doc) = editor.document_mut(doc)
     {
@@ -105,12 +92,13 @@ pub fn request(editor: &mut Editor) {
         editor.set_error(|| "No configured language server supports hover");
         return;
     }
-    shared.session.lock().target = Some((doc.id(), view.id));
+    let target = (doc.id(), view.id);
     let request = Request {
         owner: Arc::downgrade(&shared),
         target: SelectionRequest::new(doc, view.id, cancel, servers.into_iter().collect()),
     };
-    let callbacks = shared.callbacks.clone();
+    editor.handlers.hover.target = Some(target);
+    let callbacks = (*shared).clone();
     tokio::spawn(async move {
         let mut hovers = Vec::new();
         loop {
@@ -125,9 +113,7 @@ pub fn request(editor: &mut Editor) {
         callbacks
             .send(move |editor| {
                 if request.is_current(editor) {
-                    editor.handlers.hover.shared.session.lock().pending =
-                        Some(HoverUpdate { request, hovers });
-                    editor.redraw().request();
+                    editor.present(|pending| pending.hover = Some(HoverUpdate { request, hovers }));
                 }
             })
             .await;
@@ -153,7 +139,10 @@ impl HoverUpdate {
 }
 
 pub fn next_update(editor: &Editor) -> Option<HoverUpdate> {
-    editor.handlers.hover.shared.session.lock().pending.take()
+    editor
+        .handlers
+        .presentations
+        .with(|pending| pending.hover.take())
 }
 
 pub(crate) fn register_hooks(events: &event::EventHub) {

@@ -83,7 +83,8 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> AsyncHook for DynamicQu
         let version = picker_version.fetch_add(1, atomic::Ordering::Relaxed) + 1;
         self.last_query = Some((query.clone(), version));
 
-        self.jobs.send_blocking(move |editor, compositor| {
+        self.jobs.send_blocking(move |compositor, cx| {
+            let editor = &mut *cx.editor;
             let Some(Overlay {
                 content: picker, ..
             }) = compositor.find::<Overlay<Picker<T, D>>>()
