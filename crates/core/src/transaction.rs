@@ -1190,6 +1190,12 @@ mod test {
         };
 
         let doc = Rope::from("世界3 hello xz");
+        let unchanged = ChangeSet::new(doc.slice(..)).invert(&doc);
+        assert_eq!(
+            (unchanged.len_before(), unchanged.len_after()),
+            (doc.len_chars(), doc.len_chars())
+        );
+        assert!(unchanged.apply(&mut doc.clone()));
         let revert = changes.invert(&doc);
 
         let mut doc2 = doc.clone();
