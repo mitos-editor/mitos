@@ -174,7 +174,10 @@ formatters and overlay queries do not reset one another.
 values. Diagnostic accumulation takes a diagnostic slice; completion row layout
 takes preview lines and formatter settings. These algorithms do not borrow a
 document or completion request state. The view supplies feature visibility policy,
-while terminal decorations paint the resulting positions.
+while terminal decorations paint the resulting positions. Completion exposes borrowed
+positioned rows from the same state used for reservation. Diagnostic measurement and
+painting share one streaming geometry pass; the terminal supplies styles and draws
+its end-of-line labels. Neither path retains a cross-frame layout cache.
 
 `text-layout::DisplayPosition` identifies formatted rows and terminal-cell columns,
 including soft wraps and virtual lines. Formatters, visual coordinate mapping,

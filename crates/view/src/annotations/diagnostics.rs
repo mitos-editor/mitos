@@ -1,8 +1,9 @@
-use ::diagnostics::Diagnostic;
+use ::diagnostics::{Diagnostic, Severity};
 use editor_config::{DiagnosticFilter, InlineDiagnosticsConfig};
-use text_layout::doc_formatter::{FormattedGrapheme, TextFormat};
-use text_layout::softwrapped_dimensions;
-use text_layout::text_annotations::LineAnnotation;
+use editor_core::graphemes::Grapheme;
+use std::cmp::Ordering;
+use text_layout::doc_formatter::{DocumentFormatter, FormattedGrapheme, TextFormat};
+use text_layout::text_annotations::{LineAnnotation, TextAnnotations};
 use text_layout::DisplayPosition;
 
 pub fn prepare_inline_diagnostics(
@@ -20,11 +21,11 @@ pub fn prepare_inline_diagnostics(
     config
 }
 
-pub fn max_diagnostic_start(config: &InlineDiagnosticsConfig, width: u16) -> u16 {
+fn max_diagnostic_start(config: &InlineDiagnosticsConfig, width: u16) -> u16 {
     width - config.min_diagnostic_width - config.prefix_len
 }
 
-pub fn diagnostic_text_format(
+fn diagnostic_text_format(
     config: &InlineDiagnosticsConfig,
     anchor_col: u16,
     width: u16,
@@ -51,8 +52,8 @@ pub fn diagnostic_text_format(
 pub struct InlineDiagnosticAccumulator<'a> {
     idx: usize,
     diagnostics: &'a [Diagnostic],
-    pub stack: Vec<(&'a Diagnostic, u16)>,
-    pub config: InlineDiagnosticsConfig,
+    stack: Vec<(&'a Diagnostic, u16)>,
+    config: InlineDiagnosticsConfig,
     cursor: usize,
     cursor_line: bool,
 }
@@ -156,7 +157,7 @@ impl<'a> InlineDiagnosticAccumulator<'a> {
         self.next_anchor(grapheme.char_idx + 1)
     }
 
-    pub fn filter(&self) -> DiagnosticFilter {
+    fn filter(&self) -> DiagnosticFilter {
         if self.cursor_line {
             self.config.cursor_line
         } else {
@@ -164,7 +165,7 @@ impl<'a> InlineDiagnosticAccumulator<'a> {
         }
     }
 
-    pub fn compute_line_diagnostics(&mut self) {
+    fn compute_line_diagnostics(&mut self) {
         let filter = if self.cursor_line {
             self.cursor_line = false;
             self.config.cursor_line
@@ -179,10 +180,187 @@ impl<'a> InlineDiagnosticAccumulator<'a> {
         self.stack.truncate(self.config.max_diagnostics)
     }
 
-    pub fn has_multi(&self, width: u16) -> bool {
+    /// Choose an end-of-line label before filtering the inline block.
+    pub fn eol_diagnostic(&self, eol_filter: DiagnosticFilter) -> Option<&Diagnostic> {
+        let DiagnosticFilter::Enable(eol_filter) = eol_filter else {
+            return None;
+        };
+        let inline_filter = self.filter();
         self.stack
-            .last()
-            .is_some_and(|&(_, anchor)| anchor > max_diagnostic_start(&self.config, width))
+            .iter()
+            .map(|(diag, _)| *diag)
+            .filter(|diag| diag.severity() >= eol_filter)
+            .filter(|diag| match inline_filter {
+                DiagnosticFilter::Enable(filter) => diag.severity() < filter,
+                DiagnosticFilter::Disable => true,
+            })
+            .max_by_key(|diag| diag.severity)
+    }
+
+    /// Stream a positioned diagnostic block. A measurement visitor may ignore glyphs;
+    /// painting uses the same wrapping, grouping and connector geometry.
+    pub fn layout_virtual_lines(
+        &mut self,
+        width: u16,
+        draw: impl FnMut(Grapheme, Severity, DisplayPosition),
+    ) -> usize {
+        self.compute_line_diagnostics();
+        let mut layout = DiagnosticLayout {
+            draw,
+            width,
+            row: 0,
+            config: &self.config,
+        };
+        layout.draw_multi_diagnostics(&mut self.stack);
+        layout.draw_diagnostics(&mut self.stack);
+        layout.row
+    }
+}
+
+const BL_CORNER: &str = "┘";
+const TR_CORNER: &str = "┌";
+const BR_CORNER: &str = "└";
+const STACK: &str = "├";
+const MULTI: &str = "┴";
+const HOR_BAR: &str = "─";
+const VER_BAR: &str = "│";
+
+struct DiagnosticLayout<'a, F> {
+    draw: F,
+    width: u16,
+    row: usize,
+    config: &'a InlineDiagnosticsConfig,
+}
+
+impl<F: FnMut(Grapheme, Severity, DisplayPosition)> DiagnosticLayout<'_, F> {
+    fn draw_decoration(&mut self, g: &'static str, severity: Severity, col: u16) {
+        self.draw_decoration_at(g, severity, col, self.row)
+    }
+
+    fn draw_decoration_at(&mut self, g: &'static str, severity: Severity, col: u16, row: usize) {
+        (self.draw)(
+            Grapheme::new_decoration(g),
+            severity,
+            DisplayPosition::new(row, col as usize),
+        );
+    }
+
+    fn draw_diagnostic(&mut self, diag: &Diagnostic, col: u16, next_severity: Option<Severity>) {
+        let severity = diag.severity();
+        let (sym, sym_severity) = if let Some(next_severity) = next_severity {
+            (STACK, next_severity.max(severity))
+        } else {
+            (BR_CORNER, severity)
+        };
+        self.draw_decoration(sym, sym_severity, col);
+        for i in 0..self.config.prefix_len {
+            self.draw_decoration(HOR_BAR, severity, col + i + 1);
+        }
+
+        let text_col = col + self.config.prefix_len + 1;
+        let text_fmt = diagnostic_text_format(self.config, text_col, self.width);
+        let annotations = TextAnnotations::default();
+        let formatter = DocumentFormatter::new_at_prev_checkpoint(
+            diag.message.trim().into(),
+            &text_fmt,
+            &annotations,
+            0,
+        );
+        let mut last_row = 0;
+        for grapheme in formatter {
+            last_row = grapheme.visual_pos.row;
+            (self.draw)(
+                grapheme.raw,
+                severity,
+                DisplayPosition::new(
+                    self.row + grapheme.visual_pos.row,
+                    text_col as usize + grapheme.visual_pos.col,
+                ),
+            );
+        }
+        self.row += 1;
+        // height is last_row + 1 and extra_rows is height - 1
+        let extra_lines = last_row;
+        if let Some(next_severity) = next_severity {
+            for _ in 0..extra_lines {
+                self.draw_decoration(VER_BAR, next_severity, col);
+                self.row += 1;
+            }
+        } else {
+            self.row += extra_lines;
+        }
+    }
+
+    fn draw_multi_diagnostics(&mut self, stack: &mut Vec<(&Diagnostic, u16)>) {
+        let Some(&(last_diag, last_anchor)) = stack.last() else {
+            return;
+        };
+        let start = max_diagnostic_start(self.config, self.width);
+
+        if last_anchor <= start {
+            return;
+        }
+        let mut severity = last_diag.severity();
+        let mut last_anchor = last_anchor;
+        self.draw_decoration(BL_CORNER, severity, last_anchor);
+        let mut stacked_diagnostics = 1;
+        for &(diag, anchor) in stack.iter().rev().skip(1) {
+            let sym = match anchor.cmp(&start) {
+                Ordering::Less => break,
+                Ordering::Equal => STACK,
+                Ordering::Greater => MULTI,
+            };
+            stacked_diagnostics += 1;
+            severity = severity.max(diag.severity());
+            let old_severity = severity;
+            if anchor == last_anchor && severity == old_severity {
+                continue;
+            }
+            for col in (anchor + 1)..last_anchor {
+                self.draw_decoration(HOR_BAR, old_severity, col)
+            }
+            self.draw_decoration(sym, severity, anchor);
+            last_anchor = anchor;
+        }
+
+        // if no diagnostic anchor was found exactly at the start of the
+        // diagnostic text  draw an upwards corner and ensure the last piece
+        // of the line is not missing
+        if last_anchor != start {
+            for col in (start + 1)..last_anchor {
+                self.draw_decoration(HOR_BAR, severity, col)
+            }
+            self.draw_decoration(TR_CORNER, severity, start)
+        }
+        self.row += 1;
+        let stacked_diagnostics = &stack[stack.len() - stacked_diagnostics..];
+
+        for (i, (diag, _)) in stacked_diagnostics.iter().rev().enumerate() {
+            let next_severity = stacked_diagnostics[..stacked_diagnostics.len() - i - 1]
+                .iter()
+                .map(|(diag, _)| diag.severity())
+                .max();
+            self.draw_diagnostic(diag, start, next_severity);
+        }
+
+        stack.truncate(stack.len() - stacked_diagnostics.len());
+    }
+
+    fn draw_diagnostics(&mut self, stack: &mut Vec<(&Diagnostic, u16)>) {
+        let mut stack = stack.drain(..).rev().peekable();
+        let mut last_anchor = self.width;
+        while let Some((diag, anchor)) = stack.next() {
+            if anchor != last_anchor {
+                for row in 0..self.row {
+                    self.draw_decoration_at(VER_BAR, diag.severity(), anchor, row);
+                }
+            }
+            let next_severity = stack.peek().and_then(|&(diag, next_anchor)| {
+                (next_anchor == anchor).then_some(diag.severity())
+            });
+            self.draw_diagnostic(diag, anchor, next_severity);
+            last_anchor = anchor;
+        }
     }
 }
 
@@ -229,18 +407,8 @@ impl LineAnnotation for InlineDiagnostics<'_> {
         _line_end_visual_pos: DisplayPosition,
         _doc_line: usize,
     ) -> DisplayPosition {
-        self.state.compute_line_diagnostics();
-        let multi = self.state.has_multi(self.width);
-        let diagnostic_height: usize = self
-            .state
-            .stack
-            .drain(..)
-            .map(|(diag, anchor)| {
-                let text_fmt = diagnostic_text_format(&self.state.config, anchor, self.width);
-                softwrapped_dimensions(diag.message.trim().into(), &text_fmt).0
-            })
-            .sum();
-        DisplayPosition::new(multi as usize + diagnostic_height, 0)
+        let height = self.state.layout_virtual_lines(self.width, |_, _, _| {});
+        DisplayPosition::new(height, 0)
     }
 }
 

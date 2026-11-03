@@ -4,20 +4,14 @@ use text_layout::doc_formatter::{FormattedGrapheme, TextFormat};
 use text_layout::DisplayPosition;
 use theme::Style;
 use view::{
-    annotations::inline_completion::{layout, InlineCompletionRow},
+    annotations::inline_completion::{InlineCompletionLines, InlineCompletionRow},
     document::InlineCompletion,
 };
 
 /// Paint a formatted preview while keeping the insertion cursor at its anchor.
 pub struct InlineCompletionDecoration<'a> {
-    completion: &'a InlineCompletion,
+    layout: InlineCompletionLines<'a>,
     style: Style,
-    format: TextFormat,
-    line_end: usize,
-    anchor: Option<DisplayPosition>,
-    rows: Vec<InlineCompletionRow>,
-    end_row: Option<usize>,
-    rendered: bool,
 }
 
 impl<'a> InlineCompletionDecoration<'a> {
@@ -28,14 +22,13 @@ impl<'a> InlineCompletionDecoration<'a> {
         line_end: usize,
     ) -> Self {
         Self {
-            completion,
+            layout: InlineCompletionLines::new(
+                completion.cursor,
+                &completion.lines,
+                format,
+                line_end,
+            ),
             style,
-            format,
-            line_end,
-            anchor: None,
-            rows: Vec::new(),
-            end_row: None,
-            rendered: false,
         }
     }
     fn draw(
@@ -103,34 +96,10 @@ impl<'a> InlineCompletionDecoration<'a> {
 
 impl Decoration for InlineCompletionDecoration<'_> {
     fn reset_pos(&mut self, pos: usize) -> usize {
-        self.anchor = None;
-        self.rows.clear();
-        self.end_row = None;
-        self.rendered = false;
-        if pos <= self.completion.cursor {
-            self.completion.cursor
-        } else {
-            usize::MAX
-        }
+        self.layout.reset_pos(pos)
     }
     fn decorate_grapheme(&mut self, _: &mut TextRenderer, grapheme: &FormattedGrapheme) -> usize {
-        if grapheme.is_virtual() {
-            return grapheme.char_idx;
-        }
-        if grapheme.char_idx == self.completion.cursor {
-            self.anchor = Some(grapheme.visual_pos);
-            self.rows = layout(
-                &self.completion.lines,
-                &self.format,
-                grapheme.visual_pos.col,
-            );
-        }
-        if grapheme.char_idx >= self.line_end {
-            self.end_row = Some(grapheme.visual_pos.row);
-            usize::MAX
-        } else {
-            self.line_end
-        }
+        self.layout.process_anchor(grapheme)
     }
     fn render_virt_lines(
         &mut self,
@@ -138,36 +107,13 @@ impl Decoration for InlineCompletionDecoration<'_> {
         pos: LinePos,
         off: DisplayPosition,
     ) -> DisplayPosition {
-        let Some(anchor) = self.anchor else {
+        let Some(block) = self.layout.block(pos.visual_line as usize, off) else {
             return DisplayPosition::new(0, 0);
         };
-        if self.rendered {
-            return DisplayPosition::new(0, 0);
+        for (position, row) in block.rows() {
+            Self::draw(renderer, row, position, self.style, block.soft_wrap);
         }
-        let row = pos.visual_line as usize;
-        let relative = row.saturating_sub(anchor.row);
-        Self::draw(
-            renderer,
-            self.rows.get(relative),
-            DisplayPosition::new(row, if relative == 0 { anchor.col } else { 0 }),
-            self.style,
-            self.format.soft_wrap,
-        );
-        if self.end_row != Some(row) {
-            return DisplayPosition::new(0, 0);
-        }
-        self.rendered = true;
-        let existing_rows = relative + 1;
-        for (i, preview) in self.rows.iter().skip(existing_rows).enumerate() {
-            Self::draw(
-                renderer,
-                Some(preview),
-                DisplayPosition::new(row + off.row + i, 0),
-                self.style,
-                self.format.soft_wrap,
-            );
-        }
-        DisplayPosition::new(self.rows.len().saturating_sub(existing_rows), 0)
+        DisplayPosition::new(block.reserved_rows(), 0)
     }
 }
 
