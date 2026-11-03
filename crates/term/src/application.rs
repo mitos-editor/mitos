@@ -103,7 +103,9 @@ impl Application {
         S: Stream<Item = std::io::Result<TerminalEvent>> + Unpin,
     {
         loop {
-            self.jobs.run_after_writes(&mut self.editor);
+            if self.jobs.wait_futures.is_empty() {
+                self.editor.run_after_writes();
+            }
             if self.editor.should_close() {
                 return false;
             }
@@ -310,7 +312,7 @@ impl Application {
 
         // Continue serving formatter/code-action callbacks while all accepted saves drain.
         // A failed operation must not abandon unrelated accepted jobs or writes.
-        self.jobs.cancel_after_writes();
+        self.editor.cancel_after_writes();
         while !self.jobs.wait_futures.is_empty() || self.editor.has_pending_writes() {
             use futures_util::StreamExt;
             use view::editor::EditorEvent;

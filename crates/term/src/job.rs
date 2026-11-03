@@ -1,5 +1,4 @@
 use event::send_blocking;
-use std::collections::VecDeque;
 use view::callbacks::{CallbackOutcome, EditorCallback, EditorCallbackSender};
 use view::Editor;
 
@@ -58,8 +57,6 @@ impl Callback {
     }
 }
 
-pub type AfterWrites = Box<dyn FnOnce(&mut Editor) -> anyhow::Result<()> + Send>;
-
 pub type JobFuture = BoxFuture<'static, anyhow::Result<Option<Callback>>>;
 
 pub struct Job {
@@ -81,7 +78,6 @@ pub struct Jobs {
     /// jobs that need to complete before we exit.
     pub wait_futures: FuturesUnordered<JobFuture>,
     pub callbacks: Receiver<Callback>,
-    after_writes: VecDeque<AfterWrites>,
     interactive_executor: view::expansion::InteractiveShell,
     pub(crate) interactive_requests: Receiver<InteractiveShellRequest>,
 }
@@ -134,7 +130,6 @@ impl Jobs {
             command_expansion: event::TaskController::new(),
             wait_futures: FuturesUnordered::new(),
             callbacks: rx,
-            after_writes: VecDeque::new(),
             interactive_executor: interactive_executor(interactive_sender),
             interactive_requests,
         }
@@ -201,7 +196,7 @@ impl Jobs {
         match self.apply_callback(config, editor, compositor, call) {
             Ok(result) => result,
             Err(error) => {
-                self.cancel_after_writes();
+                editor.cancel_after_writes();
                 editor.set_error(|| format!("Async job failed: {error}"));
                 CallbackOutcome::Redraw
             }
@@ -270,30 +265,17 @@ impl Jobs {
         }
     }
 
-    /// Defer lifecycle operations without blocking LSP requests or UI events.
-    pub fn after_writes(&mut self, editor: &mut Editor, action: AfterWrites) -> anyhow::Result<()> {
-        if self.wait_futures.is_empty() && !editor.has_pending_writes() {
-            action(editor)
+    /// Frontend-required jobs also delay editor-owned write barriers.
+    pub fn after_writes(
+        &mut self,
+        editor: &mut Editor,
+        action: view::save::AfterWrites,
+    ) -> anyhow::Result<()> {
+        if self.wait_futures.is_empty() {
+            editor.after_writes(action)
         } else {
-            self.after_writes.push_back(action);
+            editor.defer_after_writes(action);
             Ok(())
-        }
-    }
-
-    pub fn cancel_after_writes(&mut self) {
-        self.after_writes.clear();
-    }
-
-    pub fn run_after_writes(&mut self, editor: &mut Editor) {
-        while self.wait_futures.is_empty() && !editor.has_pending_writes() {
-            let Some(action) = self.after_writes.pop_front() else {
-                break;
-            };
-            if let Err(error) = action(editor) {
-                self.cancel_after_writes();
-                editor.set_error(|| error.to_string());
-                break;
-            }
         }
     }
 }

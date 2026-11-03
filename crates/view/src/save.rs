@@ -1,14 +1,15 @@
 //! Shared save preparation, execution, and policy for commands and automatic saves.
 //!
 //! Owns normalization, code actions, formatting, and write submission. Frontends
-//! drive [`SaveTask`]s and apply their typed updates on the editor mutation path,
-//! retaining every stage until completion before exiting.
+//! can submit accepted saves to [`Editor::submit_save`], which retains and advances
+//! every stage on the editor mutation path, including while closing.
 
 use stdx::rope::RopeExt as _;
 mod operation;
 mod queue;
 
-pub use operation::{submit, SaveError, SaveProgress, SaveTask, SaveUpdate};
+pub(crate) use operation::{next, Completion, Operations};
+pub use operation::{submit, AfterWrites, SaveError, SaveProgress, SaveTask, SaveUpdate};
 pub use queue::FileWriteBlock;
 pub(crate) use queue::WriteQueue;
 pub(crate) use queue::WriteReservation;

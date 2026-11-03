@@ -448,7 +448,7 @@ async fn actions_without_resolve_support_and_local_actions_stay_synchronous() ->
 
 #[tokio::test(flavor = "multi_thread")]
 async fn save_actions_run_in_order_before_formatting_the_latest_text() -> anyhow::Result<()> {
-    use view::save::{self, SaveProgress, WriteOptions};
+    use view::save::{self, WriteOptions};
 
     let mut f = Fixture::with_save_actions(true, &["source.first", "source.second"], true).await?;
     let view = current_ref!(f.editor).0.id;
@@ -464,13 +464,8 @@ async fn save_actions_run_in_order_before_formatting_the_latest_text() -> anyhow
         },
     )?;
     f.gate.release()?;
-    let mut progress = save::submit(&mut f.editor, request)?;
-    while let SaveProgress::Pending(task) = progress {
-        let update = tokio::time::timeout(Duration::from_secs(10), task.run()).await??;
-        progress = update.apply(&mut f.editor)?;
-    }
-    assert!(matches!(progress, SaveProgress::Queued));
-    f.editor.flush_writes().await?;
+    f.editor.submit_save(request)?;
+    tokio::time::timeout(Duration::from_secs(10), f.editor.flush_writes()).await??;
     let doc = f.editor.document(f.doc).unwrap();
     assert_eq!(doc.text().to_string(), "SECOND\n");
     assert_eq!(std::fs::read_to_string(doc.path().unwrap())?, "SECOND\n");
