@@ -47,6 +47,14 @@ pub fn install(args: impl Iterator<Item = String>) -> Result<(), DynError> {
     let options = Options::parse(args)?;
     let bin = options.root.join("bin");
     check_runtime(&bin.join("runtime"))?;
+    let sources = loader::config::grammar_sources(&workspace::ResolvedWorkspace::current());
+    if let Some(diagnostic) = sources.skipped {
+        eprintln!("{diagnostic}");
+    }
+    let grammars = loader::grammar::get_grammar_configs(sources.value?)?;
+    let runtime = crate::path::runtime();
+    grammar_build::fetch_grammars(grammars.clone(), &runtime, true)?;
+    grammar_build::build_grammars(grammars, &runtime, None, true)?;
     let executable = build(&options.profile)?;
     install_files(&executable, &crate::path::runtime(), &bin)?;
     println!("Installed {}", bin.join(executable_name()).display());

@@ -70,9 +70,6 @@ rustPlatform.buildRustPackage (self: {
     fileset = src;
   };
 
-  # Mitos attempts to reach out to the network and get the grammars. Nix doesn't allow this.
-  MITOS_DISABLE_AUTO_GRAMMAR_BUILD = "1";
-
   # So Mitos knows what rev it is.
   MITOS_NIX_BUILD_REV = gitRev;
 

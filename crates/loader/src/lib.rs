@@ -147,8 +147,8 @@ fn workspace_runtime_dir(manifest_dir: Option<&Path>) -> Option<PathBuf> {
 
 /// Destination for fetched grammar sources and compiled grammars.
 ///
-/// Cargo builds and runs write into the current workspace's runtime. Installed
-/// commands write into the user data runtime. This destination is independent
+/// Explicit grammar commands run by Cargo write into the workspace's runtime.
+/// Installed commands write into the user data runtime. This destination is independent
 /// of lookup precedence, including `MITOS_RUNTIME`.
 pub fn runtime_write_dir() -> PathBuf {
     let manifest_dir = std::env::var_os("CARGO_MANIFEST_DIR").map(PathBuf::from);
