@@ -205,6 +205,11 @@ async fn registrations_add_relative_roots_and_unregister_only_the_named_server_i
             {"id": "unsupported", "method": "textDocument/hover"}
         ]}))?,
     );
+    assert!(f
+        .app
+        .editor
+        .file_watcher
+        .is_watching(&folder_path.join("still-owned.watched")));
     file_changed(&mut f.app.editor, &uri_path.join("after.watched"));
     file_changed(&mut f.app.editor, &uri_path.join("done.barrier"));
     let after = lsp::Url::from_file_path(uri_path.join("after.watched")).unwrap();
@@ -221,6 +226,52 @@ async fn registrations_add_relative_roots_and_unregister_only_the_named_server_i
         m["params"]["changes"][0]["uri"] == after.as_str()
     })
     .await?;
+    // Replacing beta's registration releases the folder's last owner. The URI
+    // root remains demanded by the barrier registrations on both servers.
+    f.app.editor.register_language_server_capabilities(
+        beta,
+        serde_json::from_value(json!({
+            "registrations": [registration("shared-id", json!([{"globPattern": "**/*.watched"}]))]
+        }))?,
+    );
+    assert!(!f
+        .app
+        .editor
+        .file_watcher
+        .is_watching(&folder_path.join("released.watched")));
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while !f
+            .app
+            .editor
+            .file_watcher
+            .is_watching(&uri_path.join("retained.barrier"))
+        {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await?;
+    // Reacquire a root owned only by beta, then stop beta through shared cleanup.
+    f.app.editor.register_language_server_capabilities(beta, serde_json::from_value(json!({
+        "registrations": [registration("shared-id", json!([{"globPattern": {"baseUri": folder, "pattern": "*.watched"}}]))]
+    }))?);
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while !f
+            .app
+            .editor
+            .file_watcher
+            .is_watching(&folder_path.join("reacquired.watched"))
+        {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await?;
+    let document = current!(f.app.editor).1.id();
+    f.app.editor.stop_language_servers(document, &["beta"])?;
+    assert!(!f
+        .app
+        .editor
+        .file_watcher
+        .is_watching(&folder_path.join("stopped.watched")));
     assert!(f.app.close().await.is_empty());
     Ok(())
 }

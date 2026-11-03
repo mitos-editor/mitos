@@ -1,10 +1,12 @@
 //! Editor delivery and configuration adaptation for native file watching.
 use crate::{
     callbacks::{EditorCallback, EditorCallbackSender},
-    Editor,
+    DocumentId, Editor,
 };
 use editor_config::WatchConfig;
-pub use file_watch::{CanonicalPathBuf, Event, EventType, Events};
+pub use file_watch::{CanonicalPathBuf, Demand, Event, EventType, Events};
+use lsp_client::LanguageServerId;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use tokio::sync::{broadcast, mpsc};
 
@@ -31,8 +33,17 @@ impl Editor {
     }
 }
 
+#[derive(Debug, PartialEq, Eq, Hash)]
+enum Owner {
+    Vcs,
+    Document(DocumentId),
+    LanguageServer(LanguageServerId, String),
+    Explicit,
+}
+
 pub struct Watcher {
     native: file_watch::Watcher,
+    demands: HashMap<Owner, Demand>,
     events: broadcast::Sender<Events>,
     receiver: Option<mpsc::UnboundedReceiver<file_watch::EventBatch>>,
     callbacks: EditorCallbackSender,
@@ -72,6 +83,7 @@ impl Watcher {
             file_watch::Watcher::new(&options(config, root), root, workspace.is_workspace());
         let mut watcher = Self {
             native,
+            demands: HashMap::new(),
             events: broadcast::channel(64).0,
             receiver: Some(receiver),
             callbacks,
@@ -126,14 +138,104 @@ impl Watcher {
     pub fn refresh_filter(&mut self) {
         self.native.refresh_filter();
     }
+    fn project_demands(&mut self) {
+        let mut union = Demand::default();
+        for demand in self.demands.values() {
+            union.roots.extend(demand.roots.iter().cloned());
+            union.metadata.extend(demand.metadata.iter().cloned());
+            union.files.extend(demand.files.iter().cloned());
+        }
+        self.native.set_paths(union);
+        self.start_delivery();
+    }
+
+    /// Add a root owned by this watcher's explicit/manual demand.
     pub fn add_root(&mut self, root: &Path) {
-        self.native.add_root(root);
-        self.start_delivery();
+        let Ok(root) = root.canonicalize() else {
+            return;
+        };
+        if !root.is_dir() {
+            return;
+        }
+        let roots = &mut self.demands.entry(Owner::Explicit).or_default().roots;
+        if roots.contains(&root) {
+            return;
+        }
+        roots.push(root);
+        self.project_demands();
     }
-    pub fn set_extra_watched_paths(&mut self, paths: Vec<PathBuf>, files: Vec<PathBuf>) {
-        self.native.set_extra_watched_paths(paths, files);
-        self.start_delivery();
+
+    pub fn set_extra_watched_paths(&mut self, metadata: Vec<PathBuf>, files: Vec<PathBuf>) {
+        let demand = self.demands.entry(Owner::Explicit).or_default();
+        demand.metadata = metadata;
+        demand.files = files;
+        self.project_demands();
     }
+
+    pub(crate) fn set_document_demands(
+        &mut self,
+        mut workspace: Demand,
+        documents: Vec<(DocumentId, Demand)>,
+    ) {
+        self.demands
+            .retain(|owner, _| !matches!(owner, Owner::Vcs | Owner::Document(_)));
+        workspace.metadata.sort();
+        workspace.metadata.dedup();
+        workspace.files.sort();
+        workspace.files.dedup();
+        if !workspace.is_empty() {
+            self.demands.insert(Owner::Vcs, workspace);
+        }
+        self.demands.extend(
+            documents
+                .into_iter()
+                .map(|(id, demand)| (Owner::Document(id), demand)),
+        );
+        self.project_demands();
+    }
+
+    pub(crate) fn set_language_server_roots(
+        &mut self,
+        server: LanguageServerId,
+        registration: String,
+        roots: Vec<PathBuf>,
+    ) {
+        let roots: Vec<_> = roots
+            .into_iter()
+            .filter_map(|root| root.canonicalize().ok())
+            .filter(|root| root.is_dir())
+            .collect();
+        let owner = Owner::LanguageServer(server, registration);
+        if roots.is_empty() {
+            self.demands.remove(&owner);
+        } else {
+            self.demands.insert(
+                owner,
+                Demand {
+                    roots,
+                    ..Default::default()
+                },
+            );
+        }
+        self.project_demands();
+    }
+
+    pub(crate) fn remove_language_server_registration(
+        &mut self,
+        server: LanguageServerId,
+        registration: &str,
+    ) {
+        self.demands
+            .remove(&Owner::LanguageServer(server, registration.to_owned()));
+        self.project_demands();
+    }
+
+    pub(crate) fn remove_language_server(&mut self, server: LanguageServerId) {
+        self.demands
+            .retain(|owner, _| !matches!(owner, Owner::LanguageServer(id, _) if *id == server));
+        self.project_demands();
+    }
+
     pub fn poll_extra_paths(&mut self) -> bool {
         self.native.poll_extra_paths()
     }

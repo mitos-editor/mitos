@@ -6,6 +6,7 @@
 pub use filesentry::{CanonicalPathBuf, Event, EventType, Events};
 use filesentry::{Filter, ShutdownOnDrop};
 use std::{
+    collections::BTreeMap,
     path::{Path, PathBuf},
     sync::{Arc, Weak},
     time::SystemTime,
@@ -47,6 +48,21 @@ impl Default for Options {
     }
 }
 
+/// Paths requested by one owner or the union of several owners.
+/// Metadata watches exclude siblings; individual files preserve source coverage.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct Demand {
+    pub roots: Vec<PathBuf>,
+    pub metadata: Vec<PathBuf>,
+    pub files: Vec<PathBuf>,
+}
+
+impl Demand {
+    pub fn is_empty(&self) -> bool {
+        self.roots.is_empty() && self.metadata.is_empty() && self.files.is_empty()
+    }
+}
+
 /// A native batch retains its generation even while queued by an application.
 pub struct EventBatch {
     pub events: Events,
@@ -76,7 +92,7 @@ pub struct Watcher {
     active_roots: Vec<(PathBuf, Arc<std::sync::atomic::AtomicBool>)>,
     config: Options,
     is_workspace: bool,
-    extra_watched_paths: Vec<(PathBuf, Option<SystemTime>)>,
+    extra_watched_paths: BTreeMap<PathBuf, Option<SystemTime>>,
     extra_watched_files: Vec<PathBuf>,
 }
 
@@ -103,7 +119,7 @@ impl Watcher {
             active_roots: Vec::new(),
             config: config.clone(),
             is_workspace,
-            extra_watched_paths: Vec::new(),
+            extra_watched_paths: BTreeMap::new(),
             extra_watched_files: Vec::new(),
         };
         watcher.reload(config, &workspace, is_workspace);
@@ -128,20 +144,7 @@ impl Watcher {
         self.watcher = None;
         self.active_roots.clear();
         self.workspace = workspace;
-        self.filter = Arc::new(
-            WatchFilter::new(
-                config,
-                &self.workspace,
-                self.roots.iter().map(PathBuf::as_path),
-            )
-            .with_extra_paths(
-                self.extra_watched_paths
-                    .iter()
-                    .filter(|(path, _)| !self.extra_watched_files.contains(path))
-                    .map(|(path, _)| path.clone()),
-            )
-            .with_extra_files(self.extra_watched_files.iter().cloned()),
-        );
+        self.filter = self.build_filter();
         let has_metadata = config.watch_vcs && !self.extra_watched_paths.is_empty();
         if !config.enable
             || (config.require_workspace && no_workspace && self.roots.is_empty() && !has_metadata)
@@ -216,9 +219,8 @@ impl Watcher {
         }) && !self.filter.ignore_path_rec(&path, Some(path.is_dir()))
     }
 
-    /// Invalidate cached ignore files and recrawl affected watch roots.
-    pub fn refresh_filter(&mut self) {
-        self.filter = Arc::new(
+    fn build_filter(&self) -> Arc<WatchFilter> {
+        Arc::new(
             WatchFilter::new(
                 &self.config,
                 &self.workspace,
@@ -231,73 +233,81 @@ impl Watcher {
                     .map(|(path, _)| path.clone()),
             )
             .with_extra_files(self.extra_watched_files.iter().cloned()),
-        );
+        )
+    }
+
+    /// Invalidate cached ignore files and recrawl affected watch roots.
+    pub fn refresh_filter(&mut self) {
+        self.filter = self.build_filter();
         if let Some((watcher, _)) = &self.watcher {
             watcher.set_filter(self.filter.clone(), true);
         }
     }
 
-    /// Add an explicit LSP root even when the working directory is not a workspace.
-    pub fn add_root(&mut self, root: &Path) {
-        let Ok(root) = root.canonicalize() else {
-            return;
-        };
-        if !root.is_dir() || self.roots.contains(&root) {
-            return;
-        }
-        self.roots.push(root.clone());
-        self.refresh_filter();
-        if let Some((watcher, _)) = &self.watcher {
-            let watcher = watcher.clone();
-            self.watch_root(&watcher, root);
-        } else {
-            self.reload(
-                &self.config.clone(),
-                &self.workspace.clone(),
-                self.is_workspace,
-            );
-        }
-    }
-
-    /// Watch VCS metadata and individual files, retaining polling when native watching is unavailable.
-    /// Metadata excludes siblings; individual files preserve normal source-file coverage.
-    /// Preserve timestamps when the set is refreshed so changes are not swallowed.
-    pub fn set_extra_watched_paths(&mut self, mut paths: Vec<PathBuf>, mut files: Vec<PathBuf>) {
-        for file in &mut files {
-            *file = canonicalize_existing(file);
-        }
+    /// Project requested paths, releasing roots no longer demanded by any owner.
+    /// Unchanged unions keep the native watcher and queued generation alive.
+    pub fn set_paths(&mut self, demand: Demand) {
+        let mut roots: Vec<_> = demand
+            .roots
+            .into_iter()
+            .filter_map(|root| root.canonicalize().ok())
+            .filter(|root| root.is_dir())
+            .collect();
+        roots.sort();
+        roots.dedup();
+        let mut files: Vec<_> = demand
+            .files
+            .into_iter()
+            .map(|file| canonicalize_existing(&file))
+            .collect();
         files.sort();
         files.dedup();
-        paths.extend(files.iter().cloned());
-        for path in &mut paths {
-            // Keep the native representation, including verbatim Windows prefixes.
-            *path = canonicalize_existing(path);
-        }
+        let mut paths: Vec<_> = demand
+            .metadata
+            .into_iter()
+            .chain(files.iter().cloned())
+            .map(|path| canonicalize_existing(&path))
+            .collect();
         paths.sort();
         paths.dedup();
-        if self.extra_watched_files == files
-            && self
-                .extra_watched_paths
-                .iter()
-                .map(|(path, _)| path)
-                .eq(paths.iter())
-        {
+        let same_metadata =
+            self.extra_watched_files == files && self.extra_watched_paths.keys().eq(paths.iter());
+        if self.roots == roots && same_metadata {
             return;
         }
+        if same_metadata
+            && self.watcher.is_some()
+            && self
+                .roots
+                .iter()
+                .all(|root| roots.binary_search(root).is_ok())
+        {
+            let added: Vec<_> = roots
+                .iter()
+                .filter(|root| !self.roots.contains(root))
+                .cloned()
+                .collect();
+            self.roots = roots;
+            self.refresh_filter();
+            let watcher = self.watcher.as_ref().unwrap().0.clone();
+            for root in added {
+                self.watch_root(&watcher, root);
+            }
+            return;
+        }
+        self.roots = roots;
         self.extra_watched_files = files;
-        let old = std::mem::take(&mut self.extra_watched_paths);
+        let mut old = std::mem::take(&mut self.extra_watched_paths);
         self.extra_watched_paths = paths
             .into_iter()
             .map(|path| {
                 let mtime = old
-                    .iter()
-                    .find(|(old, _)| *old == path)
-                    .map(|(_, time)| *time)
+                    .remove(&path)
                     .unwrap_or_else(|| path.metadata().ok().and_then(|m| m.modified().ok()));
                 (path, mtime)
             })
             .collect();
-        // Native roots cannot be removed individually. Rebuild when their demand changes.
+        // The native backend has no unwatch operation. Rebuild the changed union.
         self.watcher = None;
         self.reload(
             &self.config.clone(),
@@ -317,9 +327,7 @@ impl Watcher {
     }
 
     pub fn is_vcs_path(&self, path: &Path) -> bool {
-        self.extra_watched_paths
-            .iter()
-            .any(|(watched, _)| watched == path)
+        self.extra_watched_paths.contains_key(path)
     }
 }
 
@@ -360,16 +368,31 @@ mod tests {
             dir.path(),
             true,
         );
-        watcher.set_extra_watched_paths(vec![path.clone()], Vec::new());
+        watcher.set_paths(super::Demand {
+            metadata: vec![path.clone()],
+            ..Default::default()
+        });
         let native_path = dir.path().canonicalize().unwrap().join("HEAD");
         assert!(watcher.is_vcs_path(&native_path));
         assert!(!watcher.poll_extra_paths());
+        let batch = super::EventBatch {
+            events: super::Events::from(Vec::<super::Event>::new()),
+            generation: std::sync::Arc::downgrade(&watcher.generation),
+        };
         std::fs::write(&path, "ref: refs/heads/main\n").unwrap();
-        watcher.set_extra_watched_paths(vec![path.clone(), path.clone()], Vec::new());
+        watcher.set_paths(super::Demand {
+            metadata: vec![path.clone(), path.clone()],
+            ..Default::default()
+        });
         assert!(watcher.is_vcs_path(&path.canonicalize().unwrap()));
+        assert!(batch.is_current(&watcher)); // Identical demand unions retain queued events.
         assert!(watcher.poll_extra_paths());
         assert!(!watcher.poll_extra_paths());
-        std::fs::remove_file(path).unwrap();
+        std::fs::remove_file(&path).unwrap();
         assert!(watcher.poll_extra_paths());
+        watcher.set_paths(super::Demand::default());
+        assert!(!watcher.is_vcs_path(&path));
+        assert!(!watcher.poll_extra_paths());
+        assert!(!batch.is_current(&watcher));
     }
 }
