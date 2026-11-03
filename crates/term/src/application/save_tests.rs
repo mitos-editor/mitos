@@ -58,7 +58,7 @@ async fn shutdown_reports_followup_failures_and_drains_other_writes() -> anyhow:
         .save(doc!(app.editor).id(), Some(path.clone()), false)?;
     app.jobs.add(
         Job::with_callback(async {
-            Ok(Callback::Followup(Box::new(|_| {
+            Ok(Callback::Ui(Box::new(|_, _| {
                 anyhow::bail!("followup failure")
             })))
         })
@@ -163,12 +163,15 @@ async fn failed_required_jobs_do_not_skip_callbacks_or_their_followups() -> anyh
     app.jobs
         .add(Job::new(async { anyhow::bail!("first failure") }).wait_before_exiting());
     let continuation = Job::with_callback(async move {
-        Ok(Callback::Editor(Box::new(move |_| {
+        Ok(Callback::editor(move |_| {
             captured.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        })))
+        }))
     })
     .wait_before_exiting();
-    let followup = Callback::Followup(Box::new(move |_| Ok(Some(continuation))));
+    let followup = Callback::Ui(Box::new(move |_, cx| {
+        cx.jobs.add(continuation);
+        Ok(view::callbacks::CallbackOutcome::Redraw)
+    }));
     app.jobs
         .add(Job::with_callback(async { Ok(followup) }).wait_before_exiting());
     let errors = app.close().await;

@@ -78,11 +78,10 @@ where
 {
     Box::pin(async move {
         let response = call.await?;
-        let call: job::Callback = Callback::EditorCompositor(Box::new(
-            move |editor: &mut Editor, compositor: &mut Compositor| {
-                callback(editor, compositor, response)
-            },
-        ));
+        let call: job::Callback = Callback::ui(move |compositor, cx| {
+            let editor = &mut *cx.editor;
+            callback(editor, compositor, response)
+        });
         Ok(call)
     })
 }

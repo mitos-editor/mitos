@@ -1107,7 +1107,7 @@ async fn space_a_offers_conflict_resolution_and_preserves_disk_and_index() -> an
         loop {
             let (tx, rx) = tokio::sync::oneshot::channel();
             app.job_sender()
-                .send(move |_, compositor| {
+                .send(move |compositor, _| {
                     let selected = compositor
                         .find_id::<term::ui::Popup<term::ui::Menu<view::action::Action>>>(
                             "code-action",

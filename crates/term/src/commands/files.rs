@@ -36,13 +36,12 @@ fn goto_file_impl(cx: &mut Context, action: Action) {
             let jobs = cx.jobs.sender();
             cx.jobs.callback(async move {
                 let update = task.run().await;
-                Ok(Callback::EditorCompositor(Box::new(
-                    move |editor, compositor| {
-                        for layer in open_navigation_targets(editor, &jobs, update, action) {
-                            compositor.push(layer);
-                        }
-                    },
-                )))
+                Ok(Callback::ui(move |compositor, cx| {
+                    let editor = &mut *cx.editor;
+                    for layer in open_navigation_targets(editor, &jobs, update, action) {
+                        compositor.push(layer);
+                    }
+                }))
             });
         }
     }
@@ -115,7 +114,7 @@ fn launch_url(jobs: &job::JobSender, url: Url) {
         match crate::open_external_url_callback(url).await {
             Ok(callback) => jobs.send_callback(callback).await,
             Err(error) => {
-                jobs.send(move |editor, _| editor.set_error(|| error.to_string()))
+                jobs.send(move |_, cx| cx.editor.set_error(|| error.to_string()))
                     .await
             }
         }
@@ -201,7 +200,7 @@ pub(super) mod typed {
             buffers::typed::{buffer_close_by_ids_impl, buffer_gather_paths_impl},
             catalog::{WRITE_NO_CODE_ACTIONS_FLAG, WRITE_NO_FORMAT_FLAG},
         },
-        compositor::{self, Compositor},
+        compositor,
         job::{self, Callback, Job, Jobs},
         ui::{self, overlay::overlaid},
     };
@@ -240,13 +239,12 @@ pub(super) mod typed {
             // message
             if let Ok(true) = std::fs::canonicalize(&path).map(|p| p.is_dir()) {
                 let callback = async move {
-                    let call: job::Callback = job::Callback::EditorCompositor(Box::new(
-                        move |editor: &mut Editor, compositor: &mut Compositor| {
-                            let picker = ui::file_picker(editor, path.into_owned())
-                                .with_default_action(action);
-                            compositor.push(Box::new(overlaid(picker)));
-                        },
-                    ));
+                    let call: job::Callback = job::Callback::ui(move |compositor, cx| {
+                        let editor = &mut *cx.editor;
+                        let picker =
+                            ui::file_picker(editor, path.into_owned()).with_default_action(action);
+                        compositor.push(Box::new(overlaid(picker)));
+                    });
                     Ok(call)
                 };
                 cx.jobs.callback(callback);
@@ -294,11 +292,13 @@ pub(super) mod typed {
     fn save_job(task: save::SaveTask) -> Job {
         Job::with_callback(async move {
             let update = task.run().await?;
-            Ok(Callback::Followup(Box::new(move |editor| {
-                Ok(match update.apply(editor)? {
-                    save::SaveProgress::Pending(task) => Some(save_job(task)),
-                    _ => None,
-                })
+            Ok(Callback::Ui(Box::new(move |_, cx| {
+                let editor = &mut *cx.editor;
+                let jobs = &mut *cx.jobs;
+                if let save::SaveProgress::Pending(task) = update.apply(editor)? {
+                    jobs.add(save_job(task));
+                }
+                Ok(view::callbacks::CallbackOutcome::Redraw)
             })))
         })
         .wait_before_exiting()

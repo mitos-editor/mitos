@@ -73,45 +73,44 @@ pub fn show_code_lenses_under_cursor(cx: &mut Context) {
     };
     cx.jobs.callback(async move {
         let resolved = future.await;
-        Ok(Callback::EditorCompositor(Box::new(
-            move |editor, compositor| {
-                let Some(mut resolved) = resolved else { return };
-                let is_current = move |editor: &Editor| {
-                    editor.tree.focus() == view_id
-                        && editor
-                            .tree
-                            .try_get(view_id)
-                            .is_some_and(|view| view.document_id() == doc_id)
-                        && editor
-                            .document(doc_id)
-                            .is_some_and(|doc| doc.selection(view_id) == &selection)
-                };
-                if !resolved.is_current(editor) || !is_current(editor) {
-                    return;
+        Ok(Callback::ui(move |compositor, cx| {
+            let editor = &mut *cx.editor;
+            let Some(mut resolved) = resolved else { return };
+            let is_current = move |editor: &Editor| {
+                editor.tree.focus() == view_id
+                    && editor
+                        .tree
+                        .try_get(view_id)
+                        .is_some_and(|view| view.document_id() == doc_id)
+                    && editor
+                        .document(doc_id)
+                        .is_some_and(|doc| doc.selection(view_id) == &selection)
+            };
+            if !resolved.is_current(editor) || !is_current(editor) {
+                return;
+            }
+            if resolved.commands.is_empty() {
+                editor.set_error(|| "No code lenses available");
+                return;
+            }
+            resolved.cache(editor);
+            let commands = std::mem::take(&mut resolved.commands);
+            let mut menu = ui::Menu::new(commands, (), move |editor, lens, event| {
+                if event == PromptEvent::Validate
+                    && resolved.is_current(editor)
+                    && is_current(editor)
+                    && let Some(lens) = lens
+                {
+                    editor.execute_lsp_command(lens.command.clone(), lens.language_server_id);
                 }
-                if resolved.commands.is_empty() {
-                    editor.set_error(|| "No code lenses available");
-                    return;
-                }
-                resolved.cache(editor);
-                let commands = std::mem::take(&mut resolved.commands);
-                let mut menu = ui::Menu::new(commands, (), move |editor, lens, event| {
-                    if event == PromptEvent::Validate
-                        && resolved.is_current(editor)
-                        && is_current(editor)
-                        && let Some(lens) = lens
-                    {
-                        editor.execute_lsp_command(lens.command.clone(), lens.language_server_id);
-                    }
-                });
-                menu.move_down();
-                let popup = Popup::new("code-lens", menu)
-                    .with_border(ui::PopupBorder::CodeLenses)
-                    .with_scrollbar(false)
-                    .auto_close(true);
-                compositor.replace_or_push("code-lens", popup);
-            },
-        )))
+            });
+            menu.move_down();
+            let popup = Popup::new("code-lens", menu)
+                .with_border(ui::PopupBorder::CodeLenses)
+                .with_scrollbar(false)
+                .auto_close(true);
+            compositor.replace_or_push("code-lens", popup);
+        }))
     });
 }
 
@@ -532,7 +531,9 @@ pub fn symbol_picker(cx: &mut Context) {
             compositor.push(Box::new(overlaid(picker)))
         };
 
-        Ok(Callback::EditorCompositor(Box::new(call)))
+        Ok(Callback::ui(move |compositor, cx| {
+            call(cx.editor, compositor)
+        }))
     });
 }
 
@@ -640,30 +641,29 @@ pub fn code_action(cx: &mut Context) {
     let task = cx.editor.request_code_actions();
     cx.jobs.callback(async move {
         let update = task.run().await;
-        Ok(Callback::EditorCompositor(Box::new(
-            move |editor, compositor| {
-                let Some(actions) = update.and_then(|update| update.into_actions(editor)) else {
-                    return;
-                };
-                if actions.is_empty() {
-                    editor.set_error(|| "No code actions available");
-                    return;
+        Ok(Callback::ui(move |compositor, cx| {
+            let editor = &mut *cx.editor;
+            let Some(actions) = update.and_then(|update| update.into_actions(editor)) else {
+                return;
+            };
+            if actions.is_empty() {
+                editor.set_error(|| "No code actions available");
+                return;
+            }
+            let mut picker = ui::Menu::new(actions, (), move |editor, action, event| {
+                if event == PromptEvent::Validate
+                    && let Some(action) = action
+                {
+                    action.execute(editor);
                 }
-                let mut picker = ui::Menu::new(actions, (), move |editor, action, event| {
-                    if event == PromptEvent::Validate
-                        && let Some(action) = action
-                    {
-                        action.execute(editor);
-                    }
-                });
-                picker.move_down();
-                let popup = Popup::new("code-action", picker)
-                    .with_border(ui::PopupBorder::CodeActions)
-                    .with_scrollbar(false)
-                    .auto_close(true);
-                compositor.replace_or_push("code-action", popup);
-            },
-        )))
+            });
+            picker.move_down();
+            let popup = Popup::new("code-action", picker)
+                .with_border(ui::PopupBorder::CodeActions)
+                .with_scrollbar(false)
+                .auto_close(true);
+            compositor.replace_or_push("code-action", popup);
+        }))
     });
 }
 
@@ -752,37 +752,36 @@ pub fn rename_symbol(cx: &mut Context) {
     let history_register = cx.register;
     cx.jobs.callback(async move {
         let update = task.run().await;
-        Ok(Callback::EditorCompositor(Box::new(
-            move |editor, compositor| {
-                let Some(result) = update.and_then(|update| update.into_result(editor)) else {
+        Ok(Callback::ui(move |compositor, cx| {
+            let editor = &mut *cx.editor;
+            let Some(result) = update.and_then(|update| update.into_result(editor)) else {
+                return;
+            };
+            let session = match result {
+                Ok(session) => session,
+                Err(error) => {
+                    editor.set_error(|| error.to_string());
                     return;
-                };
-                let session = match result {
-                    Ok(session) => session,
-                    Err(error) => {
-                        editor.set_error(|| error.to_string());
-                        return;
+                }
+            };
+            let prefill = session.prefill().to_owned();
+            let mut session = Some(session);
+            let prompt = ui::Prompt::new(
+                "rename-to:".into(),
+                history_register,
+                ui::completers::none,
+                move |cx, input, event| {
+                    if event == PromptEvent::Validate
+                        && let Some(session) = session.take()
+                        && let Err(error) = cx.editor.rename_symbol(session, input.to_owned())
+                    {
+                        cx.editor.set_error(|| error.to_string());
                     }
-                };
-                let prefill = session.prefill().to_owned();
-                let mut session = Some(session);
-                let prompt = ui::Prompt::new(
-                    "rename-to:".into(),
-                    history_register,
-                    ui::completers::none,
-                    move |cx, input, event| {
-                        if event == PromptEvent::Validate
-                            && let Some(session) = session.take()
-                            && let Err(error) = cx.editor.rename_symbol(session, input.to_owned())
-                        {
-                            cx.editor.set_error(|| error.to_string());
-                        }
-                    },
-                )
-                .with_line(prefill, editor);
-                compositor.push(Box::new(prompt));
-            },
-        )))
+                },
+            )
+            .with_line(prefill, editor);
+            compositor.push(Box::new(prompt));
+        }))
     });
 }
 
@@ -794,7 +793,7 @@ pub(super) mod typed {
     //! Typable lsp commands.
 
     use crate::{
-        compositor::{self, Compositor},
+        compositor,
         job::{self, Callback},
         ui::{self, overlay::overlaid},
     };
@@ -802,7 +801,6 @@ pub(super) mod typed {
     use anyhow::anyhow;
     use language_config::LanguageServerFeature;
     use serde_json::Value;
-    use view::Editor;
 
     #[cold]
     pub(in crate::commands) fn lsp_workspace_command(
@@ -834,27 +832,26 @@ pub(super) mod typed {
                 })
                 .collect::<Vec<_>>();
             let callback = async move {
-                let call: job::Callback = Callback::EditorCompositor(Box::new(
-                    move |editor: &mut Editor, compositor: &mut Compositor| {
-                        let columns = [ui::PickerColumn::new(
-                            "title",
-                            |(_ls_id, command): &(_, lsp_client::lsp::Command), _| {
-                                command.title.as_str().into()
-                            },
-                        )];
-                        let picker = ui::Picker::new(
-                            editor.redraw().clone(),
-                            columns,
-                            0,
-                            commands,
-                            (),
-                            move |cx, (ls_id, command), _action| {
-                                cx.editor.execute_lsp_command(command.clone(), *ls_id);
-                            },
-                        );
-                        compositor.push(Box::new(overlaid(picker.with_title("LSP Commands"))))
-                    },
-                ));
+                let call: job::Callback = Callback::ui(move |compositor, cx| {
+                    let editor = &mut *cx.editor;
+                    let columns = [ui::PickerColumn::new(
+                        "title",
+                        |(_ls_id, command): &(_, lsp_client::lsp::Command), _| {
+                            command.title.as_str().into()
+                        },
+                    )];
+                    let picker = ui::Picker::new(
+                        editor.redraw().clone(),
+                        columns,
+                        0,
+                        commands,
+                        (),
+                        move |cx, (ls_id, command), _action| {
+                            cx.editor.execute_lsp_command(command.clone(), *ls_id);
+                        },
+                    );
+                    compositor.push(Box::new(overlaid(picker.with_title("LSP Commands"))))
+                });
                 Ok(call)
             };
             cx.jobs.callback(callback);

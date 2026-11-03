@@ -85,7 +85,7 @@ async fn stash_application_confirms_and_finishes_after_the_picker_closes() -> an
     assert!(app.editor.handlers().git_operations.busy());
     compositor.pop(); // A started operation belongs to the editor, not this picker.
     while let Some(callback) = futures_util::StreamExt::next(&mut jobs.wait_futures).await {
-        if let Some(job) = jobs.try_handle_callback(
+        jobs.try_handle_callback(
             crate::config::Context {
                 current: &crate::config::Config::default(),
                 updates: &tokio::sync::mpsc::unbounded_channel().0,
@@ -93,9 +93,7 @@ async fn stash_application_confirms_and_finishes_after_the_picker_closes() -> an
             &mut app.editor,
             &mut compositor,
             callback,
-        )? {
-            jobs.add(job);
-        }
+        )?;
     }
     assert!(!app.editor.handlers().git_operations.busy());
     assert_eq!(

@@ -156,13 +156,11 @@ impl Application {
                     self.render().await;
                 }
                 Some(callback) = self.jobs.callbacks.recv() => {
-                    let (job, outcome) = self.jobs.handle_callback(crate::config::Context { current: &self.config.load(), updates: &self.config_updates.0 }, &mut self.editor, &mut self.compositor, Ok(Some(callback)));
-                    if let Some(job) = job { self.jobs.add(job); }
+                    let outcome = self.jobs.handle_callback(crate::config::Context { current: &self.config.load(), updates: &self.config_updates.0 }, &mut self.editor, &mut self.compositor, Ok(Some(callback)));
                     if outcome.needs_redraw() { self.render().await; }
                 }
                 Some(callback) = self.jobs.wait_futures.next() => {
-                    let (job, outcome) = self.jobs.handle_callback(crate::config::Context { current: &self.config.load(), updates: &self.config_updates.0 }, &mut self.editor, &mut self.compositor, callback);
-                    if let Some(job) = job { self.jobs.add(job); }
+                    let outcome = self.jobs.handle_callback(crate::config::Context { current: &self.config.load(), updates: &self.config_updates.0 }, &mut self.editor, &mut self.compositor, callback);
                     if outcome.needs_redraw() { self.render().await; }
                 }
                 event = self.editor.wait_event() => {
@@ -327,8 +325,7 @@ impl Application {
                         crate::config::Context { current: &self.config.load(), updates: &self.config_updates.0 },
                         &mut self.editor, &mut self.compositor, result,
                     ) {
-                        Ok(Some(job)) => self.jobs.add(job),
-                        Ok(None) => (),
+                        Ok(()) => (),
                         Err(error) => errs.push(error),
                     }
                 }

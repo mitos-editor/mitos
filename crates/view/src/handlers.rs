@@ -24,6 +24,7 @@ mod snippet;
 /// Services configured before an editor takes ownership. Access owned services through
 /// [`Editor::handlers()`]; use explicit editor methods when replacing a running service.
 pub struct Handlers {
+    pub(crate) presentations: crate::presentation::Inbox,
     events: event::EventHub,
     pub(crate) lsp_progress: lsp_client::LspProgressMap,
     pub(crate) callbacks: EditorCallbackSender,
@@ -56,6 +57,10 @@ pub struct Handlers {
 }
 
 impl Handlers {
+    pub fn presentation_inbox(&self) -> &crate::presentation::Inbox {
+        &self.presentations
+    }
+
     pub fn events(&self) -> &event::EventHub {
         &self.events
     }
@@ -80,6 +85,7 @@ impl Handlers {
         events: event::EventHub,
     ) -> Self {
         register_hooks(&events);
+        let presentations = crate::presentation::Inbox::default();
         let (status, status_messages) = event::status::StatusSender::channel();
         Self {
             events,
@@ -100,7 +106,10 @@ impl Handlers {
             hover: hover::HoverHandler::new(callbacks.clone()),
             navigation: navigation::NavigationHandler::new(callbacks.clone()),
             inlay_hints: inlay_hints::InlayHintsHandler::new(callbacks.clone()),
-            signature_hints: signature_help::SignatureHelpHandler::new(callbacks.clone()),
+            signature_hints: signature_help::SignatureHelpHandler::new(
+                callbacks.clone(),
+                presentations.clone(),
+            ),
             auto_save: auto_save::AutoSaveHandler::new(callbacks.clone()),
             blame: blame::BlameHandler::new(callbacks.clone()),
             #[cfg(feature = "git")]
@@ -113,6 +122,7 @@ impl Handlers {
             spelling: SpellingHandler::new(callbacks.clone()),
             workspace_trust: workspace_trust::WorkspaceTrustHandler::default(),
             callbacks,
+            presentations,
         }
     }
 

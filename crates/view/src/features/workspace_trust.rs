@@ -1,7 +1,7 @@
 //! Editor-owned workspace trust prompts and service coordination.
 
 use std::{
-    collections::{HashMap, HashSet, VecDeque},
+    collections::{HashMap, HashSet},
     path::{Path, PathBuf},
     sync::{Arc, Weak},
 };
@@ -15,7 +15,6 @@ use crate::{editor::ConfigEvent, events::DocumentDidOpen, DocumentId, Editor};
 pub struct WorkspaceTrustHandler {
     prompted: HashSet<PathBuf>,
     pending: HashMap<PathBuf, Arc<()>>,
-    requests: VecDeque<TrustRequest>,
 }
 
 /// A prompt for one workspace in one editor. Frontends return it when resolving
@@ -100,15 +99,18 @@ pub(crate) fn register_hooks(events: &event::EventHub) {
         };
         let handler = &mut editor.handlers.workspace_trust;
         handler.pending.insert(workspace, owner);
-        handler.requests.push_back(request);
-        editor.redraw().request();
+        editor.present(|pending| pending.trust.push_back(request));
         Ok(())
     });
 }
 
 /// Drain prompt requests through the owning editor's event loop.
 pub fn next_request(editor: &mut Editor) -> Option<TrustRequest> {
-    while let Some(request) = editor.handlers.workspace_trust.requests.pop_front() {
+    while let Some(request) = editor
+        .handlers
+        .presentations
+        .with(|pending| pending.trust.pop_front())
+    {
         if request.is_current(editor) {
             return Some(request);
         }

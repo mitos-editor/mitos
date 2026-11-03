@@ -317,7 +317,7 @@ pub(super) mod typed {
     //! Typable syntax commands.
 
     use crate::{
-        compositor::{self, Compositor},
+        compositor,
         job::{self, Callback},
         ui::{self, Popup},
     };
@@ -325,7 +325,6 @@ pub(super) mod typed {
     use anyhow::bail;
     use arc_swap::access::DynAccess;
     use stdx::rope::RopeExt;
-    use view::Editor;
 
     #[cold]
     pub(in crate::commands) fn tree_sitter_scopes(
@@ -341,15 +340,14 @@ pub(super) mod typed {
         let contents = format!("```json\n{:?}\n````", scopes);
 
         let callback = async move {
-            let call: job::Callback = Callback::EditorCompositor(Box::new(
-                move |editor: &mut Editor, compositor: &mut Compositor| {
-                    let contents = ui::Markdown::new(contents, editor.syn_loader.clone());
-                    let popup = Popup::new("hover", contents)
-                        .with_border(ui::PopupBorder::Hover)
-                        .auto_close(true);
-                    compositor.replace_or_push("hover", popup);
-                },
-            ));
+            let call: job::Callback = Callback::ui(move |compositor, cx| {
+                let editor = &mut *cx.editor;
+                let contents = ui::Markdown::new(contents, editor.syn_loader.clone());
+                let popup = Popup::new("hover", contents)
+                    .with_border(ui::PopupBorder::Hover)
+                    .auto_close(true);
+                compositor.replace_or_push("hover", popup);
+            });
             Ok(call)
         };
 
@@ -407,15 +405,14 @@ pub(super) mod typed {
             });
 
         let callback = async move {
-            let call: job::Callback = Callback::EditorCompositor(Box::new(
-                move |editor: &mut Editor, compositor: &mut Compositor| {
-                    let content = ui::Markdown::new(content, editor.syn_loader.clone());
-                    let popup = Popup::new("hover", content)
-                        .with_border(ui::PopupBorder::Hover)
-                        .auto_close(true);
-                    compositor.replace_or_push("hover", popup);
-                },
-            ));
+            let call: job::Callback = Callback::ui(move |compositor, cx| {
+                let editor = &mut *cx.editor;
+                let content = ui::Markdown::new(content, editor.syn_loader.clone());
+                let popup = Popup::new("hover", content)
+                    .with_border(ui::PopupBorder::Hover)
+                    .auto_close(true);
+                compositor.replace_or_push("hover", popup);
+            });
             Ok(call)
         };
 
@@ -455,15 +452,14 @@ pub(super) mod typed {
                 });
 
         let callback = async move {
-            let call: job::Callback = Callback::EditorCompositor(Box::new(
-                move |editor: &mut Editor, compositor: &mut Compositor| {
-                    let content = ui::Markdown::new(languages, editor.syn_loader.clone());
-                    let popup = Popup::new("hover", content)
-                        .with_border(ui::PopupBorder::Hover)
-                        .auto_close(true);
-                    compositor.replace_or_push("hover", popup);
-                },
-            ));
+            let call: job::Callback = Callback::ui(move |compositor, cx| {
+                let editor = &mut *cx.editor;
+                let content = ui::Markdown::new(languages, editor.syn_loader.clone());
+                let popup = Popup::new("hover", content)
+                    .with_border(ui::PopupBorder::Hover)
+                    .auto_close(true);
+                compositor.replace_or_push("hover", popup);
+            });
             Ok(call)
         };
 
@@ -490,15 +486,14 @@ pub(super) mod typed {
                 contents.push_str("\n```");
 
                 let callback = async move {
-                    let call: job::Callback = Callback::EditorCompositor(Box::new(
-                        move |editor: &mut Editor, compositor: &mut Compositor| {
-                            let contents = ui::Markdown::new(contents, editor.syn_loader.clone());
-                            let popup = Popup::new("hover", contents)
-                                .with_border(ui::PopupBorder::Hover)
-                                .auto_close(true);
-                            compositor.replace_or_push("hover", popup);
-                        },
-                    ));
+                    let call: job::Callback = Callback::ui(move |compositor, cx| {
+                        let editor = &mut *cx.editor;
+                        let contents = ui::Markdown::new(contents, editor.syn_loader.clone());
+                        let popup = Popup::new("hover", contents)
+                            .with_border(ui::PopupBorder::Hover)
+                            .auto_close(true);
+                        compositor.replace_or_push("hover", popup);
+                    });
                     Ok(call)
                 };
 

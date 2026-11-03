@@ -25,6 +25,7 @@ pub mod events;
 pub mod expansion;
 pub mod features;
 pub mod file_watcher;
+pub mod presentation;
 pub use ui_core::graphics;
 pub mod gutter;
 pub mod handlers;

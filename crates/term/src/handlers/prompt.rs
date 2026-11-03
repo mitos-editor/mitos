@@ -11,7 +11,7 @@ pub(super) fn register_hook(
     event::register_owned_hook!(editor.events() => move |event: &mut DocumentFocusLost<'_>| {
         let sessions = prompts.snapshot();
         if !sessions.is_empty() {
-            jobs.send_blocking(move |_, compositor| {
+            jobs.send_blocking(move |compositor, _| {
                 compositor.remove_prompt_sessions(&sessions);
             });
         }

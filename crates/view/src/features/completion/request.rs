@@ -154,17 +154,14 @@ impl event::AsyncHook for Debounce {
         let epoch = self.epoch;
         dispatch(&self.owner, move |editor| {
             if super::belongs_to(&owner, editor, epoch) && !handle.is_canceled() {
-                editor
-                    .handlers
-                    .completions
-                    .updates
-                    .push_back(CompletionUpdate::start(
+                editor.present(|pending| {
+                    pending.completion.push_back(CompletionUpdate::start(
                         owner.clone(),
                         epoch,
                         trigger,
                         handle,
-                    ));
-                editor.redraw().request();
+                    ))
+                });
             }
         });
     }

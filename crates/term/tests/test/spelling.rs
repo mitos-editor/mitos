@@ -55,7 +55,7 @@ use super::helpers::keys;
 async fn selected_code_action(app: &mut Application) -> anyhow::Result<Option<String>> {
     let (tx, rx) = tokio::sync::oneshot::channel();
     app.job_sender()
-        .send(move |_, compositor| {
+        .send(move |compositor, _| {
             let title = compositor
                 .find_id::<Popup<Menu<Action>>>("code-action")
                 .and_then(|popup| popup.contents().selection())

@@ -75,29 +75,25 @@ pub(super) fn execute(cx: &mut Context, args: Args, command: Command) -> Result<
     cx.jobs.callback(async move {
         let repo =
             tokio::task::spawn_blocking(move || GitRepository::discover(&scope.path)).await??;
-        Ok(Callback::Context(Box::new(
-            move |compositor, cx| match request {
-                Request::Picker(command) => {
-                    let picker = match command {
-                        Command::Branches => branches(cx.editor, repo, scope.workspace),
-                        Command::Worktrees => worktrees(cx.editor, repo),
-                        _ => unreachable!("only browse commands create a picker"),
-                    };
-                    compositor.push(picker);
-                }
-                Request::Operation(operation) => super::actions::start(
-                    cx,
-                    scope.workspace,
-                    GitAction::Repository(repo, operation),
-                ),
-                Request::Remove(path) => compositor.push(super::actions::confirm_worktree_removal(
-                    repo,
-                    path,
-                    scope.workspace,
-                )),
-                Request::Open(path) => request_open_worktree(cx, repo, path),
-            },
-        )))
+        Ok(Callback::ui(move |compositor, cx| match request {
+            Request::Picker(command) => {
+                let picker = match command {
+                    Command::Branches => branches(cx.editor, repo, scope.workspace),
+                    Command::Worktrees => worktrees(cx.editor, repo),
+                    _ => unreachable!("only browse commands create a picker"),
+                };
+                compositor.push(picker);
+            }
+            Request::Operation(operation) => {
+                super::actions::start(cx, scope.workspace, GitAction::Repository(repo, operation))
+            }
+            Request::Remove(path) => compositor.push(super::actions::confirm_worktree_removal(
+                repo,
+                path,
+                scope.workspace,
+            )),
+            Request::Open(path) => request_open_worktree(cx, repo, path),
+        }))
     });
     Ok(())
 }
@@ -206,11 +202,12 @@ fn request_open_worktree(cx: &mut Context, repo: GitRepository, path: PathBuf) {
             Ok::<_, anyhow::Error>(path)
         })
         .await??;
-        Ok(Callback::EditorCompositor(Box::new(
-            move |editor, compositor| match editor.set_cwd(&path) {
+        Ok(Callback::ui(move |compositor, cx| {
+            let editor = &mut *cx.editor;
+            match editor.set_cwd(&path) {
                 Ok(()) => compositor.push(Box::new(overlaid(ui::file_picker(editor, path)))),
                 Err(error) => editor.set_error(|| error.to_string()),
-            },
-        )))
+            }
+        }))
     });
 }

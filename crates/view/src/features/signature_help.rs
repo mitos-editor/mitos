@@ -38,10 +38,10 @@ const TIMEOUT: Duration = Duration::from_millis(120);
 struct Session {
     controller: TaskController,
     target: Option<(DocumentId, ViewId, Option<LanguageServerId>)>,
-    pending: Option<SignatureHelpUpdate>,
 }
 
 struct Shared {
+    presentations: crate::presentation::Inbox,
     callbacks: EditorCallbackSender,
     session: Mutex<Session>,
 }
@@ -58,9 +58,10 @@ pub(crate) struct SignatureHelpTrigger {
 }
 
 impl SignatureHelpHandler {
-    pub fn new(callbacks: EditorCallbackSender) -> Self {
+    pub fn new(callbacks: EditorCallbackSender, presentations: crate::presentation::Inbox) -> Self {
         Self {
             shared: Arc::new(Shared {
+                presentations,
                 callbacks,
                 session: Mutex::new(Session::default()),
             }),
@@ -98,15 +99,21 @@ impl SignatureHelpHandler {
 
 fn close(shared: &Arc<Shared>, events: &Sender<Option<Request>>) {
     let mut session = shared.session.lock().unwrap();
-    if session.target.is_none() && session.pending.is_none() {
+    if session.target.is_none()
+        && !shared
+            .presentations
+            .with(|pending| pending.signature_help.is_some())
+    {
         return;
     }
     let cancel = session.controller.restart();
     session.target = None;
-    session.pending = Some(SignatureHelpUpdate {
-        owner: Arc::downgrade(shared),
-        cancel,
-        result: None,
+    shared.presentations.with(|pending| {
+        pending.signature_help = Some(SignatureHelpUpdate {
+            owner: Arc::downgrade(shared),
+            cancel,
+            result: None,
+        })
     });
     drop(session);
     send_blocking(events, None);
@@ -131,7 +138,9 @@ fn schedule(
     // Cancel immediately, including responses already queued on the editor thread.
     let cancel = session.controller.restart();
     session.target = Some((doc.id(), view, server));
-    session.pending = None;
+    shared
+        .presentations
+        .with(|pending| pending.signature_help = None);
     let request = Request {
         owner: Arc::downgrade(shared),
         target: SelectionRequest::new(doc, view, cancel, server.into_iter().collect()),
@@ -256,8 +265,7 @@ impl Request {
         if update.result.is_none() {
             session.target = None;
         }
-        session.pending = Some(update);
-        editor.redraw().request();
+        editor.present(|pending| pending.signature_help = Some(update));
     }
 }
 
@@ -335,13 +343,8 @@ impl SignatureHelpUpdate {
 pub fn next_update(editor: &Editor) -> Option<SignatureHelpUpdate> {
     editor
         .handlers
-        .signature_hints
-        .shared
-        .session
-        .lock()
-        .unwrap()
-        .pending
-        .take()
+        .presentations
+        .with(|pending| pending.signature_help.take())
 }
 
 /// Forward a mode transition after applying it to the editor.

@@ -197,20 +197,19 @@ async fn shared_typing_starts_and_filters_completions_without_terminal_hooks() -
     .await?;
     assert!(items.iter().any(|item| item.filter_text() == "alpha"));
     assert!(f.editor.begin_completion(&session));
+    // Input deltas must remain FIFO even when both arrive before presentation.
     f.editor.insert_char('l')?;
-    let update = completion::next_update(&mut f.editor).expect("input filter update");
-    assert!(matches!(
-        update.apply(&mut f.editor),
-        Some(completion::CompletionChange::Filter {
-            character: Some('l')
-        })
-    ));
     f.editor.delete_char_backward(1)?;
-    let update = completion::next_update(&mut f.editor).expect("backspace filter update");
-    assert!(matches!(
-        update.apply(&mut f.editor),
-        Some(completion::CompletionChange::Filter { character: None })
-    ));
+    for expected in [Some('l'), None] {
+        let update =
+            match tokio::time::timeout(Duration::from_secs(1), f.editor.wait_event()).await? {
+                view::editor::EditorEvent::Completion(update) => update,
+                event => anyhow::bail!("expected completion filter, got {event:?}"),
+            };
+        assert!(
+            matches!(update.apply(&mut f.editor), Some(completion::CompletionChange::Filter { character }) if character == expected)
+        );
+    }
     f.editor.insert_char('l')?;
     let stale = completion::next_update(&mut f.editor).expect("queued input filter update");
     f.editor.new_file(view::editor::Action::Replace);

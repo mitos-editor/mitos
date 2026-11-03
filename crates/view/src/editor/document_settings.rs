@@ -106,7 +106,9 @@ impl Editor {
             .try_get(self.tree.focus())
             .is_some_and(|view| view.doc == doc_id)
         {
-            self.handlers.completions.invalidate();
+            self.handlers
+                .completions
+                .invalidate(&self.handlers.presentations);
             self.handlers.signature_hints.cancel();
         }
         // Reopen even when the next language uses the same server: didOpen carries languageId.

@@ -53,7 +53,8 @@ impl Fixture {
                     .arg(&response_gate)
             },
             |handlers, sender, _| {
-                handlers.signature_hints = SignatureHelpHandler::new(sender);
+                handlers.signature_hints =
+                    SignatureHelpHandler::new(sender, handlers.presentation_inbox().clone());
             },
         )?;
         Ok(Self {
@@ -138,7 +139,7 @@ impl Fixture {
         let (tx, rx) = tokio::sync::oneshot::channel();
         self.app
             .job_sender()
-            .send(move |_, compositor| {
+            .send(move |compositor, _| {
                 let selection = SignatureHelp::visible_popup(compositor)
                     .map(|popup| popup.contents().active_signature());
                 let _ = tx.send(selection);
