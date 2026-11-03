@@ -74,6 +74,7 @@ impl Client {
             id,
             name,
             _process: process,
+            _transport: connection.transport,
             server_tx: connection.sender,
             pending_requests: connection.requests,
             request_counter: AtomicU64::new(0),
@@ -344,16 +345,6 @@ impl Client {
     /// Queues the terminal LSP `exit` notification.
     pub fn exit(&self) {
         self.notify::<lsp::notification::Exit>(())
-    }
-
-    /// Requests graceful shutdown and then sends `exit`.
-    ///
-    /// Returns early without sending `exit` when the server rejects or fails
-    /// the shutdown request.
-    pub async fn shutdown_and_exit(&self) -> Result<()> {
-        self.shutdown().await?;
-        self.exit();
-        Ok(())
     }
 
     /// Sends the LSP shutdown request followed immediately by the exit
