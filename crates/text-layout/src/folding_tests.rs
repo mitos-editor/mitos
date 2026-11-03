@@ -196,6 +196,7 @@ fn motions_count_fold_headers_and_preserve_columns_in_both_directions() {
 #[test]
 fn annotations_inside_folds_are_skipped_and_following_annotations_survive() {
     use std::{cell::RefCell, rc::Rc};
+    #[derive(Clone)]
     struct Anchors {
         next: usize,
         seen: Rc<RefCell<Vec<usize>>>,
@@ -234,10 +235,10 @@ fn annotations_inside_folds_are_skipped_and_following_annotations_survive() {
     annotations
         .add_inline_annotations(&inline, None)
         .add_overlay(&overlays, None)
-        .add_line_annotation(Box::new(Anchors {
+        .add_line_annotation(Anchors {
             next: 0,
             seen: seen.clone(),
-        }));
+        });
     let format = TextFormat::default();
     let rendered: String =
         DocumentFormatter::new_at_prev_checkpoint(text, &format, &annotations, 0)

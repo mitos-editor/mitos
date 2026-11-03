@@ -510,14 +510,14 @@ impl View {
             let line = doc.text().char_to_line_idx(completion.cursor);
             let line_end =
                 editor_core::line_ending::line_end_char_index(&doc.text().slice(..), line);
-            text_annotations.add_line_annotation(Box::new(
+            text_annotations.add_line_annotation(
                 crate::annotations::inline_completion::InlineCompletionLines::new(
                     completion.cursor,
                     &completion.lines,
                     format.clone(),
                     line_end,
                 ),
-            ));
+            );
         }
         let enable_cursor_line = self
             .diagnostics_handler

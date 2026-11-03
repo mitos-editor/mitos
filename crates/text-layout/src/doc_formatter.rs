@@ -21,7 +21,7 @@ use unicode_segmentation::{Graphemes, UnicodeSegmentation};
 
 use stdx::rope::{RopeExt as _, RopeGraphemes, RopeSliceExt};
 
-use crate::text_annotations::TextAnnotations;
+use crate::text_annotations::{AnnotationCursor, TextAnnotations};
 use crate::DisplayPosition;
 use editor_core::graphemes::{Grapheme, GraphemeStr};
 use editor_core::highlight::Highlight;
@@ -200,6 +200,7 @@ pub struct DocumentFormatter<'t> {
     text: RopeSlice<'t>,
     text_fmt: &'t TextFormat,
     annotations: &'t TextAnnotations<'t>,
+    annotation_cursor: AnnotationCursor<'t>,
 
     /// The visual position at the end of the last yielded word boundary
     visual_pos: DisplayPosition,
@@ -248,12 +249,12 @@ impl<'t> DocumentFormatter<'t> {
         let block_line_idx = text.byte_to_line_idx(byte_idx, stdx::rope::LINE_TYPE);
         let block_byte_idx = text.line_to_byte_idx(block_line_idx, stdx::rope::LINE_TYPE);
         let block_char_idx = text.byte_to_char_idx(block_byte_idx);
-        annotations.reset_pos(block_char_idx);
 
         DocumentFormatter {
             text,
             text_fmt,
             annotations,
+            annotation_cursor: annotations.cursor(block_char_idx),
             visual_pos: DisplayPosition { row: 0, col: 0 },
             graphemes: text.slice(block_byte_idx..).graphemes(),
             char_pos: block_char_idx,
@@ -282,7 +283,7 @@ impl<'t> DocumentFormatter<'t> {
             }
 
             if let Some((annotation, highlight)) =
-                self.annotations.next_inline_annotation_at(char_pos)
+                self.annotation_cursor.next_inline_annotation_at(char_pos)
             {
                 self.inline_annotation_graphemes = Some((
                     UnicodeSegmentation::graphemes(&*annotation.text, true),
@@ -298,7 +299,7 @@ impl<'t> DocumentFormatter<'t> {
         if let Some(conceal) = self.annotations.conceal_at(char_pos) {
             let end = conceal.range.end;
             self.graphemes = self.text.slice_chars(end..).graphemes();
-            self.annotations.skip_concealed(end);
+            self.annotation_cursor.skip_concealed(end);
             return Some(GraphemeWithSource {
                 grapheme: Grapheme::Other { g: "…".into() },
                 source: GraphemeSource::Document {
@@ -312,7 +313,7 @@ impl<'t> DocumentFormatter<'t> {
             && let Some((replacement, highlight)) = self.annotations.replacement_at(char_pos)
         {
             self.graphemes = self.text.slice_chars(replacement.range.end..).graphemes();
-            self.annotations.skip_concealed(replacement.range.end);
+            self.annotation_cursor.skip_concealed(replacement.range.end);
             self.replacement_graphemes = Some((
                 replacement.text.graphemes(true),
                 replacement.range.len(),
@@ -343,7 +344,7 @@ impl<'t> DocumentFormatter<'t> {
             } else if let Some(grapheme) = self.graphemes.next() {
                 let codepoints = grapheme.len_chars();
 
-                let overlay = self.annotations.overlay_at(char_pos);
+                let overlay = self.annotation_cursor.overlay_at(char_pos);
                 let grapheme = match overlay {
                     Some((overlay, _)) => overlay.grapheme.as_str().into(),
                     None => Cow::from(grapheme).into(),
@@ -385,7 +386,7 @@ impl<'t> DocumentFormatter<'t> {
         };
 
         let virtual_lines =
-            self.annotations
+            self.annotation_cursor
                 .virtual_lines_at(self.char_pos, self.visual_pos, self.line_pos);
         self.visual_pos.col = indent_carry_over as usize;
         self.visual_pos.row += 1 + virtual_lines;
@@ -527,15 +528,18 @@ impl<'t> Iterator for DocumentFormatter<'t> {
 
         self.char_pos += grapheme.doc_chars();
         if !grapheme.is_virtual() {
-            self.annotations.process_virtual_text_anchors(&grapheme);
+            self.annotation_cursor
+                .process_virtual_text_anchors(&grapheme);
         }
         self.line_pos += concealed_lines;
         if grapheme.raw == Grapheme::Newline {
             // move to end of newline char
             self.visual_pos.col += 1;
-            let virtual_lines =
-                self.annotations
-                    .virtual_lines_at(self.char_pos, self.visual_pos, self.line_pos);
+            let virtual_lines = self.annotation_cursor.virtual_lines_at(
+                self.char_pos,
+                self.visual_pos,
+                self.line_pos,
+            );
             self.visual_pos.row += 1 + virtual_lines;
             self.visual_pos.col = 0;
             if !grapheme.is_virtual() {

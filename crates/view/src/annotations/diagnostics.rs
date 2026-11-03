@@ -47,6 +47,7 @@ pub fn diagnostic_text_format(
     }
 }
 
+#[derive(Clone)]
 pub struct InlineDiagnosticAccumulator<'a> {
     idx: usize,
     diagnostics: &'a [Diagnostic],
@@ -185,6 +186,7 @@ impl<'a> InlineDiagnosticAccumulator<'a> {
     }
 }
 
+#[derive(Clone)]
 pub(crate) struct InlineDiagnostics<'a> {
     state: InlineDiagnosticAccumulator<'a>,
     width: u16,
@@ -192,19 +194,18 @@ pub(crate) struct InlineDiagnostics<'a> {
 }
 
 impl<'a> InlineDiagnostics<'a> {
-    #[allow(clippy::new_ret_no_self)]
     pub(crate) fn new(
         diagnostics: &'a [Diagnostic],
         cursor: usize,
         width: u16,
         horizontal_off: usize,
         config: InlineDiagnosticsConfig,
-    ) -> Box<dyn LineAnnotation + 'a> {
-        Box::new(InlineDiagnostics {
+    ) -> Self {
+        InlineDiagnostics {
             state: InlineDiagnosticAccumulator::new(cursor, diagnostics, config),
             width,
             horizontal_off,
-        })
+        }
     }
 }
 

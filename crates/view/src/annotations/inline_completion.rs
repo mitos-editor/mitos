@@ -5,6 +5,7 @@ use text_layout::{
 };
 
 /// Reserve only the preview rows that don't fit in the original document line.
+#[derive(Clone)]
 pub struct InlineCompletionLines<'a> {
     cursor: usize,
     lines: &'a [String],

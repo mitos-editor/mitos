@@ -1,8 +1,7 @@
-use std::cell::Cell;
 use std::cmp::Ordering;
+use std::collections::BTreeMap;
 use std::fmt::Debug;
 use std::ops::Range;
-use std::ptr::NonNull;
 
 use crate::doc_formatter::FormattedGrapheme;
 use crate::DisplayPosition;
@@ -124,13 +123,8 @@ pub struct Conceal {
 /// when the grapheme at the anchor is traversed the `process_anchor` function
 /// is called.
 ///
-/// # Note
-///
-/// All functions only receive immutable references to `self`.
-/// `LineAnnotation`s that want to store an internal position or
-/// state of some kind should use `Cell`. Using interior mutability for
-/// caches is preferable as otherwise a lot of lifetimes become invariant
-/// which complicates APIs a lot.
+/// Each traversal clones and resets its initial session. Clones must have independent
+/// mutable progress; borrowed immutable input may be shared.
 pub trait LineAnnotation {
     /// Resets the internal position to `char_idx`. This function is called
     /// when a new traversal of a document starts.
@@ -192,102 +186,64 @@ pub trait LineAnnotation {
     ) -> DisplayPosition;
 }
 
+trait LineAnnotationFactory {
+    fn create(&self) -> Box<dyn LineAnnotation + '_>;
+}
+
+impl<T: LineAnnotation + Clone> LineAnnotationFactory for T {
+    fn create(&self) -> Box<dyn LineAnnotation + '_> {
+        Box::new(self.clone())
+    }
+}
+
 #[derive(Debug)]
 struct Layer<'a, A, M> {
     annotations: &'a [A],
-    current_index: Cell<usize>,
     metadata: M,
 }
 
-impl<A, M: Clone> Clone for Layer<'_, A, M> {
-    fn clone(&self) -> Self {
-        Layer {
-            annotations: self.annotations,
-            current_index: self.current_index.clone(),
-            metadata: self.metadata.clone(),
+impl<'a, A, M> From<(&'a [A], M)> for Layer<'a, A, M> {
+    fn from((annotations, metadata): (&'a [A], M)) -> Self {
+        Self {
+            annotations,
+            metadata,
         }
     }
 }
 
-impl<A, M> Layer<'_, A, M> {
-    pub fn reset_pos(&self, char_idx: usize, get_char_idx: impl Fn(&A) -> usize) {
-        let new_index = self
-            .annotations
-            .partition_point(|annot| get_char_idx(annot) < char_idx);
-        self.current_index.set(new_index);
+struct LayerCursor<'a, A, M> {
+    layer: &'a Layer<'a, A, M>,
+    current_index: usize,
+}
+
+impl<'a, A, M> LayerCursor<'a, A, M> {
+    fn new(layer: &'a Layer<'a, A, M>, pos: usize, get_pos: impl Fn(&A) -> usize) -> Self {
+        Self {
+            layer,
+            current_index: layer
+                .annotations
+                .partition_point(|annotation| get_pos(annotation) < pos),
+        }
     }
 
-    pub fn consume(&self, char_idx: usize, get_char_idx: impl Fn(&A) -> usize) -> Option<&A> {
-        let annot = self.annotations.get(self.current_index.get())?;
-        debug_assert!(get_char_idx(annot) >= char_idx);
-        if get_char_idx(annot) == char_idx {
-            self.current_index.set(self.current_index.get() + 1);
-            Some(annot)
+    fn consume(&mut self, char_idx: usize, get_char_idx: impl Fn(&A) -> usize) -> Option<&'a A> {
+        let annotation = self.layer.annotations.get(self.current_index)?;
+        debug_assert!(get_char_idx(annotation) >= char_idx);
+        if get_char_idx(annotation) == char_idx {
+            self.current_index += 1;
+            Some(annotation)
         } else {
             None
         }
     }
 }
 
-impl<'a, A, M> From<(&'a [A], M)> for Layer<'a, A, M> {
-    fn from((annotations, metadata): (&'a [A], M)) -> Layer<'a, A, M> {
-        Layer {
-            annotations,
-            current_index: Cell::new(0),
-            metadata,
-        }
-    }
-}
-
-fn reset_pos<A, M>(layers: &[Layer<A, M>], pos: usize, get_pos: impl Fn(&A) -> usize) {
-    for layer in layers {
-        layer.reset_pos(pos, &get_pos)
-    }
-}
-
-/// Safety: We store LineAnnotation in a NonNull pointer. This is necessary to work
-/// around an unfortunate inconsistency in rusts variance system that unnnecesarily
-/// makes the lifetime invariant if implemented with safe code. This makes the
-/// DocFormatter API very cumbersome/basically impossible to work with.
-///
-/// Normally object types `dyn Foo + 'a` are covariant so if we used `Box<dyn LineAnnotation + 'a>` below
-/// everything would be alright. However we want to use `Cell<Box<dyn LineAnnotation + 'a>>`
-/// to be able to call the mutable function on `LineAnnotation`. The problem is that
-/// some types like `Cell` make all their arguments invariant. This is important for soundness
-/// normally for the same reasons that `&'a mut T` is invariant over `T`
-/// (see <https://doc.rust-lang.org/nomicon/subtyping.html>). However for `&'a mut` (`dyn Foo + 'b`)
-/// there is a specical rule in the language to make `'b` covariant (otherwise trait objects would be
-/// super annoying to use). See  <https://users.rust-lang.org/t/solved-variance-of-dyn-trait-a> for
-/// why this is sound. Sadly that rule doesn't apply to `Cell<Box<(dyn Foo + 'a)>`
-/// (or other invariant types like `UnsafeCell` or `*mut (dyn Foo + 'a)`).
-///
-/// We sidestep the problem by using `NonNull` which is covariant. In the
-/// special case of trait objects this is sound (easily checked by adding a
-/// `PhantomData<&'a mut Foo + 'a)>` field). We don't need an explicit `Cell`
-/// type here because we never hand out any refereces to the trait objects. That
-/// means any reference to the pointer can create a valid multable reference
-/// that is covariant over `'a` (or in other words it's a raw pointer, as long as
-/// we don't hand out references we are free to do whatever we want).
-struct RawBox<T: ?Sized>(NonNull<T>);
-
-impl<T: ?Sized> RawBox<T> {
-    /// Safety: Only a single mutable reference
-    /// created by this function may exist at a given time.
-    #[allow(clippy::mut_from_ref)]
-    unsafe fn get(&self) -> &mut T {
-        unsafe { &mut *self.0.as_ptr() }
-    }
-}
-impl<T: ?Sized> From<Box<T>> for RawBox<T> {
-    fn from(box_: Box<T>) -> Self {
-        // obviously safe because Box::into_raw never returns null
-        unsafe { Self(NonNull::new_unchecked(Box::into_raw(box_))) }
-    }
-}
-
-impl<T: ?Sized> Drop for RawBox<T> {
-    fn drop(&mut self) {
-        unsafe { drop(Box::from_raw(self.0.as_ptr())) }
+fn reset_pos<A, M>(layers: &mut [LayerCursor<A, M>], pos: usize, get_pos: impl Fn(&A) -> usize) {
+    for cursor in layers {
+        cursor.current_index = cursor
+            .layer
+            .annotations
+            .partition_point(|annotation| get_pos(annotation) < pos);
     }
 }
 
@@ -305,7 +261,7 @@ pub struct TextAnnotations<'a> {
     inline_annotations: Vec<Layer<'a, InlineAnnotation, InlineHighlights<'a>>>,
     overlays: Vec<Layer<'a, Overlay, Option<Highlight>>>,
     conceals: &'a [Conceal],
-    line_annotations: Vec<(Cell<usize>, RawBox<dyn LineAnnotation + 'a>)>,
+    line_annotations: Vec<Box<dyn LineAnnotationFactory + 'a>>,
 }
 
 impl Debug for TextAnnotations<'_> {
@@ -361,42 +317,51 @@ impl<'a> TextAnnotations<'a> {
         end
     }
 
-    /// Skip inline text and overlays hidden by a conceal without resetting line
-    /// annotations, whose pending anchors are handled by `skip_concealed_anchors`.
-    pub(crate) fn skip_concealed(&self, end: usize) {
-        reset_pos(&self.inline_annotations, end, |annot| annot.char_idx);
-        reset_pos(&self.overlays, end, |annot| annot.char_idx);
-    }
-
-    /// Prepare the TextAnnotations for iteration starting at char_idx
-    pub fn reset_pos(&self, char_idx: usize) {
-        reset_pos(&self.inline_annotations, char_idx, |annot| annot.char_idx);
-        reset_pos(&self.overlays, char_idx, |annot| annot.char_idx);
-        for (next_anchor, layer) in &self.line_annotations {
-            next_anchor.set(unsafe { layer.get().reset_pos(char_idx) });
+    pub(crate) fn cursor(&self, pos: usize) -> AnnotationCursor<'_> {
+        AnnotationCursor {
+            inline_annotations: self
+                .inline_annotations
+                .iter()
+                .map(|layer| LayerCursor::new(layer, pos, |annotation| annotation.char_idx))
+                .collect(),
+            overlays: self
+                .overlays
+                .iter()
+                .map(|layer| LayerCursor::new(layer, pos, |annotation| annotation.char_idx))
+                .collect(),
+            line_annotations: self
+                .line_annotations
+                .iter()
+                .map(|factory| {
+                    let mut session = factory.create();
+                    (session.reset_pos(pos), session)
+                })
+                .collect(),
         }
     }
 
     pub fn collect_overlay_highlights(&self, char_range: Range<usize>) -> OverlayHighlights {
-        let mut highlights = Vec::new();
-        self.reset_pos(char_range.start);
-        let mut char_idx = char_range.start;
-        while char_idx < char_range.end {
-            if let Some(conceal) = self.conceal_at(char_idx) {
-                char_idx = conceal.range.end;
-                reset_pos(&self.overlays, char_idx, |annot| annot.char_idx);
-                continue;
+        let mut highlights = BTreeMap::new();
+        for layer in &self.overlays {
+            let first = layer
+                .annotations
+                .partition_point(|overlay| overlay.char_idx < char_range.start);
+            for overlay in layer.annotations[first..]
+                .iter()
+                .take_while(|overlay| overlay.char_idx < char_range.end)
+            {
+                if self.conceal_at(overlay.char_idx).is_none() {
+                    // Last overlay wins, including an overlay without a highlight.
+                    highlights.insert(overlay.char_idx, layer.metadata);
+                }
             }
-            if let Some((_, Some(highlight))) = self.overlay_at(char_idx) {
-                // we don't know the number of chars the original grapheme takes
-                // however it doesn't matter as highlight boundaries are automatically
-                // aligned to grapheme boundaries in the rendering code
-                highlights.push((highlight, char_idx..char_idx + 1));
-            }
-            char_idx += 1;
         }
-
-        OverlayHighlights::Heterogenous { highlights }
+        OverlayHighlights::Heterogenous {
+            highlights: highlights
+                .into_iter()
+                .filter_map(|(pos, highlight)| highlight.map(|highlight| (highlight, pos..pos + 1)))
+                .collect(),
+        }
     }
 
     /// Add a single-line replacement. Ranges must be sorted and non-overlapping.
@@ -508,13 +473,12 @@ impl<'a> TextAnnotations<'a> {
         self
     }
 
-    /// Add new annotation lines.
+    /// Add an initial line annotation session, cloned and reset for each traversal.
     ///
     /// The line annotations **must be sorted** by their `char_idx`.
     /// Multiple line annotations with the same `char_idx` **are not allowed**.
-    pub fn add_line_annotation(&mut self, layer: Box<dyn LineAnnotation + 'a>) -> &mut Self {
-        self.line_annotations
-            .push((Cell::new(usize::MAX), layer.into()));
+    pub fn add_line_annotation(&mut self, initial: impl LineAnnotation + Clone + 'a) -> &mut Self {
+        self.line_annotations.push(Box::new(initial));
         self
     }
 
@@ -523,15 +487,42 @@ impl<'a> TextAnnotations<'a> {
     pub fn clear_line_annotations(&mut self) {
         self.line_annotations.clear();
     }
+}
+
+/// Mutable annotation state owned by one document traversal.
+pub(crate) struct AnnotationCursor<'a> {
+    inline_annotations: Vec<LayerCursor<'a, InlineAnnotation, InlineHighlights<'a>>>,
+    overlays: Vec<LayerCursor<'a, Overlay, Option<Highlight>>>,
+    line_annotations: Vec<(usize, Box<dyn LineAnnotation + 'a>)>,
+}
+
+impl Debug for AnnotationCursor<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AnnotationCursor")
+            .field("inline_layers", &self.inline_annotations.len())
+            .field("overlay_layers", &self.overlays.len())
+            .field("line_layers", &self.line_annotations.len())
+            .finish()
+    }
+}
+
+impl<'a> AnnotationCursor<'a> {
+    /// Hidden inline/overlay entries are skipped without resetting line sessions.
+    pub(crate) fn skip_concealed(&mut self, end: usize) {
+        reset_pos(&mut self.inline_annotations, end, |annotation| {
+            annotation.char_idx
+        });
+        reset_pos(&mut self.overlays, end, |annotation| annotation.char_idx);
+    }
 
     pub(crate) fn next_inline_annotation_at(
-        &self,
+        &mut self,
         char_idx: usize,
-    ) -> Option<(&InlineAnnotation, Option<Highlight>)> {
-        self.inline_annotations.iter().find_map(|layer| {
-            let index = layer.current_index.get();
+    ) -> Option<(&'a InlineAnnotation, Option<Highlight>)> {
+        self.inline_annotations.iter_mut().find_map(|layer| {
+            let index = layer.current_index;
             let annotation = layer.consume(char_idx, |annot| annot.char_idx)?;
-            let highlight = match layer.metadata {
+            let highlight = match layer.layer.metadata {
                 InlineHighlights::Uniform(highlight) => highlight,
                 InlineHighlights::PerItem(highlights) => Some(highlights[index]),
             };
@@ -539,25 +530,27 @@ impl<'a> TextAnnotations<'a> {
         })
     }
 
-    pub(crate) fn overlay_at(&self, char_idx: usize) -> Option<(&Overlay, Option<Highlight>)> {
+    pub(crate) fn overlay_at(
+        &mut self,
+        char_idx: usize,
+    ) -> Option<(&'a Overlay, Option<Highlight>)> {
         let mut overlay = None;
-        for layer in &self.overlays {
+        for layer in &mut self.overlays {
             while let Some(new_overlay) = layer.consume(char_idx, |annot| annot.char_idx) {
-                overlay = Some((new_overlay, layer.metadata));
+                overlay = Some((new_overlay, layer.layer.metadata));
             }
         }
         overlay
     }
 
-    pub(crate) fn process_virtual_text_anchors(&self, grapheme: &FormattedGrapheme) {
-        for (next_anchor, layer) in &self.line_annotations {
+    pub(crate) fn process_virtual_text_anchors(&mut self, grapheme: &FormattedGrapheme) {
+        for (next_anchor, layer) in &mut self.line_annotations {
             loop {
-                match next_anchor.get().cmp(&grapheme.char_idx) {
-                    Ordering::Less => next_anchor
-                        .set(unsafe { layer.get().skip_concealed_anchors(grapheme.char_idx) }),
-                    Ordering::Equal => {
-                        next_anchor.set(unsafe { layer.get().process_anchor(grapheme) })
+                match (*next_anchor).cmp(&grapheme.char_idx) {
+                    Ordering::Less => {
+                        *next_anchor = layer.skip_concealed_anchors(grapheme.char_idx)
                     }
+                    Ordering::Equal => *next_anchor = layer.process_anchor(grapheme),
                     Ordering::Greater => break,
                 };
             }
@@ -565,19 +558,131 @@ impl<'a> TextAnnotations<'a> {
     }
 
     pub(crate) fn virtual_lines_at(
-        &self,
+        &mut self,
         char_idx: usize,
         line_end_visual_pos: DisplayPosition,
         doc_line: usize,
     ) -> usize {
         let mut virt_off = DisplayPosition::new(0, 0);
-        for (_, layer) in &self.line_annotations {
-            virt_off += unsafe {
-                layer
-                    .get()
-                    .insert_virtual_lines(char_idx, line_end_visual_pos + virt_off, doc_line)
-            };
+        for (_, layer) in &mut self.line_annotations {
+            virt_off +=
+                layer.insert_virtual_lines(char_idx, line_end_visual_pos + virt_off, doc_line);
         }
         virt_off.row
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::doc_formatter::{DocumentFormatter, TextFormat};
+    use editor_core::Rope;
+
+    #[derive(Clone)]
+    struct Gap {
+        pending: bool,
+    }
+    impl LineAnnotation for Gap {
+        fn reset_pos(&mut self, pos: usize) -> usize {
+            self.pending = false;
+            if pos <= 3 {
+                3
+            } else {
+                usize::MAX
+            }
+        }
+        fn process_anchor(&mut self, _: &FormattedGrapheme) -> usize {
+            self.pending = true;
+            usize::MAX
+        }
+        fn insert_virtual_lines(
+            &mut self,
+            _: usize,
+            _: DisplayPosition,
+            _: usize,
+        ) -> DisplayPosition {
+            DisplayPosition::new(std::mem::take(&mut self.pending) as usize, 0)
+        }
+    }
+
+    fn signature(g: FormattedGrapheme<'_>) -> (String, usize, DisplayPosition, bool) {
+        (g.raw.to_string(), g.char_idx, g.visual_pos, g.is_virtual())
+    }
+
+    #[test]
+    fn interleaved_traversals_and_overlay_queries_keep_independent_progress() {
+        let text = Rope::from("a界\nbé\nz");
+        let inline = [
+            InlineAnnotation::new(0, "α"),
+            InlineAnnotation::new(3, "hint"),
+        ];
+        let overlays = [Overlay::new(0, "A"), Overlay::new(3, "B")];
+        let mut annotations = TextAnnotations::default();
+        annotations
+            .add_inline_annotations(&inline, None)
+            .add_overlay(&overlays, Some(Highlight::new(1)))
+            .add_line_annotation(Gap { pending: false });
+        for soft_wrap in [false, true] {
+            let format = TextFormat {
+                soft_wrap,
+                viewport_width: 4,
+                max_wrap: 0,
+                ..TextFormat::default()
+            };
+            for anchor in [0, 3] {
+                for query_overlays in [false, true] {
+                    let formatter = |anchor| {
+                        DocumentFormatter::new_at_prev_checkpoint(
+                            text.slice(..),
+                            &format,
+                            &annotations,
+                            anchor,
+                        )
+                    };
+                    let expected_left: Vec<_> = formatter(0).map(signature).collect();
+                    let expected_right: Vec<_> = formatter(anchor).map(signature).collect();
+                    let (mut left, mut right) = (formatter(0), formatter(anchor));
+                    let (mut actual_left, mut actual_right) = (Vec::new(), Vec::new());
+                    for _ in 0..expected_left.len() + expected_right.len() + 1 {
+                        let a = left.next();
+                        if query_overlays {
+                            annotations.collect_overlay_highlights(0..text.len_chars());
+                        }
+                        let b = right.next();
+                        if a.is_none() && b.is_none() {
+                            break;
+                        }
+                        actual_left.extend(a.map(signature));
+                        actual_right.extend(b.map(signature));
+                    }
+                    assert_eq!(actual_left, expected_left);
+                    assert_eq!(actual_right, expected_right);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn overlay_highlights_keep_last_layer_precedence_and_skip_hidden_ranges() {
+        let base = [
+            Overlay::new(0, "A"),
+            Overlay::new(2, "B"),
+            Overlay::new(4, "C"),
+        ];
+        let clear = [Overlay::new(0, "D"), Overlay::new(2, "E")];
+        let top = [Overlay::new(2, "F")];
+        let conceals = [Conceal { range: 3..5 }];
+        let mut annotations = TextAnnotations::default();
+        annotations.set_conceals(&conceals);
+        annotations
+            .add_overlay(&base, Some(Highlight::new(1)))
+            .add_overlay(&clear, None)
+            .add_overlay(&top, Some(Highlight::new(2)));
+        let OverlayHighlights::Heterogenous { highlights } =
+            annotations.collect_overlay_highlights(0..6)
+        else {
+            panic!("expected per-position highlights")
+        };
+        assert_eq!(highlights, [(Highlight::new(2), 2..3)]);
     }
 }

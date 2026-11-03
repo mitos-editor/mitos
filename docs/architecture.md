@@ -164,6 +164,10 @@ and alignment use this context. It borrows its document and is discarded before
 mutation; it is not a persistent cache. Previews supply explicit layout values
 without creating a document/view binding.
 
+`TextAnnotations` describes borrowed layers and initial line annotation sessions.
+Each formatter owns its traversal cursors and cloned line sessions, so independent
+formatters and overlay queries do not reset one another.
+
 `view::annotations` prepares diagnostic and inline-completion layout from borrowed
 values. Diagnostic accumulation takes a diagnostic slice; completion row layout
 takes preview lines and formatter settings. These algorithms do not borrow a
