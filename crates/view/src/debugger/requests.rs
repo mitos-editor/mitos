@@ -56,7 +56,6 @@ impl RequestLifetime {
 
 #[derive(Default)]
 pub(super) struct SessionRequests {
-    session: RequestLifetime,
     execution: RequestLifetime,
     selection: RequestLifetime,
     requests: HashMap<RequestKind, TaskController>,
@@ -70,6 +69,16 @@ impl DebuggerState {
 
     pub(super) fn inspection_handle(&self, id: DebugAdapterId) -> TaskHandle {
         self.sessions[id].requests.selection.current.clone()
+    }
+
+    pub(super) fn selection_changed(&mut self) {
+        self.current_selection = Some(self.selection.restart());
+        for session in self.sessions.values_mut() {
+            session
+                .requests
+                .requests
+                .retain(|kind, _| kind.scope() != RequestScope::Inspection);
+        }
     }
 
     pub(crate) fn invalidate_inspection(&mut self, id: DebugAdapterId) {
@@ -100,7 +109,7 @@ impl DebuggerState {
 pub struct DebuggerContext {
     pub(super) id: DebugAdapterId,
     owner: EditorCallbackSender,
-    pub(super) lifetimes: Vec<TaskHandle>,
+    dependency: Option<TaskHandle>,
     pub(super) request: TaskHandle,
     scope: RequestScope,
     pub(super) thread: Option<ThreadId>,
@@ -109,7 +118,9 @@ pub struct DebuggerContext {
 
 impl DebuggerContext {
     pub fn is_current(&self, editor: &Editor) -> bool {
-        self.lifetimes.iter().all(|handle| !handle.is_canceled())
+        self.dependency
+            .as_ref()
+            .is_none_or(|handle| !handle.is_canceled())
             && !self.request.is_canceled()
             && self.owner.same_destination(editor.callback_sender())
             && (self.scope == RequestScope::Session || !editor.debugger.is_terminating(self.id))
@@ -124,15 +135,23 @@ impl DebuggerContext {
             })
     }
 
+    /// Add a data/source lifetime, or the local frame lifetime for a stack refresh.
+    /// These dependencies can change independently of the request's scope.
+    pub(super) fn with_dependency(mut self, dependency: TaskHandle) -> Self {
+        assert!(self.dependency.is_none());
+        self.dependency = Some(dependency);
+        self
+    }
+
     async fn canceled(&self) {
-        use futures_util::{stream::FuturesUnordered, StreamExt};
-        let mut canceled: FuturesUnordered<_> = self
-            .lifetimes
-            .iter()
-            .map(|handle| handle.canceled())
-            .collect();
-        canceled.push(self.request.canceled());
-        canceled.next().await;
+        if let Some(dependency) = &self.dependency {
+            tokio::select! {
+                _ = self.request.canceled() => {},
+                _ = dependency.canceled() => {},
+            }
+        } else {
+            self.request.canceled().await;
+        }
     }
 }
 
@@ -222,20 +241,10 @@ impl Editor {
         let owner = self.callback_sender().clone();
         let scope = kind.scope();
         let state = &mut self.debugger.sessions[id].requests;
-        let mut lifetimes = vec![state.session.current.clone()];
-        if scope != RequestScope::Session {
-            lifetimes.push(state.execution.current.clone());
-        }
-        if scope == RequestScope::Inspection {
-            lifetimes.push(state.selection.current.clone());
-            if let Some(selection) = &self.debugger.current_selection {
-                lifetimes.push(selection.clone());
-            }
-        }
         let context = DebuggerContext {
             id,
             owner,
-            lifetimes,
+            dependency: None,
             request: state.requests.entry(kind).or_default().restart(),
             scope,
             thread,

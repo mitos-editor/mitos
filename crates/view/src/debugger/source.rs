@@ -205,7 +205,7 @@ impl crate::Editor {
             self.show_debugger_source(document, frame);
             return;
         }
-        let Ok((mut context, sender)) =
+        let Ok((context, sender)) =
             self.debugger_context_for(id, super::requests::RequestKind::Source)
         else {
             return;
@@ -228,7 +228,7 @@ impl crate::Editor {
             .entries
             .get_mut(&reference)
             .unwrap();
-        context.lifetimes.push(cached.current.clone());
+        let context = context.with_dependency(cached.current.clone());
         let content = cached.content.clone();
         let source = cached.descriptor.clone();
         let frame = frame.clone();

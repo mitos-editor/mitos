@@ -201,7 +201,7 @@ impl DebuggerState {
     /// Select an existing session. Stale IDs cannot select a replacement session.
     pub fn select_session(&mut self, id: DebugAdapterId) -> anyhow::Result<()> {
         if self.sessions.select(id)? {
-            self.current_selection = Some(self.selection.restart());
+            self.selection_changed();
         }
         Ok(())
     }
@@ -216,7 +216,7 @@ impl DebuggerState {
             DebugSession::new(id, number, name, parent)
         });
         if previous != self.sessions.active_id() {
-            self.current_selection = Some(self.selection.restart());
+            self.selection_changed();
         }
         id
     }
@@ -260,7 +260,7 @@ impl DebuggerState {
         self.clear_sources(id);
         self.sessions.remove(id);
         if selected {
-            self.current_selection = Some(self.selection.restart());
+            self.selection_changed();
         }
     }
 }
