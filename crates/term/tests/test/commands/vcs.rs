@@ -7,9 +7,9 @@ use tokio_stream::wrappers::UnboundedReceiverStream;
 use ui_core::input::parse_macro;
 
 #[cfg(windows)]
-use crossterm::event::{Event, KeyEvent};
+use crossterm::event::Event;
 #[cfg(not(windows))]
-use termina::event::{Event, KeyEvent};
+use termina::event::Event;
 
 use super::super::helpers::{run_event_loop_until_idle, test_config, AppBuilder};
 
@@ -193,7 +193,7 @@ async fn repository_pull_checks_unsaved_buffers_before_contacting_a_remote() -> 
 async fn press_keys(app: &mut Application, keys: &str) -> anyhow::Result<()> {
     let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
     for key in parse_macro(keys)? {
-        sender.send(Ok(Event::Key(KeyEvent::from(key))))?;
+        sender.send(Ok(Event::Key(tui::backend::native::adapt(key))))?;
     }
     let mut input = UnboundedReceiverStream::new(receiver);
     assert!(app.event_loop_until_idle(&mut input).await);
@@ -378,7 +378,7 @@ async fn narrow_views_keep_error_diagnostics_ahead_of_inline_blame() -> anyhow::
             app.editor.switch(id, Action::VerticalSplit);
         }
         for key in parse_macro("<esc>")? {
-            app.handle_terminal_events(Ok(Event::Key(KeyEvent::from(key))))
+            app.handle_terminal_events(Ok(Event::Key(tui::backend::native::adapt(key))))
                 .await;
         }
         let (view, doc) = current_ref!(app.editor);

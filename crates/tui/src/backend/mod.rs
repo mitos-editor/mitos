@@ -8,15 +8,18 @@ use ui_core::{
     theme::{Color, Mode},
 };
 
-#[cfg(all(feature = "termina", not(windows)))]
+#[cfg(all(feature = "native", not(windows)))]
 mod termina;
-#[cfg(all(feature = "termina", not(windows)))]
+#[cfg(all(feature = "native", not(windows)))]
 pub use self::termina::TerminaBackend;
 
-#[cfg(all(feature = "termina", windows))]
+#[cfg(all(feature = "native", windows))]
 mod crossterm;
-#[cfg(all(feature = "termina", windows))]
+#[cfg(all(feature = "native", windows))]
 pub use self::crossterm::CrosstermBackend;
+
+#[cfg(feature = "native")]
+pub mod native;
 
 mod test;
 pub use self::test::TestBackend;

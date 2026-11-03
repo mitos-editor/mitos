@@ -12,17 +12,20 @@ repository.workspace = true
 homepage.workspace = true
 
 [features]
-default = ["termina", "crossterm"]
+default = ["native"]
+native = ["dep:termina", "dep:crossterm"]
 
 [dependencies]
-ui-core = { workspace = true, features = ["term"] }
+ui-core.workspace = true
 
 ratatui.workspace = true
 unicode-segmentation.workspace = true
 unicode-width.workspace = true
-termina = { workspace = true, optional = true }
 termini.workspace = true
 log.workspace = true
+
+[target.'cfg(not(windows))'.dependencies]
+termina = { workspace = true, optional = true }
 
 [target.'cfg(windows)'.dependencies]
 crossterm = { workspace = true, optional = true }

@@ -90,9 +90,13 @@ async fn modified_buffers_prompt_once_and_reload_only_when_confirmed() -> anyhow
     assert_eq!(current_ref!(app.editor).1.auto_reload_seen_mtime(), seen);
     // One Escape must dismiss the only prompt. A second external edit prompts again.
     #[cfg(not(windows))]
-    let escape = termina::event::Event::Key(ui_core::input::parse_macro("<esc>")?[0].into());
+    let escape = termina::event::Event::Key(tui::backend::native::adapt(
+        ui_core::input::parse_macro("<esc>")?[0],
+    ));
     #[cfg(windows)]
-    let escape = crossterm::event::Event::Key(ui_core::input::parse_macro("<esc>")?[0].into());
+    let escape = crossterm::event::Event::Key(tui::backend::native::adapt(
+        ui_core::input::parse_macro("<esc>")?[0],
+    ));
     app.handle_terminal_events(Ok(escape)).await;
     assert_eq!(text(&app), "local before\n");
     changed(&path, "new external\n", 3)?;

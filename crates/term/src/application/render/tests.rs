@@ -131,9 +131,9 @@ async fn opening_a_file_publishes_ready_syntax_before_input_frame() -> anyhow::R
         .next()
         .unwrap();
     #[cfg(not(windows))]
-    let event = termina::event::Event::Key(key.into());
+    let event = termina::event::Event::Key(tui::backend::native::adapt(key));
     #[cfg(windows)]
-    let event = crossterm::event::Event::Key(key.into());
+    let event = crossterm::event::Event::Key(tui::backend::native::adapt(key));
     app.handle_terminal_events(Ok(event)).await;
     assert_eq!(frames.frames().first(), Some(&true));
     assert!(app.close().await.is_empty());
@@ -438,9 +438,9 @@ async fn disabled_breadcrumb_edit_does_not_require_a_callback_frame() -> anyhow:
     app.drain_ready_callbacks();
     for key in ui_core::input::parse_macro("ix")? {
         #[cfg(not(windows))]
-        let event = termina::event::Event::Key(key.into());
+        let event = termina::event::Event::Key(tui::backend::native::adapt(key));
         #[cfg(windows)]
-        let event = crossterm::event::Event::Key(key.into());
+        let event = crossterm::event::Event::Key(tui::backend::native::adapt(key));
         app.handle_terminal_events(Ok(event)).await;
     }
     assert!(

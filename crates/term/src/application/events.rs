@@ -208,7 +208,7 @@ impl Application {
             #[cfg(not(windows))]
             termina::Event::Csi(csi::Csi::Mode(csi::Mode::ReportTheme(mode))) => {
                 let config = self.config.load();
-                let mode = mode.into();
+                let mode = tui::backend::native::adapt(mode);
                 let mode_changed = self.theme_mode.as_ref().is_none_or(|m| m != &mode);
                 if mode_changed
                     && config
@@ -250,7 +250,9 @@ impl Application {
             }) => false,
             #[cfg(not(windows))]
             event if event.is_escape() => false,
-            event => self.compositor.handle_event(&event.into(), &mut cx),
+            event => self
+                .compositor
+                .handle_event(&tui::backend::native::adapt(event), &mut cx),
         };
 
         should_redraw |= self.apply_pending_config_updates();
