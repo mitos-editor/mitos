@@ -811,61 +811,26 @@ impl Drop for TerminaBackend {
 }
 
 fn diff_modifiers(from: Modifier, to: Modifier) -> SgrModifiers {
-    let mut modifiers = SgrModifiers::default();
-
-    let removed = from - to;
-    if removed.contains(Modifier::REVERSED) {
-        modifiers |= SgrModifiers::NO_REVERSE;
-    }
-    if removed.contains(Modifier::BOLD) {
-        modifiers |= SgrModifiers::INTENSITY_NORMAL;
-        if to.contains(Modifier::DIM) {
-            modifiers |= SgrModifiers::INTENSITY_DIM
-        }
-    }
-    if removed.contains(Modifier::DIM) {
-        modifiers |= SgrModifiers::INTENSITY_NORMAL;
-    }
-    if removed.contains(Modifier::ITALIC) {
-        modifiers |= SgrModifiers::NO_ITALIC;
-    }
-    if removed.contains(Modifier::CROSSED_OUT) {
-        modifiers |= SgrModifiers::NO_STRIKE_THROUGH;
-    }
-    if removed.contains(Modifier::HIDDEN) {
-        modifiers |= SgrModifiers::NO_INVISIBLE;
-    }
-    if removed.contains(Modifier::SLOW_BLINK) || removed.contains(Modifier::RAPID_BLINK) {
-        modifiers |= SgrModifiers::BLINK_NONE;
-    }
-
-    let added = to - from;
-    if added.contains(Modifier::REVERSED) {
-        modifiers |= SgrModifiers::REVERSE;
-    }
-    if added.contains(Modifier::BOLD) {
-        modifiers |= SgrModifiers::INTENSITY_BOLD;
-    }
-    if added.contains(Modifier::DIM) {
-        modifiers |= SgrModifiers::INTENSITY_DIM;
-    }
-    if added.contains(Modifier::ITALIC) {
-        modifiers |= SgrModifiers::ITALIC;
-    }
-    if added.contains(Modifier::CROSSED_OUT) {
-        modifiers |= SgrModifiers::STRIKE_THROUGH;
-    }
-    if added.contains(Modifier::HIDDEN) {
-        modifiers |= SgrModifiers::INVISIBLE;
-    }
-    if added.contains(Modifier::SLOW_BLINK) {
-        modifiers |= SgrModifiers::BLINK_SLOW;
-    }
-    if added.contains(Modifier::RAPID_BLINK) {
-        modifiers |= SgrModifiers::BLINK_RAPID;
-    }
-
-    modifiers
+    use super::output::ModifierChange::*;
+    super::output::modifier_changes(from, to).fold(SgrModifiers::empty(), |flags, change| {
+        flags
+            | match change {
+                Reverse(false) => SgrModifiers::NO_REVERSE,
+                Reverse(true) => SgrModifiers::REVERSE,
+                NormalIntensity => SgrModifiers::INTENSITY_NORMAL,
+                Bold => SgrModifiers::INTENSITY_BOLD,
+                Dim => SgrModifiers::INTENSITY_DIM,
+                Italic(false) => SgrModifiers::NO_ITALIC,
+                Italic(true) => SgrModifiers::ITALIC,
+                CrossedOut(false) => SgrModifiers::NO_STRIKE_THROUGH,
+                CrossedOut(true) => SgrModifiers::STRIKE_THROUGH,
+                NoBlink => SgrModifiers::BLINK_NONE,
+                SlowBlink => SgrModifiers::BLINK_SLOW,
+                RapidBlink => SgrModifiers::BLINK_RAPID,
+                Hidden(false) => SgrModifiers::NO_INVISIBLE,
+                Hidden(true) => SgrModifiers::INVISIBLE,
+            }
+    })
 }
 
 fn color_to_termina(color: RatatuiColor) -> ColorSpec {
