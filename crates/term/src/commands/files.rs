@@ -199,8 +199,7 @@ pub(super) mod typed {
             buffers::typed::{buffer_close_by_ids_impl, buffer_gather_paths_impl},
             catalog::{WRITE_NO_CODE_ACTIONS_FLAG, WRITE_NO_FORMAT_FLAG},
         },
-        compositor,
-        job,
+        compositor, job,
         ui::{self, overlay::overlaid},
     };
     use ::command_line::Args;
