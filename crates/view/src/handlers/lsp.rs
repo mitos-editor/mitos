@@ -89,11 +89,13 @@ impl Editor {
         self.handlers.lsp_progress.remove_server(server_id);
         self.forget_language_server(server_id);
         self.clear_language_server_diagnostics(server_id);
-        event::dispatch(LanguageServerExited {
-            editor: self,
-            server_id,
-        })
-        .report_to(self.status_sender());
+        self.events()
+            .clone()
+            .dispatch(LanguageServerExited {
+                editor: self,
+                server_id,
+            })
+            .report_to(self.status_sender());
     }
 
     pub fn execute_lsp_command(&mut self, command: lsp::Command, server_id: LanguageServerId) {

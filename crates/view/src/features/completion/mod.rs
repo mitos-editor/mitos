@@ -585,12 +585,12 @@ pub(crate) fn invalidate(editor: &mut Editor) {
     editor.handlers.completions.invalidate();
 }
 
-pub(crate) fn register_hooks() {
-    register_hook!(move |event: &mut DocumentFocusLost<'_>| {
+pub(crate) fn register_hooks(events: &event::EventHub) {
+    register_hook!(events => move |event: &mut DocumentFocusLost<'_>| {
         invalidate(event.editor);
         Ok(())
     });
-    register_hook!(move |event: &mut DocumentDidClose<'_>| {
+    register_hook!(events => move |event: &mut DocumentDidClose<'_>| {
         let handler = &mut event.editor.handlers.completions;
         let active = handler
             .shared
@@ -602,7 +602,7 @@ pub(crate) fn register_hooks() {
         }
         Ok(())
     });
-    register_hook!(move |event: &mut LanguageServerExited<'_>| {
+    register_hook!(events => move |event: &mut LanguageServerExited<'_>| {
         let handler = &mut event.editor.handlers.completions;
         if handler
             .active_completions
@@ -612,7 +612,7 @@ pub(crate) fn register_hooks() {
         }
         Ok(())
     });
-    register_hook!(move |event: &mut ConfigDidChange<'_>| {
+    register_hook!(events => move |event: &mut ConfigDidChange<'_>| {
         let handler = &mut event.editor.handlers.completions;
         *handler.shared.timeout.lock() = event.new.completion.trigger_delay;
         let automatic = handler

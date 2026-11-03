@@ -129,27 +129,27 @@ fn attach_document_links(editor: &mut Editor, doc_id: DocumentId, mut links: Vec
     doc.document_links.cache = links;
 }
 
-pub(crate) fn register_hooks() {
-    register_hook!(move |event: &mut DocumentLanguageDidChange<'_>| {
+pub(crate) fn register_hooks(events: &event::EventHub) {
+    register_hook!(events => move |event: &mut DocumentLanguageDidChange<'_>| {
         request_document_links(event.editor, event.doc, None);
         Ok(())
     });
-    register_hook!(move |event: &mut SelectionDidChange<'_>| {
+    register_hook!(events => move |event: &mut SelectionDidChange<'_>| {
         event.doc.document_links.cancel_navigation_for(event.view);
         Ok(())
     });
-    register_hook!(move |event: &mut DocumentFocusLost<'_>| {
+    register_hook!(events => move |event: &mut DocumentFocusLost<'_>| {
         if let Some(doc) = event.editor.document_mut(event.doc) {
             doc.document_links.cancel_navigation_for(event.view);
         }
         Ok(())
     });
-    register_hook!(move |event: &mut DocumentDidOpen<'_>| {
+    register_hook!(events => move |event: &mut DocumentDidOpen<'_>| {
         request_document_links(event.editor, event.doc, None);
         Ok(())
     });
 
-    register_hook!(move |event: &mut DocumentDidChange<'_>| {
+    register_hook!(events => move |event: &mut DocumentDidChange<'_>| {
         event.doc.document_links.request.cancel();
         if let Some(handler) = &event.doc.document_links.handler {
             event::send_blocking(&handler.events, event.doc.id());
@@ -158,7 +158,7 @@ pub(crate) fn register_hooks() {
         Ok(())
     });
 
-    register_hook!(move |event: &mut LanguageServerInitialized<'_>| {
+    register_hook!(events => move |event: &mut LanguageServerInitialized<'_>| {
         let doc_ids: Vec<_> = event.editor.documents().map(|doc| doc.id()).collect();
 
         for doc_id in doc_ids {
@@ -168,7 +168,7 @@ pub(crate) fn register_hooks() {
         Ok(())
     });
 
-    register_hook!(move |event: &mut LanguageServerExited<'_>| {
+    register_hook!(events => move |event: &mut LanguageServerExited<'_>| {
         for doc in event.editor.documents_mut() {
             if doc.supports_language_server(event.server_id) {
                 doc.document_links.clear_cache();

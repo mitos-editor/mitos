@@ -44,7 +44,6 @@ use crate::{
     Document, DocumentId, View, ViewId,
 };
 use editor_config::Config;
-use event::dispatch;
 use theme::Theme;
 use vcs::DiffProviderRegistry;
 use workspace::trust::WorkspaceTrust;
@@ -586,12 +585,14 @@ impl Editor {
         doc_mut!(self).mark_as_focused();
 
         let focus_lost = self.tree.get(prev_id).doc;
-        dispatch(DocumentFocusLost {
-            editor: self,
-            doc: focus_lost,
-            view: prev_id,
-        })
-        .report_to(self.status_sender());
+        self.events()
+            .clone()
+            .dispatch(DocumentFocusLost {
+                editor: self,
+                doc: focus_lost,
+                view: prev_id,
+            })
+            .report_to(self.status_sender());
     }
 
     pub fn focus_next(&mut self) {
@@ -979,12 +980,14 @@ impl Editor {
                 selection = selection.map(transaction.changes()).ensure_invariants(text);
             }
             self.replace_document_in_view(view_id, dest_doc_id);
-            dispatch(DocumentFocusLost {
-                editor: self,
-                doc: old_doc_id,
-                view: view_id,
-            })
-            .report_to(self.status_sender());
+            self.events()
+                .clone()
+                .dispatch(DocumentFocusLost {
+                    editor: self,
+                    doc: old_doc_id,
+                    view: view_id,
+                })
+                .report_to(self.status_sender());
         }
         let (view, doc) = current!(self);
         doc.set_selection(view_id, selection);

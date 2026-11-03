@@ -7,7 +7,7 @@ async fn mode_observers_see_each_completed_transition_once() -> anyhow::Result<(
     let mut f = Fixture::new("text\n")?;
     let observed = Arc::new(Mutex::new(Vec::new()));
     let record = observed.clone();
-    event::register_hook!(move |event: &mut ModeDidChange<'_>| {
+    event::register_hook!(f.editor.events() => move |event: &mut ModeDidChange<'_>| {
         assert_eq!(event.editor.mode(), event.new);
         assert!(event
             .editor

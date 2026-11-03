@@ -48,7 +48,7 @@ async fn symbol_queries_use_the_originating_providers_after_focus_moves() -> any
         .await?
         .context("missing symbols")??;
     assert_eq!(items.len(), 1);
-    assert_eq!(items[0].symbol.name, "symbols:foo");
+    assert_eq!(items[0].name, "symbols:foo");
     assert_eq!(
         items[0].location.offset_encoding,
         lsp_client::OffsetEncoding::Utf16

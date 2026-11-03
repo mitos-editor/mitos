@@ -190,6 +190,7 @@ impl FileScroll {
 }
 
 pub(super) struct FilePreview {
+    image_cache: Option<crate::ui::image::ImageCache>,
     preview_cache: HashMap<Arc<Path>, CacheEntry>,
     read_buffer: Vec<u8>,
     image_task: Option<ImagePreviewTask>,
@@ -240,6 +241,7 @@ impl FileStamp {
 impl Default for FilePreview {
     fn default() -> Self {
         Self {
+            image_cache: None,
             preview_cache: HashMap::new(),
             read_buffer: Vec::with_capacity(1024),
             image_task: None,
@@ -313,7 +315,9 @@ impl FilePreview {
             .preview_cache
             .get(path)
             .map_or(path, |entry| entry.canonical_path.as_path());
-        invalidate_cached_image(canonical_path);
+        if let Some(cache) = &self.image_cache {
+            invalidate_cached_image(cache, canonical_path);
+        }
         if self.syntax_path.as_deref() == Some(path)
             || self
                 .image_task
@@ -419,6 +423,8 @@ impl FilePreview {
         image_picker: Option<&ratatui_image::picker::Picker>,
         image_size: Size,
     ) -> Option<(Preview<'preview, 'editor>, Option<(usize, usize)>)> {
+        self.image_cache
+            .get_or_insert_with(|| jobs.image_cache.clone());
         self.receive_changes(editor);
         let path_or_id = match path_or_id {
             PathOrId::Id(id) => {
@@ -493,8 +499,8 @@ impl FilePreview {
                 }
 
                 let path: Arc<Path> = path.into();
-                if let Some(image) =
-                    image_picker.and_then(|picker| cached_image(&path, picker, image_size))
+                if let Some(image) = image_picker
+                    .and_then(|picker| cached_image(&jobs.image_cache, &path, picker, image_size))
                 {
                     // Other images remain available in the shared, bounded cache.
                     self.preview_cache
@@ -583,6 +589,7 @@ impl FilePreview {
                 if let Some(request) = request {
                     self.image_task = Some(spawn_image_preview::<T, D>(
                         jobs.sender(),
+                        jobs.image_cache.clone(),
                         path.clone(),
                         image_picker.unwrap().clone(),
                         image_size,
@@ -899,6 +906,7 @@ impl Drop for ImagePreviewTask {
 
 fn spawn_image_preview<T: 'static + Send + Sync, D: 'static + Send + Sync>(
     jobs: job::JobSender,
+    cache: crate::ui::image::ImageCache,
     path: Arc<Path>,
     image_picker: ImagePicker,
     size: Size,
@@ -909,7 +917,7 @@ fn spawn_image_preview<T: 'static + Send + Sync, D: 'static + Send + Sync>(
     let task = tokio::spawn(async move {
         // Do not decode or transmit images that the user only scrolls past.
         tokio::time::sleep(IMAGE_PREVIEW_DELAY).await;
-        let result = load_image(task_path, image_picker, size).await;
+        let result = load_image(cache, task_path, image_picker, size).await;
 
         jobs.send(move |_editor, compositor| {
             let Some(Overlay {
@@ -1060,6 +1068,7 @@ mod image_preview_tests {
         let mut jobs = job::Jobs::new();
         let task = spawn_image_preview::<(), ()>(
             jobs.sender(),
+            jobs.image_cache.clone(),
             path.into(),
             ImagePicker::halfblocks(),
             Size::new(20, 10),

@@ -116,11 +116,13 @@ impl Editor {
         for doc in self.documents.values_mut() {
             doc.open_language_server_document(server_id);
         }
-        event::dispatch(LanguageServerInitialized {
-            editor: self,
-            server_id,
-        })
-        .report_to(self.status_sender());
+        self.events()
+            .clone()
+            .dispatch(LanguageServerInitialized {
+                editor: self,
+                server_id,
+            })
+            .report_to(self.status_sender());
     }
 
     pub(crate) fn forget_language_server(&mut self, server_id: LanguageServerId) {

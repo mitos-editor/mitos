@@ -147,14 +147,17 @@ async fn cached_refresh_notifies_observers_after_preserving_other_providers() ->
     );
     let notifications = Arc::new(AtomicUsize::new(0));
     let observed = notifications.clone();
-    event::register_hook!(move |event: &mut DiagnosticsDidChange<'_>| {
-        assert_eq!(event.doc, id);
-        let diagnostics = event.editor.document(id).unwrap().diagnostics();
-        assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].provider, DiagnosticProvider::Spelling);
-        observed.fetch_add(1, Ordering::Relaxed);
-        Ok(())
-    });
+    event::register_hook!(
+        fixture.editor.events() =>
+        move |event: &mut DiagnosticsDidChange<'_>| {
+            assert_eq!(event.doc, id);
+            let diagnostics = event.editor.document(id).unwrap().diagnostics();
+            assert_eq!(diagnostics.len(), 1);
+            assert_eq!(diagnostics[0].provider, DiagnosticProvider::Spelling);
+            observed.fetch_add(1, Ordering::Relaxed);
+            Ok(())
+        }
+    );
     fixture.editor.refresh_language_server_diagnostics(id);
     assert_eq!(notifications.load(Ordering::Relaxed), 1);
     Ok(())

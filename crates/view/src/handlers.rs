@@ -24,6 +24,7 @@ mod snippet;
 /// Services configured before an editor takes ownership. Access owned services through
 /// [`Editor::handlers()`]; use explicit editor methods when replacing a running service.
 pub struct Handlers {
+    events: event::EventHub,
     pub(crate) lsp_progress: lsp_client::LspProgressMap,
     pub(crate) callbacks: EditorCallbackSender,
     pub(crate) status: event::status::StatusSender,
@@ -55,19 +56,33 @@ pub struct Handlers {
 }
 
 impl Handlers {
+    pub fn events(&self) -> &event::EventHub {
+        &self.events
+    }
+
     pub fn redraw(&self) -> &event::Redraw {
         self.callbacks.redraw()
     }
 
-    /// Construct the services for one editor and install shared hooks once per event registry.
+    /// Construct services and a private event hub for one editor.
     ///
     /// Call inside the editor's Tokio runtime. The frontend supplies a callback destination
     /// that runs callbacks against this editor; no terminal setup is required.
     pub fn new(config: &Config, callbacks: EditorCallbackSender) -> Self {
-        crate::events::register();
-        register_hooks();
+        Self::with_events(config, callbacks, event::EventHub::default())
+    }
+
+    /// Install services in this editor's hub, after any preinstalled observers.
+    /// Supply a fresh hub for each editor; clones share its subscriptions.
+    pub fn with_events(
+        config: &Config,
+        callbacks: EditorCallbackSender,
+        events: event::EventHub,
+    ) -> Self {
+        register_hooks(&events);
         let (status, status_messages) = event::status::StatusSender::channel();
         Self {
+            events,
             lsp_progress: Default::default(),
             status,
             status_messages,
@@ -103,6 +118,7 @@ impl Handlers {
 
     /// Attach every document-scoped service before opening or initializing a document.
     pub(crate) fn attach_document(&self, doc: &mut crate::Document) {
+        doc.events = self.events.clone();
         doc.bind_signals(self.callbacks.redraw().clone(), self.status.clone());
         if doc.historical.is_some() {
             doc.syntax_handler = Some(self.syntax.clone());
@@ -152,6 +168,11 @@ impl Handlers {
 }
 
 impl Editor {
+    /// Synchronous observers belonging to this editor, independent of runtime.
+    pub fn events(&self) -> &event::EventHub {
+        self.handlers.events()
+    }
+
     /// Read or schedule editor services without replacing their document bindings.
     pub fn handlers(&self) -> &Handlers {
         &self.handlers
@@ -163,45 +184,38 @@ impl Editor {
     }
 }
 
-// This is the only entry point for shared hook registration. Keep the guard scoped
-// to the event registry so separate test runtimes each install their own hooks.
-fn register_hooks() {
-    event::runtime_local! { static REGISTER: std::sync::Once = std::sync::Once::new(); }
-    REGISTER.call_once(|| {
-        auto_reload::register_hooks();
-        auto_save::register_hooks();
-        blame::register_hooks();
-        crate::features::change_review::register_hooks();
-        signature_help::register_hooks();
-        hover::register_hooks();
-        navigation::register_hooks();
-        crate::features::shell::register_hooks();
-        rename::register_hooks();
-        buffer_search::register_hooks();
-        code_actions::register_hooks();
-        workspace_symbols::register_hooks();
-        inlay_hints::register_hooks();
-        completion::register_hooks();
-        crate::debugger::register_hooks();
-        word_index::register_hooks();
-        register_hook!(move |event: &mut ConfigDidChange<'_>| {
-            event
-                .editor
-                .file_watcher
-                .reload(&event.new.files.watch, &event.editor.workspace);
-            event.editor.refresh_vcs_watches();
-            Ok(())
-        });
-        document_highlight::register_hooks();
-        code_action_hint::register_hooks();
-        document_symbols::register_hooks();
-        diagnostics::pull::register_hooks();
-        snippet::register_hooks();
-        document_colors::register_hooks();
-        code_lenses::register_hooks();
-        document_links::register_hooks();
-        inline_completion::register_hooks();
-        spelling::register_hooks();
-        workspace_trust::register_hooks();
+// Install shared hooks once when constructing the services owned by an editor.
+fn register_hooks(events: &event::EventHub) {
+    auto_reload::register_hooks(events);
+    auto_save::register_hooks(events);
+    blame::register_hooks(events);
+    crate::features::change_review::register_hooks(events);
+    signature_help::register_hooks(events);
+    hover::register_hooks(events);
+    navigation::register_hooks(events);
+    crate::features::shell::register_hooks(events);
+    rename::register_hooks(events);
+    buffer_search::register_hooks(events);
+    code_actions::register_hooks(events);
+    workspace_symbols::register_hooks(events);
+    inlay_hints::register_hooks(events);
+    completion::register_hooks(events);
+    crate::debugger::register_hooks(events);
+    word_index::register_hooks(events);
+    register_hook!(events => move |event: &mut ConfigDidChange<'_>| {
+        event.editor.file_watcher.reload(&event.new.files.watch, &event.editor.workspace);
+        event.editor.refresh_vcs_watches();
+        Ok(())
     });
+    document_highlight::register_hooks(events);
+    code_action_hint::register_hooks(events);
+    document_symbols::register_hooks(events);
+    diagnostics::pull::register_hooks(events);
+    snippet::register_hooks(events);
+    document_colors::register_hooks(events);
+    code_lenses::register_hooks(events);
+    document_links::register_hooks(events);
+    inline_completion::register_hooks(events);
+    spelling::register_hooks(events);
+    workspace_trust::register_hooks(events);
 }

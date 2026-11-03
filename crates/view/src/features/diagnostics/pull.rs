@@ -125,11 +125,13 @@ fn request_document_diagnostics_for_language_servers(
                     .as_ref()
                     .and_then(|provider| match provider {
                         lsp::DiagnosticServerCapabilities::Options(options) => {
-                            options.identifier.clone()
+                            options.identifier.as_deref().map(Into::into)
                         }
-                        lsp::DiagnosticServerCapabilities::RegistrationOptions(options) => {
-                            options.diagnostic_options.identifier.clone()
-                        }
+                        lsp::DiagnosticServerCapabilities::RegistrationOptions(options) => options
+                            .diagnostic_options
+                            .identifier
+                            .as_deref()
+                            .map(Into::into),
                     });
             Some((
                 id,
@@ -239,12 +241,12 @@ pub fn request_document_diagnostics(editor: &mut Editor, doc_id: DocumentId) {
 }
 
 /// Each event routes work through its owning editor or document.
-pub(crate) fn register_hooks() {
-    register_hook!(move |event: &mut DocumentLanguageDidChange<'_>| {
+pub(crate) fn register_hooks(events: &event::EventHub) {
+    register_hook!(events => move |event: &mut DocumentLanguageDidChange<'_>| {
         request_document_diagnostics(event.editor, event.doc);
         Ok(())
     });
-    register_hook!(move |event: &mut DocumentDidChange<'_>| {
+    register_hook!(events => move |event: &mut DocumentDidChange<'_>| {
         for controller in event.doc.pull_diagnostics.requests.values_mut() {
             controller.cancel();
         }
@@ -282,15 +284,15 @@ pub(crate) fn register_hooks() {
         }
         Ok(())
     });
-    register_hook!(move |event: &mut DocumentDidOpen<'_>| {
+    register_hook!(events => move |event: &mut DocumentDidOpen<'_>| {
         request_document_diagnostics(event.editor, event.doc);
         Ok(())
     });
-    register_hook!(move |event: &mut LanguageServerInitialized<'_>| {
+    register_hook!(events => move |event: &mut LanguageServerInitialized<'_>| {
         request_all_document_diagnostics_for_language_server(event.editor, event.server_id);
         Ok(())
     });
-    register_hook!(move |event: &mut LanguageServerExited<'_>| {
+    register_hook!(events => move |event: &mut LanguageServerExited<'_>| {
         for doc in event.editor.documents_mut() {
             doc.pull_diagnostics.requests.remove(&event.server_id);
             doc.pull_diagnostics.result_ids.remove(&event.server_id);

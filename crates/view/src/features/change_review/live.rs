@@ -200,33 +200,33 @@ pub(crate) fn handle_file_events(editor: &Editor, events: &Events) {
     }
 }
 
-pub(super) fn register_hooks() {
-    register_hook!(move |event: &mut DocumentDidChange<'_>| {
+pub(super) fn register_hooks(events: &event::EventHub) {
+    register_hook!(events => move |event: &mut DocumentDidChange<'_>| {
         if let Some(trigger) = &event.doc.review_trigger {
             trigger.changed(event.doc.id());
         }
         Ok(())
     });
-    register_hook!(move |event: &mut DocumentDidOpen<'_>| {
+    register_hook!(events => move |event: &mut DocumentDidOpen<'_>| {
         if let Some(path) = event.editor.document(event.doc).and_then(|doc| doc.path()) {
             queue_path(event.editor, path);
         }
         Ok(())
     });
-    register_hook!(move |event: &mut DocumentDidClose<'_>| {
+    register_hook!(events => move |event: &mut DocumentDidClose<'_>| {
         if let Some(path) = event.doc.path() {
             queue_path(event.editor, path);
         }
         configure(event.editor);
         Ok(())
     });
-    register_hook!(move |event: &mut DocumentLanguageDidChange<'_>| {
+    register_hook!(events => move |event: &mut DocumentLanguageDidChange<'_>| {
         if let Some(path) = event.editor.document(event.doc).and_then(|doc| doc.path()) {
             queue_path(event.editor, path);
         }
         Ok(())
     });
-    register_hook!(move |event: &mut ConfigDidChange<'_>| {
+    register_hook!(events => move |event: &mut ConfigDidChange<'_>| {
         for doc in event.editor.documents() {
             if doc.review().is_some() {
                 queue(event.editor, doc.id());

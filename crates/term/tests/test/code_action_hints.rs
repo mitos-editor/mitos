@@ -139,11 +139,15 @@ impl Fixture {
             data: None,
         });
         doc.replace_diagnostics(diagnostics, &[], Some(&provider));
-        event::dispatch(view::events::DiagnosticsDidChange {
-            editor: &mut self.app.editor,
-            doc: doc_id,
-        })
-        .report_to(self.app.editor.status_sender());
+        self.app
+            .editor
+            .events()
+            .clone()
+            .dispatch(view::events::DiagnosticsDidChange {
+                editor: &mut self.app.editor,
+                doc: doc_id,
+            })
+            .report_to(self.app.editor.status_sender());
     }
 
     fn enabled(&mut self, enabled: bool) {

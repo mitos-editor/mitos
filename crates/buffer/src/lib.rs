@@ -1,6 +1,6 @@
 //! Text state and undo groups, independent of document services and views.
 
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 
 pub mod history;
 mod savepoint;
@@ -21,12 +21,20 @@ pub use history::HistoryAction;
 /// Rejections leave text, versions, pending groups, and the history cursor unchanged.
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum ReplayError {
-    #[error(transparent)]
-    InvalidLength(#[from] InvalidLength),
     #[error("Cannot replay history while edits are pending")]
     PendingChanges,
     #[error("History step is no longer applicable")]
     InvalidStep,
+}
+
+/// Opaque navigation path. Each successful step advances this plan's expected state.
+/// Text edits, other history navigation, and use with another buffer reject it.
+#[derive(Debug)]
+pub struct HistoryPlan {
+    identity: Weak<()>,
+    version: i32,
+    revision: usize,
+    steps: std::vec::IntoIter<HistoryStep>,
 }
 
 /// Text change already applied to a buffer. The caller synchronously updates its
@@ -189,20 +197,33 @@ impl Buffer {
         })
     }
 
-    /// Apply a planned history step and advance its revision together. New pending
-    /// edits or an out-of-order step reject the replay rather than discarding edits.
-    pub fn apply_history_step(&mut self, step: &HistoryStep) -> Result<AppliedChange, ReplayError> {
+    /// Apply the next planned step before returning its metadata for observers.
+    /// Intervening edits or navigation reject the plan without consuming a step.
+    pub fn apply_history_step(
+        &mut self,
+        plan: &mut HistoryPlan,
+    ) -> Result<Option<(HistoryStep, AppliedChange)>, ReplayError> {
         if !self.changes.is_empty() {
             return Err(ReplayError::PendingChanges);
         }
-        self.validate_changes(step.transaction.changes())?;
-        if !self.history.advance(step) {
+        if !Weak::ptr_eq(&plan.identity, &Arc::downgrade(&self.identity))
+            || plan.version != self.version
+            || plan.revision != self.current_revision()
+        {
             return Err(ReplayError::InvalidStep);
         }
-        // ChangeSet::apply only rejects a mismatched length, already validated above.
-        let applied = self.apply_changes(step.transaction.changes())?;
+        let Some(&step) = plan.steps.as_slice().first() else {
+            return Ok(None);
+        };
+        let transaction = self.history.replay(step).ok_or(ReplayError::InvalidStep)?;
+        plan.steps.next();
+        let change = self
+            .apply_changes(transaction.changes())
+            .expect("planned history changes match the buffer text");
         self.clear_pending_changes();
-        Ok(applied)
+        plan.version = self.version;
+        plan.revision = self.current_revision();
+        Ok(Some((step, change)))
     }
 
     pub fn commit_changes(&mut self) -> Option<usize> {
@@ -218,16 +239,24 @@ impl Buffer {
         Some(self.history.commit_revision(&changes, &original))
     }
 
-    /// Plan history without advancing its current revision. Apply the steps in order
-    /// with `apply_history_step`, updating derived state between steps.
+    /// Plan history without advancing its revision or materializing inverse text.
+    /// Apply one step at a time with `apply_history_step`, notifying observers between steps.
     /// Undo/earlier commit pending text; redo/later refuse to discard pending edits.
-    pub fn prepare_history(&mut self, action: HistoryAction) -> Vec<HistoryStep> {
+    pub fn prepare_history(&mut self, action: HistoryAction) -> HistoryPlan {
         if matches!(action, HistoryAction::Undo | HistoryAction::Earlier(_)) {
             self.commit_changes();
-        } else if !self.changes.is_empty() {
-            return Vec::new();
         }
-        self.history.plan(action)
+        let steps = if self.changes.is_empty() {
+            self.history.plan(action)
+        } else {
+            Vec::new()
+        };
+        HistoryPlan {
+            identity: Arc::downgrade(&self.identity),
+            version: self.version,
+            revision: self.current_revision(),
+            steps: steps.into_iter(),
+        }
     }
 
     fn clear_pending_changes(&mut self) {
@@ -252,8 +281,8 @@ mod tests {
         buffer.apply(transaction.changes()).unwrap();
         buffer.commit_changes().unwrap();
         let after_delete = buffer.snapshot();
-        let undo = buffer.prepare_history(HistoryAction::Undo).pop().unwrap();
-        let applied = buffer.apply_history_step(&undo).unwrap();
+        let mut undo = buffer.prepare_history(HistoryAction::Undo);
+        let (_, applied) = buffer.apply_history_step(&mut undo).unwrap().unwrap();
         assert_eq!(applied.before(), "new");
         let mut consumer = applied.before().clone();
         assert!(applied.changes().apply(&mut consumer));
@@ -263,8 +292,8 @@ mod tests {
         assert_eq!(after_delete.text(), "new");
         assert!(!snapshot.is_current(&buffer));
         assert!(!after_delete.is_current(&buffer));
-        let redo = buffer.prepare_history(HistoryAction::Redo).pop().unwrap();
-        buffer.apply_history_step(&redo).unwrap();
+        let mut redo = buffer.prepare_history(HistoryAction::Redo);
+        buffer.apply_history_step(&mut redo).unwrap().unwrap();
         assert_eq!(buffer.text(), "new");
     }
 
@@ -279,7 +308,8 @@ mod tests {
         assert!(!old.is_current(&buffer));
         assert_eq!(buffer.version(), old.version() + 1);
         assert!(buffer.changes().is_empty());
-        assert!(buffer.prepare_history(HistoryAction::Undo).is_empty());
+        let mut plan = buffer.prepare_history(HistoryAction::Undo);
+        assert!(buffer.apply_history_step(&mut plan).unwrap().is_none());
         assert_eq!(buffer.commit_changes(), None);
     }
     use crate::history::UndoKind;
@@ -291,9 +321,8 @@ mod tests {
     }
 
     fn navigate(buffer: &mut Buffer, action: HistoryAction) {
-        for step in buffer.prepare_history(action) {
-            buffer.apply_history_step(&step).unwrap();
-        }
+        let mut plan = buffer.prepare_history(action);
+        while buffer.apply_history_step(&mut plan).unwrap().is_some() {}
     }
 
     #[test]
@@ -395,14 +424,13 @@ mod tests {
         navigate(&mut buffer, HistoryAction::Undo);
         replace(&mut buffer, 1, 2, "Z");
         let branch = buffer.commit_changes().unwrap();
-        let steps = buffer.prepare_history(HistoryAction::Earlier(UndoKind::Steps(1)));
+        let mut plan = buffer.prepare_history(HistoryAction::Earlier(UndoKind::Steps(1)));
         assert_eq!(buffer.snapshot().revision(), branch);
         assert_eq!(buffer.text(), "AZc");
-        assert_eq!(steps.len(), 2);
-        buffer.apply_history_step(&steps[0]).unwrap();
+        buffer.apply_history_step(&mut plan).unwrap().unwrap();
         assert_eq!(buffer.snapshot().revision(), first);
         assert_eq!(buffer.text(), "Abc");
-        buffer.apply_history_step(&steps[1]).unwrap();
+        buffer.apply_history_step(&mut plan).unwrap().unwrap();
         assert_eq!(buffer.snapshot().revision(), second);
         assert_eq!(buffer.text(), "ABc");
     }
@@ -412,10 +440,10 @@ mod tests {
         let mut buffer = Buffer::new(Rope::from("abc"));
         replace(&mut buffer, 0, 1, "A");
         let revision = buffer.commit_changes().unwrap();
-        let steps = buffer.prepare_history(HistoryAction::Undo);
+        let mut plan = buffer.prepare_history(HistoryAction::Undo);
         replace(&mut buffer, 0, 1, "Q");
         assert_eq!(
-            buffer.apply_history_step(&steps[0]).unwrap_err(),
+            buffer.apply_history_step(&mut plan).unwrap_err(),
             ReplayError::PendingChanges
         );
         assert_eq!(buffer.text(), "Qbc");
@@ -423,10 +451,57 @@ mod tests {
         buffer.commit_changes();
         let current = buffer.snapshot();
         assert_eq!(
-            buffer.apply_history_step(&steps[0]).unwrap_err(),
+            buffer.apply_history_step(&mut plan).unwrap_err(),
             ReplayError::InvalidStep
         );
         assert!(current.is_current(&buffer));
         assert_eq!(buffer.current_revision(), current.revision());
+    }
+    #[test]
+    fn history_plans_cannot_cross_buffers_or_resume_after_returning_to_the_same_revision() {
+        let mut buffer = Buffer::new(Rope::from("abc"));
+        replace(&mut buffer, 0, 1, "A");
+        buffer.commit_changes();
+        let mut plan = buffer.prepare_history(HistoryAction::Undo);
+        let mut other = Buffer::new(Rope::from("abc"));
+        replace(&mut other, 0, 1, "A");
+        other.commit_changes();
+        assert_eq!(
+            other.apply_history_step(&mut plan).unwrap_err(),
+            ReplayError::InvalidStep
+        );
+        assert_eq!(other.text(), "Abc");
+        // Foreign rejection must not consume the original plan's step.
+        let (step, _) = buffer.apply_history_step(&mut plan).unwrap().unwrap();
+        assert_eq!(step.revision, 1);
+        assert_eq!(step.direction, history::HistoryDirection::Undo);
+        assert!(buffer.apply_history_step(&mut plan).unwrap().is_none());
+        let mut stale = buffer.prepare_history(HistoryAction::Redo);
+        navigate(&mut buffer, HistoryAction::Redo);
+        navigate(&mut buffer, HistoryAction::Undo);
+        assert_eq!(buffer.current_revision(), 0);
+        assert_eq!(
+            buffer.apply_history_step(&mut stale).unwrap_err(),
+            ReplayError::InvalidStep
+        );
+        assert_eq!(buffer.text(), "abc");
+    }
+
+    #[test]
+    fn resetting_derived_history_rejects_a_plan_even_when_text_version_does_not_change() {
+        let mut buffer = Buffer::new(Rope::from("abc"));
+        replace(&mut buffer, 0, 1, "A");
+        navigate(&mut buffer, HistoryAction::Undo);
+        let mut plan = buffer.prepare_history(HistoryAction::Redo);
+        let snapshot = buffer.snapshot();
+        let identity = ChangeSet::new(buffer.text().slice(..));
+        buffer.apply_without_history(&identity).unwrap();
+        assert!(snapshot.is_current(&buffer));
+        assert_eq!(
+            buffer.apply_history_step(&mut plan).unwrap_err(),
+            ReplayError::InvalidStep
+        );
+        assert_eq!(buffer.current_revision(), 0);
+        assert_eq!(buffer.text(), "abc");
     }
 }

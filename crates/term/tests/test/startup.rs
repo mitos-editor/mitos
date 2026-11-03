@@ -246,11 +246,15 @@ async fn diagnostic_refresh_is_delivered_once_to_the_owning_application() -> any
     view.diagnostics_handler.events = second_tx;
 
     let doc = doc!(first.editor).id();
-    event::dispatch(DiagnosticsDidChange {
-        editor: &mut first.editor,
-        doc,
-    })
-    .report_to(first.editor.status_sender());
+    first
+        .editor
+        .events()
+        .clone()
+        .dispatch(DiagnosticsDidChange {
+            editor: &mut first.editor,
+            doc,
+        })
+        .report_to(first.editor.status_sender());
     assert!(matches!(first_rx.try_recv(), Ok(DiagnosticEvent::Refresh)));
     assert!(first_rx.try_recv().is_err(), "duplicate diagnostic refresh");
     assert!(
@@ -259,11 +263,15 @@ async fn diagnostic_refresh_is_delivered_once_to_the_owning_application() -> any
     );
 
     let doc = doc!(second.editor).id();
-    event::dispatch(DiagnosticsDidChange {
-        editor: &mut second.editor,
-        doc,
-    })
-    .report_to(second.editor.status_sender());
+    second
+        .editor
+        .events()
+        .clone()
+        .dispatch(DiagnosticsDidChange {
+            editor: &mut second.editor,
+            doc,
+        })
+        .report_to(second.editor.status_sender());
     assert!(matches!(second_rx.try_recv(), Ok(DiagnosticEvent::Refresh)));
     assert!(
         second_rx.try_recv().is_err(),

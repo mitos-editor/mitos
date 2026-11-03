@@ -86,21 +86,7 @@ impl ChangeSetBuilder<'_> {
                 &self.current_hunk.after,
                 self.current_hunk.interner.num_tokens(),
             );
-            let mut pos = 0;
-            for Hunk { before, after } in self.char_diff.hunks() {
-                self.res.retain((before.start - pos) as usize);
-                self.res.delete(before.len());
-                pos = before.end;
-
-                let res = self.current_hunk.after[after.start as usize..after.end as usize]
-                    .iter()
-                    .map(|&token| self.current_hunk.interner[token])
-                    .collect();
-
-                self.res.insert(res);
-            }
-            self.res
-                .retain(self.current_hunk.before.len() - pos as usize);
+            append_character_changes(&mut self.res, &self.current_hunk, &self.char_diff);
             // reuse allocations
             self.current_hunk.clear();
         }
@@ -115,6 +101,39 @@ impl ChangeSetBuilder<'_> {
         self.res.retain(len);
         self.res.finish()
     }
+}
+
+// Shared by bounded document diffs and precise edits of selected fragments.
+fn append_character_changes(
+    changes: &mut ChangesBuilder,
+    input: &InternedInput<char>,
+    diff: &Diff,
+) {
+    let mut pos = 0;
+    for Hunk { before, after } in diff.hunks() {
+        changes.retain((before.start - pos) as usize);
+        changes.delete(before.len());
+        pos = before.end;
+        changes.insert(
+            input.after[after.start as usize..after.end as usize]
+                .iter()
+                .map(|&token| input.interner[token])
+                .collect(),
+        );
+    }
+    changes.retain(input.before.len() - pos as usize);
+}
+
+/// Compare a selected fragment at character granularity, retaining unchanged anchors.
+/// Unlike document diffs, reflow must not fall back to replacing an entire paragraph.
+pub fn compare_fragments(before: RopeSlice<'_>, after: &str) -> Transaction {
+    let mut input = InternedInput::default();
+    input.update_before(before.chars());
+    input.update_after(after.chars());
+    let diff = Diff::compute(Algorithm::Myers, &input);
+    let mut changes = ChangesBuilder::with_capacity(32);
+    append_character_changes(&mut changes, &input, &diff);
+    changes.finish().into()
 }
 
 struct RopeLines<'a>(RopeSlice<'a>);
@@ -183,6 +202,15 @@ mod tests {
             compare_ropes(&old, &new).apply(&mut old);
             old == new
         }
+
+        fn test_compare_fragments(a: String, b: String) -> bool {
+            let before = Rope::from(a);
+            let mut actual = before.clone();
+            let change = compare_fragments(before.slice(..), &b);
+            change.apply(&mut actual) && actual == b.as_str()
+                && change.invert(&before).apply(&mut actual) && actual == before
+        }
+
     }
 
     #[test]
@@ -196,6 +224,41 @@ mod tests {
             let suffix = lines[line..].concat();
             test_identity(&original, &format!("{prefix}{inserted}{suffix}"));
         }
+    }
+
+    #[test]
+    fn reflow_preserves_positions_when_a_crlf_paragraph_expands() {
+        let words: Vec<_> = (0..32).map(|i| format!("w{i:02}")).collect();
+        let before = Rope::from(format!("{}\r\n", words.join(" ")));
+        let selection = editor_core::Selection::single(0, before.len_chars());
+        let reflow = editor_core::transform::reflow_selections(
+            &before,
+            &selection,
+            7,
+            editor_core::LineEnding::Crlf,
+        );
+        let mut after = before.clone();
+        assert!(reflow.apply(&mut after));
+        let change = compare_fragments(before.slice(..), &after.to_string());
+        let saved = editor_core::Selection::point(32).map(change.changes());
+        assert_eq!(saved.primary().head, 36);
+        let mut actual = before.clone();
+        assert!(change.apply(&mut actual));
+        assert_eq!(actual, after);
+        assert!(change.invert(&before).apply(&mut actual));
+        assert_eq!(actual, before);
+    }
+
+    #[test]
+    fn fragment_edits_preserve_unicode_and_reflowed_comment_prefixes() {
+        let before = Rope::from("// α😀 one\n// 界 two\n");
+        let after = "// α😀 one 界 two\r\n";
+        let change = compare_fragments(before.slice(..), after);
+        let saved = editor_core::Selection::point(13).map(change.changes());
+        assert_eq!(saved.primary().head, 10);
+        let mut actual = before.clone();
+        assert!(change.apply(&mut actual));
+        assert_eq!(actual, after);
     }
 
     #[test]

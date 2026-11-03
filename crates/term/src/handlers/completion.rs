@@ -89,8 +89,8 @@ fn clear_completions(cx: &mut commands::Context) {
     }))
 }
 
-pub(super) fn register_hooks() {
-    register_hook!(move |event: &mut OnModeSwitch<'_, '_>| {
+pub(super) fn register_hooks(events: &event::EventHub) {
+    register_hook!(events => move |event: &mut OnModeSwitch<'_, '_>| {
         if event.old_mode == Mode::Insert {
             clear_completions(event.cx);
         }

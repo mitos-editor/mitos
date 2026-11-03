@@ -65,7 +65,7 @@ async fn live_settings_are_visible_to_hooks_and_all_views_are_adjusted_afterward
     assert_eq!(f.editor.tree.views().count(), 2);
     let calls = Arc::new(AtomicUsize::new(0));
     let seen = calls.clone();
-    event::register_hook!(move |event: &mut ConfigDidChange<'_>| {
+    event::register_hook!(f.editor.events() => move |event: &mut ConfigDidChange<'_>| {
         assert!(!event.old.soft_wrap.enable.unwrap_or(false));
         assert_eq!(event.new.soft_wrap.enable, Some(true));
         assert_eq!(event.editor.config().soft_wrap.enable, Some(true));

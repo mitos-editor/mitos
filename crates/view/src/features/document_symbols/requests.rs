@@ -80,12 +80,12 @@ fn request_document_symbols(editor: &mut Editor, doc_id: DocumentId) {
     });
 }
 
-pub(crate) fn register_hooks() {
-    register_hook!(move |event: &mut DocumentLanguageDidChange<'_>| {
+pub(crate) fn register_hooks(events: &event::EventHub) {
+    register_hook!(events => move |event: &mut DocumentLanguageDidChange<'_>| {
         request_document_symbols(event.editor, event.doc);
         Ok(())
     });
-    register_hook!(move |event: &mut DocumentDidOpen<'_>| {
+    register_hook!(events => move |event: &mut DocumentDidOpen<'_>| {
         let doc_id = event.doc;
         let view_id = event.editor.tree.focus();
         request_document_symbols(event.editor, doc_id);
@@ -95,7 +95,7 @@ pub(crate) fn register_hooks() {
         Ok(())
     });
 
-    register_hook!(move |event: &mut DocumentDidChange<'_>| {
+    register_hook!(events => move |event: &mut DocumentDidChange<'_>| {
         // Cancel the ongoing request, if present.
         event.doc.document_symbols.request.cancel();
         event.doc.document_symbols.picker.cancel();
@@ -120,7 +120,7 @@ pub(crate) fn register_hooks() {
         Ok(())
     });
 
-    register_hook!(move |event: &mut LanguageServerInitialized<'_>| {
+    register_hook!(events => move |event: &mut LanguageServerInitialized<'_>| {
         let view_id = event.editor.tree.focus();
         if let Some(view) = event.editor.tree.try_get(view_id) {
             let doc_id = view.doc;
@@ -132,7 +132,7 @@ pub(crate) fn register_hooks() {
         Ok(())
     });
 
-    register_hook!(move |event: &mut LanguageServerExited<'_>| {
+    register_hook!(events => move |event: &mut LanguageServerExited<'_>| {
         for doc in event.editor.documents_mut() {
             if doc.supports_language_server(event.server_id) {
                 doc.document_symbols.clear();
@@ -141,7 +141,7 @@ pub(crate) fn register_hooks() {
         Ok(())
     });
 
-    register_hook!(move |event: &mut ConfigDidChange<'_>| {
+    register_hook!(events => move |event: &mut ConfigDidChange<'_>| {
         if !event.new.lsp.enable {
             for doc in event.editor.documents_mut() {
                 doc.document_symbols.clear();
@@ -170,7 +170,7 @@ pub(crate) fn register_hooks() {
         Ok(())
     });
 
-    register_hook!(move |event: &mut SelectionDidChange<'_>| {
+    register_hook!(events => move |event: &mut SelectionDidChange<'_>| {
         event.doc.update_breadcrumbs_for_view_inlined(event.view);
         Ok(())
     });

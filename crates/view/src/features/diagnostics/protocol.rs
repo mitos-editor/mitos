@@ -1,5 +1,6 @@
 //! LSP diagnostics conversion, caching, and publication for push and pull providers.
 
+use lsp_client::UriExt as _;
 use std::collections::BTreeMap;
 use stdx::rope::RopeExt as _;
 
@@ -163,11 +164,13 @@ impl Editor {
         };
         let diagnostics = Self::doc_diagnostics(&self.language_servers, &self.diagnostics, doc);
         doc.replace_language_server_diagnostics(diagnostics);
-        event::dispatch(DiagnosticsDidChange {
-            editor: self,
-            doc: doc_id,
-        })
-        .report_to(self.status_sender());
+        self.events()
+            .clone()
+            .dispatch(DiagnosticsDidChange {
+                editor: self,
+                doc: doc_id,
+            })
+            .report_to(self.status_sender());
     }
 
     /// Validate a push notification before applying the shared diagnostic update policy.
@@ -176,7 +179,7 @@ impl Editor {
         server_id: LanguageServerId,
         params: lsp::PublishDiagnosticsParams,
     ) {
-        let uri = match Uri::try_from(params.uri) {
+        let uri = match params.uri.to_editor_uri() {
             Ok(uri) => uri,
             Err(err) => {
                 log::error!("{err}");
@@ -275,7 +278,9 @@ impl Editor {
             doc.replace_diagnostics(diagnostics, &unchanged_diag_sources, Some(provider));
 
             let doc = doc.id();
-            event::dispatch(DiagnosticsDidChange { editor: self, doc })
+            self.events()
+                .clone()
+                .dispatch(DiagnosticsDidChange { editor: self, doc })
                 .report_to(self.status_sender());
         }
     }

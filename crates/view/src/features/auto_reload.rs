@@ -343,8 +343,8 @@ pub(crate) fn handle_file_events(editor: &mut Editor, events: &Events) {
     }
 }
 
-pub(crate) fn register_hooks() {
-    register_hook!(move |event: &mut ConfigDidChange<'_>| {
+pub(crate) fn register_hooks(events: &event::EventHub) {
+    register_hook!(events => move |event: &mut ConfigDidChange<'_>| {
         event.editor.handlers.auto_reload.configure(
             event.new,
             super::change_review::has_live_reviews(event.editor),

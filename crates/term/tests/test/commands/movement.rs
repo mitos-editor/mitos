@@ -958,3 +958,67 @@ async fn match_bracket() -> anyhow::Result<()> {
 
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn reflow_preserves_a_saved_jump_in_the_middle_of_a_paragraph() -> anyhow::Result<()> {
+    test((
+        "aaaa bbbb #[c|]#ccc dddd\n",
+        "<C-s>mip:reflow 9<ret><C-o>",
+        "aaaa bbbb\n#[c|]#ccc dddd\n",
+    ))
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn reflow_preserves_a_saved_jump_in_a_long_unicode_crlf_paragraph() -> anyhow::Result<()> {
+    let mut words: Vec<_> = (0..32).map(|i| format!("w{i:02}")).collect();
+    words[8] = "#[界|]#08".into();
+    let input = format!("{}\r\n", words.join(" "));
+    let expected = format!(
+        "{}\r\n",
+        words
+            .chunks(2)
+            .map(|pair| pair.join(" "))
+            .collect::<Vec<_>>()
+            .join("\r\n")
+    );
+    test((
+        input.clone(),
+        ":line-ending crlf<ret><C-s>mip:reflow 8<ret><C-o>",
+        expected.clone(),
+        LineFeedHandling::AsIs,
+    ))
+    .await?;
+    let original = editor_core::test::print(&input).0;
+    let wrapped = editor_core::test::print(&expected).0;
+    let mut app = AppBuilder::new().with_input_text(input).build()?;
+    test_key_sequences(
+        &mut app,
+        vec![
+            (
+                Some(":line-ending crlf<ret>mip:reflow 8<ret>u"),
+                Some(&|app: &term::application::Application| {
+                    assert_eq!(view::doc!(app.editor).text().to_string(), original);
+                }),
+            ),
+            (
+                Some("U"),
+                Some(&|app: &term::application::Application| {
+                    assert_eq!(view::doc!(app.editor).text().to_string(), wrapped);
+                }),
+            ),
+        ],
+        false,
+    )
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn reflow_maps_multiple_selected_fragments_in_document_coordinates() -> anyhow::Result<()> {
+    test((
+        "prefix #[one two|]# gap #(三 四|)# suffix\n",
+        ":reflow 3<ret>",
+        "prefix #[one\ntwo|]# gap #(三\n四|)# suffix\n",
+    ))
+    .await
+}
