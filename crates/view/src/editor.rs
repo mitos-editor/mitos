@@ -850,47 +850,52 @@ impl Editor {
 
     /// Include the workspace and repositories for every open document, including linked worktrees.
     pub fn refresh_vcs_watches(&mut self) {
-        let mut paths = Vec::new();
-        let mut files = Vec::new();
-        for doc in self.documents.values() {
-            if let Some(review) = doc.review().filter(|review| review.is_live())
-                && let Some(parent) = review.path().parent()
-            {
-                self.file_watcher.add_root(parent);
-            }
-        }
-        if self.config().files.watch.watch_vcs {
+        use crate::file_watcher::Demand;
+        let watch_vcs = self.config().files.watch.watch_vcs;
+        let mut workspace = Demand::default();
+        if watch_vcs {
             let root = self.workspace.root();
             let trusted = self
                 .workspace_trust
                 .query(root, workspace::trust::TrustQuery::Git)
                 .is_trusted();
-            paths.extend(self.diff_providers.get_watched_paths(root, trusted));
-            files.extend(self.diff_providers.get_watched_files(root, trusted));
-            for doc in self.documents.values() {
-                let Some(path) = doc
-                    .path()
-                    .or_else(|| {
-                        doc.review()
-                            .filter(|review| review.is_live())
-                            .map(|review| review.path())
-                    })
-                    .and_then(|path| path.parent())
-                else {
-                    continue;
-                };
-                let workspace = doc
-                    .review()
-                    .map_or_else(|| doc.workspace_root(), |review| review.workspace());
-                let trust_full = self
-                    .workspace_trust
-                    .query(workspace, workspace::trust::TrustQuery::Git)
-                    .is_trusted();
-                paths.extend(self.diff_providers.get_watched_paths(path, trust_full));
-                files.extend(self.diff_providers.get_watched_files(path, trust_full));
-            }
+            workspace.metadata = self.diff_providers.get_watched_paths(root, trusted);
+            workspace.files = self.diff_providers.get_watched_files(root, trusted);
         }
-        self.file_watcher.set_extra_watched_paths(paths, files);
+        let documents = self
+            .documents
+            .values()
+            .map(|doc| {
+                let review = doc.review().filter(|review| review.is_live());
+                let mut demand = Demand::default();
+                if let Some(parent) = review.and_then(|review| review.path().parent()) {
+                    demand.roots.push(parent.to_owned());
+                }
+                if watch_vcs
+                    && let Some(path) = doc
+                        .path()
+                        .or_else(|| review.map(|review| review.path()))
+                        .and_then(|path| path.parent())
+                {
+                    let root = doc
+                        .review()
+                        .map_or_else(|| doc.workspace_root(), |review| review.workspace());
+                    let trusted = self
+                        .workspace_trust
+                        .query(root, workspace::trust::TrustQuery::Git)
+                        .is_trusted();
+                    workspace
+                        .metadata
+                        .extend(self.diff_providers.get_watched_paths(path, trusted));
+                    workspace
+                        .files
+                        .extend(self.diff_providers.get_watched_files(path, trusted));
+                }
+                (doc.id(), demand)
+            })
+            .filter(|(_, demand)| !demand.is_empty())
+            .collect();
+        self.file_watcher.set_document_demands(workspace, documents);
     }
 
     /// The frontend destination bound to this editor during construction.

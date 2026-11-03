@@ -67,18 +67,26 @@ impl Editor {
                                     continue;
                                 }
                             };
-                        for watch in &ops.watchers {
-                            if let lsp::GlobPattern::Relative(pattern) = &watch.glob_pattern {
-                                let base_url = match &pattern.base_uri {
+                        let roots = ops
+                            .watchers
+                            .iter()
+                            .filter_map(|watch| {
+                                let lsp::GlobPattern::Relative(pattern) = &watch.glob_pattern
+                                else {
+                                    return None;
+                                };
+                                let base = match &pattern.base_uri {
                                     lsp::OneOf::Left(folder) => &folder.uri,
                                     lsp::OneOf::Right(url) => url,
                                 };
-                                let Ok(base_dir) = base_url.to_file_path() else {
-                                    continue;
-                                };
-                                self.file_watcher.add_root(&base_dir);
-                            }
-                        }
+                                base.to_file_path().ok()
+                            })
+                            .collect();
+                        self.file_watcher.set_language_server_roots(
+                            server_id,
+                            reg.id.clone(),
+                            roots,
+                        );
                         self.language_servers.file_event_handler.register(
                             Arc::downgrade(client),
                             reg.id,
@@ -108,6 +116,8 @@ impl Editor {
         for unreg in params.unregisterations {
             match unreg.method.as_str() {
                 lsp::notification::DidChangeWatchedFiles::METHOD => {
+                    self.file_watcher
+                        .remove_language_server_registration(server_id, &unreg.id);
                     self.language_servers
                         .file_event_handler
                         .unregister(server_id, unreg.id);

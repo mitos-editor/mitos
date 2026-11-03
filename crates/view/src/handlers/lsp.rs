@@ -96,6 +96,7 @@ impl Editor {
                 server_id,
             })
             .report_to(self.status_sender());
+        self.file_watcher.remove_language_server(server_id);
     }
 
     pub fn execute_lsp_command(&mut self, command: lsp::Command, server_id: LanguageServerId) {
