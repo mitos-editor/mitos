@@ -7,13 +7,13 @@ use ui_core::input::parse_macro;
 use view::current_ref;
 
 #[cfg(windows)]
-use crossterm::event::{Event, KeyEvent};
+use crossterm::event::Event;
 #[cfg(not(windows))]
-use termina::event::{Event, KeyEvent};
+use termina::event::Event;
 
 async fn keys(app: &mut Application, input: &str) {
     for key in parse_macro(input).unwrap() {
-        app.handle_terminal_events(Ok(Event::Key(KeyEvent::from(key))))
+        app.handle_terminal_events(Ok(Event::Key(tui::backend::native::adapt(key))))
             .await;
     }
 }

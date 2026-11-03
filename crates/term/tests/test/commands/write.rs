@@ -188,9 +188,9 @@ async fn test_buffer_close_concurrent() -> anyhow::Result<()> {
     // close command runs. The close must remain deferred until the writes finish.
     for key in ui_core::input::parse_macro(":buffer-close<ret>")? {
         #[cfg(windows)]
-        let event = crossterm::event::Event::Key(key.into());
+        let event = crossterm::event::Event::Key(tui::backend::native::adapt(key));
         #[cfg(not(windows))]
-        let event = termina::Event::Key(key.into());
+        let event = termina::Event::Key(tui::backend::native::adapt(key));
         app.handle_terminal_events(Ok(event)).await;
     }
     assert!(app.editor.has_pending_writes());
@@ -1309,11 +1309,11 @@ async fn test_save_close_services_formatter_requests_and_uses_indent_size() -> a
         let keys = format!("iupdated <esc>{command}<ret>");
         if command == ":w" {
             #[cfg(windows)]
-            use crossterm::event::{Event, KeyEvent};
+            use crossterm::event::Event;
             #[cfg(not(windows))]
-            use termina::event::{Event, KeyEvent};
+            use termina::event::Event;
             for key in ui_core::input::parse_macro(&keys)? {
-                app.handle_terminal_events(Ok(Event::Key(KeyEvent::from(key))))
+                app.handle_terminal_events(Ok(Event::Key(tui::backend::native::adapt(key))))
                     .await;
             }
             let errors = tokio::time::timeout(Duration::from_secs(5), app.close()).await?;

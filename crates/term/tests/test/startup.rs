@@ -16,9 +16,9 @@ async fn idle_wait_consumes_queued_input_even_when_the_timer_has_expired() -> an
     let text = "queued input ".repeat(16);
     for key in ui_core::input::parse_macro(&format!("i{text}<esc>"))? {
         #[cfg(not(windows))]
-        let event = termina::event::Event::Key(key.into());
+        let event = termina::event::Event::Key(tui::backend::native::adapt(key));
         #[cfg(windows)]
-        let event = crossterm::event::Event::Key(key.into());
+        let event = crossterm::event::Event::Key(tui::backend::native::adapt(key));
         tx.send(Ok(event))?;
     }
     assert!(
@@ -211,9 +211,9 @@ async fn symbol_picker_can_open_before_background_syntax_is_published() -> anyho
     // Deliver input immediately, without first letting the event loop publish syntax.
     for key in ui_core::input::parse_macro("<space>sbanana<C-q><esc>]q")? {
         #[cfg(not(windows))]
-        let event = termina::event::Event::Key(key.into());
+        let event = termina::event::Event::Key(tui::backend::native::adapt(key));
         #[cfg(windows)]
-        let event = crossterm::event::Event::Key(key.into());
+        let event = crossterm::event::Event::Key(tui::backend::native::adapt(key));
         app.handle_terminal_events(Ok(event)).await;
     }
     app.editor.reset_idle_timer();

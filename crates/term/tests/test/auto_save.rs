@@ -77,9 +77,13 @@ async fn insert_mode_defers_saves_until_the_terminal_forwards_exit() -> anyhow::
     f.publish().await?;
     assert_eq!(f.disk(), "before\n");
     #[cfg(not(windows))]
-    let escape = termina::event::Event::Key(ui_core::input::parse_macro("<esc>")?[0].into());
+    let escape = termina::event::Event::Key(tui::backend::native::adapt(
+        ui_core::input::parse_macro("<esc>")?[0],
+    ));
     #[cfg(windows)]
-    let escape = crossterm::event::Event::Key(ui_core::input::parse_macro("<esc>")?[0].into());
+    let escape = crossterm::event::Event::Key(tui::backend::native::adapt(
+        ui_core::input::parse_macro("<esc>")?[0],
+    ));
     f.app.handle_terminal_events(Ok(escape)).await;
     assert_eq!(f.app.editor.mode(), Mode::Normal);
     f.publish().await?;

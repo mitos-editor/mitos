@@ -27,11 +27,11 @@ fn application() -> anyhow::Result<Application> {
 
 async fn keys(app: &mut Application, keys: &str) -> anyhow::Result<()> {
     #[cfg(windows)]
-    use crossterm::event::{Event, KeyEvent};
+    use crossterm::event::Event;
     #[cfg(not(windows))]
-    use termina::event::{Event, KeyEvent};
+    use termina::event::Event;
     for key in ui_core::input::parse_macro(keys)? {
-        app.handle_terminal_events(Ok(Event::Key(KeyEvent::from(key))))
+        app.handle_terminal_events(Ok(Event::Key(tui::backend::native::adapt(key))))
             .await;
     }
     Ok(())

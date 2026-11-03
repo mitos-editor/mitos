@@ -45,7 +45,9 @@ in `ui-core` come directly from `ratatui-core`; small adapters preserve theme he
 colors and rich underline shapes. Widgets and concrete terminal integration
 remain in `tui` and `term`. For example,
 `view` → `spelling` → `core` keeps dictionary algorithms independent of editor
-state. `ui-core` supplies UI value types without owning editor services.
+state. `ui-core` supplies portable UI value types without native terminal dependencies or
+editor services. Native input, underline, and theme-mode conversion belongs to
+`tui::backend::native`; its single `native` feature selects the platform backend.
 `view` → `debugger` → `dap-types` separates debugger state from editor effects. The
 `debugger` crate owns persistent breakpoint definitions and session-specific
 bindings and lifecycle transitions. Startup, execution, inspection, and shutdown
@@ -974,13 +976,10 @@ documents receive their service bindings through `Handlers::attach_document`
 before syntax initialization or document-open events. A frontend cannot replace
 owned handler fields directly.
 
-Explicit editor methods replace running autosave, signature-help, completion,
-and reload services. Autosave and signature-help replacement rebind existing
-documents; their queued results retain the old owner identity and are rejected.
-Completion replacement cancels pending/displayed work. Trust prompt reset clears
-prompt ownership without changing trust policy. Terminal fixtures configure
-services through `AppBuilder::with_handler_setup`, which delegates to
-`Application::new_with_handler_setup` before the editor opens any documents.
+Services are configured before the editor opens documents. Terminal fixtures use
+`AppBuilder::with_handler_setup`, which delegates to
+`Application::new_with_handler_setup`. Trust prompt reset clears prompt ownership
+without changing trust policy.
 
 Word-index hooks route open/configuration events through the supplied editor and
 edit/close events through a weak document-bound sender. Each editor owns its

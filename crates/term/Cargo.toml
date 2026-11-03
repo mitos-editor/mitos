@@ -86,9 +86,8 @@ loader.workspace = true
 
 anyhow.workspace = true
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "io-util", "io-std", "time", "process", "macros", "fs", "parking_lot"] }
-tui = { workspace = true, default-features = false, features = ["termina", "crossterm"] }
-ui-core = { workspace = true, features = ["term"] }
-termina = { workspace = true, features = ["event-stream"] }
+tui = { workspace = true, default-features = false, features = ["native"] }
+ui-core.workspace = true
 signal-hook.workspace = true
 tokio-stream.workspace = true
 futures-util.workspace = true
@@ -129,8 +128,9 @@ windows-sys = { workspace = true, features = [
   "Win32_System_Threading",
 ] }
 
-[target.'cfg(not(windows))'.dependencies]  # https://github.com/vorner/signal-hook/issues/100
-signal-hook-tokio = { workspace = true, features = ["futures-v0_3"] }
+[target.'cfg(not(windows))'.dependencies]
+termina = { workspace = true, features = ["event-stream"] }
+signal-hook-tokio = { workspace = true, features = ["futures-v0_3"] } # https://github.com/vorner/signal-hook/issues/100
 libc.workspace = true
 
 [build-dependencies]

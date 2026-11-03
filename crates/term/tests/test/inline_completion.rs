@@ -68,9 +68,9 @@ A-p = "inline_completion_prev"
     async fn key(&mut self, input: &str) -> anyhow::Result<()> {
         for key in ui_core::input::parse_macro(input)? {
             #[cfg(not(windows))]
-            let event = termina::event::Event::Key(key.into());
+            let event = termina::event::Event::Key(tui::backend::native::adapt(key));
             #[cfg(windows)]
-            let event = crossterm::event::Event::Key(key.into());
+            let event = crossterm::event::Event::Key(tui::backend::native::adapt(key));
             self.app.handle_terminal_events(Ok(event)).await;
         }
         Ok(())

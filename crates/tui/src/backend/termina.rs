@@ -186,7 +186,7 @@ impl TerminaBackend {
                     }
                     Event::Csi(Csi::Mode(csi::Mode::ReportTheme(mode))) => {
                         capabilities.theme_mode_updates = true;
-                        capabilities.theme_mode = Some(mode.into());
+                        capabilities.theme_mode = Some(super::native::adapt(mode));
                     }
                     Event::Dcs(dcs::Dcs::Response {
                         value: dcs::DcsResponse::GraphicRendition(sgrs),
@@ -544,7 +544,9 @@ impl TerminaBackend {
                 write!(
                     self.terminal,
                     "{}",
-                    Csi::Sgr(csi::Sgr::Underline(new_underline_style.into()))
+                    Csi::Sgr(csi::Sgr::Underline(super::native::adapt(
+                        new_underline_style
+                    )))
                 )?;
                 underline_style = new_underline_style;
             }

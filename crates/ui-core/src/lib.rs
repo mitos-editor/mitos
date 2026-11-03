@@ -21,16 +21,6 @@ pub mod theme {
         /// A light terminal background.
         Light,
     }
-
-    #[cfg(feature = "term")]
-    impl From<termina::escape::csi::ThemeMode> for Mode {
-        fn from(mode: termina::escape::csi::ThemeMode) -> Self {
-            match mode {
-                termina::escape::csi::ThemeMode::Dark => Self::Dark,
-                termina::escape::csi::ThemeMode::Light => Self::Light,
-            }
-        }
-    }
 }
 
 pub mod terminal {

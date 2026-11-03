@@ -193,34 +193,6 @@ impl FromStr for UnderlineStyle {
     }
 }
 
-#[cfg(feature = "term")]
-impl From<UnderlineStyle> for termina::style::Underline {
-    fn from(style: UnderlineStyle) -> Self {
-        match style {
-            UnderlineStyle::Reset => Self::None,
-            UnderlineStyle::Line => Self::Single,
-            UnderlineStyle::Curl => Self::Curly,
-            UnderlineStyle::Dotted => Self::Dotted,
-            UnderlineStyle::Dashed => Self::Dashed,
-            UnderlineStyle::DoubleLine => Self::Double,
-        }
-    }
-}
-
-#[cfg(all(feature = "term", windows))]
-impl From<UnderlineStyle> for crossterm::style::Attribute {
-    fn from(style: UnderlineStyle) -> Self {
-        match style {
-            UnderlineStyle::Line => crossterm::style::Attribute::Underlined,
-            UnderlineStyle::Curl => crossterm::style::Attribute::Undercurled,
-            UnderlineStyle::Dotted => crossterm::style::Attribute::Underdotted,
-            UnderlineStyle::Dashed => crossterm::style::Attribute::Underdashed,
-            UnderlineStyle::DoubleLine => crossterm::style::Attribute::DoubleUnderlined,
-            UnderlineStyle::Reset => crossterm::style::Attribute::NoUnderline,
-        }
-    }
-}
-
 /// Rich underline shapes transported through reserved Ratatui modifier bits.
 /// All ordinary color and style composition is owned by Ratatui.
 pub trait StyleExt {

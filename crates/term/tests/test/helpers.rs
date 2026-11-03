@@ -21,9 +21,9 @@ use view::{current_ref, doc, Editor};
 use workspace::trust::WorkspaceTrust;
 
 #[cfg(windows)]
-use crossterm::event::{Event, KeyEvent};
+use crossterm::event::Event;
 #[cfg(not(windows))]
-use termina::event::{Event, KeyEvent};
+use termina::event::Event;
 
 /// Specify how to set up the input text with line feeds
 #[derive(Clone, Debug, Default)]
@@ -147,7 +147,7 @@ pub async fn test_key_sequences(
 
         if let Some(in_keys) = in_keys {
             for key_event in parse_macro(in_keys)?.into_iter() {
-                let key = Event::Key(KeyEvent::from(key_event));
+                let key = Event::Key(tui::backend::native::adapt(key_event));
                 log::trace!("sending key: {:?}", key);
                 tx.send(Ok(key))?;
             }
@@ -183,7 +183,7 @@ pub async fn test_key_sequences(
 
     if !should_exit {
         for key_event in parse_macro("<esc>:q!<ret>")?.into_iter() {
-            tx.send(Ok(Event::Key(KeyEvent::from(key_event))))?;
+            tx.send(Ok(Event::Key(tui::backend::native::adapt(key_event))))?;
         }
 
         let event_loop = app.event_loop(&mut rx_stream);
@@ -468,7 +468,8 @@ pub async fn run_event_loop_until_idle(app: &mut Application) {
 /// next edit or provider update in a lifecycle test.
 pub async fn keys(app: &mut Application, keys: &str) -> anyhow::Result<()> {
     for key in parse_macro(keys)? {
-        app.handle_terminal_events(Ok(Event::Key(key.into()))).await;
+        app.handle_terminal_events(Ok(Event::Key(tui::backend::native::adapt(key))))
+            .await;
     }
     app.editor.reset_idle_timer();
     tokio::time::timeout(Duration::from_secs(10), run_event_loop_until_idle(app)).await?;

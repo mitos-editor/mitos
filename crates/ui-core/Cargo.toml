@@ -10,18 +10,10 @@ categories.workspace = true
 repository.workspace = true
 homepage.workspace = true
 
-[features]
-default = []
-term = ["dep:termina", "dep:crossterm"]
-
 [dependencies]
 anyhow.workspace = true
 bitflags.workspace = true
 ratatui-core.workspace = true
 serde.workspace = true
-termina = { workspace = true, optional = true }
 unicode-segmentation.workspace = true
 unicode-width.workspace = true
-
-[target.'cfg(windows)'.dependencies]
-crossterm = { workspace = true, optional = true }

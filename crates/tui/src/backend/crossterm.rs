@@ -290,7 +290,7 @@ where
             if new_underline_style != underline_style {
                 queue!(
                     self.buffer,
-                    SetAttribute(CAttribute::from(new_underline_style))
+                    SetAttribute(super::native::adapt::<_, CAttribute>(new_underline_style))
                 )?;
                 underline_style = new_underline_style;
             }

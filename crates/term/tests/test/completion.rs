@@ -191,9 +191,13 @@ impl Fixture {
 
     async fn key(&mut self, key: &str) -> anyhow::Result<()> {
         #[cfg(not(windows))]
-        let event = termina::event::Event::Key(ui_core::input::parse_macro(key)?[0].into());
+        let event = termina::event::Event::Key(tui::backend::native::adapt(
+            ui_core::input::parse_macro(key)?[0],
+        ));
         #[cfg(windows)]
-        let event = crossterm::event::Event::Key(ui_core::input::parse_macro(key)?[0].into());
+        let event = crossterm::event::Event::Key(tui::backend::native::adapt(
+            ui_core::input::parse_macro(key)?[0],
+        ));
         self.app.handle_terminal_events(Ok(event)).await;
         Ok(())
     }

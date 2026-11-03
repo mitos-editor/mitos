@@ -150,9 +150,9 @@ impl Fixture {
     async fn keys(&mut self, input: &str) -> anyhow::Result<()> {
         for key in ui_core::input::parse_macro(input)? {
             #[cfg(not(windows))]
-            let event = termina::event::Event::Key(termina::event::KeyEvent::from(key));
+            let event = termina::event::Event::Key(tui::backend::native::adapt(key));
             #[cfg(windows)]
-            let event = crossterm::event::Event::Key(crossterm::event::KeyEvent::from(key));
+            let event = crossterm::event::Event::Key(tui::backend::native::adapt(key));
             self.app.handle_terminal_events(Ok(event)).await;
         }
         // Menu input can be consumed without EditorView resetting the idle timer.
