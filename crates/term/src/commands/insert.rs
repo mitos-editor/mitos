@@ -143,9 +143,25 @@ pub fn delete_word_backward(cx: &mut Context) {
     cx.flush_completion_updates();
 }
 
+pub fn delete_sub_word_backward(cx: &mut Context) {
+    let count = cx.count();
+    if let Err(error) = cx.editor.delete_sub_word_backward(count) {
+        cx.editor.set_error(|| error.to_string());
+    }
+    cx.flush_completion_updates();
+}
+
 pub fn delete_word_forward(cx: &mut Context) {
     let count = cx.count();
     if let Err(error) = cx.editor.delete_word_forward(count) {
+        cx.editor.set_error(|| error.to_string());
+    }
+    cx.flush_completion_updates();
+}
+
+pub fn delete_sub_word_forward(cx: &mut Context) {
+    let count = cx.count();
+    if let Err(error) = cx.editor.delete_sub_word_forward(count) {
         cx.editor.set_error(|| error.to_string());
     }
     cx.flush_completion_updates();
