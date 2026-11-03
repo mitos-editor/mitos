@@ -161,7 +161,7 @@ impl EditorView {
     }
 
     fn command_mode(&mut self, mode: Mode, cxt: &mut commands::Context, event: KeyEvent) {
-        match (event, cxt.editor.count) {
+        match (event, cxt.interaction.count) {
             // If the count is already started and the input is a number, always continue the count.
             (key!(i @ '0'..='9'), Some(count)) => {
                 let i = i.to_digit(10).unwrap() as usize;
@@ -169,41 +169,35 @@ impl EditorView {
                 if count > 100_000_000 {
                     return;
                 }
-                cxt.editor.count = NonZeroUsize::new(count);
+                cxt.interaction.count = NonZeroUsize::new(count);
             }
             // A non-zero digit will start the count if that number isn't used by a keymap.
             (key!(i @ '1'..='9'), None) if !self.keymaps.contains_key(mode, event) => {
                 let i = i.to_digit(10).unwrap() as usize;
-                cxt.editor.count = NonZeroUsize::new(i);
+                cxt.interaction.count = NonZeroUsize::new(i);
             }
             // special handling for repeat operator
             (key!('.'), _) if self.keymaps.pending().is_empty() => {
                 if let Some(plan) = self.repeat.begin_replay() {
-                    let count = cxt.editor.count.map_or(1, NonZeroUsize::into);
+                    let count = cxt.interaction.count.map_or(1, NonZeroUsize::into);
                     let result = plan.replay(cxt, count, |cx, key| self.insert_mode(cx, key));
                     self.repeat.end_replay();
                     if let Err(error) = result {
                         cxt.editor.set_error(|| error.to_string());
                     }
                 }
-                cxt.editor.count = None;
+                cxt.interaction.count = None;
             }
             _ => {
-                // set the count
-                cxt.count = cxt.editor.count;
-                // TODO: edge case: 0j -> reset to 1
-                // if this fails, count was Some(0)
-                // debug_assert!(cxt.count != 0);
-
-                // set the register
-                cxt.register = cxt.editor.selected_register.take();
+                // Consume pending choices for this invocation; retain unfinished keymaps below.
+                cxt.count = cxt.interaction.count.take();
+                cxt.register = cxt.interaction.selected_register.take();
 
                 self.handle_keymap_event(mode, cxt, event);
 
-                if self.keymaps.pending().is_empty() {
-                    cxt.editor.count = None
-                } else {
-                    cxt.editor.selected_register = cxt.register.take();
+                if !self.keymaps.pending().is_empty() {
+                    cxt.interaction.count = cxt.count;
+                    cxt.interaction.selected_register = cxt.register.take();
                 }
             }
         }
@@ -340,7 +334,7 @@ impl EditorView {
                             pos,
                             true,
                         );
-                        editor.mouse_down_range = Some(primary);
+                        cxt.interaction.mouse_down_range = Some(primary);
                         doc.set_selection(view_id, Selection::single(primary.anchor, primary.head));
                     } else {
                         doc.set_selection(view_id, Selection::point(pos));
@@ -426,7 +420,7 @@ impl EditorView {
 
                 let (view, doc) = current!(cxt.editor);
 
-                let should_yank = match cxt.editor.mouse_down_range.take() {
+                let should_yank = match cxt.interaction.mouse_down_range.take() {
                     Some(down_range) => doc.selection(view.id).primary() != down_range,
                     None => {
                         // This should not happen under normal cases. We fall back to the original
@@ -547,6 +541,7 @@ impl Component for EditorView {
         let mut cx = commands::Context {
             config: context.config,
             editor: context.editor,
+            interaction: context.interaction,
             count: None,
             register: None,
             callback: Vec::new(),
@@ -563,9 +558,8 @@ impl Component for EditorView {
         match event {
             Event::Paste(contents) => {
                 self.handle_non_key_input(&mut cx);
-                cx.count = cx.editor.count;
+                cx.count = cx.interaction.count.take();
                 commands::paste_bracketed_value(&mut cx, contents.clone());
-                cx.editor.count = None;
 
                 let config = cx.editor.config();
                 let mode = cx.editor.mode();
@@ -612,6 +606,7 @@ impl Component for EditorView {
                                     let mut cx = Context {
                                         config: cx.config,
                                         editor: cx.editor,
+                                        interaction: cx.interaction,
                                         jobs: cx.jobs,
                                         scroll: None,
                                         image_picker: None,
@@ -720,7 +715,7 @@ impl Component for EditorView {
     fn render(&mut self, area: Rect, surface: &mut Surface, cx: &mut DrawContext) {
         let config = cx.editor.config();
         let layout = editor_layout(cx.editor, area);
-        self.renderer.render(
+        cx.editor_cursor = self.renderer.render(
             cx.editor,
             layout,
             surface,
@@ -729,6 +724,7 @@ impl Component for EditorView {
                 terminal_focused: self.terminal_focused,
                 is_cursor_owner: cx.is_cursor_owner,
                 true_color: cx.config.terminal.true_color || crate::true_color(),
+                selected_register: cx.interaction.selected_register,
             },
         );
 
@@ -749,7 +745,7 @@ impl Component for EditorView {
             .status_msg
             .as_ref()
             .map_or(0, |(status_msg, _)| status_msg.width());
-        let macro_width = if cx.editor.macro_recording.is_some() {
+        let macro_width = if cx.interaction.macro_recording.is_some() {
             3
         } else {
             0
@@ -805,7 +801,7 @@ impl Component for EditorView {
 
         if show_pending {
             let mut disp = String::new();
-            if let Some(count) = cx.editor.count {
+            if let Some(count) = cx.interaction.count {
                 disp.push_str(&count.to_string())
             }
             for key in self.keymaps.pending() {
@@ -839,7 +835,7 @@ impl Component for EditorView {
                     .style(style)
                     .render(trust_area, surface);
             }
-            if let Some((reg, _)) = cx.editor.macro_recording {
+            if let Some((reg, _)) = cx.interaction.macro_recording {
                 if overlay {
                     surface.clear_with(macro_area, background);
                 }
@@ -862,12 +858,13 @@ impl Component for EditorView {
         true
     }
 
-    fn cursor(&self, _area: Rect, editor: &Editor) -> Cursor {
+    fn cursor(&self, _area: Rect, cx: &DrawContext) -> Cursor {
+        let editor = cx.editor;
         if current_ref!(editor).1.is_binary() {
             return Cursor::Hidden;
         }
-        let (pos, kind) = editor.cursor();
-        let Some(pos) = pos else {
+        let kind = editor.mode().cursor_shape(&editor.config().cursor.shape);
+        let Some(pos) = cx.editor_cursor else {
             return Cursor::Hidden;
         };
         let pos = (pos.col as u16, pos.row as u16).into();

@@ -982,6 +982,7 @@ async fn completion_popup_and_documentation_share_the_live_border_override() -> 
                 updates: &updates,
             },
             editor: &mut f.app.editor,
+            interaction: &mut f.app.interaction,
             scroll: None,
             jobs: &mut jobs,
             image_picker: None,

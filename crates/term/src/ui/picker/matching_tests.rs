@@ -165,6 +165,7 @@ async fn decorative_prefixes_do_not_match_and_preserve_unicode_highlights() -> a
             updates: &updates,
         },
         editor: &mut app.editor,
+        interaction: &mut app.interaction,
         jobs: &mut jobs,
         scroll: None,
         image_picker: None,

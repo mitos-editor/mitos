@@ -1,5 +1,6 @@
+use std::cell::Cell;
 use text_layout::doc_formatter::FormattedGrapheme;
-use view::editor::CursorCache;
+use text_layout::DisplayPosition;
 
 use crate::ui::document::TextRenderer;
 
@@ -17,7 +18,7 @@ pub mod inline_completion;
 /// Cursor rendering is done externally so all the cursor decoration
 /// does is save the position of primary cursor
 pub struct Cursor<'a> {
-    pub cache: &'a CursorCache,
+    pub position: &'a Cell<Option<DisplayPosition>>,
     pub primary_cursor: usize,
 }
 impl Decoration for Cursor<'_> {
@@ -41,7 +42,7 @@ impl Decoration for Cursor<'_> {
             && renderer.offset.row <= grapheme.visual_pos.row
         {
             let position = grapheme.visual_pos - renderer.offset;
-            self.cache.set(Some(position));
+            self.position.set(Some(position));
         }
         usize::MAX
     }

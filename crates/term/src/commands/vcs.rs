@@ -621,6 +621,7 @@ pub(super) mod typed {
                     register: None,
                     count: None,
                     editor: cx.editor,
+                    interaction: cx.interaction,
                     callback: Vec::new(),
                     on_next_key_callback: None,
                     jobs: cx.jobs,

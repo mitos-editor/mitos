@@ -109,7 +109,7 @@ fn resize_mode_next_key(
                     cx.editor.restore_split_sizes(sizes);
                 }
                 cx.editor.autoinfo = None;
-                cx.editor.count = None;
+                cx.interaction.count = None;
                 return;
             }
             key!(digit @ '0'..='9') if count.is_some() || digit != '0' => {
@@ -120,7 +120,7 @@ fn resize_mode_next_key(
                 } else {
                     count
                 };
-                cx.editor.count = count;
+                cx.interaction.count = count;
                 resize_mode_next_key(cx, sizes, count);
                 return;
             }
@@ -135,7 +135,7 @@ fn resize_mode_next_key(
             key!('=') => equalize_views(cx),
             _ => {}
         }
-        cx.editor.count = None;
+        cx.interaction.count = None;
         resize_mode_next_key(cx, sizes, None);
     });
 }

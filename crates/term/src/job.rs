@@ -2,7 +2,7 @@ use event::send_blocking;
 use view::callbacks::{CallbackOutcome, EditorCallback, EditorCallbackSender};
 use view::Editor;
 
-use crate::compositor::Compositor;
+use crate::compositor::{Compositor, InteractionState};
 
 use futures_util::future::{BoxFuture, Future, FutureExt};
 use futures_util::stream::FuturesUnordered;
@@ -200,10 +200,11 @@ impl Jobs {
         &mut self,
         config: crate::config::Context<'_>,
         editor: &mut Editor,
+        interaction: &mut InteractionState,
         compositor: &mut Compositor,
         call: anyhow::Result<Option<Callback>>,
     ) -> CallbackOutcome {
-        match self.apply_callback(config, editor, compositor, call) {
+        match self.apply_callback(config, editor, interaction, compositor, call) {
             Ok(result) => result,
             Err(error) => {
                 editor.cancel_after_writes();
@@ -218,10 +219,11 @@ impl Jobs {
         &mut self,
         config: crate::config::Context<'_>,
         editor: &mut Editor,
+        interaction: &mut InteractionState,
         compositor: &mut Compositor,
         call: anyhow::Result<Option<Callback>>,
     ) -> anyhow::Result<()> {
-        self.apply_callback(config, editor, compositor, call)
+        self.apply_callback(config, editor, interaction, compositor, call)
             .map(|_| ())
     }
 
@@ -229,6 +231,7 @@ impl Jobs {
         &mut self,
         config: crate::config::Context<'_>,
         editor: &mut Editor,
+        interaction: &mut InteractionState,
         compositor: &mut Compositor,
         call: anyhow::Result<Option<Callback>>,
     ) -> CallbackResult {
@@ -242,6 +245,7 @@ impl Jobs {
                 &mut crate::compositor::Context {
                     config,
                     editor,
+                    interaction,
                     jobs: self,
                     scroll: None,
                     image_picker: None,

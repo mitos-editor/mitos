@@ -726,6 +726,7 @@ async fn input_notifications_report_only_accepted_input() -> anyhow::Result<()> 
         register: None,
         count: None,
         editor: &mut app.editor,
+        interaction: &mut app.interaction,
         callback: Vec::new(),
         on_next_key_callback: None,
         jobs: &mut jobs,
@@ -755,7 +756,7 @@ async fn counted_insert_repetition_preserves_the_recording_for_later_dots() -> a
         Some(&|app| {
             assert_eq!(view::doc!(app.editor).text(), "界界界界a\n");
             assert_eq!(app.editor.mode(), view::document::Mode::Normal);
-            assert!(app.editor.count.is_none());
+            assert!(app.interaction.count.is_none());
         }),
         false,
     )

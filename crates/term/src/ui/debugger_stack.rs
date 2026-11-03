@@ -175,9 +175,10 @@ impl Component for Frames {
     fn owns_cursor(&self) -> bool {
         self.picker.owns_cursor()
     }
-    fn cursor(&self, area: Rect, editor: &Editor) -> Cursor {
+    fn cursor(&self, area: Rect, cx: &DrawContext) -> Cursor {
+        let editor = cx.editor;
         if self.data.context.is_current(editor) {
-            self.picker.cursor(area, editor)
+            self.picker.cursor(area, cx)
         } else {
             Cursor::Hidden
         }

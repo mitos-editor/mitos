@@ -1606,7 +1606,8 @@ impl<I: 'static + Send + Sync, D: 'static + Send + Sync> Component for Picker<I,
         true
     }
 
-    fn cursor(&self, area: Rect, editor: &Editor) -> Cursor {
+    fn cursor(&self, area: Rect, cx: &DrawContext) -> Cursor {
+        let editor = cx.editor;
         let render_preview = self.show_preview
             && (self.file_fn.is_some() || self.custom_preview.is_some())
             && area.width > MIN_AREA_WIDTH_FOR_PREVIEW;
@@ -1618,7 +1619,7 @@ impl<I: 'static + Send + Sync, D: 'static + Send + Sync> Component for Picker<I,
         } else {
             areas.search
         };
-        self.active_prompt().cursor(area.clip_left(1), editor)
+        self.active_prompt().cursor(area.clip_left(1), cx)
     }
 
     fn required_size(&mut self, (width, height): (u16, u16)) -> Option<(u16, u16)> {
@@ -1871,6 +1872,7 @@ mod tests {
                 updates: &updates,
             },
             editor: &mut app.editor,
+            interaction: &mut app.interaction,
             jobs: &mut jobs,
             scroll: None,
             image_picker: None,
@@ -2013,6 +2015,7 @@ mod tests {
                 updates: &updates,
             },
             editor: &mut app.editor,
+            interaction: &mut app.interaction,
             jobs: &mut jobs,
             scroll: None,
             image_picker: None,
