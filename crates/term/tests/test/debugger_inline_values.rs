@@ -16,7 +16,7 @@ async fn inline_debug_values_combine_lsp_ranges_with_dap_values_and_support_serv
     let gate = Gate::new(dir.path().join("ready"));
     let server = ServerConfig::feature("inline", "--inline-values", dir.path())
         .initialize_gate(&gate)
-        .toml();
+        .toml(env!("CARGO_BIN_EXE_mitos-test-lsp"));
     let loader = lsp::syntax_loader("inline-test", "inline-test", &["inline"], &server);
     let mut config = test_config();
     config.editor.lsp.enable = true;

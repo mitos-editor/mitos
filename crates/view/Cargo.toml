@@ -15,6 +15,7 @@ homepage.workspace = true
 bench = false
 
 [features]
+integration = ["lsp/test-support"]
 default = []
 git = ["vcs/git"]
 syntax-diff = ["dep:syntax-diff"]
@@ -86,3 +87,8 @@ event = { workspace = true, features = ["integration_test"] }
 criterion.workspace = true
 quickcheck.workspace = true
 
+
+[[bin]]
+name = "mitos-view-test-lsp"
+path = "tests/fixtures/lsp.rs"
+required-features = ["integration"]

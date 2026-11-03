@@ -383,3 +383,6 @@ pub(crate) fn register_hooks(events: &event::EventHub) {
         Ok(())
     });
 }
+
+#[cfg(test)]
+mod tests;

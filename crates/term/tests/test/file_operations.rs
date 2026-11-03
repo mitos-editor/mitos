@@ -52,7 +52,7 @@ async fn file_preflight_keeps_the_editor_available_and_rejects_changed_targets(
                     .initialize_gate(&initialize_gate)
                     .arg("--preflight-gate")
                     .arg(preflight_gate.path())
-                    .toml()
+                    .toml(env!("CARGO_BIN_EXE_mitos-test-lsp"))
             })
             .collect();
         let mut config = test_config();

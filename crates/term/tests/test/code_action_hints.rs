@@ -39,7 +39,7 @@ impl Fixture {
             .map(|name| {
                 ServerConfig::feature(name, "--code-actions", dir)
                     .initialize_gate(&gate)
-                    .toml()
+                    .toml(env!("CARGO_BIN_EXE_mitos-test-lsp"))
             })
             .collect::<String>();
         let loader = lsp::syntax_loader("code-action-test", "action-test", servers, &server_config);

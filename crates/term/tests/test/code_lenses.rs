@@ -44,7 +44,7 @@ impl Fixture {
             for flag in flags {
                 server = server.arg(flag);
             }
-            servers.push_str(&server.toml());
+            servers.push_str(&server.toml(env!("CARGO_BIN_EXE_mitos-test-lsp")));
             logs.push(lsp::log_path(dir.path(), name));
             gates.push(gate);
         }

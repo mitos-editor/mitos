@@ -31,7 +31,8 @@ impl Fixture {
         for option in alpha_options {
             alpha = alpha.arg(option);
         }
-        let mut alpha_definition: toml::Value = toml::from_str(&alpha.toml())?;
+        let mut alpha_definition: toml::Value =
+            toml::from_str(&alpha.toml(env!("CARGO_BIN_EXE_mitos-test-lsp")))?;
         let overrides: toml::Table = toml::from_str(alpha_settings)?;
         alpha_definition["language-server"]["alpha"]
             .as_table_mut()
@@ -42,10 +43,10 @@ impl Fixture {
             toml::to_string(&alpha_definition)?,
             ServerConfig::feature("beta", "--language-features", dir)
                 .initialize_gate(&gate)
-                .toml(),
+                .toml(env!("CARGO_BIN_EXE_mitos-test-lsp")),
             ServerConfig::feature("lint", "--language-features", dir)
                 .initialize_gate(&gate)
-                .toml()
+                .toml(env!("CARGO_BIN_EXE_mitos-test-lsp"))
         );
         let loader = test_syntax_loader(Some(format!(
             r#"
@@ -302,8 +303,8 @@ async fn an_unrelated_running_server_does_not_override_another_languages_prefere
     let dir = tempfile::tempdir()?;
     let definitions = format!(
         "{}\n{}",
-        ServerConfig::new("alpha").toml(),
-        ServerConfig::new("beta").toml()
+        ServerConfig::new("alpha").toml(env!("CARGO_BIN_EXE_mitos-test-lsp")),
+        ServerConfig::new("beta").toml(env!("CARGO_BIN_EXE_mitos-test-lsp"))
     );
     let loader = test_syntax_loader(Some(format!(
         r#"
