@@ -72,8 +72,6 @@ jobs:
     runs-on: ubuntu-latest
     if: github.repository == 'mitos-editor/mitos' || github.event_name != 'schedule'
     timeout-minutes: 10
-    env:
-      MITOS_DISABLE_AUTO_GRAMMAR_BUILD: '1'
     steps:
       - name: Checkout sources
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -102,8 +100,6 @@ jobs:
     name: Lints
     runs-on: ubuntu-latest
     if: github.repository == 'mitos-editor/mitos' || github.event_name != 'schedule'
-    env:
-      MITOS_DISABLE_AUTO_GRAMMAR_BUILD: '1'
     steps:
       - name: Checkout sources
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

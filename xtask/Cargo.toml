@@ -13,9 +13,11 @@ homepage.workspace = true
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+grammar-build.workspace = true
 language.workspace = true
 theme.workspace = true
 loader.workspace = true
+workspace.workspace = true
 term.workspace = true
 core.workspace = true
 view.workspace = true

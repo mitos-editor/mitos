@@ -92,7 +92,15 @@ the PR triggers normal CI without GitHub Actions token approval requirements.
 
 ## Unit Tests/Documentation Tests
 
+Prepare the pinned runtime grammars before running tests that need syntax support:
+
+```shell
+cargo run --locked --package grammar-build --bin grammar-fetch
+cargo run --locked --package grammar-build --bin grammar-build
+```
+
 Run `cargo test --workspace` to run unit tests and documentation tests in all packages.
+Cargo builds and checks leave grammar sources and compiled runtime assets alone.
 
 ## Integration Tests
 

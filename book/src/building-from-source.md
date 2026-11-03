@@ -49,11 +49,25 @@ export RUSTFLAGS="-C target-feature=-crt-static"
    If installation stops because `bin/runtime/` belongs to another installation,
    choose another `--root` or move that runtime before trying again.
 
-To build without installing, run `cargo build --release --locked`. The executable
-is written to `target/release/ms`. Set up its runtime files as described below.
+`cargo xtask install` explicitly fetches and compiles the configured grammars
+before building and installing the editor.
 
-To skip downloading and compiling grammars during the build, set
-`MITOS_DISABLE_AUTO_GRAMMAR_BUILD=1`.
+To build without installing, prepare the grammars once, then build the executable:
+
+```sh
+cargo run --locked --package grammar-build --bin grammar-fetch
+cargo run --locked --package grammar-build --bin grammar-build
+cargo build --release --locked
+```
+
+The executable is written to `target/release/ms`. Ordinary `cargo build`,
+`cargo check`, and `cargo test` commands do not fetch or compile grammars.
+Repeat the explicit grammar commands after changing grammar sources or pins.
+Set up the runtime files as described below.
+
+When cross-compiling, pass `-- --target <target-triple>` to the `grammar-build`
+command and `--target <target-triple>` to `cargo build`. The host runs the grammar
+builder using the target's C/C++ compiler.
 
 > 💡 Tree-sitter grammars can be fetched and compiled if not pre-packaged. Fetch
 > grammars with `ms --grammar fetch` and compile them with
@@ -138,8 +152,7 @@ Custom themes can also live in the config directory's `themes/` folder.
 
 `ms --grammar fetch` and `ms --grammar build` write grammar sources and compiled
 grammars into the user data directory's `runtime/` subdirectory. When run through
-Cargo, they write into the current source checkout's `runtime/` instead, as do
-automatic grammar builds. `MITOS_RUNTIME` changes where assets are read, not
+Cargo, they write into the current source checkout's `runtime/` instead. `MITOS_RUNTIME` changes where assets are read, not
 where these commands write.
 
 #### Migrating an existing config runtime
@@ -169,6 +182,7 @@ to package the runtime into `/usr/lib/mitos/runtime`. The rough steps a build
 script could follow are:
 
 1. `export MITOS_DEFAULT_RUNTIME=/usr/lib/mitos/runtime`
+1. Fetch and compile grammars with the explicit commands above.
 1. `cargo build --profile opt --locked`
 1. `cp -r runtime $BUILD_DIR/usr/lib/mitos/`
 1. `cp target/opt/ms $BUILD_DIR/usr/bin/ms`
@@ -225,8 +239,9 @@ Install `cargo-deb`, the tool used for building the `.deb` file:
 cargo install cargo-deb
 ```
 
-After cloning and entering the Mitos repository as previously described,
-use the following command to build the release binary and package it into a `.deb` file in a single step.
+After cloning and entering the Mitos repository, fetch and compile grammars with
+the explicit commands above. Then build the release binary and package it into a
+`.deb` file in a single step:
 
 ```sh
 cargo deb -- --locked

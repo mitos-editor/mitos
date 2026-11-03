@@ -136,11 +136,6 @@ termina = { workspace = true, features = ["event-stream"] }
 signal-hook-tokio = { workspace = true, features = ["futures-v0_3"] } # https://github.com/vorner/signal-hook/issues/100
 libc.workspace = true
 
-[build-dependencies]
-grammar-build.workspace = true
-loader.workspace = true
-workspace.workspace = true
-
 [dev-dependencies]
 core = { workspace = true, features = ["integration"] }
 tokio = { workspace = true, features = ["test-util"] }

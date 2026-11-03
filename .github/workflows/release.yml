@@ -95,7 +95,7 @@ jobs:
           name: grammars
 
       - name: Move grammars under runtime
-        if: "!startsWith(matrix.os, 'windows')"
+        shell: bash
         run: |
           mkdir -p runtime/grammars/sources
           tar xJf grammars.tar.xz -C runtime/grammars/sources
@@ -115,6 +115,9 @@ jobs:
       - name: Show command used for Cargo
         run: |
           echo "target flag is: ${{ env.TARGET_FLAGS }}"
+
+      - name: Compile release grammars
+        run: cargo run --locked --package grammar-build --bin grammar-build -- --target ${{ matrix.target }}
 
       - name: Build release binary
         run: cargo build --profile opt --locked --target ${{ matrix.target }}
