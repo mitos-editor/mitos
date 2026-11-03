@@ -397,8 +397,6 @@ pub(crate) mod tests {
 
     #[tokio::test]
     async fn syntax_aware_edits_use_document_resources_until_language_refresh() {
-        event::register_event::<crate::events::DocumentDidChange>();
-        event::register_event::<crate::events::SelectionDidChange>();
         let language_loader = |prefix: &str, token: &str| {
             Arc::new(
                 syntax::Loader::new(

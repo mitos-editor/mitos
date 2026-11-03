@@ -392,29 +392,29 @@ pub fn post_insert_char(editor: &Editor) {
     }
 }
 
-pub(crate) fn register_hooks() {
-    register_hook!(move |event: &mut DocumentDidChange<'_>| {
+pub(crate) fn register_hooks(events: &event::EventHub) {
+    register_hook!(events => move |event: &mut DocumentDidChange<'_>| {
         if let Some(trigger) = &event.doc.signature_help_trigger {
             trigger.retrigger(event.doc, None);
         }
         Ok(())
     });
-    register_hook!(move |event: &mut SelectionDidChange<'_>| {
+    register_hook!(events => move |event: &mut SelectionDidChange<'_>| {
         if let Some(trigger) = &event.doc.signature_help_trigger {
             trigger.retrigger(event.doc, Some(event.view));
         }
         Ok(())
     });
-    register_hook!(move |event: &mut DocumentFocusLost<'_>| {
+    register_hook!(events => move |event: &mut DocumentFocusLost<'_>| {
         // Signature help follows the focused view, including splits of one document.
         event.editor.handlers.signature_hints.cancel();
         Ok(())
     });
-    register_hook!(move |event: &mut DocumentDidClose<'_>| {
+    register_hook!(events => move |event: &mut DocumentDidClose<'_>| {
         cancel_document(event.editor, event.doc.id());
         Ok(())
     });
-    register_hook!(move |event: &mut LanguageServerExited<'_>| {
+    register_hook!(events => move |event: &mut LanguageServerExited<'_>| {
         let handler = &event.editor.handlers.signature_hints;
         let target = handler.shared.session.lock().unwrap().target;
         if target.is_some_and(|(_, _, server)| server == Some(event.server_id)) {
@@ -422,7 +422,7 @@ pub(crate) fn register_hooks() {
         }
         Ok(())
     });
-    register_hook!(move |event: &mut ConfigDidChange<'_>| {
+    register_hook!(events => move |event: &mut ConfigDidChange<'_>| {
         if !event.new.lsp.enable
             || (event.old.lsp.signature_help.auto_trigger
                 && !event.new.lsp.signature_help.auto_trigger)

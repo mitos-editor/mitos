@@ -40,8 +40,8 @@ fn notification(method: &str, params: Value) -> Call {
 #[tokio::test(flavor = "multi_thread")]
 async fn initialization_sends_configuration_before_open_and_feature_requests() -> anyhow::Result<()>
 {
-    event::register_event::<LanguageServerInitialized>();
-    register_hook!(move |event: &mut LanguageServerInitialized<'_>| {
+    let events = event::EventHub::default();
+    register_hook!(&events => move |event: &mut LanguageServerInitialized<'_>| {
         event
             .editor
             .language_server_by_id(event.server_id)
@@ -50,7 +50,7 @@ async fn initialization_sends_configuration_before_open_and_feature_requests() -
         Ok(())
     });
     let dir = tempfile::tempdir()?;
-    let mut f = Fixture::new(dir.path(), &["alpha"])?;
+    let mut f = Fixture::with_events(dir.path(), &["alpha"], events)?;
     f.initialize().await?;
     let (id, call) = f.next().await?;
     let Call::Notification(message) = call else {
@@ -196,27 +196,30 @@ async fn exit_cleans_open_and_unopened_diagnostics_before_hooks_and_registry_rem
     doc.replace_diagnostics([spelling], &[], Some(&DiagnosticProvider::Spelling));
     let exits = Arc::new(AtomicUsize::new(0));
     let seen = exits.clone();
-    event::register_hook!(move |event: &mut LanguageServerExited<'_>| {
-        assert_eq!(event.server_id, alpha);
-        assert!(event.editor.language_server_by_id(alpha).is_some());
-        assert!(event
-            .editor
-            .documents()
-            .any(|doc| doc.supports_language_server(alpha)));
-        assert!(event
-            .editor
-            .diagnostics()
-            .values()
-            .flatten()
-            .all(|(_, provider)| provider.language_server_id() != Some(alpha)));
-        assert!(event
-            .editor
-            .documents()
-            .flat_map(|doc| doc.diagnostics())
-            .all(|diagnostic| diagnostic.provider.language_server_id() != Some(alpha)));
-        seen.fetch_add(1, Ordering::SeqCst);
-        Ok(())
-    });
+    event::register_hook!(
+        f.app.editor.events() =>
+        move |event: &mut LanguageServerExited<'_>| {
+            assert_eq!(event.server_id, alpha);
+            assert!(event.editor.language_server_by_id(alpha).is_some());
+            assert!(event
+                .editor
+                .documents()
+                .any(|doc| doc.supports_language_server(alpha)));
+            assert!(event
+                .editor
+                .diagnostics()
+                .values()
+                .flatten()
+                .all(|(_, provider)| provider.language_server_id() != Some(alpha)));
+            assert!(event
+                .editor
+                .documents()
+                .flat_map(|doc| doc.diagnostics())
+                .all(|diagnostic| diagnostic.provider.language_server_id() != Some(alpha)));
+            seen.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }
+    );
     f.app.editor.handle_language_server_exit(alpha);
     assert_eq!(exits.load(Ordering::SeqCst), 1);
     assert!(f.app.editor.language_server_by_id(alpha).is_none());
@@ -284,23 +287,26 @@ async fn restart_clears_selected_server_document_and_workspace_diagnostics() -> 
 
     let exits = Arc::new(AtomicUsize::new(0));
     let seen = exits.clone();
-    event::register_hook!(move |event: &mut LanguageServerExited<'_>| {
-        assert_eq!(event.server_id, alpha);
-        assert!(event.editor.language_server_by_id(alpha).is_some());
-        assert!(event
-            .editor
-            .document(document)
-            .unwrap()
-            .supports_language_server(alpha));
-        assert!(event
-            .editor
-            .diagnostics()
-            .values()
-            .flatten()
-            .all(|(_, provider)| provider.language_server_id() != Some(alpha)));
-        seen.fetch_add(1, Ordering::SeqCst);
-        Ok(())
-    });
+    event::register_hook!(
+        f.app.editor.events() =>
+        move |event: &mut LanguageServerExited<'_>| {
+            assert_eq!(event.server_id, alpha);
+            assert!(event.editor.language_server_by_id(alpha).is_some());
+            assert!(event
+                .editor
+                .document(document)
+                .unwrap()
+                .supports_language_server(alpha));
+            assert!(event
+                .editor
+                .diagnostics()
+                .values()
+                .flatten()
+                .all(|(_, provider)| provider.language_server_id() != Some(alpha)));
+            seen.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }
+    );
 
     f.app
         .editor
@@ -359,23 +365,26 @@ async fn stop_clears_workspace_diagnostics_for_unopened_files() -> anyhow::Resul
     assert!(f.app.editor.diagnostics().contains_key(&alpha_only));
     let exits = Arc::new(AtomicUsize::new(0));
     let seen = exits.clone();
-    event::register_hook!(move |event: &mut LanguageServerExited<'_>| {
-        assert_eq!(event.server_id, alpha);
-        assert!(event.editor.language_server_by_id(alpha).is_some());
-        assert!(event
-            .editor
-            .document(document)
-            .unwrap()
-            .supports_language_server(alpha));
-        assert!(event
-            .editor
-            .diagnostics()
-            .values()
-            .flatten()
-            .all(|(_, provider)| provider.language_server_id() != Some(alpha)));
-        seen.fetch_add(1, Ordering::SeqCst);
-        Ok(())
-    });
+    event::register_hook!(
+        f.app.editor.events() =>
+        move |event: &mut LanguageServerExited<'_>| {
+            assert_eq!(event.server_id, alpha);
+            assert!(event.editor.language_server_by_id(alpha).is_some());
+            assert!(event
+                .editor
+                .document(document)
+                .unwrap()
+                .supports_language_server(alpha));
+            assert!(event
+                .editor
+                .diagnostics()
+                .values()
+                .flatten()
+                .all(|(_, provider)| provider.language_server_id() != Some(alpha)));
+            seen.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }
+    );
 
     f.app.editor.stop_language_servers(document, &["alpha"])?;
 
@@ -405,13 +414,16 @@ async fn terminal_adapter_delegates_and_keeps_the_exit_status_message() -> anyho
     let (id, call) = f.next().await?;
     f.app.handle_language_server_message(call, id).await;
     assert_eq!(f.messages(), ["alpha"]);
-    event::register_hook!(move |event: &mut LanguageServerExited<'_>| {
-        assert_eq!(
-            event.editor.get_status().unwrap().0.as_ref(),
-            "Language server exited: alpha"
-        );
-        Ok(())
-    });
+    event::register_hook!(
+        f.app.editor.events() =>
+        move |event: &mut LanguageServerExited<'_>| {
+            assert_eq!(
+                event.editor.get_status().unwrap().0.as_ref(),
+                "Language server exited: alpha"
+            );
+            Ok(())
+        }
+    );
     f.app
         .handle_language_server_message(notification("exit", Value::Null), id)
         .await;
@@ -470,22 +482,21 @@ async fn repeated_setup_sends_each_document_notification_once() -> anyhow::Resul
 #[tokio::test(flavor = "multi_thread")]
 async fn document_synchronization_precedes_early_change_and_close_observers() -> anyhow::Result<()>
 {
-    event::register_event::<DocumentDidChange>();
-    event::register_event::<DocumentDidClose>();
-    register_hook!(move |event: &mut DocumentDidChange<'_>| {
+    let events = event::EventHub::default();
+    register_hook!(&events => move |event: &mut DocumentDidChange<'_>| {
         for server in event.doc.language_servers() {
             server.notify::<ObserverMarker>(json!({"phase": "changed"}));
         }
         Ok(())
     });
-    register_hook!(move |event: &mut DocumentDidClose<'_>| {
+    register_hook!(&events => move |event: &mut DocumentDidClose<'_>| {
         for server in event.doc.language_servers() {
             server.notify::<ObserverMarker>(json!({"phase": "closed"}));
         }
         Ok(())
     });
     let dir = tempfile::tempdir()?;
-    let mut fixture = Fixture::new(dir.path(), &["alpha"])?;
+    let mut fixture = Fixture::with_events(dir.path(), &["alpha"], events)?;
     fixture.initialize().await?;
     let (view, doc) = current!(fixture.app.editor);
     let id = doc.id();

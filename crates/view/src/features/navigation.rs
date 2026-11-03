@@ -364,20 +364,20 @@ pub fn next_update(editor: &Editor) -> Option<NavigationUpdate> {
         .take()
 }
 
-pub(crate) fn register_hooks() {
-    register_hook!(move |event: &mut SelectionDidChange<'_>| {
+pub(crate) fn register_hooks(events: &event::EventHub) {
+    register_hook!(events => move |event: &mut SelectionDidChange<'_>| {
         event
             .doc
             .cancel_view_request(event.view, |state| &mut state.navigation);
         Ok(())
     });
-    register_hook!(move |event: &mut DocumentFocusLost<'_>| {
+    register_hook!(events => move |event: &mut DocumentFocusLost<'_>| {
         if let Some(doc) = event.editor.document_mut(event.doc) {
             doc.cancel_view_requests(|state| &mut state.navigation);
         }
         Ok(())
     });
-    register_hook!(move |event: &mut ConfigDidChange<'_>| {
+    register_hook!(events => move |event: &mut ConfigDidChange<'_>| {
         if !event.new.lsp.enable {
             for doc in event.editor.documents_mut() {
                 doc.cancel_view_requests(|state| &mut state.navigation);
@@ -385,7 +385,7 @@ pub(crate) fn register_hooks() {
         }
         Ok(())
     });
-    register_hook!(move |event: &mut LanguageServerExited<'_>| {
+    register_hook!(events => move |event: &mut LanguageServerExited<'_>| {
         for doc in event.editor.documents_mut() {
             if doc.supports_language_server(event.server_id) {
                 doc.cancel_view_requests(|state| &mut state.navigation);

@@ -165,8 +165,8 @@ impl Editor {
     }
 }
 
-pub(crate) fn register_hooks() {
-    register_hook!(move |event: &mut ConfigDidChange<'_>| {
+pub(crate) fn register_hooks(events: &event::EventHub) {
+    register_hook!(events => move |event: &mut ConfigDidChange<'_>| {
         if !event.new.lsp.enable {
             for doc in event.editor.documents_mut() {
                 doc.workspace_symbols.cancel();
@@ -174,7 +174,7 @@ pub(crate) fn register_hooks() {
         }
         Ok(())
     });
-    register_hook!(move |event: &mut LanguageServerExited<'_>| {
+    register_hook!(events => move |event: &mut LanguageServerExited<'_>| {
         for doc in event.editor.documents_mut() {
             if doc.supports_language_server(event.server_id) {
                 doc.workspace_symbols.cancel();

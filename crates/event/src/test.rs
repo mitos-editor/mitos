@@ -1,29 +1,28 @@
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
-use std::time::Duration;
-
+use crate::{events, register_hook, register_owned_hook, EventHub};
 use parking_lot::Mutex;
+use std::sync::{
+    atomic::{AtomicUsize, Ordering},
+    Arc,
+};
 
-use crate::{dispatch, events, register_dynamic_hook, register_event, register_hook};
-
-#[tokio::test]
-async fn typed_hooks_accept_independent_borrowed_lifetimes() {
-    events! { BorrowedEvent<'a, 'b> { output: &'a mut String, text: &'b str } }
-    register_event::<BorrowedEvent>();
-    let registration = crate::register_owned_hook!(move |event: &mut BorrowedEvent<'_, '_>| {
+#[test]
+fn typed_hooks_accept_independent_borrowed_lifetimes() {
+    events! { Borrowed<'a, 'b> { output: &'a mut String, text: &'b str } }
+    let hub = EventHub::default();
+    let registration = register_owned_hook!(&hub => move |event: &mut Borrowed<'_, '_>| {
         event.output.push_str(event.text);
         Ok(())
     });
     let text = String::from("borrowed");
     let mut output = String::new();
-    dispatch(BorrowedEvent {
+    hub.dispatch(Borrowed {
         output: &mut output,
         text: &text,
     })
     .log();
     assert_eq!(output, "borrowed");
     drop(registration);
-    dispatch(BorrowedEvent {
+    hub.dispatch(Borrowed {
         output: &mut output,
         text: &text,
     })
@@ -32,367 +31,188 @@ async fn typed_hooks_accept_independent_borrowed_lifetimes() {
 }
 
 #[tokio::test]
-async fn smoke_test() {
-    events! {
-        Event1 { content: String }
-        Event2 { content: usize }
-    }
-    register_event::<Event1>();
-    register_event::<Event2>();
-
-    // setup hooks
-    let res1: Arc<Mutex<String>> = Arc::default();
-    let acc = Arc::clone(&res1);
-    register_hook!(move |event: &mut Event1| {
-        acc.lock().push_str(&event.content);
-        Ok(())
-    });
-    let res2: Arc<AtomicUsize> = Arc::default();
-    let acc = Arc::clone(&res2);
-    register_hook!(move |event: &mut Event2| {
-        acc.fetch_add(event.content, Ordering::Relaxed);
-        Ok(())
-    });
-
-    // triggers events
-    let runtime = tokio::runtime::Handle::current();
-    let thread = std::thread::spawn(move || {
-        // Use the same event registry when integration tests isolate it by runtime.
-        let _guard = runtime.enter();
-        for i in 0..1000 {
-            dispatch(Event2 { content: i }).log();
-        }
-    });
-    std::thread::sleep(Duration::from_millis(1));
-    dispatch(Event1 {
-        content: "foo".to_owned(),
-    })
-    .log();
-    dispatch(Event2 { content: 42 }).log();
-    dispatch(Event1 {
-        content: "bar".to_owned(),
-    })
-    .log();
-    dispatch(Event1 {
-        content: "hello world".to_owned(),
-    })
-    .log();
-    thread.join().unwrap();
-
-    // check output
-    assert_eq!(&**res1.lock(), "foobarhello world");
-    assert_eq!(
-        res2.load(Ordering::Relaxed),
-        42 + (0..1000usize).sum::<usize>()
-    );
-}
-
-#[tokio::test]
-#[allow(dead_code)]
-async fn dynamic() {
-    events! {
-        Event3 {}
-        Event4 { count: usize }
-    };
-    register_event::<Event3>();
-    register_event::<Event4>();
-
+async fn hubs_are_isolated_within_one_runtime_and_clones_work_without_a_runtime() {
+    events! { Increment { amount: usize } }
+    let first = EventHub::default();
+    let second = EventHub::default();
     let count = Arc::new(AtomicUsize::new(0));
-    let count1 = count.clone();
-    let count2 = count.clone();
-    let _event3_hook = register_dynamic_hook(
-        move || {
-            count1.fetch_add(2, Ordering::Relaxed);
-            Ok(())
-        },
-        "Event3",
-    )
+    let observed = count.clone();
+    register_hook!(&first => move |event: &mut Increment| {
+        observed.fetch_add(event.amount, Ordering::Relaxed);
+        Ok(())
+    });
+    second.dispatch(Increment { amount: 100 }).log();
+    let worker = first.clone();
+    std::thread::spawn(move || {
+        for amount in 0..1000 {
+            worker.dispatch(Increment { amount }).log();
+        }
+    })
+    .join()
     .unwrap();
-    let _event4_hook = register_dynamic_hook(
-        move || {
-            count2.fetch_add(3, Ordering::Relaxed);
-            Ok(())
-        },
-        "Event4",
-    )
-    .unwrap();
-    dispatch(Event3 {}).log();
-    dispatch(Event4 { count: 0 }).log();
-    dispatch(Event3 {}).log();
-    assert_eq!(count.load(Ordering::Relaxed), 7)
+    first.dispatch(Increment { amount: 42 }).log();
+    assert_eq!(count.load(Ordering::Relaxed), 42 + (0..1000).sum::<usize>());
 }
 
-#[tokio::test]
-async fn dropped_registration_stops_delivery_and_releases_captures() {
-    events! { OwnedEvent {} }
-    register_event::<OwnedEvent>();
+#[test]
+fn dropped_registration_stops_delivery_and_releases_captures() {
+    events! { Owned {} }
+    let hub = EventHub::default();
     let count = Arc::new(AtomicUsize::new(0));
     let captured = count.clone();
-    let weak = Arc::downgrade(&count);
-    let registration = register_dynamic_hook(
-        move || {
-            captured.fetch_add(1, Ordering::Relaxed);
-            Ok(())
-        },
-        "OwnedEvent",
-    )
-    .unwrap();
-    dispatch(OwnedEvent {}).log();
-    assert_eq!(count.load(Ordering::Relaxed), 1);
-    // A registration keeps its originating registry even without a Tokio runtime.
+    let registration = register_owned_hook!(&hub => move |_event: &mut Owned| {
+        captured.fetch_add(1, Ordering::Relaxed);
+        Ok(())
+    });
+    hub.dispatch(Owned {}).log();
     std::thread::spawn(move || drop(registration))
         .join()
         .unwrap();
-    dispatch(OwnedEvent {}).log();
+    hub.dispatch(Owned {}).log();
     assert_eq!(count.load(Ordering::Relaxed), 1);
-    drop(count);
-    assert!(weak.upgrade().is_none());
+    assert_eq!(Arc::strong_count(&count), 1);
 }
 
-#[tokio::test]
-async fn hooks_can_remove_other_hooks_and_subscribe_during_dispatch() {
-    events! { ReentrantEvent {} }
-    register_event::<ReentrantEvent>();
+#[test]
+fn dropping_the_hub_releases_permanent_hooks_and_subscriptions_can_outlive_it() {
+    events! { Lifetime {} }
+    let hub = EventHub::default();
+    let captured = Arc::new(());
+    let owned = captured.clone();
+    register_hook!(&hub => move |_event: &mut Lifetime| {
+        let _ = &owned;
+        Ok(())
+    });
+    let registration = register_owned_hook!(&hub => move |_event: &mut Lifetime| Ok(()));
+    assert_eq!(Arc::strong_count(&captured), 2);
+    drop(hub);
+    assert_eq!(Arc::strong_count(&captured), 1);
+    drop(registration);
+}
+
+#[test]
+fn hooks_can_remove_other_hooks_and_subscribe_during_dispatch() {
+    events! { Reentrant {} }
+    let hub = EventHub::default();
     let order = Arc::new(Mutex::new(Vec::new()));
     let later = Arc::new(Mutex::new(None));
     let added = Arc::new(Mutex::new(None));
     let observed = order.clone();
     let remove = later.clone();
     let registrations = added.clone();
-    let _first = crate::register_owned_hook!(move |_event: &mut ReentrantEvent| {
+    // Owned callbacks may capture their hub. Dropping the returned subscription breaks the cycle.
+    let destination = hub.clone();
+    let first = register_owned_hook!(&hub => move |_event: &mut Reentrant| {
         observed.lock().push(1);
-        // Removing a pending hook skips it in this dispatch's snapshot.
         remove.lock().take();
         if registrations.lock().is_none() {
             let observed = observed.clone();
-            *registrations.lock() = Some(register_dynamic_hook(
-                move || {
+            *registrations.lock() = Some(register_owned_hook!(
+                &destination =>
+                move |_event: &mut Reentrant| {
                     observed.lock().push(3);
                     Ok(())
-                },
-                "ReentrantEvent",
-            )?);
+                }
+            ));
         }
         Ok(())
     });
     let observed = order.clone();
-    *later.lock() = Some(
-        register_dynamic_hook(
-            move || {
-                observed.lock().push(2);
-                Ok(())
-            },
-            "ReentrantEvent",
-        )
-        .unwrap(),
-    );
-    dispatch(ReentrantEvent {}).log();
+    *later.lock() = Some(register_owned_hook!(&hub => move |_event: &mut Reentrant| {
+        observed.lock().push(2);
+        Ok(())
+    }));
+    hub.dispatch(Reentrant {}).log();
     assert_eq!(*order.lock(), [1]);
-    dispatch(ReentrantEvent {}).log();
+    hub.dispatch(Reentrant {}).log();
     assert_eq!(*order.lock(), [1, 1, 3]);
-    // Break the test's ownership cycle while exercising removal outside dispatch.
+    drop(first);
     added.lock().take();
 }
 
-#[tokio::test]
-async fn hooks_can_unsubscribe_themselves_and_dispatch_recursively() {
-    events! { RecursiveEvent { depth: usize } }
-    register_event::<RecursiveEvent>();
+#[test]
+fn hooks_can_unsubscribe_themselves_and_dispatch_recursively() {
+    events! { Recursive { depth: usize } }
+    let hub = EventHub::default();
     let own = Arc::new(Mutex::new(None));
     let registration = own.clone();
     let count = Arc::new(AtomicUsize::new(0));
     let observed = count.clone();
-    *own.lock() = Some(crate::register_owned_hook!(
-        move |event: &mut RecursiveEvent| {
-            observed.fetch_add(1, Ordering::Relaxed);
-            registration.lock().take();
-            if event.depth == 0 {
-                dispatch(RecursiveEvent { depth: 1 }).log();
-            }
-            Ok(())
+    let destination = hub.clone();
+    *own.lock() = Some(register_owned_hook!(&hub => move |event: &mut Recursive| {
+        observed.fetch_add(1, Ordering::Relaxed);
+        registration.lock().take();
+        if event.depth == 0 {
+            destination.dispatch(Recursive { depth: 1 }).log();
         }
-    ));
-    dispatch(RecursiveEvent { depth: 0 }).log();
-    dispatch(RecursiveEvent { depth: 0 }).log();
+        Ok(())
+    }));
+    hub.dispatch(Recursive { depth: 0 }).log();
+    hub.dispatch(Recursive { depth: 0 }).log();
     assert_eq!(count.load(Ordering::Relaxed), 1);
 }
 
-#[tokio::test]
-async fn unsubscribing_releases_nested_registrations_outside_the_registry_lock() {
-    events! { NestedLifetimeEvent {} }
-    register_event::<NestedLifetimeEvent>();
+#[test]
+fn unsubscribing_releases_nested_registrations_outside_the_registry_lock() {
+    events! { Nested {} }
+    let hub = EventHub::default();
     let count = Arc::new(AtomicUsize::new(0));
     let observed = count.clone();
-    let inner = register_dynamic_hook(
-        move || {
-            observed.fetch_add(1, Ordering::Relaxed);
-            Ok(())
-        },
-        "NestedLifetimeEvent",
-    )
-    .unwrap();
-    let outer = register_dynamic_hook(
-        move || {
-            let _keep_alive = &inner;
-            Ok(())
-        },
-        "NestedLifetimeEvent",
-    )
-    .unwrap();
-    dispatch(NestedLifetimeEvent {}).log();
-    assert_eq!(count.load(Ordering::Relaxed), 1);
+    let inner = register_owned_hook!(&hub => move |_event: &mut Nested| {
+        observed.fetch_add(1, Ordering::Relaxed);
+        Ok(())
+    });
+    let outer = register_owned_hook!(&hub => move |_event: &mut Nested| {
+        let _ = &inner;
+        Ok(())
+    });
+    hub.dispatch(Nested {}).log();
     drop(outer);
-    dispatch(NestedLifetimeEvent {}).log();
+    hub.dispatch(Nested {}).log();
     assert_eq!(count.load(Ordering::Relaxed), 1);
 }
 
-#[tokio::test]
-async fn dropping_a_registration_allows_an_active_callback_to_finish() {
-    events! { ConcurrentLifetimeEvent {} }
-    register_event::<ConcurrentLifetimeEvent>();
+#[test]
+fn dropping_a_registration_allows_an_active_callback_to_finish() {
+    events! { Concurrent {} }
+    let hub = EventHub::default();
     let count = Arc::new(AtomicUsize::new(0));
     let observed = count.clone();
     let barrier = Arc::new(std::sync::Barrier::new(2));
     let callback_barrier = barrier.clone();
-    let registration = register_dynamic_hook(
-        move || {
-            observed.fetch_add(1, Ordering::Relaxed);
-            callback_barrier.wait();
-            callback_barrier.wait();
-            Ok(())
-        },
-        "ConcurrentLifetimeEvent",
-    )
-    .unwrap();
-    let runtime = tokio::runtime::Handle::current();
-    let thread = std::thread::spawn(move || {
-        let _runtime = runtime.enter();
-        dispatch(ConcurrentLifetimeEvent {}).log();
+    let registration = register_owned_hook!(&hub => move |_event: &mut Concurrent| {
+        observed.fetch_add(1, Ordering::Relaxed);
+        callback_barrier.wait();
+        callback_barrier.wait();
+        Ok(())
     });
+    let worker = hub.clone();
+    let thread = std::thread::spawn(move || worker.dispatch(Concurrent {}).log());
     barrier.wait();
     drop(registration);
     barrier.wait();
     thread.join().unwrap();
-    dispatch(ConcurrentLifetimeEvent {}).log();
+    hub.dispatch(Concurrent {}).log();
     assert_eq!(count.load(Ordering::Relaxed), 1);
     assert_eq!(Arc::strong_count(&count), 1);
 }
 
-#[tokio::test]
-async fn failed_registration_releases_captures_without_locking_out_unsubscription() {
-    events! { FailedLifetimeEvent {} }
-    register_event::<FailedLifetimeEvent>();
-    let count = Arc::new(AtomicUsize::new(0));
-    let observed = count.clone();
-    let inner = register_dynamic_hook(
-        move || {
-            observed.fetch_add(1, Ordering::Relaxed);
-            Ok(())
-        },
-        "FailedLifetimeEvent",
-    )
-    .unwrap();
-    let result = register_dynamic_hook(
-        move || {
-            let _keep_alive = &inner;
-            Ok(())
-        },
-        "MissingLifetimeEvent",
-    );
-    assert!(result.is_err());
-    dispatch(FailedLifetimeEvent {}).log();
-    assert_eq!(count.load(Ordering::Relaxed), 0);
-    assert_eq!(Arc::strong_count(&count), 1);
-}
-
-#[tokio::test]
-async fn failed_typed_registration_releases_captures_without_deadlocking() {
-    const CHILD: &str = "MITOS_TEST_TYPED_REGISTRATION_PANIC_CHILD";
-    if std::env::var_os(CHILD).is_none() {
-        // A regression would deadlock the process-global registry. Isolate it so
-        // this test reports a bounded failure instead of hanging the entire suite.
-        let mut child = std::process::Command::new(std::env::current_exe().unwrap())
-            .args([
-                "--exact",
-                "test::failed_typed_registration_releases_captures_without_deadlocking",
-            ])
-            .env(CHILD, "1")
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .spawn()
-            .unwrap();
-        let deadline = std::time::Instant::now() + Duration::from_secs(5);
-        loop {
-            if let Some(status) = child.try_wait().unwrap() {
-                assert!(status.success(), "typed registration panic cleanup failed");
-                return;
-            }
-            if std::time::Instant::now() >= deadline {
-                child.kill().unwrap();
-                child.wait().unwrap();
-                panic!("typed registration deadlocked while releasing captured subscriptions");
-            }
-            std::thread::sleep(Duration::from_millis(10));
-        }
-    }
-
-    events! {
-        TypedFailureLifetimeEvent {}
-        MissingTypedFailureLifetimeEvent {}
-    }
-    register_event::<TypedFailureLifetimeEvent>();
-    for owned in [false, true] {
-        let count = Arc::new(AtomicUsize::new(0));
-        let observed = count.clone();
-        let inner = register_dynamic_hook(
-            move || {
-                observed.fetch_add(1, Ordering::Relaxed);
-                Ok(())
-            },
-            "TypedFailureLifetimeEvent",
-        )
-        .unwrap();
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            if owned {
-                let _registration = crate::register_owned_hook!(
-                    move |_event: &mut MissingTypedFailureLifetimeEvent| {
-                        let _keep_alive = &inner;
-                        Ok(())
-                    }
-                );
-            } else {
-                register_hook!(move |_event: &mut MissingTypedFailureLifetimeEvent| {
-                    let _keep_alive = &inner;
-                    Ok(())
-                });
-            }
-        }));
-        assert!(result.is_err());
-        dispatch(TypedFailureLifetimeEvent {}).log();
-        assert_eq!(count.load(Ordering::Relaxed), 0);
-        assert_eq!(Arc::strong_count(&count), 1);
-    }
-}
-
-#[tokio::test]
-async fn hook_failures_report_to_the_selected_owner_after_all_observers_run() {
-    events! { ReportedFailureEvent {} }
-    register_event::<ReportedFailureEvent>();
-    let _failing =
-        register_dynamic_hook(|| anyhow::bail!("observer failed"), "ReportedFailureEvent").unwrap();
+#[test]
+fn hook_failures_report_to_the_selected_owner_after_all_observers_run() {
+    events! { Failure {} }
+    let hub = EventHub::default();
+    register_hook!(&hub => move |_event: &mut Failure| anyhow::bail!(
+        "observer failed"
+    ));
     let called = Arc::new(AtomicUsize::new(0));
     let observed = called.clone();
-    let _following = register_dynamic_hook(
-        move || {
-            observed.fetch_add(1, Ordering::Relaxed);
-            Ok(())
-        },
-        "ReportedFailureEvent",
-    )
-    .unwrap();
+    register_hook!(&hub => move |_event: &mut Failure| {
+        observed.fetch_add(1, Ordering::Relaxed);
+        Ok(())
+    });
     let (_first, mut first_messages) = crate::status::StatusSender::channel();
     let (second, mut second_messages) = crate::status::StatusSender::channel();
-    dispatch(ReportedFailureEvent {}).report_to(&second);
+    hub.dispatch(Failure {}).report_to(&second);
     assert_eq!(called.load(Ordering::Relaxed), 1);
     assert_eq!(
         second_messages.try_recv().unwrap().message,

@@ -67,7 +67,7 @@ renderer receives explicit whitespace and indentation settings instead of a
 document. `text-render` owns the drawing loop and generic decoration interface.
 Feature decorations stay in `term`; buffer writing helpers live in `ui-core` and
 are re-exported by `tui` for frontend widgets. `EditorView` owns input, popup presentation, and frame preparation. Its private
-`PaneRenderer` owns pane drawing, image caches, and progress spinners. Frame
+`PaneRenderer` owns pane drawing, visible image state, and progress spinners. Frame
 preparation performs resize and debugger refresh effects before drawing; the
 renderer receives an immutable editor plus explicit focus, cursor-ownership,
 color, and area inputs. Drawing does not receive a mutable compositor context.
@@ -957,16 +957,17 @@ before close observers run. These guarantees do not depend on hook registration 
 ### Service initialization and callbacks
 
 `view::handlers::Handlers::new` constructs shared editor services from editor
-configuration and an explicit callback destination. It registers editor events
-and feature hooks through one central registration path, once per event registry.
+configuration and an explicit callback destination. It installs feature hooks into
+a private `event::EventHub` through one central registration path. Typed hook lists are created on first subscription; event
+types need no separate registration.
 Feature registrars are crate-private and called only from that composition path.
 Mandatory document synchronization and snippet range tracking happen on the
 mutation path before observer hooks. Registration includes filesystem configuration
-updates. A frontend can initialize
-these services without terminal setup. `term::handlers::register_hooks` installs
-terminal input and presentation hooks through a separate central registration path,
-once per event registry. Application-owned presentation subscriptions remain
-separate and unregister when their application is dropped.
+updates. A frontend can initialize these services without terminal setup.
+`term::handlers::register_hooks` installs terminal input and presentation hooks into
+the same editor hub through a separate central registration path. Application-owned
+presentation subscriptions remain separate and unregister when their application
+is dropped.
 
 Configure a `Handlers` value before passing it to `Editor::new`. The editor owns
 it and exposes `Editor::handlers()` for reading and scheduling work. All new
@@ -974,13 +975,10 @@ documents receive their service bindings through `Handlers::attach_document`
 before syntax initialization or document-open events. A frontend cannot replace
 owned handler fields directly.
 
-Explicit editor methods replace running autosave, signature-help, completion,
-and reload services. Autosave and signature-help replacement rebind existing
-documents; their queued results retain the old owner identity and are rejected.
-Completion replacement cancels pending/displayed work. Trust prompt reset clears
-prompt ownership without changing trust policy. Terminal fixtures configure
-services through `AppBuilder::with_handler_setup`, which delegates to
+Terminal fixtures configure services through `AppBuilder::with_handler_setup`, which delegates to
 `Application::new_with_handler_setup` before the editor opens any documents.
+Callers that need observers before built-in hooks supply a fresh hub through
+`Handlers::with_events`; terminal fixtures use `AppBuilder::with_events`.
 
 Word-index hooks route open/configuration events through the supplied editor and
 edit/close events through a weak document-bound sender. Each editor owns its
@@ -1229,17 +1227,20 @@ for running cancellable tasks which run after events with _debouncing_.
 Each generated event defines a higher-ranked callback type accepting all its
 borrowed lifetimes. The registry stores typed hook lists behind safe `Any`
 downcasts; callbacks receive the concrete event directly. No event reference or
-callback lifetime is erased, and the event crate forbids unsafe code. The name
-registry continues to support dynamic no-payload subscriptions and runtime-scoped
-test isolation.
+callback lifetime is erased, and the event crate forbids unsafe code. Each editor
+owns an explicit hub, and attached documents retain clones of that hub. Independent editors stay isolated even within the same Tokio runtime; clones
+can dispatch on other threads without a runtime. Standalone documents own an empty
+hub. No process registry, runtime IDs, leaked registry storage, or name-only dynamic
+subscriptions are required.
 
 See the `AsyncHook` type for more information. Events can be created within the
-`events!` macro. Synchronous hooks can be created with `register_hook!`. And
-editor-wide events can be sent to hooks with `event::dispatch`.
+`events!` macro. Synchronous hooks are installed with `register_hook!(hub => ...)`; editor-wide events
+are delivered with `editor.events().clone().dispatch(event)`. Clone the hub before
+borrowing the editor mutably for a borrowed event.
 
-Built-in hooks live for the registry's lifetime. Use `register_owned_hook!` or
-`register_dynamic_hook` for subscriptions whose lifetime belongs to a component,
-application, or extension, and retain their `HookRegistration`. Dropping it
+Built-in hooks live for their hub's lifetime. Use `register_owned_hook!(hub => ...)`
+for subscriptions whose lifetime belongs to a component, application, or extension,
+and retain their `HookRegistration`. Dropping it
 unsubscribes the callback and releases its captures once any active dispatch
 finishes. Dispatch preserves registration order and runs callbacks without holding
 the registry lock. Hooks added during dispatch participate in subsequent dispatches;
@@ -1249,7 +1250,7 @@ Frontend work uses an explicit `term::job::JobSender` from its owning `Jobs` or
 `Application`, and shared editor work uses `view::callbacks::EditorCallbackSender`.
 Capture that destination when starting background work; creating another application
 never redirects an existing callback. Presentation hooks are owned by the
-application and filter events by their editor's callback destination. `Jobs` constructs
+application and subscribe only to their editor's hub. `Jobs` constructs
 one editor callback adapter and returns clones of it, so handles obtained through
 separate accessor calls retain the same destination identity.
 
@@ -1287,6 +1288,12 @@ explicitly call `log`. Documents bind status delivery when attached to an editor
 standalone documents log observer failures. Initial VCS diff setup follows attachment
 so workers never start with a different editor's redraw signal. No status or redraw
 routing depends on the current process or Tokio runtime.
+
+Image preview cache entries belong to an application's `Jobs` and are shared with
+its pickers, pane renderer, and decoder workers through explicit cloned handles.
+The process-wide decoder semaphore bounds CPU work without routing cache ownership
+through a runtime. Dropping an application releases its cache after outstanding
+workers and previews finish.
 
 ## Testing the boundaries
 

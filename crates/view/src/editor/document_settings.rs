@@ -120,11 +120,13 @@ impl Editor {
         self.refresh_language_servers(doc_id);
         self.refresh_language_server_diagnostics(doc_id);
         self.refresh_spelling(doc_id);
-        event::dispatch(crate::events::DocumentLanguageDidChange {
-            editor: self,
-            doc: doc_id,
-        })
-        .report_to(self.status_sender());
+        self.events()
+            .clone()
+            .dispatch(crate::events::DocumentLanguageDidChange {
+                editor: self,
+                doc: doc_id,
+            })
+            .report_to(self.status_sender());
     }
 }
 

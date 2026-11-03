@@ -181,7 +181,9 @@ async fn application_reload_publishes_settings_after_resources_and_preserves_fai
     let mut app = AppBuilder::new().with_file(path, None).build()?;
     let calls = Arc::new(AtomicUsize::new(0));
     let seen = calls.clone();
-    event::register_hook!(move |event: &mut ConfigDidChange<'_>| {
+    event::register_hook!(app.editor.events() => move |event: &mut ConfigDidChange<
+        '_,
+    >| {
         assert_eq!(event.new.scroll.padding, 7);
         assert_eq!(event.editor.config().scroll.padding, 7);
         assert_eq!(

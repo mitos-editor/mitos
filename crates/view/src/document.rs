@@ -171,6 +171,7 @@ impl SavePoint {
 }
 
 pub struct Document {
+    pub(crate) events: event::EventHub,
     redraw: event::Redraw,
     status: Option<event::status::StatusSender>,
     pub(crate) id: DocumentId,
@@ -279,6 +280,11 @@ impl fmt::Debug for Document {
 use lsp_client::{lsp, Client, LanguageServerId, LanguageServerName};
 
 impl Document {
+    /// Observers bound to this document; attached documents use their editor's hub.
+    pub fn events(&self) -> &event::EventHub {
+        &self.events
+    }
+
     pub fn from(
         text: Rope,
         encoding_with_bom_info: Option<(&'static Encoding, bool)>,
@@ -324,6 +330,7 @@ impl Document {
             opened_language_servers: HashSet::new(),
             diff_handle: None,
             redraw: event::Redraw::default(),
+            events: event::EventHub::default(),
             status: None,
             blame: Default::default(),
             config,
@@ -418,7 +425,7 @@ impl Document {
     }
 
     fn selection_did_change(&mut self, view_id: ViewId) {
-        let errors = event::dispatch(SelectionDidChange {
+        let errors = self.events().clone().dispatch(SelectionDidChange {
             doc: self,
             view: view_id,
         });

@@ -13,9 +13,9 @@ pub use session::{DebugSession, DebugSessionStatus};
 mod launch;
 pub use launch::DebuggerLaunch;
 mod startup;
-pub(crate) fn register_hooks() {
-    startup::register_hooks();
-    breakpoints::register_hooks();
+pub(crate) fn register_hooks(events: &event::EventHub) {
+    startup::register_hooks(events);
+    breakpoints::register_hooks(events);
 }
 mod configuration;
 mod navigation;

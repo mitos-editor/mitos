@@ -31,15 +31,18 @@ async fn language_changes_preserve_hidden_text_and_focus_and_reject_invalid_name
     let focused = fixture.editor.new_file(Action::Replace);
     let notifications = Arc::new(Mutex::new(Vec::new()));
     let observed = notifications.clone();
-    event::register_hook!(move |event: &mut DocumentLanguageDidChange<'_>| {
-        let doc = event.editor.document(event.doc).unwrap();
-        observed
-            .lock()
-            .unwrap()
-            .push(doc.language_name().map(str::to_owned));
-        assert_eq!(current_ref!(event.editor).1.id(), focused);
-        Ok(())
-    });
+    event::register_hook!(
+        fixture.editor.events() =>
+        move |event: &mut DocumentLanguageDidChange<'_>| {
+            let doc = event.editor.document(event.doc).unwrap();
+            observed
+                .lock()
+                .unwrap()
+                .push(doc.language_name().map(str::to_owned));
+            assert_eq!(current_ref!(event.editor).1.id(), focused);
+            Ok(())
+        }
+    );
     fixture.editor.set_document_language(id, Some("second"))?;
     assert_eq!(
         fixture.editor.document(id).unwrap().language_name(),
@@ -190,7 +193,7 @@ async fn editorconfig_toggle_refreshes_hidden_documents_before_config_observers(
     f.editor.refresh_doc_language(id);
     let snapshot = f.editor.document(id).unwrap().snapshot();
     let focused = f.editor.new_file(Action::Replace);
-    event::register_hook!(move |event: &mut ConfigDidChange<'_>| {
+    event::register_hook!(f.editor.events() => move |event: &mut ConfigDidChange<'_>| {
         let doc = event.editor.document(id).unwrap();
         assert_eq!(
             doc.text_width(),

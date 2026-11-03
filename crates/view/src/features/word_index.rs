@@ -232,8 +232,8 @@ fn is_changeset_significant(changes: &ChangeSet) -> bool {
     diff > 1_000
 }
 
-pub(crate) fn register_hooks() {
-    register_hook!(move |event: &mut DocumentDidOpen<'_>| {
+pub(crate) fn register_hooks(events: &event::EventHub) {
+    register_hook!(events => move |event: &mut DocumentDidOpen<'_>| {
         let doc = doc!(event.editor, &event.doc);
         if doc.word_completion_enabled() {
             event
@@ -245,7 +245,7 @@ pub(crate) fn register_hooks() {
         Ok(())
     });
 
-    register_hook!(move |event: &mut DocumentLanguageDidChange<'_>| {
+    register_hook!(events => move |event: &mut DocumentLanguageDidChange<'_>| {
         if let Some(doc) = event.editor.document(event.doc) {
             let handler = &event.editor.handlers.word_index;
             handler.event(if doc.word_completion_enabled() {
@@ -257,7 +257,7 @@ pub(crate) fn register_hooks() {
         Ok(())
     });
 
-    register_hook!(move |event: &mut DocumentDidChange<'_>| {
+    register_hook!(events => move |event: &mut DocumentDidChange<'_>| {
         if event.doc.word_completion_enabled()
             && let Some(trigger) = &event.doc.word_index_trigger
         {
@@ -270,14 +270,14 @@ pub(crate) fn register_hooks() {
         Ok(())
     });
 
-    register_hook!(move |event: &mut DocumentDidClose<'_>| {
+    register_hook!(events => move |event: &mut DocumentDidClose<'_>| {
         if let Some(trigger) = &event.doc.word_index_trigger {
             trigger.event(Event::Close(event.doc.id()));
         }
         Ok(())
     });
 
-    register_hook!(move |event: &mut ConfigDidChange<'_>| {
+    register_hook!(events => move |event: &mut ConfigDidChange<'_>| {
         if event.old.completion.word.enable != event.new.completion.word.enable {
             let handler = &event.editor.handlers.word_index;
             // Rebuild from current document settings, including language overrides.

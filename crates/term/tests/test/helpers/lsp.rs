@@ -259,6 +259,20 @@ impl Fixture {
         })
     }
 
+    pub fn with_events(
+        dir: &Path,
+        names: &[&str],
+        events: event::EventHub,
+    ) -> anyhow::Result<Self> {
+        Self::with_config_and_trust(
+            dir,
+            names,
+            |name| Some(format!("{{ lifecycle = \"{name}\" }}")),
+            WorkspaceTrust::fully_trusted(loader::workspace_trust_dir()),
+            events,
+        )
+    }
+
     pub fn with_config(
         dir: &Path,
         names: &[&str],
@@ -269,11 +283,12 @@ impl Fixture {
             names,
             config,
             WorkspaceTrust::fully_trusted(loader::workspace_trust_dir()),
+            event::EventHub::default(),
         )
     }
 
     pub fn with_trust(dir: &Path, names: &[&str], trust: WorkspaceTrust) -> anyhow::Result<Self> {
-        Self::with_config_and_trust(dir, names, |_| None, trust)
+        Self::with_config_and_trust(dir, names, |_| None, trust, event::EventHub::default())
     }
 
     fn with_config_and_trust(
@@ -281,6 +296,7 @@ impl Fixture {
         names: &[&str],
         config: impl Fn(&str) -> Option<String>,
         trust: WorkspaceTrust,
+        events: event::EventHub,
     ) -> anyhow::Result<Self> {
         let gate = Gate::new(dir.join("initialize-ready"));
         let mut servers = String::new();
@@ -302,6 +318,7 @@ impl Fixture {
         config.editor.lsp.enable = true;
         config.editor.breadcrumb.enable = true;
         let mut app = AppBuilder::new()
+            .with_events(events)
             .with_config(config)
             .with_lang_loader(loader)
             .build()?;

@@ -42,7 +42,14 @@ impl Application {
         lang_loader: syntax::Loader,
         workspace_trust: workspace::trust::WorkspaceTrust,
     ) -> Result<Self, Error> {
-        Self::new_with_handler_setup(args, config, lang_loader, workspace_trust, |_, _| {})
+        Self::new_with_handler_setup(
+            args,
+            config,
+            lang_loader,
+            workspace_trust,
+            event::EventHub::default(),
+            |_, _| {},
+        )
     }
 
     /// Configure shared services before the editor owns them or opens any documents.
@@ -51,6 +58,7 @@ impl Application {
         config: Config,
         lang_loader: syntax::Loader,
         workspace_trust: workspace::trust::WorkspaceTrust,
+        events: event::EventHub,
         setup: impl FnOnce(&mut view::handlers::Handlers, &editor_config::Config),
     ) -> Result<Self, Error> {
         #[cfg(feature = "integration")]
@@ -77,10 +85,13 @@ impl Application {
         let mut compositor = Compositor::new(area);
         let config = Arc::new(ArcSwap::from_pointee(config));
         let jobs = Jobs::new();
-        let mut handlers =
-            view::handlers::Handlers::new(&config.load().editor, jobs.editor_callback_sender());
+        let mut handlers = view::handlers::Handlers::with_events(
+            &config.load().editor,
+            jobs.editor_callback_sender(),
+            events,
+        );
         setup(&mut handlers, &config.load().editor);
-        handlers::register_hooks();
+        handlers::register_hooks(handlers.events());
         let mut editor = Editor::new(
             area,
             Arc::new(theme_loader),

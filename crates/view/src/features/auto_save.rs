@@ -163,8 +163,8 @@ pub fn focus_lost(editor: &mut Editor) {
     }
 }
 
-pub(crate) fn register_hooks() {
-    register_hook!(move |event: &mut DocumentDidChange<'_>| {
+pub(crate) fn register_hooks(events: &event::EventHub) {
+    register_hook!(events => move |event: &mut DocumentDidChange<'_>| {
         let config = event.doc.config.load();
         if config.files.auto_save.after_delay.enable
             && let Some(trigger) = &event.doc.auto_save_trigger
@@ -173,7 +173,7 @@ pub(crate) fn register_hooks() {
         }
         Ok(())
     });
-    register_hook!(move |event: &mut ConfigDidChange<'_>| {
+    register_hook!(events => move |event: &mut ConfigDidChange<'_>| {
         if !event.new.files.auto_save.after_delay.enable {
             event.editor.handlers.auto_save.cancel();
         }
