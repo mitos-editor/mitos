@@ -55,6 +55,7 @@ mod test {
     mod quicklist;
     mod rename;
     mod rulers;
+    mod selection_undo;
     mod signature_help;
     mod spelling;
     mod splits;

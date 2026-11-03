@@ -133,6 +133,10 @@ impl Document {
         if let (Some(selection), Some(view_id)) = (selection, view_id) {
             self.update_selection(view_id, selection.clone());
         }
+        // Recorded ranges describe the old text; text undo restores edit selections.
+        for state in self.view_states.values_mut() {
+            state.selection_undo.clear();
+        }
     }
 
     /// Map mandatory document state, queue protocol synchronization, then notify observers.

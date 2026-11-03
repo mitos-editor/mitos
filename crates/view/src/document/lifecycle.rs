@@ -41,7 +41,11 @@ impl Document {
                     state.expansion_history.clear();
                 }
                 state.folds.reveal(&selection, self.buffer.text().slice(..));
-                state.selection = selection
+                let previous = std::mem::replace(&mut state.selection, selection);
+                if previous != state.selection && state.selection_shown {
+                    state.selection_undo.record(previous);
+                }
+                state.selection_shown = true;
             }
             std::collections::hash_map::Entry::Vacant(state) => {
                 state.insert(super::DocumentViewState::new(selection));
