@@ -141,7 +141,11 @@ impl LspActionContext {
             doc: doc.id(),
             buffer: doc.snapshot(),
             uri: doc.uri(),
-            servers: doc.language_servers.values().map(Arc::downgrade).collect(),
+            servers: doc
+                .language_servers
+                .values()
+                .map(|attachment| Arc::downgrade(&attachment.client))
+                .collect(),
         }))
     }
 

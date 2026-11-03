@@ -368,3 +368,33 @@ async fn stopping_during_initialization_does_not_start_the_next_alternative() ->
     assert!(f.app.close().await.is_empty());
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn wire_initialized_exit_does_not_fall_back_before_editor_configuration() -> anyhow::Result<()>
+{
+    let dir = tempfile::tempdir()?;
+    let mut f = Fixture::new(
+        dir.path(),
+        r#"[{ alternatives = ["alpha", "beta"] }]"#,
+        &[],
+        "",
+    )?;
+    f.gate.release()?;
+    let (id, call) = f.next().await?;
+    assert!(matches!(&call, Call::Notification(n) if n.method == "initialized"));
+    assert!(f
+        .app
+        .editor
+        .language_server_by_id(id)
+        .unwrap()
+        .is_initialized());
+    assert!(f.active().is_empty());
+    f.app.editor.handle_language_server_exit(id);
+    let document = current_ref!(f.app.editor).1.id();
+    f.app.editor.refresh_language_servers(document);
+    f.app.editor.handle_language_server_initialized(id);
+    assert_eq!(f.app.editor.language_servers().count(), 0);
+    assert!(!log_path(dir.path(), "beta").exists());
+    assert!(f.app.close().await.is_empty());
+    Ok(())
+}

@@ -54,7 +54,7 @@ use lsp_client::{Call, LanguageServerId};
 use std::{
     borrow::Cow,
     cell::Cell,
-    collections::{HashSet, VecDeque},
+    collections::VecDeque,
     path::{Path, PathBuf},
     pin::Pin,
     sync::Arc,
@@ -100,7 +100,6 @@ pub struct Editor {
     pub macro_recording: Option<(char, Vec<KeyEvent>)>,
     pub macro_replaying: Vec<char>,
     pub(crate) language_servers: crate::language_servers::Registry,
-    initialized_language_servers: HashSet<LanguageServerId>,
     pub(crate) diagnostics: LspDiagnostics,
     pub diff_providers: DiffProviderRegistry,
 
@@ -251,7 +250,6 @@ impl Editor {
             macro_replaying: Vec::new(),
             theme: theme_loader.default_theme(),
             language_servers,
-            initialized_language_servers: HashSet::new(),
             diagnostics: LspDiagnostics::new(),
             diff_providers,
             debugger: crate::debugger::DebuggerState::default(),

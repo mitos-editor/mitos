@@ -350,11 +350,7 @@ pub fn resolve_code_lenses(
                 .language_servers_with_feature(LanguageServerFeature::CodeLens)
                 .find(|server| server.id() == lens.language_server_id)?;
             servers.insert(server.id());
-            let server = doc
-                .language_servers
-                .values()
-                .find(|client| client.id() == server.id())?
-                .clone();
+            let server = doc.language_servers.get(server.name())?.client.clone();
             let language_server_id = lens.language_server_id;
             let lens = lens.lens.clone();
             let slots = slots.clone();

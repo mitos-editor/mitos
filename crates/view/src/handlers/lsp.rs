@@ -20,7 +20,7 @@ impl Editor {
             .filter(|doc| {
                 doc.language_servers
                     .get(&name)
-                    .is_some_and(|server| server.id() == server_id)
+                    .is_some_and(|attachment| attachment.client.id() == server_id)
             })
             .map(|doc| {
                 (
@@ -87,7 +87,7 @@ impl Editor {
     /// Registry removal belongs to the caller so manual stop keeps its tombstone.
     pub(crate) fn cleanup_language_server(&mut self, server_id: LanguageServerId) {
         self.handlers.lsp_progress.remove_server(server_id);
-        self.forget_language_server(server_id);
+        self.language_servers.begin_stopping(server_id);
         self.clear_language_server_diagnostics(server_id);
         self.events()
             .clone()
@@ -124,14 +124,14 @@ pub(crate) fn synchronize_document(
     old_text: &editor_core::Rope,
     changes: &editor_core::ChangeSet,
 ) {
-    for server in doc.language_servers() {
+    for server in doc.opened_language_servers() {
         server.text_document_did_change(doc.versioned_identifier(), old_text, doc.text(), changes);
     }
 }
 
 /// Close protocol documents before notifying observers about their removal.
 pub(crate) fn close_document(doc: &crate::Document) {
-    for server in doc.language_servers() {
+    for server in doc.opened_language_servers() {
         server.text_document_did_close(doc.identifier());
     }
 }

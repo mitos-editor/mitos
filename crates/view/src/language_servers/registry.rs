@@ -20,17 +20,30 @@ use tokio_stream::wrappers::UnboundedReceiverStream;
 
 #[derive(Debug)]
 enum ServerInstances {
-    Active(Vec<Arc<Client>>),
+    Active(Vec<LanguageServerId>),
     Stopped,
 }
 
 impl ServerInstances {
-    fn clients(&self) -> &[Arc<Client>] {
+    fn ids(&self) -> &[LanguageServerId] {
         match self {
             Self::Active(clients) => clients,
             Self::Stopped => &[],
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ServerState {
+    Starting,
+    Ready,
+    Stopping,
+}
+
+#[derive(Debug)]
+struct ServerEntry {
+    client: Arc<Client>,
+    state: ServerState,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -63,7 +76,7 @@ struct AlternativeGroup {
 
 #[derive(Debug)]
 pub(crate) struct Registry {
-    inner: SlotMap<LanguageServerId, Arc<Client>>,
+    inner: SlotMap<LanguageServerId, ServerEntry>,
     instances: HashMap<LanguageServerName, ServerInstances>,
     syn_loader: Arc<ArcSwap<language::syntax::Loader>>,
     unavailable: HashMap<ServerWorkspace, UnavailableReason>,
@@ -86,11 +99,40 @@ impl Registry {
     }
 
     pub(crate) fn get_by_id(&self, id: LanguageServerId) -> Option<&Arc<Client>> {
-        self.inner.get(id)
+        self.inner.get(id).map(|entry| &entry.client)
+    }
+
+    /// Queue configuration before publishing editor readiness. Wire capabilities
+    /// alone do not let documents or features start sending messages.
+    pub(crate) fn configure(&mut self, id: LanguageServerId) -> bool {
+        let Some(entry) = self.inner.get_mut(id) else {
+            log::debug!("ignoring initialization from removed server {id}");
+            return false;
+        };
+        if entry.state != ServerState::Starting || !entry.client.is_initialized() {
+            return false;
+        }
+        if let Some(config) = entry.client.config() {
+            entry.client.did_change_configuration(config.clone());
+        }
+        entry.state = ServerState::Ready;
+        true
+    }
+
+    pub(crate) fn is_ready(&self, id: LanguageServerId) -> bool {
+        self.inner
+            .get(id)
+            .is_some_and(|entry| entry.state == ServerState::Ready)
+    }
+
+    pub(crate) fn begin_stopping(&mut self, id: LanguageServerId) {
+        if let Some(entry) = self.inner.get_mut(id) {
+            entry.state = ServerState::Stopping;
+        }
     }
 
     pub(crate) fn remove_by_id(&mut self, id: LanguageServerId) {
-        let Some(client) = self.inner.remove(id) else {
+        let Some(ServerEntry { client, .. }) = self.inner.remove(id) else {
             log::debug!("client was already removed");
             return;
         };
@@ -98,7 +140,7 @@ impl Registry {
         let Some(ServerInstances::Active(instances)) = self.instances.get_mut(client.name()) else {
             unreachable!("registered clients must have an active server entry");
         };
-        instances.retain(|ls| id != ls.id());
+        instances.retain(|instance| id != *instance);
         if instances.is_empty() {
             self.instances.remove(client.name());
         }
@@ -129,10 +171,24 @@ impl Registry {
             )
             .map(|client| {
                 self.incoming.push(UnboundedReceiverStream::new(client.1));
-                client.0
+                ServerEntry {
+                    client: client.0,
+                    state: ServerState::Starting,
+                }
             })
         })?;
-        Ok(self.inner[id].clone())
+        let client = self.inner[id].client.clone();
+        match self
+            .instances
+            .entry(client.name().to_owned())
+            .or_insert_with(|| ServerInstances::Active(Vec::new()))
+        {
+            ServerInstances::Active(instances) => instances.push(id),
+            ServerInstances::Stopped => {
+                unreachable!("stopped servers are not started automatically")
+            }
+        }
+        Ok(client)
     }
 
     /// If this method is called, all documents that have a reference to the language server have to refresh their language servers,
@@ -152,10 +208,11 @@ impl Registry {
             } else {
                 log::info!("stopping existing clients for '{name}'");
             }
-            for old_client in old_clients.clients() {
-                self.file_event_handler.remove_client(old_client.id());
-                self.inner.remove(old_client.id());
-                old_client.force_shutdown();
+            for &id in old_clients.ids() {
+                self.file_event_handler.remove_client(id);
+                if let Some(entry) = self.inner.remove(id) {
+                    entry.client.force_shutdown();
+                }
             }
         }
         let client = match self.start_client(
@@ -169,10 +226,6 @@ impl Registry {
             Err(StartupError::NoRequiredRootFound) => return None,
             Err(StartupError::Error(err)) => return Some(Err(err)),
         };
-        self.instances.insert(
-            name.to_owned(),
-            ServerInstances::Active(vec![client.clone()]),
-        );
         if let Some(server) = language_config
             .language_servers
             .iter()
@@ -196,10 +249,11 @@ impl Registry {
     pub(crate) fn stop(&mut self, name: &str) {
         if let Some(instances) = self.instances.get_mut(name) {
             let previous = std::mem::replace(instances, ServerInstances::Stopped);
-            for client in previous.clients() {
-                self.file_event_handler.remove_client(client.id());
-                self.inner.remove(client.id());
-                client.force_shutdown();
+            for &id in previous.ids() {
+                self.file_event_handler.remove_client(id);
+                if let Some(entry) = self.inner.remove(id) {
+                    entry.client.force_shutdown();
+                }
             }
         }
     }
@@ -215,9 +269,11 @@ impl Registry {
         id: LanguageServerId,
         roots: impl IntoIterator<Item = PathBuf>,
     ) -> bool {
-        let Some(client) = self.inner.get(id) else {
+        let Some(entry) = self.inner.get(id) else {
             return false;
         };
+        let client = &entry.client;
+        // A wire-initialized server can exit before the editor handles readiness.
         let initialized = client.is_initialized();
         let reason = if initialized {
             UnavailableReason::Exited
@@ -253,10 +309,11 @@ impl Registry {
         let (root, root_uri) = language_server_root(language, doc_path, root_dirs);
         self.instances
             .get(name)?
-            .clients()
+            .ids()
             .iter()
             .enumerate()
-            .find_map(|(index, client)| {
+            .find_map(|(index, &id)| {
+                let client = &self.inner.get(id)?.client;
                 // Pending clients have not negotiated workspace-folder support yet.
                 // Do not attach a different root to an initialization that may fail.
                 if !client.is_initialized() && client.root_path() != root {
@@ -342,16 +399,6 @@ impl Registry {
                     enable_snippets,
                 ) {
                     Ok(client) => {
-                        match self
-                            .instances
-                            .entry(name.clone())
-                            .or_insert_with(|| ServerInstances::Active(Vec::new()))
-                        {
-                            ServerInstances::Active(clients) => clients.push(client.clone()),
-                            ServerInstances::Stopped => {
-                                unreachable!("stopped servers are not started automatically")
-                            }
-                        }
                         if let Some(key) = selection_key {
                             self.alternative_selections.insert(key, name.clone());
                         }
@@ -373,7 +420,7 @@ impl Registry {
     }
 
     pub(crate) fn iter_clients(&self) -> impl Iterator<Item = &Arc<Client>> {
-        self.inner.values()
+        self.inner.values().map(|entry| &entry.client)
     }
 }
 
