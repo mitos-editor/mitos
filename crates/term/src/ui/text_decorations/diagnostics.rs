@@ -1,15 +1,10 @@
-use std::cmp::Ordering;
 use text_layout::DisplayPosition;
 
 use ::diagnostics::Diagnostic;
 use ::diagnostics::Severity;
 use editor_config::{DiagnosticFilter, InlineDiagnosticsConfig};
-use editor_core::graphemes::Grapheme;
-use text_layout::doc_formatter::{DocumentFormatter, FormattedGrapheme};
-use text_layout::text_annotations::TextAnnotations;
-use view::annotations::diagnostics::{
-    diagnostic_text_format, max_diagnostic_start, InlineDiagnosticAccumulator,
-};
+use text_layout::doc_formatter::FormattedGrapheme;
+use view::annotations::diagnostics::InlineDiagnosticAccumulator;
 
 use theme::icons::ICONS;
 use theme::Style;
@@ -72,41 +67,17 @@ impl<'a> InlineDiagnostics<'a> {
     }
 }
 
-const BL_CORNER: &str = "┘";
-const TR_CORNER: &str = "┌";
-const BR_CORNER: &str = "└";
-const STACK: &str = "├";
-const MULTI: &str = "┴";
-const HOR_BAR: &str = "─";
-const VER_BAR: &str = "│";
-
-struct Renderer<'a, 'b> {
-    renderer: &'a mut TextRenderer<'b>,
-    first_row: u16,
-    row: u16,
-    config: &'a InlineDiagnosticsConfig,
-    styles: &'a Styles,
-    icons: bool,
-}
-
-impl Renderer<'_, '_> {
-    fn draw_decoration(&mut self, g: &'static str, severity: Severity, col: u16) {
-        self.draw_decoration_at(g, severity, col, self.row)
-    }
-
-    fn draw_decoration_at(&mut self, g: &'static str, severity: Severity, col: u16, row: u16) {
-        self.renderer.draw_decoration_grapheme(
-            Grapheme::new_decoration(g),
-            self.styles.severity_style(severity),
-            row,
-            col,
-        );
-    }
-
-    fn draw_eol_diagnostic(&mut self, diag: &Diagnostic, row: u16, col: usize) -> u16 {
+impl InlineDiagnostics<'_> {
+    fn draw_eol_diagnostic(
+        &self,
+        renderer: &mut TextRenderer,
+        diag: &Diagnostic,
+        row: u16,
+        col: usize,
+    ) -> u16 {
         let style = self.styles.severity_style(diag.severity());
-        let width = self.renderer.viewport.width;
-        let start_col = (col - self.renderer.offset.col) as u16;
+        let width = renderer.viewport.width;
+        let start_col = (col - renderer.offset.col) as u16;
         let mut end_col = start_col;
         let mut draw_col = (col + 1) as u16;
 
@@ -118,14 +89,11 @@ impl Renderer<'_, '_> {
                 Severity::Warning => icons.diagnostic().warning(),
                 Severity::Error => icons.diagnostic().error(),
             };
-            if !self
-                .renderer
-                .column_in_bounds(draw_col as usize, icon.width() as usize)
-            {
+            if !renderer.column_in_bounds(draw_col as usize, icon.width() as usize) {
                 return 0;
             }
-            self.renderer.set_string(
-                self.renderer.viewport.x + draw_col,
+            renderer.set_string(
+                renderer.viewport.x + draw_col,
                 row,
                 icon.glyph().as_str(),
                 style,
@@ -134,12 +102,12 @@ impl Renderer<'_, '_> {
         }
 
         for line in diag.message.lines() {
-            if !self.renderer.column_in_bounds(draw_col as usize, 1) {
+            if !renderer.column_in_bounds(draw_col as usize, 1) {
                 break;
             }
 
-            (end_col, _) = self.renderer.set_string_truncated(
-                self.renderer.viewport.x + draw_col,
+            (end_col, _) = renderer.set_string_truncated(
+                renderer.viewport.x + draw_col,
                 row,
                 line,
                 width.saturating_sub(draw_col) as usize,
@@ -148,127 +116,10 @@ impl Renderer<'_, '_> {
                 false,
             );
 
-            draw_col = end_col - self.renderer.viewport.x + 2; // double space between lines
+            draw_col = end_col - renderer.viewport.x + 2; // double space between lines
         }
 
         end_col - start_col
-    }
-
-    fn draw_diagnostic(&mut self, diag: &Diagnostic, col: u16, next_severity: Option<Severity>) {
-        let severity = diag.severity();
-        let (sym, sym_severity) = if let Some(next_severity) = next_severity {
-            (STACK, next_severity.max(severity))
-        } else {
-            (BR_CORNER, severity)
-        };
-        self.draw_decoration(sym, sym_severity, col);
-        for i in 0..self.config.prefix_len {
-            self.draw_decoration(HOR_BAR, severity, col + i + 1);
-        }
-
-        let text_col = col + self.config.prefix_len + 1;
-        let text_fmt = diagnostic_text_format(self.config, text_col, self.renderer.viewport.width);
-        let annotations = TextAnnotations::default();
-        let formatter = DocumentFormatter::new_at_prev_checkpoint(
-            diag.message.trim().into(),
-            &text_fmt,
-            &annotations,
-            0,
-        );
-        let mut last_row = 0;
-        let style = self.styles.severity_style(severity);
-        for grapheme in formatter {
-            last_row = grapheme.visual_pos.row;
-            self.renderer.draw_decoration_grapheme(
-                grapheme.raw,
-                style,
-                self.row + grapheme.visual_pos.row as u16,
-                text_col + grapheme.visual_pos.col as u16,
-            );
-        }
-        self.row += 1;
-        // height is last_row + 1 and extra_rows is height - 1
-        let extra_lines = last_row;
-        if let Some(next_severity) = next_severity {
-            for _ in 0..extra_lines {
-                self.draw_decoration(VER_BAR, next_severity, col);
-                self.row += 1;
-            }
-        } else {
-            self.row += extra_lines as u16;
-        }
-    }
-
-    fn draw_multi_diagnostics(&mut self, stack: &mut Vec<(&Diagnostic, u16)>) {
-        let Some(&(last_diag, last_anchor)) = stack.last() else {
-            return;
-        };
-        let start = max_diagnostic_start(self.config, self.renderer.viewport.width);
-
-        if last_anchor <= start {
-            return;
-        }
-        let mut severity = last_diag.severity();
-        let mut last_anchor = last_anchor;
-        self.draw_decoration(BL_CORNER, severity, last_anchor);
-        let mut stacked_diagnostics = 1;
-        for &(diag, anchor) in stack.iter().rev().skip(1) {
-            let sym = match anchor.cmp(&start) {
-                Ordering::Less => break,
-                Ordering::Equal => STACK,
-                Ordering::Greater => MULTI,
-            };
-            stacked_diagnostics += 1;
-            severity = severity.max(diag.severity());
-            let old_severity = severity;
-            if anchor == last_anchor && severity == old_severity {
-                continue;
-            }
-            for col in (anchor + 1)..last_anchor {
-                self.draw_decoration(HOR_BAR, old_severity, col)
-            }
-            self.draw_decoration(sym, severity, anchor);
-            last_anchor = anchor;
-        }
-
-        // if no diagnostic anchor was found exactly at the start of the
-        // diagnostic text  draw an upwards corner and ensure the last piece
-        // of the line is not missing
-        if last_anchor != start {
-            for col in (start + 1)..last_anchor {
-                self.draw_decoration(HOR_BAR, severity, col)
-            }
-            self.draw_decoration(TR_CORNER, severity, start)
-        }
-        self.row += 1;
-        let stacked_diagnostics = &stack[stack.len() - stacked_diagnostics..];
-
-        for (i, (diag, _)) in stacked_diagnostics.iter().rev().enumerate() {
-            let next_severity = stacked_diagnostics[..stacked_diagnostics.len() - i - 1]
-                .iter()
-                .map(|(diag, _)| diag.severity())
-                .max();
-            self.draw_diagnostic(diag, start, next_severity);
-        }
-
-        stack.truncate(stack.len() - stacked_diagnostics.len());
-    }
-
-    fn draw_diagnostics(&mut self, stack: &mut Vec<(&Diagnostic, u16)>) {
-        let mut stack = stack.drain(..).rev().peekable();
-        let mut last_anchor = self.renderer.viewport.width;
-        while let Some((diag, anchor)) = stack.next() {
-            if anchor != last_anchor {
-                for row in self.first_row..self.row {
-                    self.draw_decoration_at(VER_BAR, diag.severity(), anchor, row);
-                }
-            }
-            let next_severity = stack.peek().and_then(|&(diag, next_anchor)| {
-                (next_anchor == anchor).then_some(diag.severity())
-            });
-            self.draw_diagnostic(diag, anchor, next_severity);
-            last_anchor = anchor;
-        }
     }
 }
 
@@ -279,51 +130,25 @@ impl Decoration for InlineDiagnostics<'_> {
         pos: LinePos,
         virt_off: DisplayPosition,
     ) -> DisplayPosition {
-        let mut col_off = 0;
-        let filter = self.state.filter();
-        let eol_diagnostic = match self.eol_diagnostics {
-            DiagnosticFilter::Enable(eol_filter) => {
-                let eol_diganogistcs = self
-                    .state
-                    .stack
-                    .iter()
-                    .filter(|(diag, _)| eol_filter <= diag.severity());
-                match filter {
-                    DiagnosticFilter::Enable(filter) => eol_diganogistcs
-                        .filter(|(diag, _)| filter > diag.severity())
-                        .max_by_key(|(diagnostic, _)| diagnostic.severity),
-                    DiagnosticFilter::Disable => {
-                        eol_diganogistcs.max_by_key(|(diagnostic, _)| diagnostic.severity)
-                    }
-                }
-            }
-            DiagnosticFilter::Disable => None,
-        };
-        if let Some((eol_diagnostic, _)) = eol_diagnostic {
-            let mut renderer = Renderer {
-                renderer,
-                first_row: pos.visual_line,
-                row: pos.visual_line,
-                config: &self.state.config,
-                styles: &self.styles,
-                icons: self.icons,
-            };
-            col_off = renderer.draw_eol_diagnostic(eol_diagnostic, pos.visual_line, virt_off.col);
-        }
-
-        self.state.compute_line_diagnostics();
-        let mut renderer = Renderer {
-            renderer,
-            first_row: pos.visual_line + virt_off.row as u16,
-            row: pos.visual_line + virt_off.row as u16,
-            config: &self.state.config,
-            styles: &self.styles,
-            icons: self.icons,
-        };
-        renderer.draw_multi_diagnostics(&mut self.state.stack);
-        renderer.draw_diagnostics(&mut self.state.stack);
-        let horizontal_off = renderer.row - renderer.first_row;
-        DisplayPosition::new(horizontal_off as usize, col_off as usize)
+        let col_off = self
+            .state
+            .eol_diagnostic(self.eol_diagnostics)
+            .map_or(0, |diag| {
+                self.draw_eol_diagnostic(renderer, diag, pos.visual_line, virt_off.col)
+            });
+        let first_row = pos.visual_line + virt_off.row as u16;
+        let height = self.state.layout_virtual_lines(
+            renderer.viewport.width,
+            |grapheme, severity, position| {
+                renderer.draw_decoration_grapheme(
+                    grapheme,
+                    self.styles.severity_style(severity),
+                    first_row + position.row as u16,
+                    position.col as u16,
+                );
+            },
+        );
+        DisplayPosition::new(height, col_off as usize)
     }
 
     fn reset_pos(&mut self, pos: usize) -> usize {
@@ -341,5 +166,87 @@ impl Decoration for InlineDiagnostics<'_> {
     ) -> usize {
         self.state
             .process_anchor(grapheme, renderer.viewport.width, renderer.offset.col)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use arc_swap::ArcSwap;
+    use diagnostics::DiagnosticProvider;
+    use editor_core::Rope;
+    use std::sync::Arc;
+
+    #[tokio::test]
+    async fn reserved_diagnostic_rows_match_the_painted_block() {
+        let mut config = editor_config::Config::default();
+        config.diagnostics.inline.other_lines = DiagnosticFilter::Enable(Severity::Warning);
+        let inline = config.diagnostics.inline.clone();
+        let mut doc = Document::from(
+            Rope::from_str("a\nz"),
+            None,
+            Arc::new(ArcSwap::from_pointee(config)),
+            Arc::new(language::syntax::Loader::default()),
+        );
+        doc.replace_diagnostics(
+            [Diagnostic {
+                range: diagnostics::Range { start: 0, end: 1 },
+                ends_at_word: false,
+                starts_at_word: false,
+                zero_width: false,
+                line: 0,
+                message: "x".repeat(48).into(),
+                severity: Some(Severity::Warning),
+                code: None,
+                provider: DiagnosticProvider::Spelling,
+                tags: Vec::new(),
+                source: None,
+                data: None,
+            }],
+            &[],
+            None,
+        );
+        let mut view = view::View::new(
+            doc.id(),
+            editor_config::GutterConfig {
+                layout: Vec::new(),
+                ..Default::default()
+            },
+            event::Redraw::default(),
+        );
+        view.area = view::graphics::Rect::new(0, 0, 50, 10);
+        doc.ensure_view_init(view.id);
+        let theme = Theme::from(toml::from_str::<toml::Value>("\"ui.text\" = \"white\"").unwrap());
+        let layout = view.layout(&doc, Some(&theme));
+        let next_line = layout.display_position_at_pos(2).unwrap();
+        let mut surface = tui::buffer::Buffer::empty(tui::layout::Rect::new(0, 0, 50, 10));
+        let mut decorations = super::super::DecorationManager::default();
+        decorations.add_decoration(InlineDiagnostics::new(
+            &doc,
+            &theme,
+            0,
+            inline,
+            DiagnosticFilter::Disable,
+            false,
+        ));
+        crate::ui::document::render_document_with_styles(
+            &mut surface,
+            &doc,
+            &layout,
+            Vec::new(),
+            &theme,
+            decorations,
+            std::iter::empty(),
+        );
+        assert_eq!(
+            next_line.row, 3,
+            "two diagnostic rows must precede the next source line"
+        );
+        assert_eq!(
+            surface[(2, 2)].symbol(),
+            "x",
+            "the second diagnostic row must survive source painting"
+        );
+        assert_eq!(surface[(0, 3)].symbol(), "z");
     }
 }

@@ -4,7 +4,7 @@ use text_layout::{
     text_annotations::LineAnnotation,
 };
 
-/// Reserve only the preview rows that don't fit in the original document line.
+/// Track and position preview rows for both line reservation and painting.
 #[derive(Clone)]
 pub struct InlineCompletionLines<'a> {
     cursor: usize,
@@ -12,8 +12,8 @@ pub struct InlineCompletionLines<'a> {
     format: TextFormat,
     line_end: usize,
     anchor: Option<DisplayPosition>,
-    height: usize,
-    at_end: bool,
+    rows: Vec<InlineCompletionRow>,
+    end_row: Option<usize>,
     reserved: bool,
 }
 
@@ -25,17 +25,16 @@ impl<'a> InlineCompletionLines<'a> {
             format,
             line_end,
             anchor: None,
-            height: 0,
-            at_end: false,
+            rows: Vec::new(),
+            end_row: None,
             reserved: false,
         }
     }
-}
 
-impl LineAnnotation for InlineCompletionLines<'_> {
-    fn reset_pos(&mut self, pos: usize) -> usize {
+    pub fn reset_pos(&mut self, pos: usize) -> usize {
         self.anchor = None;
-        self.at_end = false;
+        self.rows.clear();
+        self.end_row = None;
         self.reserved = false;
         if pos <= self.cursor {
             self.cursor
@@ -43,40 +42,98 @@ impl LineAnnotation for InlineCompletionLines<'_> {
             usize::MAX
         }
     }
-    fn process_anchor(&mut self, grapheme: &FormattedGrapheme) -> usize {
+    pub fn process_anchor(&mut self, grapheme: &FormattedGrapheme) -> usize {
         if grapheme.is_virtual() {
             return grapheme.char_idx;
         }
         if grapheme.char_idx == self.cursor {
             self.anchor = Some(grapheme.visual_pos);
-            self.height = layout(self.lines, &self.format, grapheme.visual_pos.col).len();
+            self.rows = layout(self.lines, &self.format, grapheme.visual_pos.col);
         }
-        self.at_end = grapheme.char_idx >= self.line_end;
-        if self.at_end {
+        if grapheme.char_idx >= self.line_end {
+            self.end_row = Some(grapheme.visual_pos.row);
             usize::MAX
         } else {
             self.line_end
         }
     }
+    /// Position the row over the source text and any remaining rows after its end.
+    /// `offset` includes the rows reserved by earlier decorations on this line.
+    pub fn block(
+        &mut self,
+        row: usize,
+        offset: DisplayPosition,
+    ) -> Option<InlineCompletionBlock<'_>> {
+        let anchor = self.anchor?;
+        if self.reserved {
+            return None;
+        }
+        let relative = row.saturating_sub(anchor.row);
+        let remaining = if self.end_row == Some(row) {
+            self.reserved = true;
+            &self.rows[(relative + 1).min(self.rows.len())..]
+        } else {
+            &[][..]
+        };
+        Some(InlineCompletionBlock {
+            first: self.rows.get(relative),
+            first_pos: DisplayPosition::new(row, if relative == 0 { anchor.col } else { 0 }),
+            remaining,
+            remaining_row: row + offset.row,
+            soft_wrap: self.format.soft_wrap,
+        })
+    }
+}
+
+/// Borrowed, positioned preview rows. The first row also clears the covered source text
+/// when the preview has fewer rows than the source line.
+pub struct InlineCompletionBlock<'a> {
+    first: Option<&'a InlineCompletionRow>,
+    first_pos: DisplayPosition,
+    remaining: &'a [InlineCompletionRow],
+    remaining_row: usize,
+    pub soft_wrap: bool,
+}
+
+impl InlineCompletionBlock<'_> {
+    pub fn reserved_rows(&self) -> usize {
+        self.remaining.len()
+    }
+
+    pub fn rows(&self) -> impl Iterator<Item = (DisplayPosition, Option<&InlineCompletionRow>)> {
+        std::iter::once((self.first_pos, self.first)).chain(
+            self.remaining
+                .iter()
+                .enumerate()
+                .map(|(i, row)| (DisplayPosition::new(self.remaining_row + i, 0), Some(row))),
+        )
+    }
+}
+
+impl LineAnnotation for InlineCompletionLines<'_> {
+    fn reset_pos(&mut self, pos: usize) -> usize {
+        self.reset_pos(pos)
+    }
+
+    fn process_anchor(&mut self, grapheme: &FormattedGrapheme) -> usize {
+        self.process_anchor(grapheme)
+    }
+
     fn insert_virtual_lines(
         &mut self,
         _: usize,
         end: DisplayPosition,
         _: usize,
     ) -> DisplayPosition {
-        let Some(anchor) = self.anchor else {
-            return DisplayPosition::new(0, 0);
-        };
-        if !self.at_end || self.reserved {
-            return DisplayPosition::new(0, 0);
-        }
-        self.reserved = true;
-        let existing_rows = end.row.saturating_sub(anchor.row) + 1;
-        DisplayPosition::new(self.height.saturating_sub(existing_rows), 0)
+        let rows = self
+            .block(end.row, DisplayPosition::new(1, 0))
+            .map_or(0, |block| block.reserved_rows());
+        DisplayPosition::new(rows, 0)
     }
 }
 
 /// A visual preview row, produced by the same formatter used for document text.
+#[derive(Clone)]
 pub struct InlineCompletionRow {
     pub col: usize,
     pub text: String,
