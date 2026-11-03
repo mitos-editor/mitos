@@ -377,10 +377,7 @@ async fn narrow_views_keep_error_diagnostics_ahead_of_inline_blame() -> anyhow::
         while app.editor.tree.views().count() < splits {
             app.editor.switch(id, Action::VerticalSplit);
         }
-        for key in parse_macro("<esc>")? {
-            app.handle_terminal_events(Ok(Event::Key(tui::backend::native::adapt(key))))
-                .await;
-        }
+        press_keys(&mut app, "<esc>").await?;
         let (view, doc) = current_ref!(app.editor);
         let area = view.inner_area(doc);
         let buffer = app.terminal_backend().buffer();

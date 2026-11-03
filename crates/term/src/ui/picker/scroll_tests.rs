@@ -76,7 +76,7 @@ impl Fixture {
         let mut jobs = Jobs::new();
         let area = Rect::new(0, 0, width, height);
         let mut surface = Surface::empty(area);
-        self.picker.render(
+        self.picker.update_and_render(
             area,
             &mut surface,
             &mut Context {

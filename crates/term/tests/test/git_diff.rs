@@ -622,6 +622,10 @@ async fn repository_history_selects_merge_parents_and_retains_nested_browsers() 
     let index = std::fs::read(workspace.join(".git/index"))?;
     let mut app = AppBuilder::new().with_file(&path, None).build()?;
     keys(&mut app, ":git-history<ret>merge review").await?;
+    assert!(
+        app.editor.autoinfo.is_none(),
+        "picker query keys must not start an editor key sequence"
+    );
     tokio::time::timeout(Duration::from_secs(10), async {
         loop {
             keys(&mut app, "").await.unwrap();

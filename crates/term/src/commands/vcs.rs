@@ -740,8 +740,9 @@ pub(super) mod typed {
     fn open_history(cx: &mut compositor::Context, repository: bool) -> anyhow::Result<()> {
         #[cfg(feature = "git")]
         {
-            cx.jobs.callback(async move {
-                Ok(crate::job::Callback::ui(move |compositor, cx| {
+            cx.jobs
+                .sender()
+                .enqueue(crate::job::Callback::ui(move |compositor, cx| {
                     let editor = &mut *cx.editor;
                     let result = if repository {
                         super::history::repository_history(editor)
@@ -752,8 +753,7 @@ pub(super) mod typed {
                         Ok(picker) => compositor.push(picker),
                         Err(error) => editor.set_error(|| error.to_string()),
                     }
-                }))
-            });
+                }));
             Ok(())
         }
         #[cfg(not(feature = "git"))]

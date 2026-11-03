@@ -16,7 +16,7 @@ pub struct Redraw {
 pub type RenderLockGuard = ArcRwLockReadGuard<RawRwLock, ()>;
 
 impl Redraw {
-    /// Requests coalesce until consumed. The editor applies its frame-rate limit.
+    /// Requests coalesce until consumed. The frontend applies its frame-rate limit.
     pub fn request(&self) {
         self.notify.notify_one();
     }

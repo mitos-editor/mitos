@@ -148,21 +148,7 @@ impl Fixture {
     }
 
     async fn keys(&mut self, input: &str) -> anyhow::Result<()> {
-        for key in ui_core::input::parse_macro(input)? {
-            #[cfg(not(windows))]
-            let event = termina::event::Event::Key(tui::backend::native::adapt(key));
-            #[cfg(windows)]
-            let event = crossterm::event::Event::Key(tui::backend::native::adapt(key));
-            self.app.handle_terminal_events(Ok(event)).await;
-        }
-        // Menu input can be consumed without EditorView resetting the idle timer.
-        self.app.editor.reset_idle_timer();
-        tokio::time::timeout(
-            Duration::from_secs(10),
-            run_event_loop_until_idle(&mut self.app),
-        )
-        .await?;
-        Ok(())
+        super::helpers::keys(&mut self.app, input).await
     }
 }
 
@@ -280,6 +266,7 @@ async fn mapped_gutter_positions_follow_newlines_and_resolution_rejects_old_snap
         .app
         .handle_editor_event(view::editor::EditorEvent::Redraw)
         .await;
+    run_event_loop_until_idle(&mut fixture.app).await;
     let (view, doc) = current_ref!(fixture.app.editor);
     let x = view.area.x;
     let y = view.inner_area(doc).y;

@@ -1,3 +1,4 @@
+use crate::compositor::DrawContext;
 use crate::compositor::{Component, Compositor, Context, Cursor, Event, EventResult};
 use crate::keymap::component::PromptAction;
 use crate::ui;
@@ -483,7 +484,7 @@ impl Prompt {
 const BASE_WIDTH: u16 = 30;
 
 impl Prompt {
-    pub fn render_prompt(&mut self, area: Rect, surface: &mut Surface, cx: &mut Context) {
+    pub fn render_prompt(&mut self, area: Rect, surface: &mut Surface, cx: &mut DrawContext) {
         if area.is_empty() {
             self.line_area = area;
             return;
@@ -899,7 +900,7 @@ impl Component for Prompt {
         self.execute_actions(actions, cx)
     }
 
-    fn render(&mut self, area: Rect, surface: &mut Surface, cx: &mut Context) {
+    fn render(&mut self, area: Rect, surface: &mut Surface, cx: &mut DrawContext) {
         self.render_prompt(area, surface, cx)
     }
 

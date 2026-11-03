@@ -78,7 +78,7 @@ impl Harness {
             .find::<Overlay<SearchPicker>>()
             .unwrap()
             .content;
-        picker.render(
+        picker.update_and_render(
             area,
             &mut surface,
             &mut UiContext {

@@ -15,11 +15,11 @@ where
             signal::SIGTSTP => return self.suspend().await,
             signal::SIGCONT => {
                 self.reclaim_term();
-                self.render().await;
+                self.request_frame();
             }
             signal::SIGUSR1 => {
                 self.refresh_config();
-                self.render().await;
+                self.request_frame();
             }
             signal::SIGTERM | signal::SIGINT => {
                 self.restore_term().unwrap();
@@ -61,7 +61,7 @@ where
             self.refresh_config();
         }
         drop(paused);
-        self.render().await;
+        self.request_frame();
         true
     }
 

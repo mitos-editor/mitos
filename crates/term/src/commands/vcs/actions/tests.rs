@@ -239,7 +239,7 @@ fn frame(
     };
     let mut surface = tui::buffer::Buffer::empty(area);
     component.required_size((area.width, area.height));
-    component.render(area, &mut surface, &mut cx);
+    component.update_and_render(area, &mut surface, &mut cx);
     (area.y..area.bottom())
         .map(|y| {
             (area.x..area.right())

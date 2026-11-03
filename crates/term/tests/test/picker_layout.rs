@@ -112,7 +112,7 @@ async fn page_navigation_tracks_layout_changes_and_terminal_resizes() -> anyhow:
         settings.picker.layout = layout;
         app.handle_config_events(ConfigEvent::Update(Box::new(settings)));
         let area = Rect::new(0, 0, width, height);
-        overlay.render(
+        overlay.update_and_render(
             area,
             &mut Buffer::empty(area),
             &mut Context {
