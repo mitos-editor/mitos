@@ -141,8 +141,8 @@ mod tests {
             HistoryAction::Undo,
             HistoryAction::Redo,
         ] {
-            for step in buffer.prepare_history(action) {
-                buffer.apply_history_step(&step).unwrap();
+            let mut plan = buffer.prepare_history(action);
+            while buffer.apply_history_step(&mut plan).unwrap().is_some() {
                 assert_eq!(saved.saved_text(&buffer).unwrap(), "界bc");
             }
         }

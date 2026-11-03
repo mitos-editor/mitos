@@ -1,5 +1,5 @@
 //! Measures commit/replay separately, including allocations during each operation.
-use buffer::history::{History, HistoryAction};
+use buffer::{Buffer, HistoryAction};
 use editor_core::{Rope, Transaction};
 use std::{
     alloc::{GlobalAlloc, Layout, System},
@@ -43,28 +43,32 @@ fn main() {
         let mut commit_bytes = Vec::new();
         let mut replay_bytes = Vec::new();
         for _ in 0..31 {
-            let mut history = History::default();
+            let mut buffer = Buffer::new(original.clone());
+            buffer.apply(tx.changes()).unwrap();
             ALLOCATED.store(0, Ordering::Relaxed);
             let start = Instant::now();
-            history.commit_revision(black_box(tx.changes()), black_box(&original));
+            black_box(buffer.commit_changes());
             let elapsed = start.elapsed().as_secs_f64() * 1_000_000.0;
             let allocated = ALLOCATED.load(Ordering::Relaxed);
             commits.push(elapsed);
             commit_bytes.push(allocated);
             ALLOCATED.store(0, Ordering::Relaxed);
             let start = Instant::now();
-            let step = history.plan(HistoryAction::Undo).pop().unwrap();
-            assert!(history.advance(&step));
+            let mut plan = buffer.prepare_history(HistoryAction::Undo);
+            let replay = buffer.apply_history_step(&mut plan).unwrap().unwrap();
             let elapsed = start.elapsed().as_secs_f64() * 1_000_000.0;
             let allocated = ALLOCATED.load(Ordering::Relaxed);
             replays.push(elapsed);
             replay_bytes.push(allocated);
-            black_box(step);
+            black_box(replay);
         }
         commits.sort_by(f64::total_cmp);
         replays.sort_by(f64::total_cmp);
         commit_bytes.sort_unstable();
         replay_bytes.sort_unstable();
-        println!("{name}: commit_us={:.6}, commit_alloc_bytes={}, prepare_undo_us={:.6}, prepare_undo_alloc_bytes={}", commits[15], commit_bytes[15], replays[15], replay_bytes[15]);
+        println!(
+            "{name}: commit_us={:.6}, commit_alloc_bytes={}, undo_us={:.6}, undo_alloc_bytes={}",
+            commits[15], commit_bytes[15], replays[15], replay_bytes[15]
+        );
     }
 }
