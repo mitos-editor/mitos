@@ -5,7 +5,7 @@ use anyhow::Context as _;
 use editor_core::Transaction;
 use lsp_client::LanguageServerId;
 use serde_json::Value;
-use term::application::Application;
+use term::application::TestApplication;
 use tokio::sync::mpsc;
 use view::{
     callbacks::EditorCallback,
@@ -19,7 +19,7 @@ use super::helpers::lsp::{self, Gate, ServerConfig};
 use super::helpers::{test_config, AppBuilder};
 
 struct Fixture {
-    app: Application,
+    app: TestApplication,
     callbacks: mpsc::Receiver<(bool, EditorCallback)>,
     logs: Vec<std::path::PathBuf>,
     gate: Gate,

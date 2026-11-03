@@ -268,7 +268,6 @@ impl<T: Component> Popup<T> {
 }
 
 impl<T: Component> Component for Popup<T> {
-    #[cfg(feature = "integration")]
     fn has_pending_render(&mut self) -> bool {
         self.contents.has_pending_render()
     }

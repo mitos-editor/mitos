@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use editor_core::Selection;
 use term::{
-    application::Application,
+    application::TestApplication,
     config::{Config, ConfigLoadError},
 };
 use view::{
@@ -14,7 +14,7 @@ use view::{
 use super::helpers::AppBuilder;
 
 struct Fixture {
-    app: Application,
+    app: TestApplication,
     _dir: tempfile::TempDir,
     paths: Vec<PathBuf>,
 }

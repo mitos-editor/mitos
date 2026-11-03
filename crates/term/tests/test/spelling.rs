@@ -5,14 +5,14 @@ use ::diagnostics::DiagnosticProvider;
 use editor_core::{Range, Selection, Transaction};
 use spelling::{Dictionary, IgnoredWordsFile};
 use term::{
-    application::Application,
+    application::TestApplication,
     ui::{Menu, Popup},
 };
 use view::{action::Action, current, current_ref, quicklist::QuicklistTarget};
 
 use super::helpers::*;
 
-fn mistakes(app: &Application) -> Vec<String> {
+fn mistakes(app: &TestApplication) -> Vec<String> {
     let (_, doc) = current_ref!(app.editor);
     doc.diagnostics()
         .iter()
@@ -25,7 +25,7 @@ fn mistakes(app: &Application) -> Vec<String> {
         .collect()
 }
 
-async fn wait_for_mistakes(app: &mut Application, expected: &[&str]) -> anyhow::Result<()> {
+async fn wait_for_mistakes(app: &mut TestApplication, expected: &[&str]) -> anyhow::Result<()> {
     tokio::time::timeout(Duration::from_secs(10), async {
         loop {
             app.editor.reset_idle_timer();
@@ -39,7 +39,7 @@ async fn wait_for_mistakes(app: &mut Application, expected: &[&str]) -> anyhow::
     .map_err(|_| anyhow::anyhow!("expected {expected:?}, got {:?}", mistakes(app)))
 }
 
-fn replace(app: &mut Application, start: usize, end: usize, replacement: &str) {
+fn replace(app: &mut TestApplication, start: usize, end: usize, replacement: &str) {
     let (view, doc) = current!(app.editor);
     let tx = Transaction::change(
         doc.text(),
@@ -52,7 +52,7 @@ fn replace(app: &mut Application, start: usize, end: usize, replacement: &str) {
 
 use super::helpers::keys;
 
-async fn selected_code_action(app: &mut Application) -> anyhow::Result<Option<String>> {
+async fn selected_code_action(app: &mut TestApplication) -> anyhow::Result<Option<String>> {
     let (tx, rx) = tokio::sync::oneshot::channel();
     app.job_sender()
         .send(move |compositor, _| {
@@ -68,7 +68,7 @@ async fn selected_code_action(app: &mut Application) -> anyhow::Result<Option<St
     Ok(rx.await?)
 }
 
-async fn open_corrections(app: &mut Application) -> anyhow::Result<()> {
+async fn open_corrections(app: &mut TestApplication) -> anyhow::Result<()> {
     keys(app, "<space>a").await?;
     tokio::time::timeout(Duration::from_secs(10), async {
         while selected_code_action(app).await?.is_none() {}
@@ -79,7 +79,7 @@ async fn open_corrections(app: &mut Application) -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn choose_correction(app: &mut Application, title: &str) -> anyhow::Result<()> {
+async fn choose_correction(app: &mut TestApplication, title: &str) -> anyhow::Result<()> {
     let first = selected_code_action(app).await?.unwrap();
     let mut selected = first.clone();
     loop {
@@ -92,17 +92,17 @@ async fn choose_correction(app: &mut Application, title: &str) -> anyhow::Result
     }
 }
 
-fn selection(app: &Application) -> &Selection {
+fn selection(app: &TestApplication) -> &Selection {
     let (view, doc) = current_ref!(app.editor);
     doc.selection(view.id)
 }
 
-fn select(app: &mut Application, selection: Selection) {
+fn select(app: &mut TestApplication, selection: Selection) {
     let (view, doc) = current!(app.editor);
     doc.set_selection(view.id, selection);
 }
 
-async fn navigation_app() -> anyhow::Result<Application> {
+async fn navigation_app() -> anyhow::Result<TestApplication> {
     let mut app = AppBuilder::new()
         .with_input_text("#[🚀|]# teh hello quik world wrld\n")
         .build()?;
@@ -471,7 +471,7 @@ async fn session_ignore_is_shared_only_by_buffers_using_its_language() -> anyhow
     Ok(())
 }
 
-async fn app_with_ignore_file(path: &std::path::Path) -> anyhow::Result<Application> {
+async fn app_with_ignore_file(path: &std::path::Path) -> anyhow::Result<TestApplication> {
     // Install the loader's state with a temporary user ignore file before opening documents.
     let ignored_language: language_config::SpellingLanguage = "en_US".parse()?;
     let ignored_words = IgnoredWordsFile::load(path.to_owned())?;

@@ -5,7 +5,7 @@ use std::{
 
 use anyhow::Context as _;
 use editor_core::Selection;
-use term::application::Application;
+use term::application::TestApplication;
 use tokio::sync::mpsc;
 use view::{
     callbacks::EditorCallback,
@@ -22,7 +22,7 @@ use super::helpers::lsp::{self, Gate, ServerConfig};
 use super::helpers::test_config;
 
 struct Fixture {
-    app: Application,
+    app: TestApplication,
     callbacks: mpsc::UnboundedReceiver<(bool, EditorCallback)>,
     log: PathBuf,
     response_gate: PathBuf,

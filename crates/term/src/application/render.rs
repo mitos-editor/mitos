@@ -3,10 +3,9 @@
 use std::{collections::HashSet, time::Duration};
 
 use tokio::time::{timeout_at, Instant};
-use tui::backend::{Backend, BackendExt};
 use view::{graphics::Rect, Document, DocumentId};
 
-use super::Application;
+use super::App;
 use crate::{compositor, job::Callback};
 
 const SYNTAX_GRACE: Duration = Duration::from_millis(16);
@@ -24,7 +23,10 @@ pub(super) struct RenderState {
     visible_documents: HashSet<DocumentId>,
 }
 
-impl Application {
+impl<B: tui::backend::Backend + tui::backend::BackendExt> App<B>
+where
+    B::Error: std::error::Error + Send + Sync + 'static,
+{
     pub(super) async fn render(&mut self) {
         if self.has_new_pending_syntax() {
             self.drain_ready_callbacks();
@@ -137,5 +139,5 @@ impl Application {
     }
 }
 
-#[cfg(all(test, feature = "integration"))]
+#[cfg(test)]
 mod tests;

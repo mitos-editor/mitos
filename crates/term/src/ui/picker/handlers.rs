@@ -134,6 +134,6 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> AsyncHook for DynamicQu
     }
 }
 
-#[cfg(all(test, feature = "integration"))]
+#[cfg(test)]
 #[path = "dynamic_query_tests.rs"]
 mod tests;

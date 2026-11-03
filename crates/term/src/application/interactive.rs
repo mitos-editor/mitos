@@ -1,13 +1,13 @@
 //! Exclusive terminal handoff for command argument expansion.
 
-use super::Application;
+use super::App;
 use crate::job::InteractiveShellRequest;
-#[cfg(not(feature = "integration"))]
 use futures_util::StreamExt;
-#[cfg(not(feature = "integration"))]
-use tui::backend::BackendExt;
 
-impl Application {
+impl<B: tui::backend::Backend + tui::backend::BackendExt> App<B>
+where
+    B::Error: std::error::Error + Send + Sync + 'static,
+{
     pub(super) async fn interactive_shell(
         &mut self,
         request: InteractiveShellRequest,
@@ -15,18 +15,16 @@ impl Application {
         if request.result.is_closed() {
             return Ok(true);
         }
-        #[cfg(feature = "integration")]
-        {
+        let Some(input) = self.terminal_input.as_ref() else {
             drop(request.command);
             let _ = request.result.send(Err(anyhow::anyhow!(
                 "interactive shell expansion requires a real terminal"
             )));
-            Ok(true)
-        }
-        #[cfg(not(feature = "integration"))]
+            return Ok(true);
+        };
         {
             let mut request = request;
-            let paused = self.terminal_input.pause();
+            let paused = input.pause();
             // Install before releasing raw mode and retain through reclamation:
             // console Ctrl-c is also delivered to Mitos while the child runs.
             #[cfg(windows)]
@@ -71,11 +69,11 @@ impl Application {
     }
 }
 
-#[cfg(all(windows, not(feature = "integration")))]
+#[cfg(windows)]
 #[path = "interactive/windows.rs"]
 mod process;
 
-#[cfg(all(not(windows), not(feature = "integration")))]
+#[cfg(not(windows))]
 mod process {
     use anyhow::{ensure, Context};
     use futures_util::StreamExt;

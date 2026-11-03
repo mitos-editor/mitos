@@ -2,7 +2,7 @@ use std::{path::PathBuf, time::Duration};
 
 use anyhow::Context as _;
 use serde_json::Value;
-use term::application::Application;
+use term::application::TestApplication;
 use tokio::sync::mpsc;
 use view::{callbacks::EditorCallback, editor::Action, DocumentId};
 
@@ -14,7 +14,7 @@ use super::super::helpers::{
 use super::{wait_for_request, FileOperation};
 
 pub(super) struct Fixture {
-    pub(super) app: Application,
+    pub(super) app: TestApplication,
     pub(super) callbacks: mpsc::UnboundedReceiver<EditorCallback>,
     pub(super) dir: tempfile::TempDir,
     gate: Gate,

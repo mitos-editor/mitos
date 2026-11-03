@@ -1,5 +1,5 @@
 //! Exercise the real frontend: the integration-feature backend has no terminal.
-#![cfg(all(unix, not(feature = "integration")))]
+#![cfg(unix)]
 
 use std::{
     fs::File,

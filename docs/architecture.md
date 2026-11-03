@@ -1127,7 +1127,14 @@ reaches the child. Console modes are restored before reclaiming the backend.
 
 The terminal frontend.
 
-The `main` function sets up a new `Application` that runs the event loop.
+The `main` function constructs the native `Application` and supplies its input stream.
+`App<B>` owns one startup path and event loop for every backend. `TestApplication`
+selects `TestBackend`; `App::with_backend` accepts another backend explicitly.
+Injected applications skip stdin, process signals, input workers and capability
+queries. `event_loop_until_idle` explicitly settles accepted work; the normal loop
+uses the same pump without test idle handling. The `integration` feature enables
+fixture binaries only; it does not change application behavior. Unit tests run
+with the default backend graph, and process integrations run separately.
 
 `commands.rs` wires feature modules and preserves public entry points. Command
 implementations import their dependencies explicitly; they do not inherit a shared

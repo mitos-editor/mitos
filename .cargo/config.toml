@@ -5,6 +5,6 @@ rustflags = ["-C", "target-feature=-crt-static"]
 
 [alias]
 xtask = "run --package xtask --"
-# Keep the same workspace feature graph for integration and frontend unit tests.
-integration-test = "test --features integration --profile integration --workspace --lib --test integration"
+# Process fixtures are enabled only for integration targets; unit tests use explicit backends.
+integration-test = "test --features integration --profile integration --workspace --test integration"
 

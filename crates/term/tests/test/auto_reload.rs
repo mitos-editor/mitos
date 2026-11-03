@@ -6,7 +6,7 @@ use std::{
 };
 
 use tempfile::TempDir;
-use term::application::Application;
+use term::application::TestApplication;
 use view::file_watcher::{CanonicalPathBuf, Event, EventType, Events};
 use view::{current, current_ref};
 
@@ -21,7 +21,7 @@ fn changed(path: &Path, text: &str, tick: u64) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn app(path: &Path) -> anyhow::Result<Application> {
+fn app(path: &Path) -> anyhow::Result<TestApplication> {
     let mut config = test_config();
     config.editor.files.reload.enable = true;
     AppBuilder::new()
@@ -30,7 +30,7 @@ fn app(path: &Path) -> anyhow::Result<Application> {
         .build()
 }
 
-async fn notify(app: &mut Application, path: &Path, ty: EventType) {
+async fn notify(app: &mut TestApplication, path: &Path, ty: EventType) {
     let path = stdx::path::canonicalize_existing(path);
     let events = Events::from(vec![Event {
         path: CanonicalPathBuf::assert_canonicalized(&path),
@@ -42,7 +42,7 @@ async fn notify(app: &mut Application, path: &Path, ty: EventType) {
     run_event_loop_until_idle(app).await;
 }
 
-fn text(app: &Application) -> String {
+fn text(app: &TestApplication) -> String {
     current_ref!(app.editor).1.text().to_string()
 }
 
@@ -204,7 +204,7 @@ async fn polling_starts_after_config_reload_and_can_be_disabled() -> anyhow::Res
 }
 
 struct SharedReload {
-    app: Application,
+    app: TestApplication,
     callbacks: tokio::sync::mpsc::UnboundedReceiver<view::callbacks::EditorCallback>,
 }
 
@@ -262,7 +262,7 @@ fn fs_events(paths: &[&Path]) -> Events {
     )
 }
 
-fn edit_buffer(app: &mut Application, prefix: &str) {
+fn edit_buffer(app: &mut TestApplication, prefix: &str) {
     let (view, doc) = current!(app.editor);
     let transaction =
         editor_core::Transaction::change(doc.text(), [(0, 0, Some(prefix.into()))].into_iter());

@@ -1,15 +1,11 @@
 //! Construct the frontend, bind editor services, and open initial documents.
-#[cfg(not(feature = "integration"))]
 use super::configuration::terminal_config;
-#[cfg(all(windows, not(feature = "integration")))]
+#[cfg(windows)]
 use super::CrosstermBackend;
 #[cfg(not(windows))]
-use super::Signals;
-#[cfg(all(not(windows), not(feature = "integration")))]
 use super::TerminaBackend;
-#[cfg(feature = "integration")]
 use super::TestBackend;
-use super::{render, Application, Terminal};
+use super::{render, App, Application, TestApplication};
 use crate::{
     args::Args,
     compositor::Compositor,
@@ -24,15 +20,17 @@ use anyhow::Context as _;
 use anyhow::Error;
 use arc_swap::{access::Map, ArcSwap};
 use editor_core::{pos_at_coords, Range, Selection};
+use futures_util::StreamExt;
 use language::syntax;
 #[cfg(not(windows))]
 use signal_hook::consts::signal;
+#[cfg(not(windows))]
+use signal_hook_tokio::Signals;
 use std::{
     io::{stdin, IsTerminal},
     path::Path,
     sync::Arc,
 };
-use tui::backend::BackendExt;
 use view::{align_view, document::DocumentOpenError, graphics::Rect, tree::Layout, Align, Editor};
 
 impl Application {
@@ -61,26 +59,109 @@ impl Application {
         events: event::EventHub,
         setup: impl FnOnce(&mut view::handlers::Handlers, &editor_config::Config),
     ) -> Result<Self, Error> {
-        #[cfg(feature = "integration")]
-        setup_integration_logging();
+        #[cfg(not(windows))]
+        let backend = TerminaBackend::new(terminal_config(&config))
+            .context("failed to create terminal backend")?;
+        #[cfg(windows)]
+        let backend = CrosstermBackend::new(std::io::stdout(), terminal_config(&config));
+        Self::build(
+            backend,
+            args,
+            config,
+            lang_loader,
+            workspace_trust,
+            events,
+            setup,
+            Some(super::input::Control::default()),
+        )
+    }
+}
 
+impl TestApplication {
+    pub fn new(
+        args: Args,
+        config: Config,
+        lang_loader: syntax::Loader,
+        workspace_trust: workspace::trust::WorkspaceTrust,
+    ) -> Result<Self, Error> {
+        Self::new_with_handler_setup(
+            args,
+            config,
+            lang_loader,
+            workspace_trust,
+            event::EventHub::default(),
+            |_, _| {},
+        )
+    }
+
+    /// Configure shared services before the editor owns them or opens any documents.
+    pub fn new_with_handler_setup(
+        args: Args,
+        config: Config,
+        lang_loader: syntax::Loader,
+        workspace_trust: workspace::trust::WorkspaceTrust,
+        events: event::EventHub,
+        setup: impl FnOnce(&mut view::handlers::Handlers, &editor_config::Config),
+    ) -> Result<Self, Error> {
+        setup_integration_logging();
+        Self::with_backend(
+            TestBackend::new(120, 150),
+            args,
+            config,
+            lang_loader,
+            workspace_trust,
+            events,
+            setup,
+        )
+    }
+}
+
+impl<B: tui::backend::Backend + tui::backend::BackendExt> App<B>
+where
+    B::Error: std::error::Error + Send + Sync + 'static,
+{
+    /// Construct the same frontend loop with a supplied backend and no process terminal input.
+    #[allow(clippy::too_many_arguments)]
+    pub fn with_backend(
+        backend: B,
+        args: Args,
+        config: Config,
+        lang_loader: syntax::Loader,
+        workspace_trust: workspace::trust::WorkspaceTrust,
+        events: event::EventHub,
+        setup: impl FnOnce(&mut view::handlers::Handlers, &editor_config::Config),
+    ) -> Result<Self, Error> {
+        Self::build(
+            backend,
+            args,
+            config,
+            lang_loader,
+            workspace_trust,
+            events,
+            setup,
+            None,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn build(
+        backend: B,
+        args: Args,
+        config: Config,
+        lang_loader: syntax::Loader,
+        workspace_trust: workspace::trust::WorkspaceTrust,
+        events: event::EventHub,
+        setup: impl FnOnce(&mut view::handlers::Handlers, &editor_config::Config),
+        terminal_input: Option<super::input::Control>,
+    ) -> Result<Self, Error> {
         use view::editor::Action;
 
         let mut theme_parent_dirs = vec![loader::config_dir()];
         theme_parent_dirs.extend(loader::runtime_dirs().iter().cloned());
         let theme_loader = theme::Loader::new(loader::theme::Resources::new(theme_parent_dirs));
 
-        #[cfg(all(not(windows), not(feature = "integration")))]
-        let backend = TerminaBackend::new(terminal_config(&config))
-            .context("failed to create terminal backend")?;
-        #[cfg(all(windows, not(feature = "integration")))]
-        let backend = CrosstermBackend::new(std::io::stdout(), terminal_config(&config));
-
-        #[cfg(feature = "integration")]
-        let backend = TestBackend::new(120, 150);
-
         let theme_mode = backend.get_theme_mode();
-        let terminal = Terminal::new(backend)?;
+        let terminal = tui::Terminal::new(backend)?;
         let area = Rect::from(terminal.size()?);
         let mut compositor = Compositor::new(area);
         let config = Arc::new(ArcSwap::from_pointee(config));
@@ -203,7 +284,7 @@ impl Application {
             } else {
                 editor.new_file(Action::VerticalSplit);
             }
-        } else if stdin().is_terminal() || cfg!(feature = "integration") {
+        } else if stdin().is_terminal() || terminal_input.is_none() {
             editor.new_file_welcome();
         } else {
             match editor.new_file_from_stdin(Action::VerticalSplit) {
@@ -220,16 +301,21 @@ impl Application {
         }
 
         #[cfg(windows)]
-        let signals = futures_util::stream::empty();
+        let signals = futures_util::stream::pending().boxed();
         #[cfg(not(windows))]
-        let signals = Signals::new([
-            signal::SIGTSTP,
-            signal::SIGCONT,
-            signal::SIGUSR1,
-            signal::SIGTERM,
-            signal::SIGINT,
-        ])
-        .context("build signal handler")?;
+        let signals = if terminal_input.is_some() {
+            Signals::new([
+                signal::SIGTSTP,
+                signal::SIGCONT,
+                signal::SIGUSR1,
+                signal::SIGTERM,
+                signal::SIGINT,
+            ])
+            .context("build signal handler")?
+            .boxed()
+        } else {
+            futures_util::stream::pending().boxed()
+        };
 
         let app = Self {
             compositor,
@@ -241,8 +327,7 @@ impl Application {
             config_updates: tokio::sync::mpsc::unbounded_channel(),
             signals,
             jobs,
-            #[cfg(not(feature = "integration"))]
-            terminal_input: super::input::Control::default(),
+            terminal_input,
             _presentation_hooks: presentation_hooks,
             theme_mode,
         };
@@ -251,11 +336,38 @@ impl Application {
     }
 }
 
-#[cfg(feature = "integration")]
 fn setup_integration_logging() {
     let level = std::env::var("MITOS_LOG_LEVEL")
         .map(|lvl| lvl.parse().unwrap())
         .unwrap_or(log::LevelFilter::Info);
 
     crate::logging::init_stdout(level);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn supplied_backend_controls_the_frame_without_process_input() -> anyhow::Result<()> {
+        let mut config = Config::default();
+        config.editor.lsp.enable = false;
+        config.editor.files.watch.enable = false;
+        config.editor.files.reload.poll.enable = false;
+        let app = App::with_backend(
+            TestBackend::new(37, 9),
+            Args::default(),
+            config,
+            syntax::Loader::new(
+                toml::from_str("language = []")?,
+                loader::syntax::Resources::default(),
+            )?,
+            workspace::trust::WorkspaceTrust::fully_trusted(loader::workspace_trust_dir()),
+            event::EventHub::default(),
+            |_, _| {},
+        )?;
+        assert_eq!(app.terminal_backend().buffer().area, Rect::new(0, 0, 37, 9));
+        assert!(app.terminal_input.is_none());
+        Ok(())
+    }
 }

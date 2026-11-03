@@ -1,10 +1,10 @@
 use std::time::Duration;
 
-use term::application::Application;
+use term::application::TestApplication;
 
 use super::helpers::{run_event_loop_until_idle, AppBuilder};
 
-fn screen(app: &Application) -> String {
+fn screen(app: &TestApplication) -> String {
     app.terminal_backend()
         .buffer()
         .content()
@@ -15,7 +15,7 @@ fn screen(app: &Application) -> String {
 
 use super::helpers::keys;
 
-async fn wait_for_text(app: &mut Application, expected: &str) -> anyhow::Result<()> {
+async fn wait_for_text(app: &mut TestApplication, expected: &str) -> anyhow::Result<()> {
     tokio::time::timeout(Duration::from_secs(10), async {
         while !screen(app).contains(expected) {
             app.editor.reset_idle_timer();
@@ -27,7 +27,7 @@ async fn wait_for_text(app: &mut Application, expected: &str) -> anyhow::Result<
     Ok(())
 }
 
-async fn wait_for_row(app: &mut Application, name: &str) -> anyhow::Result<()> {
+async fn wait_for_row(app: &mut TestApplication, name: &str) -> anyhow::Result<()> {
     tokio::time::timeout(Duration::from_secs(10), async {
         // One occurrence is the query; another must be the actual matched row.
         while screen(app).matches(name).count() < 2 {
@@ -41,7 +41,7 @@ async fn wait_for_row(app: &mut Application, name: &str) -> anyhow::Result<()> {
 
 async fn start_fixture(
     arguments: serde_json::Value,
-) -> anyhow::Result<(Application, dap::DebugAdapterId)> {
+) -> anyhow::Result<(TestApplication, dap::DebugAdapterId)> {
     let mut app = AppBuilder::new().build()?;
     let id = app.editor.connect_debugger(
         None,

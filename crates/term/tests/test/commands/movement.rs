@@ -997,13 +997,13 @@ async fn reflow_preserves_a_saved_jump_in_a_long_unicode_crlf_paragraph() -> any
         vec![
             (
                 Some(":line-ending crlf<ret>mip:reflow 8<ret>u"),
-                Some(&|app: &term::application::Application| {
+                Some(&|app: &term::application::TestApplication| {
                     assert_eq!(view::doc!(app.editor).text().to_string(), original);
                 }),
             ),
             (
                 Some("U"),
-                Some(&|app: &term::application::Application| {
+                Some(&|app: &term::application::TestApplication| {
                     assert_eq!(view::doc!(app.editor).text().to_string(), wrapped);
                 }),
             ),

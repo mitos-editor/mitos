@@ -8,7 +8,7 @@ use futures_util::FutureExt;
 use language::syntax;
 use view::{callbacks::EditorCallback, graphics::Rect};
 
-use super::Application;
+use crate::application::TestApplication;
 use crate::{
     args::Args,
     compositor::{Component, Context, Cursor},
@@ -35,7 +35,7 @@ impl Component for FrameProbe {
 
 fn application(
     args: Args,
-) -> anyhow::Result<(Application, tokio::sync::mpsc::Receiver<EditorCallback>)> {
+) -> anyhow::Result<(TestApplication, tokio::sync::mpsc::Receiver<EditorCallback>)> {
     let mut config = Config::default();
     config.editor.lsp.enable = false;
     config.editor.files.watch.enable = false;
@@ -64,7 +64,7 @@ fn application(
         },
         move |callback| event::send_blocking(&blocking_tx, callback),
     );
-    let app = Application::new_with_handler_setup(
+    let app = TestApplication::new_with_handler_setup(
         args,
         config,
         lang_loader,
@@ -86,7 +86,7 @@ async fn syntax_completion(
         .expect("syntax completion was not delivered"))
 }
 
-async fn pending_application(path: &Path) -> anyhow::Result<(Application, EditorCallback)> {
+async fn pending_application(path: &Path) -> anyhow::Result<(TestApplication, EditorCallback)> {
     std::fs::write(path, "{}\n")?;
     let mut args = Args::default();
     args.files.insert(path.to_owned(), vec![Default::default()]);
@@ -368,7 +368,7 @@ async fn compositor_resolves_native_blocks_and_prompt_cursors() -> anyhow::Resul
     use editor_config::BlockCursorRendering;
     use view::{editor::ConfigEvent, graphics::CursorKind};
 
-    fn render_cursor(app: &mut Application) -> Cursor {
+    fn render_cursor(app: &mut TestApplication) -> Cursor {
         let area = app.compositor.size();
         let mut buffer = tui::buffer::Buffer::empty(area);
         let config = app.config.load();

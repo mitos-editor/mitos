@@ -2,7 +2,7 @@ use std::time::{Duration, Instant};
 
 use editor_core::Transaction;
 use term::{
-    application::Application,
+    application::TestApplication,
     config::{Config, ConfigLoadError},
 };
 use view::{current, current_ref, editor::Action, DocumentId};
@@ -10,7 +10,7 @@ use view::{current, current_ref, editor::Action, DocumentId};
 use super::helpers::{test_config, AppBuilder};
 
 struct Fixture {
-    app: Application,
+    app: TestApplication,
     _dir: tempfile::TempDir,
     ids: Vec<DocumentId>,
 }

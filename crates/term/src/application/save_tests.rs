@@ -8,13 +8,13 @@ use crate::{
 use std::sync::Arc;
 use view::editor::Action;
 
-fn application() -> anyhow::Result<Application> {
+fn application() -> anyhow::Result<TestApplication> {
     let mut config = Config::default();
     config.editor.lsp.enable = false;
     config.editor.format.on_save = false;
     config.editor.files.watch.enable = false;
     config.editor.files.reload.poll.enable = false;
-    Application::new(
+    TestApplication::new(
         Args::default(),
         config,
         language::syntax::Loader::new(
@@ -25,7 +25,7 @@ fn application() -> anyhow::Result<Application> {
     )
 }
 
-async fn keys(app: &mut Application, keys: &str) -> anyhow::Result<()> {
+async fn keys(app: &mut TestApplication, keys: &str) -> anyhow::Result<()> {
     #[cfg(windows)]
     use crossterm::event::Event;
     #[cfg(not(windows))]
@@ -37,7 +37,7 @@ async fn keys(app: &mut Application, keys: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn idle(app: &mut Application) -> anyhow::Result<()> {
+async fn idle(app: &mut TestApplication) -> anyhow::Result<()> {
     assert!(
         tokio::time::timeout(
             std::time::Duration::from_secs(5),

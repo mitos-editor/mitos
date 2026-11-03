@@ -1,6 +1,6 @@
 use super::helpers::{keys as settled_keys, test_config, AppBuilder};
 use editor_config::BlockCursorRendering::{self, Native, Software};
-use term::application::Application;
+use term::application::TestApplication;
 use theme::Theme;
 use tui::{backend::Backend, style::Color};
 use ui_core::input::parse_macro;
@@ -11,14 +11,14 @@ use crossterm::event::Event;
 #[cfg(not(windows))]
 use termina::event::Event;
 
-async fn keys(app: &mut Application, input: &str) {
+async fn keys(app: &mut TestApplication, input: &str) {
     for key in parse_macro(input).unwrap() {
         app.handle_terminal_events(Ok(Event::Key(tui::backend::native::adapt(key))))
             .await;
     }
 }
 
-fn assert_editor_cursor(app: &Application, native: bool) {
+fn assert_editor_cursor(app: &TestApplication, native: bool) {
     let backend = app.terminal_backend();
     assert_eq!(backend.cursor_visible(), native);
     let pos = app.editor.cursor().0.unwrap();
@@ -46,7 +46,7 @@ fn cursor_app(
     normal: &str,
     block_rendering: BlockCursorRendering,
     text: &str,
-) -> Application {
+) -> TestApplication {
     let mut config = test_config();
     config.editor.cursor.highlight_line = cursorline;
     config.editor.cursor.block_rendering = block_rendering;

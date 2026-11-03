@@ -280,7 +280,6 @@ impl Component for Variables {
     fn has_pending_keys(&self) -> bool {
         self.current.picker.has_pending_keys()
     }
-    #[cfg(feature = "integration")]
     fn has_pending_render(&mut self) -> bool {
         self.current.picker.has_pending_render()
     }

@@ -14,7 +14,7 @@ use anyhow::bail;
 use editor_config::ImplicitTrustLevelConfig;
 use editor_core::{test, Selection, Transaction};
 use tempfile::NamedTempFile;
-use term::{application::Application, args::Args, config::Config, keymap::merge_keys};
+use term::{application::TestApplication, args::Args, config::Config, keymap::merge_keys};
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use ui_core::input::parse_macro;
 use view::{current_ref, doc, Editor};
@@ -114,9 +114,9 @@ where
 
 #[inline]
 pub async fn test_key_sequence(
-    app: &mut Application,
+    app: &mut TestApplication,
     in_keys: Option<&str>,
-    test_fn: Option<&dyn Fn(&Application)>,
+    test_fn: Option<&dyn Fn(&TestApplication)>,
     should_exit: bool,
 ) -> anyhow::Result<()> {
     test_key_sequences(app, vec![(in_keys, test_fn)], should_exit).await
@@ -124,8 +124,8 @@ pub async fn test_key_sequence(
 
 #[allow(clippy::type_complexity)]
 pub async fn test_key_sequences(
-    app: &mut Application,
-    inputs: Vec<(Option<&str>, Option<&dyn Fn(&Application)>)>,
+    app: &mut TestApplication,
+    inputs: Vec<(Option<&str>, Option<&dyn Fn(&TestApplication)>)>,
     should_exit: bool,
 ) -> anyhow::Result<()> {
     // Command tests start from a ready fixture. Startup tests exercise input
@@ -206,16 +206,16 @@ pub async fn test_key_sequences(
 }
 
 pub async fn test_key_sequence_with_input_text<T: Into<TestCase>>(
-    app: Option<Application>,
+    app: Option<TestApplication>,
     test_case: T,
-    test_fn: &dyn Fn(&Application),
+    test_fn: &dyn Fn(&TestApplication),
     should_exit: bool,
 ) -> anyhow::Result<()> {
     let test_case = test_case.into();
 
     let mut app = match app {
         Some(app) => app,
-        None => Application::new(
+        None => TestApplication::new(
             Args::default(),
             test_config(),
             test_syntax_loader(None),
@@ -437,7 +437,7 @@ impl AppBuilder {
         self
     }
 
-    pub fn build(self) -> anyhow::Result<Application> {
+    pub fn build(self) -> anyhow::Result<TestApplication> {
         if let Some(path) = &self.args.working_directory {
             bail!("Changing the working directory to {path:?} is not yet supported for integration tests");
         }
@@ -446,7 +446,7 @@ impl AppBuilder {
             bail!("Having the directory {path:?} in args.files[0] is not yet supported for integration tests");
         }
 
-        let mut app = Application::new_with_handler_setup(
+        let mut app = TestApplication::new_with_handler_setup(
             self.args,
             self.config,
             self.syn_loader,
@@ -471,7 +471,7 @@ impl AppBuilder {
     }
 }
 
-pub async fn run_event_loop_until_idle(app: &mut Application) {
+pub async fn run_event_loop_until_idle(app: &mut TestApplication) {
     let (_, rx) = tokio::sync::mpsc::unbounded_channel();
     let mut rx_stream = UnboundedReceiverStream::new(rx);
     app.event_loop_until_idle(&mut rx_stream).await;
@@ -479,7 +479,7 @@ pub async fn run_event_loop_until_idle(app: &mut Application) {
 
 /// Send input and settle callbacks while keeping the application open for the
 /// next edit or provider update in a lifecycle test.
-pub async fn keys(app: &mut Application, keys: &str) -> anyhow::Result<()> {
+pub async fn keys(app: &mut TestApplication, keys: &str) -> anyhow::Result<()> {
     for key in parse_macro(keys)? {
         app.handle_terminal_events(Ok(Event::Key(tui::backend::native::adapt(key))))
             .await;
@@ -516,7 +516,10 @@ pub fn reload_file(file: &mut NamedTempFile) -> anyhow::Result<()> {
 }
 
 /// Terminate the selected adapter session and process its final messages before closing.
-pub async fn finish_debugger(app: &mut Application, id: dap::DebugAdapterId) -> anyhow::Result<()> {
+pub async fn finish_debugger(
+    app: &mut TestApplication,
+    id: dap::DebugAdapterId,
+) -> anyhow::Result<()> {
     app.editor
         .debugger_command(view::debugger::DebuggerCommand::Terminate)?;
     tokio::time::timeout(Duration::from_secs(10), async {

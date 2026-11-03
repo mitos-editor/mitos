@@ -1,5 +1,5 @@
 use editor_config::{BufferLine, StatusLineElement};
-use term::application::Application;
+use term::application::TestApplication;
 use theme::Theme;
 use tui::{buffer::Buffer, style::Color};
 use view::{current_ref, editor::Action, graphics::Rect};
@@ -85,7 +85,7 @@ async fn search_position_renders_cached_exact_capped_and_noncanonical_counts() -
     Ok(())
 }
 
-fn assert_per_view(app: &Application) {
+fn assert_per_view(app: &TestApplication) {
     assert!(!app.editor.config().statusline.global);
     let backend = app.terminal_backend();
     let buffer = backend.buffer();
@@ -110,7 +110,7 @@ fn assert_per_view(app: &Application) {
     assert!((cursor.row as u16) < view.statusline_area(doc).y);
 }
 
-fn assert_global(app: &Application) {
+fn assert_global(app: &TestApplication) {
     assert!(app.editor.config().statusline.global);
     let backend = app.terminal_backend();
     let buffer = backend.buffer();
@@ -223,7 +223,7 @@ async fn key_help_preserves_the_bottom_statusline() -> anyhow::Result<()> {
                     app.editor.new_file(action);
                 }
                 let statusline = std::cell::RefCell::new(Vec::new());
-                let remember_statusline = |app: &Application| {
+                let remember_statusline = |app: &TestApplication| {
                     let backend = app.terminal_backend();
                     let buffer = backend.buffer();
                     let y = buffer.area.bottom() - 2;
@@ -231,7 +231,7 @@ async fn key_help_preserves_the_bottom_statusline() -> anyhow::Result<()> {
                         .map(|x| buffer[(x, y)].clone())
                         .collect::<Vec<_>>();
                 };
-                let assert_help = |app: &Application| {
+                let assert_help = |app: &TestApplication| {
                     assert!(app.editor.autoinfo.is_some());
                     let backend = app.terminal_backend();
                     let buffer = backend.buffer();

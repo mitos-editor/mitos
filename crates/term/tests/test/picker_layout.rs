@@ -1,6 +1,6 @@
 use editor_config::{BorderStyle, PickerLayout};
 use term::{
-    application::Application,
+    application::TestApplication,
     compositor::{Component, Context},
     job::Jobs,
     ui::{overlay::overlaid, Picker, PickerColumn},
@@ -10,7 +10,7 @@ use view::{editor::ConfigEvent, graphics::Rect};
 
 use super::helpers::{keys, test_config, AppBuilder};
 
-fn assert_picker(app: &Application, layout: PickerLayout) {
+fn assert_picker(app: &TestApplication, layout: PickerLayout) {
     let backend = app.terminal_backend();
     let buffer = backend.buffer();
     let area = buffer.area;

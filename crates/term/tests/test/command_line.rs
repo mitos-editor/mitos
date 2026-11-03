@@ -405,7 +405,7 @@ async fn feature_commands_use_canonical_paths_and_accept_legacy_aliases() -> any
     .await
 }
 
-fn goto_preview_app() -> anyhow::Result<term::application::Application> {
+fn goto_preview_app() -> anyhow::Result<term::application::TestApplication> {
     let mut app = AppBuilder::new()
         .with_input_text("o#[|n]#e\ntwo\nthree\nfour\n")
         .build()?;
@@ -416,7 +416,10 @@ fn goto_preview_app() -> anyhow::Result<term::application::Application> {
     Ok(app)
 }
 
-async fn goto_keys(app: &mut term::application::Application, input: &str) -> anyhow::Result<()> {
+async fn goto_keys(
+    app: &mut term::application::TestApplication,
+    input: &str,
+) -> anyhow::Result<()> {
     for key in ui_core::input::parse_macro(input)? {
         #[cfg(not(windows))]
         let event = termina::event::Event::Key(tui::backend::native::adapt(key));
@@ -427,7 +430,7 @@ async fn goto_keys(app: &mut term::application::Application, input: &str) -> any
     Ok(())
 }
 
-fn assert_goto_cursor(app: &term::application::Application, position: usize) {
+fn assert_goto_cursor(app: &term::application::TestApplication, position: usize) {
     let (view, doc) = view::current_ref!(app.editor);
     assert_eq!(
         doc.selection(view.id),

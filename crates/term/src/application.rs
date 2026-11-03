@@ -3,12 +3,11 @@
 
 use arc_swap::ArcSwap;
 use futures_util::Stream;
-use tui::backend::BackendExt;
+use tui::backend::{Backend, BackendExt};
 use view::Editor;
 
 mod configuration;
 mod events;
-#[cfg(not(feature = "integration"))]
 mod input;
 mod interactive;
 mod lsp;
@@ -24,36 +23,35 @@ use std::sync::Arc;
 use anyhow::Error;
 
 #[cfg(not(windows))]
-use signal_hook_tokio::Signals;
+type Signal = i32;
 #[cfg(windows)]
-type Signals = futures_util::stream::Empty<()>;
+type Signal = ();
+type Signals = futures_util::stream::BoxStream<'static, Signal>;
 
-#[cfg(all(not(windows), not(feature = "integration")))]
+#[cfg(not(windows))]
 use tui::backend::TerminaBackend;
 
-#[cfg(all(windows, not(feature = "integration")))]
+#[cfg(windows)]
 use tui::backend::CrosstermBackend;
 
-#[cfg(feature = "integration")]
 use tui::backend::TestBackend;
 
-#[cfg(all(not(windows), not(feature = "integration")))]
+#[cfg(not(windows))]
 type TerminalBackend = TerminaBackend;
-#[cfg(all(windows, not(feature = "integration")))]
+#[cfg(windows)]
 type TerminalBackend = CrosstermBackend<std::io::Stdout>;
-#[cfg(feature = "integration")]
-type TerminalBackend = TestBackend;
 
 #[cfg(not(windows))]
 type TerminalEvent = termina::Event;
 #[cfg(windows)]
 type TerminalEvent = crossterm::event::Event;
 
-type Terminal = tui::Terminal<TerminalBackend>;
+pub type Application = App<TerminalBackend>;
+pub type TestApplication = App<TestBackend>;
 
-pub struct Application {
+pub struct App<B: Backend + BackendExt> {
     compositor: Compositor,
-    terminal: Terminal,
+    terminal: tui::Terminal<B>,
     render_state: render::RenderState,
     pub editor: Editor,
     image_picker: Option<ratatui_image::picker::Picker>,
@@ -66,17 +64,18 @@ pub struct Application {
 
     signals: Signals,
     jobs: Jobs,
-    #[cfg(not(feature = "integration"))]
-    terminal_input: input::Control,
+    terminal_input: Option<input::Control>,
     _presentation_hooks: event::HookRegistration,
 
     theme_mode: Option<theme::Mode>,
 }
 
-impl Application {
+impl<B: Backend + BackendExt> App<B>
+where
+    B::Error: std::error::Error + Send + Sync + 'static,
+{
     /// Screen and cursor state exposed to the integration test harness.
-    #[cfg(feature = "integration")]
-    pub fn terminal_backend(&self) -> &TestBackend {
+    pub fn terminal_backend(&self) -> &B {
         self.terminal.backend()
     }
 
@@ -92,13 +91,20 @@ impl Application {
         self.render().await;
 
         loop {
-            if !self.event_loop_until_idle(input_stream).await {
+            if !self.pump(input_stream, false).await {
                 break;
             }
         }
     }
 
     pub async fn event_loop_until_idle<S>(&mut self, input_stream: &mut S) -> bool
+    where
+        S: Stream<Item = std::io::Result<TerminalEvent>> + Unpin,
+    {
+        self.pump(input_stream, true).await
+    }
+
+    async fn pump<S>(&mut self, input_stream: &mut S, until_idle: bool) -> bool
     where
         S: Stream<Item = std::io::Result<TerminalEvent>> + Unpin,
     {
@@ -116,8 +122,9 @@ impl Application {
                 if batch.needs_redraw {
                     self.render().await;
                 }
-                #[cfg(feature = "integration")]
-                self.editor.reset_idle_timer();
+                if until_idle {
+                    self.editor.reset_idle_timer();
+                }
                 // Callbacks can close the editor as well as change its state.
                 if self.editor.should_close() {
                     return false;
@@ -164,17 +171,16 @@ impl Application {
                     if outcome.needs_redraw() { self.render().await; }
                 }
                 event = self.editor.wait_event() => {
-                    let _idle_handled = self.handle_editor_event(event).await;
+                    let idle_handled = self.handle_editor_event(event).await;
 
-                    #[cfg(feature = "integration")]
-                    {
+                    if until_idle {
                         // Don't report idle while a save is still in flight, or an assertion on the post-save document state (e.g. its path,
                         // set in `handle_document_write`) can run before the `DocumentSavedEvent` is processed. Slow file I/O on Windows
                         // (atomic_save's rename/fsync dance over the still-open temp file) makes this race observable.
                         // Initial syntax must also settle before assertions; its completion can
                         // schedule spelling checks. Selection shell results must also settle before
                         // command assertions inspect their edits. Completions arrive via jobs.
-                        if _idle_handled
+                        if idle_handled
                             && self.jobs.wait_futures.is_empty()
                             && !self.editor.has_pending_writes()
                             && !self.editor.has_pending_shell_filters()
@@ -196,10 +202,8 @@ impl Application {
                 }
             }
 
-            // for integration tests only, reset the idle timer after every
-            // event to signal when test events are done processing
-            #[cfg(feature = "integration")]
-            {
+            // The explicit idle pump waits for accepted work and queued input.
+            if until_idle {
                 self.editor.reset_idle_timer();
             }
         }
@@ -216,55 +220,13 @@ impl Application {
         self.terminal.backend_mut().restore()
     }
 
-    #[cfg(all(not(feature = "integration"), not(windows)))]
-    pub fn event_stream(
-        &self,
-    ) -> impl Stream<Item = std::io::Result<TerminalEvent>> + Unpin + use<> {
-        use termina::Terminal as _;
-        input::Events::new(
-            self.terminal.backend().terminal().event_reader(),
-            self.terminal_input.clone(),
-        )
-    }
-
-    #[cfg(all(not(feature = "integration"), windows))]
-    pub fn event_stream(
-        &self,
-    ) -> impl Stream<Item = std::io::Result<TerminalEvent>> + Unpin + use<> {
-        input::Events::new(self.terminal_input.clone())
-    }
-
-    #[cfg(feature = "integration")]
-    pub fn event_stream(
-        &self,
-    ) -> impl Stream<Item = std::io::Result<TerminalEvent>> + Unpin + use<> {
-        use std::{
-            pin::Pin,
-            task::{Context, Poll},
-        };
-
-        /// A dummy stream that never polls as ready.
-        pub struct DummyEventStream;
-
-        impl Stream for DummyEventStream {
-            type Item = std::io::Result<TerminalEvent>;
-
-            fn poll_next(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-                Poll::Pending
-            }
-        }
-
-        DummyEventStream
-    }
-
     pub async fn run<S>(&mut self, input_stream: &mut S) -> Result<i32, Error>
     where
         S: Stream<Item = std::io::Result<TerminalEvent>> + Unpin,
     {
         self.terminal.backend_mut().claim()?;
 
-        #[cfg(not(feature = "integration"))]
-        {
+        if self.terminal_input.is_some() {
             self.image_picker = ratatui_image::picker::Picker::from_query_stdio()
                 .map_err(|err| {
                     log::warn!(
@@ -281,11 +243,6 @@ impl Application {
                     .as_ref()
                     .map(|picker| picker.protocol_type())
             );
-        }
-
-        #[cfg(feature = "integration")]
-        {
-            self.image_picker = None;
         }
 
         self.event_loop(input_stream).await;
@@ -345,5 +302,33 @@ impl Application {
     }
 }
 
-#[cfg(all(test, feature = "integration"))]
+#[cfg(test)]
 mod save_tests;
+
+impl Application {
+    #[cfg(not(windows))]
+    pub fn event_stream(
+        &self,
+    ) -> impl Stream<Item = std::io::Result<TerminalEvent>> + Unpin + use<> {
+        use termina::Terminal as _;
+        input::Events::new(
+            self.terminal.backend().terminal().event_reader(),
+            self.terminal_input.clone().expect("native terminal input"),
+        )
+    }
+
+    #[cfg(windows)]
+    pub fn event_stream(
+        &self,
+    ) -> impl Stream<Item = std::io::Result<TerminalEvent>> + Unpin + use<> {
+        input::Events::new(self.terminal_input.clone().expect("native terminal input"))
+    }
+}
+
+impl TestApplication {
+    pub fn event_stream(
+        &self,
+    ) -> impl Stream<Item = std::io::Result<TerminalEvent>> + Unpin + use<> {
+        futures_util::stream::pending()
+    }
+}

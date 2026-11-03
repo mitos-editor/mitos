@@ -1,12 +1,12 @@
 use editor_config::{BufferLine, CommandLineShow, StatusLineElement};
-use term::application::Application;
+use term::application::TestApplication;
 use theme::Theme;
 use tui::{backend::Backend, buffer::Cell, style::Color};
 use view::{current_ref, editor::Action, graphics::Rect};
 
 use super::helpers::{keys, test_config, AppBuilder};
 
-fn bottom_row(app: &Application) -> Vec<Cell> {
+fn bottom_row(app: &TestApplication) -> Vec<Cell> {
     let buffer = app.terminal_backend().buffer();
     let y = buffer.area.bottom() - 1;
     (0..buffer.area.width)
@@ -14,11 +14,11 @@ fn bottom_row(app: &Application) -> Vec<Cell> {
         .collect()
 }
 
-fn bottom_text(app: &Application) -> String {
+fn bottom_text(app: &TestApplication) -> String {
     bottom_row(app).iter().map(Cell::symbol).collect()
 }
 
-fn view_areas(app: &Application) -> Vec<Rect> {
+fn view_areas(app: &TestApplication) -> Vec<Rect> {
     app.editor.tree.views().map(|(view, _)| view.area).collect()
 }
 

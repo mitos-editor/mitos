@@ -449,7 +449,7 @@ async fn repeated_setup_sends_each_document_notification_once() -> anyhow::Resul
         view::editing::apply(doc, &transaction, view.id).unwrap();
         fixture.app.editor.new_file(view::editor::Action::Replace);
         assert!(fixture.app.editor.close_document(id, true).is_ok());
-        // Application shutdown only flushes outgoing messages. Await the fixture's
+        // TestApplication shutdown only flushes outgoing messages. Await the fixture's
         // response explicitly so its log includes all preceding notifications.
         fixture
             .app

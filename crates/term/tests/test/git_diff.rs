@@ -1,7 +1,7 @@
 use std::{path::Path, time::Duration};
 
 use super::helpers::{isolation, keys, run_event_loop_until_idle, test_config, AppBuilder};
-use term::application::Application;
+use term::application::TestApplication;
 use view::current_ref;
 
 fn git(root: &Path, args: &[&str]) {
@@ -27,7 +27,7 @@ fn git(root: &Path, args: &[&str]) {
     );
 }
 
-async fn ready(app: &mut Application) -> anyhow::Result<()> {
+async fn ready(app: &mut TestApplication) -> anyhow::Result<()> {
     tokio::time::timeout(Duration::from_secs(10), async {
         while current_ref!(app.editor).1.review().unwrap().is_loading() {
             run_event_loop_until_idle(app).await;
@@ -38,7 +38,7 @@ async fn ready(app: &mut Application) -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn preview_contains(app: &mut Application, needle: &str) -> anyhow::Result<()> {
+async fn preview_contains(app: &mut TestApplication, needle: &str) -> anyhow::Result<()> {
     let result = tokio::time::timeout(Duration::from_secs(10), async {
         loop {
             keys(app, "").await.unwrap();
@@ -386,7 +386,7 @@ async fn review_syntax_uses_each_source_context_in_both_engines_and_follows_them
         keys(&mut app, ":diff<ret>").await?;
         ready(&mut app).await?;
         keys(&mut app, "").await?;
-        let assert_colors = |app: &Application, comment: Color, keyword: Color| {
+        let assert_colors = |app: &TestApplication, comment: Color, keyword: Color| {
             let buffer = app.terminal_backend().buffer();
             for (contents, color, background) in [
                 ("let old", comment, Color::Rgb(48, 16, 16)),
@@ -468,7 +468,7 @@ async fn review_names_stay_short_in_tabs_and_picker_with_live_details_in_statusl
     let first = current_ref!(app.editor).1.id();
     let name = current_ref!(app.editor).1.display_name().into_owned();
     assert_eq!(name, "note.txt [diff: HEAD]");
-    let row = |app: &Application, y: u16| -> String {
+    let row = |app: &TestApplication, y: u16| -> String {
         let buffer = app.terminal_backend().buffer();
         (0..buffer.area.width)
             .map(|x| buffer[(x, y)].symbol())
@@ -796,7 +796,7 @@ async fn changed_file_and_history_previews_share_scroll_keys_and_scrollbars() ->
             keys(&mut app, "<space>gsscroll.txt").await?;
         }
         preview_contains(&mut app, "old-000").await?;
-        let preview_text = |app: &Application| {
+        let preview_text = |app: &TestApplication| {
             let buffer = app.terminal_backend().buffer();
             (buffer.area.y..buffer.area.bottom().saturating_sub(2))
                 .map(|y| {

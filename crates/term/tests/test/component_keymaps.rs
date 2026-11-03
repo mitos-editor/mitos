@@ -1,7 +1,7 @@
 use std::{cell::RefCell, rc::Rc};
 
 use term::{
-    application::Application,
+    application::TestApplication,
     compositor::{Component, Context, EventResult},
     config::{Config, ConfigLoadError},
     job::Jobs,
@@ -18,7 +18,7 @@ use view::graphics::Rect;
 use super::helpers::{test_config, AppBuilder};
 
 struct Fixture {
-    app: Application,
+    app: TestApplication,
     config: Config,
     jobs: Jobs,
     updates: tokio::sync::mpsc::UnboundedSender<term::config::ConfigEvent>,

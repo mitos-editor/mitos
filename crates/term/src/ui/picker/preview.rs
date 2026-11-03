@@ -37,7 +37,7 @@ use view::{
 /// Biggest file size to preview in bytes.
 pub const MAX_FILE_SIZE_FOR_PREVIEW: u64 = 10 * 1024 * 1024;
 
-#[cfg(all(test, feature = "integration"))]
+#[cfg(test)]
 #[path = "syntax_preview_tests.rs"]
 mod syntax_preview_tests;
 

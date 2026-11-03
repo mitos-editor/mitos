@@ -3,18 +3,18 @@ use ui_core::keymap::{Keymap, KeymapState, Lookup};
 mod file_updates;
 mod handlers;
 mod help;
-#[cfg(all(test, feature = "integration"))]
+#[cfg(test)]
 mod matching_tests;
-#[cfg(all(test, feature = "integration"))]
+#[cfg(test)]
 mod paging_tests;
 mod preview;
 mod query;
 mod replacement;
 mod results;
 pub(crate) mod scroll;
-#[cfg(all(test, feature = "integration"))]
+#[cfg(test)]
 mod scroll_tests;
-#[cfg(all(test, feature = "integration"))]
+#[cfg(test)]
 pub(crate) mod test;
 mod updates;
 
@@ -1444,7 +1444,6 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
 }
 
 impl<I: 'static + Send + Sync, D: 'static + Send + Sync> Component for Picker<I, D> {
-    #[cfg(feature = "integration")]
     fn has_pending_render(&mut self) -> bool {
         let pending = self
             .results
@@ -1810,12 +1809,11 @@ mod tests {
         assert_eq!(visible_column_widths(&columns), [Constraint::Length(4)]);
     }
 
-    #[cfg(feature = "integration")]
     #[tokio::test(flavor = "multi_thread")]
     async fn refresh_preserves_cursor_and_blocks_row_actions_until_matching_finishes(
     ) -> anyhow::Result<()> {
         use super::*;
-        use crate::{application::Application, config::Config as AppConfig, job::Jobs};
+        use crate::{application::TestApplication, config::Config as AppConfig, job::Jobs};
         use std::{cell::RefCell, rc::Rc, time::Duration};
 
         let mut config = AppConfig::default();
@@ -1828,7 +1826,7 @@ mod tests {
             },
             Default::default(),
         )?;
-        let mut app = Application::new(
+        let mut app = TestApplication::new(
             Default::default(),
             config.clone(),
             syntax,
@@ -1949,11 +1947,10 @@ mod tests {
         Ok(())
     }
 
-    #[cfg(feature = "integration")]
     #[tokio::test(flavor = "multi_thread")]
     async fn resumed_picker_blocks_stale_row_actions_while_matcher_is_busy() -> anyhow::Result<()> {
         use super::*;
-        use crate::{application::Application, config::Config as AppConfig, job::Jobs};
+        use crate::{application::TestApplication, config::Config as AppConfig, job::Jobs};
         use std::{
             cell::RefCell,
             rc::Rc,
@@ -1971,7 +1968,7 @@ mod tests {
             },
             Default::default(),
         )?;
-        let mut app = Application::new(
+        let mut app = TestApplication::new(
             Default::default(),
             config.clone(),
             syntax,
