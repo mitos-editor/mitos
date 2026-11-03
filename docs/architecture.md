@@ -1074,6 +1074,11 @@ explicit inputs; editor-specific state changes belong in `view`. The terminal
 application decodes incoming protocol messages, delegates shared operations, and
 handles frontend requests such as progress display and interactive prompts.
 
+`vcs::DiffProviderRegistry` opens a fresh repository for each inspection. Document
+branch/diff decoration and both repository watch categories each share one discovery.
+Results own their data; repository handles and trust/configuration decisions are not
+cached across refreshes. Linked worktrees retain their own HEAD and index watches.
+
 `lsp::client` keeps shared client state and JSON-RPC dispatch at its root.
 Private modules own process initialization and shutdown, workspace configuration,
 file operations, document synchronization, and typed feature requests. All requests

@@ -865,8 +865,9 @@ impl Editor {
                 .workspace_trust
                 .query(root, workspace::trust::TrustQuery::Git)
                 .is_trusted();
-            paths.extend(self.diff_providers.get_watched_paths(root, trusted));
-            files.extend(self.diff_providers.get_watched_files(root, trusted));
+            let watches = self.diff_providers.repository_watches(root, trusted);
+            paths.extend(watches.paths);
+            files.extend(watches.files);
             for doc in self.documents.values() {
                 let Some(path) = doc
                     .path()
@@ -886,8 +887,9 @@ impl Editor {
                     .workspace_trust
                     .query(workspace, workspace::trust::TrustQuery::Git)
                     .is_trusted();
-                paths.extend(self.diff_providers.get_watched_paths(path, trust_full));
-                files.extend(self.diff_providers.get_watched_files(path, trust_full));
+                let watches = self.diff_providers.repository_watches(path, trust_full);
+                paths.extend(watches.paths);
+                files.extend(watches.files);
             }
         }
         self.file_watcher.set_extra_watched_paths(paths, files);

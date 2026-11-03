@@ -634,15 +634,12 @@ impl Document {
         let Some(path) = self.path().map(ToOwned::to_owned) else {
             return;
         };
-        if self.is_binary() {
-            self.diff_handle = None;
-        } else {
-            match providers.get_diff_base(&path, trust_full) {
-                Some(base) => self.set_diff_base(base),
-                None => self.diff_handle = None,
-            }
+        let vcs = providers.inspect_file(&path, trust_full, !self.is_binary());
+        match vcs.diff_base {
+            Some(base) => self.set_diff_base(base),
+            None => self.diff_handle = None,
         }
-        self.version_control_head = providers.get_current_head_name(&path, trust_full);
+        self.version_control_head = vcs.head_name;
         if self.config.load().inline_blame.show != editor_config::InlineBlameShow::Never
             && let Some(handler) = self.blame.handler().cloned()
         {
