@@ -267,12 +267,7 @@ impl Document {
         };
 
         let identifier = self.path().map(|_| self.identifier());
-        let language_servers: Vec<_> = self
-            .language_servers
-            .values()
-            .filter(|server| self.opened_language_servers.contains(&server.id()))
-            .cloned()
-            .collect();
+        let language_servers: Vec<_> = self.opened_language_servers().cloned().collect();
 
         let doc_id = self.id();
         let atomic_save = self.config.load().files.save.atomic;

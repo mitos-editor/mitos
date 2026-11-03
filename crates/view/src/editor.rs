@@ -53,7 +53,7 @@ use lsp_client::{Call, LanguageServerId};
 
 use std::{
     borrow::Cow,
-    collections::{HashSet, VecDeque},
+    collections::VecDeque,
     path::{Path, PathBuf},
     pin::Pin,
     sync::Arc,
@@ -96,7 +96,6 @@ pub struct Editor {
 
     pub registers: Registers,
     pub(crate) language_servers: crate::language_servers::Registry,
-    initialized_language_servers: HashSet<LanguageServerId>,
     pub(crate) diagnostics: LspDiagnostics,
     pub diff_providers: DiffProviderRegistry,
 
@@ -228,7 +227,6 @@ impl Editor {
             file_operation_revision: 0,
             theme: theme_loader.default_theme(),
             language_servers,
-            initialized_language_servers: HashSet::new(),
             diagnostics: LspDiagnostics::new(),
             diff_providers,
             debugger: crate::debugger::DebuggerState::default(),

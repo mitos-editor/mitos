@@ -26,7 +26,21 @@ async fn application(dir: &std::path::Path) -> anyhow::Result<TestApplication> {
     std::fs::write(&path, "😀 foo bar\n")?;
     app.editor.open(&path, Action::Replace)?;
     gate.release()?;
-    lsp::initialize(&mut app, 1).await?;
+    let (server, call) = tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        app.editor.next_language_server_message(),
+    )
+    .await?
+    .expect("server initialized");
+    assert!(matches!(&call, lsp_client::Call::Notification(n) if n.method == "initialized"));
+    assert!(app
+        .editor
+        .language_server_by_id(server)
+        .unwrap()
+        .is_initialized());
+    // Wire capabilities alone must not permit requests before configuration/didOpen.
+    assert!(formatting::prepare_selections(&app.editor, current_ref!(app.editor).0.id).is_err());
+    app.handle_language_server_message(call, server).await;
     let (view, doc) = current!(app.editor);
     doc.set_selection(view.id, Selection::single(2, 5));
     Ok(app)
