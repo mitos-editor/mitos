@@ -12,11 +12,10 @@ use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tokio::{
-    io::{AsyncBufRead, AsyncBufReadExt, BufReader, BufWriter},
-    process::{ChildStderr, ChildStdin, ChildStdout},
+    io::{AsyncBufRead, AsyncBufReadExt, AsyncRead, AsyncWrite, BufReader, BufWriter},
     sync::{
         mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender},
-        Notify,
+        oneshot, Notify,
     },
 };
 
@@ -42,8 +41,14 @@ enum ServerMessage {
     Call(jsonrpc::Call),
 }
 
+/// Owns one connection task. Dropping it closes all IO even if senders survive.
 #[derive(Debug)]
 pub struct Transport {
+    _shutdown: oneshot::Sender<()>,
+}
+
+#[derive(Debug)]
+struct TransportState {
     id: LanguageServerId,
     name: String,
     pending_requests: Arc<PendingRequests>,
@@ -53,8 +58,16 @@ pub struct Transport {
     shutdown_flushed: Arc<Notify>,
 }
 
+impl Drop for TransportState {
+    fn drop(&mut self) {
+        // Also drain waits if the runtime drops the task before its normal terminal transition.
+        self.pending_requests.close();
+    }
+}
+
 /// The channels and shared state established when a transport starts.
 pub(crate) struct Connection {
+    pub transport: Transport,
     pub receiver: UnboundedReceiver<(LanguageServerId, jsonrpc::Call)>,
     pub sender: UnboundedSender<Payload>,
     pub initialized: Arc<Notify>,
@@ -64,9 +77,9 @@ pub(crate) struct Connection {
 
 impl Transport {
     pub(crate) fn start(
-        server_stdout: BufReader<ChildStdout>,
-        server_stdin: BufWriter<ChildStdin>,
-        server_stderr: BufReader<ChildStderr>,
+        server_stdout: BufReader<impl AsyncRead + Unpin + Send + 'static>,
+        server_stdin: BufWriter<impl AsyncWrite + Unpin + Send + 'static>,
+        server_stderr: BufReader<impl AsyncRead + Unpin + Send + 'static>,
         id: LanguageServerId,
         name: String,
     ) -> Connection {
@@ -77,7 +90,7 @@ impl Transport {
         let shutdown_flushed = Arc::new(Notify::new());
         let pending_requests = Arc::new(PendingRequests::default());
 
-        let transport = Self {
+        let transport = TransportState {
             id,
             name,
             pending_requests: pending_requests.clone(),
@@ -86,24 +99,37 @@ impl Transport {
             shutdown_flushed: shutdown_flushed.clone(),
         };
 
-        let transport = Arc::new(transport);
-
-        tokio::spawn(Self::recv(
-            transport.clone(),
-            server_stdout,
-            client_tx.clone(),
-        ));
-        tokio::spawn(Self::err(transport.clone(), server_stderr));
-        tokio::spawn(Self::send(
-            transport,
-            server_stdin,
-            client_tx,
-            client_rx,
-            inject_rx,
-            notify.clone(),
-        ));
+        let (shutdown, canceled) = oneshot::channel();
+        let initialize_notify = notify.clone();
+        tokio::spawn(async move {
+            let result = tokio::select! {
+                // Give both IO directions progress under sustained incoming traffic.
+                _ = canceled => Ok(()),
+                _ = client_tx.closed() => Ok(()),
+                result = transport.recv(server_stdout, &client_tx) => result,
+                result = transport.send_messages(server_stdin, &client_tx, client_rx, inject_rx, initialize_notify) => result,
+                _ = async {
+                    transport.err(server_stderr).await;
+                    // Stderr may close independently of the protocol streams.
+                    std::future::pending::<()>().await;
+                } => unreachable!(),
+            };
+            if let Err(error) = result
+                && !matches!(error, Error::StreamClosed)
+            {
+                error!(
+                    "Exiting {} after unexpected error: {error:?}",
+                    transport.name
+                );
+            }
+            // All IO futures have been dropped; close registration and wake every waiter once.
+            transport.terminate(&client_tx);
+        });
 
         Connection {
+            transport: Transport {
+                _shutdown: shutdown,
+            },
             receiver: rx,
             sender: tx,
             initialized: notify,
@@ -111,7 +137,9 @@ impl Transport {
             requests: pending_requests,
         }
     }
+}
 
+impl TransportState {
     async fn recv_server_message(
         reader: &mut (impl AsyncBufRead + Unpin + Send),
         buffer: &mut String,
@@ -254,81 +282,44 @@ impl Transport {
         }
     }
 
-    async fn recv<R: tokio::io::AsyncRead + Unpin + Send>(
-        transport: Arc<Self>,
+    async fn recv<R: AsyncRead + Unpin + Send>(
+        &self,
         mut server_stdout: BufReader<R>,
-        client_tx: UnboundedSender<(LanguageServerId, jsonrpc::Call)>,
-    ) {
+        client_tx: &UnboundedSender<(LanguageServerId, jsonrpc::Call)>,
+    ) -> Result<()> {
         let mut recv_buffer = String::new();
         let mut content_buffer = Vec::new();
-        let closed = transport.pending_requests.closed();
-        tokio::pin!(closed);
         loop {
-            let message = tokio::select! {
-                biased;
-                _ = &mut closed => return,
-                message = Self::recv_server_message(
-                    &mut server_stdout, &mut recv_buffer, &mut content_buffer, &transport.name,
-                ) => message,
-            };
-            let result = message.and_then(|msg| transport.process_server_message(&client_tx, msg));
-            if let Err(err) = result {
-                if !matches!(err, Error::StreamClosed) {
-                    error!("Exiting {} after unexpected error: {err:?}", transport.name);
-                }
-                break;
-            }
+            let message = Self::recv_server_message(
+                &mut server_stdout,
+                &mut recv_buffer,
+                &mut content_buffer,
+                &self.name,
+            )
+            .await?;
+            self.process_server_message(client_tx, message)?;
+            tokio::task::consume_budget().await;
         }
-        transport.terminate(&client_tx);
     }
 
-    async fn err(transport: Arc<Self>, mut server_stderr: BufReader<ChildStderr>) {
+    async fn err<R: AsyncRead + Unpin + Send>(&self, mut server_stderr: BufReader<R>) {
         let mut recv_buffer = String::new();
-        let closed = transport.pending_requests.closed();
-        tokio::pin!(closed);
         loop {
-            let result = tokio::select! {
-                biased;
-                _ = &mut closed => return,
-                result = Self::recv_server_error(&mut server_stderr, &mut recv_buffer, &transport.name) => result,
-            };
-            if let Err(err) = result {
+            if let Err(err) =
+                Self::recv_server_error(&mut server_stderr, &mut recv_buffer, &self.name).await
+            {
                 if !matches!(err, Error::StreamClosed) {
-                    error!("{} err: <- {err:?}", transport.name);
+                    error!("{} err: <- {err:?}", self.name);
                 }
-                break;
+                return;
             }
         }
-    }
-
-    async fn send<W: tokio::io::AsyncWrite + Unpin>(
-        transport: Arc<Self>,
-        server_stdin: BufWriter<W>,
-        client_tx: UnboundedSender<(LanguageServerId, jsonrpc::Call)>,
-        client_rx: UnboundedReceiver<Payload>,
-        inject_rx: UnboundedReceiver<Payload>,
-        initialize_notify: Arc<Notify>,
-    ) {
-        tokio::select! {
-            biased;
-            _ = transport.pending_requests.closed() => {},
-            result = Self::send_messages(
-                transport.clone(), server_stdin, client_tx.clone(), client_rx, inject_rx, initialize_notify,
-            ) => {
-                if let Err(err) = result {
-                    error!("{} failed to write to language server: {err}", transport.name);
-                }
-            }
-        }
-        // A failed write may leave a partial frame. Stop using this stream and
-        // wake every waiter, including requests still in the outgoing queue.
-        transport.terminate(&client_tx);
     }
 
     async fn send_messages<W: tokio::io::AsyncWrite + Unpin>(
-        transport: Arc<Self>,
+        &self,
         mut server_stdin: BufWriter<W>,
-        client_tx: UnboundedSender<(LanguageServerId, jsonrpc::Call)>,
+        client_tx: &UnboundedSender<(LanguageServerId, jsonrpc::Call)>,
         mut client_rx: UnboundedReceiver<Payload>,
         mut inject_rx: UnboundedReceiver<Payload>,
         initialize_notify: Arc<Notify>,
@@ -383,14 +374,14 @@ impl Transport {
                         method: lsp::notification::Initialized::METHOD.to_string(),
                         params: jsonrpc::Params::None,
                     }));
-                    transport.process_server_message(&client_tx, notification)?;
+                    self.process_server_message(client_tx, notification)?;
                     for msg in pending_messages.drain(..) {
-                        transport.send_payload_to_server(&mut server_stdin, msg, &mut json).await?;
+                        self.send_payload_to_server(&mut server_stdin, msg, &mut json).await?;
                     }
                 }
                 msg = inject_rx.recv() => {
                     if let Some(msg) = msg {
-                        transport.send_payload_to_server(&mut server_stdin, msg, &mut json).await?;
+                        self.send_payload_to_server(&mut server_stdin, msg, &mut json).await?;
                     }
                 }
                 msg = client_rx.recv() => {
@@ -410,15 +401,15 @@ impl Transport {
                         }
                         continue;
                     }
-                    // The receive task must see this before the server can respond
+                    // Receiving must observe this before the server can respond
                     // with its own requests during the shutdown handshake.
                     if is_shutdown(&msg) {
-                        transport.shutdown_requested.store(true, Ordering::Release);
+                        self.shutdown_requested.store(true, Ordering::Release);
                     }
                     let is_exit = is_exit(&msg);
-                    transport.send_payload_to_server(&mut server_stdin, msg, &mut json).await?;
+                    self.send_payload_to_server(&mut server_stdin, msg, &mut json).await?;
                     if is_exit {
-                        transport.shutdown_flushed.notify_one();
+                        self.shutdown_flushed.notify_one();
                         break;
                     }
                 }

@@ -6,10 +6,7 @@ use std::{
     pin::Pin,
     task::{Context, Poll},
 };
-use tokio::{
-    io::{AsyncReadExt, AsyncWrite, AsyncWriteExt, DuplexStream, WriteHalf},
-    task::JoinHandle,
-};
+use tokio::io::{AsyncReadExt, AsyncWrite, AsyncWriteExt, DuplexStream, WriteHalf};
 
 struct BrokenWriter;
 
@@ -32,13 +29,13 @@ impl AsyncWrite for BrokenWriter {
 }
 
 struct Fixture {
-    transport: Arc<Transport>,
+    owner: Transport,
+    requests: Arc<PendingRequests>,
+    shutting_down: bool,
     sender: UnboundedSender<Payload>,
     server: BufReader<DuplexStream>,
     initialized: Arc<Notify>,
     messages: UnboundedReceiver<(LanguageServerId, jsonrpc::Call)>,
-    writer: JoinHandle<()>,
-    reader: JoinHandle<()>,
 }
 
 impl Fixture {
@@ -51,44 +48,26 @@ impl Fixture {
         initialized: bool,
         writer: impl FnOnce(WriteHalf<DuplexStream>) -> W,
     ) -> Self {
-        let (sender, outgoing) = unbounded_channel();
-        let (inject_tx, inject_rx) = unbounded_channel();
-        let (client_tx, messages) = unbounded_channel();
-        let transport = Arc::new(Transport {
-            id: LanguageServerId::null(),
-            name: "fixture".into(),
-            pending_requests: Arc::new(PendingRequests::default()),
-            shutdown_requested: AtomicBool::new(false),
-            inject_tx,
-            shutdown_flushed: Arc::new(Notify::new()),
-        });
-        let initialize_notify = Arc::new(Notify::new());
-        if initialized {
-            initialize_notify.notify_one();
-        }
         let (client, server) = tokio::io::duplex(capacity);
         let (read, write) = tokio::io::split(client);
-        let reader = tokio::spawn(Transport::recv(
-            transport.clone(),
+        let connection = Transport::start(
             BufReader::new(read),
-            client_tx.clone(),
-        ));
-        let writer = tokio::spawn(Transport::send(
-            transport.clone(),
             BufWriter::new(writer(write)),
-            client_tx,
-            outgoing,
-            inject_rx,
-            initialize_notify.clone(),
-        ));
+            BufReader::new(tokio::io::empty()),
+            LanguageServerId::null(),
+            "fixture".into(),
+        );
+        if initialized {
+            connection.initialized.notify_one();
+        }
         Self {
-            transport,
-            sender,
+            owner: connection.transport,
+            requests: connection.requests,
+            shutting_down: false,
+            sender: connection.sender,
             server: BufReader::new(server),
-            initialized: initialize_notify,
-            messages,
-            writer,
-            reader,
+            initialized: connection.initialized,
+            messages: connection.receiver,
         }
     }
 
@@ -97,28 +76,26 @@ impl Fixture {
         id: u64,
         timeout_secs: u64,
     ) -> impl std::future::Future<Output = Result<Option<lsp::Hover>>> + use<> {
-        self.transport
-            .pending_requests
-            .request::<lsp::request::HoverRequest>(
-                &self.sender,
-                jsonrpc::Id::Num(id),
-                &lsp::HoverParams {
-                    text_document_position_params: lsp::TextDocumentPositionParams {
-                        text_document: lsp::TextDocumentIdentifier::new(
-                            lsp::Url::parse("file:///test.rs").unwrap(),
-                        ),
-                        position: lsp::Position::new(0, 0),
-                    },
-                    work_done_progress_params: Default::default(),
+        self.requests.request::<lsp::request::HoverRequest>(
+            &self.sender,
+            jsonrpc::Id::Num(id),
+            &lsp::HoverParams {
+                text_document_position_params: lsp::TextDocumentPositionParams {
+                    text_document: lsp::TextDocumentIdentifier::new(
+                        lsp::Url::parse("file:///test.rs").unwrap(),
+                    ),
+                    position: lsp::Position::new(0, 0),
                 },
-                timeout_secs,
-            )
+                work_done_progress_params: Default::default(),
+            },
+            timeout_secs,
+        )
     }
 
     async fn next(&mut self) -> Value {
         let message = tokio::time::timeout(
             Duration::from_secs(5),
-            Transport::recv_server_message(
+            TransportState::recv_server_message(
                 &mut self.server,
                 &mut String::new(),
                 &mut Vec::new(),
@@ -128,7 +105,9 @@ impl Fixture {
         .await
         .unwrap()
         .unwrap();
-        serde_json::to_value(message).unwrap()
+        let value = serde_json::to_value(message).unwrap();
+        self.shutting_down |= value["method"] == "shutdown";
+        value
     }
 
     async fn respond(&mut self, response: Value) {
@@ -141,11 +120,11 @@ impl Fixture {
     }
 
     fn pending(&self) -> usize {
-        self.transport.pending_requests.len()
+        self.requests.len()
     }
 
     async fn finish(mut self) -> Vec<u8> {
-        if !self.transport.shutdown_requested.load(Ordering::Acquire) {
+        if !self.shutting_down {
             // Drain the outgoing queue before closing; otherwise closure could
             // hide an unexpected cancellation frame behind an aborted write.
             self.sender
@@ -158,8 +137,7 @@ impl Fixture {
             assert_eq!(self.next().await["method"], "fixture/barrier");
         }
         self.server.get_mut().shutdown().await.unwrap();
-        self.reader.await.unwrap();
-        self.writer.await.unwrap();
+        self.sender.closed().await;
         let mut remaining = Vec::new();
         self.server.read_to_end(&mut remaining).await.unwrap();
         remaining
@@ -184,9 +162,16 @@ async fn outgoing_frames_clear_reused_unicode_buffers_and_release_large_capacity
     }
     let mut json = Vec::new();
     let mut sink = BufWriter::new(tokio::io::sink());
+    let state = TransportState {
+        id: LanguageServerId::null(),
+        name: "fixture".into(),
+        pending_requests: Arc::new(PendingRequests::default()),
+        shutdown_requested: AtomicBool::new(false),
+        inject_tx: unbounded_channel().0,
+        shutdown_flushed: Arc::new(Notify::new()),
+    };
     for (size, oversized) in [(4096, false), (1, false), (5 * 1024 * 1024, true)] {
-        fixture
-            .transport
+        state
             .send_payload_to_server(
                 &mut sink,
                 Payload::Notification(jsonrpc::Notification {
@@ -342,8 +327,7 @@ async fn stream_closure_interrupts_a_stalled_write_and_closes_queued_requests() 
         Err(Error::StreamClosed)
     ));
     assert_eq!(fixture.pending(), 0);
-    fixture.reader.await.unwrap();
-    fixture.writer.await.unwrap();
+    fixture.sender.closed().await;
     let exits = std::iter::from_fn(|| fixture.messages.try_recv().ok())
         .filter(|(_, call)| matches!(call, jsonrpc::Call::Notification(notification) if notification.method == "exit"))
         .count();
@@ -353,17 +337,13 @@ async fn stream_closure_interrupts_a_stalled_write_and_closes_queued_requests() 
 #[tokio::test(start_paused = true)]
 async fn write_failure_notifies_the_editor_and_stops_the_waiting_reader() {
     let mut fixture = Fixture::with_writer(4096, false, |_| BrokenWriter);
-    let active = fixture
-        .transport
-        .pending_requests
-        .request::<lsp::request::Initialize>(
-            &fixture.sender,
-            jsonrpc::Id::Num(1),
-            &lsp::InitializeParams::default(),
-            20,
-        );
+    let active = fixture.requests.request::<lsp::request::Initialize>(
+        &fixture.sender,
+        jsonrpc::Id::Num(1),
+        &lsp::InitializeParams::default(),
+        20,
+    );
     assert!(matches!(active.await, Err(Error::StreamClosed)));
-    fixture.writer.await.unwrap();
     let (_, exit) = tokio::time::timeout(Duration::from_secs(5), fixture.messages.recv())
         .await
         .expect("write failure must notify the editor even while stdout stays open")
@@ -371,14 +351,12 @@ async fn write_failure_notifies_the_editor_and_stops_the_waiting_reader() {
     assert!(
         matches!(exit, jsonrpc::Call::Notification(notification) if notification.method == "exit")
     );
-    tokio::time::timeout(Duration::from_secs(5), fixture.reader)
+    tokio::time::timeout(Duration::from_secs(5), fixture.sender.closed())
         .await
-        .unwrap()
         .unwrap();
     assert!(matches!(
         fixture
-            .transport
-            .pending_requests
+            .requests
             .request::<lsp::request::Shutdown>(&fixture.sender, jsonrpc::Id::Num(2), &(), 20,)
             .await,
         Err(Error::StreamClosed)
@@ -406,9 +384,7 @@ async fn pending_request_futures_do_not_keep_the_outgoing_channel_alive() {
     assert_eq!(fixture.next().await["id"], 1);
     drop(fixture.sender);
     assert!(matches!(request.await, Err(Error::StreamClosed)));
-    fixture.writer.await.unwrap();
     fixture.server.get_mut().shutdown().await.unwrap();
-    fixture.reader.await.unwrap();
 }
 
 #[tokio::test]
@@ -431,8 +407,7 @@ async fn requests_cancelled_during_initialization_are_never_sent() {
 async fn dropping_the_shutdown_receiver_preserves_fire_and_forget_ordering() {
     let mut fixture = Fixture::new(4096, true);
     fixture
-        .transport
-        .pending_requests
+        .requests
         .send_fire_and_forget(
             &fixture.sender,
             jsonrpc::MethodCall {
@@ -454,4 +429,84 @@ async fn dropping_the_shutdown_receiver_preserves_fire_and_forget_ordering() {
     assert_eq!(fixture.next().await["method"], "shutdown");
     assert_eq!(fixture.next().await["method"], "exit");
     assert!(fixture.finish().await.is_empty());
+}
+
+#[tokio::test]
+async fn connection_owner_drop_closes_stalled_io_with_surviving_senders() {
+    let mut fixture = Fixture::new(1, true);
+    let active = fixture.request(1, 20);
+    let queued = fixture.request(2, 20);
+    fixture.server.read_u8().await.unwrap();
+    let surviving_sender = fixture.sender.clone();
+    drop(fixture.owner);
+    assert!(matches!(
+        tokio::time::timeout(Duration::from_secs(5), active)
+            .await
+            .unwrap(),
+        Err(Error::StreamClosed)
+    ));
+    assert!(matches!(queued.await, Err(Error::StreamClosed)));
+    assert_eq!(fixture.requests.len(), 0);
+    assert!(surviving_sender.is_closed());
+    let mut exits = 0;
+    while let Some((_, call)) = fixture.messages.recv().await {
+        if matches!(call, jsonrpc::Call::Notification(notification) if notification.method == "exit")
+        {
+            exits += 1;
+        }
+    }
+    assert_eq!(exits, 1);
+}
+
+#[tokio::test]
+async fn notification_flood_keeps_outgoing_messages_progressing() {
+    let (client, server) = tokio::io::duplex(1024 * 1024);
+    let (read, write) = tokio::io::split(client);
+    let (server_read, mut server_write) = tokio::io::split(server);
+    let mut connection = Transport::start(
+        BufReader::new(read),
+        BufWriter::new(write),
+        BufReader::new(tokio::io::empty()),
+        LanguageServerId::null(),
+        "flood".into(),
+    );
+    connection.initialized.notify_one();
+    let flood = tokio::spawn(async move {
+        let frame = br#"{"jsonrpc":"2.0","method":"fixture/flood"}"#;
+        loop {
+            if protocol_io::write_frame(&mut server_write, frame)
+                .await
+                .is_err()
+            {
+                break;
+            }
+        }
+    });
+    // Queue output while incoming traffic is already being processed.
+    connection.receiver.recv().await.unwrap();
+    connection
+        .sender
+        .send(Payload::Notification(jsonrpc::Notification {
+            jsonrpc: Some(jsonrpc::Version::V2),
+            method: "fixture/outgoing".into(),
+            params: jsonrpc::Params::None,
+        }))
+        .unwrap();
+    let mut server_read = BufReader::new(server_read);
+    let mut content = Vec::new();
+    let result = tokio::time::timeout(
+        Duration::from_secs(5),
+        protocol_io::read_frame(&mut server_read, &mut String::new(), &mut content),
+    )
+    .await;
+    drop(connection.transport);
+    flood.abort();
+    let _ = flood.await;
+    result
+        .expect("incoming notifications starved the writer")
+        .unwrap();
+    assert_eq!(
+        serde_json::from_slice::<Value>(&content).unwrap()["method"],
+        "fixture/outgoing"
+    );
 }

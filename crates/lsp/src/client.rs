@@ -9,7 +9,7 @@ mod workspace;
 use crate::{
     file_operations::FileOperationsInterest,
     jsonrpc, lsp,
-    transport::{Payload, PendingRequests},
+    transport::{Payload, PendingRequests, Transport},
     Error, LanguageServerId, OffsetEncoding, Result,
 };
 use parking_lot::Mutex;
@@ -28,7 +28,7 @@ use tokio::{
 };
 
 #[derive(Debug)]
-/// One language-server process and its negotiated workspace state.
+/// One language-server process, owned connection, and negotiated workspace state.
 ///
 /// Construction returns a receiver for server-originated calls. The client
 /// handles responses to its own requests internally, but the editor event loop
@@ -41,6 +41,7 @@ pub struct Client {
     id: LanguageServerId,
     name: String,
     _process: Child,
+    _transport: Transport,
     server_tx: UnboundedSender<Payload>,
     pending_requests: Arc<PendingRequests>,
     request_counter: AtomicU64,

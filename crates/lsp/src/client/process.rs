@@ -73,6 +73,7 @@ impl Client {
             id,
             name,
             _process: process,
+            _transport: connection.transport,
             server_tx: connection.sender,
             pending_requests: connection.requests,
             request_counter: AtomicU64::new(0),

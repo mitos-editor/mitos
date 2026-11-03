@@ -19,9 +19,6 @@ use tokio::{
 #[derive(Debug, Deserialize, Serialize)]
 /// DAP request envelope sent in either direction.
 pub struct Request {
-    /// Local response channel; skipped during serialization.
-    #[serde(skip)]
-    pub back_ch: Option<oneshot::Sender<Result<Response>>>,
     pub seq: u64,
     pub command: String,
     pub arguments: Option<Value>,
@@ -63,6 +60,10 @@ pub enum Payload {
 
 #[derive(Debug)]
 enum Outgoing {
+    Request {
+        request: Request,
+        reply: oneshot::Sender<Result<Response>>,
+    },
     Message(Payload),
     Forget(u64),
 }
@@ -148,35 +149,40 @@ pub struct TransportSender {
 }
 
 impl TransportSender {
-    pub fn send(&self, payload: Payload) -> Result<()> {
-        self.send_message(payload).map(|_| ())
+    pub fn send(&self, mut payload: Payload) -> Result<()> {
+        self.enqueue(|sequence| {
+            match &mut payload {
+                Payload::Request(request) => request.seq = sequence,
+                Payload::Response(response) => response.seq = Some(sequence),
+                Payload::Event(event) => event.seq = Some(sequence),
+            }
+            Outgoing::Message(payload)
+        })
+        .map(|_| ())
     }
 
     pub(crate) fn send_request(
         &self,
         command: &str,
         arguments: Option<Value>,
-        back_ch: oneshot::Sender<Result<Response>>,
+        reply: oneshot::Sender<Result<Response>>,
     ) -> Result<u64> {
-        self.send_message(Payload::Request(Request {
-            back_ch: Some(back_ch),
-            seq: 0,
-            command: command.to_owned(),
-            arguments,
-        }))
+        self.enqueue(|seq| Outgoing::Request {
+            request: Request {
+                seq,
+                command: command.to_owned(),
+                arguments,
+            },
+            reply,
+        })
     }
 
-    fn send_message(&self, mut payload: Payload) -> Result<u64> {
+    fn enqueue(&self, message: impl FnOnce(u64) -> Outgoing) -> Result<u64> {
         // Allocate and enqueue together so cloned senders preserve wire order.
         let mut next = self.sequence.lock().unwrap();
         let sequence = *next;
-        match &mut payload {
-            Payload::Request(request) => request.seq = sequence,
-            Payload::Response(response) => response.seq = Some(sequence),
-            Payload::Event(event) => event.seq = Some(sequence),
-        }
         self.tx
-            .send(Outgoing::Message(payload))
+            .send(message(sequence))
             .map_err(|_| Error::StreamClosed)?;
         *next += 1;
         Ok(sequence)
@@ -230,17 +236,9 @@ impl TransportState {
     async fn send_payload_to_server(
         &self,
         server_stdin: &mut Box<dyn AsyncWrite + Unpin + Send>,
-        mut payload: Payload,
+        payload: Payload,
         json: &mut Vec<u8>,
     ) -> Result<()> {
-        if let Payload::Request(request) = &mut payload
-            && let Some(back) = request.back_ch.take()
-        {
-            self.pending_requests
-                .lock()
-                .unwrap()
-                .insert(request.seq, back);
-        }
         json.clear();
         sonic_rs::to_writer(&mut *json, &payload)?;
         self.send_bytes_to_server(server_stdin, json).await?;
@@ -358,6 +356,18 @@ impl TransportState {
         let mut json = Vec::new();
         while let Some(command) = client_rx.recv().await {
             match command {
+                Outgoing::Request { request, reply } => {
+                    self.pending_requests
+                        .lock()
+                        .unwrap()
+                        .insert(request.seq, reply);
+                    self.send_payload_to_server(
+                        &mut server_stdin,
+                        Payload::Request(request),
+                        &mut json,
+                    )
+                    .await?;
+                }
                 Outgoing::Message(payload) => {
                     self.send_payload_to_server(&mut server_stdin, payload, &mut json)
                         .await?
@@ -450,14 +460,7 @@ mod tests {
             DebugAdapterId::default(),
         );
         let (reply, response) = oneshot::channel();
-        sender
-            .send(Payload::Request(Request {
-                back_ch: Some(reply),
-                seq: 1,
-                command: "threads".into(),
-                arguments: None,
-            }))
-            .unwrap();
+        sender.send_request("threads", None, reply).unwrap();
         assert!(matches!(
             tokio::time::timeout(std::time::Duration::from_secs(5), incoming.recv())
                 .await
