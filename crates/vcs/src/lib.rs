@@ -25,6 +25,9 @@ mod blame;
 pub mod conflict;
 pub use blame::{FileBlame, LineBlame};
 
+mod provider;
+use provider::DiffProvider;
+
 mod diff;
 
 pub use diff::{DiffHandle, Hunk};
@@ -57,9 +60,26 @@ impl ChangedFileScope {
     }
 }
 
-/// Best-effort access to the compiled Git backend.
-#[derive(Clone, Default)]
-pub struct DiffProviderRegistry {}
+/// Ordered access to the VCS providers compiled into this editor.
+///
+/// Watch inputs are combined across providers. Other queries use the first
+/// provider that succeeds, including a successful empty status listing.
+#[derive(Clone)]
+pub struct DiffProviderRegistry {
+    providers: Arc<[DiffProvider]>,
+}
+
+impl Default for DiffProviderRegistry {
+    fn default() -> Self {
+        Self {
+            providers: vec![
+                #[cfg(feature = "git")]
+                DiffProvider::Git,
+            ]
+            .into(),
+        }
+    }
+}
 
 /// Decoration read together from one freshly opened repository.
 #[derive(Default)]
@@ -76,33 +96,32 @@ pub struct RepositoryWatches {
 }
 
 impl DiffProviderRegistry {
-    /// Read independent document decorations with one discovery and current trust/configuration.
+    /// Read one provider's independent decorations with one discovery and current trust/configuration.
     /// Binary documents skip blob reads and worktree filters.
-    pub fn inspect_file(&self, _file: &Path, _trust_full: bool, _read_diff: bool) -> DocumentVcs {
-        #[cfg(feature = "git")]
-        {
-            git::inspect_file(_file, _trust_full, _read_diff)
-                .inspect_err(|error| {
-                    log::debug!("VCS inspection for {}: {error:#}", _file.display())
-                })
-                .unwrap_or_default()
-        }
-        #[cfg(not(feature = "git"))]
-        {
-            DocumentVcs::default()
-        }
+    pub fn inspect_file(&self, file: &Path, trust_full: bool, read_diff: bool) -> DocumentVcs {
+        self.providers
+            .iter()
+            .find_map(|provider| {
+                provider
+                    .inspect_file(file, trust_full, read_diff)
+                    .inspect_err(|error| {
+                        log::debug!("VCS inspection for {}: {error:#}", file.display())
+                    })
+                    .ok()
+            })
+            .unwrap_or_default()
     }
 
-    /// Read both watch categories from one freshly opened repository.
-    pub fn repository_watches(&self, _path: &Path, _trust_full: bool) -> RepositoryWatches {
-        #[cfg(feature = "git")]
-        {
-            git::repository_watches(_path, _trust_full).unwrap_or_default()
+    /// Collect every provider's watch inputs, sharing discovery within each provider.
+    pub fn repository_watches(&self, path: &Path, trust_full: bool) -> RepositoryWatches {
+        let mut watches = RepositoryWatches::default();
+        for provider in self.providers.iter() {
+            if let Ok(inputs) = provider.repository_watches(path, trust_full) {
+                watches.paths.extend(inputs.paths);
+                watches.files.extend(inputs.files);
+            }
         }
-        #[cfg(not(feature = "git"))]
-        {
-            RepositoryWatches::default()
-        }
+        watches
     }
 
     /// Enumerate changed files on a blocking worker. Returning false stops iteration.
@@ -117,97 +136,52 @@ impl DiffProviderRegistry {
         });
     }
 
-    /// Enumerate index and working-tree changes, reporting one terminal error on failure.
+    /// Enumerate with the first successful provider, reporting one terminal error if none succeeds.
     pub fn for_each_file_status(
         self,
         scope: ChangedFileScope,
-        _trust_full: bool,
+        trust_full: bool,
         f: impl Fn(&Path, Result<FileStatus>) -> bool + Send + 'static,
     ) {
         tokio::task::spawn_blocking(move || {
-            #[cfg(feature = "git")]
-            if git::for_each_file_status(&scope, _trust_full, &f).is_ok() {
-                return;
+            if self
+                .query(|provider| provider.for_each_file_status(&scope, trust_full, &f))
+                .is_err()
+            {
+                f(
+                    scope.path(),
+                    Err(anyhow!("no diff provider returns success")),
+                );
             }
-            f(
-                scope.path(),
-                Err(anyhow!("no diff provider returns success")),
-            );
         });
     }
 
     /// Read bounded comparison inputs on the caller's blocking worker.
     pub fn read_comparison(
         &self,
-        _status: &FileStatus,
-        _kind: ComparisonKind,
-        _trust_full: bool,
+        status: &FileStatus,
+        kind: ComparisonKind,
+        trust_full: bool,
     ) -> Result<Comparison> {
-        #[cfg(feature = "git")]
-        {
-            review::read_git_comparison(_status, _kind, _trust_full)
-        }
-        #[cfg(not(feature = "git"))]
-        {
-            anyhow::bail!("No Git support compiled in")
-        }
+        self.query(|provider| provider.read_comparison(status, kind, trust_full))
     }
 
     /// Resolve current staged/unstaged paths, including rename chains, on a blocking worker.
-    pub fn file_status(&self, _path: &Path, _trust_full: bool) -> Result<Option<FileStatus>> {
-        #[cfg(feature = "git")]
-        {
-            let directory = _path
-                .parent()
-                .and_then(|path| path.ancestors().find(|path| path.is_dir()))
-                .ok_or_else(|| anyhow!("File has no existing parent directory"))?;
-            let result = std::cell::RefCell::new(None);
-            git::for_each_file_status(
-                &ChangedFileScope::Repository(directory.into()),
-                _trust_full,
-                |_, status| match status {
-                    Ok(status) if status.path() == _path => {
-                        *result.borrow_mut() = Some(Ok(status));
-                        false
-                    }
-                    Err(error) => {
-                        *result.borrow_mut() = Some(Err(error));
-                        false
-                    }
-                    _ => true,
-                },
-            )?;
-            result.into_inner().transpose()
+    pub fn file_status(&self, path: &Path, trust_full: bool) -> Result<Option<FileStatus>> {
+        self.query(|provider| provider.file_status(path, trust_full))
+    }
+
+    fn query<T>(&self, mut query: impl FnMut(&DiffProvider) -> Result<T>) -> Result<T> {
+        let mut error = anyhow!("No VCS provider available");
+        for provider in self.providers.iter() {
+            match query(provider) {
+                Ok(result) => return Ok(result),
+                Err(err) => error = err,
+            }
         }
-        #[cfg(not(feature = "git"))]
-        {
-            anyhow::bail!("No Git support compiled in")
-        }
+        Err(error)
     }
 }
 
-#[cfg(all(test, not(feature = "git")))]
-#[tokio::test]
-async fn no_git_reports_one_terminal_enumeration_error() {
-    let path = Path::new("missing-repository");
-    let (sender, mut responses) = tokio::sync::mpsc::unbounded_channel();
-    DiffProviderRegistry::default().for_each_file_status(
-        ChangedFileScope::Repository(path.into()),
-        false,
-        move |root, result| {
-            sender
-                .send((root.to_owned(), result.unwrap_err().to_string()))
-                .unwrap();
-            true
-        },
-    );
-    let response = tokio::time::timeout(std::time::Duration::from_secs(5), responses.recv())
-        .await
-        .unwrap()
-        .unwrap();
-    assert_eq!(
-        response,
-        (path.into(), "no diff provider returns success".into())
-    );
-    assert!(responses.recv().await.is_none());
-}
+#[cfg(test)]
+mod tests;

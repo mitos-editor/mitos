@@ -4,6 +4,11 @@ Owns version-control integration, repository status, change tracking, and diff-j
 scheduling/publication. Pure text comparison, line interning, and indentation
 heuristics belong to `text-diff`.
 
+`DiffProviderRegistry` keeps compiled backends in priority order. Repository
+queries use the first successful backend, while watch inputs are collected from
+all backends. Git is currently the only implementation; additional backends such
+as Mercurial or jj belong behind this dispatch boundary.
+
 The optional `git` backend owns stage/unstage and stash workflows, branches,
 linked worktrees, explicit remote operations, repository identity, literal
 pathspecs, and subprocess output limits. Remote commands use configured names
