@@ -17,6 +17,7 @@ pub struct Context<'a> {
     pub register: Option<char>,
     pub count: Option<NonZeroUsize>,
     pub editor: &'a mut Editor,
+    pub interaction: &'a mut crate::compositor::InteractionState,
 
     pub callback: Vec<crate::compositor::Callback>,
     pub on_next_key_callback: Option<OnKeyCallback>,

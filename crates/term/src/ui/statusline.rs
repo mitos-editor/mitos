@@ -21,6 +21,7 @@ use tui::widgets::Widget;
 
 pub struct RenderContext<'a> {
     pub editor: &'a Editor,
+    pub selected_register: Option<char>,
     pub doc: &'a Document,
     pub view: &'a View,
     pub spinners: &'a ProgressSpinners,
@@ -33,9 +34,11 @@ impl<'a> RenderContext<'a> {
         doc: &'a Document,
         view: &'a View,
         spinners: &'a ProgressSpinners,
+        selected_register: Option<char>,
     ) -> Self {
         RenderContext {
             editor,
+            selected_register,
             doc,
             view,
             spinners,
@@ -742,7 +745,7 @@ fn render_register<'a, F>(context: &mut RenderContext<'a>, write: F)
 where
     F: Fn(&mut RenderContext<'a>, Span<'a>) + Copy,
 {
-    if let Some(reg) = context.editor.selected_register {
+    if let Some(reg) = context.selected_register {
         write(context, format!(" reg={} ", reg).into())
     }
 }

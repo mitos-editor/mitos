@@ -1277,13 +1277,11 @@ async fn conflict_headings_stay_stable_during_navigation_and_follow_undo() -> an
     // Navigating through labels must not reveal raw markers or lose the caret.
     press_keys(&mut app, "]mlll").await?;
     assert!(!review_screen(&app).contains("<<<<<<< HEAD"));
-    let (view, doc) = current_ref!(app.editor);
-    assert!(app.editor.cursor_cache.get(view, doc).is_some());
+    assert!(app.editor.cursor().0.is_some());
     press_keys(&mut app, "6j").await?;
     assert!(review_screen(&app).contains("End conflict"));
     assert!(!review_screen(&app).contains(">>>>>>> topic"));
-    let (view, doc) = current_ref!(app.editor);
-    assert!(app.editor.cursor_cache.get(view, doc).is_some());
+    assert!(app.editor.cursor().0.is_some());
     press_keys(&mut app, "]mj").await?;
     press_keys(&mut app, ":vcs-conflict-toggle-markers<ret>").await?;
     assert!(review_screen(&app).contains("<<<<<<< HEAD"));

@@ -178,7 +178,7 @@ while terminal decorations paint the resulting positions.
 
 `text-layout::DisplayPosition` identifies formatted rows and terminal-cell columns,
 including soft wraps and virtual lines. Formatters, visual coordinate mapping,
-annotations, cursor caches, and text rendering use this type. `core::Position`
+annotations, cursor placement, and text rendering use this type. `core::Position`
 continues to describe document coordinates. Call the layout mapping APIs to cross
 between character offsets and display positions; the types do not implicitly convert.
 View methods explicitly translate layout positions into viewport coordinates.
@@ -1135,6 +1135,12 @@ with the default backend graph, and process integrations run separately.
 implementations import their dependencies explicitly; they do not inherit a shared
 set of imports from the facade.
 
+The application owns terminal continuation state in `InteractionState`: numeric
+prefixes, selected registers, macro recording/replay, and mouse selection anchors.
+Mutable UI and command contexts borrow that owner; drawing only reads it. Command
+count/register values belong to one invocation and return to pending state only
+when its keymap continues. Semantic mode and register contents remain in `Editor`.
+
 | Module in `commands/` | Responsibility |
 | --- | --- |
 | `context.rs` | Command context, next-key callbacks, and job/compositor adapters |
@@ -1234,6 +1240,13 @@ admit previews, tick matching, and submit jobs; `render` receives `DrawContext`
 with read-only editor/configuration access and no job queue. Drawing may update
 local layout, scroll, and presentation caches. `update_and_render` runs both phases
 for standalone component consumers. Pending-render checks only observe state.
+
+The focused pane returns the cursor position of its rendered grapheme through
+`DrawContext`. An absent position is authoritative for that frame. Popup drawing,
+completion descriptions, and cursor-owner resolution use this output; no cursor
+cache or reset protocol lives in `Editor`. Outside drawing, `Editor::cursor`
+computes an uncached source-to-screen transform. The existing formatter and
+annotation mapping remain the only document layout model.
 
 The topmost component that declares cursor ownership controls the active cursor
 for the frame. Decorative overlays preserve the owner below them. After rendering,

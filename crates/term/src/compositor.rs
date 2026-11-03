@@ -21,9 +21,20 @@ use view::Editor;
 
 pub use ui_core::input::Event;
 
+/// Terminal input continuations belong to their application, not the shared editor.
+#[derive(Default)]
+pub struct InteractionState {
+    pub count: Option<std::num::NonZeroUsize>,
+    pub selected_register: Option<char>,
+    pub macro_recording: Option<(char, Vec<ui_core::input::KeyEvent>)>,
+    pub macro_replaying: Vec<char>,
+    pub mouse_down_range: Option<editor_core::Range>,
+}
+
 pub struct Context<'a> {
     pub config: crate::config::Context<'a>,
     pub editor: &'a mut Editor,
+    pub interaction: &'a mut InteractionState,
     pub scroll: Option<usize>,
     pub jobs: &'a mut Jobs,
     pub image_picker: Option<&'a ratatui_image::picker::Picker>,
@@ -35,6 +46,9 @@ pub struct Context<'a> {
 pub struct DrawContext<'a> {
     pub config: &'a crate::config::Config,
     pub editor: &'a Editor,
+    pub interaction: &'a InteractionState,
+    /// Absolute document cursor produced by this frame's focused pane.
+    pub editor_cursor: Option<text_layout::DisplayPosition>,
     pub scroll: Option<usize>,
     pub is_cursor_owner: bool,
 }
@@ -44,6 +58,8 @@ impl Context<'_> {
         DrawContext {
             config: self.config.current,
             editor: self.editor,
+            interaction: self.interaction,
+            editor_cursor: self.editor.cursor().0,
             scroll: self.scroll,
             is_cursor_owner: self.is_cursor_owner,
         }
@@ -92,7 +108,7 @@ pub trait Component: Any + AnyComponent {
     }
 
     /// Resolve the owned cursor after rendering has established its position.
-    fn cursor(&self, _area: Rect, _ctx: &Editor) -> Cursor {
+    fn cursor(&self, _area: Rect, _cx: &DrawContext) -> Cursor {
         Cursor::Hidden
     }
 
@@ -223,8 +239,8 @@ impl Compositor {
     pub fn handle_event(&mut self, event: &Event, cx: &mut Context) -> bool {
         // If it is a key event, a macro is being recorded, and a macro isn't being replayed,
         // push the key event to the recording.
-        if let (Event::Key(key), Some((_, keys))) = (event, &mut cx.editor.macro_recording)
-            && cx.editor.macro_replaying.is_empty()
+        if let (Event::Key(key), Some((_, keys))) = (event, &mut cx.interaction.macro_recording)
+            && cx.interaction.macro_replaying.is_empty()
         {
             keys.push(*key);
         }
@@ -273,9 +289,7 @@ impl Compositor {
             layer.render(area, surface, cx);
         }
         cx.is_cursor_owner = false;
-        owner.map_or(Cursor::Hidden, |index| {
-            self.layers[index].cursor(area, cx.editor)
-        })
+        owner.map_or(Cursor::Hidden, |index| self.layers[index].cursor(area, cx))
     }
 
     pub fn has_component<T: Any>(&self) -> bool {

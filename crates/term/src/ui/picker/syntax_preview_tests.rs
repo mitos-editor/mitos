@@ -144,6 +144,7 @@ impl Fixture {
                     updates: &tokio::sync::mpsc::unbounded_channel().0
                 },
                 &mut self.app.editor,
+                &mut self.app.interaction,
                 &mut self.compositor,
                 Ok(Some(callback))
             )
@@ -342,6 +343,7 @@ async fn preview_rendering_tolerates_locations_beyond_a_shortened_file() -> anyh
             updates: &updates,
         },
         editor: &mut fixture.app.editor,
+        interaction: &mut fixture.app.interaction,
         jobs: &mut fixture.jobs,
         scroll: None,
         image_picker: None,

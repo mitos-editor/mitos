@@ -121,6 +121,7 @@ async fn page_navigation_tracks_layout_changes_and_terminal_resizes() -> anyhow:
                     updates: &updates,
                 },
                 editor: &mut app.editor,
+                interaction: &mut app.interaction,
                 scroll: None,
                 jobs: &mut jobs,
                 image_picker: None,

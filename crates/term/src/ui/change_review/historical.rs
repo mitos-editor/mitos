@@ -248,6 +248,7 @@ mod tests {
                 updates: &updates,
             },
             editor: &mut app.editor,
+            interaction: &mut app.interaction,
             jobs: &mut jobs,
             scroll: None,
             image_picker: None,
