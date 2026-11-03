@@ -8,6 +8,7 @@ pub mod match_brackets;
 pub mod movement;
 pub mod object;
 pub mod queries;
+pub mod support;
 pub mod surround;
 pub mod syntax;
 pub mod tags;

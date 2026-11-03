@@ -144,6 +144,111 @@ fn validation_reports_each_query_error_without_populating_editor_caches() {
 }
 
 #[test]
+fn grammar_is_shared_without_highlights_and_preserves_the_editor_feature_gate() {
+    let dir = tempfile::tempdir().unwrap();
+    write(dir.path(), "highlights.scm", "(invalid_node) @string");
+    write(dir.path(), "indents.scm", "(object) @indent");
+    let loader = Loader::new(configuration(), resources(dir.path())).unwrap();
+    let language = loader.language_for_name("resource-json").unwrap();
+    let library = dir
+        .path()
+        .join("grammars")
+        .join("json")
+        .with_extension(loader::grammar::DYLIB_EXTENSION);
+    std::fs::create_dir_all(library.parent().unwrap()).unwrap();
+    // Sources introduced after construction are observed on first grammar use.
+    std::fs::write(&library, "invalid library").unwrap();
+    assert!(loader.grammar(language).is_err());
+    std::fs::remove_file(&library).unwrap();
+    let grammar = loader.grammar(language).unwrap().unwrap();
+    assert!(loader.language(language).syntax.get().is_none());
+    assert!(
+        queries::compile_indent_query(grammar, "resource-json", "(object) @indent")
+            .unwrap()
+            .is_some()
+    );
+    // A standalone grammar succeeds, but editor features retain the highlight gate.
+    assert!(loader.indent_query(language).is_none());
+    assert!(loader.get_config(language).is_none());
+    write(dir.path(), "highlights.scm", "(string) @string");
+    loader.validate_queries(language).unwrap();
+    assert!(loader.indent_query(language).is_none());
+    let fresh = Loader::new(configuration(), loader.resources().clone()).unwrap();
+    assert!(fresh.indent_query(language).is_some());
+    fresh.set_scopes(vec!["string".into()]);
+    assert_eq!(
+        fresh.get_config(language).unwrap().grammar,
+        fresh.grammar(language).unwrap().unwrap()
+    );
+    // A newly appearing override affects a new loader, not this loader's grammar snapshot.
+    std::fs::write(library, "invalid library").unwrap();
+    assert!(loader.resources().grammar("json").is_err());
+    assert_eq!(loader.grammar(language).unwrap(), Some(grammar));
+    let replacement = Loader::new(configuration(), loader.resources().clone()).unwrap();
+    assert!(replacement.grammar(language).is_err());
+}
+
+#[test]
+fn missing_and_broken_grammars_retry_without_resetting_cached_syntax_failures() {
+    let dir = tempfile::tempdir().unwrap();
+    let loader = Loader::new(configuration(), Resources::new(vec![dir.path().into()])).unwrap();
+    let language = loader.language_for_name("resource-json").unwrap();
+    assert!(loader.grammar(language).unwrap().is_none());
+    assert!(loader.get_config(language).is_none());
+    let relative = Path::new("grammars")
+        .join("json")
+        .with_extension(loader::grammar::DYLIB_EXTENSION);
+    let library = dir.path().join(&relative);
+    std::fs::create_dir_all(library.parent().unwrap()).unwrap();
+    std::fs::write(&library, "invalid library").unwrap();
+    assert!(loader.grammar(language).is_err());
+    std::fs::remove_file(&library).unwrap();
+    assert!(loader.grammar(language).unwrap().is_none());
+    std::fs::copy(loader::runtime_file(relative), library).unwrap();
+    assert!(loader.grammar(language).unwrap().is_some());
+    // Installing a grammar does not undo the existing editor failure cache.
+    assert!(loader.get_config(language).is_none());
+    let replacement = Loader::new(configuration(), loader.resources().clone()).unwrap();
+    assert!(replacement.get_config(language).is_some());
+}
+
+#[test]
+fn support_inspection_distinguishes_source_states_without_requiring_a_grammar() {
+    use crate::support::LanguageSupport;
+    use loader::syntax::QuerySource;
+    let high = tempfile::tempdir().unwrap();
+    let low = tempfile::tempdir().unwrap();
+    write(low.path(), "highlights.scm", "; inherits: parent");
+    write(low.path(), "indents.scm", "(object) @indent");
+    write(high.path(), "indents.scm", "");
+    std::fs::write(
+        high.path().join("queries/resource-json/indents.scm"),
+        [0xff],
+    )
+    .unwrap();
+    write(high.path(), "spellcheck.scm", "(string) @spell");
+    let resources = Resources::new(vec![high.path().into(), low.path().into()]);
+    assert!(resources.grammar("json").unwrap().is_none());
+    let support = LanguageSupport::inspect(&resources, "resource-json");
+    assert_eq!(support.queries.len(), 6);
+    for (feature, source) in support.queries {
+        let expected = match feature.runtime_filename() {
+            "highlights.scm" => QuerySource::Readable, // Inherited-only source counts.
+            "indents.scm" => QuerySource::Unreadable,  // Never falls through to lower source.
+            _ => QuerySource::Absent,
+        };
+        assert_eq!(source, expected, "{feature:?}");
+    }
+    write(high.path(), "indents.scm", "(object) @indent");
+    assert!(LanguageSupport::inspect(&resources, "resource-json")
+        .queries
+        .iter()
+        .all(
+            |(feature, source)| feature.runtime_filename() != "indents.scm" || source.is_readable()
+        ));
+}
+
+#[test]
 fn missing_grammar_stays_optional_even_with_invalid_query_files() {
     let dir = tempfile::tempdir().unwrap();
     write(dir.path(), "highlights.scm", "(invalid_node)");

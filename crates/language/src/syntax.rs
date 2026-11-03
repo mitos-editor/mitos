@@ -14,7 +14,7 @@ use std::{
     path::Path,
     sync::{
         atomic::{AtomicU64, Ordering},
-        Arc, OnceLock,
+        Arc, Mutex, OnceLock,
     },
     time::Duration,
 };
@@ -62,6 +62,7 @@ impl Default for HighlightRevision {
 #[derive(Debug)]
 pub struct LanguageData {
     config: Arc<LanguageConfiguration>,
+    grammar: Mutex<Option<Grammar>>,
     syntax: OnceLock<Option<SyntaxConfig>>,
     indent_query: OnceLock<Option<IndentQuery>>,
     textobject_query: OnceLock<Option<TextObjectQuery>>,
@@ -75,6 +76,7 @@ impl LanguageData {
     fn new(config: LanguageConfiguration) -> Self {
         Self {
             config: Arc::new(config),
+            grammar: Mutex::new(None),
             syntax: OnceLock::new(),
             indent_query: OnceLock::new(),
             textobject_query: OnceLock::new(),
@@ -89,10 +91,23 @@ impl LanguageData {
         &self.config
     }
 
+    fn grammar(&self, loader: &Loader) -> Result<Option<Grammar>> {
+        // Cache successes only: a missing or broken library can be installed later.
+        let mut grammar = self.grammar.lock().unwrap();
+        if grammar.is_none() {
+            let name = self
+                .config
+                .grammar
+                .as_deref()
+                .unwrap_or(&self.config.language_id);
+            *grammar = loader.resources.grammar(name)?;
+        }
+        Ok(*grammar)
+    }
+
     fn load_syntax_config(&self, loader: &Loader) -> Result<Option<SyntaxConfig>> {
         let name = &self.config.language_id;
-        let parser_name = self.config.grammar.as_deref().unwrap_or(name);
-        let Some(grammar) = loader.resources.grammar(parser_name)? else {
+        let Some(grammar) = self.grammar(loader)? else {
             log::info!("Skipping syntax config for '{name}' because the parser's shared library does not exist");
             return Ok(None);
         };
@@ -202,6 +217,7 @@ impl LanguageData {
     ) -> Option<&'a T> {
         cache
             .get_or_init(|| {
+                // Preserve the editor feature gate on successful highlighting.
                 let grammar = self.syntax_config(loader)?.grammar;
                 load(self, grammar, loader)
                     .inspect_err(|error| log::error!("{error:#}"))
@@ -260,11 +276,10 @@ pub struct Loader {
 pub type LoaderError = globset::Error;
 
 impl Loader {
-    /// Resolve a parser through this loader's runtime resources without requiring highlight queries.
+    /// Resolve a parser without highlight queries. Successful loads are shared;
+    /// missing or broken libraries remain retryable until installed or repaired.
     pub fn grammar(&self, language: Language) -> Result<Option<Grammar>> {
-        let config = self.language(language).config();
-        self.resources
-            .grammar(config.grammar.as_deref().unwrap_or(&config.language_id))
+        self.language(language).grammar(self)
     }
 
     pub fn new(config: Configuration, resources: Resources) -> Result<Self, LoaderError> {

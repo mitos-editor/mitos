@@ -7,7 +7,6 @@
 mod docgen;
 mod grammar_sources;
 mod grammar_updates;
-mod helpers;
 mod install;
 mod path;
 

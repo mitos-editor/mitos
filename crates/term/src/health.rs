@@ -1,9 +1,10 @@
 use crate::config::{Config, ConfigLoadError};
+use language::support::LanguageSupport;
 use language::{
     loader::{default_lang_config, user_lang_config},
     queries::QueryFeature,
 };
-use loader::grammar::load_runtime_file;
+use loader::syntax::Resources;
 use std::{
     collections::HashSet,
     io::{IsTerminal, Write},
@@ -156,6 +157,7 @@ fn languages(
         }
     };
 
+    let resources = Resources::default();
     let mut headings = vec!["Language", "Language servers", "Debug adapter", "Formatter"];
 
     for feat in QueryFeature::all() {
@@ -227,8 +229,8 @@ fn languages(
             .map(|formatter| formatter.command.as_str());
         write!(stdout, "{}", check_binary(formatter))?;
 
-        for ts_feat in QueryFeature::all() {
-            match load_runtime_file(&lang.language_id, ts_feat.runtime_filename()).is_ok() {
+        for (_, source) in LanguageSupport::inspect(&resources, &lang.language_id).queries {
+            match source.is_readable() {
                 true => write!(stdout, "{}", color(fit("✓"), ColorSpec::BRIGHT_GREEN))?,
                 false => write!(stdout, "{}", color(fit("✘"), ColorSpec::BRIGHT_RED))?,
             }
@@ -331,8 +333,13 @@ pub fn language(lang_str: String) -> std::io::Result<()> {
 
     probe_parser(lang.grammar.as_ref().unwrap_or(&lang.language_id))?;
 
-    for ts_feat in QueryFeature::all() {
-        probe_treesitter_feature(&lang_str, *ts_feat)?
+    for (feature, source) in LanguageSupport::inspect(&Resources::default(), &lang_str).queries {
+        let found = if source.is_readable() {
+            "✓".green()
+        } else {
+            "✘".red()
+        };
+        writeln!(stdout, "{} queries: {}", feature.short_title(), found)?;
     }
 
     Ok(())
@@ -451,21 +458,6 @@ fn probe_protocol(
     if !args.is_empty() {
         writeln!(stdout, "    Arguments: {args:?}")?;
     }
-
-    Ok(())
-}
-
-/// Display diagnostics about a feature that requires tree-sitter
-/// query files (highlights, textobjects, etc).
-fn probe_treesitter_feature(lang: &str, feature: QueryFeature) -> std::io::Result<()> {
-    let stdout = std::io::stdout();
-    let mut stdout = stdout.lock();
-
-    let found = match load_runtime_file(lang, feature.runtime_filename()).is_ok() {
-        true => "✓".green(),
-        false => "✘".red(),
-    };
-    writeln!(stdout, "{} queries: {}", feature.short_title(), found)?;
 
     Ok(())
 }
