@@ -2,9 +2,9 @@
 
 use super::Document;
 use crate::ViewId;
-use buffer::history::{HistoryStep, UndoKind};
+use buffer::history::UndoKind;
 
-use buffer::HistoryAction;
+use buffer::{HistoryAction, HistoryPlan};
 
 impl Document {
     /// Commit pending text as one undo revision. No view or cursor is required.
@@ -42,20 +42,16 @@ impl Document {
         if matches!(action, HistoryAction::Undo | HistoryAction::Earlier(_)) {
             self.commit_changes();
         }
-        let steps = self.buffer.prepare_history(action);
-        self.replay_history(steps, origin)
+        let plan = self.buffer.prepare_history(action);
+        self.replay_history(plan, origin)
     }
 
-    fn replay_history(&mut self, steps: Vec<HistoryStep>, origin: Option<ViewId>) -> bool {
+    fn replay_history(&mut self, mut plan: HistoryPlan, origin: Option<ViewId>) -> bool {
         let mut applied = false;
-        for step in steps {
+        while let Ok(Some((step, change))) = self.buffer.apply_history_step(&mut plan) {
             let selection = origin
                 .and_then(|_| self.selection_history.selection(&step))
                 .cloned();
-            let Ok(change) = self.buffer.apply_history_step(&step) else {
-                // An observer may have edited or committed after the previous step.
-                break;
-            };
             // History replay ends interactive completion and snippet sessions.
             self.accepted_completions.cancel();
             self.clear_snippet();

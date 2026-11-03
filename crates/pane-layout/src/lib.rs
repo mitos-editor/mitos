@@ -22,8 +22,7 @@ pub struct SplitSizes<K: Key> {
 struct SplitSize<K: Key> {
     id: K,
     layout: Layout,
-    children: Vec<K>,
-    weights: Vec<u32>,
+    children: Vec<Child<K>>,
 }
 
 /// Split topology and geometry over stable keys and caller-owned pane values.
@@ -101,12 +100,17 @@ impl Dimension {
     }
 }
 
+/// A split edge and its relative size. Equal weights give an even split.
+#[derive(Debug, Clone, Copy)]
+struct Child<K> {
+    id: K,
+    weight: u32,
+}
+
 #[derive(Debug)]
 struct Container<K: Key> {
     layout: Layout,
-    children: Vec<K>,
-    /// Relative size of each child, by position. Equal weights give the plain even split.
-    weights: Vec<u32>,
+    children: Vec<Child<K>>,
     area: Rect,
 }
 
@@ -115,7 +119,6 @@ impl<K: Key> Container<K> {
         Self {
             layout,
             children: Vec::new(),
-            weights: Vec::new(),
             area: Rect::default(),
         }
     }
@@ -123,13 +126,16 @@ impl<K: Key> Container<K> {
     /// Insert a child with the average weight, so it takes `1 / len` of the container and
     /// the other children keep their proportions.
     fn insert_child(&mut self, pos: usize, child: K) {
-        let len = self.weights.len() as u64;
-        let total: u64 = self.weights.iter().map(|&w| u64::from(w)).sum();
+        let len = self.children.len() as u64;
+        let total: u64 = self
+            .children
+            .iter()
+            .map(|child| u64::from(child.weight))
+            .sum();
         let weight = (total + len / 2)
             .checked_div(len)
             .map_or(1, |average| average.max(1) as u32);
-        self.children.insert(pos, child);
-        self.weights.insert(pos, weight);
+        self.children.insert(pos, Child { id: child, weight });
     }
 
     fn push_child(&mut self, child: K) {
@@ -137,8 +143,7 @@ impl<K: Key> Container<K> {
     }
 
     fn remove_child(&mut self, pos: usize) -> K {
-        self.weights.remove(pos);
-        self.children.remove(pos)
+        self.children.remove(pos).id
     }
 
     /// Cells the children share along the layout axis, before the last child's rounding.
@@ -153,11 +158,15 @@ impl<K: Key> Container<K> {
 
     /// Each child's share of `used` cells. The last child takes what rounding leaves.
     fn shares(&self, used: usize, minimums: &[usize]) -> Vec<usize> {
-        let total: u64 = self.weights.iter().map(|&w| u64::from(w)).sum();
-        let mut shares: Vec<usize> = self
-            .weights
+        let total: u64 = self
+            .children
             .iter()
-            .map(|&w| (used as u64 * u64::from(w) / total.max(1)) as usize)
+            .map(|child| u64::from(child.weight))
+            .sum();
+        let mut shares: Vec<usize> = self
+            .children
+            .iter()
+            .map(|child| (used as u64 * u64::from(child.weight) / total.max(1)) as usize)
             .collect();
         if let Some((last, rest)) = shares.split_last_mut() {
             *last = used.saturating_sub(rest.iter().sum());
@@ -178,7 +187,7 @@ impl<K: Key> Container<K> {
                     shares[i] = minimum;
                     fixed[i] = true;
                     remaining -= minimum;
-                    remaining_weight -= u64::from(self.weights[i]);
+                    remaining_weight -= u64::from(self.children[i].weight);
                     changed = true;
                 }
             }
@@ -189,10 +198,10 @@ impl<K: Key> Container<K> {
             // Pin children at their minimum and divide the rest proportionally.
             let mut allocated = 0;
             let mut last = None;
-            for (i, &weight) in self.weights.iter().enumerate() {
+            for (i, child) in self.children.iter().enumerate() {
                 if !fixed[i] {
-                    shares[i] =
-                        (remaining as u64 * u64::from(weight) / remaining_weight.max(1)) as usize;
+                    shares[i] = (remaining as u64 * u64::from(child.weight)
+                        / remaining_weight.max(1)) as usize;
                     allocated += shares[i];
                     last = Some(i);
                 }
@@ -273,7 +282,7 @@ impl<K: Key, P: Pane<K>> Tree<K, P> {
             let pos = container
                 .children
                 .iter()
-                .position(|&child| child == focus)
+                .position(|child| child.id == focus)
                 .unwrap();
             pos + 1
         };
@@ -311,7 +320,7 @@ impl<K: Key, P: Pane<K>> Tree<K, P> {
                 let pos = container
                     .children
                     .iter()
-                    .position(|&child| child == focus)
+                    .position(|child| child.id == focus)
                     .unwrap();
                 pos + 1
             };
@@ -345,11 +354,11 @@ impl<K: Key, P: Pane<K>> Tree<K, P> {
             let pos = container
                 .children
                 .iter()
-                .position(|&child| child == focus)
+                .position(|child| child.id == focus)
                 .unwrap();
 
             // replace focus on parent with split
-            container.children[pos] = split;
+            container.children[pos].id = split;
         }
 
         // focus the new node
@@ -383,11 +392,11 @@ impl<K: Key, P: Pane<K>> Tree<K, P> {
         let pos = container
             .children
             .iter()
-            .position(|&item| item == child)
+            .position(|item| item.id == child)
             .unwrap();
 
         if let Some(new) = replacement {
-            container.children[pos] = new;
+            container.children[pos].id = new;
             self.nodes[new].parent = parent;
         } else {
             container.remove_child(pos);
@@ -551,7 +560,7 @@ impl<K: Key, P: Pane<K>> Tree<K, P> {
                                     area.height = container.area.bottom().saturating_sub(area.y);
                                 }
 
-                                self.stack.push((*child, area));
+                                self.stack.push((child.id, area));
                             }
                         }
                         Layout::Vertical => {
@@ -579,7 +588,7 @@ impl<K: Key, P: Pane<K>> Tree<K, P> {
                                     area.width = container.area.right().saturating_sub(area.x);
                                 }
 
-                                self.stack.push((*child, area));
+                                self.stack.push((child.id, area));
                             }
                         }
                     }
@@ -641,21 +650,13 @@ impl<K: Key, P: Pane<K>> Tree<K, P> {
         }
     }
 
-    fn find_child(&self, id: K, children: &[K], direction: Direction) -> Option<K> {
-        let mut child_id = match direction {
-            // index wise in the child list the Up and Left represents a -1
-            // thus reversed iterator.
-            Direction::Up | Direction::Left => children
-                .iter()
-                .rev()
-                .skip_while(|i| **i != id)
-                .copied()
-                .nth(1)?,
-            // Down and Right => +1 index wise in the child list
-            Direction::Down | Direction::Right => {
-                children.iter().skip_while(|i| **i != id).copied().nth(1)?
-            }
+    fn find_child(&self, id: K, children: &[Child<K>], direction: Direction) -> Option<K> {
+        let index = children.iter().position(|child| child.id == id)?;
+        let neighbor = match direction {
+            Direction::Up | Direction::Left => index.checked_sub(1)?,
+            Direction::Down | Direction::Right => index + 1,
         };
+        let mut child_id = children.get(neighbor)?.id;
         let (current_x, current_y) = match &self.nodes[self.focus].content {
             Content::Pane(current_pane) => (current_pane.area().left(), current_pane.area().top()),
             Content::Container(_) => unreachable!(),
@@ -672,13 +673,18 @@ impl<K: Key, P: Pane<K>> Tree<K, P> {
                 Layout::Vertical => current_x,
                 Layout::Horizontal => current_y,
             };
-            child_id = *container.children.iter().min_by_key(|&&id| {
-                let area = match &self.nodes[id].content {
-                    Content::Pane(pane) => pane.area(),
-                    Content::Container(container) => container.area,
-                };
-                current.abs_diff(coordinate(area))
-            })?;
+            child_id = container
+                .children
+                .iter()
+                .min_by_key(|child| {
+                    let id = child.id;
+                    let area = match &self.nodes[id].content {
+                        Content::Pane(pane) => pane.area(),
+                        Content::Container(container) => container.area,
+                    };
+                    current.abs_diff(coordinate(area))
+                })?
+                .id;
         }
         Some(child_id)
     }
@@ -758,10 +764,9 @@ impl<K: Key, P: Pane<K>> Tree<K, P> {
         }
 
         let container = self.container_mut(parent);
-        container.weights = shares
-            .into_iter()
-            .map(|share| share.max(1) as u32)
-            .collect();
+        for (child, share) in container.children.iter_mut().zip(shares) {
+            child.weight = share.max(1) as u32;
+        }
         self.recalculate();
         true
     }
@@ -811,7 +816,9 @@ impl<K: Key, P: Pane<K>> Tree<K, P> {
         }
         shares[donor] -= amount;
         shares[receiver] += amount;
-        self.container_mut(parent).weights = shares.into_iter().map(|share| share as u32).collect();
+        for (child, share) in self.container_mut(parent).children.iter_mut().zip(shares) {
+            child.weight = share as u32;
+        }
         self.recalculate();
         true
     }
@@ -830,7 +837,6 @@ impl<K: Key, P: Pane<K>> Tree<K, P> {
                         id,
                         layout: container.layout,
                         children: container.children.clone(),
-                        weights: container.weights.clone(),
                     })
                 })
                 .collect(),
@@ -844,7 +850,6 @@ impl<K: Key, P: Pane<K>> Tree<K, P> {
             id,
             layout,
             children,
-            weights,
         } in sizes.containers
         {
             if let Some(Node {
@@ -852,9 +857,13 @@ impl<K: Key, P: Pane<K>> Tree<K, P> {
                 ..
             }) = self.nodes.get_mut(id)
                 && container.layout == layout
-                && container.children == children
+                && container
+                    .children
+                    .iter()
+                    .map(|child| child.id)
+                    .eq(children.iter().map(|child| child.id))
             {
-                container.weights = weights;
+                container.children = children;
             }
         }
         self.recalculate();
@@ -864,7 +873,9 @@ impl<K: Key, P: Pane<K>> Tree<K, P> {
     pub fn equalize(&mut self) {
         for node in self.nodes.values_mut() {
             if let Content::Container(container) = &mut node.content {
-                container.weights.fill(1);
+                for child in &mut container.children {
+                    child.weight = 1;
+                }
             }
         }
         self.recalculate();
@@ -881,7 +892,7 @@ impl<K: Key, P: Pane<K>> Tree<K, P> {
             }
             let container = self.container_ref(parent);
             if container.layout == layout && container.children.len() > 1 {
-                let idx = container.children.iter().position(|&c| c == child)?;
+                let idx = container.children.iter().position(|c| c.id == child)?;
                 return Some((parent, idx));
             }
             child = parent;
@@ -897,7 +908,7 @@ impl<K: Key, P: Pane<K>> Tree<K, P> {
         let mut minimums: Vec<_> = container
             .children
             .iter()
-            .map(|&child| usize::from(self.min_extent(child, dimension)))
+            .map(|child| usize::from(self.min_extent(child.id, dimension)))
             .collect();
         if dimension == Dimension::Width && minimums.len() > 1 {
             *minimums.last_mut().unwrap() += 1;
@@ -916,7 +927,7 @@ impl<K: Key, P: Pane<K>> Tree<K, P> {
                 let mins = container
                     .children
                     .iter()
-                    .map(|&child| self.min_extent(child, dimension));
+                    .map(|child| self.min_extent(child.id, dimension));
                 if container.layout == dimension.layout() {
                     let gaps = match dimension {
                         Dimension::Width => container.children.len().saturating_sub(1) as u16,
@@ -955,14 +966,14 @@ impl<K: Key, P: Pane<K>> Tree<K, P> {
                     let focus_pos = parent
                         .children
                         .iter()
-                        .position(|id| focus_pane.id() == *id)?;
+                        .position(|child| focus_pane.id() == child.id)?;
                     let target_pos = parent
                         .children
                         .iter()
-                        .position(|id| target_pane.id() == *id)?;
+                        .position(|child| target_pane.id() == child.id)?;
                     // swap node positions so that traversal order is kept
-                    parent.children[focus_pos] = target_pane.id();
-                    parent.children[target_pos] = focus_pane.id();
+                    parent.children[focus_pos].id = target_pane.id();
+                    parent.children[target_pos].id = focus_pane.id();
                     // swap area so that panes rendered at the correct location
                     let area = focus_pane.area();
                     focus_pane.set_area(target_pane.area());
@@ -991,15 +1002,15 @@ impl<K: Key, P: Pane<K>> Tree<K, P> {
                     let focus_pos = focus_parent
                         .children
                         .iter()
-                        .position(|id| focus_pane.id() == *id)?;
+                        .position(|child| focus_pane.id() == child.id)?;
                     let target_pos = target_parent
                         .children
                         .iter()
-                        .position(|id| target_pane.id() == *id)?;
+                        .position(|child| target_pane.id() == child.id)?;
                     // re-parent target and focus nodes
                     std::mem::swap(
-                        &mut focus_parent.children[focus_pos],
-                        &mut target_parent.children[target_pos],
+                        &mut focus_parent.children[focus_pos].id,
+                        &mut target_parent.children[target_pos].id,
                     );
                     std::mem::swap(&mut focus.parent, &mut target.parent);
                     // swap area so that panes rendered at the correct location
@@ -1046,7 +1057,8 @@ impl<'a, K: Key, P: Pane<K>> Iterator for Traverse<'a, K, P> {
             match &node.content {
                 Content::Pane(pane) => return Some((key, pane)),
                 Content::Container(container) => {
-                    self.stack.extend(container.children.iter().rev());
+                    self.stack
+                        .extend(container.children.iter().rev().map(|child| child.id));
                 }
             }
         }
@@ -1063,7 +1075,8 @@ impl<K: Key, P: Pane<K>> DoubleEndedIterator for Traverse<'_, K, P> {
             match &node.content {
                 Content::Pane(pane) => return Some((key, pane)),
                 Content::Container(container) => {
-                    self.stack.extend(container.children.iter());
+                    self.stack
+                        .extend(container.children.iter().map(|child| child.id));
                 }
             }
         }
@@ -1358,6 +1371,24 @@ mod test {
             ids.push(tree.split(TestPane::new(ContentId::default()), Layout::Vertical));
         }
         (tree, ids)
+    }
+
+    #[test]
+    fn swapping_weighted_panes_keeps_proportions_at_their_positions() {
+        let (mut tree, ids) = columns(120, 3, 1);
+        tree.focus = ids[0];
+        assert!(tree.resize_focus(Dimension::Width, 10));
+        let sizes = widths(&tree);
+        assert_ne!(sizes[0], sizes[1]);
+        tree.swap_split_in_direction(Direction::Right).unwrap();
+        assert_eq!(
+            tree.traverse().map(|(id, _)| id).collect::<Vec<_>>(),
+            [ids[1], ids[0], ids[2]]
+        );
+        // Recalculation exposes an accidental swap of weights along with keys.
+        tree.recalculate();
+        assert_eq!(widths(&tree), sizes);
+        assert_eq!(tree.get(ids[0]).area.width, sizes[1]);
     }
 
     #[test]

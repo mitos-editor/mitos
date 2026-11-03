@@ -7,11 +7,10 @@ use std::num::NonZeroUsize;
 use std::sync::LazyLock;
 use std::time::{Duration, Instant};
 
-/// One step through the text history. Selection restoration belongs to the caller.
-#[derive(Debug, Clone)]
+/// Metadata for one applied history step. Selection restoration belongs to the caller.
+#[derive(Debug, Clone, Copy)]
 pub struct HistoryStep {
     pub revision: usize,
-    pub transaction: Transaction,
     pub direction: HistoryDirection,
 }
 
@@ -68,7 +67,7 @@ pub enum HistoryAction {
 ///
 /// Using time to navigate the history: <https://github.com/helix-editor/helix/pull/194>
 #[derive(Debug)]
-pub struct History {
+pub(crate) struct History {
     revisions: Vec<Revision>,
     current: usize,
 }
@@ -90,11 +89,7 @@ struct Revision {
 #[derive(Debug, Clone)]
 enum Inversion {
     Copied(Transaction),
-    Shared {
-        operations: Vec<InverseOperation>,
-        len_before: usize,
-        len_after: usize,
-    },
+    Shared(Vec<InverseOperation>),
 }
 
 #[derive(Debug, Clone)]
@@ -165,17 +160,13 @@ impl Inversion {
                 }
             }
         }
-        Self::Shared {
-            operations,
-            len_before: changes.len_after(),
-            len_after: changes.len_before(),
-        }
+        Self::Shared(operations)
     }
 
     fn transaction(&self) -> Transaction {
         match self {
             Self::Copied(transaction) => transaction.clone(),
-            Self::Shared { operations, .. } => {
+            Self::Shared(operations) => {
                 let mut changes = ChangeSetBuilder::with_capacity(operations.len());
                 for operation in operations {
                     match operation {
@@ -191,32 +182,6 @@ impl Inversion {
                     }
                 }
                 Transaction::from(changes.finish())
-            }
-        }
-    }
-
-    fn matches(&self, changes: &ChangeSet) -> bool {
-        match self {
-            Self::Copied(transaction) => transaction.changes() == changes,
-            Self::Shared {
-                operations,
-                len_before,
-                len_after,
-            } => {
-                *len_before == changes.len_before()
-                    && *len_after == changes.len_after()
-                    && operations.len() == changes.changes().len()
-                    && operations
-                        .iter()
-                        .zip(changes.changes())
-                        .all(|(stored, supplied)| match (stored, supplied) {
-                            (InverseOperation::Retain(a), Operation::Retain(b))
-                            | (InverseOperation::Delete(a), Operation::Delete(b)) => a == b,
-                            (InverseOperation::Insert(a), Operation::Insert(b)) => {
-                                a.slice(..) == b.as_str()
-                            }
-                            _ => false,
-                        })
             }
         }
     }
@@ -290,18 +255,6 @@ impl History {
         (self.current != 0).then(|| &self.revisions[self.current].transaction)
     }
 
-    fn step(&self, revision: usize, direction: HistoryDirection) -> HistoryStep {
-        let entry = &self.revisions[revision];
-        HistoryStep {
-            revision,
-            transaction: match direction {
-                HistoryDirection::Undo => entry.inversion.transaction(),
-                HistoryDirection::Redo => entry.transaction.clone(),
-            },
-            direction,
-        }
-    }
-
     fn lowest_common_ancestor(&self, mut a: usize, mut b: usize) -> usize {
         // Revisions are appended, so every parent has a smaller ID than its children.
         // Advance the newer revision until both paths meet, without allocating paths.
@@ -330,12 +283,15 @@ impl History {
         let lca = self.lowest_common_ancestor(self.current, to);
         let up = self.path_up(self.current, lca);
         let down = self.path_up(to, lca);
-        let up_txns = up.iter().map(|&n| self.step(n, HistoryDirection::Undo));
-        let down_txns = down
-            .iter()
-            .rev()
-            .map(|&n| self.step(n, HistoryDirection::Redo));
-        up_txns.chain(down_txns).collect()
+        let up_steps = up.iter().map(|&n| HistoryStep {
+            revision: n,
+            direction: HistoryDirection::Undo,
+        });
+        let down_steps = down.iter().rev().map(|&n| HistoryStep {
+            revision: n,
+            direction: HistoryDirection::Redo,
+        });
+        up_steps.chain(down_steps).collect()
     }
 
     /// Helper for a binary search case below.
@@ -404,37 +360,30 @@ impl History {
 
     /// Plan navigation without changing the current revision. Replay clients can
     /// apply each step with its text change before notifying observers.
-    pub fn plan(&self, action: HistoryAction) -> Vec<HistoryStep> {
+    pub(crate) fn plan(&self, action: HistoryAction) -> Vec<HistoryStep> {
         self.steps_to(self.target_for(action))
     }
 
-    /// Advance one step obtained from `plan`, rejecting stale or altered steps.
-    /// The caller validates and applies the corresponding text change as part of
-    /// the same operation, without publishing an intermediate state.
-    pub fn advance(&mut self, step: &HistoryStep) -> bool {
-        let Some(revision) = self.revisions.get(step.revision) else {
-            return false;
-        };
-        if step.revision == 0 {
-            return false;
-        }
-        let next = match step.direction {
-            HistoryDirection::Undo
-                if self.current == step.revision
-                    && revision.inversion.matches(step.transaction.changes()) =>
-            {
-                revision.parent
+    /// Apply a step from the buffer's current, privately held navigation plan.
+    pub(crate) fn replay(&mut self, step: HistoryStep) -> Option<Transaction> {
+        let revision = self.revisions.get(step.revision)?;
+        let transaction = match step.direction {
+            HistoryDirection::Undo => {
+                if self.current != step.revision {
+                    return None;
+                }
+                self.current = revision.parent;
+                revision.inversion.transaction()
             }
-            HistoryDirection::Redo
-                if revision.parent == self.current
-                    && step.transaction.changes() == revision.transaction.changes() =>
-            {
-                step.revision
+            HistoryDirection::Redo => {
+                if self.current != revision.parent {
+                    return None;
+                }
+                self.current = step.revision;
+                revision.transaction.clone()
             }
-            _ => return false,
         };
-        self.current = next;
-        true
+        Some(transaction)
     }
 }
 
@@ -527,8 +476,7 @@ mod test {
 
     fn replay(history: &mut History, state: &mut Rope, action: HistoryAction) {
         for step in history.plan(action) {
-            assert!(history.advance(&step));
-            assert!(step.transaction.apply(state));
+            assert!(history.replay(step).unwrap().apply(state));
         }
     }
 
@@ -543,48 +491,34 @@ mod test {
             [(0, state.len_chars(), Some("replacement".into()))].into_iter(),
         );
         let revision = history.commit_revision(change.changes(), &state);
-        let Inversion::Shared { operations, .. } = &history.revisions[revision].inversion else {
+        let Inversion::Shared(operations) = &history.revisions[revision].inversion else {
             panic!("large deletion must share")
         };
         assert!(operations.iter().any(|op| matches!(op, InverseOperation::Insert(text) if ropes_are_instances(text, &original))));
         assert!(change.apply(&mut state));
         let undo = history.plan(HistoryAction::Undo).pop().unwrap();
-        let mut altered = undo.clone();
-        let mut wrong = original.clone();
-        wrong.remove(0.."α".len());
-        wrong.insert(0, "β");
-        altered.transaction = Transaction::change(
-            &state,
-            [(0, state.len_chars(), Some(wrong.to_string().into()))].into_iter(),
-        );
-        assert!(!history.advance(&altered));
-        assert!(history.advance(&undo));
-        assert!(undo.transaction.apply(&mut state));
+        assert!(history.replay(undo).unwrap().apply(&mut state));
         assert_eq!(state, original);
         let redo = history.plan(HistoryAction::Redo).pop().unwrap();
-        assert!(history.advance(&redo));
-        assert!(redo.transaction.apply(&mut state));
+        assert!(history.replay(redo).unwrap().apply(&mut state));
         assert_eq!(state, "replacement");
         let inverse = history.changes_since(0).unwrap().invert(&original);
         assert!(inverse.apply(&mut state));
         assert_eq!(state, original);
         let undo = history.plan(HistoryAction::Undo).pop().unwrap();
-        assert!(history.advance(&undo));
         let mut deleted_again = Rope::from("replacement");
-        assert!(undo.transaction.apply(&mut deleted_again));
+        assert!(history.replay(undo).unwrap().apply(&mut deleted_again));
         assert_eq!(deleted_again, original);
         let branch = Transaction::change(&state, [(0, state.len_chars(), None)].into_iter());
         history.commit_revision(branch.changes(), &state);
         branch.apply(&mut state);
         let rewind = history.plan(HistoryAction::Earlier(UndoKind::Steps(1)));
         for step in rewind {
-            assert!(history.advance(&step));
-            assert!(step.transaction.apply(&mut state));
+            assert!(history.replay(step).unwrap().apply(&mut state));
         }
         assert_eq!(state, "replacement");
         let undo = history.plan(HistoryAction::Undo).pop().unwrap();
-        assert!(history.advance(&undo));
-        assert!(undo.transaction.apply(&mut state));
+        assert!(history.replay(undo).unwrap().apply(&mut state));
         assert_eq!(state, original);
     }
 
@@ -604,9 +538,8 @@ mod test {
             [(0, 300_000, Some("界".into())), (500_000, 900_000, None)].into_iter(),
         );
         let inversion = Inversion::new(change.changes(), &original);
-        assert!(matches!(inversion, Inversion::Shared { .. }));
+        assert!(matches!(inversion, Inversion::Shared(_)));
         let inverse = inversion.transaction();
-        assert!(inversion.matches(inverse.changes()));
         assert_eq!(inverse.changes(), change.invert(&original).changes());
         let mut state = original.clone();
         assert!(change.apply(&mut state));
