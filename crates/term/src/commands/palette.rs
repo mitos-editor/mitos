@@ -107,6 +107,7 @@ pub fn command_palette(cx: &mut Context) {
                         register,
                         count,
                         editor: cx.editor,
+                        interaction: cx.interaction,
                         callback: Vec::new(),
                         on_next_key_callback: None,
                         jobs: cx.jobs,

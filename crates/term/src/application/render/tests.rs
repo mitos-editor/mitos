@@ -280,6 +280,7 @@ async fn focus_cleanup_stays_with_its_application_and_unregisters_on_drop() -> a
             updates: &first.config_updates.0,
         },
         &mut first.editor,
+        &mut first.interaction,
         &mut first.compositor,
         Ok(Some(callback)),
     );
@@ -310,6 +311,7 @@ async fn focus_cleanup_stays_with_its_application_and_unregisters_on_drop() -> a
             updates: &second.config_updates.0,
         },
         &mut second.editor,
+        &mut second.interaction,
         &mut second.compositor,
         Ok(Some(callback)),
     );
@@ -335,6 +337,7 @@ async fn background_job_failures_are_reported_to_the_application_that_started_th
             updates: &second.config_updates.0,
         },
         &mut second.editor,
+        &mut second.interaction,
         &mut second.compositor,
         Ok(Some(callback)),
     );
@@ -382,6 +385,7 @@ async fn queued_focus_cleanup_preserves_prompts_created_after_the_focus_change(
             updates: &app.config_updates.0,
         },
         &mut app.editor,
+        &mut app.interaction,
         &mut app.compositor,
         Ok(Some(callback)),
     );
@@ -410,6 +414,7 @@ async fn compositor_resolves_native_blocks_and_prompt_cursors() -> anyhow::Resul
                 updates: &app.config_updates.0,
             },
             editor: &mut app.editor,
+            interaction: &mut app.interaction,
             jobs: &mut app.jobs,
             scroll: None,
             image_picker: app.image_picker.as_ref(),
@@ -461,6 +466,33 @@ async fn compositor_resolves_native_blocks_and_prompt_cursors() -> anyhow::Resul
     ));
     app.compositor.pop();
     assert_eq!(render_cursor(&mut app), block);
+
+    // Each frame owns its cursor output, including a known-offscreen result.
+    let (view, doc) = view::current!(app.editor);
+    let transaction = editor_core::Transaction::insert(
+        doc.text(),
+        doc.selection(view.id),
+        "界 line\n".repeat(300).into(),
+    );
+    view::editing::apply(doc, &transaction, view.id).unwrap();
+    doc.set_selection(view.id, editor_core::Selection::point(0));
+    doc.set_view_offset(view.id, Default::default());
+    assert!(matches!(
+        render_cursor(&mut app),
+        Cursor::Native(_, CursorKind::Block)
+    ));
+    let (view, doc) = view::current!(app.editor);
+    doc.set_selection(
+        view.id,
+        editor_core::Selection::point(doc.text().len_chars() - 1),
+    );
+    assert_eq!(render_cursor(&mut app), Cursor::Hidden);
+    let (view, doc) = view::current!(app.editor);
+    doc.set_selection(view.id, editor_core::Selection::point(0));
+    assert!(matches!(
+        render_cursor(&mut app),
+        Cursor::Native(_, CursorKind::Block)
+    ));
     assert!(app.close().await.is_empty());
     Ok(())
 }

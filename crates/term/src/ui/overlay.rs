@@ -1,10 +1,7 @@
 use crate::compositor::DrawContext;
 use editor_config::{CommandLineConfig, PickerLayout};
 use tui::buffer::Buffer;
-use view::{
-    graphics::{Rect, RectExt as _},
-    Editor,
-};
+use view::graphics::{Rect, RectExt as _};
 
 use crate::compositor::{Component, Context, Cursor, Event, EventResult};
 
@@ -85,10 +82,10 @@ impl<T: Component + 'static> Component for Overlay<T> {
         self.content.owns_cursor()
     }
 
-    fn cursor(&self, area: Rect, ctx: &Editor) -> Cursor {
-        let config = ctx.config();
+    fn cursor(&self, area: Rect, cx: &DrawContext) -> Cursor {
+        let config = cx.editor.config();
         let dimensions = picker_area(area, config.picker.layout, config.command_line);
-        self.content.cursor(dimensions, ctx)
+        self.content.cursor(dimensions, cx)
     }
 
     fn id(&self) -> Option<&'static str> {

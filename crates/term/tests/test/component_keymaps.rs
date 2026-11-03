@@ -54,6 +54,7 @@ impl Fixture {
                 updates: &self.updates,
             },
             editor: &mut self.app.editor,
+            interaction: &mut self.app.interaction,
             jobs: &mut self.jobs,
             scroll: None,
             image_picker: None,

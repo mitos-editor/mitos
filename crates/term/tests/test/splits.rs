@@ -500,7 +500,7 @@ async fn resize_mode_confirms_or_restores_the_entry_layout() -> anyhow::Result<(
             assert_ne!(split_areas(&app), confirmed);
             keys(&mut app, "19<esc>").await?;
             assert_eq!(split_areas(&app), confirmed);
-            assert_eq!(app.editor.count, None);
+            assert_eq!(app.interaction.count, None);
             assert_eq!(app.editor.tree.focus(), focus);
 
             // Both exit keys return input to the editor without leaking a count.
@@ -549,7 +549,7 @@ async fn resize_mode_exit_clears_pending_counts_even_without_splits() -> anyhow:
         keys(&mut app, &format!("<C-w>r999h12{exit}iX<esc>")).await?;
         assert_eq!(split_areas(&app), original);
         assert!(app.editor.autoinfo.is_none());
-        assert_eq!(app.editor.count, None);
+        assert_eq!(app.interaction.count, None);
         assert_eq!(
             view::current_ref!(app.editor).1.text().to_string(),
             format!("X{}", editor_core::NATIVE_LINE_ENDING.as_str())

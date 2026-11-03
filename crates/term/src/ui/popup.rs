@@ -142,11 +142,19 @@ impl<T: Component> Popup<T> {
     }
 
     pub fn area(&mut self, viewport: Rect, editor: &Editor) -> Rect {
-        self.render_info(viewport, editor).area
+        self.render_info(viewport, editor.cursor().0.unwrap_or_default())
+            .area
     }
 
-    fn render_info(&mut self, viewport: Rect, editor: &Editor) -> RenderInfo {
-        let mut position = editor.cursor().0.unwrap_or_default();
+    pub(crate) fn rendered_area(&self) -> Rect {
+        self.area
+    }
+
+    fn render_info(
+        &mut self,
+        viewport: Rect,
+        mut position: text_layout::DisplayPosition,
+    ) -> RenderInfo {
         if let Some(old_position) = self
             .position
             .filter(|old_position| old_position.row == position.row)
@@ -341,7 +349,7 @@ impl<T: Component> Component for Popup<T> {
     }
 
     fn update(&mut self, area: Rect, cx: &mut Context) {
-        let info = self.render_info(area, cx.editor);
+        let info = self.render_info(area, cx.editor.cursor().0.unwrap_or_default());
         let inner = if info.render_borders {
             panel::bordered(&cx.editor.theme, self.border.resolve(&cx.editor.config()))
                 .inner(info.area)
@@ -356,7 +364,7 @@ impl<T: Component> Component for Popup<T> {
             area,
             child_height,
             render_borders,
-        } = self.render_info(viewport, cx.editor);
+        } = self.render_info(viewport, cx.editor_cursor.unwrap_or_default());
         self.area = area;
 
         // clear area

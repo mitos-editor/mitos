@@ -45,6 +45,7 @@ fn key(
             updates: &updates,
         },
         editor: &mut app.editor,
+        interaction: &mut app.interaction,
         jobs,
         scroll: None,
         image_picker: None,
@@ -91,6 +92,7 @@ async fn stash_application_confirms_and_finishes_after_the_picker_closes() -> an
                 updates: &tokio::sync::mpsc::unbounded_channel().0,
             },
             &mut app.editor,
+            &mut app.interaction,
             &mut compositor,
             callback,
         )?;
@@ -232,6 +234,7 @@ fn frame(
             updates: &updates,
         },
         editor: &mut app.editor,
+        interaction: &mut app.interaction,
         jobs,
         scroll: None,
         image_picker: None,

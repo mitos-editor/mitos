@@ -327,6 +327,7 @@ where
             terminal,
             render_state: render::RenderState::default(),
             editor,
+            interaction: Default::default(),
             image_picker: None,
             config,
             config_updates,

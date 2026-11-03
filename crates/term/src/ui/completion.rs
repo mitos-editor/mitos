@@ -360,7 +360,7 @@ impl Component for Completion {
         // ---
         // option.documentation
 
-        let Some(coords) = cx.editor.cursor().0 else {
+        let Some(coords) = cx.editor_cursor else {
             return;
         };
         let cursor_pos = coords.row as u16;
@@ -410,7 +410,7 @@ impl Component for Completion {
             }
         };
 
-        let popup_area = self.popup.area(area, cx.editor);
+        let popup_area = self.popup.rendered_area();
         let doc_width_available = area.right().saturating_sub(popup_area.right());
         let doc_area = if doc_width_available > 30 {
             let mut doc_width = doc_width_available;

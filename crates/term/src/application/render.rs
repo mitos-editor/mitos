@@ -65,6 +65,7 @@ where
                 updates: &self.config_updates.0,
             },
             editor: &mut self.editor,
+            interaction: &mut self.interaction,
             jobs: &mut self.jobs,
             scroll: None,
             image_picker: self.image_picker.as_ref(),
@@ -97,6 +98,8 @@ where
         let mut draw = compositor::DrawContext {
             config: &config,
             editor: &self.editor,
+            interaction: &self.interaction,
+            editor_cursor: None,
             scroll: None,
             is_cursor_owner: false,
         };
@@ -105,7 +108,6 @@ where
             self.compositor.render(buffer.area, buffer, &mut draw)
         })
         .unwrap();
-        self.editor.cursor_cache.reset();
 
         self.terminal.backend_mut().end_sync().unwrap();
         self.terminal.backend_mut().flush().unwrap();
@@ -151,6 +153,7 @@ where
                 updates: &self.config_updates.0,
             },
             &mut self.editor,
+            &mut self.interaction,
             &mut self.compositor,
             callback,
         );

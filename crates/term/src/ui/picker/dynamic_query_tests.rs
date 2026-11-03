@@ -96,6 +96,7 @@ async fn queued_queries_validate_picker_identity_and_generation() -> anyhow::Res
                 updates: &tokio::sync::mpsc::unbounded_channel().0,
             },
             &mut app.editor,
+            &mut app.interaction,
             &mut compositor,
             Ok(Some(callback)),
         );
@@ -129,6 +130,7 @@ async fn only_the_latest_queued_query_starts_a_provider() -> anyhow::Result<()> 
             updates: &tokio::sync::mpsc::unbounded_channel().0,
         },
         &mut app.editor,
+        &mut app.interaction,
         &mut compositor,
         Ok(Some(old)),
     );
@@ -139,6 +141,7 @@ async fn only_the_latest_queued_query_starts_a_provider() -> anyhow::Result<()> 
             updates: &tokio::sync::mpsc::unbounded_channel().0,
         },
         &mut app.editor,
+        &mut app.interaction,
         &mut compositor,
         Ok(Some(new)),
     );
@@ -165,6 +168,7 @@ async fn queries_skipped_during_debounce_can_be_requested_again() -> anyhow::Res
             updates: &tokio::sync::mpsc::unbounded_channel().0,
         },
         &mut app.editor,
+        &mut app.interaction,
         &mut compositor,
         Ok(Some(skipped)),
     );
@@ -186,6 +190,7 @@ async fn queries_skipped_during_debounce_can_be_requested_again() -> anyhow::Res
             updates: &tokio::sync::mpsc::unbounded_channel().0,
         },
         &mut app.editor,
+        &mut app.interaction,
         &mut compositor,
         Ok(Some(callback)),
     );
@@ -244,6 +249,7 @@ async fn editing_or_closing_a_picker_drops_its_running_provider() -> anyhow::Res
                 updates: &tokio::sync::mpsc::unbounded_channel().0,
             },
             &mut app.editor,
+            &mut app.interaction,
             &mut compositor,
             Ok(Some(callback)),
         );

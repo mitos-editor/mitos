@@ -38,12 +38,11 @@ use crate::{
     graphics::{CursorKind, Rect},
     handlers::Handlers,
     info::Info,
-    input::KeyEvent,
     quicklist::{Quicklist, QuicklistEntry, QuicklistMatch, QuicklistPosition, QuicklistTarget},
     register::Registers,
     save::WriteQueue,
     tree::{self, Tree},
-    Document, DocumentId, View, ViewId,
+    DocumentId, View, ViewId,
 };
 use editor_config::Config;
 use theme::Theme;
@@ -55,7 +54,6 @@ use lsp_client::{Call, LanguageServerId};
 
 use std::{
     borrow::Cow,
-    cell::Cell,
     collections::VecDeque,
     path::{Path, PathBuf},
     pin::Pin,
@@ -72,7 +70,7 @@ use anyhow::bail;
 use crate::file_watcher::Watcher;
 use ::diagnostics::Severity;
 use dap::{self as dap, registry::DebugAdapterId};
-use editor_core::{auto_pairs::AutoPairs, movement::Direction, Range, Selection};
+use editor_core::{auto_pairs::AutoPairs, movement::Direction, Selection};
 
 use language::syntax;
 use lsp_client::{lsp, util::lsp_range_to_range};
@@ -97,11 +95,7 @@ pub struct Editor {
     file_operation: event::TaskController,
     file_operation_revision: u64,
 
-    pub count: Option<std::num::NonZeroUsize>,
-    pub selected_register: Option<char>,
     pub registers: Registers,
-    pub macro_recording: Option<(char, Vec<KeyEvent>)>,
-    pub macro_replaying: Vec<char>,
     pub(crate) language_servers: crate::language_servers::Registry,
     pub(crate) diagnostics: LspDiagnostics,
     pub diff_providers: DiffProviderRegistry,
@@ -143,20 +137,6 @@ pub struct Editor {
     pub(crate) handlers: Handlers,
     pub(crate) document_services: Arc<crate::document::DocumentServices>,
 
-    pub mouse_down_range: Option<Range>,
-    /// Cached position of the cursor calculated during rendering.
-    /// The content of `cursor_cache` is returned by `Editor::cursor` if
-    /// set to `Some(_)`. The value will be cleared after it's used.
-    /// If `cursor_cache` is `None` then the `Editor::cursor` function will
-    /// calculate the cursor position.
-    ///
-    /// `Some(None)` represents a cursor position outside of the visible area.
-    /// This will just cause `Editor::cursor` to return `None`.
-    ///
-    /// This cache is only a performance optimization to
-    /// avoid calculating the cursor position multiple
-    /// times during rendering and should not be set by other functions.
-    pub cursor_cache: CursorCache,
     pub file_watcher: Watcher,
     pub workspace_trust: WorkspaceTrust,
     pub(crate) workspace: workspace::ResolvedWorkspace,
@@ -255,10 +235,6 @@ impl Editor {
             saves: crate::save::Operations::default(),
             file_operation: event::TaskController::default(),
             file_operation_revision: 0,
-            count: None,
-            selected_register: None,
-            macro_recording: None,
-            macro_replaying: Vec::new(),
             theme: theme_loader.default_theme(),
             language_servers,
             diagnostics: LspDiagnostics::new(),
@@ -287,8 +263,6 @@ impl Editor {
             config_events,
             document_services: Arc::new(crate::document::DocumentServices::new(&handlers)),
             handlers,
-            mouse_down_range: None,
-            cursor_cache: CursorCache::default(),
             file_watcher,
             dir_stack: VecDeque::with_capacity(DIR_STACK_CAP),
             workspace_trust,
@@ -670,7 +644,9 @@ impl Editor {
         let config = self.config();
         let (view, doc) = current_ref!(self);
         let doc = self.completion_presentation(doc);
-        if let Some(mut pos) = self.cursor_cache.get(view, doc) {
+        let text = doc.text().slice(..);
+        let cursor = doc.selection(view.id).primary().cursor(text);
+        if let Some(mut pos) = view.screen_coords_at_pos(doc, cursor) {
             let inner = view.inner_area(doc);
             pos.col += inner.x as usize;
             pos.row += inner.y as usize;
@@ -1107,30 +1083,5 @@ impl Editor {
             view.ensure_cursor_in_view_center(doc, scrolloff);
         }
         true
-    }
-}
-
-#[derive(Default)]
-pub struct CursorCache(Cell<Option<Option<DisplayPosition>>>);
-
-impl CursorCache {
-    pub fn get(&self, view: &View, doc: &Document) -> Option<DisplayPosition> {
-        if let Some(pos) = self.0.get() {
-            return pos;
-        }
-
-        let text = doc.text().slice(..);
-        let cursor = doc.selection(view.id).primary().cursor(text);
-        let res = view.screen_coords_at_pos(doc, cursor);
-        self.set(res);
-        res
-    }
-
-    pub fn set(&self, cursor_pos: Option<DisplayPosition>) {
-        self.0.set(Some(cursor_pos))
-    }
-
-    pub fn reset(&self) {
-        self.0.set(None)
     }
 }
