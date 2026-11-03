@@ -278,17 +278,13 @@ impl Editor {
                 .workspace_trust
                 .query(doc.workspace_root(), TrustQuery::Git)
                 .is_trusted();
-            let diff_base = if doc.is_binary() {
-                None
-            } else {
-                self.diff_providers.get_diff_base(&path, trust_full)
-            };
-            doc.set_version_control_head(
-                self.diff_providers.get_current_head_name(&path, trust_full),
-            );
+            let vcs = self
+                .diff_providers
+                .inspect_file(&path, trust_full, !doc.is_binary());
+            doc.set_version_control_head(vcs.head_name);
 
             let id = self.new_document(doc);
-            if let Some(diff_base) = diff_base {
+            if let Some(diff_base) = vcs.diff_base {
                 self.document_mut(id).unwrap().set_diff_base(diff_base);
             }
             self.launch_language_servers(id);

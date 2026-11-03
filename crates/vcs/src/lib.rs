@@ -3,9 +3,8 @@
 //! [`DiffProviderRegistry`] is deliberately best-effort: callers are editing
 //! files, so an unavailable repository or provider should remove VCS decoration
 //! rather than prevent the document from opening. Provider failures from
-//! [`DiffProviderRegistry::get_diff_base`] and
-//! [`DiffProviderRegistry::get_current_head_name`] are logged and returned as
-//! `None`. Changed-file enumeration reports a terminal error through its
+//! [`DiffProviderRegistry::inspect_file`] are logged and returned as absent
+//! decoration. Changed-file enumeration reports a terminal error through its
 //! callback when no provider can serve the query.
 //!
 //! Git is currently the only compiled provider. The `trust_full` argument on
@@ -62,66 +61,47 @@ impl ChangedFileScope {
 #[derive(Clone, Default)]
 pub struct DiffProviderRegistry {}
 
+/// Decoration read together from one freshly opened repository.
+#[derive(Default)]
+pub struct DocumentVcs {
+    pub diff_base: Option<Vec<u8>>,
+    pub head_name: Option<Arc<ArcSwap<Box<str>>>>,
+}
+
+/// Repository inputs watched as metadata paths or individual source files.
+#[derive(Default)]
+pub struct RepositoryWatches {
+    pub paths: Vec<PathBuf>,
+    pub files: Vec<PathBuf>,
+}
+
 impl DiffProviderRegistry {
-    /// Files whose changes invalidate VCS state without excluding neighboring source files.
-    pub fn get_watched_files(&self, _path: &Path, _trust_full: bool) -> Vec<PathBuf> {
+    /// Read independent document decorations with one discovery and current trust/configuration.
+    /// Binary documents skip blob reads and worktree filters.
+    pub fn inspect_file(&self, _file: &Path, _trust_full: bool, _read_diff: bool) -> DocumentVcs {
         #[cfg(feature = "git")]
         {
-            git::get_watched_files(_path, _trust_full).unwrap_or_default()
-        }
-        #[cfg(not(feature = "git"))]
-        {
-            Vec::new()
-        }
-    }
-
-    /// Git metadata whose changes invalidate status, branch names, and document diff bases.
-    pub fn get_watched_paths(&self, _path: &Path, _trust_full: bool) -> Vec<PathBuf> {
-        #[cfg(feature = "git")]
-        {
-            git::get_watched_paths(_path, _trust_full).unwrap_or_default()
-        }
-        #[cfg(not(feature = "git"))]
-        {
-            Vec::new()
-        }
-    }
-
-    /// Read the unedited file, logging and suppressing errors for editor decoration.
-    pub fn get_diff_base(&self, _file: &Path, _trust_full: bool) -> Option<Vec<u8>> {
-        #[cfg(feature = "git")]
-        {
-            git::get_diff_base(_file, _trust_full)
+            git::inspect_file(_file, _trust_full, _read_diff)
                 .inspect_err(|error| {
-                    log::debug!("{error:#?}");
-                    log::debug!("failed to open diff base for {}", _file.display());
+                    log::debug!("VCS inspection for {}: {error:#}", _file.display())
                 })
-                .ok()
+                .unwrap_or_default()
         }
         #[cfg(not(feature = "git"))]
         {
-            None
+            DocumentVcs::default()
         }
     }
 
-    /// Return a live head name, logging and suppressing errors for editor decoration.
-    pub fn get_current_head_name(
-        &self,
-        _file: &Path,
-        _trust_full: bool,
-    ) -> Option<Arc<ArcSwap<Box<str>>>> {
+    /// Read both watch categories from one freshly opened repository.
+    pub fn repository_watches(&self, _path: &Path, _trust_full: bool) -> RepositoryWatches {
         #[cfg(feature = "git")]
         {
-            git::get_current_head_name(_file, _trust_full)
-                .inspect_err(|error| {
-                    log::debug!("{error:#?}");
-                    log::debug!("failed to obtain current head name for {}", _file.display());
-                })
-                .ok()
+            git::repository_watches(_path, _trust_full).unwrap_or_default()
         }
         #[cfg(not(feature = "git"))]
         {
-            None
+            RepositoryWatches::default()
         }
     }
 

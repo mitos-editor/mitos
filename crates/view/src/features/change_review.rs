@@ -233,7 +233,10 @@ impl ReviewRequest {
             .parent()
             .and_then(|path| path.ancestors().find(|path| path.is_dir()))
             .unwrap_or(&self.workspace);
-        let mut paths = self.providers.get_watched_paths(directory, self.trust_full);
+        let mut paths = self
+            .providers
+            .repository_watches(directory, self.trust_full)
+            .paths;
         paths.extend(
             directory
                 .ancestors()
@@ -519,7 +522,10 @@ impl HunkReviewRequest {
         let cancel = self.target.cancel_handle().clone();
         run_review(worker, cancel, move || {
             let directory = self.path.parent().unwrap_or(&self.workspace);
-            let mut paths = self.providers.get_watched_paths(directory, self.trust_full);
+            let mut paths = self
+                .providers
+                .repository_watches(directory, self.trust_full)
+                .paths;
             paths.extend(
                 directory
                     .ancestors()
