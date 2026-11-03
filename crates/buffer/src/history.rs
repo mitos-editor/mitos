@@ -89,14 +89,7 @@ struct Revision {
 #[derive(Debug, Clone)]
 enum Inversion {
     Copied(Transaction),
-    Shared(Vec<InverseOperation>),
-}
-
-#[derive(Debug, Clone)]
-enum InverseOperation {
-    Retain(usize),
-    Delete(usize),
-    Insert(Rope),
+    Shared(Vec<Operation<Rope>>),
 }
 
 impl Inversion {
@@ -117,50 +110,26 @@ impl Inversion {
             return Self::Copied(Transaction::from(changes.invert(original)));
         }
         let mut pos = 0;
-        let mut deleted = Vec::new();
+        let mut deleted_bytes = 0;
         for operation in changes.changes() {
             match operation {
                 Operation::Retain(n) => pos += n,
                 Operation::Delete(n) => {
-                    deleted.push(
-                        original.slice(
-                            original.char_to_byte_idx(pos)..original.char_to_byte_idx(pos + n),
-                        ),
-                    );
+                    deleted_bytes +=
+                        original.char_to_byte_idx(pos + n) - original.char_to_byte_idx(pos);
                     pos += n;
                 }
                 Operation::Insert(_) => {}
             }
         }
-        let deleted_bytes: usize = deleted.iter().map(|text| text.len()).sum();
         // Disconnected slices can retain their entire backing tree. Share only
         // when that tree is at most twice the size of the deleted text in total.
         if deleted_bytes < MIN_SHARED_BYTES || deleted_bytes < original.len().div_ceil(2) {
             return Self::Copied(Transaction::from(changes.invert(original)));
         }
-        let mut deleted = deleted.into_iter();
-        let mut operations = Vec::with_capacity(changes.changes().len());
-        for operation in changes.changes() {
-            match operation {
-                Operation::Retain(n) => operations.push(InverseOperation::Retain(*n)),
-                Operation::Insert(text) => {
-                    operations.push(InverseOperation::Delete(text.chars().count()))
-                }
-                Operation::Delete(_) => {
-                    let text = disconnect_slice(deleted.next().unwrap())
-                        .expect("history slices always originate from a rope");
-                    let insert = InverseOperation::Insert(text);
-                    // Match ChangeSetBuilder's canonical insert-before-delete order.
-                    if let Some(last @ InverseOperation::Delete(_)) = operations.last_mut() {
-                        let delete = std::mem::replace(last, insert);
-                        operations.push(delete);
-                    } else {
-                        operations.push(insert);
-                    }
-                }
-            }
-        }
-        Self::Shared(operations)
+        Self::Shared(changes.invert_with(original, |text| {
+            disconnect_slice(text).expect("history slices always originate from a rope")
+        }))
     }
 
     fn transaction(&self) -> Transaction {
@@ -170,9 +139,9 @@ impl Inversion {
                 let mut changes = ChangeSetBuilder::with_capacity(operations.len());
                 for operation in operations {
                     match operation {
-                        InverseOperation::Retain(n) => changes.retain(*n),
-                        InverseOperation::Delete(n) => changes.delete(*n),
-                        InverseOperation::Insert(text) => {
+                        Operation::Retain(n) => changes.retain(*n),
+                        Operation::Delete(n) => changes.delete(*n),
+                        Operation::Insert(text) => {
                             let mut fragment = String::with_capacity(text.len());
                             for chunk in text.chunks() {
                                 fragment.push_str(chunk);
@@ -494,7 +463,9 @@ mod test {
         let Inversion::Shared(operations) = &history.revisions[revision].inversion else {
             panic!("large deletion must share")
         };
-        assert!(operations.iter().any(|op| matches!(op, InverseOperation::Insert(text) if ropes_are_instances(text, &original))));
+        assert!(operations.iter().any(
+            |op| matches!(op, Operation::Insert(text) if ropes_are_instances(text, &original))
+        ));
         assert!(change.apply(&mut state));
         let undo = history.plan(HistoryAction::Undo).pop().unwrap();
         assert!(history.replay(undo).unwrap().apply(&mut state));

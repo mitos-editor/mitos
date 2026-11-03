@@ -9,15 +9,16 @@ use std::{borrow::Cow, iter::once};
 pub type Change = (usize, usize, Option<Tendril>);
 pub type Deletion = (usize, usize);
 
+/// Edit operations share their shape while allowing history to retain rope inserts.
 // TODO: pub(crate)
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Operation {
+pub enum Operation<T = Tendril> {
     /// Move cursor by n characters.
     Retain(usize),
     /// Delete n characters.
     Delete(usize),
     /// Insert text at position.
-    Insert(Tendril),
+    Insert(T),
 }
 
 impl Operation {
@@ -402,32 +403,50 @@ impl ChangeSet {
     /// Returns a new changeset that reverts this one. Useful for `undo` implementation.
     /// The document parameter expects the original document before this change was applied.
     pub fn invert(&self, original_doc: &Rope) -> Self {
-        assert!(original_doc.len_chars() == self.len);
+        Self {
+            changes: self.invert_with(original_doc, |text| Tendril::from(Cow::from(text).as_ref())),
+            len: self.len_after,
+            len_after: self.len,
+        }
+    }
 
-        let mut changes = Self::with_capacity(self.changes.len());
-
+    /// Build inverse operations with a caller-selected insertion payload.
+    /// Canonical replacement pairs remain insert-before-delete in the inverse.
+    #[doc(hidden)]
+    pub fn invert_with<T>(
+        &self,
+        original_doc: &Rope,
+        mut deleted: impl FnMut(RopeSlice<'_>) -> T,
+    ) -> Vec<Operation<T>> {
+        assert_eq!(original_doc.len_chars(), self.len);
+        let mut operations = Vec::with_capacity(self.changes.len());
         let mut pos = 0;
-
-        for change in &self.changes {
-            use Operation::*;
+        let mut changes = self.changes.iter().peekable();
+        while let Some(change) = changes.next() {
             match change {
-                Retain(n) => {
-                    changes.retain(*n);
+                Operation::Retain(n) => {
+                    operations.push(Operation::Retain(*n));
                     pos += n;
                 }
-                Delete(n) => {
-                    let text = Cow::from(original_doc.slice_chars(pos..pos + *n));
-                    changes.insert(Tendril::from(text.as_ref()));
+                Operation::Delete(n) => {
+                    operations.push(Operation::Insert(deleted(
+                        original_doc.slice_chars(pos..pos + *n),
+                    )));
                     pos += n;
                 }
-                Insert(s) => {
-                    let chars = s.chars().count();
-                    changes.delete(chars);
+                Operation::Insert(text) => {
+                    if let Some(Operation::Delete(n)) = changes.peek() {
+                        operations.push(Operation::Insert(deleted(
+                            original_doc.slice_chars(pos..pos + *n),
+                        )));
+                        pos += *n;
+                        changes.next();
+                    }
+                    operations.push(Operation::Delete(text.chars().count()));
                 }
             }
         }
-
-        changes
+        operations
     }
 
     /// Returns true if applied successfully.
