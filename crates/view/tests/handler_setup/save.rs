@@ -246,6 +246,7 @@ async fn failed_save_stages_cancel_lifecycle_actions_but_drain_other_accepted_sa
     // The document exists when accepted but cannot submit its write after pre-save work.
     let block = f.editor.block_file_writes(vec![f.dir.path().to_owned()])?;
     let other = f.editor.new_file(Action::Replace);
+    f.editor.document_mut(other).unwrap().line_ending = editor_core::LineEnding::LF;
     f.replace_and_commit("successful\n");
     let elsewhere = tempfile::tempdir()?;
     let good = elsewhere.path().join("good.words");
