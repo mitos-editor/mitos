@@ -480,12 +480,17 @@ pub async fn run_event_loop_until_idle(app: &mut TestApplication) {
 /// Send input and settle callbacks while keeping the application open for the
 /// next edit or provider update in a lifecycle test.
 pub async fn keys(app: &mut TestApplication, keys: &str) -> anyhow::Result<()> {
-    for key in parse_macro(keys)? {
-        app.handle_terminal_events(Ok(Event::Key(tui::backend::native::adapt(key))))
-            .await;
-    }
+    let mut events = futures_util::stream::iter(
+        parse_macro(keys)?
+            .into_iter()
+            .map(|key| Ok(Event::Key(tui::backend::native::adapt(key)))),
+    );
     app.editor.reset_idle_timer();
-    tokio::time::timeout(Duration::from_secs(10), run_event_loop_until_idle(app)).await?;
+    tokio::time::timeout(
+        Duration::from_secs(10),
+        app.event_loop_until_idle(&mut events),
+    )
+    .await?;
     Ok(())
 }
 

@@ -1,6 +1,7 @@
 //! A lazy variable browser. Retained parent pickers preserve their query and cursor.
 
 use super::{picker::PickerCallbackResult, Picker, PickerColumn};
+use crate::compositor::DrawContext;
 use crate::compositor::{Component, Context, Cursor, Event, EventResult};
 use event::TaskController;
 use std::{cell::Cell, rc::Rc, sync::Arc};
@@ -169,7 +170,7 @@ impl Variables {
                         browser.refresh_failed = true;
                         editor.set_error(|| format!("Could not refresh debugger values: {error}"));
                     }
-                    None => {} // A newer invalidation will be retried on the next render.
+                    None => {} // A newer invalidation will be retried on the next update.
                 }
                 editor.redraw().request();
             });
@@ -258,11 +259,18 @@ impl Component for Variables {
         result
     }
 
-    fn render(&mut self, area: Rect, surface: &mut Buffer, cx: &mut Context) {
+    fn update(&mut self, area: Rect, cx: &mut Context) {
         if self.current.data.can_refresh(cx.editor) {
             if !self.current.data.is_current(cx.editor) {
                 self.refresh(cx);
             }
+            self.current.picker.required_size((area.width, area.height));
+            self.current.picker.update(area, cx);
+        }
+    }
+
+    fn render(&mut self, area: Rect, surface: &mut Buffer, cx: &mut DrawContext) {
+        if self.current.data.can_refresh(cx.editor) {
             let picker = &mut self.current.picker;
             picker.required_size((area.width, area.height));
             picker.render(area, surface, cx);
@@ -280,7 +288,7 @@ impl Component for Variables {
     fn has_pending_keys(&self) -> bool {
         self.current.picker.has_pending_keys()
     }
-    fn has_pending_render(&mut self) -> bool {
+    fn has_pending_render(&self) -> bool {
         self.current.picker.has_pending_render()
     }
     fn owns_cursor(&self) -> bool {

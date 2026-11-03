@@ -1,3 +1,4 @@
+use crate::compositor::DrawContext;
 use crate::keymap::component::{ComponentKeymaps, PickerAction, PickerItemAction};
 use ui_core::keymap::{Keymap, KeymapState, Lookup};
 mod file_updates;
@@ -77,7 +78,8 @@ type SelectedPreview<'picker, 'editor> = (
 /// A native preview surface independent of file loading and repository providers.
 /// Implementations own their background work and cancel it when hidden or dropped.
 pub trait PickerPreview<T> {
-    fn render(&mut self, item: Option<&T>, area: Rect, surface: &mut Surface, cx: &mut Context);
+    fn update(&mut self, _item: Option<&T>, _area: Rect, _cx: &mut Context) {}
+    fn render(&mut self, item: Option<&T>, area: Rect, surface: &mut Surface, cx: &mut DrawContext);
     fn cancel(&mut self);
     fn open_on_accept(&self, _item: &T) -> bool {
         false
@@ -298,6 +300,7 @@ pub struct Picker<T: 'static + Send + Sync, D: 'static> {
     dynamic_query_handler: Option<Sender<DynamicQueryChange>>,
     dynamic_query_request: event::TaskController,
     poll: Option<PollTask>,
+    matching: bool,
     file_updates: Option<file_updates::FileUpdates<T, D>>,
     editor_updates: Option<updates::EditorUpdates<T>>,
     query_updates: Option<updates::QueryUpdates<D>>,
@@ -443,6 +446,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             query_refresh: false,
             query_needs_refresh: false,
             title: None,
+            matching: true,
         }
     }
 
@@ -834,13 +838,13 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
 
     /// Get (cached) preview for the currently selected item. If a document corresponding
     /// to the path is already open in the editor, it is used instead.
-    fn get_preview<'picker, 'editor>(
-        &'picker mut self,
-        editor: &'editor Editor,
+    fn prepare_preview(
+        &mut self,
+        editor: &Editor,
         jobs: &crate::job::Jobs,
         image_picker: Option<&ratatui_image::picker::Picker>,
         image_size: Size,
-    ) -> Option<SelectedPreview<'picker, 'editor>> {
+    ) {
         let snapshot = self.results.matcher.snapshot();
         let location = snapshot
             .get_matched_item(self.results.cursor)
@@ -848,25 +852,24 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         let Some(location) = location else {
             self.preview.cancel_loads(None);
             self.preview_scroll = FileScroll::default();
-            return None;
+            return;
         };
         self.preview_scroll.select(&location);
         self.preview
-            .get::<T, D>(editor, location, jobs, image_picker, image_size)
-            .map(|(preview, range)| (preview, range, &mut self.preview_scroll))
+            .get::<T, D>(editor, location, jobs, image_picker, image_size);
     }
 
-    fn render_picker(&mut self, area: Rect, surface: &mut Surface, cx: &mut Context) {
-        self.publish_options();
-        let status = self.results.matcher.tick(10);
-        let snapshot = self.results.matcher.snapshot();
-        if status.changed {
-            self.results.cursor = self
-                .results
-                .cursor
-                .min(snapshot.matched_item_count().saturating_sub(1))
-        }
+    fn get_preview<'picker, 'editor>(
+        &'picker mut self,
+        editor: &'editor Editor,
+    ) -> Option<SelectedPreview<'picker, 'editor>> {
+        let location = self.preview_scroll.location()?;
+        let (preview, range) = self.preview.cached(editor, location)?;
+        Some((preview, range, &mut self.preview_scroll))
+    }
 
+    fn render_picker(&mut self, area: Rect, surface: &mut Surface, cx: &mut DrawContext) {
+        let snapshot = self.results.matcher.snapshot();
         let text_style = cx.editor.theme.get("ui.text");
         let selected = cx.editor.theme.get("ui.text.focus");
         let highlight_style = cx.editor.theme.get("special").add_modifier(Modifier::BOLD);
@@ -899,7 +902,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                 }
             }),
             if self.dynamic_query_pending
-                || status.running
+                || self.matching
                 || self.results.matcher.active_injectors() > 0
             {
                 "(running) "
@@ -1092,7 +1095,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         StatefulWidget::render(table, inner, surface, &mut table_state);
     }
 
-    fn render_preview(&mut self, area: Rect, surface: &mut Surface, cx: &mut Context) {
+    fn render_preview(&mut self, area: Rect, surface: &mut Surface, cx: &mut DrawContext) {
         let background = cx.editor.theme.get("ui.background");
         surface.clear_with(area, background);
 
@@ -1102,10 +1105,6 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
 
         if inner.is_empty() {
             self.preview_area = None;
-            self.preview.cancel_loads(None);
-            if let Some(preview) = &mut self.custom_preview {
-                preview.cancel();
-            }
             return;
         }
         if let Some(preview) = &mut self.custom_preview {
@@ -1118,10 +1117,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             preview.render(item, inner, surface, cx);
             return;
         }
-        let image_size = Size::new(inner.width, inner.height.saturating_sub(2).max(1));
-        if let Some((preview, range, scroll)) =
-            self.get_preview(cx.editor, cx.jobs, cx.image_picker, image_size)
-        {
+        if let Some((preview, range, scroll)) = self.get_preview(cx.editor) {
             render_preview_content(preview, range, scroll, inner, surface, cx);
         }
     }
@@ -1443,35 +1439,21 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
     }
 }
 
+impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
+    fn preview_visible(&self, area: Rect) -> bool {
+        self.show_preview
+            && (self.file_fn.is_some() || self.custom_preview.is_some())
+            && area.width > MIN_AREA_WIDTH_FOR_PREVIEW
+    }
+}
+
 impl<I: 'static + Send + Sync, D: 'static + Send + Sync> Component for Picker<I, D> {
-    fn has_pending_render(&mut self) -> bool {
-        let pending = self
-            .results
-            .pending_options
-            .as_mut()
-            .is_some_and(|pending| {
-                let status = pending.matcher.tick(0);
-                status.running || status.changed || pending.matcher.active_injectors() == 0
-            });
-        let status = self.results.matcher.tick(0);
-        let pending = pending || status.running || status.changed;
-        if pending {
-            self.redraw.request();
-        }
-        pending
+    fn has_pending_render(&self) -> bool {
+        self.matching
     }
 
-    fn render(&mut self, area: Rect, surface: &mut Surface, cx: &mut Context) {
-        // +---------+ +---------+
-        // |prompt   | |preview  |
-        // +---------+ |         |
-        // |picker   | |         |
-        // |         | |         |
-        // +---------+ +---------+
-
-        let render_preview = self.show_preview
-            && (self.file_fn.is_some() || self.custom_preview.is_some())
-            && area.width > MIN_AREA_WIDTH_FOR_PREVIEW;
+    fn update(&mut self, area: Rect, cx: &mut Context) {
+        let render_preview = self.preview_visible(area);
 
         let poll = &cx.editor.config().files.reload.poll;
         if (render_preview || self.file_updates.is_some() || self.query_updates.is_some())
@@ -1501,17 +1483,66 @@ impl<I: 'static + Send + Sync, D: 'static + Send + Sync> Component for Picker<I,
         self.refresh_query_if_changed(cx.editor);
         self.refresh_from_editor(cx.editor);
 
+        self.publish_options();
+        let status = self.results.matcher.tick(10);
+        let snapshot = self.results.matcher.snapshot();
+        if status.changed {
+            self.results.cursor = self
+                .results
+                .cursor
+                .min(snapshot.matched_item_count().saturating_sub(1))
+        }
+
+        self.matching = status.running
+            || self
+                .results
+                .pending_options
+                .as_ref()
+                .is_some_and(|pending| pending.matcher.active_injectors() == 0);
+        let (_, preview_area) = split_picker_area(area, render_preview);
+        self.preview_area = preview_area;
+        let inner = preview_area
+            .map(|area| {
+                panel::horizontally_padded(&cx.editor.theme, cx.editor.config().border_style)
+                    .inner(area)
+            })
+            .filter(|area| !area.is_empty());
+        if let Some(inner) = inner {
+            if let Some(preview) = &mut self.custom_preview {
+                let item = self
+                    .results
+                    .matcher
+                    .snapshot()
+                    .get_matched_item(self.results.cursor)
+                    .map(|item| item.data);
+                preview.update(item, inner, cx);
+            } else {
+                let size = Size::new(inner.width, inner.height.saturating_sub(2).max(1));
+                self.prepare_preview(cx.editor, cx.jobs, cx.image_picker, size);
+            }
+        } else {
+            self.preview.cancel_loads(None);
+            if let Some(preview) = &mut self.custom_preview {
+                preview.cancel();
+            }
+        }
+    }
+
+    fn render(&mut self, area: Rect, surface: &mut Surface, cx: &mut DrawContext) {
+        // +---------+ +---------+
+        // |prompt   | |preview  |
+        // +---------+ |         |
+        // |picker   | |         |
+        // |         | |         |
+        // +---------+ +---------+
+
+        let render_preview = self.preview_visible(area);
         let (picker_area, preview_area) = split_picker_area(area, render_preview);
         self.preview_area = preview_area;
         self.render_picker(picker_area, surface, cx);
 
         if let Some(preview_area) = preview_area {
             self.render_preview(preview_area, surface, cx);
-        } else {
-            self.preview.cancel_loads(None);
-            if let Some(preview) = &mut self.custom_preview {
-                preview.cancel();
-            }
         }
     }
 
@@ -1902,7 +1933,7 @@ mod tests {
             .matcher
             .injector();
         let area = Rect::new(0, 0, 80, 24);
-        picker.render(area, &mut Surface::empty(area), &mut cx);
+        picker.update_and_render(area, &mut Surface::empty(area), &mut cx);
         let remove = Event::Key("C-x".parse().unwrap());
         let populate = Event::Key("C-q".parse().unwrap());
         for event in [&accept, &remove, &populate] {
@@ -1918,7 +1949,7 @@ mod tests {
         drop(pending_injector);
         tokio::time::timeout(Duration::from_secs(5), async {
             while picker.results.is_refreshing() {
-                picker.render(area, &mut Surface::empty(area), &mut cx);
+                picker.update_and_render(area, &mut Surface::empty(area), &mut cx);
                 tokio::task::yield_now().await;
             }
         })
@@ -2080,7 +2111,7 @@ mod tests {
         let area = Rect::new(0, 0, 80, 24);
         tokio::time::timeout(Duration::from_secs(5), async {
             loop {
-                picker.render(area, &mut Surface::empty(area), &mut cx);
+                picker.update_and_render(area, &mut Surface::empty(area), &mut cx);
                 if !picker.results.is_refreshing()
                     && !picker.editor_updates.as_ref().unwrap().resumed
                 {

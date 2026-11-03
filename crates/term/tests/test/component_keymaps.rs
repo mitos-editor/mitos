@@ -257,7 +257,7 @@ async fn picker_routes_prompt_prefixes_before_navigation_and_split_acceptance() 
     // Rendering advances the asynchronous matcher until the options are visible.
     for _ in 0..100 {
         let area = Rect::new(0, 0, 80, 24);
-        picker.render(area, &mut Buffer::empty(area), &mut fixture.context());
+        picker.update_and_render(area, &mut Buffer::empty(area), &mut fixture.context());
         if picker.selection().is_some() {
             break;
         }
@@ -272,7 +272,7 @@ async fn picker_routes_prompt_prefixes_before_navigation_and_split_acceptance() 
         tokio::time::timeout(std::time::Duration::from_secs(5), async {
             loop {
                 let area = Rect::new(0, 0, 80, 24);
-                picker.render(area, &mut Buffer::empty(area), &mut fixture.context());
+                picker.update_and_render(area, &mut Buffer::empty(area), &mut fixture.context());
                 if picker.selection().is_some_and(|item| item.0 == expected) {
                     break;
                 }
@@ -391,7 +391,7 @@ async fn hover_actions_change_the_rendered_page() -> anyhow::Result<()> {
     let render = |hover: &mut Hover, fixture: &mut Fixture| {
         let area = Rect::new(0, 0, 80, 24);
         let mut buffer = Buffer::empty(area);
-        hover.render(area, &mut buffer, &mut fixture.context());
+        hover.update_and_render(area, &mut buffer, &mut fixture.context());
         buffer
             .content
             .iter()
@@ -477,7 +477,7 @@ async fn hover_popup_can_hide_borders_without_changing_layout_or_scrolling() -> 
                 .app
                 .handle_config_events(ConfigEvent::Update(Box::new(config)));
 
-            popup.render(viewport, &mut buffer, &mut fixture.context());
+            popup.update_and_render(viewport, &mut buffer, &mut fixture.context());
             assert_eq!(popup.area(viewport, &fixture.app.editor), expected_area);
             assert_eq!(
                 buffer[(expected_area.x, expected_area.y)].symbol(),
@@ -498,7 +498,7 @@ async fn hover_popup_can_hide_borders_without_changing_layout_or_scrolling() -> 
             for _ in 0..20 {
                 popup.scroll_half_page_down();
             }
-            popup.render(viewport, &mut buffer, &mut fixture.context());
+            popup.update_and_render(viewport, &mut buffer, &mut fixture.context());
             assert_eq!(
                 buffer[(right, expected_area.bottom() - 1)].symbol(),
                 bottom_corner
@@ -553,12 +553,12 @@ async fn popup_border_overrides_follow_features_without_affecting_other_panels(
                 .app
                 .handle_config_events(ConfigEvent::Update(Box::new(config)));
             let mut buffer = Buffer::empty(viewport);
-            popup.render(viewport, &mut buffer, &mut fixture.context());
+            popup.update_and_render(viewport, &mut buffer, &mut fixture.context());
             assert_eq!(popup.area(viewport, &fixture.app.editor), area);
             assert_eq!(buffer[(area.x, area.y)].symbol(), expected, "{path}");
             let mut other = Popup::new("other", Text::new("other".into()));
             let other_area = other.area(viewport, &fixture.app.editor);
-            other.render(viewport, &mut buffer, &mut fixture.context());
+            other.update_and_render(viewport, &mut buffer, &mut fixture.context());
             let global_corner = match global {
                 "none" => " ",
                 "double" => "╔",
@@ -607,7 +607,7 @@ async fn signature_popup_uses_its_border_for_documentation_separators() -> anyho
                 Fixture::load_config(&source).editor,
             )));
         let mut buffer = Buffer::empty(viewport);
-        popup.render(viewport, &mut buffer, &mut fixture.context());
+        popup.update_and_render(viewport, &mut buffer, &mut fixture.context());
         assert_eq!(popup.area(viewport, &fixture.app.editor), area);
         assert_eq!(buffer[(area.x, area.y)].symbol(), corner);
         assert_eq!(buffer[(area.x + 2, area.y + 3)].symbol(), separator);

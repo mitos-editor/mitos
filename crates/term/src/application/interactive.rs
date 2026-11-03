@@ -63,7 +63,7 @@ where
             if let Some(signal) = signal {
                 return Ok(self.handle_signals(signal).await);
             }
-            self.render().await;
+            self.request_frame();
             Ok(true)
         }
     }

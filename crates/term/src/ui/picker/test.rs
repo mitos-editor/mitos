@@ -71,7 +71,7 @@ pub(crate) fn frame_with_config<T: Send + Sync, D: Send + Sync>(
     };
     let area = Rect::new(0, 0, 70, 20);
     let mut surface = Surface::empty(area);
-    picker.render(area, &mut surface, &mut cx);
+    picker.update_and_render(area, &mut surface, &mut cx);
     surface
 }
 

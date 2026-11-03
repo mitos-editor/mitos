@@ -128,7 +128,6 @@ pub struct Editor {
     pub auto_pairs: Option<AutoPairs>,
 
     pub idle_timer: Pin<Box<Sleep>>,
-    redraw_timer: Pin<Box<Sleep>>,
     last_motion: Option<Motion>,
     /// Most recent visible inline blame mode, restored when toggling it back on.
     pub last_inline_blame_show: Option<editor_config::InlineBlameShow>,
@@ -138,7 +137,6 @@ pub struct Editor {
     pub exit_code: i32,
 
     pub config_events: (UnboundedSender<ConfigEvent>, UnboundedReceiver<ConfigEvent>),
-    pub needs_redraw: bool,
     /// Editor-owned services; replacements must preserve document bindings.
     pub(crate) handlers: Handlers,
 
@@ -271,7 +269,6 @@ impl Editor {
             status_msg: None,
             autoinfo: None,
             idle_timer: Box::pin(sleep(conf.idle_timeout)),
-            redraw_timer: Box::pin(sleep(Duration::MAX)),
             last_motion: None,
             last_inline_blame_show: None,
             last_cwd: None,
@@ -279,7 +276,6 @@ impl Editor {
             auto_pairs,
             exit_code: 0,
             config_events: unbounded_channel(),
-            needs_redraw: false,
             handlers,
             mouse_down_range: None,
             cursor_cache: CursorCache::default(),
@@ -766,20 +762,7 @@ impl Editor {
                     return EditorEvent::DebuggerEvent(event)
                 }
 
-                _ = redraw.requested() => {
-                    if  !self.needs_redraw{
-                        self.needs_redraw = true;
-                        let timeout = Instant::now() + Duration::from_millis(33);
-                        if timeout < self.idle_timer.deadline() && timeout < self.redraw_timer.deadline(){
-                            self.redraw_timer.as_mut().reset(timeout)
-                        }
-                    }
-                }
-
-                _ = &mut self.redraw_timer  => {
-                    self.redraw_timer.as_mut().reset(Instant::now() + Duration::from_secs(86400 * 365 * 30));
-                    return EditorEvent::Redraw
-                }
+                _ = redraw.requested() => return EditorEvent::Redraw,
                 _ = &mut self.idle_timer  => {
                     return EditorEvent::IdleTimer
                 }
@@ -791,10 +774,6 @@ impl Editor {
     /// remain pending for the next turn.
     pub fn begin_frame(&mut self) {
         self.redraw().start_frame();
-        self.needs_redraw = false;
-        self.redraw_timer
-            .as_mut()
-            .reset(Instant::now() + Duration::from_secs(86400 * 365 * 30));
     }
 
     /// The shared successful-write completion path, including write-and-quit.

@@ -88,7 +88,7 @@ where
     where
         S: Stream<Item = std::io::Result<TerminalEvent>> + Unpin,
     {
-        self.render().await;
+        self.request_frame();
 
         loop {
             if !self.pump(input_stream, false).await {
@@ -108,6 +108,7 @@ where
     where
         S: Stream<Item = std::io::Result<TerminalEvent>> + Unpin,
     {
+        let mut idle_seen = false;
         loop {
             if self.jobs.wait_futures.is_empty() {
                 self.editor.run_after_writes();
@@ -119,17 +120,10 @@ where
             // One input event can enqueue several callbacks. Drain a bounded
             // batch before accepting more input so synchronous event hooks do
             // not spend every keystroke waiting for space in their own queue.
-            let batch = self.drain_ready_callbacks();
-            if batch.handled > 0 {
-                if batch.needs_redraw {
-                    self.render().await;
-                }
+            if self.drain_ready_callbacks() > 0 {
+                idle_seen = false;
                 if until_idle {
                     self.editor.reset_idle_timer();
-                }
-                // Callbacks can close the editor as well as change its state.
-                if self.editor.should_close() {
-                    return false;
                 }
             }
 
@@ -137,17 +131,56 @@ where
                 return false;
             }
 
+            if self.render_state.requested.is_some() {
+                self.update_components();
+            }
+            let mut frame_deadline = self.frame_deadline();
+            if frame_deadline.is_some_and(|due| due <= tokio::time::Instant::now()) {
+                self.draw_frame();
+                frame_deadline = None;
+            }
+
             use futures_util::StreamExt;
+
+            // Idle is reported after its requested frame and accepted work finish.
+            if until_idle
+                && idle_seen
+                && self.render_state.requested.is_none()
+                && self.jobs.wait_futures.is_empty()
+                && !self.editor.has_pending_writes()
+                && !self.editor.has_pending_shell_filters()
+                && !self.jobs.command_expansion.is_running()
+                && !self.editor.documents().any(|doc| doc.is_syntax_pending())
+                && !self.compositor.has_pending_render()
+            {
+                use futures_util::FutureExt;
+                // A cooperative stream may yield with input still queued. This
+                // single readiness probe must distinguish that from an empty queue.
+                if let Some(Some(event)) =
+                    tokio::task::unconstrained(input_stream.next()).now_or_never()
+                {
+                    self.handle_terminal_events(event).await;
+                    idle_seen = false;
+                    continue;
+                }
+                return true;
+            }
 
             // Keep callbacks and saves progressing even when terminal input is
             // continuously ready; input priority can fill the callback queue.
             tokio::select! {
+                _ = async {
+                    if let Some(due) = frame_deadline { tokio::time::sleep_until(due).await; }
+                    else { std::future::pending::<()>().await; }
+                } => {},
                 Some(signal) = self.signals.next() => {
+                    idle_seen = false;
                     if !self.handle_signals(signal).await {
                         return false;
                     };
                 }
                 Some(request) = self.jobs.interactive_requests.recv() => {
+                    idle_seen = false;
                     match self.interactive_shell(request).await {
                         Ok(true) => {},
                         Ok(false) => return false,
@@ -158,49 +191,24 @@ where
                     }
                 }
                 Some(event) = input_stream.next() => {
+                    idle_seen = false;
                     self.handle_terminal_events(event).await;
                 }
                 Some(event) = self.config_updates.1.recv() => {
+                    idle_seen = false;
                     self.apply_config_update(event);
-                    self.render().await;
+                    self.request_frame();
                 }
                 Some(callback) = self.jobs.callbacks.recv() => {
-                    let outcome = self.jobs.handle_callback(crate::config::Context { current: &self.config.load(), updates: &self.config_updates.0 }, &mut self.editor, &mut self.compositor, Ok(Some(callback)));
-                    if outcome.needs_redraw() { self.render().await; }
+                    idle_seen = false;
+                    self.apply_callback(Ok(Some(callback)));
                 }
                 Some(callback) = self.jobs.wait_futures.next() => {
-                    let outcome = self.jobs.handle_callback(crate::config::Context { current: &self.config.load(), updates: &self.config_updates.0 }, &mut self.editor, &mut self.compositor, callback);
-                    if outcome.needs_redraw() { self.render().await; }
+                    idle_seen = false;
+                    self.apply_callback(callback);
                 }
                 event = self.editor.wait_event() => {
-                    let idle_handled = self.handle_editor_event(event).await;
-
-                    if until_idle {
-                        // Don't report idle while a save is still in flight, or an assertion on the post-save document state (e.g. its path,
-                        // set in `handle_document_write`) can run before the `DocumentSavedEvent` is processed. Slow file I/O on Windows
-                        // (atomic_save's rename/fsync dance over the still-open temp file) makes this race observable.
-                        // Initial syntax must also settle before assertions; its completion can
-                        // schedule spelling checks. Selection shell results must also settle before
-                        // command assertions inspect their edits. Completions arrive via jobs.
-                        if idle_handled
-                            && self.jobs.wait_futures.is_empty()
-                            && !self.editor.has_pending_writes()
-                            && !self.editor.has_pending_shell_filters()
-                            && !self.jobs.command_expansion.is_running()
-                            && !self.editor.documents().any(|doc| doc.is_syntax_pending())
-                            && !self.compositor.has_pending_render()
-                        {
-                            use futures_util::FutureExt;
-
-                            // An expired idle timer can win the select while input is
-                            // still queued, especially when a CI runner is busy.
-                            if let Some(Some(event)) = input_stream.next().now_or_never() {
-                                self.handle_terminal_events(event).await;
-                            } else {
-                                return true;
-                            }
-                        }
-                    }
+                    idle_seen = self.handle_editor_event(event).await;
                 }
             }
 

@@ -1,3 +1,4 @@
+use crate::compositor::DrawContext;
 use crate::keymap::component::MenuAction;
 use crate::{
     compositor::{Callback, Component, Compositor, Context, Event, EventResult},
@@ -320,7 +321,7 @@ impl<T: Item + 'static> Component for Menu<T> {
         Some(self.size)
     }
 
-    fn render(&mut self, area: Rect, surface: &mut Surface, cx: &mut Context) {
+    fn render(&mut self, area: Rect, surface: &mut Surface, cx: &mut DrawContext) {
         let theme = &cx.editor.theme;
         let style = theme
             .try_get("ui.menu")

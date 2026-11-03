@@ -13,6 +13,16 @@ use tokio::sync::mpsc::{channel, Receiver, Sender};
 pub struct JobSender(Sender<Callback>);
 
 impl JobSender {
+    /// Queue ready work now; retain delivery under the existing channel backpressure.
+    pub(crate) fn enqueue(&self, callback: Callback) {
+        if let Err(tokio::sync::mpsc::error::TrySendError::Full(callback)) =
+            self.0.try_send(callback)
+        {
+            let sender = self.clone();
+            tokio::spawn(async move { sender.send_callback(callback).await });
+        }
+    }
+
     pub async fn send_callback(&self, callback: Callback) {
         let _ = self.0.send(callback).await;
     }
@@ -302,6 +312,24 @@ fn interactive_executor(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn ready_callbacks_enqueue_immediately_and_wait_for_capacity() {
+        let (tx, mut rx) = channel(1);
+        let sender = JobSender(tx);
+        sender.enqueue(Callback::ui(|_, _| {}));
+        assert!(matches!(rx.try_recv(), Ok(Callback::Ui(_))));
+
+        sender.enqueue(Callback::editor(|_| {}));
+        sender.enqueue(Callback::ui(|_, _| {}));
+        assert!(matches!(rx.recv().await, Some(Callback::Editor(_))));
+        assert!(matches!(
+            tokio::time::timeout(std::time::Duration::from_secs(1), rx.recv()).await,
+            Ok(Some(Callback::Ui(_)))
+        ));
+        drop(rx);
+        sender.enqueue(Callback::ui(|_, _| {}));
+    }
 
     #[tokio::test]
     async fn editor_sender_keeps_its_queue_and_backpressure() {

@@ -1,6 +1,7 @@
 //! Actions on the immutable source behind the current-change popup.
 
 use super::*;
+use crate::compositor::DrawContext;
 use crate::keymap::component::{action_hint, DiffAction};
 use ui_core::keymap::Lookup;
 use view::features::change_review::HunkReviewSnapshot;
@@ -23,7 +24,7 @@ impl HunkReviewView {
 }
 
 impl Component for HunkReviewView {
-    fn render(&mut self, area: Rect, surface: &mut Buffer, cx: &mut Context) {
+    fn render(&mut self, area: Rect, surface: &mut Buffer, cx: &mut DrawContext) {
         if area.is_empty() {
             return;
         }
@@ -36,7 +37,7 @@ impl Component for HunkReviewView {
             area.bottom().saturating_sub(1),
             format!(
                 "{} restore hunk from HEAD · undo with u",
-                action_hint(&cx.config.current.component_keys.diff, &DiffAction::Restore)
+                action_hint(&cx.config.component_keys.diff, &DiffAction::Restore)
             ),
             footer.width as usize,
             cx.editor.theme.get("ui.text.inactive"),

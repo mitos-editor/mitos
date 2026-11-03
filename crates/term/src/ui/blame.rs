@@ -1,5 +1,6 @@
 //! Commit details and copy actions for the primary cursor's blame.
 
+use crate::compositor::DrawContext;
 use theme::Theme;
 use tui::{
     buffer::Buffer,
@@ -151,7 +152,7 @@ impl Component for BlameDetails {
         }
     }
 
-    fn render(&mut self, area: Rect, surface: &mut Buffer, cx: &mut Context) {
+    fn render(&mut self, area: Rect, surface: &mut Buffer, cx: &mut DrawContext) {
         text::paragraph(self.text(Some(&cx.editor.theme)))
             .scroll((cx.scroll.unwrap_or_default() as u16, 0))
             .render(panel::content_area(area), surface);

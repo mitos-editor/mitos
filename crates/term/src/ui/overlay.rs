@@ -1,3 +1,4 @@
+use crate::compositor::DrawContext;
 use editor_config::{CommandLineConfig, PickerLayout};
 use tui::buffer::Buffer;
 use view::{
@@ -52,11 +53,18 @@ fn clip_rect_relative(rect: Rect, percent_horizontal: u8, percent_vertical: u8) 
 }
 
 impl<T: Component + 'static> Component for Overlay<T> {
-    fn has_pending_render(&mut self) -> bool {
+    fn has_pending_render(&self) -> bool {
         self.content.has_pending_render()
     }
 
-    fn render(&mut self, area: Rect, frame: &mut Buffer, ctx: &mut Context) {
+    fn update(&mut self, area: Rect, cx: &mut Context) {
+        let config = cx.editor.config();
+        let area = picker_area(area, config.picker.layout, config.command_line);
+        self.content.required_size((area.width, area.height));
+        self.content.update(area, cx);
+    }
+
+    fn render(&mut self, area: Rect, frame: &mut Buffer, ctx: &mut DrawContext) {
         let config = ctx.editor.config();
         let dimensions = picker_area(area, config.picker.layout, config.command_line);
         // Resizing or a live layout change also changes the child's page size.

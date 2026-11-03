@@ -1,3 +1,4 @@
+use crate::compositor::DrawContext;
 mod render;
 use super::highlights::primary_native_cursor_kind;
 use crate::repeat::InsertEvent;
@@ -522,6 +523,21 @@ impl EditorView {
     }
 }
 
+fn editor_layout(editor: &Editor, area: Rect) -> ApplicationLayout {
+    let config = editor.config();
+    let use_bufferline = match config.bufferline.show {
+        BufferLine::Always => true,
+        BufferLine::Multiple if editor.documents.len() > 1 => true,
+        _ => false,
+    };
+    ApplicationLayout::new(
+        area,
+        use_bufferline,
+        config.statusline.global,
+        config.command_line,
+    )
+}
+
 impl Component for EditorView {
     fn handle_event(
         &mut self,
@@ -690,45 +706,41 @@ impl Component for EditorView {
         }
     }
 
-    fn render(&mut self, area: Rect, surface: &mut Surface, cx: &mut Context) {
-        let config = cx.editor.config();
-        let use_bufferline = match config.bufferline.show {
-            BufferLine::Always => true,
-            BufferLine::Multiple if cx.editor.documents.len() > 1 => true,
-            _ => false,
-        };
-        let layout = ApplicationLayout::new(
-            area,
-            use_bufferline,
-            config.statusline.global,
-            config.command_line,
-        );
+    fn update(&mut self, area: Rect, cx: &mut Context) {
+        let layout = editor_layout(cx.editor, area);
         cx.editor.resize(layout.editor);
         cx.editor.refresh_debugger_inline_values();
+        self.renderer
+            .prepare_images(cx.editor, cx.image_picker, &cx.jobs.image_cache);
+        if let Some(completion) = &mut self.completion {
+            completion.update(area, cx);
+        }
+    }
+
+    fn render(&mut self, area: Rect, surface: &mut Surface, cx: &mut DrawContext) {
+        let config = cx.editor.config();
+        let layout = editor_layout(cx.editor, area);
         self.renderer.render(
             cx.editor,
             layout,
             surface,
-            cx.image_picker,
-            &cx.jobs.image_cache,
             PaneOptions {
                 area,
                 terminal_focused: self.terminal_focused,
                 is_cursor_owner: cx.is_cursor_owner,
-                true_color: cx.config.current.terminal.true_color || crate::true_color(),
+                true_color: cx.config.terminal.true_color || crate::true_color(),
             },
         );
 
         if config.auto_info
-            && let Some(mut info) = cx.editor.autoinfo.take()
+            && let Some(info) = cx.editor.autoinfo.as_ref()
         {
             // Global statuslines are already outside layout.editor; per-view
             // statuslines occupy its bottom row.
             let info_area = layout
                 .editor
                 .clip_bottom(u16::from(!config.statusline.global));
-            info.render(info_area, surface, cx);
-            cx.editor.autoinfo = Some(info)
+            super::info::render(info, info_area, surface, cx);
         }
 
         let key_width = 15u16; // for showing pending keys

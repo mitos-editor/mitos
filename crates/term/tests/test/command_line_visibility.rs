@@ -81,7 +81,7 @@ async fn auto_command_line_reclaims_a_row_and_restores_statuslines() -> anyhow::
                     diagnostics::Severity::Error,
                 ] {
                     app.editor.status_msg = Some(("message".into(), severity));
-                    app.editor.needs_redraw = true;
+                    app.editor.redraw().request();
                     keys(&mut app, "").await?;
                     assert_eq!(bottom_text(&app).trim(), "message");
                     assert!(bottom_row(&app).iter().all(|cell| cell.bg == Color::Black));

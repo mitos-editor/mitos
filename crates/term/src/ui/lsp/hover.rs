@@ -1,3 +1,4 @@
+use crate::compositor::DrawContext;
 use std::sync::Arc;
 
 use arc_swap::ArcSwap;
@@ -66,7 +67,7 @@ const HEADER_HEIGHT: u16 = 1;
 const SEPARATOR_HEIGHT: u16 = 1;
 
 impl Component for Hover {
-    fn render(&mut self, area: Rect, surface: &mut Buffer, cx: &mut Context) {
+    fn render(&mut self, area: Rect, surface: &mut Buffer, cx: &mut DrawContext) {
         let area = panel::content_area(area);
 
         let (header, contents) = self.content();
