@@ -3,31 +3,29 @@
 
 use super::*;
 
+pub(crate) struct Attachment {
+    pub(crate) client: Arc<Client>,
+    pub(crate) opened: bool,
+}
+
 impl Document {
-    /// maintains the order as configured in the language_servers TOML array
+    /// Maintains the order and feature routing configured in the language-server array.
     pub fn language_servers(&self) -> impl Iterator<Item = &lsp_client::Client> {
         self.language_config().into_iter().flat_map(move |config| {
             config.language_servers.iter().filter_map(move |features| {
-                let ls = &**self.language_servers.get(&features.name)?;
-                if self.opened_language_servers.contains(&ls.id()) {
-                    Some(ls)
-                } else {
-                    None
-                }
+                let attachment = self.language_servers.get(&features.name)?;
+                attachment.opened.then_some(&*attachment.client)
             })
         })
     }
 
     pub fn remove_language_server_by_name(&mut self, name: &str) -> Option<Arc<Client>> {
-        let server = self.language_servers.remove(name);
-        if let Some(server) = &server {
-            self.opened_language_servers.remove(&server.id());
-            self.cancel_view_requests(|state| &mut state.hover);
-            self.cancel_view_requests(|state| &mut state.navigation);
-            self.document_links.cancel_navigation();
-            self.reset_all_inlay_hints();
-        }
-        server
+        let attachment = self.language_servers.remove(name)?;
+        self.cancel_view_requests(|state| &mut state.hover);
+        self.cancel_view_requests(|state| &mut state.navigation);
+        self.document_links.cancel_navigation();
+        self.reset_all_inlay_hints();
+        Some(attachment.client)
     }
 
     pub fn language_servers_with_feature(
@@ -36,17 +34,23 @@ impl Document {
     ) -> impl Iterator<Item = &lsp_client::Client> {
         self.language_config().into_iter().flat_map(move |config| {
             config.language_servers.iter().filter_map(move |features| {
-                let ls = &**self.language_servers.get(&features.name)?;
-                if self.opened_language_servers.contains(&ls.id())
-                    && crate::language_servers::supports_feature(ls.capabilities(), feature)
-                    && features.has_feature(feature)
-                {
-                    Some(ls)
-                } else {
-                    None
-                }
+                let attachment = self.language_servers.get(&features.name)?;
+                let client = &*attachment.client;
+                (attachment.opened
+                    && crate::language_servers::supports_feature(client.capabilities(), feature)
+                    && features.has_feature(feature))
+                .then_some(client)
             })
         })
+    }
+
+    /// Wire synchronization visits each opened binding once, independently of
+    /// duplicate configured entries used for feature routing.
+    pub(crate) fn opened_language_servers(&self) -> impl Iterator<Item = &Arc<Client>> {
+        self.language_servers
+            .values()
+            .filter(|attachment| attachment.opened)
+            .map(|attachment| &attachment.client)
     }
 
     pub fn supports_language_server(&self, id: LanguageServerId) -> bool {
@@ -56,23 +60,31 @@ impl Document {
     pub(crate) fn attach_language_servers(
         &mut self,
         servers: HashMap<LanguageServerName, Arc<Client>>,
-        ready: &HashSet<LanguageServerId>,
+        registry: &crate::language_servers::Registry,
     ) {
-        for (name, server) in &self.language_servers {
-            if servers
+        let identifier = self.identifier();
+        self.language_servers.retain(|name, attachment| {
+            let keep = servers
                 .get(name)
-                .is_none_or(|next| next.id() != server.id())
-                && self.opened_language_servers.remove(&server.id())
-            {
-                server.text_document_did_close(self.identifier());
+                .is_some_and(|next| next.id() == attachment.client.id());
+            if !keep && attachment.opened {
+                attachment
+                    .client
+                    .text_document_did_close(identifier.clone());
             }
+            keep
+        });
+        for (name, client) in servers {
+            self.language_servers.entry(name).or_insert(Attachment {
+                client,
+                opened: false,
+            });
         }
-        self.language_servers = servers;
         let ids: Vec<_> = self
             .language_servers
             .values()
-            .map(|server| server.id())
-            .filter(|id| ready.contains(id))
+            .filter(|attachment| registry.is_ready(attachment.client.id()))
+            .map(|attachment| attachment.client.id())
             .collect();
         for id in ids {
             self.open_language_server_document(id);
@@ -80,30 +92,36 @@ impl Document {
     }
 
     pub(crate) fn open_language_server_document(&mut self, id: LanguageServerId) {
-        let Some(server) = self
+        let Some(client) = self
             .language_servers
             .values()
-            .find(|server| server.id() == id)
+            .find(|attachment| attachment.client.id() == id && !attachment.opened)
+            .map(|attachment| attachment.client.clone())
         else {
             return;
         };
         let Some(uri) = self.url() else {
             return;
         };
-        if self.opened_language_servers.insert(id) {
-            server.text_document_did_open(
-                uri,
-                self.version(),
-                self.text(),
-                self.language_id().unwrap_or_default().to_owned(),
-            );
-        }
+        // Registry clients have one fixed name, also used by the attachment caller.
+        self.language_servers.get_mut(client.name()).unwrap().opened = true;
+        client.text_document_did_open(
+            uri,
+            self.version(),
+            self.text(),
+            self.language_id().unwrap_or_default().to_owned(),
+        );
     }
 
     pub(crate) fn close_language_server_documents(&mut self) {
-        for server in self.language_servers.values() {
-            if self.opened_language_servers.remove(&server.id()) {
-                server.text_document_did_close(self.identifier());
+        let Some(uri) = self.url() else {
+            return;
+        };
+        for attachment in self.language_servers.values_mut() {
+            if std::mem::replace(&mut attachment.opened, false) {
+                attachment
+                    .client
+                    .text_document_did_close(lsp::TextDocumentIdentifier::new(uri.clone()));
             }
         }
     }

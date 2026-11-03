@@ -542,6 +542,17 @@ async fn documents_open_once_with_current_text_after_editor_initialization() -> 
     f.release()?;
     let (server, call) = f.next().await?;
     assert!(matches!(&call, Call::Notification(n) if n.method == "initialized"));
+    assert!(f
+        .app
+        .editor
+        .language_server_by_id(server)
+        .unwrap()
+        .is_initialized());
+    assert!(f
+        .app
+        .editor
+        .documents()
+        .all(|doc| doc.language_servers().next().is_none()));
     let second = dir.path().join("second.lifecycle-test");
     std::fs::write(&second, "second\n")?;
     f.app.editor.open(&second, view::editor::Action::Replace)?;

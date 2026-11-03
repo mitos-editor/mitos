@@ -1,5 +1,4 @@
 //! Inline completion cache and document/view lifetime.
-use super::requests::InlineCompletionTrigger;
 use crate::ViewId;
 use editor_core::{movement::Direction, Range};
 use event::TaskController;
@@ -21,14 +20,9 @@ pub(crate) struct InlineCompletions {
     pub(super) index: usize,
     pub(super) view: Option<ViewId>,
     pub(super) controller: TaskController,
-    pub(super) trigger: Option<InlineCompletionTrigger>,
 }
 
 impl InlineCompletions {
-    pub(crate) fn bind_handler(&mut self, handler: &super::InlineCompletionHandler) {
-        self.trigger = Some(handler.trigger.clone());
-    }
-
     pub fn current(&self, view: ViewId) -> Option<&InlineCompletion> {
         (self.view == Some(view))
             .then(|| self.items.get(self.index))
@@ -56,12 +50,9 @@ impl InlineCompletions {
 }
 
 impl InlineCompletions {
-    pub(crate) fn remove_view(&mut self, doc: crate::DocumentId, view: ViewId) {
+    pub(crate) fn remove_view(&mut self, view: ViewId) {
         if self.view == Some(view) {
             self.clear();
-        }
-        if let Some(trigger) = &self.trigger {
-            trigger.cancel_view(doc, view);
         }
     }
 }

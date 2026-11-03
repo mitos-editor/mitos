@@ -151,8 +151,8 @@ pub(crate) fn register_hooks(events: &event::EventHub) {
 
     register_hook!(events => move |event: &mut DocumentDidChange<'_>| {
         event.doc.document_links.request.cancel();
-        if let Some(handler) = &event.doc.document_links.handler {
-            event::send_blocking(&handler.events, event.doc.id());
+        if let Some(services) = event.doc.services() {
+            event::send_blocking(&services.document_links.events, event.doc.id());
         }
 
         Ok(())

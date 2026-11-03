@@ -350,11 +350,7 @@ pub fn resolve_code_lenses(
                 .language_servers_with_feature(LanguageServerFeature::CodeLens)
                 .find(|server| server.id() == lens.language_server_id)?;
             servers.insert(server.id());
-            let server = doc
-                .language_servers
-                .values()
-                .find(|client| client.id() == server.id())?
-                .clone();
+            let server = doc.language_servers.get(server.name())?.client.clone();
             let language_server_id = lens.language_server_id;
             let lens = lens.lens.clone();
             let slots = slots.clone();
@@ -407,8 +403,8 @@ pub(crate) fn register_hooks(events: &event::EventHub) {
         Ok(())
     });
     register_hook!(events => move |event: &mut DocumentDidChange<'_>| {
-        if let Some(handler) = &event.doc.code_lenses.handler {
-            event::send_blocking(&handler.events, event.doc.id());
+        if let Some(services) = event.doc.services() {
+            event::send_blocking(&services.code_lenses.events, event.doc.id());
         }
         Ok(())
     });
