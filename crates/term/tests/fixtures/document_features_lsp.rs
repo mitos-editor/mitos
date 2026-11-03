@@ -801,7 +801,7 @@ fn main() -> anyhow::Result<()> {
             )?;
             continue;
         }
-        let result = match method {
+        let mut result = match method {
             "initialize" if file_operations => json!({"capabilities": {
                 "textDocumentSync": 1, "workspace": {"fileOperations": {
                     "willRename": {"filters": [{"pattern": {"glob": "**"}}]},
@@ -939,6 +939,12 @@ fn main() -> anyhow::Result<()> {
             "textDocument/codeLens" => json!([{"range": range(3, end)}]),
             _ => Value::Null,
         };
+        if method == "initialize" && args.iter().any(|arg| arg == "--workspace-folders") {
+            result["capabilities"]["workspace"] = json!({"workspaceFolders": {
+                "supported": true,
+                "changeNotifications": !args.iter().any(|arg| arg == "--no-workspace-notifications")
+            }});
+        }
         respond(
             &mut output,
             json!({"jsonrpc": "2.0", "id": id, "result": result}),

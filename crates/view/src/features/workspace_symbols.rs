@@ -128,12 +128,8 @@ impl Editor {
         let servers = doc
             .language_servers_with_feature(LanguageServerFeature::WorkspaceSymbols)
             .filter(|server| seen.insert(server.id()))
-            .filter_map(|server| {
-                doc.language_servers
-                    .values()
-                    .find(|candidate| candidate.id() == server.id())
-            })
-            .map(std::sync::Arc::downgrade)
+            .filter_map(|server| doc.language_servers.get(server.name()))
+            .map(|attachment| std::sync::Arc::downgrade(&attachment.client))
             .collect::<Vec<_>>();
         ensure!(
             !servers.is_empty(),

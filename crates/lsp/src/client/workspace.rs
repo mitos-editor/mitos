@@ -6,7 +6,7 @@ use crate::lsp::{
     WorkspaceFolder, WorkspaceFoldersChangeEvent,
 };
 use serde_json::Value;
-use std::{path::Path, sync::Arc};
+use std::path::Path;
 
 pub(super) fn workspace_for_uri(uri: lsp::Url) -> WorkspaceFolder {
     lsp::WorkspaceFolder {
@@ -25,11 +25,10 @@ impl Client {
     /// Determines whether this client can serve a resolved workspace and, when
     /// supported, adds its URI to the server's workspace folders.
     ///
-    /// Before initialization completes, the capability decision is deferred to
-    /// a background task. A `true` return means the caller may associate the
-    /// document with this client immediately.
+    /// Existing roots can be reused during startup. A different root requires
+    /// initialized workspace-folder capabilities; pending clients return false.
     pub fn try_add_workspace(
-        self: &Arc<Self>,
+        &self,
         root_path: &Path,
         root_uri: Option<lsp::Url>,
         may_support_workspace: bool,
@@ -52,31 +51,7 @@ impl Client {
         }
 
         let Some(capabilities) = self.capabilities.get() else {
-            let client = Arc::clone(self);
-            // initialization hasn't finished yet, deal with this new root later
-            // TODO: In the edgecase that a **new root** is added
-            // for an LSP that **doesn't support workspace_folders** before initaliation is finished
-            // the new roots are ignored.
-            // That particular edgecase would require retroactively spawning new LSP
-            // clients and therefore also require us to retroactively update the corresponding
-            // documents LSP client handle. It's doable but a pretty weird edgecase so let's
-            // wait and see if anyone ever runs into it.
-            tokio::spawn(async move {
-                client.initialize_notify.notified().await;
-                if let Some(workspace_folders_caps) = client
-                    .capabilities()
-                    .workspace
-                    .as_ref()
-                    .and_then(|cap| cap.workspace_folders.as_ref())
-                    .filter(|cap| cap.supported.unwrap_or(false))
-                {
-                    client.add_workspace_folder(
-                        root_uri,
-                        workspace_folders_caps.change_notifications.as_ref(),
-                    );
-                }
-            });
-            return true;
+            return false;
         };
 
         if let Some(workspace_folders_caps) = capabilities

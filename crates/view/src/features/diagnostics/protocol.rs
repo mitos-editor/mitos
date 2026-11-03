@@ -190,7 +190,7 @@ impl Editor {
             log::warn!("can't find language server with id `{server_id}`");
             return;
         };
-        if !self.language_server_is_ready(server_id) {
+        if !self.language_servers.is_ready(server_id) {
             log::error!(
                 "Discarding publishDiagnostic notification sent by an uninitialized server: {}",
                 language_server.name()

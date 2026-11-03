@@ -55,7 +55,7 @@ use vcs::{DiffHandle, DiffProviderRegistry};
 
 use serde::de::{self, Deserialize, Deserializer};
 use serde::Serialize;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::fmt::Display;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -239,8 +239,7 @@ pub struct Document {
     pub(crate) modified_since_accessed: bool,
 
     pub(crate) diagnostics: ::diagnostics::DiagnosticStore,
-    pub(crate) language_servers: HashMap<LanguageServerName, Arc<Client>>,
-    opened_language_servers: HashSet<LanguageServerId>,
+    pub(crate) language_servers: HashMap<LanguageServerName, language_servers::Attachment>,
 
     diff_handle: Option<DiffHandle>,
     version_control_head: Option<Arc<ArcSwap<Box<str>>>>,
@@ -327,7 +326,6 @@ impl Document {
             diagnostics: Default::default(),
             modified_since_accessed: false,
             language_servers: HashMap::new(),
-            opened_language_servers: HashSet::new(),
             diff_handle: None,
             redraw: event::Redraw::default(),
             events: event::EventHub::default(),
