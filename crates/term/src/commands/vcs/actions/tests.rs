@@ -270,7 +270,7 @@ async fn direct_git_shortcuts_clip_to_one_row_follow_remaps_and_preserve_paging(
                 let mut editor_config = (*app.editor.config()).clone();
                 editor_config.border_style = border;
                 editor_config.picker.show_keybindings = true;
-                app.handle_config_events(view::editor::ConfigEvent::Update(Box::new(
+                app.apply_config_update(crate::config::ConfigEvent::UpdateEditor(Box::new(
                     editor_config,
                 )));
                 let mut picker = Picker::new(
@@ -314,7 +314,7 @@ async fn direct_git_shortcuts_clip_to_one_row_follow_remaps_and_preserve_paging(
                 assert!(visible > 0);
                 let mut editor_config = (*app.editor.config()).clone();
                 editor_config.picker.show_keybindings = false;
-                app.handle_config_events(view::editor::ConfigEvent::Update(Box::new(
+                app.apply_config_update(crate::config::ConfigEvent::UpdateEditor(Box::new(
                     editor_config,
                 )));
                 let hidden = frame(

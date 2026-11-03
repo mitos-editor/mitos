@@ -72,7 +72,7 @@ async fn prompts_are_delivered_once_per_editor_and_survive_config_reload() -> an
         TrustStatus::Untrusted
     );
     assert!(!matches!(
-        first.editor.config_events.1.try_recv(),
+        first.editor.config_events.as_mut().unwrap().try_recv(),
         Ok(ConfigEvent::Refresh)
     ));
     Ok(())
@@ -125,7 +125,7 @@ async fn stale_workspace_prompts_are_rejected_before_delivery_and_resolution() -
             );
             assert!(
                 !matches!(
-                    f.editor.config_events.1.try_recv(),
+                    f.editor.config_events.as_mut().unwrap().try_recv(),
                     Ok(ConfigEvent::Refresh)
                 ),
                 "{change}"

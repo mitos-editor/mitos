@@ -19,9 +19,12 @@ fn opened(editor: &mut view::Editor) {
         .report_to(editor.status_sender());
 }
 
-fn drain_theme_events(editor: &mut view::Editor) {
-    while let Ok(event) = editor.config_events.1.try_recv() {
-        assert!(matches!(event, ConfigEvent::ThemeChanged));
+fn drain_theme_events(app: &mut term::application::TestApplication) {
+    while let Some(event) = app.take_config_request() {
+        assert!(matches!(
+            event,
+            term::config::ConfigEvent::Shared(ConfigEvent::ThemeChanged)
+        ));
     }
 }
 
@@ -65,7 +68,7 @@ fn app(root: &std::path::Path) -> anyhow::Result<term::application::TestApplicat
     app.handle_config_events(ConfigEvent::Refresh);
     assert_eq!(app.editor.config().scroll.padding, 7);
     opened(&mut app.editor);
-    drain_theme_events(&mut app.editor);
+    drain_theme_events(&mut app);
     Ok(app)
 }
 
@@ -211,7 +214,7 @@ async fn shared_decisions_preserve_launch_restart_revocation_and_stale_semantics
     std::fs::write(&local, "")?;
     let mut f = Fixture::new(&workspace, &["alpha", "beta"])?;
     f.initialize().await?;
-    drain_theme_events(&mut f.app.editor);
+    drain_theme_events(&mut f.app);
     let first = current_ref!(f.app.editor).1.id();
     let path = workspace.join("other.lifecycle-test");
     std::fs::write(&path, "other\n")?;
@@ -227,15 +230,15 @@ async fn shared_decisions_preserve_launch_restart_revocation_and_stale_semantics
     )?);
     assert_eq!([f.server("alpha"), f.server("beta")], original);
     assert!(matches!(
-        f.app.editor.config_events.1.try_recv(),
-        Ok(ConfigEvent::Refresh)
+        f.app.take_config_request(),
+        Some(term::config::ConfigEvent::Shared(ConfigEvent::Refresh))
     ));
     assert!(!resolve_request(
         &mut f.app.editor,
         &request,
         TrustDecision::Exclude
     )?);
-    assert!(f.app.editor.config_events.1.try_recv().is_err());
+    assert!(f.app.take_config_request().is_none());
     assert_eq!(
         WorkspaceTrust::new(Config::default(), loader::workspace_trust_dir()).status(&workspace),
         TrustStatus::Trusted
@@ -264,15 +267,15 @@ async fn shared_decisions_preserve_launch_restart_revocation_and_stale_semantics
             .any(|ls| ls.id() == restarted));
     }
     assert!(matches!(
-        f.app.editor.config_events.1.try_recv(),
-        Ok(ConfigEvent::Refresh)
+        f.app.take_config_request(),
+        Some(term::config::ConfigEvent::Shared(ConfigEvent::Refresh))
     ));
     let error = trust_and_restart(&mut f.app.editor, first, &["unknown"]).unwrap_err();
     assert_eq!(error.to_string(), "Unknown language server: unknown");
     // Trust and refresh still precede restart errors, as in the original command.
     assert!(matches!(
-        f.app.editor.config_events.1.try_recv(),
-        Ok(ConfigEvent::Refresh)
+        f.app.take_config_request(),
+        Some(term::config::ConfigEvent::Shared(ConfigEvent::Refresh))
     ));
 
     std::fs::write(&local, "[editor]\nmouse = false\n")?;
@@ -297,8 +300,8 @@ async fn shared_decisions_preserve_launch_restart_revocation_and_stale_semantics
             [restarted, original[1]]
         );
         assert!(matches!(
-            f.app.editor.config_events.1.try_recv(),
-            Ok(ConfigEvent::Refresh)
+            f.app.take_config_request(),
+            Some(term::config::ConfigEvent::Shared(ConfigEvent::Refresh))
         ));
     }
     assert!(f.app.close().await.is_empty());
@@ -326,8 +329,8 @@ async fn explicit_decisions_invalidate_queued_and_visible_prompts() -> anyhow::R
             let request = delivered.then(|| next_request(&mut app.editor).unwrap());
             apply_decision(&mut app.editor, &workspace, decision)?;
             assert!(matches!(
-                app.editor.config_events.1.try_recv(),
-                Ok(ConfigEvent::Refresh)
+                app.take_config_request(),
+                Some(term::config::ConfigEvent::Shared(ConfigEvent::Refresh))
             ));
             if let Some(request) = request {
                 assert!(!resolve_request(
@@ -338,7 +341,7 @@ async fn explicit_decisions_invalidate_queued_and_visible_prompts() -> anyhow::R
             } else {
                 assert!(next_request(&mut app.editor).is_none());
             }
-            assert!(app.editor.config_events.1.try_recv().is_err());
+            assert!(app.take_config_request().is_none());
             assert!(app.close().await.is_empty());
         }
     }

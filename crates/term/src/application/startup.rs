@@ -166,12 +166,17 @@ where
         let mut compositor = Compositor::new(area);
         let config = Arc::new(ArcSwap::from_pointee(config));
         let jobs = Jobs::new();
+        let config_updates = tokio::sync::mpsc::unbounded_channel();
         let mut handlers = view::handlers::Handlers::with_events(
             &config.load().editor,
             jobs.editor_callback_sender(),
             events,
         );
         setup(&mut handlers, &config.load().editor);
+        let requests = config_updates.0.clone();
+        handlers.config_requests = Some(view::editor::ConfigRequests::new(move |request| {
+            Ok(requests.send(crate::config::ConfigEvent::Shared(request))?)
+        }));
         handlers::register_hooks(handlers.events());
         let mut editor = Editor::new(
             area,
@@ -324,7 +329,7 @@ where
             editor,
             image_picker: None,
             config,
-            config_updates: tokio::sync::mpsc::unbounded_channel(),
+            config_updates,
             signals,
             jobs,
             terminal_input,

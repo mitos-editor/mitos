@@ -6,7 +6,7 @@ use term::{
     ui::{overlay::overlaid, Picker, PickerColumn},
 };
 use tui::{backend::Backend, buffer::Buffer};
-use view::{editor::ConfigEvent, graphics::Rect};
+use view::graphics::Rect;
 
 use super::helpers::{keys, test_config, AppBuilder};
 
@@ -72,7 +72,7 @@ async fn open_and_resumed_pickers_follow_live_layout_changes() -> anyhow::Result
     assert_picker(&app, PickerLayout::Auto);
     let mut config = (*app.editor.config()).clone();
     config.picker.layout = PickerLayout::Centered;
-    app.handle_config_events(ConfigEvent::Update(Box::new(config)));
+    app.apply_config_update(term::config::ConfigEvent::UpdateEditor(Box::new(config)));
     keys(&mut app, "<home>").await?;
     assert_picker(&app, PickerLayout::Centered);
     keys(&mut app, "<esc>:set picker.layout auto<ret><space>'").await?;
@@ -110,7 +110,7 @@ async fn page_navigation_tracks_layout_changes_and_terminal_resizes() -> anyhow:
     ] {
         let mut settings = (*app.editor.config()).clone();
         settings.picker.layout = layout;
-        app.handle_config_events(ConfigEvent::Update(Box::new(settings)));
+        app.apply_config_update(term::config::ConfigEvent::UpdateEditor(Box::new(settings)));
         let area = Rect::new(0, 0, width, height);
         overlay.update_and_render(
             area,

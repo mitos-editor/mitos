@@ -11,7 +11,7 @@ use view::{
     callbacks::EditorCallback,
     current, current_ref,
     document::Mode,
-    editor::{Action, ConfigEvent, EditorEvent},
+    editor::{Action, EditorEvent},
     features::signature_help::{
         self, SignatureHelpChange, SignatureHelpHandler, SignatureHelpInvoked, SignatureHelpUpdate,
     },
@@ -132,7 +132,7 @@ impl Fixture {
         let mut config = (*self.app.editor.config()).clone();
         config.lsp.signature_help.auto_trigger = enabled;
         self.app
-            .handle_config_events(ConfigEvent::Update(Box::new(config)));
+            .apply_config_update(term::config::ConfigEvent::UpdateEditor(Box::new(config)));
     }
 
     async fn popup_selection(&mut self) -> anyhow::Result<Option<usize>> {
