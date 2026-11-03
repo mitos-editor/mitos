@@ -1,7 +1,10 @@
 mod display;
 mod presentation;
+mod services;
 pub use crate::features::formatting::FormatterError;
 pub use display::{DocumentDisplay, DocumentKind};
+pub(crate) use services::DocumentServices;
+use services::ServiceBinding;
 use stdx::rope::RopeExt as _;
 pub(crate) mod history;
 mod language_servers;
@@ -171,9 +174,7 @@ impl SavePoint {
 }
 
 pub struct Document {
-    pub(crate) events: event::EventHub,
-    redraw: event::Redraw,
-    status: Option<event::status::StatusSender>,
+    services: ServiceBinding,
     pub(crate) id: DocumentId,
     pub(crate) buffer: buffer::Buffer,
     pub(crate) view_states: HashMap<ViewId, DocumentViewState>,
@@ -221,15 +222,6 @@ pub struct Document {
 
     pub(crate) syntax: Option<Syntax>,
     pending_syntax: Option<PendingSyntax>,
-    // Assigned when the document joins an editor so its events return to that editor.
-    pub(crate) signature_help_trigger:
-        Option<crate::features::signature_help::SignatureHelpTrigger>,
-    pub(crate) word_index_trigger: Option<crate::features::word_index::WordIndexTrigger>,
-    pub(crate) auto_save_trigger: Option<crate::features::auto_save::AutoSaveTrigger>,
-    pub(crate) review_trigger: Option<crate::features::change_review::ReviewTrigger>,
-    pub(crate) syntax_handler: Option<crate::features::syntax::SyntaxHandler>,
-    pub(crate) spelling_events:
-        Option<tokio::sync::mpsc::Sender<crate::features::spelling::SpellingEvent>>,
     /// Corresponding language scope name. Usually `source.<lang>`.
     pub(crate) language: Option<Arc<LanguageConfiguration>>,
 
@@ -279,11 +271,6 @@ impl fmt::Debug for Document {
 use lsp_client::{lsp, Client, LanguageServerId, LanguageServerName};
 
 impl Document {
-    /// Observers bound to this document; attached documents use their editor's hub.
-    pub fn events(&self) -> &event::EventHub {
-        &self.events
-    }
-
     pub fn from(
         text: Rope,
         encoding_with_bom_info: Option<(&'static Encoding, bool)>,
@@ -315,21 +302,16 @@ impl Document {
             line_ending,
             syntax: None,
             pending_syntax: None,
-            syntax_handler: None,
-            auto_save_trigger: None,
-            review_trigger: None,
-            word_index_trigger: None,
-            signature_help_trigger: None,
-            spelling_events: None,
             language: None,
             selection_history: Default::default(),
             diagnostics: Default::default(),
             modified_since_accessed: false,
             language_servers: HashMap::new(),
             diff_handle: None,
-            redraw: event::Redraw::default(),
-            events: event::EventHub::default(),
-            status: None,
+            services: ServiceBinding::Standalone {
+                redraw: event::Redraw::default(),
+                events: event::EventHub::default(),
+            },
             blame: Default::default(),
             config,
             version_control_head: None,
@@ -480,7 +462,10 @@ impl Document {
         self.document_links.cancel_navigation_for(view_id);
         self.document_symbols.remove_view(view_id);
         self.document_highlights.remove_view(view_id);
-        self.inline_completions.remove_view(self.id, view_id);
+        self.inline_completions.remove_view(view_id);
+        if let Some(services) = self.services() {
+            services.inline_completion.cancel_view(self.id, view_id);
+        }
         self.code_action_hints.remove_view(view_id);
     }
 
@@ -599,28 +584,6 @@ impl Document {
             .unwrap_or(false)
     }
 
-    /// Signal destination for standalone documents; attached documents use their editor's.
-    pub fn redraw(&self) -> &event::Redraw {
-        &self.redraw
-    }
-
-    pub(crate) fn bind_signals(
-        &mut self,
-        redraw: event::Redraw,
-        status: event::status::StatusSender,
-    ) {
-        self.redraw = redraw;
-        self.status = Some(status);
-    }
-
-    fn report_hook_errors(&self, errors: event::HookErrors) {
-        if let Some(status) = &self.status {
-            errors.report_to(status);
-        } else {
-            errors.log();
-        }
-    }
-
     pub fn diff_handle(&self) -> Option<&DiffHandle> {
         self.diff_handle.as_ref()
     }
@@ -642,9 +605,9 @@ impl Document {
         }
         self.version_control_head = providers.get_current_head_name(&path, trust_full);
         if self.config.load().inline_blame.show != editor_config::InlineBlameShow::Never
-            && let Some(handler) = self.blame.handler().cloned()
+            && let Some(services) = self.services()
         {
-            handler.schedule_refresh(self.id());
+            services.blame.schedule_refresh(self.id());
         }
     }
 
@@ -663,7 +626,7 @@ impl Document {
                 self.diff_handle = Some(DiffHandle::new(
                     diff_base,
                     self.buffer.text().clone(),
-                    self.redraw.clone(),
+                    self.redraw().clone(),
                 ))
             }
             _ => {

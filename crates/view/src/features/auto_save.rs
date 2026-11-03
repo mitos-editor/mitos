@@ -167,9 +167,11 @@ pub(crate) fn register_hooks(events: &event::EventHub) {
     register_hook!(events => move |event: &mut DocumentDidChange<'_>| {
         let config = event.doc.config.load();
         if config.files.auto_save.after_delay.enable
-            && let Some(trigger) = &event.doc.auto_save_trigger
+            && let Some(services) = event.doc.services()
         {
-            trigger.changed(config.files.auto_save.after_delay.timeout);
+            services
+                .auto_save
+                .changed(config.files.auto_save.after_delay.timeout);
         }
         Ok(())
     });

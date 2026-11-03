@@ -103,6 +103,10 @@ pub struct InlineCompletionHandler {
 }
 
 impl InlineCompletionHandler {
+    pub(crate) fn document_trigger(&self) -> InlineCompletionTrigger {
+        self.trigger.clone()
+    }
+
     pub fn new(callbacks: EditorCallbackSender) -> Self {
         Self {
             trigger: InlineCompletionTrigger {
@@ -376,15 +380,15 @@ pub(crate) fn mode_changed(editor: &mut Editor, old: Mode) {
 pub(crate) fn register_hooks(events: &event::EventHub) {
     register_hook!(events => move |event: &mut DocumentDidChange<'_>| {
         if event.view.is_none()
-            && let Some(trigger) = &event.doc.inline_completions.trigger
+            && let Some(services) = event.doc.services()
         {
-            trigger.cancel_document(event.doc.id());
+            services.inline_completion.cancel_document(event.doc.id());
         }
         if event.doc.config.load().inline_completion.auto_trigger
             && let Some(view) = event.view
-            && let Some(tx) = &event.doc.inline_completions.trigger
+            && let Some(services) = event.doc.services()
         {
-            tx.schedule(
+            services.inline_completion.schedule(
                 event.doc.id(),
                 view,
                 event
@@ -398,8 +402,10 @@ pub(crate) fn register_hooks(events: &event::EventHub) {
         Ok(())
     });
     register_hook!(events => move |event: &mut SelectionDidChange<'_>| {
-        if let Some(trigger) = &event.doc.inline_completions.trigger {
-            trigger.selection_changed(event.doc, event.view);
+        if let Some(services) = event.doc.services() {
+            services
+                .inline_completion
+                .selection_changed(event.doc, event.view);
         }
         if event.doc.inline_completions.view == Some(event.view) {
             event.doc.inline_completions.clear();
@@ -426,8 +432,8 @@ pub(crate) fn register_hooks(events: &event::EventHub) {
     register_hook!(events => move |event: &mut LanguageServerExited<'_>| {
         for doc in event.editor.documents_mut() {
             if doc.supports_language_server(event.server_id) {
-                if let Some(trigger) = &doc.inline_completions.trigger {
-                    trigger.cancel_document(doc.id());
+                if let Some(services) = doc.services() {
+                    services.inline_completion.cancel_document(doc.id());
                 }
                 doc.inline_completions.clear();
             }

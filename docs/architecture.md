@@ -978,10 +978,12 @@ presentation subscriptions remain separate and unregister when their application
 is dropped.
 
 Configure a `Handlers` value before passing it to `Editor::new`. The editor owns
-it and exposes `Editor::handlers()` for reading and scheduling work. All new
-documents receive their service bindings through `Handlers::attach_document`
-before syntax initialization or document-open events. A frontend cannot replace
-owned handler fields directly.
+it and exposes `Editor::handlers()` for reading and scheduling work. It captures
+one immutable `DocumentServices` shared by its documents, bound before syntax
+initialization or document-open events. Feature caches keep their cancellation
+and annotation state. Standalone and presentation documents stay detached;
+historical documents receive syntax and signals, and review documents receive signals.
+A frontend cannot replace owned handler fields.
 
 Services are configured before the editor opens documents. Terminal fixtures use
 `AppBuilder::with_handler_setup`, which delegates to

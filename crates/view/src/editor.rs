@@ -136,8 +136,9 @@ pub struct Editor {
 
     pub config_events: (UnboundedSender<ConfigEvent>, UnboundedReceiver<ConfigEvent>),
     pub needs_redraw: bool,
-    /// Editor-owned services; replacements must preserve document bindings.
+    /// Editor-owned services configured before construction.
     pub(crate) handlers: Handlers,
+    pub(crate) document_services: Arc<crate::document::DocumentServices>,
 
     pub mouse_down_range: Option<Range>,
     /// Cached position of the cursor calculated during rendering.
@@ -275,6 +276,7 @@ impl Editor {
             exit_code: 0,
             config_events: unbounded_channel(),
             needs_redraw: false,
+            document_services: Arc::new(crate::document::DocumentServices::new(&handlers)),
             handlers,
             mouse_down_range: None,
             cursor_cache: CursorCache::default(),

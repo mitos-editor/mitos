@@ -403,8 +403,8 @@ pub(crate) fn register_hooks(events: &event::EventHub) {
         Ok(())
     });
     register_hook!(events => move |event: &mut DocumentDidChange<'_>| {
-        if let Some(handler) = &event.doc.code_lenses.handler {
-            event::send_blocking(&handler.events, event.doc.id());
+        if let Some(services) = event.doc.services() {
+            event::send_blocking(&services.code_lenses.events, event.doc.id());
         }
         Ok(())
     });

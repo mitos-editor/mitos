@@ -106,15 +106,18 @@ pub(crate) fn register_hooks(events: &event::EventHub) {
         let doc_id = event.doc.id();
         // PERF: Enabled breadcrumbs request fresh LSP symbols after every real edit for live
         // feedback. If insert-mode latency regresses, debounce this request path.
-        if let Some(handler) = &event.doc.document_symbols.handler {
-            handler.callbacks.send_blocking(move |editor| {
-                request_document_symbols(editor, doc_id);
-                if let Some(view_id) = view_id
-                    && let Some(doc) = editor.document_mut(doc_id)
-                {
-                    doc.update_breadcrumbs_for_view(view_id);
-                }
-            });
+        if let Some(services) = event.doc.services() {
+            services
+                .document_symbols
+                .callbacks
+                .send_blocking(move |editor| {
+                    request_document_symbols(editor, doc_id);
+                    if let Some(view_id) = view_id
+                        && let Some(doc) = editor.document_mut(doc_id)
+                    {
+                        doc.update_breadcrumbs_for_view(view_id);
+                    }
+                });
         }
 
         Ok(())

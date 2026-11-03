@@ -164,8 +164,8 @@ pub(crate) fn register_hooks(events: &event::EventHub) {
     register_hook!(events => move |event: &mut DocumentDidChange<'_>| {
         // Cancel the ongoing request, if present.
         event.doc.document_colors.request.cancel();
-        if let Some(handler) = &event.doc.document_colors.handler {
-            event::send_blocking(&handler.events, event.doc.id());
+        if let Some(services) = event.doc.services() {
+            event::send_blocking(&services.document_colors.events, event.doc.id());
         }
 
         Ok(())

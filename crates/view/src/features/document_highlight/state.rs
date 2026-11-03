@@ -4,14 +4,12 @@ use editor_core::{Assoc, ChangeSet};
 use event::TaskController;
 use std::collections::HashMap;
 
-use super::DocumentHighlightHandler;
 use crate::{Document, ViewId};
 
 #[derive(Default)]
 pub(crate) struct DocumentHighlightsState {
     cache: HashMap<ViewId, Vec<std::ops::Range<usize>>>,
     requests: HashMap<ViewId, TaskController>,
-    pub(super) handler: Option<DocumentHighlightHandler>,
 }
 
 impl DocumentHighlightsState {
@@ -20,10 +18,6 @@ impl DocumentHighlightsState {
             cache: self.cache.clone(),
             ..Self::default()
         }
-    }
-
-    pub(crate) fn bind_handler(&mut self, handler: DocumentHighlightHandler) {
-        self.handler = Some(handler);
     }
 
     pub(crate) fn remove_view(&mut self, view: ViewId) {

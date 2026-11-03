@@ -23,7 +23,7 @@ async fn editors_in_one_runtime_receive_only_their_own_status_and_redraws() -> a
     let mut second = Fixture::new("second\n")?;
     first.editor.redraw().start_frame();
     second.editor.redraw().start_frame();
-    first.editor.redraw().request();
+    view::current_ref!(first.editor).1.redraw().request();
     tokio::time::timeout(Duration::from_secs(1), first.editor.redraw().requested()).await?;
     assert!(
         tokio::time::timeout(Duration::from_millis(5), second.editor.redraw().requested())
