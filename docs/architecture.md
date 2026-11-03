@@ -1005,6 +1005,22 @@ its owning editor's callback destination. Cancellation must also be checked when
 a queued callback is applied, since canceling a request cannot retract a callback
 already delivered to the frontend.
 
+`view::presentation::Inbox` holds ready presentation state for one editor. Hover,
+navigation and signature help replace their previous ready result; completion
+input/provider deltas and reload/trust prompts retain their FIFO order. Signature
+help's document-only triggers retain the same inbox. Publication and presentation
+keep their existing request guards. The event loop takes ready work in its existing
+feature priority; blame remains a lazy probe of shared cached data rather than a
+second stored result. Selective feature readers support headless consumers without
+owning another queue.
+
+Terminal callbacks have two destinations: editor mutations return
+`CallbackOutcome`, and frontend callbacks receive the compositor and its context.
+`Jobs` applies both through the same fallible outcome boundary. Shared editor
+callbacks transfer their existing box directly into the bounded queue. Required
+save/Git continuations use the frontend context to register their next exit-waiting
+job; callbacks no longer bubble optional jobs through each event-loop consumer.
+
 `view::editing::replace_selections` replaces a document's selections through one
 transaction and commits pending edits to history. It takes a `Document`, a `View`,
 and replacement text, preserving selection direction and the primary selection.

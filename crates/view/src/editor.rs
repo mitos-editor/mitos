@@ -703,27 +703,32 @@ impl Editor {
         .await;
     }
 
+    pub(crate) fn present(&self, update: impl FnOnce(&mut crate::presentation::Pending)) {
+        self.handlers.presentations.with(update);
+        self.redraw().request();
+    }
+
+    fn next_presentation(&mut self) -> Option<EditorEvent> {
+        while let Some(update) = self.handlers.presentations.next() {
+            match &update {
+                EditorEvent::ReloadConfirmation(request) if !request.is_current(self) => {
+                    request.discard_stale(self)
+                }
+                EditorEvent::WorkspaceTrust(request) if !request.is_current(self) => {
+                    crate::features::workspace_trust::dismiss_request(self, request)
+                }
+                _ => return Some(update),
+            }
+        }
+        None
+    }
+
     pub async fn wait_event(&mut self) -> EditorEvent {
         if let Some(update) = crate::features::blame::next_update(self) {
             return EditorEvent::BlameDetails(update);
         }
-        if let Some(update) = crate::features::completion::next_update(self) {
-            return EditorEvent::Completion(update);
-        }
-        if let Some(update) = crate::features::navigation::next_update(self) {
-            return EditorEvent::Navigation(update);
-        }
-        if let Some(update) = crate::features::hover::next_update(self) {
-            return EditorEvent::Hover(update);
-        }
-        if let Some(update) = crate::features::signature_help::next_update(self) {
-            return EditorEvent::SignatureHelp(update);
-        }
-        if let Some(request) = crate::features::auto_reload::next_reload_request(self) {
-            return EditorEvent::ReloadConfirmation(request);
-        }
-        if let Some(request) = crate::features::workspace_trust::next_request(self) {
-            return EditorEvent::WorkspaceTrust(request);
+        if let Some(update) = self.next_presentation() {
+            return update;
         }
         let redraw = self.redraw().clone();
         // the loop only runs once or twice and would be better implemented with a recursion + const generic

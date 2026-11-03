@@ -276,7 +276,9 @@ fn prompt_migration(cx: &mut compositor::Context, scope: MigrationScope) -> anyh
             );
             compositor.push(Box::new(dialog));
         };
-        Ok(crate::job::Callback::EditorCompositor(Box::new(callback)))
+        Ok(crate::job::Callback::ui(move |compositor, cx| {
+            callback(cx.editor, compositor)
+        }))
     });
     Ok(())
 }

@@ -13,7 +13,7 @@ use language_config::LanguageServerFeature;
 use lsp_client::lsp;
 use parking_lot::Mutex;
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::HashMap,
     sync::{
         atomic::{AtomicU64, Ordering},
         Arc, Weak,
@@ -61,7 +61,6 @@ pub struct CompletionHandler {
     session_controller: TaskController,
     session: Option<CompletionSession>,
     edit: Option<CompletionEdit>,
-    updates: VecDeque<CompletionUpdate>,
 }
 
 impl CompletionHandler {
@@ -81,7 +80,6 @@ impl CompletionHandler {
             session_controller: TaskController::new(),
             session: None,
             edit: None,
-            updates: VecDeque::new(),
         }
     }
 
@@ -144,18 +142,20 @@ impl CompletionHandler {
     }
 
     /// Cancel pending and displayed work and notify the frontend to dismiss its menu.
-    pub(crate) fn invalidate(&mut self) {
+    pub(crate) fn invalidate(&mut self, presentations: &crate::presentation::Inbox) {
         if matches!(self.edit, Some(CompletionEdit::Preview { .. })) {
             self.edit = None;
         }
         self.event(CompletionEvent::Cancel);
         self.dismiss();
-        self.updates.clear();
-        self.updates.push_back(CompletionUpdate {
-            kind: UpdateKind::Hide {
-                owner: Arc::downgrade(&self.shared),
-                epoch: self.shared.epoch.load(Ordering::Relaxed),
-            },
+        presentations.with(|pending| pending.completion.clear());
+        presentations.with(|pending| {
+            pending.completion.push_back(CompletionUpdate {
+                kind: UpdateKind::Hide {
+                    owner: Arc::downgrade(&self.shared),
+                    epoch: self.shared.epoch.load(Ordering::Relaxed),
+                },
+            })
         });
         self.shared.callbacks.redraw().request();
     }
@@ -465,14 +465,11 @@ pub(crate) fn input_applied(editor: &mut Editor, kind: crate::editor::InputKind)
 
 fn filter_input(editor: &mut Editor, character: Option<char>) {
     if let Some(session) = editor.handlers.completions.session.clone() {
-        editor
-            .handlers
-            .completions
-            .updates
-            .push_back(CompletionUpdate {
+        editor.present(|pending| {
+            pending.completion.push_back(CompletionUpdate {
                 kind: UpdateKind::Filter { session, character },
-            });
-        editor.redraw().request();
+            })
+        });
     }
 }
 
@@ -499,7 +496,10 @@ pub fn is_active(editor: &Editor) -> bool {
 }
 
 pub fn next_update(editor: &mut Editor) -> Option<CompletionUpdate> {
-    editor.handlers.completions.updates.pop_front()
+    editor
+        .handlers
+        .presentations
+        .with(|pending| pending.completion.pop_front())
 }
 
 fn dispatch(owner: &Weak<Shared>, callback: impl FnOnce(&mut Editor) + Send + 'static) {
@@ -521,18 +521,15 @@ async fn deliver(session: CompletionSession, request: Option<TaskHandle>, payloa
                     .as_ref()
                     .is_none_or(|request| !request.is_canceled())
             {
-                editor
-                    .handlers
-                    .completions
-                    .updates
-                    .push_back(CompletionUpdate {
+                editor.present(|pending| {
+                    pending.completion.push_back(CompletionUpdate {
                         kind: UpdateKind::Result {
                             session,
                             request,
                             payload,
                         },
-                    });
-                editor.redraw().request();
+                    })
+                });
             }
         })
         .await;
@@ -582,7 +579,10 @@ pub(crate) fn invalidate(editor: &mut Editor) {
     if handler.session.is_none() && handler.shared.trigger.lock().is_none() {
         return;
     }
-    editor.handlers.completions.invalidate();
+    editor
+        .handlers
+        .completions
+        .invalidate(&editor.handlers.presentations);
 }
 
 pub(crate) fn register_hooks(events: &event::EventHub) {

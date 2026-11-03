@@ -124,7 +124,7 @@ impl Application {
     }
 
     fn apply_callback(&mut self, callback: Callback) -> bool {
-        let (job, outcome) = self.jobs.handle_callback(
+        let outcome = self.jobs.handle_callback(
             crate::config::Context {
                 current: &self.config.load(),
                 updates: &self.config_updates.0,
@@ -133,9 +133,6 @@ impl Application {
             &mut self.compositor,
             Ok(Some(callback)),
         );
-        if let Some(job) = job {
-            self.jobs.add(job);
-        }
         outcome.needs_redraw()
     }
 }

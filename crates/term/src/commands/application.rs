@@ -201,10 +201,9 @@ pub(super) mod typed {
         _args: Args,
     ) -> anyhow::Result<()> {
         let callback = Box::pin(async move {
-            let call: job::Callback =
-                job::Callback::EditorCompositor(Box::new(|_editor, compositor| {
-                    compositor.need_full_redraw();
-                }));
+            let call: job::Callback = job::Callback::ui(move |compositor, _cx| {
+                compositor.need_full_redraw();
+            });
 
             Ok(call)
         });

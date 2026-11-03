@@ -14,11 +14,11 @@ pub(super) fn format_selections(cx: &mut Context) {
 
 async fn format_callback(task: FormattingTask) -> anyhow::Result<Callback> {
     let update = task.run().await;
-    Ok(Callback::Editor(Box::new(move |editor| {
+    Ok(Callback::editor(move |editor| {
         if let Err(error) = update.apply(editor) {
             editor.set_error(|| error.to_string());
         }
-    })))
+    }))
 }
 
 pub(super) mod typed {

@@ -9,10 +9,6 @@ use futures_util::future::{BoxFuture, Future, FutureExt};
 use futures_util::stream::FuturesUnordered;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 
-pub type EditorCompositorCallback = Box<dyn FnOnce(&mut Editor, &mut Compositor) + Send>;
-pub type EditorCallbackFollowup =
-    Box<dyn FnOnce(&mut Editor) -> anyhow::Result<Option<Job>> + Send>;
-
 /// A bounded callback destination belonging to one application.
 #[derive(Clone)]
 pub struct JobSender(Sender<Callback>);
@@ -22,27 +18,44 @@ impl JobSender {
         let _ = self.0.send(callback).await;
     }
 
-    pub async fn send(&self, callback: impl FnOnce(&mut Editor, &mut Compositor) + Send + 'static) {
-        self.send_callback(Callback::EditorCompositor(Box::new(callback)))
-            .await;
+    pub async fn send(
+        &self,
+        callback: impl FnOnce(&mut Compositor, &mut crate::compositor::Context) + Send + 'static,
+    ) {
+        self.send_callback(Callback::ui(callback)).await;
     }
 
     pub fn send_blocking(
         &self,
-        callback: impl FnOnce(&mut Editor, &mut Compositor) + Send + 'static,
+        callback: impl FnOnce(&mut Compositor, &mut crate::compositor::Context) + Send + 'static,
     ) {
-        send_blocking(&self.0, Callback::EditorCompositor(Box::new(callback)));
+        send_blocking(&self.0, Callback::ui(callback));
     }
 }
 
-pub type ContextCallback = Box<dyn FnOnce(&mut Compositor, &mut crate::compositor::Context) + Send>;
+type CallbackResult = anyhow::Result<CallbackOutcome>;
+type UiCallback =
+    Box<dyn FnOnce(&mut Compositor, &mut crate::compositor::Context) -> CallbackResult + Send>;
 
 pub enum Callback {
-    Context(ContextCallback),
-    EditorCompositor(EditorCompositorCallback),
-    Editor(Box<dyn FnOnce(&mut Editor) + Send>),
-    EditorOutcome(EditorCallback),
-    Followup(EditorCallbackFollowup),
+    Editor(EditorCallback),
+    Ui(UiCallback),
+}
+
+impl Callback {
+    pub fn editor<R: Into<CallbackOutcome>>(
+        callback: impl FnOnce(&mut Editor) -> R + Send + 'static,
+    ) -> Self {
+        Self::Editor(Box::new(move |editor| callback(editor).into()))
+    }
+
+    pub fn ui<R: Into<CallbackOutcome>>(
+        callback: impl FnOnce(&mut Compositor, &mut crate::compositor::Context) -> R + Send + 'static,
+    ) -> Self {
+        Self::Ui(Box::new(move |compositor, cx| {
+            Ok(callback(compositor, cx).into())
+        }))
+    }
 }
 
 pub type AfterWrites = Box<dyn FnOnce(&mut Editor) -> anyhow::Result<()> + Send>;
@@ -108,10 +121,10 @@ impl Jobs {
             move |callback| {
                 let sender = editor_sender.clone();
                 async move {
-                    let _ = sender.send(Callback::EditorOutcome(callback)).await;
+                    let _ = sender.send(Callback::Editor(callback)).await;
                 }
             },
-            move |callback| send_blocking(&blocking_sender, Callback::EditorOutcome(callback)),
+            move |callback| send_blocking(&blocking_sender, Callback::Editor(callback)),
         );
         let (interactive_sender, interactive_requests) = channel(1);
         Self {
@@ -168,13 +181,12 @@ impl Jobs {
                     _ = load.canceled() => return Ok(None),
                     update = task.run() => update,
                 };
-                Ok(Some(Callback::EditorCompositor(Box::new(
-                    move |editor, compositor| {
-                        if !load.is_canceled() {
-                            apply(editor, compositor, update);
-                        }
-                    },
-                ))))
+                Ok(Some(Callback::ui(move |compositor, cx| {
+                    let editor = &mut *cx.editor;
+                    if !load.is_canceled() {
+                        apply(editor, compositor, update);
+                    }
+                })))
             }),
         });
     }
@@ -185,13 +197,13 @@ impl Jobs {
         editor: &mut Editor,
         compositor: &mut Compositor,
         call: anyhow::Result<Option<Callback>>,
-    ) -> (Option<Job>, CallbackOutcome) {
+    ) -> CallbackOutcome {
         match self.apply_callback(config, editor, compositor, call) {
             Ok(result) => result,
             Err(error) => {
                 self.cancel_after_writes();
                 editor.set_error(|| format!("Async job failed: {error}"));
-                (None, CallbackOutcome::Redraw)
+                CallbackOutcome::Redraw
             }
         }
     }
@@ -203,9 +215,9 @@ impl Jobs {
         editor: &mut Editor,
         compositor: &mut Compositor,
         call: anyhow::Result<Option<Callback>>,
-    ) -> anyhow::Result<Option<Job>> {
+    ) -> anyhow::Result<()> {
         self.apply_callback(config, editor, compositor, call)
-            .map(|(job, _)| job)
+            .map(|_| ())
     }
 
     fn apply_callback(
@@ -214,12 +226,13 @@ impl Jobs {
         editor: &mut Editor,
         compositor: &mut Compositor,
         call: anyhow::Result<Option<Callback>>,
-    ) -> anyhow::Result<(Option<Job>, CallbackOutcome)> {
+    ) -> CallbackResult {
         let Some(call) = call? else {
-            return Ok((None, CallbackOutcome::None));
+            return Ok(CallbackOutcome::None);
         };
         match call {
-            Callback::Context(call) => call(
+            Callback::Editor(call) => Ok(call(editor)),
+            Callback::Ui(call) => call(
                 compositor,
                 &mut crate::compositor::Context {
                     config,
@@ -230,14 +243,7 @@ impl Jobs {
                     is_cursor_owner: false,
                 },
             ),
-            Callback::EditorCompositor(call) => call(editor, compositor),
-            Callback::Editor(call) => call(editor),
-            Callback::EditorOutcome(call) => return Ok((None, call(editor))),
-            Callback::Followup(call) => {
-                return call(editor).map(|job| (job, CallbackOutcome::Redraw))
-            }
         }
-        Ok((None, CallbackOutcome::Redraw))
     }
 
     pub fn add(&self, j: Job) {
@@ -254,9 +260,9 @@ impl Jobs {
                     Ok(None) => (),
                     Err(err) => {
                         sender
-                            .send_callback(Callback::Editor(Box::new(move |editor| {
+                            .send_callback(Callback::editor(move |editor| {
                                 editor.set_error(|| err.to_string());
-                            })))
+                            }))
                             .await;
                     }
                 }
@@ -327,7 +333,7 @@ mod tests {
         sender.send_blocking(|_| {});
         assert!(matches!(
             first.callbacks.try_recv(),
-            Ok(Callback::EditorOutcome(_))
+            Ok(Callback::Editor(_))
         ));
         assert!(second.callbacks.try_recv().is_err());
 
@@ -338,7 +344,7 @@ mod tests {
         assert!(futures_util::poll!(&mut pending).is_pending());
         assert!(matches!(
             first.callbacks.recv().await,
-            Some(Callback::EditorOutcome(_))
+            Some(Callback::Editor(_))
         ));
         pending.await;
         assert!(second.callbacks.try_recv().is_err());
@@ -355,13 +361,11 @@ mod tests {
         let mut second = Jobs::new();
 
         let sender = first.sender();
-        sender
-            .send_callback(Callback::Editor(Box::new(|_| {})))
-            .await;
+        sender.send_callback(Callback::editor(|_| {})).await;
         assert!(first.callbacks.try_recv().is_ok());
         assert!(second.callbacks.try_recv().is_err());
 
-        first.callback(async { Ok(Callback::Editor(Box::new(|_| {}))) });
+        first.callback(async { Ok(Callback::editor(|_| {})) });
         tokio::time::timeout(std::time::Duration::from_secs(1), first.callbacks.recv())
             .await
             .unwrap()
@@ -370,7 +374,7 @@ mod tests {
 
         second
             .sender()
-            .send_callback(Callback::Editor(Box::new(|_| {})))
+            .send_callback(Callback::editor(|_| {}))
             .await;
         assert!(second.callbacks.try_recv().is_ok());
         drop(first);
