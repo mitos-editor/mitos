@@ -2,13 +2,42 @@
 //! settings, choose a theme, and install the settings snapshot before refresh.
 
 use std::sync::Arc;
+use tokio::sync::mpsc;
+
+use super::ConfigEvent;
 
 use crate::{events::ConfigDidChange, Editor};
 use editor_config::Config;
 use language::{loader::LanguageLoaderError, syntax};
 use theme::Theme;
 
+/// Immutable destination for shared configuration requests, installed before editor construction.
+#[derive(Clone)]
+pub struct ConfigRequests(Arc<dyn Fn(ConfigEvent) -> anyhow::Result<()> + Send + Sync>);
+
+impl ConfigRequests {
+    pub fn new(send: impl Fn(ConfigEvent) -> anyhow::Result<()> + Send + Sync + 'static) -> Self {
+        Self(Arc::new(send))
+    }
+
+    pub fn send(&self, request: ConfigEvent) -> anyhow::Result<()> {
+        (self.0)(request)
+    }
+
+    pub(super) fn channel() -> (Self, mpsc::UnboundedReceiver<ConfigEvent>) {
+        let (sender, receiver) = mpsc::unbounded_channel();
+        (
+            Self::new(move |request| Ok(sender.send(request)?)),
+            receiver,
+        )
+    }
+}
+
 impl Editor {
+    pub fn config_requests(&self) -> &ConfigRequests {
+        &self.config_requests
+    }
+
     /// Update trust before loading global and workspace language configuration.
     /// A load failure preserves the active language loader and documents, while
     /// retaining the trust update and cache invalidation.

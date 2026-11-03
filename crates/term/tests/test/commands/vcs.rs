@@ -312,7 +312,7 @@ async fn space_b_restores_the_configured_inline_blame_mode() -> anyhow::Result<(
             _ => InlineBlameShow::CursorLine,
         };
         let updated_show = config.inline_blame.show;
-        app.handle_config_events(view::editor::ConfigEvent::Update(Box::new(config)));
+        app.apply_config_update(term::config::ConfigEvent::UpdateEditor(Box::new(config)));
         press_space_b(&mut app).await?;
         assert_eq!(
             app.editor.config().inline_blame.show,

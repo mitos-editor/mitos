@@ -94,10 +94,12 @@ impl<'de> Deserialize<'de> for EditorSettings {
     }
 }
 
-/// Configuration requests originating in the terminal frontend.
+/// Settings updates and shared requests owned by the terminal application.
 pub enum ConfigEvent {
     Update(Box<EditorSettings>),
-    Refresh,
+    /// Replace editor settings while retaining terminal settings.
+    UpdateEditor(Box<editor_config::Config>),
+    Shared(view::editor::ConfigEvent),
 }
 
 /// A frontend configuration snapshot and the application's update queue.

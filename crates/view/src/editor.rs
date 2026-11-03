@@ -3,6 +3,7 @@
 
 use stdx::rope::RopeExt as _;
 mod config;
+pub use config::ConfigRequests;
 mod diagnostic_navigation;
 mod display;
 mod document_settings;
@@ -62,7 +63,7 @@ use std::{
 };
 
 use tokio::{
-    sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender},
+    sync::mpsc::UnboundedReceiver,
     time::{sleep, Duration, Instant, Sleep},
 };
 
@@ -136,7 +137,9 @@ pub struct Editor {
 
     pub exit_code: i32,
 
-    pub config_events: (UnboundedSender<ConfigEvent>, UnboundedReceiver<ConfigEvent>),
+    config_requests: ConfigRequests,
+    /// Present only when the editor supplies configuration events to a headless host.
+    pub config_events: Option<UnboundedReceiver<ConfigEvent>>,
     /// Editor-owned services; replacements must preserve document bindings.
     pub(crate) handlers: Handlers,
 
@@ -181,7 +184,6 @@ pub enum EditorEvent {
 #[derive(Debug, Clone)]
 pub enum ConfigEvent {
     Refresh,
-    Update(Box<Config>),
     ThemeChanged,
 }
 
@@ -221,12 +223,19 @@ impl Editor {
         theme_loader: Arc<theme::Loader>,
         syn_loader: Arc<ArcSwap<syntax::Loader>>,
         config: Arc<dyn DynAccess<Config>>,
-        handlers: Handlers,
+        mut handlers: Handlers,
         workspace_trust: WorkspaceTrust,
     ) -> Self {
         let language_servers = crate::language_servers::Registry::new(syn_loader.clone());
         let conf = config.load();
         let auto_pairs = (&conf.auto_pairs).into();
+        let (config_requests, config_events) = match handlers.config_requests.take() {
+            Some(requests) => (requests, None),
+            None => {
+                let (requests, receiver) = ConfigRequests::channel();
+                (requests, Some(receiver))
+            }
+        };
 
         // Initialize file watcher and diff providers
         let workspace = workspace::ResolvedWorkspace::current();
@@ -275,7 +284,8 @@ impl Editor {
             config,
             auto_pairs,
             exit_code: 0,
-            config_events: unbounded_channel(),
+            config_requests,
+            config_events,
             handlers,
             mouse_down_range: None,
             cursor_cache: CursorCache::default(),
@@ -409,7 +419,7 @@ impl Editor {
         }
 
         self._refresh();
-        self.config_events.0.send(ConfigEvent::ThemeChanged)?;
+        self.config_requests().send(ConfigEvent::ThemeChanged)?;
 
         Ok(())
     }
@@ -742,7 +752,7 @@ impl Editor {
                         None => EditorEvent::Redraw,
                     }
                 }
-                Some(config_event) = self.config_events.1.recv() => {
+                Some(config_event) = async { self.config_events.as_mut()?.recv().await } => {
                     return EditorEvent::ConfigEvent(config_event)
                 }
                 Some(message) = self.handlers.status_messages.recv() => {

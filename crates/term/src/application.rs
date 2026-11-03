@@ -196,8 +196,9 @@ where
                 }
                 Some(event) = self.config_updates.1.recv() => {
                     idle_seen = false;
-                    self.apply_config_update(event);
-                    self.request_frame();
+                    if self.apply_config_update(event) {
+                        self.request_frame();
+                    }
                 }
                 Some(callback) = self.jobs.callbacks.recv() => {
                     idle_seen = false;

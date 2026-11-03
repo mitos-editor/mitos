@@ -12,11 +12,8 @@ use serde_json::Value;
 use term::application::TestApplication;
 use tokio::sync::mpsc;
 use view::{
-    action::code_actions_for_range,
-    callbacks::EditorCallback,
-    current, current_ref,
-    editor::{Action, ConfigEvent},
-    features::code_action_hint::CodeActionHintHandler,
+    action::code_actions_for_range, callbacks::EditorCallback, current, current_ref,
+    editor::Action, features::code_action_hint::CodeActionHintHandler,
 };
 
 use super::helpers::lsp::{self, Gate, ServerConfig};
@@ -160,7 +157,7 @@ impl Fixture {
             Vec::new()
         };
         self.app
-            .handle_config_events(ConfigEvent::Update(Box::new(config)));
+            .apply_config_update(term::config::ConfigEvent::UpdateEditor(Box::new(config)));
     }
 }
 

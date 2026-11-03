@@ -24,6 +24,8 @@ mod snippet;
 /// Services configured before an editor takes ownership. Access owned services through
 /// [`Editor::handlers()`]; use explicit editor methods when replacing a running service.
 pub struct Handlers {
+    /// Host destination consumed at editor construction; absent for a headless event receiver.
+    pub config_requests: Option<crate::editor::ConfigRequests>,
     pub(crate) presentations: crate::presentation::Inbox,
     events: event::EventHub,
     pub(crate) lsp_progress: lsp_client::LspProgressMap,
@@ -88,6 +90,7 @@ impl Handlers {
         let presentations = crate::presentation::Inbox::default();
         let (status, status_messages) = event::status::StatusSender::channel();
         Self {
+            config_requests: None,
             events,
             lsp_progress: Default::default(),
             status,

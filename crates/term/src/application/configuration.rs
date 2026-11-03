@@ -1,6 +1,6 @@
 //! Apply live configuration and choose a theme supported by this terminal.
 use super::App;
-use crate::config::{Config, EditorSettings};
+use crate::config::Config;
 use anyhow::Error;
 use std::sync::Arc;
 use view::{editor::ConfigEvent, Editor};
@@ -9,74 +9,74 @@ impl<B: tui::backend::Backend + tui::backend::BackendExt> App<B>
 where
     B::Error: std::error::Error + Send + Sync + 'static,
 {
-    pub fn handle_config_events(&mut self, config_event: ConfigEvent) {
-        let old_editor_config = self.editor.config();
+    pub fn handle_config_events(&mut self, event: ConfigEvent) {
+        self.apply_config_update(crate::config::ConfigEvent::Shared(event));
+    }
 
-        match config_event {
-            ConfigEvent::Refresh => {
+    /// Apply a request and report whether settings require an immediate frame.
+    pub fn apply_config_update(&mut self, event: crate::config::ConfigEvent) -> bool {
+        use crate::config::ConfigEvent as Request;
+        let old_editor_config = self.editor.config();
+        match event {
+            Request::Shared(ConfigEvent::Refresh) => {
                 self.refresh_config();
                 if let Err(error) = self.editor.reload_snippets() {
                     self.editor.set_error(|| format!("{error:#}"));
                 }
             }
-
-            ConfigEvent::Update(editor_config) => {
-                let terminal = self.config.load().terminal.clone();
-                self.apply_editor_settings(EditorSettings {
-                    editor: *editor_config,
-                    terminal,
-                });
-            }
-            ConfigEvent::ThemeChanged => {
+            Request::Shared(ConfigEvent::ThemeChanged) => {
                 let _ = self.terminal.backend_mut().set_background_color(
                     self.editor
                         .theme
                         .try_get_exact("ui.background")
                         .and_then(|style| style.bg),
                 );
-                return;
+                self.request_redraw();
+                return false;
             }
+            Request::Update(settings) => {
+                self.apply_settings_update(settings.editor, Some(settings.terminal));
+            }
+            Request::UpdateEditor(editor) => self.apply_settings_update(*editor, None),
         }
 
         self.editor.refresh_config(&old_editor_config);
+        true
     }
 
-    pub(super) fn apply_config_update(&mut self, event: crate::config::ConfigEvent) {
-        match event {
-            crate::config::ConfigEvent::Update(settings) => {
-                let old_editor_config = self.editor.config();
-                self.apply_editor_settings(*settings);
-                self.editor.refresh_config(&old_editor_config);
-            }
-            crate::config::ConfigEvent::Refresh => {
-                self.handle_config_events(ConfigEvent::Refresh);
-            }
-        }
+    /// Take the next request when driving this application manually. Apply it with
+    /// `apply_config_update` before accepting further input.
+    pub fn take_config_request(&mut self) -> Option<crate::config::ConfigEvent> {
+        self.config_updates.1.try_recv().ok()
     }
 
-    /// Commands can enqueue settings while terminal input remains ready.
-    /// Apply those settings before another input event can observe the old snapshot.
+    /// Apply settings and shared effects before another input can observe the old snapshot.
     pub(super) fn apply_pending_config_updates(&mut self) -> bool {
         let mut updated = false;
-        while let Ok(event) = self.config_updates.1.try_recv() {
-            self.apply_config_update(event);
-            updated = true;
+        while let Some(event) = self.take_config_request() {
+            updated |= self.apply_config_update(event);
         }
         updated
     }
 
-    pub(super) fn apply_editor_settings(&mut self, settings: EditorSettings) {
-        let mut app_config = (**self.config.load()).clone();
-        app_config.editor = settings.editor;
-        app_config.terminal = settings.terminal;
-        if let Err(err) = self
+    fn apply_settings_update(
+        &mut self,
+        editor: editor_config::Config,
+        terminal: Option<crate::config::TerminalConfig>,
+    ) {
+        let mut config = (**self.config.load()).clone();
+        config.editor = editor;
+        if let Some(terminal) = terminal {
+            config.terminal = terminal;
+        }
+        if let Err(error) = self
             .terminal
             .backend_mut()
-            .reconfigure(terminal_config(&app_config))
+            .reconfigure(terminal_config(&config))
         {
-            self.editor.set_error(|| err.to_string());
+            self.editor.set_error(|| error.to_string());
         }
-        self.config.store(Arc::new(app_config));
+        self.config.store(Arc::new(config));
     }
 
     pub(super) fn refresh_config(&mut self) {
