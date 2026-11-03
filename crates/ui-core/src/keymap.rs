@@ -1,130 +1,265 @@
-//! Typed key bindings independent of component behavior and editor state.
+//! Typed keymap trees, parsing, merging, and prefix lookup shared by frontends.
 
-use std::{collections::HashMap, fmt};
+use std::{fmt, marker::PhantomData, ops::Deref};
 
+use indexmap::IndexMap;
 use serde::{
-    de::{self, IntoDeserializer},
+    de::{self, DeserializeOwned, IntoDeserializer},
     Deserialize, Deserializer,
 };
 
 use crate::input::{KeyCode, KeyEvent, KeyModifiers};
 
+/// Configuration policy for action names, sequences, and optional binding labels.
+pub trait KeymapPolicy<A> {
+    const LABELS: bool = false;
+    const SPECIAL_ACTIONS: bool = false;
+    const SEQUENCE_LABEL: &'static str = "";
+    fn parse(value: &str) -> Result<A, String>;
+    fn label(_action: A, _label: String) -> Result<A, String> {
+        Err("binding labels are not supported".into())
+    }
+    fn validate_sequence(_actions: &[A]) -> Result<(), String> {
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ComponentPolicy;
+
+impl<A: DeserializeOwned> KeymapPolicy<A> for ComponentPolicy {
+    const SPECIAL_ACTIONS: bool = true;
+    fn parse(value: &str) -> Result<A, String> {
+        A::deserialize(value.into_deserializer())
+            .map_err(|error: de::value::Error| error.to_string())
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Binding<A> {
-    Actions(Vec<A>),
-    Keys(Keymap<A>),
+pub enum Binding<A, P = ComponentPolicy> {
+    Action(A),
+    Sequence(String, Vec<A>),
+    Node(Keymap<A, P>),
     /// Let the component's normal fallback handle the key.
     Unbound,
 }
 
-/// An empty action list consumes a key without changing component state (`no_op`).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Keymap<A>(pub HashMap<KeyEvent, Binding<A>>);
+#[derive(Debug, Clone)]
+pub struct Keymap<A, P = ComponentPolicy> {
+    pub name: String,
+    pub is_sticky: bool,
+    pub bindings: IndexMap<KeyEvent, Binding<A, P>>,
+    policy: PhantomData<P>,
+}
 
-impl<'de, A: Deserialize<'de>> Deserialize<'de> for Keymap<A> {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        match Binding::deserialize(deserializer)? {
-            Binding::Keys(keys) => Ok(keys),
-            _ => Err(de::Error::custom("expected a keymap table")),
+impl<A: PartialEq, P: PartialEq> PartialEq for Keymap<A, P> {
+    fn eq(&self, other: &Self) -> bool {
+        self.bindings == other.bindings
+    }
+}
+impl<A: Eq, P: Eq> Eq for Keymap<A, P> {}
+
+impl<A, P> Default for Keymap<A, P> {
+    fn default() -> Self {
+        Self::new("", IndexMap::new())
+    }
+}
+
+impl<A, P> Deref for Keymap<A, P> {
+    type Target = IndexMap<KeyEvent, Binding<A, P>>;
+    fn deref(&self) -> &Self::Target {
+        &self.bindings
+    }
+}
+
+impl<A, P> Keymap<A, P> {
+    pub fn new(name: &str, bindings: IndexMap<KeyEvent, Binding<A, P>>) -> Self {
+        Self {
+            name: name.into(),
+            is_sticky: false,
+            bindings,
+            policy: PhantomData,
         }
     }
-}
 
-impl<A> Default for Keymap<A> {
-    fn default() -> Self {
-        Self(HashMap::new())
-    }
-}
-
-impl<A> Keymap<A> {
-    /// Transform action types while preserving keys, prefixes, and unbound keys.
-    pub fn map_actions<B>(self, map: impl Fn(A) -> B + Copy) -> Keymap<B> {
-        Keymap(
-            self.0
+    /// Transform action values without changing prefixes or binding metadata.
+    pub fn map_actions<B>(self, map: impl Fn(A) -> B + Copy) -> Keymap<B, P> {
+        Keymap {
+            name: self.name,
+            is_sticky: self.is_sticky,
+            policy: PhantomData,
+            bindings: self
+                .bindings
                 .into_iter()
                 .map(|(key, binding)| {
                     let binding = match binding {
-                        Binding::Actions(actions) => {
-                            Binding::Actions(actions.into_iter().map(map).collect())
+                        Binding::Action(action) => Binding::Action(map(action)),
+                        Binding::Sequence(label, actions) => {
+                            Binding::Sequence(label, actions.into_iter().map(map).collect())
                         }
-                        Binding::Keys(keys) => Binding::Keys(keys.map_actions(map)),
+                        Binding::Node(keys) => Binding::Node(keys.map_actions(map)),
                         Binding::Unbound => Binding::Unbound,
                     };
                     (key, binding)
                 })
                 .collect(),
-        )
+        }
     }
 
     pub fn merge(&mut self, other: Self) {
-        for (key, binding) in other.0 {
-            match (self.0.get_mut(&key), binding) {
-                (Some(Binding::Keys(keys)), Binding::Keys(other)) => keys.merge(other),
+        if !other.name.is_empty() {
+            self.name = other.name;
+        }
+        for (key, binding) in other.bindings {
+            match (self.bindings.get_mut(&key), binding) {
+                (Some(Binding::Node(keys)), Binding::Node(other)) => keys.merge(other),
                 (_, binding) => {
-                    self.0.insert(key, binding);
+                    self.bindings.insert(key, binding);
                 }
             }
         }
     }
 
-    fn at(&self, path: &[KeyEvent]) -> Option<&Self> {
-        let mut keys = self;
-        for key in path {
-            let Binding::Keys(next) = keys.0.get(key)? else {
-                return None;
-            };
-            keys = next;
-        }
-        Some(keys)
+    pub fn at(&self, path: &[KeyEvent]) -> Option<&Self> {
+        path.iter()
+            .try_fold(self, |keys, key| keys.get(key)?.node())
     }
 }
 
-impl<'de, A: Deserialize<'de>> Deserialize<'de> for Binding<A> {
+impl<A, P> Binding<A, P> {
+    pub fn actions(&self) -> Option<&[A]> {
+        match self {
+            Self::Action(action) => Some(std::slice::from_ref(action)),
+            Self::Sequence(_, actions) => Some(actions),
+            _ => None,
+        }
+    }
+    pub fn node(&self) -> Option<&Keymap<A, P>> {
+        match self {
+            Self::Node(keys) => Some(keys),
+            _ => None,
+        }
+    }
+    pub fn node_mut(&mut self) -> Option<&mut Keymap<A, P>> {
+        match self {
+            Self::Node(keys) => Some(keys),
+            _ => None,
+        }
+    }
+    pub fn merge_nodes(&mut self, other: Self) {
+        let Self::Node(other) = other else {
+            panic!("expected a keymap node")
+        };
+        self.node_mut()
+            .expect("expected a keymap node")
+            .merge(other);
+    }
+    pub fn search(&self, path: &[KeyEvent]) -> Option<&Self> {
+        path.iter()
+            .try_fold(self, |binding, key| binding.node()?.get(key))
+    }
+}
+
+impl<A, P: KeymapPolicy<A>> Binding<A, P> {
+    pub const DEFAULT_SEQUENCE_LABEL: &'static str = P::SEQUENCE_LABEL;
+    pub fn sequence(actions: Vec<A>) -> Self {
+        Self::Sequence(P::SEQUENCE_LABEL.into(), actions)
+    }
+
+    fn parse_action<E: de::Error>(value: &str) -> Result<Self, E> {
+        match value {
+            "no_op" if P::SPECIAL_ACTIONS => Ok(Self::sequence(Vec::new())),
+            "unbound" if P::SPECIAL_ACTIONS => Ok(Self::Unbound),
+            value => P::parse(value).map(Self::Action).map_err(E::custom),
+        }
+    }
+    fn parse_sequence<E: de::Error>(values: Vec<String>) -> Result<Self, E> {
+        let mut actions = Vec::new();
+        for value in values {
+            if P::SPECIAL_ACTIONS && value == "no_op" {
+                continue;
+            }
+            if P::SPECIAL_ACTIONS && value == "unbound" {
+                return Err(E::custom("unbound cannot be used in an action sequence"));
+            }
+            actions.push(P::parse(&value).map_err(E::custom)?);
+        }
+        P::validate_sequence(&actions).map_err(E::custom)?;
+        Ok(Self::sequence(actions))
+    }
+}
+
+impl<'de, A, P: KeymapPolicy<A>> Deserialize<'de> for Keymap<A, P> {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        struct Visitor<A>(std::marker::PhantomData<A>);
-        impl<'de, A: Deserialize<'de>> de::Visitor<'de> for Visitor<A> {
-            type Value = Binding<A>;
+        match Binding::deserialize(deserializer)? {
+            Binding::Node(keys) => Ok(keys),
+            _ => Err(de::Error::custom("expected a keymap table")),
+        }
+    }
+}
 
+impl<'de, A, P: KeymapPolicy<A>> Deserialize<'de> for Binding<A, P> {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct Visitor<A, P>(PhantomData<(A, P)>);
+        impl<'de, A, P: KeymapPolicy<A>> de::Visitor<'de> for Visitor<A, P> {
+            type Value = Binding<A, P>;
             fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
-                f.write_str("a component action, list of actions, or sub-keymap")
+                f.write_str("an action, list of actions, or sub-keymap")
             }
-
             fn visit_str<E: de::Error>(self, value: &str) -> Result<Self::Value, E> {
-                match value {
-                    "no_op" => Ok(Binding::Actions(Vec::new())),
-                    "unbound" => Ok(Binding::Unbound),
-                    _ => A::deserialize(value.into_deserializer())
-                        .map(|action| Binding::Actions(vec![action])),
-                }
+                Binding::parse_action(value)
             }
-
             fn visit_seq<S: de::SeqAccess<'de>>(self, mut seq: S) -> Result<Self::Value, S::Error> {
                 let mut actions = Vec::new();
-                while let Some(value) = seq.next_element::<String>()? {
-                    if value == "no_op" {
-                        continue;
-                    }
-                    if value == "unbound" {
-                        return Err(de::Error::custom(
-                            "unbound cannot be used in an action sequence",
-                        ));
-                    }
-                    actions.push(A::deserialize(value.as_str().into_deserializer())?);
+                while let Some(action) = seq.next_element::<String>()? {
+                    actions.push(action);
                 }
-                Ok(Binding::Actions(actions))
+                Binding::parse_sequence(actions)
             }
-
             fn visit_map<M: de::MapAccess<'de>>(self, mut map: M) -> Result<Self::Value, M::Error> {
-                let mut keys = HashMap::new();
-                while let Some((key, binding)) = map.next_entry()? {
-                    if keys.insert(key, binding).is_some() {
-                        return Err(de::Error::custom("duplicate key binding"));
+                #[derive(Deserialize)]
+                #[serde(untagged)]
+                enum Command {
+                    Action(String),
+                    Sequence(Vec<String>),
+                }
+                let mut keys = Keymap::default();
+                let mut command = None;
+                while let Some(key) = map.next_key::<String>()? {
+                    match key.as_str() {
+                        "label" if P::LABELS => keys.name = map.next_value()?,
+                        "command" if P::LABELS => {
+                            command = Some(match map.next_value::<Command>()? {
+                                Command::Action(value) => Binding::parse_action(&value)?,
+                                Command::Sequence(values) => Binding::parse_sequence(values)?,
+                            });
+                        }
+                        _ => {
+                            let key = key.parse().map_err(de::Error::custom)?;
+                            if keys.bindings.insert(key, map.next_value()?).is_some() {
+                                return Err(de::Error::custom("duplicate key binding"));
+                            }
+                        }
                     }
                 }
-                Ok(Binding::Keys(Keymap(keys)))
+                match command {
+                    Some(_) if !keys.bindings.is_empty() => Err(de::Error::custom(
+                        "a command binding cannot also contain a sub-keymap",
+                    )),
+                    Some(Binding::Action(action)) if !keys.name.is_empty() => {
+                        P::label(action, keys.name)
+                            .map(Binding::Action)
+                            .map_err(de::Error::custom)
+                    }
+                    Some(Binding::Sequence(_, actions)) if !keys.name.is_empty() => {
+                        Ok(Binding::Sequence(keys.name, actions))
+                    }
+                    Some(binding) => Ok(binding),
+                    None => Ok(Binding::Node(keys)),
+                }
             }
         }
-        deserializer.deserialize_any(Visitor(std::marker::PhantomData))
+        deserializer.deserialize_any(Visitor(PhantomData))
     }
 }
 
@@ -135,8 +270,14 @@ pub enum Lookup<'a, A> {
     Unbound,
 }
 
-/// Per-component prefix state. Lookup uses the current map, so config reloads
-/// cannot leave a component executing actions from an obsolete snapshot.
+pub enum BindingLookup<'a, A, P> {
+    Matched(&'a Binding<A, P>),
+    Pending(&'a Keymap<A, P>),
+    Unbound,
+    Cancelled(Vec<KeyEvent>),
+}
+
+/// Prefix state always resolves against the caller's current keymap.
 #[derive(Debug, Default)]
 pub struct KeymapState {
     pending: Vec<KeyEvent>,
@@ -146,15 +287,20 @@ impl KeymapState {
     pub fn clear(&mut self) {
         self.pending.clear();
     }
-
     pub fn is_pending(&self) -> bool {
         !self.pending.is_empty()
     }
+    pub fn pending(&self) -> &[KeyEvent] {
+        &self.pending
+    }
 
-    pub fn lookup<'a, A>(&mut self, map: &'a Keymap<A>, mut key: KeyEvent) -> Lookup<'a, A> {
+    pub fn lookup_binding<'a, A, P>(
+        &mut self,
+        map: &'a Keymap<A, P>,
+        mut key: KeyEvent,
+    ) -> BindingLookup<'a, A, P> {
         if self.is_pending() && key.code == KeyCode::Esc && key.modifiers == KeyModifiers::NONE {
-            self.clear();
-            return Lookup::Actions(&[]);
+            return BindingLookup::Cancelled(std::mem::take(&mut self.pending));
         }
         let keys = match map.at(&self.pending) {
             Some(keys) => keys,
@@ -163,39 +309,42 @@ impl KeymapState {
                 map
             }
         };
-        // Terminal protocols can report Shift alongside a character that already
-        // includes the shift (for example, `C-J`). Prefer an explicit binding,
-        // then try the character form used by configured keys and editor keymaps.
         if matches!(key.code, KeyCode::Char(_))
             && key.modifiers.contains(KeyModifiers::SHIFT)
-            && !keys.0.contains_key(&key)
+            && !keys.contains_key(&key)
         {
             key.modifiers.remove(KeyModifiers::SHIFT);
         }
-        match keys.0.get(&key) {
-            Some(Binding::Actions(actions)) => {
-                self.clear();
-                Lookup::Actions(actions)
-            }
-            Some(Binding::Keys(_)) => {
+        match keys.get(&key) {
+            Some(Binding::Node(keys)) => {
                 self.pending.push(key);
-                Lookup::Pending
+                BindingLookup::Pending(keys)
             }
             Some(Binding::Unbound) => {
                 self.clear();
-                Lookup::Unbound
+                BindingLookup::Unbound
+            }
+            Some(binding) => {
+                self.clear();
+                BindingLookup::Matched(binding)
             }
             None if self.is_pending() => {
-                // An invalid suffix cancels and consumes the prefix. It must not
-                // accidentally edit text or invoke a command in a layer below.
-                self.clear();
-                Lookup::Actions(&[])
+                self.pending.push(key);
+                BindingLookup::Cancelled(std::mem::take(&mut self.pending))
             }
-            None => Lookup::Unbound,
+            None => BindingLookup::Unbound,
+        }
+    }
+
+    pub fn lookup<'a, A>(&mut self, map: &'a Keymap<A>, key: KeyEvent) -> Lookup<'a, A> {
+        match self.lookup_binding(map, key) {
+            BindingLookup::Matched(binding) => Lookup::Actions(binding.actions().unwrap()),
+            BindingLookup::Pending(_) => Lookup::Pending,
+            BindingLookup::Unbound => Lookup::Unbound,
+            BindingLookup::Cancelled(_) => Lookup::Actions(&[]),
         }
     }
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -204,10 +353,11 @@ mod tests {
         value.parse().unwrap()
     }
     fn action(value: u8) -> Binding<u8> {
-        Binding::Actions(vec![value])
+        Binding::Action(value)
     }
     fn map(entries: &[(&str, Binding<u8>)]) -> Keymap<u8> {
-        Keymap(
+        Keymap::new(
+            "",
             entries
                 .iter()
                 .map(|(k, binding)| (key(k), binding.clone()))
@@ -217,7 +367,7 @@ mod tests {
 
     #[test]
     fn prefixes_cancel_without_leaking_input_and_state_is_per_instance() {
-        let keys = map(&[("g", Binding::Keys(map(&[("j", action(1))])))]);
+        let keys = map(&[("g", Binding::Node(map(&[("j", action(1))])))]);
         let mut state = KeymapState::default();
         let mut other = KeymapState::default();
         assert_eq!(state.lookup(&keys, key("g")), Lookup::Pending);
@@ -236,13 +386,13 @@ mod tests {
     fn merge_preserves_nested_defaults_and_distinguishes_no_op_from_unbound() {
         let mut keys = map(&[(
             "g",
-            Binding::Keys(map(&[("j", action(1)), ("k", action(2))])),
+            Binding::Node(map(&[("j", action(1)), ("k", action(2))])),
         )]);
         keys.merge(map(&[(
             "g",
-            Binding::Keys(map(&[
+            Binding::Node(map(&[
                 ("j", Binding::Unbound),
-                ("x", Binding::Actions(vec![])),
+                ("x", Binding::Sequence(String::new(), vec![])),
             ])),
         )]));
         let mut state = KeymapState::default();
@@ -262,7 +412,7 @@ mod tests {
     fn shifted_character_events_match_configured_bindings_and_prefixes() {
         let keys = map(&[
             ("C-S-j", action(1)),
-            ("G", Binding::Keys(map(&[("J", action(2))]))),
+            ("G", Binding::Node(map(&[("J", action(2))]))),
             ("S-space", action(3)),
         ]);
         let mut state = KeymapState::default();
@@ -291,10 +441,10 @@ mod tests {
 
     #[test]
     fn pending_lookup_uses_reloaded_bindings_and_recovers_removed_prefixes() {
-        let mut keys = map(&[("g", Binding::Keys(map(&[("j", action(1))])))]);
+        let mut keys = map(&[("g", Binding::Node(map(&[("j", action(1))])))]);
         let mut state = KeymapState::default();
         assert_eq!(state.lookup(&keys, key("g")), Lookup::Pending);
-        keys.merge(map(&[("g", Binding::Keys(map(&[("j", action(2))])))]));
+        keys.merge(map(&[("g", Binding::Node(map(&[("j", action(2))])))]));
         assert_eq!(state.lookup(&keys, key("j")), Lookup::Actions(&[2]));
         assert_eq!(state.lookup(&keys, key("g")), Lookup::Pending);
         let keys = map(&[("j", action(3))]);

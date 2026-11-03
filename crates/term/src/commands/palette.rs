@@ -3,6 +3,7 @@
 use crate::{
     commands::{catalog, context::Context, mappable::MappableCommand},
     compositor::{self, Compositor},
+    keymap::KeyTrieExt as _,
     ui::{self, overlay::overlaid, Picker},
 };
 use std::borrow::Cow;

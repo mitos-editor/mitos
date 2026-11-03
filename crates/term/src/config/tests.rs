@@ -1,6 +1,6 @@
 use super::*;
 use crate::keymap::component::ComponentKeymaps;
-use crate::keymap::{self, merge_keys, KeyTrie};
+use crate::keymap::{self, merge_keys, KeyTrie, KeyTrieExt as _, KeyTrieNodeExt as _};
 use ui_core::terminal::KittyKeyboardProtocolConfig;
 use view::document::Mode;
 
@@ -85,19 +85,18 @@ fn labeled_editor_bindings_preserve_commands_and_descriptions() {
         .node()
         .unwrap();
     let binding = |key: &str| &menu[&key.parse::<KeyEvent>().unwrap()];
-    let KeyTrie::MappableCommand(save) = binding("s") else {
+    let KeyTrie::Action(save) = binding("s") else {
         panic!("expected typable command");
     };
     assert_eq!(save.name(), "write");
     assert_eq!(save.doc(), "Save");
-    let KeyTrie::MappableCommand(MappableCommand::Typable { name, args, doc }) = binding("c")
-    else {
+    let KeyTrie::Action(MappableCommand::Typable { name, args, doc }) = binding("c") else {
         panic!("expected open command");
     };
     assert_eq!(name, "open");
     assert_eq!(args, "~/.config/mitos/config.toml");
     assert_eq!(doc, "Edit Config");
-    let KeyTrie::MappableCommand(mac) = binding("m") else {
+    let KeyTrie::Action(mac) = binding("m") else {
         panic!("expected macro");
     };
     assert_eq!(mac.name(), "@wd");
@@ -109,7 +108,7 @@ fn labeled_editor_bindings_preserve_commands_and_descriptions() {
     assert_eq!(*keys, ui_core::input::parse_macro("wd").unwrap());
     assert_eq!(
         binding("k"),
-        &KeyTrie::MappableCommand(MappableCommand::move_char_left)
+        &KeyTrie::Action(MappableCommand::move_char_left)
     );
     assert_eq!(
         binding("n"),
@@ -144,7 +143,7 @@ fn labeled_editor_bindings_preserve_commands_and_descriptions() {
         ]]
     );
     for mode in [Mode::Insert, Mode::Select] {
-        let KeyTrie::MappableCommand(cmd) = config.keys[&mode]
+        let KeyTrie::Action(cmd) = config.keys[&mode]
             .search(&["C-s".parse().unwrap()])
             .unwrap()
         else {
@@ -182,7 +181,7 @@ fn menu_labels_merge_defaults_global_and_workspace_recursively() {
         assert_eq!(goto.infobox().title, expected);
         assert_eq!(
             goto[&"g".parse::<KeyEvent>().unwrap()],
-            KeyTrie::MappableCommand(crate::commands::MappableCommand::goto_file_start)
+            KeyTrie::Action(crate::commands::MappableCommand::goto_file_start)
         );
         assert!(goto.infobox().text.contains("Local"));
         let nested = goto[&"z".parse::<KeyEvent>().unwrap()].node().unwrap();
@@ -211,9 +210,9 @@ fn empty_binding_labels_keep_default_descriptions() {
     let root = config.keys[&Mode::Normal].node().unwrap();
     for (left, right) in [("a", "b"), ("c", "d"), ("e", "f")] {
         let description = |key: &str| match &root[&key.parse::<KeyEvent>().unwrap()] {
-            KeyTrie::MappableCommand(cmd) => cmd.doc(),
+            KeyTrie::Action(cmd) => cmd.doc(),
             KeyTrie::Sequence(label, _) => label,
-            KeyTrie::Node(_) => panic!("expected a command or sequence"),
+            KeyTrie::Node(_) | KeyTrie::Unbound => panic!("expected a command or sequence"),
         };
         assert_eq!(description(left), description(right));
     }
