@@ -7,6 +7,24 @@ use std::{
 
 use tree_house::tree_sitter::Grammar;
 
+/// Source-file support, independent of native grammars or query compilation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum QuerySource {
+    Absent,
+    Unreadable,
+    Readable,
+}
+
+impl QuerySource {
+    pub fn is_present(self) -> bool {
+        self != Self::Absent
+    }
+
+    pub fn is_readable(self) -> bool {
+        self == Self::Readable
+    }
+}
+
 /// An ordered set of runtime directories for one language setup.
 ///
 /// Clones share the search paths, but reads remain lazy: files are resolved only
@@ -49,10 +67,23 @@ impl Resources {
         crate::grammar::load_language(name, &self.runtime_file(&relative))
     }
 
+    fn query_path(&self, language: &str, filename: &str) -> PathBuf {
+        self.runtime_file(&PathBuf::from("queries").join(language).join(filename))
+    }
+
     /// Read one query file without inheritance, retaining I/O errors for health checks.
     pub fn query_file(&self, language: &str, filename: &str) -> std::io::Result<String> {
-        let relative = PathBuf::from("queries").join(language).join(filename);
-        std::fs::read_to_string(self.runtime_file(&relative))
+        std::fs::read_to_string(self.query_path(language, filename))
+    }
+
+    /// Inspect the selected source only; an unreadable override does not fall through.
+    pub fn query_source(&self, language: &str, filename: &str) -> QuerySource {
+        let path = self.query_path(language, filename);
+        match std::fs::read_to_string(&path) {
+            Ok(_) => QuerySource::Readable,
+            Err(_) if path.is_file() => QuerySource::Unreadable,
+            Err(_) => QuerySource::Absent,
+        }
     }
 
     /// Resolve query inheritance using the same per-file runtime precedence.

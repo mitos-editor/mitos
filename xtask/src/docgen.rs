@@ -1,8 +1,7 @@
-use crate::helpers;
 use crate::path;
 use crate::DynError;
 
-use language::queries::QueryFeature;
+use language::{queries::QueryFeature, support::LanguageSupport};
 use term::commands::MappableCommand;
 use term::commands::TYPABLE_COMMAND_LIST;
 use view::document::Mode;
@@ -137,24 +136,14 @@ pub fn lang_features() -> String {
     let mut langs: Vec<_> = config.language.iter().collect();
     langs.sort_unstable_by(|a, b| a.language_id.cmp(&b.language_id));
 
-    let mut ts_features_to_langs = Vec::new();
-    for &feat in ts_features {
-        ts_features_to_langs.push((feat, helpers::ts_lang_support(feat)));
-    }
+    let resources = loader::syntax::Resources::new(vec![path::runtime()]);
 
     let mut row = Vec::new();
     for lc in langs {
         row.push(lc.language_id.clone());
 
-        for (_feat, support_list) in &ts_features_to_langs {
-            row.push(
-                if support_list.contains(&lc.language_id) {
-                    "✓"
-                } else {
-                    ""
-                }
-                .to_owned(),
-            );
+        for (_, source) in LanguageSupport::inspect(&resources, &lc.language_id).queries {
+            row.push(if source.is_present() { "✓" } else { "" }.to_owned());
         }
         let mut commands = String::new();
         for group in lc.language_server_groups() {
