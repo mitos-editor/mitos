@@ -654,7 +654,7 @@ language-servers = [
     {{ name = "alpha", only-features = ["document-colors"] }},
 ]
 "#,
-            server.toml()
+            server.toml(env!("CARGO_BIN_EXE_mitos-test-lsp"))
         )));
         let mut config = helpers::test_config();
         config.editor.lsp.enable = true;
