@@ -18,8 +18,6 @@ jobs:
     if: github.repository == 'mitos-editor/mitos' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    env:
-      MITOS_DISABLE_AUTO_GRAMMAR_BUILD: '1'
     steps:
       - name: Checkout sources
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

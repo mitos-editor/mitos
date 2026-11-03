@@ -5533,6 +5533,7 @@ version = "0.1.3"
 dependencies = [
  "core",
  "gix",
+ "grammar-build",
  "language",
  "loader",
  "ropey",
@@ -5546,6 +5547,7 @@ dependencies = [
  "toml_edit",
  "ui-core",
  "view",
+ "workspace",
 ]
 
 [[package]]
