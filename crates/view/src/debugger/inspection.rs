@@ -86,9 +86,7 @@ impl DebuggerVariables {
     }
 
     fn task_context(&self) -> DebuggerContext {
-        let mut context = self.context.clone();
-        context.lifetimes.push(self.data.clone());
-        context
+        self.context.clone().with_dependency(self.data.clone())
     }
 
     fn key(&self, index: usize) -> VariableKey {
@@ -320,8 +318,7 @@ impl Editor {
         let cache = self.debugger_inspection_cache(context.id, sender);
         cache.invalidate();
         let data = cache.current();
-        let mut task_context = context.clone();
-        task_context.lifetimes.push(data.clone());
+        let task_context = context.clone().with_dependency(data.clone());
         Ok(DebuggerTask::new(task_context, async move {
             cache.scopes(context, data).await
         }))
@@ -399,8 +396,7 @@ impl Editor {
         let data = cache.current();
         let path = page.path.clone();
         let loaded = page.entries.len();
-        let mut task_context = context.clone();
-        task_context.lifetimes.push(data.clone());
+        let task_context = context.clone().with_dependency(data.clone());
         Ok(DebuggerTask::new(task_context, async move {
             let mut pages = vec![cache.scopes(context, data).await?];
             for key in path {
