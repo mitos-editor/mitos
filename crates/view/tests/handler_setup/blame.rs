@@ -130,7 +130,8 @@ async fn explicit_trust_decisions_refresh_cached_blame_with_unchanged_settings(
             .clone();
         apply_decision(&mut f.editor, &workspace, decision)?;
         // Reproduce the shared part of a frontend configuration reload.
-        f.editor.load_language_config(&settings)?;
+        f.editor
+            .load_language_config(&settings, workspace::ResolvedWorkspace::current())?;
         f.editor.refresh_config(&settings);
         assert_eq!(&*f.editor.config(), &*settings);
         assert!(current_ref!(f.editor).1.file_blame().is_none());

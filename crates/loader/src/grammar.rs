@@ -31,7 +31,7 @@ pub enum GrammarSelection {
     Except { except: HashSet<String> },
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct GrammarConfiguration {
     #[serde(rename = "name")]
@@ -39,7 +39,7 @@ pub struct GrammarConfiguration {
     pub source: GrammarSource,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase", untagged)]
 pub enum GrammarSource {
     Local {
@@ -77,18 +77,8 @@ pub(crate) fn load_language(name: &str, library_path: &Path) -> Result<Option<Gr
 // Grammars are configured in the default and user `languages.toml` and are
 // merged. The `grammar_selection` key of the config is then used to filter
 // down all grammars into a subset of the user's choosing.
-pub fn get_grammar_configs() -> Result<Vec<GrammarConfiguration>> {
-    // `--grammar fetch/build` clones grammar sources from URLs in `languages.toml` and compiles
-    // them into `.so` files mitos later loads at runtime. If we let workspace
-    // `.mitos/languages.toml` in through `fully_trusted`, a malicious workspace could inject a
-    // grammar with an attacker-controlled git source — running grammar build in that
-    // directory would clone and compile attacker code
-    let trust =
-        workspace::trust::WorkspaceTrust::new(Default::default(), crate::workspace_trust_dir());
-    crate::config::warn_if_workspace_languages_skipped(&trust)?;
-    let config: Configuration = crate::config::user_lang_config(&trust)
-        .context("Could not parse languages.toml")?
-        .try_into()?;
+pub fn get_grammar_configs(value: toml::Value) -> Result<Vec<GrammarConfiguration>> {
+    let config: Configuration = value.try_into().context("Could not parse languages.toml")?;
 
     let grammars = match config.grammar_selection {
         Some(GrammarSelection::Only { only: selections }) => config
@@ -107,13 +97,15 @@ pub fn get_grammar_configs() -> Result<Vec<GrammarConfiguration>> {
     Ok(grammars)
 }
 
-pub fn get_grammar_names(
-    trust: &workspace::trust::WorkspaceTrust,
-) -> Result<Option<HashSet<String>>> {
-    crate::config::warn_if_workspace_languages_skipped(trust)?;
-    let config: Configuration = crate::config::user_lang_config(trust)
-        .context("Could not parse languages.toml")?
-        .try_into()?;
+/// Take only grammar fields so language settings can consume the remaining document.
+pub fn get_grammar_names(value: &mut toml::Value) -> Result<Option<HashSet<String>>> {
+    let mut grammar = toml::Table::new();
+    for name in ["grammar", "use-grammars"] {
+        if let Some(value) = value.as_table_mut().and_then(|table| table.remove(name)) {
+            grammar.insert(name.into(), value);
+        }
+    }
+    let config: Configuration = toml::Value::Table(grammar).try_into()?;
 
     let grammars = match config.grammar_selection {
         Some(GrammarSelection::Only { only: selections }) => Some(selections),

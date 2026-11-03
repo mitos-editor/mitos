@@ -1,6 +1,6 @@
 use crate::config::{Config, ConfigLoadError};
 use language::{
-    loader::{default_lang_config, user_lang_config},
+    loader::{default_lang_config, parse_lang_config},
     queries::QueryFeature,
 };
 use loader::grammar::load_runtime_file;
@@ -13,12 +13,18 @@ use termina::{
     Terminal as _,
 };
 
-fn workspace_trust() -> workspace::trust::WorkspaceTrust {
-    let config = Config::load_default().unwrap_or_default();
-    workspace::trust::WorkspaceTrust::new(
+fn language_sources() -> std::io::Result<loader::config::LanguageSources> {
+    let workspace = workspace::ResolvedWorkspace::current();
+    let config = Config::load_for(&workspace).unwrap_or_default();
+    let trust = workspace::trust::WorkspaceTrust::new(
         (&config.editor.workspace_trust).into(),
         loader::workspace_trust_dir(),
-    )
+    );
+    let sources = loader::config::ConfigSources::new(&workspace, &trust).languages();
+    if let Some(diagnostic) = &sources.skipped {
+        writeln!(std::io::stderr().lock(), "{diagnostic}")?;
+    }
+    Ok(sources)
 }
 
 /// Display general diagnostics.
@@ -121,25 +127,30 @@ pub fn clipboard() -> std::io::Result<()> {
 }
 
 pub fn languages_all() -> std::io::Result<()> {
-    let trust = workspace_trust();
-    loader::config::warn_if_workspace_languages_skipped(&trust)?;
-    languages(None, &trust)
+    languages(None, language_sources()?.value)
 }
 
 pub fn languages_selection() -> std::io::Result<()> {
-    let trust = workspace_trust();
-    let selection = loader::grammar::get_grammar_names(&trust).unwrap_or_default();
-    languages(selection, &trust)
+    let mut value = language_sources()?.value;
+    let selection = value
+        .as_mut()
+        .ok()
+        .and_then(|value| loader::grammar::get_grammar_names(value).ok())
+        .flatten();
+    languages(selection, value)
 }
 
 fn languages(
     selection: Option<HashSet<String>>,
-    trust: &workspace::trust::WorkspaceTrust,
+    value: Result<toml::Value, toml::de::Error>,
 ) -> std::io::Result<()> {
     let stdout = std::io::stdout();
     let mut stdout = stdout.lock();
 
-    let mut syn_loader_conf = match user_lang_config(trust) {
+    let mut syn_loader_conf = match value
+        .map_err(language::loader::LanguageLoaderError::DeserializeError)
+        .and_then(parse_lang_config)
+    {
         Ok(conf) => conf,
         Err(err) => {
             let stderr = std::io::stderr();
@@ -259,9 +270,11 @@ pub fn language(lang_str: String) -> std::io::Result<()> {
     let stdout = std::io::stdout();
     let mut stdout = stdout.lock();
 
-    let trust = workspace_trust();
-    loader::config::warn_if_workspace_languages_skipped(&trust)?;
-    let syn_loader_conf = match user_lang_config(&trust) {
+    let syn_loader_conf = match language_sources()?
+        .value
+        .map_err(language::loader::LanguageLoaderError::DeserializeError)
+        .and_then(parse_lang_config)
+    {
         Ok(conf) => conf,
         Err(err) => {
             let stderr = std::io::stderr();

@@ -136,6 +136,7 @@ libc.workspace = true
 [build-dependencies]
 grammar-build.workspace = true
 loader.workspace = true
+workspace.workspace = true
 
 [dev-dependencies]
 core = { workspace = true, features = ["integration"] }

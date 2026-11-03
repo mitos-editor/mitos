@@ -108,22 +108,18 @@ FLAGS:
         std::process::exit(0);
     }
 
-    if args.fetch_grammars {
-        grammar_build::fetch_grammars(
-            loader::grammar::get_grammar_configs()?,
-            &loader::runtime_write_dir(),
-            args.strict,
-        )?;
-        return Ok(0);
-    }
-
-    if args.build_grammars {
-        grammar_build::build_grammars(
-            loader::grammar::get_grammar_configs()?,
-            &loader::runtime_write_dir(),
-            None,
-            args.strict,
-        )?;
+    if args.fetch_grammars || args.build_grammars {
+        let sources = loader::config::grammar_sources(&workspace::ResolvedWorkspace::current());
+        if let Some(diagnostic) = sources.skipped {
+            eprintln!("{diagnostic}");
+        }
+        let grammars = loader::grammar::get_grammar_configs(sources.value?)?;
+        let runtime = loader::runtime_write_dir();
+        if args.fetch_grammars {
+            grammar_build::fetch_grammars(grammars, &runtime, args.strict)?;
+        } else {
+            grammar_build::build_grammars(grammars, &runtime, None, args.strict)?;
+        }
         return Ok(0);
     }
 
@@ -142,7 +138,8 @@ FLAGS:
         return Ok(1);
     }
 
-    let config = match Config::load_default() {
+    let workspace = workspace::ResolvedWorkspace::current();
+    let config = match Config::load_for(&workspace) {
         Ok(loaded) => loaded,
         Err(ConfigLoadError::Error(err)) if err.kind() == std::io::ErrorKind::NotFound => {
             Config::default()
@@ -163,15 +160,18 @@ FLAGS:
     );
 
     let resources = loader::syntax::Resources::default();
-    let lang_loader = language::loader::user_lang_loader(&workspace_trust, resources.clone())
-        .unwrap_or_else(|err| {
-            eprintln!("{}", err);
-            eprintln!("Press <ENTER> to continue with default language config");
-            use std::io::Read;
-            // This waits for an enter press.
-            let _ = std::io::stdin().read(&mut []);
-            language::loader::default_lang_loader(resources)
-        });
+    let lang_loader = language::loader::user_lang_loader(
+        &loader::config::ConfigSources::new(&workspace, &workspace_trust),
+        resources.clone(),
+    )
+    .unwrap_or_else(|err| {
+        eprintln!("{}", err);
+        eprintln!("Press <ENTER> to continue with default language config");
+        use std::io::Read;
+        // This waits for an enter press.
+        let _ = std::io::stdin().read(&mut []);
+        language::loader::default_lang_loader(resources)
+    });
 
     // TODO: use the thread local executor to spawn the application task separately from the work pool
     let mut app = Application::new(args, config, lang_loader, workspace_trust)

@@ -185,7 +185,10 @@ fn register_hooks() {
         crate::debugger::register_hooks();
         word_index::register_hooks();
         register_hook!(move |event: &mut ConfigDidChange<'_>| {
-            event.editor.file_watcher.reload(&event.new.files.watch);
+            event
+                .editor
+                .file_watcher
+                .reload(&event.new.files.watch, &event.editor.workspace);
             event.editor.refresh_vcs_watches();
             Ok(())
         });

@@ -1,5 +1,5 @@
+use loader::config::ConfigSources;
 use loader::syntax::Resources;
-use workspace::trust::WorkspaceTrust;
 
 use crate::syntax::{Loader, LoaderError};
 use language_config::{Configuration, LanguageConfiguration};
@@ -38,33 +38,43 @@ impl std::fmt::Display for LanguageLoaderError {
 
 impl std::error::Error for LanguageLoaderError {}
 
-/// Language configuration based on user configured languages.toml.
-pub fn user_lang_config(trust: &WorkspaceTrust) -> Result<Configuration, toml::de::Error> {
-    loader::config::user_lang_config(trust)?.try_into()
+/// Deserialize each language once, retaining its name in configuration errors.
+pub fn parse_lang_config(mut value: toml::Value) -> Result<Configuration, LanguageLoaderError> {
+    let languages = value
+        .get_mut("language")
+        .and_then(toml::Value::as_array_mut)
+        .map(std::mem::take)
+        .unwrap_or_default();
+    let languages = languages
+        .into_iter()
+        .map(|language| {
+            let context = language
+                .get("name")
+                .map(|name| format!("for language {name}"))
+                .unwrap_or_else(|| "for unknown language".into());
+            language
+                .try_into()
+                .map_err(|error| LanguageLoaderError::ConfigError(error, context))
+        })
+        .collect::<Result<Vec<LanguageConfiguration>, _>>()?;
+    let mut config: Configuration = value
+        .try_into()
+        .map_err(|error| LanguageLoaderError::ConfigError(error, String::new()))?;
+    config.language = languages;
+    Ok(config)
 }
 
-/// Language configuration loader based on user configured languages.toml.
+/// Compile language configuration selected by the explicit source plan.
 pub fn user_lang_loader(
-    trust: &WorkspaceTrust,
+    sources: &ConfigSources,
     resources: Resources,
 ) -> Result<Loader, LanguageLoaderError> {
-    let config_val =
-        loader::config::user_lang_config(trust).map_err(LanguageLoaderError::DeserializeError)?;
-    let config = config_val.clone().try_into().map_err(|e| {
-        if let Some(languages) = config_val.get("language").and_then(|v| v.as_array()) {
-            for lang in languages.iter() {
-                let res: Result<LanguageConfiguration, _> = lang.clone().try_into();
-                if let Err(inner_err) = res {
-                    let context = match lang.get("name") {
-                        Some(name) => format!("for language {}", name),
-                        None => "for unknown language".to_owned(),
-                    };
-                    return LanguageLoaderError::ConfigError(inner_err, context);
-                }
-            }
-        }
-        LanguageLoaderError::ConfigError(e, String::new())
-    })?;
+    let config = parse_lang_config(
+        sources
+            .languages()
+            .value
+            .map_err(LanguageLoaderError::DeserializeError)?,
+    )?;
     Loader::new(config, resources).map_err(LanguageLoaderError::LoaderError)
 }
 
@@ -260,5 +270,31 @@ language-servers = {entries}
                 "{path}"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod error_tests {
+    use super::*;
+
+    #[test]
+    fn invalid_language_retains_its_name_and_field_context() {
+        let value = toml::from_str(
+            r#"
+            [[language]]
+            name = 'good'
+            scope = 'source.good'
+            file-types = ['good']
+            [[language]]
+            name = 'broken'
+            scope = 'source.broken'
+            file-types = 42
+        "#,
+        )
+        .unwrap();
+        let error = parse_lang_config(value).unwrap_err().to_string();
+        assert!(error.contains("for language \"broken\""), "{error}");
+        assert!(error.contains("file-types"), "{error}");
+        assert!(parse_lang_config(toml::from_str("other=1").unwrap()).is_err());
     }
 }

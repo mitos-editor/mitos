@@ -49,8 +49,6 @@ use globset::{Glob, GlobSet, GlobSetBuilder};
 use parking_lot::Mutex;
 use sha2::{Digest, Sha256};
 
-use crate::find_workspace;
-
 /// Checks whether a specific capability is trusted
 #[derive(Debug, Clone, Copy)]
 pub enum TrustQuery {
@@ -254,12 +252,6 @@ impl WorkspaceTrust {
         }
 
         demote_for_query(raw, query)
-    }
-
-    /// Query trust for the current working directory's workspace.
-    pub fn query_current(&self, query: TrustQuery) -> TrustStatus {
-        let workspace = find_workspace().0;
-        self.query(&workspace, query)
     }
 
     /// Whether `workspace` matches one of the configured trust globs. Empty glob set never matches.

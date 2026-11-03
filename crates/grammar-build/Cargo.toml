@@ -16,6 +16,7 @@ path = "src/main.rs"
 
 [dependencies]
 loader.workspace = true
+workspace.workspace = true
 stdx.workspace = true
 anyhow.workspace = true
 cc.workspace = true

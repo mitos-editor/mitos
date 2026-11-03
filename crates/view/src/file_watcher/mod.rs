@@ -62,10 +62,14 @@ fn options(config: &WatchConfig, root: &Path) -> file_watch::Options {
 }
 
 impl Watcher {
-    pub fn new(config: &WatchConfig, callbacks: EditorCallbackSender) -> Self {
-        let (root, no_workspace) = workspace::find_workspace();
+    pub fn new(
+        config: &WatchConfig,
+        workspace: &workspace::ResolvedWorkspace,
+        callbacks: EditorCallbackSender,
+    ) -> Self {
+        let root = workspace.root();
         let (native, receiver) =
-            file_watch::Watcher::new(&options(config, &root), &root, !no_workspace);
+            file_watch::Watcher::new(&options(config, root), root, workspace.is_workspace());
         let mut watcher = Self {
             native,
             events: broadcast::channel(64).0,
@@ -109,10 +113,10 @@ impl Watcher {
         self.events.subscribe()
     }
 
-    pub fn reload(&mut self, config: &WatchConfig) {
-        let (root, no_workspace) = workspace::find_workspace();
+    pub fn reload(&mut self, config: &WatchConfig, workspace: &workspace::ResolvedWorkspace) {
+        let root = workspace.root();
         self.native
-            .reload(&options(config, &root), &root, !no_workspace);
+            .reload(&options(config, root), root, workspace.is_workspace());
         self.start_delivery();
     }
 

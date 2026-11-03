@@ -109,7 +109,7 @@ pub struct Context<'a> {
 }
 
 /// The buffer picker accepts shared actions and its own item actions.
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ConfigRaw {
     pub theme: Option<theme::Config>,

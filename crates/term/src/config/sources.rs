@@ -25,10 +25,10 @@ impl Display for ConfigLoadError {
     }
 }
 
-fn parse_source(source: &str) -> Result<ConfigRaw, TomlError> {
-    let mut value = toml::from_str(source)?;
-    migration::config(&mut value)?;
-    value.try_into()
+pub(super) fn parse_source(source: &str) -> Result<ConfigRaw, ConfigLoadError> {
+    let mut value = toml::from_str(source).map_err(ConfigLoadError::BadConfig)?;
+    migration::config(&mut value).map_err(ConfigLoadError::BadConfig)?;
+    value.try_into().map_err(ConfigLoadError::BadConfig)
 }
 
 fn settings_from_sources(
@@ -64,67 +64,45 @@ impl Config {
         global: Result<&String, ConfigLoadError>,
         local: Result<String, ConfigLoadError>,
     ) -> Result<Config, ConfigLoadError> {
-        let global_config: Result<ConfigRaw, ConfigLoadError> =
-            global.and_then(|file| parse_source(file).map_err(ConfigLoadError::BadConfig));
-        let local_config: Result<ConfigRaw, ConfigLoadError> =
-            local.and_then(|file| parse_source(&file).map_err(ConfigLoadError::BadConfig));
-        let res = match (global_config, local_config) {
-            (Ok(mut global), Ok(local)) => {
-                let (keys, component_keys) =
-                    resolve_keymaps(global.keys.into_iter().chain(local.keys));
+        Self::from_layers(
+            global.and_then(|source| parse_source(source)),
+            local.and_then(|source| parse_source(&source)),
+        )
+    }
 
-                let mut settings = settings_from_sources(
-                    global.editor,
-                    global.terminal,
-                    local.editor,
-                    local.terminal,
-                )?;
-
-                if let Some(local_commands) = local.commands {
-                    if let Some(global_commands) = &mut global.commands {
-                        global_commands.merge(local_commands);
-                    } else {
-                        global.commands = Some(local_commands);
-                    }
-                }
-                if let Some(commands) = global.commands {
-                    settings.editor.commands = commands.into_custom_commands();
-                }
-
-                Config {
-                    theme: local.theme.or(global.theme),
-                    keys,
-                    component_keys,
-                    editor: settings.editor,
-                    terminal: settings.terminal,
-                }
-            }
-            // if any configs are invalid return that first
+    pub(super) fn from_layers(
+        global: Result<ConfigRaw, ConfigLoadError>,
+        local: Result<ConfigRaw, ConfigLoadError>,
+    ) -> Result<Config, ConfigLoadError> {
+        let (mut global, local) = match (global, local) {
+            (Ok(global), Ok(local)) => (global, local),
+            // A malformed layer wins over an unavailable layer; local errors win ties.
             (_, Err(ConfigLoadError::BadConfig(err)))
             | (Err(ConfigLoadError::BadConfig(err)), _) => {
-                return Err(ConfigLoadError::BadConfig(err))
+                return Err(ConfigLoadError::BadConfig(err));
             }
-            (Ok(config), Err(_)) | (Err(_), Ok(config)) => {
-                let (keys, component_keys) = resolve_keymaps(config.keys);
-                let mut settings =
-                    settings_from_sources(config.editor, config.terminal, None, None)?;
-                if let Some(commands) = config.commands {
-                    settings.editor.commands = commands.into_custom_commands();
-                }
-
-                Config {
-                    theme: config.theme,
-                    keys,
-                    component_keys,
-                    editor: settings.editor,
-                    terminal: settings.terminal,
-                }
-            }
-
-            // these are just two io errors return the one for the global config
+            (Ok(config), Err(_)) | (Err(_), Ok(config)) => (config, ConfigRaw::default()),
             (Err(err), Err(_)) => return Err(err),
         };
-
-        Ok(res)
+        let (keys, component_keys) = resolve_keymaps(global.keys.into_iter().chain(local.keys));
+        let mut settings =
+            settings_from_sources(global.editor, global.terminal, local.editor, local.terminal)?;
+        if let Some(local_commands) = local.commands {
+            if let Some(global_commands) = &mut global.commands {
+                global_commands.merge(local_commands);
+            } else {
+                global.commands = Some(local_commands);
+            }
+        }
+        if let Some(commands) = global.commands {
+            settings.editor.commands = commands.into_custom_commands();
+        }
+        Ok(Config {
+            theme: local.theme.or(global.theme),
+            keys,
+            component_keys,
+            editor: settings.editor,
+            terminal: settings.terminal,
+        })
     }
 }
