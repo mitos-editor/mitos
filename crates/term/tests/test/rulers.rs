@@ -1,5 +1,5 @@
 use editor_config::{BufferLine, RulerStyle, WhitespaceRender, WhitespaceRenderValue};
-use term::application::Application;
+use term::application::TestApplication;
 use theme::Theme;
 use tui::style::Color;
 use view::{current_ref, editor::Action};
@@ -21,7 +21,7 @@ fn ruler_theme() -> Theme {
     )
 }
 
-fn assert_rulers(app: &Application, columns: &[u16], character: &str) {
+fn assert_rulers(app: &TestApplication, columns: &[u16], character: &str) {
     let backend = app.terminal_backend();
     let buffer = backend.buffer();
     let mut count = 0;

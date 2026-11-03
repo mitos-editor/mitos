@@ -9,7 +9,7 @@ use editor_config::StatusLineElement;
 use editor_core::{Selection, Transaction};
 use lsp_client::lsp::{CodeActionKind, CodeActionTriggerKind};
 use serde_json::Value;
-use term::application::Application;
+use term::application::TestApplication;
 use tokio::sync::mpsc;
 use view::{
     action::code_actions_for_range,
@@ -23,7 +23,7 @@ use super::helpers::lsp::{self, Gate, ServerConfig};
 use super::helpers::{test_config, AppBuilder};
 
 struct Fixture {
-    app: Application,
+    app: TestApplication,
     callbacks: mpsc::Receiver<(bool, EditorCallback)>,
     log: PathBuf,
     gate: Gate,

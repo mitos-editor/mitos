@@ -5,7 +5,7 @@ use std::{
 
 use anyhow::Context as _;
 use editor_core::Transaction;
-use term::application::Application;
+use term::application::TestApplication;
 use tokio::sync::mpsc;
 use view::{
     callbacks::EditorCallback, current, current_ref, document::Mode, editor::Action,
@@ -15,7 +15,7 @@ use view::{
 use super::helpers::{test_config, AppBuilder};
 
 struct Fixture {
-    app: Application,
+    app: TestApplication,
     path: PathBuf,
     callbacks: mpsc::UnboundedReceiver<EditorCallback>,
 }

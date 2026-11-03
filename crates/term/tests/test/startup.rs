@@ -208,16 +208,9 @@ async fn symbol_picker_can_open_before_background_syntax_is_published() -> anyho
     let mut app = AppBuilder::new().with_file(&path, None).build()?;
     assert!(doc!(app.editor).is_syntax_pending());
 
-    // Deliver input immediately, without first letting the event loop publish syntax.
-    for key in ui_core::input::parse_macro("<space>sbanana<C-q><esc>]q")? {
-        #[cfg(not(windows))]
-        let event = termina::event::Event::Key(tui::backend::native::adapt(key));
-        #[cfg(windows)]
-        let event = crossterm::event::Event::Key(tui::backend::native::adapt(key));
-        app.handle_terminal_events(Ok(event)).await;
-    }
-    app.editor.reset_idle_timer();
-    tokio::time::timeout(Duration::from_secs(10), run_event_loop_until_idle(&mut app)).await?;
+    // Queue input immediately, without first letting the event loop publish syntax.
+    // Each event still passes through production component preparation.
+    super::helpers::keys(&mut app, "<space>sbanana<C-q><esc>]q").await?;
 
     let (view, doc) = current!(app.editor);
     assert!(!doc.is_syntax_pending());
@@ -305,7 +298,7 @@ async fn rust_syntax_is_shown_before_its_injected_languages_compile() -> anyhow:
             .await
             .map(|callback| callback.expect("syntax callback was not delivered"))
     };
-    let doc_comment_layers = |app: &term::application::Application| {
+    let doc_comment_layers = |app: &term::application::TestApplication| {
         doc!(app.editor)
             .syntax()
             .unwrap()

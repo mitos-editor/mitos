@@ -3,7 +3,7 @@ use std::{path::Path, time::Duration};
 
 use anyhow::Context as _;
 use editor_core::{Selection, Transaction};
-use term::application::Application;
+use term::application::TestApplication;
 use tokio::sync::mpsc;
 use view::{callbacks::EditorCallback, handlers::Handlers};
 use view::{current, current_ref, editor::Action, features::rename::RenameSession};
@@ -14,7 +14,7 @@ use super::helpers::{
 };
 
 struct Fixture {
-    app: Application,
+    app: TestApplication,
     callbacks: mpsc::UnboundedReceiver<(bool, EditorCallback)>,
 }
 
@@ -73,7 +73,7 @@ async fn fixture(dir: &Path, args: &[&str]) -> anyhow::Result<Fixture> {
     Ok(Fixture { app, callbacks })
 }
 
-async fn prepare(app: &mut Application) -> anyhow::Result<RenameSession> {
+async fn prepare(app: &mut TestApplication) -> anyhow::Result<RenameSession> {
     let (view, doc) = current_ref!(app.editor);
     let task = app.editor.prepare_rename(doc.id(), view.id)?;
     tokio::time::timeout(Duration::from_secs(5), task.run())

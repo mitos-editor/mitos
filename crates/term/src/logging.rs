@@ -61,7 +61,6 @@ pub fn init_file(level: log::LevelFilter, path: &Path) -> std::io::Result<()> {
 }
 
 /// Install the global logger writing to stdout (used by integration tests).
-#[cfg(feature = "integration")]
 pub fn init_stdout(level: log::LevelFilter) {
     let _ = install(level, Box::new(std::io::stdout()));
 }

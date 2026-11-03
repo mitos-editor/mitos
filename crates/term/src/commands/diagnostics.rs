@@ -539,7 +539,7 @@ fn diagnostic_items(editor: &Editor, document: Option<DocumentId>) -> Vec<Picker
     diagnostics
 }
 
-#[cfg(all(test, feature = "integration"))]
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::ui::picker::test::{application, items, until};

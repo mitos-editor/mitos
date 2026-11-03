@@ -1,6 +1,6 @@
 use super::*;
 use crate::{
-    application::Application,
+    application::TestApplication,
     ui::picker::test::{application, until},
 };
 
@@ -32,7 +32,7 @@ fn repo() -> anyhow::Result<tempfile::TempDir> {
 }
 
 fn key(
-    app: &mut Application,
+    app: &mut TestApplication,
     compositor: &mut compositor::Compositor,
     jobs: &mut crate::job::Jobs,
     key: &str,
@@ -220,7 +220,7 @@ async fn stash_inspection_opens_native_review_without_changing_git_state() -> an
 
 fn frame(
     component: &mut dyn Component,
-    app: &mut Application,
+    app: &mut TestApplication,
     jobs: &mut crate::job::Jobs,
     config: &crate::config::Config,
     area: view::graphics::Rect,
@@ -239,7 +239,7 @@ fn frame(
     };
     let mut surface = tui::buffer::Buffer::empty(area);
     component.required_size((area.width, area.height));
-    component.render(area, &mut surface, &mut cx);
+    component.update_and_render(area, &mut surface, &mut cx);
     (area.y..area.bottom())
         .map(|y| {
             (area.x..area.right())

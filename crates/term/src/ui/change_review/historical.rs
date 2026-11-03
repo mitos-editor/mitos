@@ -1,5 +1,6 @@
 //! Selected historical sources use the same diff renderer and native document opening.
 use super::ReviewView;
+use crate::compositor::DrawContext;
 use crate::{
     compositor::{Context, EventResult},
     ui::picker::{
@@ -99,7 +100,7 @@ impl<T, K: Eq> PickerPreview<T> for HistoricalReviewPreview<T, K> {
         self.opened_document
     }
 
-    fn render(&mut self, item: Option<&T>, area: Rect, surface: &mut Buffer, cx: &mut Context) {
+    fn update(&mut self, item: Option<&T>, _area: Rect, cx: &mut Context) {
         self.select(item, cx.editor);
         if let Some((_, request)) = &self.selected
             && self.pending.is_none()
@@ -146,6 +147,15 @@ impl<T, K: Eq> PickerPreview<T> for HistoricalReviewPreview<T, K> {
                 Err(oneshot::error::TryRecvError::Empty) => {}
             }
         }
+    }
+
+    fn render(
+        &mut self,
+        _item: Option<&T>,
+        area: Rect,
+        surface: &mut Buffer,
+        cx: &mut DrawContext,
+    ) {
         let content = Rect::new(area.x, area.y, area.width, area.height.saturating_sub(1));
         if let Some(view) = &mut self.ready {
             let heading = view.heading_rows() as u16;
@@ -178,7 +188,7 @@ impl<T, K: Eq> PickerPreview<T> for HistoricalReviewPreview<T, K> {
         }
         if area.height > 1 {
             use crate::keymap::component::{action_hint, PickerAction};
-            let keys = &cx.config.current.component_keys.history_picker;
+            let keys = &cx.config.component_keys.history_picker;
             surface.set_stringn(
                 area.x,
                 area.bottom() - 1,
@@ -219,15 +229,15 @@ impl<T, K: Eq> PickerPreview<T> for HistoricalReviewPreview<T, K> {
     }
 }
 
-#[cfg(all(test, feature = "integration"))]
+#[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{application::Application, job::Jobs, ui::picker::test::application};
+    use crate::{application::TestApplication, job::Jobs, ui::picker::test::application};
 
     fn render(
         preview: &mut HistoricalReviewPreview<u8, u8>,
         selected: u8,
-        app: &mut Application,
+        app: &mut TestApplication,
     ) -> Buffer {
         let config = crate::config::Config::default();
         let updates = tokio::sync::mpsc::unbounded_channel().0;
@@ -245,7 +255,8 @@ mod tests {
         };
         let area = Rect::new(0, 0, 80, 20);
         let mut surface = Buffer::empty(area);
-        preview.render(Some(&selected), area, &mut surface, &mut cx);
+        preview.update(Some(&selected), area, &mut cx);
+        preview.render(Some(&selected), area, &mut surface, &mut cx.draw_context());
         surface
     }
 

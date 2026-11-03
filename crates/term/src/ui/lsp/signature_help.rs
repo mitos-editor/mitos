@@ -1,3 +1,4 @@
+use crate::compositor::DrawContext;
 use std::sync::Arc;
 
 use arc_swap::ArcSwap;
@@ -83,7 +84,7 @@ impl Component for SignatureHelp {
         )
     }
 
-    fn render(&mut self, area: Rect, surface: &mut Buffer, cx: &mut Context) {
+    fn render(&mut self, area: Rect, surface: &mut Buffer, cx: &mut DrawContext) {
         let area = panel::content_area(area);
 
         let signature = self

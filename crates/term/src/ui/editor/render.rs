@@ -47,13 +47,42 @@ pub(super) struct PaneRenderer {
 }
 
 impl PaneRenderer {
+    pub fn prepare_images(
+        &mut self,
+        editor: &Editor,
+        image_picker: Option<&ratatui_image::picker::Picker>,
+        image_cache: &crate::ui::image::ImageCache,
+    ) {
+        self.images.retain(|id, _| {
+            editor.tree.try_get(*id).is_some_and(|view| {
+                editor
+                    .document(view.document_id())
+                    .is_some_and(Document::is_binary)
+            })
+        });
+        for (view, _) in editor.tree.views() {
+            let doc = editor.document(view.document_id()).unwrap();
+            let content = view.content_area(doc);
+            if doc.is_binary()
+                && !content.is_empty()
+                && let Some(picker) = image_picker
+            {
+                let size = Size::new(content.width, content.height.saturating_sub(2).max(1));
+                let image = self.images.entry(view.id).or_insert_with(|| {
+                    ImageDocumentView::new(image_cache.clone(), doc, picker.clone(), size)
+                });
+                if !image.matches(doc, size) {
+                    *image = ImageDocumentView::new(image_cache.clone(), doc, picker.clone(), size);
+                }
+            }
+        }
+    }
+
     pub fn render(
         &mut self,
         editor: &Editor,
         layout: ApplicationLayout,
         surface: &mut Surface,
-        image_picker: Option<&ratatui_image::picker::Picker>,
-        image_cache: &crate::ui::image::ImageCache,
         options: PaneOptions,
     ) {
         self.spinners
@@ -63,13 +92,6 @@ impl PaneRenderer {
             Self::render_bufferline(editor, bufferline, surface);
         }
 
-        self.images.retain(|id, _| {
-            editor.tree.try_get(*id).is_some_and(|view| {
-                editor
-                    .document(view.document_id())
-                    .is_some_and(Document::is_binary)
-            })
-        });
         self.syntax
             .retain(|id, _| editor.tree.try_get(*id).is_some());
         for (view, is_focused) in editor.tree.views() {
@@ -77,15 +99,7 @@ impl PaneRenderer {
             let content = view.content_area(doc);
             if doc.is_binary() && !content.is_empty() {
                 let style = editor.theme.get("ui.text");
-                if let Some(picker) = image_picker {
-                    let size = Size::new(content.width, content.height.saturating_sub(2).max(1));
-                    let image = self.images.entry(view.id).or_insert_with(|| {
-                        ImageDocumentView::new(image_cache.clone(), doc, picker.clone(), size)
-                    });
-                    if !image.matches(doc, size) {
-                        *image =
-                            ImageDocumentView::new(image_cache.clone(), doc, picker.clone(), size);
-                    }
+                if let Some(image) = self.images.get_mut(&view.id) {
                     image.render(content, surface, style);
                 } else {
                     render_placeholder("<Binary file>", content, surface, style);

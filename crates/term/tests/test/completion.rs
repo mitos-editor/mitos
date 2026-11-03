@@ -5,7 +5,7 @@ use std::{
 
 use anyhow::Context as _;
 use editor_core::Selection;
-use term::application::Application;
+use term::application::TestApplication;
 use tokio::sync::mpsc;
 use view::{
     callbacks::EditorCallback,
@@ -22,7 +22,7 @@ use super::helpers::lsp::{self, Gate, ServerConfig};
 use super::helpers::test_config;
 
 struct Fixture {
-    app: Application,
+    app: TestApplication,
     callbacks: mpsc::UnboundedReceiver<(bool, EditorCallback)>,
     log: PathBuf,
     response_gate: PathBuf,
@@ -991,7 +991,7 @@ async fn completion_popup_and_documentation_share_the_live_border_override() -> 
             completion.handle_event(&ui_core::input::Event::Key("down".parse()?), &mut cx);
             selected = true;
         }
-        completion.render(viewport, &mut buffer, &mut cx);
+        completion.update_and_render(viewport, &mut buffer, &mut cx);
         assert_eq!(completion.area(viewport, &f.app.editor), area);
         assert_eq!(buffer[(area.x, area.y)].symbol(), corner);
         assert_eq!(buffer[(area.right(), area.y)].symbol(), corner);

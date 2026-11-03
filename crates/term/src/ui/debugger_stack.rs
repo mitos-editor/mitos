@@ -1,5 +1,6 @@
 //! A frame picker that extends its loaded prefix without losing the query or selection.
 use super::{picker::PickerCallbackResult, Picker, PickerColumn};
+use crate::compositor::DrawContext;
 use crate::compositor::{Component, Context, Cursor, Event, EventResult};
 use event::TaskController;
 use std::{cell::Cell, rc::Rc, sync::Arc};
@@ -144,7 +145,14 @@ impl Component for Frames {
         }
         result
     }
-    fn render(&mut self, area: Rect, surface: &mut Buffer, cx: &mut Context) {
+    fn update(&mut self, area: Rect, cx: &mut Context) {
+        if self.data.context.is_current(cx.editor) {
+            self.picker.required_size((area.width, area.height));
+            self.picker.update(area, cx);
+        }
+    }
+
+    fn render(&mut self, area: Rect, surface: &mut Buffer, cx: &mut DrawContext) {
         if self.data.context.is_current(cx.editor) {
             self.picker.required_size((area.width, area.height));
             self.picker.render(area, surface, cx);
@@ -161,8 +169,7 @@ impl Component for Frames {
     fn has_pending_keys(&self) -> bool {
         self.picker.has_pending_keys()
     }
-    #[cfg(feature = "integration")]
-    fn has_pending_render(&mut self) -> bool {
+    fn has_pending_render(&self) -> bool {
         self.picker.has_pending_render()
     }
     fn owns_cursor(&self) -> bool {

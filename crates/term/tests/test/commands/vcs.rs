@@ -2,7 +2,7 @@ use editor_config::InlineBlameShow;
 use std::{path::Path, process::Command, sync::Arc, time::Duration};
 use view::{current, current_ref};
 
-use term::application::Application;
+use term::application::TestApplication;
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use ui_core::input::parse_macro;
 
@@ -13,11 +13,11 @@ use termina::event::Event;
 
 use super::super::helpers::{run_event_loop_until_idle, test_config, AppBuilder};
 
-async fn press_space_b(app: &mut Application) -> anyhow::Result<()> {
+async fn press_space_b(app: &mut TestApplication) -> anyhow::Result<()> {
     press_keys(app, "<space>B").await
 }
 
-async fn repository_status(app: &mut Application, prefix: &str) -> anyhow::Result<()> {
+async fn repository_status(app: &mut TestApplication, prefix: &str) -> anyhow::Result<()> {
     let result = tokio::time::timeout(Duration::from_secs(10), async {
         while !app
             .editor
@@ -190,7 +190,7 @@ async fn repository_pull_checks_unsaved_buffers_before_contacting_a_remote() -> 
     Ok(())
 }
 
-async fn press_keys(app: &mut Application, keys: &str) -> anyhow::Result<()> {
+async fn press_keys(app: &mut TestApplication, keys: &str) -> anyhow::Result<()> {
     let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
     for key in parse_macro(keys)? {
         sender.send(Ok(Event::Key(tui::backend::native::adapt(key))))?;
@@ -377,10 +377,7 @@ async fn narrow_views_keep_error_diagnostics_ahead_of_inline_blame() -> anyhow::
         while app.editor.tree.views().count() < splits {
             app.editor.switch(id, Action::VerticalSplit);
         }
-        for key in parse_macro("<esc>")? {
-            app.handle_terminal_events(Ok(Event::Key(tui::backend::native::adapt(key))))
-                .await;
-        }
+        press_keys(&mut app, "<esc>").await?;
         let (view, doc) = current_ref!(app.editor);
         let area = view.inner_area(doc);
         let buffer = app.terminal_backend().buffer();
@@ -892,7 +889,7 @@ async fn changed_file_review_switches_layers_opens_deletions_and_preserves_the_i
     Ok(())
 }
 
-fn review_screen(app: &Application) -> String {
+fn review_screen(app: &TestApplication) -> String {
     app.terminal_backend()
         .buffer()
         .content
@@ -902,7 +899,7 @@ fn review_screen(app: &Application) -> String {
 }
 
 async fn wait_for_review_buffer(
-    app: &mut Application,
+    app: &mut TestApplication,
     engine: &str,
     contents: &str,
 ) -> anyhow::Result<()> {
@@ -923,7 +920,7 @@ async fn wait_for_review_buffer(
 }
 
 async fn wait_for_review_screen(
-    app: &mut Application,
+    app: &mut TestApplication,
     heading: &str,
     contents: &str,
 ) -> anyhow::Result<()> {
@@ -1029,7 +1026,7 @@ async fn conflict_navigation_wraps_and_resolution_leaves_other_conflicts_untouch
     Ok(())
 }
 
-async fn requested_actions(app: &mut Application) -> anyhow::Result<Vec<view::action::Action>> {
+async fn requested_actions(app: &mut TestApplication) -> anyhow::Result<Vec<view::action::Action>> {
     let update = app
         .editor
         .request_code_actions()

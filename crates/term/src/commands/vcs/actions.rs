@@ -1,5 +1,6 @@
 //! Terminal presentation for backend-owned Git workflows.
 
+use crate::compositor::DrawContext;
 use crate::{
     compositor::{self, Component, Context, Event, EventResult},
     job::{Callback, Job},
@@ -86,7 +87,7 @@ impl Component for ActionMenu {
         &mut self,
         area: view::graphics::Rect,
         surface: &mut tui::buffer::Buffer,
-        cx: &mut Context,
+        cx: &mut DrawContext,
     ) {
         self.select.render(area, surface, cx);
     }
@@ -485,5 +486,5 @@ struct StashFiles {
     theme: Arc<theme::Theme>,
 }
 
-#[cfg(all(test, feature = "integration"))]
+#[cfg(test)]
 mod tests;

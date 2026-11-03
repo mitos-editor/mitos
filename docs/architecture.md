@@ -1142,7 +1142,14 @@ reaches the child. Console modes are restored before reclaiming the backend.
 
 The terminal frontend.
 
-The `main` function sets up a new `Application` that runs the event loop.
+The `main` function constructs the native `Application` and supplies its input stream.
+`App<B>` owns one startup path and event loop for every backend. `TestApplication`
+selects `TestBackend`; `App::with_backend` accepts another backend explicitly.
+Injected applications skip stdin, process signals, input workers and capability
+queries. `event_loop_until_idle` explicitly settles accepted work; the normal loop
+uses the same pump without test idle handling. The `integration` feature enables
+fixture binaries only; it does not change application behavior. Unit tests run
+with the default backend graph, and process integrations run separately.
 
 `commands.rs` wires feature modules and preserves public entry points. Command
 implementations import their dependencies explicitly; they do not inherit a shared
@@ -1234,6 +1241,19 @@ applying line numbers. Git status and rename resolution remain in `vcs`.
 the backend and terminal rendering integration; `ui-core` supplies shared value
 types. A shared editor feature publishes state or a typed event, and the frontend
 chooses the widget, labels, layout, and interaction.
+
+The application owns one frame deadline: input requests an immediate frame and
+background updates coalesce for 33 ms. A newly visible document can share one
+16 ms syntax grace period with other visible panes. The ordinary event loop
+continues serving input, callbacks, saves, and editor events during that grace;
+drawing never runs a nested event pump. Callback batches remain bounded.
+
+Components prepare work in `update(area, &mut Context)` before drawing. Containers
+pass their actual child areas through both phases. Updates may mutate the editor,
+admit previews, tick matching, and submit jobs; `render` receives `DrawContext`
+with read-only editor/configuration access and no job queue. Drawing may update
+local layout, scroll, and presentation caches. `update_and_render` runs both phases
+for standalone component consumers. Pending-render checks only observe state.
 
 The topmost component that declares cursor ownership controls the active cursor
 for the frame. Decorative overlays preserve the owner below them. After rendering,
@@ -1330,7 +1350,7 @@ retain their owner's handle. A frame waits only for that owner's computation gua
 those guards own their locks and can safely outlive the frontend.
 
 `Handlers` owns a bounded status channel. `Editor::wait_event` receives its messages,
-preserves severity, and schedules a redraw using the editor's existing frame-rate
+preserves severity, and returns a redraw event. The frontend applies its frame-rate
 limit. `StatusSender` clones keep their destination even on another thread; closed
 destinations discard messages immediately. Asynchronous reports wait at most 10 ms
 for an overloaded queue; synchronous reports use best-effort delivery and never wait

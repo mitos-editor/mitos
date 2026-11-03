@@ -1,9 +1,8 @@
 use super::helpers::{keys as settled_keys, test_config, AppBuilder};
 use editor_config::BlockCursorRendering::{self, Native, Software};
-use term::application::Application;
+use term::application::TestApplication;
 use theme::Theme;
 use tui::{backend::Backend, style::Color};
-use ui_core::input::parse_macro;
 use view::current_ref;
 
 #[cfg(windows)]
@@ -11,14 +10,11 @@ use crossterm::event::Event;
 #[cfg(not(windows))]
 use termina::event::Event;
 
-async fn keys(app: &mut Application, input: &str) {
-    for key in parse_macro(input).unwrap() {
-        app.handle_terminal_events(Ok(Event::Key(tui::backend::native::adapt(key))))
-            .await;
-    }
+async fn keys(app: &mut TestApplication, input: &str) {
+    settled_keys(app, input).await.unwrap();
 }
 
-fn assert_editor_cursor(app: &Application, native: bool) {
+fn assert_editor_cursor(app: &TestApplication, native: bool) {
     let backend = app.terminal_backend();
     assert_eq!(backend.cursor_visible(), native);
     let pos = app.editor.cursor().0.unwrap();
@@ -46,7 +42,7 @@ fn cursor_app(
     normal: &str,
     block_rendering: BlockCursorRendering,
     text: &str,
-) -> Application {
+) -> TestApplication {
     let mut config = test_config();
     config.editor.cursor.highlight_line = cursorline;
     config.editor.cursor.block_rendering = block_rendering;
@@ -214,6 +210,7 @@ async fn terminal_focus_transfers_the_primary_cursor_but_keeps_secondary_markers
         #[cfg(windows)]
         let (lost, gained) = (Event::FocusLost, Event::FocusGained);
         app.handle_terminal_events(Ok(lost)).await;
+        super::helpers::run_event_loop_until_idle(&mut app).await;
         assert_editor_cursor(&app, true);
         let (view, doc) = current_ref!(app.editor);
         let inner = view.inner_area(doc);
@@ -222,6 +219,7 @@ async fn terminal_focus_transfers_the_primary_cursor_but_keeps_secondary_markers
             Color::Yellow
         );
         app.handle_terminal_events(Ok(gained)).await;
+        super::helpers::run_event_loop_until_idle(&mut app).await;
         assert_editor_cursor(&app, block_rendering == Native);
         assert!(app.close().await.is_empty());
     }
@@ -272,6 +270,7 @@ async fn inlay_hints_do_not_capture_the_document_cursor() {
         #[cfg(windows)]
         let focus = Event::FocusGained;
         app.handle_terminal_events(Ok(focus)).await;
+        super::helpers::run_event_loop_until_idle(&mut app).await;
         assert_editor_cursor(&app, shape != "block" || block_rendering == Native);
         let pos = app
             .terminal_backend()

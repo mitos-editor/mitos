@@ -5,7 +5,7 @@ use super::{
     Picker,
 };
 use crate::{
-    compositor::Context,
+    compositor::DrawContext,
     job,
     ui::{
         document::{render_document, LinePos, TextRenderer},
@@ -37,7 +37,7 @@ use view::{
 /// Biggest file size to preview in bytes.
 pub const MAX_FILE_SIZE_FOR_PREVIEW: u64 = 10 * 1024 * 1024;
 
-#[cfg(all(test, feature = "integration"))]
+#[cfg(test)]
 #[path = "syntax_preview_tests.rs"]
 mod syntax_preview_tests;
 
@@ -168,6 +168,15 @@ impl FileScroll {
                 ..Self::default()
             };
         }
+    }
+
+    pub(super) fn location(&self) -> Option<FileLocation<'_>> {
+        let (target, range) = self.target.as_ref()?;
+        let target = match target {
+            view::quicklist::QuicklistTarget::Document(id) => PathOrId::Id(*id),
+            view::quicklist::QuicklistTarget::Path(path) => PathOrId::Path(path),
+        };
+        Some((target, *range))
     }
 
     fn document_height(&mut self, doc: &Document, format: &TextFormat) -> usize {
@@ -415,6 +424,31 @@ impl FilePreview {
         }
     }
 
+    pub(super) fn cached<'preview, 'editor>(
+        &'preview mut self,
+        editor: &'editor Editor,
+        (target, range): FileLocation<'_>,
+    ) -> Option<(Preview<'preview, 'editor>, Option<(usize, usize)>)> {
+        let path = match target {
+            PathOrId::Id(id) => {
+                let doc = editor.document(id)?;
+                if !doc.is_binary() {
+                    return Some((Preview::EditorDocument(doc), range));
+                }
+                doc.path()?
+            }
+            PathOrId::Path(path) => {
+                if let Some(doc) = open_text_document(editor, path) {
+                    return Some((Preview::EditorDocument(doc), range));
+                }
+                path
+            }
+        };
+        self.preview_cache
+            .get_mut(path)
+            .map(|entry| (Preview::Cached(&mut entry.preview), range))
+    }
+
     pub(super) fn get<'preview, 'editor, T: 'static + Send + Sync, D: 'static + Send + Sync>(
         &'preview mut self,
         editor: &'editor Editor,
@@ -446,18 +480,7 @@ impl FilePreview {
         });
         match path_or_id {
             PathOrId::Path(path) => {
-                if let Some(doc) = editor
-                    .document_by_path(stdx::path::canonicalize(path))
-                    .or_else(|| {
-                        let resolved = stdx::path::canonicalize_existing(path);
-                        editor.documents().find(|doc| {
-                            doc.path().is_some_and(|path| {
-                                stdx::path::canonicalize_existing(path) == resolved
-                            })
-                        })
-                    })
-                    .filter(|doc| !doc.is_binary())
-                {
+                if let Some(doc) = open_text_document(editor, path) {
                     self.cancel_syntax_load(None);
                     return Some((Preview::EditorDocument(doc), range));
                 }
@@ -609,13 +632,26 @@ impl FilePreview {
     }
 }
 
+fn open_text_document<'a>(editor: &'a Editor, path: &Path) -> Option<&'a Document> {
+    editor
+        .document_by_path(stdx::path::canonicalize(path))
+        .or_else(|| {
+            let resolved = stdx::path::canonicalize_existing(path);
+            editor.documents().find(|doc| {
+                doc.path()
+                    .is_some_and(|path| stdx::path::canonicalize_existing(path) == resolved)
+            })
+        })
+        .filter(|doc| !doc.is_binary())
+}
+
 pub(super) fn render_preview_content(
     mut preview: Preview<'_, '_>,
     range: Option<(usize, usize)>,
     state: &mut FileScroll,
     inner: Rect,
     surface: &mut Surface,
-    cx: &Context,
+    cx: &DrawContext,
 ) {
     let text_style = cx.editor.theme.get("ui.text");
     let directory_style = cx.editor.theme.get("ui.text.directory");

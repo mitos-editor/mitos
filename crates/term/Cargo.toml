@@ -35,7 +35,8 @@ assets = [
 default = ["git", "syntax-diff"]
 syntax-diff = ["view/syntax-diff"]
 unicode-lines = ["core/unicode-lines", "view/unicode-lines"]
-integration = ["event/integration_test", "lsp/test-support"]
+# Enables process fixture binaries; application behavior is chosen at construction.
+integration = ["lsp/test-support"]
 git = ["view/git"]
 
 [[bin]]

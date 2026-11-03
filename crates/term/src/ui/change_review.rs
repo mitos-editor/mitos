@@ -1,5 +1,6 @@
 //! Native diff presentation. The renderer accepts arbitrary immutable text reviews.
 
+use crate::compositor::DrawContext;
 use std::{sync::Arc, time::Duration};
 
 use event::TaskHandle;
@@ -73,7 +74,7 @@ impl ReviewView {
         1 + usize::from(self.review.fallback.is_some())
     }
 
-    fn draw(&self, area: Rect, surface: &mut Buffer, cx: &Context, scroll: usize) {
+    fn draw(&self, area: Rect, surface: &mut Buffer, cx: &DrawContext, scroll: usize) {
         if area.is_empty() {
             return;
         }
@@ -173,7 +174,7 @@ impl ReviewView {
 mod tests;
 
 impl Component for ReviewView {
-    fn render(&mut self, area: Rect, surface: &mut Buffer, cx: &mut Context) {
+    fn render(&mut self, area: Rect, surface: &mut Buffer, cx: &mut DrawContext) {
         self.draw(
             panel::content_area(area),
             surface,

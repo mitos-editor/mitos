@@ -4,14 +4,14 @@ use std::{
     time::Duration,
 };
 
-use term::application::Application;
+use term::application::TestApplication;
 use view::{current_ref, editor::Action};
 
 use super::helpers::{keys, test_config, AppBuilder};
 
 /// An app editing `a.txt` in a fresh directory with `b.txt` and `sub/c.txt` beside it,
 /// with the explorer open on that directory.
-async fn explorer() -> anyhow::Result<(Application, tempfile::TempDir, PathBuf)> {
+async fn explorer() -> anyhow::Result<(TestApplication, tempfile::TempDir, PathBuf)> {
     let dir = tempfile::tempdir()?;
     let root = stdx::path::canonicalize(dir.path());
     std::fs::write(root.join("a.txt"), "a\n")?;
@@ -24,7 +24,7 @@ async fn explorer() -> anyhow::Result<(Application, tempfile::TempDir, PathBuf)>
     Ok((app, dir, root))
 }
 
-fn screen(app: &Application) -> String {
+fn screen(app: &TestApplication) -> String {
     let buffer = app.terminal_backend().buffer();
     buffer
         .content
@@ -35,7 +35,7 @@ fn screen(app: &Application) -> String {
 }
 
 /// Settle the event loop until the rendered screen satisfies `done`.
-async fn wait_for(app: &mut Application, done: impl Fn(&str) -> bool) -> anyhow::Result<()> {
+async fn wait_for(app: &mut TestApplication, done: impl Fn(&str) -> bool) -> anyhow::Result<()> {
     tokio::time::timeout(Duration::from_secs(10), async {
         while !done(&screen(app)) {
             keys(app, "").await?;
@@ -48,7 +48,7 @@ async fn wait_for(app: &mut Application, done: impl Fn(&str) -> bool) -> anyhow:
 }
 
 /// Filter the explorer to one entry, so the following action applies to it.
-async fn select(app: &mut Application, name: &str) -> anyhow::Result<()> {
+async fn select(app: &mut TestApplication, name: &str) -> anyhow::Result<()> {
     // `C-u` pages the picker; `C-w` clears a query without path separators.
     keys(app, &format!("<C-w><C-w>{name}")).await
 }

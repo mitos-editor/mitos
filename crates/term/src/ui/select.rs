@@ -1,3 +1,4 @@
+use crate::compositor::DrawContext;
 use std::borrow::Cow;
 
 use tui::{
@@ -68,7 +69,7 @@ impl<T: Item> Component for Select<T> {
         ))
     }
 
-    fn render(&mut self, area: Rect, surface: &mut Surface, cx: &mut Context) {
+    fn render(&mut self, area: Rect, surface: &mut Surface, cx: &mut DrawContext) {
         // +---------------------+
         // | message             |
         // +---------------------+

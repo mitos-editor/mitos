@@ -1,7 +1,5 @@
-use crate::{
-    compositor::{Component, Context},
-    ui::panel,
-};
+use crate::compositor::DrawContext;
+use crate::{compositor::Component, ui::panel};
 use arc_swap::ArcSwap;
 use tui::{
     buffer::Buffer as Surface,
@@ -314,7 +312,7 @@ impl Markdown {
 }
 
 impl Component for Markdown {
-    fn render(&mut self, area: Rect, surface: &mut Surface, cx: &mut Context) {
+    fn render(&mut self, area: Rect, surface: &mut Surface, cx: &mut DrawContext) {
         use tui::widgets::Widget;
 
         let text = self.parse(Some(&cx.editor.theme));
@@ -339,7 +337,7 @@ impl Component for Markdown {
     }
 }
 
-#[cfg(all(test, feature = "integration"))]
+#[cfg(test)]
 mod tests {
     use super::*;
 

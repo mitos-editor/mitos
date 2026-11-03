@@ -466,17 +466,16 @@ mod tests {
         assert_eq!(selection.primary().fragment(text.slice(..)), "search");
     }
 
-    #[cfg(feature = "integration")]
     #[tokio::test]
     async fn search_queries_and_refreshes_keep_open_buffers_authoritative() -> anyhow::Result<()> {
-        use crate::{application::Application, config::Config};
+        use crate::{application::TestApplication, config::Config};
         use std::sync::Arc;
 
         let mut config = Config::default();
         config.editor.lsp.enable = false;
         config.editor.files.watch.enable = false;
         config.editor.files.reload.enable = false;
-        let mut app = Application::new(
+        let mut app = TestApplication::new(
             Default::default(),
             config,
             language::syntax::Loader::new(
@@ -586,6 +585,6 @@ mod tests {
     }
 }
 
-#[cfg(all(test, feature = "integration"))]
+#[cfg(test)]
 #[path = "search/replacement_tests.rs"]
 mod replacement_tests;

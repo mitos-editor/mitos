@@ -172,7 +172,7 @@ impl FilePickerCache {
     }
 }
 
-#[cfg(all(test, feature = "integration"))]
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::ui::picker::test::application;

@@ -1,6 +1,6 @@
 use editor_config::{BorderStyle, PickerLayout};
 use term::{
-    application::Application,
+    application::TestApplication,
     compositor::{Component, Context},
     job::Jobs,
     ui::{overlay::overlaid, Picker, PickerColumn},
@@ -10,7 +10,7 @@ use view::{editor::ConfigEvent, graphics::Rect};
 
 use super::helpers::{keys, test_config, AppBuilder};
 
-fn assert_picker(app: &Application, layout: PickerLayout) {
+fn assert_picker(app: &TestApplication, layout: PickerLayout) {
     let backend = app.terminal_backend();
     let buffer = backend.buffer();
     let area = buffer.area;
@@ -112,7 +112,7 @@ async fn page_navigation_tracks_layout_changes_and_terminal_resizes() -> anyhow:
         settings.picker.layout = layout;
         app.handle_config_events(ConfigEvent::Update(Box::new(settings)));
         let area = Rect::new(0, 0, width, height);
-        overlay.render(
+        overlay.update_and_render(
             area,
             &mut Buffer::empty(area),
             &mut Context {

@@ -4,7 +4,7 @@ use std::{collections::HashSet, path::Path, time::Duration};
 use anyhow::Context as _;
 use language_config::LanguageServerFeature;
 use lsp_client::{Call, LanguageServerId};
-use term::application::Application;
+use term::application::TestApplication;
 use view::{current_ref, editor::Action};
 
 use super::helpers::{
@@ -13,7 +13,7 @@ use super::helpers::{
 };
 
 struct Fixture {
-    app: Application,
+    app: TestApplication,
     gate: Gate,
     initialized: HashSet<LanguageServerId>,
 }

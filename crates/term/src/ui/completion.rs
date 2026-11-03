@@ -1,3 +1,4 @@
+use crate::compositor::DrawContext;
 use crate::compositor::{Component, Context, Event, EventResult};
 use crate::ui::{icon_span, menu, panel, Markdown, Menu, Popup, PromptEvent};
 use editor_core::chars;
@@ -339,7 +340,14 @@ impl Component for Completion {
         self.popup.required_size(viewport)
     }
 
-    fn render(&mut self, area: Rect, surface: &mut Surface, cx: &mut Context) {
+    fn update(&mut self, area: Rect, cx: &mut Context) {
+        self.popup.update(area, cx);
+        if let Some(CompletionItem::Lsp(option)) = self.popup.contents_mut().selection_mut() {
+            self.resolve_handler.ensure_item_resolved(cx.editor, option);
+        }
+    }
+
+    fn render(&mut self, area: Rect, surface: &mut Surface, cx: &mut DrawContext) {
         self.popup.render(area, surface, cx);
 
         // if we have a selection, render a markdown popup on top/below with info
@@ -347,9 +355,6 @@ impl Component for Completion {
             Some(option) => option,
             None => return,
         };
-        if let CompletionItem::Lsp(option) = option {
-            self.resolve_handler.ensure_item_resolved(cx.editor, option);
-        }
         // need to render:
         // option.detail
         // ---

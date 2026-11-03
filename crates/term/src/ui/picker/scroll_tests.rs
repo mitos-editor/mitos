@@ -2,7 +2,7 @@ use super::{
     test::{application, until},
     *,
 };
-use crate::{application::Application, config::Config, job::Jobs};
+use crate::{application::TestApplication, config::Config, job::Jobs};
 use std::path::PathBuf;
 use ui_core::input::{KeyModifiers, MouseEvent, MouseEventKind};
 
@@ -12,7 +12,7 @@ struct Location {
 }
 
 struct Fixture {
-    app: Application,
+    app: TestApplication,
     config: Config,
     picker: Picker<Location, ()>,
 }
@@ -22,7 +22,7 @@ impl Fixture {
         Self::with_app(application(false)?, locations).await
     }
 
-    async fn with_app(mut app: Application, locations: Vec<Location>) -> anyhow::Result<Self> {
+    async fn with_app(mut app: TestApplication, locations: Vec<Location>) -> anyhow::Result<Self> {
         let mut picker = Picker::new(
             app.editor.redraw().clone(),
             [Column::new("name", |_: &Location, _| "result".into())],
@@ -76,7 +76,7 @@ impl Fixture {
         let mut jobs = Jobs::new();
         let area = Rect::new(0, 0, width, height);
         let mut surface = Surface::empty(area);
-        self.picker.render(
+        self.picker.update_and_render(
             area,
             &mut surface,
             &mut Context {

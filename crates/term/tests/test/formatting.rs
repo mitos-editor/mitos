@@ -1,6 +1,6 @@
 //! Exercise shared range formatting against the real LSP transport.
 use editor_core::Selection;
-use term::application::Application;
+use term::application::TestApplication;
 use view::{current, current_ref, editor::Action, features::formatting};
 
 use super::helpers::{
@@ -8,7 +8,7 @@ use super::helpers::{
     test_config, AppBuilder,
 };
 
-async fn application(dir: &std::path::Path) -> anyhow::Result<Application> {
+async fn application(dir: &std::path::Path) -> anyhow::Result<TestApplication> {
     let gate = Gate::new(dir.join("initialize-ready"));
     let server = ServerConfig::feature("alpha", "--formatting", dir).initialize_gate(&gate);
     let mut config = test_config();

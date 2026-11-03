@@ -5,7 +5,7 @@ use std::{
 
 use anyhow::Context as _;
 use editor_core::{Selection, Transaction};
-use term::application::Application;
+use term::application::TestApplication;
 use tokio::sync::mpsc;
 use view::{
     callbacks::{EditorCallback, EditorCallbackSender},
@@ -31,7 +31,7 @@ enum Feature {
 }
 
 struct Fixture {
-    app: Application,
+    app: TestApplication,
     gates: Vec<Gate>,
     logs: Vec<PathBuf>,
     callbacks: mpsc::Receiver<(Feature, bool, EditorCallback)>,

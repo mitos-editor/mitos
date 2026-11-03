@@ -1,6 +1,6 @@
 use super::*;
 use crate::{
-    application::Application,
+    application::TestApplication,
     compositor::{Component, Compositor, Context as UiContext, Event},
     config::Config,
     job::Jobs,
@@ -12,7 +12,7 @@ use view::graphics::Rect;
 type SearchPicker = Picker<::search::Match, GlobalSearchConfig>;
 
 struct Harness {
-    app: Application,
+    app: TestApplication,
     compositor: Compositor,
     jobs: Jobs,
     config: Config,
@@ -78,7 +78,7 @@ impl Harness {
             .find::<Overlay<SearchPicker>>()
             .unwrap()
             .content;
-        picker.render(
+        picker.update_and_render(
             area,
             &mut surface,
             &mut UiContext {

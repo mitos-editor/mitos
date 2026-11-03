@@ -195,7 +195,7 @@ pub(super) fn jump_to_position(
     view.ensure_cursor_in_view(doc, padding);
 }
 
-#[cfg(all(test, feature = "integration"))]
+#[cfg(test)]
 mod jump_visibility_tests {
     use super::*;
 

@@ -2,22 +2,24 @@
 
 use futures_util::{Stream, StreamExt};
 use signal_hook::consts::signal;
-use tui::backend::BackendExt;
 use view::graphics::Rect;
 
-use super::Application;
+use super::App;
 
-impl Application {
+impl<B: tui::backend::Backend + tui::backend::BackendExt> App<B>
+where
+    B::Error: std::error::Error + Send + Sync + 'static,
+{
     pub async fn handle_signals(&mut self, signal: i32) -> bool {
         match signal {
             signal::SIGTSTP => return self.suspend().await,
             signal::SIGCONT => {
                 self.reclaim_term();
-                self.render().await;
+                self.request_frame();
             }
             signal::SIGUSR1 => {
                 self.refresh_config();
-                self.render().await;
+                self.request_frame();
             }
             signal::SIGTERM | signal::SIGINT => {
                 self.restore_term().unwrap();
@@ -30,8 +32,10 @@ impl Application {
     }
 
     async fn suspend(&mut self) -> bool {
-        #[cfg(not(feature = "integration"))]
-        let paused = self.terminal_input.pause();
+        let Some(input) = self.terminal_input.as_ref() else {
+            return true;
+        };
+        let paused = input.pause();
         self.restore_term().unwrap();
 
         // SAFETY: The editor can signal its own process group. Stop the whole
@@ -56,9 +60,8 @@ impl Application {
         if resume.refresh_config {
             self.refresh_config();
         }
-        #[cfg(not(feature = "integration"))]
         drop(paused);
-        self.render().await;
+        self.request_frame();
         true
     }
 

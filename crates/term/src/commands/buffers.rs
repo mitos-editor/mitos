@@ -140,7 +140,7 @@ fn buffer_picker_for_editor(editor: &Editor) -> Picker<BufferMeta, PathStyleConf
     })
 }
 
-#[cfg(all(test, feature = "integration"))]
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::ui::picker::test::{application, items, until};

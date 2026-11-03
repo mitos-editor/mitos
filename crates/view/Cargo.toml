@@ -83,7 +83,7 @@ libc.workspace = true
 [dev-dependencies]
 core = { workspace = true, features = ["integration"] }
 # Headless editor tests run independent Tokio runtimes in parallel.
-event = { workspace = true, features = ["integration_test"] }
+event.workspace = true
 criterion.workspace = true
 quickcheck.workspace = true
 

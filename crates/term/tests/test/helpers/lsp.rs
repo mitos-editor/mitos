@@ -7,7 +7,7 @@ use std::{
 use anyhow::Context as _;
 use editor_core::Uri;
 use lsp_client::{Call, LanguageServerId, Notification};
-use term::application::Application;
+use term::application::TestApplication;
 use view::{current_ref, editor::Action};
 use workspace::trust::WorkspaceTrust;
 
@@ -41,7 +41,7 @@ pub fn feature_app<'a>(
             view::callbacks::EditorCallbackSender,
             &editor_config::Config,
         ) + 'static,
-) -> anyhow::Result<(Application, FeatureCallbacks, Gate)> {
+) -> anyhow::Result<(TestApplication, FeatureCallbacks, Gate)> {
     let gate = Gate::new(dir.join("initialize-ready"));
     gate.close()?;
     let servers = names
@@ -75,7 +75,7 @@ pub fn feature_app<'a>(
 
 /// Wait for editor-side initialization, not just transport readiness. Processing
 /// the notifications sends didOpen before a test starts observing feature requests.
-pub async fn initialize(app: &mut Application, servers: usize) -> anyhow::Result<()> {
+pub async fn initialize(app: &mut TestApplication, servers: usize) -> anyhow::Result<()> {
     tokio::time::timeout(Duration::from_secs(10), async {
         for _ in 0..servers {
             let (server, call) = app
@@ -96,7 +96,7 @@ pub async fn initialize(app: &mut Application, servers: usize) -> anyhow::Result
 }
 
 pub(crate) struct Fixture {
-    pub app: Application,
+    pub app: TestApplication,
     gate: Gate,
     pub logs: Vec<PathBuf>,
 }

@@ -31,7 +31,24 @@ pub struct Context<'a> {
     pub is_cursor_owner: bool,
 }
 
+/// Drawing reads editor state; background work belongs to Component::update.
+pub struct DrawContext<'a> {
+    pub config: &'a crate::config::Config,
+    pub editor: &'a Editor,
+    pub scroll: Option<usize>,
+    pub is_cursor_owner: bool,
+}
+
 impl Context<'_> {
+    pub fn draw_context(&self) -> DrawContext<'_> {
+        DrawContext {
+            config: self.config.current,
+            editor: self.editor,
+            scroll: self.scroll,
+            is_cursor_owner: self.is_cursor_owner,
+        }
+    }
+
     pub fn after_writes(
         &mut self,
         action: impl FnOnce(&mut Editor) -> anyhow::Result<()> + Send + 'static,
@@ -41,6 +58,15 @@ impl Context<'_> {
 }
 
 pub trait Component: Any + AnyComponent {
+    /// Prepare state, apply ready results and schedule work before drawing.
+    fn update(&mut self, _area: Rect, _cx: &mut Context) {}
+
+    /// Run both phases when presenting a standalone component.
+    fn update_and_render(&mut self, area: Rect, surface: &mut Surface, cx: &mut Context) {
+        self.update(area, cx);
+        self.render(area, surface, &mut cx.draw_context());
+    }
+
     /// Process input events, return true if handled.
     fn handle_event(&mut self, _event: &Event, _ctx: &mut Context) -> EventResult {
         EventResult::Ignored(None)
@@ -52,18 +78,12 @@ pub trait Component: Any + AnyComponent {
 
     /// Matching work whose results must render before an integration assertion.
     /// Pending external providers do not prevent the editor from becoming idle.
-    #[cfg(feature = "integration")]
-    fn has_pending_render(&mut self) -> bool {
+    fn has_pending_render(&self) -> bool {
         false
     }
 
-    /// Should redraw? Useful for saving redraw cycles if we know component didn't change.
-    fn should_update(&self) -> bool {
-        true
-    }
-
     /// Render the component onto the provided surface.
-    fn render(&mut self, area: Rect, frame: &mut Surface, ctx: &mut Context);
+    fn render(&mut self, area: Rect, frame: &mut Surface, ctx: &mut DrawContext);
 
     /// Claim the active cursor, even when it is offscreen or hidden. The topmost
     /// claimant wins; decorative layers leave ownership with the layer below.
@@ -110,11 +130,8 @@ pub struct Compositor {
 }
 
 impl Compositor {
-    #[cfg(feature = "integration")]
-    pub(crate) fn has_pending_render(&mut self) -> bool {
-        self.layers
-            .iter_mut()
-            .any(|layer| layer.has_pending_render())
+    pub(crate) fn has_pending_render(&self) -> bool {
+        self.layers.iter().any(|layer| layer.has_pending_render())
     }
 
     pub fn new(area: Rect) -> Self {
@@ -243,7 +260,13 @@ impl Compositor {
         consumed
     }
 
-    pub fn render(&mut self, area: Rect, surface: &mut Surface, cx: &mut Context) -> Cursor {
+    pub fn update(&mut self, area: Rect, cx: &mut Context) {
+        for layer in &mut self.layers {
+            layer.update(area, cx);
+        }
+    }
+
+    pub fn render(&mut self, area: Rect, surface: &mut Surface, cx: &mut DrawContext) -> Cursor {
         let owner = self.layers.iter().rposition(|layer| layer.owns_cursor());
         for (index, layer) in self.layers.iter_mut().enumerate() {
             cx.is_cursor_owner = owner == Some(index);

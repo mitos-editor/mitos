@@ -1,9 +1,9 @@
 use super::test::{application, draw, frame, until};
 use super::*;
-use crate::{application::Application, config::Config as AppConfig, job::Jobs};
+use crate::{application::TestApplication, config::Config as AppConfig, job::Jobs};
 
 /// Send one key through the picker's real event handling, then redraw like the editor does.
-fn press(picker: &mut Picker<u32, ()>, app: &mut Application, key: &str) {
+fn press(picker: &mut Picker<u32, ()>, app: &mut TestApplication, key: &str) {
     let config = AppConfig::default();
     let updates = tokio::sync::mpsc::unbounded_channel().0;
     let mut jobs = Jobs::new();
@@ -23,7 +23,7 @@ fn press(picker: &mut Picker<u32, ()>, app: &mut Application, key: &str) {
 }
 
 /// Screen row showing `item`, read from the rendered frame.
-fn screen_row(picker: &mut Picker<u32, ()>, app: &mut Application, item: u32) -> usize {
+fn screen_row(picker: &mut Picker<u32, ()>, app: &mut TestApplication, item: u32) -> usize {
     let surface = frame(picker, app);
     let label = format!("result-{item:03}");
     surface
@@ -38,7 +38,7 @@ fn screen_row(picker: &mut Picker<u32, ()>, app: &mut Application, item: u32) ->
         .unwrap_or_else(|| panic!("{label} is not on screen"))
 }
 
-async fn picker(app: &mut Application, len: u32) -> anyhow::Result<Picker<u32, ()>> {
+async fn picker(app: &mut TestApplication, len: u32) -> anyhow::Result<Picker<u32, ()>> {
     let mut picker = Picker::new(
         app.editor.redraw().clone(),
         [Column::new("name", |item: &u32, _: &()| {
@@ -158,7 +158,7 @@ async fn file_picker_pages_without_first_jumping_to_the_bottom() -> anyhow::Resu
     let updates = tokio::sync::mpsc::unbounded_channel().0;
     let config = AppConfig::default();
     let mut jobs = Jobs::new();
-    let mut press = |picker: &mut Picker<_, _>, app: &mut Application, key: &str| {
+    let mut press = |picker: &mut Picker<_, _>, app: &mut TestApplication, key: &str| {
         let mut cx = Context {
             config: crate::config::Context {
                 current: &config,

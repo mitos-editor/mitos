@@ -7,7 +7,7 @@ use stdx::rope::RopeExt as _;
 
 use anyhow::Context as _;
 use editor_core::{Selection, Transaction};
-use term::application::Application;
+use term::application::TestApplication;
 use tokio::sync::mpsc;
 use view::{
     callbacks::EditorCallback,
@@ -25,7 +25,7 @@ use super::helpers::{
 };
 
 struct Fixture {
-    app: Application,
+    app: TestApplication,
     callbacks: mpsc::UnboundedReceiver<EditorCallback>,
     log: PathBuf,
 }

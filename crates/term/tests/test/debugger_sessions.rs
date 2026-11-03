@@ -2,14 +2,14 @@ use std::time::Duration;
 
 use dap::DebugAdapterId;
 use language_config::DebugAdapterConfig;
-use term::application::Application;
+use term::application::TestApplication;
 use tokio::net::TcpListener;
 
 use super::helpers::{run_event_loop_until_idle, test_syntax_loader, AppBuilder};
 
 use super::helpers::keys;
 
-fn screen(app: &Application) -> String {
+fn screen(app: &TestApplication) -> String {
     app.terminal_backend()
         .buffer()
         .content()
@@ -18,7 +18,7 @@ fn screen(app: &Application) -> String {
         .collect()
 }
 
-fn connect(app: &mut Application, listener: &TcpListener, name: &str) -> DebugAdapterId {
+fn connect(app: &mut TestApplication, listener: &TcpListener, name: &str) -> DebugAdapterId {
     // Keep the adapter pending so the test controls its lifetime through the UI.
     app.editor.connect_debugger(
         Some(listener.local_addr().unwrap()),
@@ -183,7 +183,7 @@ async fn stdio_adapters_can_start_child_sessions_without_changing_selection() ->
     Ok(())
 }
 
-fn managed_tcp(app: &mut Application, args: Vec<String>) -> DebugAdapterId {
+fn managed_tcp(app: &mut TestApplication, args: Vec<String>) -> DebugAdapterId {
     app.editor.connect_debugger(
         None,
         DebugAdapterConfig {

@@ -2,39 +2,82 @@
 
 use std::{collections::HashSet, time::Duration};
 
-use tokio::time::{timeout_at, Instant};
-use tui::backend::{Backend, BackendExt};
+use tokio::time::Instant;
 use view::{graphics::Rect, Document, DocumentId};
 
-use super::Application;
+use super::App;
 use crate::{compositor, job::Callback};
 
+const BACKGROUND_FRAME_DELAY: Duration = Duration::from_millis(33);
 const SYNTAX_GRACE: Duration = Duration::from_millis(16);
 const CALLBACK_BATCH_SIZE: usize = 64;
-
-#[derive(Default)]
-pub(super) struct CallbackBatch {
-    pub handled: usize,
-    pub needs_redraw: bool,
-}
 
 #[derive(Default)]
 pub(super) struct RenderState {
     /// Documents presented in the previous frame, including unfocused splits.
     visible_documents: HashSet<DocumentId>,
+    pub(super) requested: Option<Instant>,
+    syntax_deadline: Option<Instant>,
 }
 
-impl Application {
-    pub(super) async fn render(&mut self) {
-        if self.has_new_pending_syntax() {
-            self.drain_ready_callbacks();
-            self.wait_for_syntax().await;
+impl<B: tui::backend::Backend + tui::backend::BackendExt> App<B>
+where
+    B::Error: std::error::Error + Send + Sync + 'static,
+{
+    pub(super) fn request_frame(&mut self) {
+        self.render_state.requested = Some(Instant::now());
+    }
+
+    pub(super) fn request_redraw(&mut self) {
+        let due = Instant::now() + BACKGROUND_FRAME_DELAY;
+        self.render_state.requested =
+            Some(self.render_state.requested.map_or(due, |old| old.min(due)));
+    }
+
+    /// The ordinary event pump keeps progressing while a first frame waits for syntax.
+    pub(super) fn frame_deadline(&mut self) -> Option<Instant> {
+        let due = self.render_state.requested?;
+        if due > Instant::now() {
+            return Some(due);
         }
+        if self.has_new_pending_syntax() {
+            Some(
+                *self
+                    .render_state
+                    .syntax_deadline
+                    .get_or_insert_with(|| Instant::now() + SYNTAX_GRACE),
+            )
+        } else {
+            self.render_state.syntax_deadline = None;
+            Some(due)
+        }
+    }
+
+    pub(super) fn update_components(&mut self) {
+        // Preparation may spawn work that finishes before drawing starts. Clear
+        // only requests preceding this update; later completions need another turn.
+        self.editor.begin_frame();
+        let area = Rect::from(self.terminal.size().expect("Cannot read terminal size"));
+        let config = self.config.load();
+        let mut cx = compositor::Context {
+            config: crate::config::Context {
+                current: &config,
+                updates: &self.config_updates.0,
+            },
+            editor: &mut self.editor,
+            jobs: &mut self.jobs,
+            scroll: None,
+            image_picker: self.image_picker.as_ref(),
+            is_cursor_owner: false,
+        };
+        self.compositor.update(area, &mut cx);
+        view::features::code_lenses::prepare_visible_code_lenses(cx.editor);
+    }
+
+    pub(super) fn draw_frame(&mut self) {
         if self.editor.should_close() {
             return;
         }
-        view::features::code_lenses::prepare_visible_code_lenses(&mut self.editor);
-
         self.terminal
             .backend_mut()
             .start_sync()
@@ -51,35 +94,30 @@ impl Application {
         }
 
         let config = self.config.load();
-        let mut cx = compositor::Context {
-            config: crate::config::Context {
-                current: &config,
-                updates: &self.config_updates.0,
-            },
-            editor: &mut self.editor,
-            jobs: &mut self.jobs,
+        let mut draw = compositor::DrawContext {
+            config: &config,
+            editor: &self.editor,
             scroll: None,
-            image_picker: self.image_picker.as_ref(),
             is_cursor_owner: false,
         };
 
-        cx.editor.begin_frame();
-
         tui::terminal::draw_with_cursor(&mut self.terminal, |buffer| {
-            self.compositor.render(buffer.area, buffer, &mut cx)
+            self.compositor.render(buffer.area, buffer, &mut draw)
         })
         .unwrap();
         self.editor.cursor_cache.reset();
 
         self.terminal.backend_mut().end_sync().unwrap();
         self.terminal.backend_mut().flush().unwrap();
+        self.render_state.requested = None;
+        self.render_state.syntax_deadline = None;
         self.render_state.visible_documents.clear();
         self.render_state
             .visible_documents
             .extend(self.editor.tree.views().map(|(view, _)| view.document_id()));
     }
 
-    /// Only initial presentation may pull syntax completions ahead of normal events.
+    /// Only newly visible documents may postpone a frame for pending syntax.
     fn has_new_pending_syntax(&self) -> bool {
         self.editor.tree.views().any(|(view, _)| {
             !self
@@ -93,37 +131,20 @@ impl Application {
         })
     }
 
-    /// Give newly visible buffers one shared deadline before presenting their first frame.
-    async fn wait_for_syntax(&mut self) {
-        let deadline = Instant::now() + SYNTAX_GRACE;
-        for _ in 0..CALLBACK_BATCH_SIZE {
-            if self.editor.should_close()
-                || !self.has_new_pending_syntax()
-                || Instant::now() >= deadline
-            {
-                break;
-            }
-            let Ok(Some(callback)) = timeout_at(deadline, self.jobs.callbacks.recv()).await else {
-                break;
-            };
-            self.apply_callback(callback);
-        }
-    }
-
     /// Process a bounded batch without waiting for background work to finish.
-    pub(super) fn drain_ready_callbacks(&mut self) -> CallbackBatch {
-        let mut batch = CallbackBatch::default();
+    pub(super) fn drain_ready_callbacks(&mut self) -> usize {
+        let mut handled = 0;
         for _ in 0..CALLBACK_BATCH_SIZE {
             let Ok(callback) = self.jobs.callbacks.try_recv() else {
                 break;
             };
-            batch.handled += 1;
-            batch.needs_redraw |= self.apply_callback(callback);
+            handled += 1;
+            self.apply_callback(Ok(Some(callback)));
         }
-        batch
+        handled
     }
 
-    fn apply_callback(&mut self, callback: Callback) -> bool {
+    pub(super) fn apply_callback(&mut self, callback: anyhow::Result<Option<Callback>>) {
         let outcome = self.jobs.handle_callback(
             crate::config::Context {
                 current: &self.config.load(),
@@ -131,11 +152,13 @@ impl Application {
             },
             &mut self.editor,
             &mut self.compositor,
-            Ok(Some(callback)),
+            callback,
         );
-        outcome.needs_redraw()
+        if outcome.needs_redraw() {
+            self.request_redraw();
+        }
     }
 }
 
-#[cfg(all(test, feature = "integration"))]
+#[cfg(test)]
 mod tests;

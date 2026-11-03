@@ -1,11 +1,14 @@
 //! Present the host actions produced by shared LSP dispatch.
-use super::Application;
+use super::App;
 use crate::ui;
 use lsp_client::{lsp, LanguageServerId, UriExt as _};
 use serde_json::json;
 use view::handlers::lsp::HostAction;
 
-impl Application {
+impl<B: tui::backend::Backend + tui::backend::BackendExt> App<B>
+where
+    B::Error: std::error::Error + Send + Sync + 'static,
+{
     pub async fn handle_language_server_message(
         &mut self,
         call: lsp_client::Call,

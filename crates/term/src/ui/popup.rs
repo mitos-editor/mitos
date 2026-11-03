@@ -1,3 +1,4 @@
+use crate::compositor::DrawContext;
 use crate::keymap::component::PopupAction;
 use crate::{
     commands::Open,
@@ -268,8 +269,7 @@ impl<T: Component> Popup<T> {
 }
 
 impl<T: Component> Component for Popup<T> {
-    #[cfg(feature = "integration")]
-    fn has_pending_render(&mut self) -> bool {
+    fn has_pending_render(&self) -> bool {
         self.contents.has_pending_render()
     }
 
@@ -340,7 +340,18 @@ impl<T: Component> Component for Popup<T> {
         }
     }
 
-    fn render(&mut self, viewport: Rect, surface: &mut Surface, cx: &mut Context) {
+    fn update(&mut self, area: Rect, cx: &mut Context) {
+        let info = self.render_info(area, cx.editor);
+        let inner = if info.render_borders {
+            panel::bordered(&cx.editor.theme, self.border.resolve(&cx.editor.config()))
+                .inner(info.area)
+        } else {
+            info.area
+        };
+        self.contents.update(inner, cx);
+    }
+
+    fn render(&mut self, viewport: Rect, surface: &mut Surface, cx: &mut DrawContext) {
         let RenderInfo {
             area,
             child_height,
