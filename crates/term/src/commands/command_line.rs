@@ -5,19 +5,19 @@ pub(super) use execution::{execute_command, execute_shell};
 
 use std::{borrow::Cow, fmt::Write, ops};
 
-use ::command_line::{self, Args, Flag, Signature, Token, TokenKind};
+use ::command_line::{self, Args, Flag, Token, TokenKind};
 use editor_config::{CustomCommand, CustomCommands};
 use fuzzy::{fuzzy_match, MatchKind};
 use tui::text::Span;
 use view::{expansion, Editor};
 
 use super::{
-    catalog::{CommandCompleter, TYPABLE_COMMAND_LIST, TYPABLE_COMMAND_MAP},
+    catalog::{CommandArgs, TYPABLE_COMMAND_LIST, TYPABLE_COMMAND_MAP},
     context::Context,
 };
 use crate::{
     compositor,
-    ui::{self, completers::Completer, Prompt, PromptEvent},
+    ui::{self, Prompt, PromptEvent},
 };
 
 #[allow(clippy::unnecessary_unwrap)]
@@ -58,8 +58,9 @@ fn command_line_doc(input: &str) -> Option<Cow<'_, str>> {
         .strip_prefix(CustomCommand::ESCAPE)
         .unwrap_or(command);
     let command = TYPABLE_COMMAND_MAP.get(command)?;
+    let flags = command.args.signature().flags;
 
-    if command.aliases.is_empty() && command.signature.flags.is_empty() {
+    if command.aliases.is_empty() && flags.is_empty() {
         return Some(Cow::Borrowed(command.doc));
     }
 
@@ -75,7 +76,7 @@ fn command_line_doc(input: &str) -> Option<Cow<'_, str>> {
         }
     }
 
-    if !command.signature.flags.is_empty() {
+    if !flags.is_empty() {
         const ARG_PLACEHOLDER: &str = " <arg>";
 
         fn flag_len(flag: &Flag) -> usize {
@@ -95,9 +96,9 @@ fn command_line_doc(input: &str) -> Option<Cow<'_, str>> {
 
         doc.push_str("\nFlags:");
 
-        let max_flag_len = command.signature.flags.iter().map(flag_len).max().unwrap();
+        let max_flag_len = flags.iter().map(flag_len).max().unwrap();
 
-        for flag in command.signature.flags {
+        for flag in flags {
             let mut buf = [0u8; 4];
             let this_flag_len = flag_len(flag);
             write!(
@@ -184,7 +185,7 @@ fn complete_command_line(editor: &Editor, input: &str) -> Vec<ui::prompt::Comple
             .get(command)
             .map_or_else(Vec::new, |cmd| {
                 let args_offset = command.len() + 2;
-                complete_command_args(editor, cmd.signature, &cmd.completer, rest, args_offset)
+                complete_command_args(editor, &cmd.args, rest, args_offset)
             })
     } else {
         let completer_command = config
@@ -196,19 +197,19 @@ fn complete_command_line(editor: &Editor, input: &str) -> Vec<ui::prompt::Comple
             .get(completer_command)
             .map_or_else(Vec::new, |cmd| {
                 let args_offset = command.len() + 1;
-                complete_command_args(editor, cmd.signature, &cmd.completer, rest, args_offset)
+                complete_command_args(editor, &cmd.args, rest, args_offset)
             })
     }
 }
 
 pub fn complete_command_args(
     editor: &Editor,
-    signature: Signature,
-    completer: &CommandCompleter,
+    declaration: &CommandArgs,
     input: &str,
     offset: usize,
 ) -> Vec<ui::prompt::Completion> {
     use command_line::{CompletionState, ExpansionKind, Tokenizer};
+    let signature = declaration.signature();
 
     // TODO: completion should depend on the location of the cursor instead of the end of the
     // string. This refactor is left for the future but the below completion code should respect
@@ -260,9 +261,8 @@ pub fn complete_command_args(
                         .len()
                         .checked_sub(1)
                         .expect("completion state to be positional");
-                    let completer = completer.for_argument_number(n);
-
-                    completer(editor, &token.content)
+                    declaration
+                        .complete(editor, n, &token.content)
                         .into_iter()
                         .map(|(range, span)| quote_completion(&token, range, span, offset))
                         .collect()
@@ -295,7 +295,7 @@ pub fn complete_command_args(
                         .len()
                         .checked_sub(1)
                         .expect("completion state to be positional");
-                    completer.for_argument_number(n)
+                    (declaration, n)
                 });
             complete_expand(editor, &token, arg_completer, offset + token.content_start)
         }
@@ -364,7 +364,7 @@ fn quote_completion<'a>(
 fn complete_expand(
     editor: &Editor,
     token: &Token,
-    completer: Option<&Completer>,
+    completer: Option<(&CommandArgs, usize)>,
     offset: usize,
 ) -> Vec<ui::prompt::Completion> {
     use command_line::{ExpansionKind, Tokenizer};
@@ -411,7 +411,8 @@ fn complete_expand(
 
     match completer {
         // If no expansions were found and an argument is being completed,
-        Some(completer) if start == 0 => completer(editor, &token.content)
+        Some((declaration, n)) if start == 0 => declaration
+            .complete(editor, n, &token.content)
             .into_iter()
             .map(|(range, span)| quote_completion(token, range, span, offset))
             .collect(),

@@ -797,7 +797,7 @@ pub(super) mod typed {
     use crate::{
         compositor::{self, Compositor},
         job::{self, Callback},
-        ui::{self, overlay::overlaid, PromptEvent},
+        ui::{self, overlay::overlaid},
     };
     use ::command_line::Args;
     use anyhow::anyhow;
@@ -809,12 +809,7 @@ pub(super) mod typed {
     pub(in crate::commands) fn lsp_workspace_command(
         cx: &mut compositor::Context,
         args: Args,
-        event: PromptEvent,
     ) -> anyhow::Result<()> {
-        if event != PromptEvent::Validate {
-            return Ok(());
-        }
-
         let doc = doc!(cx.editor);
         let ls_id_commands = doc
             .language_servers_with_feature(LanguageServerFeature::WorkspaceCommand)
@@ -911,12 +906,7 @@ pub(super) mod typed {
     pub(in crate::commands) fn lsp_restart(
         cx: &mut compositor::Context,
         args: Args,
-        event: PromptEvent,
     ) -> anyhow::Result<()> {
-        if event != PromptEvent::Validate {
-            return Ok(());
-        }
-
         let document = doc!(cx.editor).id();
         let servers: Vec<_> = args.iter().map(|arg| arg.as_ref()).collect();
         cx.editor.restart_language_servers(document, &servers)
@@ -926,11 +916,7 @@ pub(super) mod typed {
     pub(in crate::commands) fn lsp_stop(
         cx: &mut compositor::Context,
         args: Args,
-        event: PromptEvent,
     ) -> anyhow::Result<()> {
-        if event != PromptEvent::Validate {
-            return Ok(());
-        }
         let document = doc!(cx.editor).id();
         let servers: Vec<_> = args.iter().map(|arg| arg.as_ref()).collect();
         cx.editor.stop_language_servers(document, &servers)

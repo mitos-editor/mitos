@@ -1,8 +1,4 @@
-use super::{
-    catalog::{SHELL_COMPLETER, SHELL_SIGNATURE},
-    command_line::complete_command_args,
-    Context,
-};
+use super::{catalog::SHELL_ARGS, command_line::complete_command_args, Context};
 use crate::{
     compositor,
     ui::{self, PromptEvent},
@@ -40,7 +36,7 @@ fn shell_prompt_for_behavior(cx: &mut Context, prompt: Cow<'static, str>, behavi
         cx,
         prompt,
         Some('|'),
-        |editor, input| complete_command_args(editor, SHELL_SIGNATURE, &SHELL_COMPLETER, input, 0),
+        |editor, input| complete_command_args(editor, &SHELL_ARGS, input, 0),
         move |cx, input, event| {
             if event != PromptEvent::Validate || input.is_empty() {
                 return;
@@ -59,7 +55,7 @@ pub(super) mod typed {
         commands::shell::{run_shell, shell, ShellBehavior},
         compositor::{self, Compositor},
         job::{self, Callback},
-        ui::{self, Popup, PromptEvent},
+        ui::{self, Popup},
     };
     use ::command_line::Args;
     use view::Editor;
@@ -68,12 +64,7 @@ pub(super) mod typed {
     pub(in crate::commands) fn append_output(
         cx: &mut compositor::Context,
         args: Args,
-        event: PromptEvent,
     ) -> anyhow::Result<()> {
-        if event != PromptEvent::Validate {
-            return Ok(());
-        }
-
         shell(cx, &args.join(" "), ShellBehavior::Append);
         Ok(())
     }
@@ -82,12 +73,7 @@ pub(super) mod typed {
     pub(in crate::commands) fn insert_output(
         cx: &mut compositor::Context,
         args: Args,
-        event: PromptEvent,
     ) -> anyhow::Result<()> {
-        if event != PromptEvent::Validate {
-            return Ok(());
-        }
-
         shell(cx, &args.join(" "), ShellBehavior::Insert);
         Ok(())
     }
@@ -95,30 +81,23 @@ pub(super) mod typed {
     pub(in crate::commands) fn pipe_to(
         cx: &mut compositor::Context,
         args: Args,
-        event: PromptEvent,
     ) -> anyhow::Result<()> {
-        pipe_impl(cx, args, event, ShellBehavior::Ignore)
+        pipe_impl(cx, args, ShellBehavior::Ignore)
     }
 
     pub(in crate::commands) fn pipe(
         cx: &mut compositor::Context,
         args: Args,
-        event: PromptEvent,
     ) -> anyhow::Result<()> {
-        pipe_impl(cx, args, event, ShellBehavior::Replace)
+        pipe_impl(cx, args, ShellBehavior::Replace)
     }
 
     #[cold]
     fn pipe_impl(
         cx: &mut compositor::Context,
         args: Args,
-        event: PromptEvent,
         behavior: ShellBehavior,
     ) -> anyhow::Result<()> {
-        if event != PromptEvent::Validate {
-            return Ok(());
-        }
-
         shell(cx, &args.join(" "), behavior);
         Ok(())
     }
@@ -127,12 +106,7 @@ pub(super) mod typed {
     pub(in crate::commands) fn run_shell_command(
         cx: &mut compositor::Context,
         args: Args,
-        event: PromptEvent,
     ) -> anyhow::Result<()> {
-        if event != PromptEvent::Validate {
-            return Ok(());
-        }
-
         let shell = cx.editor.config().shell.clone();
         let args = args.join(" ");
         let directory = stdx::env::current_working_dir();

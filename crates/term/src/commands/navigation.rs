@@ -685,7 +685,7 @@ fn goto_line_preview(editor: &mut Editor, line: Option<NonZeroUsize>) {
 pub(super) mod typed {
     //! Typable navigation commands.
 
-    use crate::{compositor, ui::PromptEvent};
+    use crate::compositor;
     use ::command_line::Args;
     use std::num::NonZeroUsize;
 
@@ -693,15 +693,13 @@ pub(super) mod typed {
     pub(in crate::commands) fn goto_line_number(
         cx: &mut compositor::Context,
         args: Args,
-        event: PromptEvent,
     ) -> anyhow::Result<()> {
-        if event == PromptEvent::Validate {
-            let line = args[0].parse::<usize>()?;
-            let (view, doc) = current!(cx.editor);
-            let selection = doc.selection(view.id).clone();
-            view.push_jump(doc, (doc.id(), selection));
-            super::goto_line_preview(cx.editor, NonZeroUsize::new(line));
-        }
+        let line = args[0].parse::<usize>()?;
+        let (view, doc) = current!(cx.editor);
+        let selection = doc.selection(view.id).clone();
+        view.push_jump(doc, (doc.id(), selection));
+        super::goto_line_preview(cx.editor, NonZeroUsize::new(line));
+
         Ok(())
     }
 }

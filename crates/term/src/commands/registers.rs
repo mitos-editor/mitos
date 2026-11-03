@@ -310,7 +310,6 @@ pub(super) mod typed {
             yank_main_selection_to_register,
         },
         compositor,
-        ui::PromptEvent,
     };
     use ::command_line::Args;
     use anyhow::ensure;
@@ -321,12 +320,7 @@ pub(super) mod typed {
     pub(in crate::commands) fn yank_main_selection_to_clipboard(
         cx: &mut compositor::Context,
         _args: Args,
-        event: PromptEvent,
     ) -> anyhow::Result<()> {
-        if event != PromptEvent::Validate {
-            return Ok(());
-        }
-
         yank_main_selection_to_register(cx.editor, '+');
         Ok(())
     }
@@ -335,12 +329,7 @@ pub(super) mod typed {
     pub(in crate::commands) fn yank_joined(
         cx: &mut compositor::Context,
         args: Args,
-        event: PromptEvent,
     ) -> anyhow::Result<()> {
-        if event != PromptEvent::Validate {
-            return Ok(());
-        }
-
         let doc = doc!(cx.editor);
         let default_sep = Cow::Borrowed(doc.line_ending.as_str());
         let separator = args.first().unwrap_or(&default_sep);
@@ -356,12 +345,7 @@ pub(super) mod typed {
     pub(in crate::commands) fn yank_joined_to_clipboard(
         cx: &mut compositor::Context,
         args: Args,
-        event: PromptEvent,
     ) -> anyhow::Result<()> {
-        if event != PromptEvent::Validate {
-            return Ok(());
-        }
-
         let doc = doc!(cx.editor);
         let default_sep = Cow::Borrowed(doc.line_ending.as_str());
         let separator = args.first().unwrap_or(&default_sep);
@@ -373,12 +357,7 @@ pub(super) mod typed {
     pub(in crate::commands) fn yank_main_selection_to_primary_clipboard(
         cx: &mut compositor::Context,
         _args: Args,
-        event: PromptEvent,
     ) -> anyhow::Result<()> {
-        if event != PromptEvent::Validate {
-            return Ok(());
-        }
-
         yank_main_selection_to_register(cx.editor, '*');
         Ok(())
     }
@@ -387,12 +366,7 @@ pub(super) mod typed {
     pub(in crate::commands) fn yank_joined_to_primary_clipboard(
         cx: &mut compositor::Context,
         args: Args,
-        event: PromptEvent,
     ) -> anyhow::Result<()> {
-        if event != PromptEvent::Validate {
-            return Ok(());
-        }
-
         let doc = doc!(cx.editor);
         let default_sep = Cow::Borrowed(doc.line_ending.as_str());
         let separator = args.first().unwrap_or(&default_sep);
@@ -404,12 +378,7 @@ pub(super) mod typed {
     pub(in crate::commands) fn paste_clipboard_after(
         cx: &mut compositor::Context,
         _args: Args,
-        event: PromptEvent,
     ) -> anyhow::Result<()> {
-        if event != PromptEvent::Validate {
-            return Ok(());
-        }
-
         paste(cx.editor, '+', PastePosition::After, 1);
         Ok(())
     }
@@ -418,12 +387,7 @@ pub(super) mod typed {
     pub(in crate::commands) fn paste_clipboard_before(
         cx: &mut compositor::Context,
         _args: Args,
-        event: PromptEvent,
     ) -> anyhow::Result<()> {
-        if event != PromptEvent::Validate {
-            return Ok(());
-        }
-
         paste(cx.editor, '+', PastePosition::Before, 1);
         Ok(())
     }
@@ -432,12 +396,7 @@ pub(super) mod typed {
     pub(in crate::commands) fn paste_primary_clipboard_after(
         cx: &mut compositor::Context,
         _args: Args,
-        event: PromptEvent,
     ) -> anyhow::Result<()> {
-        if event != PromptEvent::Validate {
-            return Ok(());
-        }
-
         paste(cx.editor, '*', PastePosition::After, 1);
         Ok(())
     }
@@ -446,12 +405,7 @@ pub(super) mod typed {
     pub(in crate::commands) fn paste_primary_clipboard_before(
         cx: &mut compositor::Context,
         _args: Args,
-        event: PromptEvent,
     ) -> anyhow::Result<()> {
-        if event != PromptEvent::Validate {
-            return Ok(());
-        }
-
         paste(cx.editor, '*', PastePosition::Before, 1);
         Ok(())
     }
@@ -460,12 +414,7 @@ pub(super) mod typed {
     pub(in crate::commands) fn replace_selections_with_clipboard(
         cx: &mut compositor::Context,
         _args: Args,
-        event: PromptEvent,
     ) -> anyhow::Result<()> {
-        if event != PromptEvent::Validate {
-            return Ok(());
-        }
-
         replace_selections_with_register(cx.editor, '+', 1);
         Ok(())
     }
@@ -474,12 +423,7 @@ pub(super) mod typed {
     pub(in crate::commands) fn replace_selections_with_primary_clipboard(
         cx: &mut compositor::Context,
         _args: Args,
-        event: PromptEvent,
     ) -> anyhow::Result<()> {
-        if event != PromptEvent::Validate {
-            return Ok(());
-        }
-
         replace_selections_with_register(cx.editor, '*', 1);
         Ok(())
     }
@@ -488,12 +432,7 @@ pub(super) mod typed {
     pub(in crate::commands) fn show_clipboard_provider(
         cx: &mut compositor::Context,
         _args: Args,
-        event: PromptEvent,
     ) -> anyhow::Result<()> {
-        if event != PromptEvent::Validate {
-            return Ok(());
-        }
-
         cx.editor
             .set_status(cx.editor.registers.clipboard_provider_name());
         Ok(())
@@ -503,12 +442,7 @@ pub(super) mod typed {
     pub(in crate::commands) fn clear_register(
         cx: &mut compositor::Context,
         args: Args,
-        event: PromptEvent,
     ) -> anyhow::Result<()> {
-        if event != PromptEvent::Validate {
-            return Ok(());
-        }
-
         if args.is_empty() {
             cx.editor.registers.clear();
             cx.editor.set_status("All registers cleared");
@@ -534,12 +468,7 @@ pub(super) mod typed {
     pub(in crate::commands) fn set_register(
         cx: &mut compositor::Context,
         args: Args,
-        event: PromptEvent,
     ) -> anyhow::Result<()> {
-        if event != PromptEvent::Validate {
-            return Ok(());
-        }
-
         ensure!(
             args[0].chars().count() == 1,
             format!("Invalid register {}", &args[0])

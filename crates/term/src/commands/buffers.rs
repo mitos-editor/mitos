@@ -181,7 +181,7 @@ mod tests {
 pub(super) mod typed {
     //! Typable buffers commands.
 
-    use crate::{commands::navigation::goto_buffer, compositor, ui::PromptEvent};
+    use crate::{commands::navigation::goto_buffer, compositor};
     use ::command_line::Args;
     use anyhow::bail;
     use editor_core::movement::Direction;
@@ -272,12 +272,7 @@ pub(super) mod typed {
     pub(in crate::commands) fn buffer_close<const FORCE: bool>(
         cx: &mut compositor::Context,
         args: Args,
-        event: PromptEvent,
     ) -> anyhow::Result<()> {
-        if event != PromptEvent::Validate {
-            return Ok(());
-        }
-
         let document_ids = buffer_gather_paths_impl(cx.editor, args);
         buffer_close_by_ids_impl(cx, &document_ids, FORCE)
     }
@@ -308,12 +303,7 @@ pub(super) mod typed {
     pub(in crate::commands) fn buffer_close_others<const FORCE: bool>(
         cx: &mut compositor::Context,
         args: Args,
-        event: PromptEvent,
     ) -> anyhow::Result<()> {
-        if event != PromptEvent::Validate {
-            return Ok(());
-        }
-
         let document_ids = buffer_gather_others_impl(cx.editor, args.has_flag("skip-visible"));
         buffer_close_by_ids_impl(cx, &document_ids, FORCE)
     }
@@ -326,12 +316,7 @@ pub(super) mod typed {
     pub(in crate::commands) fn buffer_close_all<const FORCE: bool>(
         cx: &mut compositor::Context,
         _args: Args,
-        event: PromptEvent,
     ) -> anyhow::Result<()> {
-        if event != PromptEvent::Validate {
-            return Ok(());
-        }
-
         let document_ids = buffer_gather_all_impl(cx.editor);
         buffer_close_by_ids_impl(cx, &document_ids, FORCE)
     }
@@ -340,12 +325,7 @@ pub(super) mod typed {
     pub(in crate::commands) fn buffer_next(
         cx: &mut compositor::Context,
         _args: Args,
-        event: PromptEvent,
     ) -> anyhow::Result<()> {
-        if event != PromptEvent::Validate {
-            return Ok(());
-        }
-
         goto_buffer(cx.editor, Direction::Forward, 1);
         Ok(())
     }
@@ -354,12 +334,7 @@ pub(super) mod typed {
     pub(in crate::commands) fn buffer_previous(
         cx: &mut compositor::Context,
         _args: Args,
-        event: PromptEvent,
     ) -> anyhow::Result<()> {
-        if event != PromptEvent::Validate {
-            return Ok(());
-        }
-
         goto_buffer(cx.editor, Direction::Backward, 1);
         Ok(())
     }

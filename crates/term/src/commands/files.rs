@@ -203,7 +203,7 @@ pub(super) mod typed {
         },
         compositor::{self, Compositor},
         job::{self, Callback, Job, Jobs},
-        ui::{self, overlay::overlaid, PromptEvent},
+        ui::{self, overlay::overlaid},
     };
     use ::command_line::Args;
     use anyhow::{anyhow, bail, ensure, Context as _};
@@ -224,12 +224,7 @@ pub(super) mod typed {
     pub(in crate::commands) fn open(
         cx: &mut compositor::Context,
         args: Args,
-        event: PromptEvent,
     ) -> anyhow::Result<()> {
-        if event != PromptEvent::Validate {
-            return Ok(());
-        }
-
         open_impl(cx, args, Action::Replace)
     }
 
@@ -310,20 +305,15 @@ pub(super) mod typed {
     }
 
     #[cold]
-    pub(in crate::commands) fn write(
+    pub(in crate::commands) fn write<const FORCE: bool>(
         cx: &mut compositor::Context,
         args: Args,
-        event: PromptEvent,
     ) -> anyhow::Result<()> {
-        if event != PromptEvent::Validate {
-            return Ok(());
-        }
-
         write_impl(
             cx,
             args.first(),
             WriteOptions {
-                force: false,
+                force: FORCE,
                 auto_format: !args.has_flag(WRITE_NO_FORMAT_FLAG.name),
                 code_actions: !args.has_flag(WRITE_NO_CODE_ACTIONS_FLAG.name),
             },
@@ -331,65 +321,15 @@ pub(super) mod typed {
     }
 
     #[cold]
-    pub(in crate::commands) fn force_write(
+    pub(in crate::commands) fn write_buffer_close<const FORCE: bool>(
         cx: &mut compositor::Context,
         args: Args,
-        event: PromptEvent,
     ) -> anyhow::Result<()> {
-        if event != PromptEvent::Validate {
-            return Ok(());
-        }
-
         write_impl(
             cx,
             args.first(),
             WriteOptions {
-                force: true,
-                auto_format: !args.has_flag(WRITE_NO_FORMAT_FLAG.name),
-                code_actions: !args.has_flag(WRITE_NO_CODE_ACTIONS_FLAG.name),
-            },
-        )
-    }
-
-    #[cold]
-    pub(in crate::commands) fn write_buffer_close(
-        cx: &mut compositor::Context,
-        args: Args,
-        event: PromptEvent,
-    ) -> anyhow::Result<()> {
-        if event != PromptEvent::Validate {
-            return Ok(());
-        }
-
-        write_impl(
-            cx,
-            args.first(),
-            WriteOptions {
-                force: false,
-                auto_format: !args.has_flag(WRITE_NO_FORMAT_FLAG.name),
-                code_actions: !args.has_flag(WRITE_NO_CODE_ACTIONS_FLAG.name),
-            },
-        )?;
-
-        let document_ids = buffer_gather_paths_impl(cx.editor, args);
-        buffer_close_by_ids_impl(cx, &document_ids, false)
-    }
-
-    #[cold]
-    pub(in crate::commands) fn force_write_buffer_close(
-        cx: &mut compositor::Context,
-        args: Args,
-        event: PromptEvent,
-    ) -> anyhow::Result<()> {
-        if event != PromptEvent::Validate {
-            return Ok(());
-        }
-
-        write_impl(
-            cx,
-            args.first(),
-            WriteOptions {
-                force: true,
+                force: FORCE,
                 auto_format: !args.has_flag(WRITE_NO_FORMAT_FLAG.name),
                 code_actions: !args.has_flag(WRITE_NO_CODE_ACTIONS_FLAG.name),
             },
@@ -403,12 +343,7 @@ pub(super) mod typed {
     pub(in crate::commands) fn new_file(
         cx: &mut compositor::Context,
         _args: Args,
-        event: PromptEvent,
     ) -> anyhow::Result<()> {
-        if event != PromptEvent::Validate {
-            return Ok(());
-        }
-
         cx.editor.new_file(Action::Replace);
 
         Ok(())
@@ -418,12 +353,7 @@ pub(super) mod typed {
     pub(in crate::commands) fn set_indent_style(
         cx: &mut compositor::Context,
         args: Args,
-        event: PromptEvent,
     ) -> anyhow::Result<()> {
-        if event != PromptEvent::Validate {
-            return Ok(());
-        }
-
         use IndentStyle::*;
 
         // If no argument, report current indent style.
@@ -461,12 +391,7 @@ pub(super) mod typed {
     pub(in crate::commands) fn set_line_ending(
         cx: &mut compositor::Context,
         args: Args,
-        event: PromptEvent,
     ) -> anyhow::Result<()> {
-        if event != PromptEvent::Validate {
-            return Ok(());
-        }
-
         use LineEnding::*;
 
         // If no argument, report current line ending setting.
@@ -523,42 +448,15 @@ pub(super) mod typed {
     }
 
     #[cold]
-    pub(in crate::commands) fn write_all(
+    pub(in crate::commands) fn write_all<const FORCE: bool>(
         cx: &mut compositor::Context,
         args: Args,
-        event: PromptEvent,
     ) -> anyhow::Result<()> {
-        if event != PromptEvent::Validate {
-            return Ok(());
-        }
-
         write_all_impl(
             cx.editor,
             cx.jobs,
             WriteAllOptions {
-                force: false,
-                write_scratch: true,
-                auto_format: !args.has_flag(WRITE_NO_FORMAT_FLAG.name),
-                code_actions: !args.has_flag(WRITE_NO_CODE_ACTIONS_FLAG.name),
-            },
-        )
-    }
-
-    #[cold]
-    pub(in crate::commands) fn force_write_all(
-        cx: &mut compositor::Context,
-        args: Args,
-        event: PromptEvent,
-    ) -> anyhow::Result<()> {
-        if event != PromptEvent::Validate {
-            return Ok(());
-        }
-
-        write_all_impl(
-            cx.editor,
-            cx.jobs,
-            WriteAllOptions {
-                force: true,
+                force: FORCE,
                 write_scratch: true,
                 auto_format: !args.has_flag(WRITE_NO_FORMAT_FLAG.name),
                 code_actions: !args.has_flag(WRITE_NO_CODE_ACTIONS_FLAG.name),
@@ -571,12 +469,7 @@ pub(super) mod typed {
     pub(in crate::commands) fn set_encoding(
         cx: &mut compositor::Context,
         args: Args,
-        event: PromptEvent,
     ) -> anyhow::Result<()> {
-        if event != PromptEvent::Validate {
-            return Ok(());
-        }
-
         let doc = doc_mut!(cx.editor);
         if let Some(label) = args.first() {
             doc.set_encoding(label)
@@ -592,12 +485,7 @@ pub(super) mod typed {
     pub(in crate::commands) fn get_character_info(
         cx: &mut compositor::Context,
         _args: Args,
-        event: PromptEvent,
     ) -> anyhow::Result<()> {
-        if event != PromptEvent::Validate {
-            return Ok(());
-        }
-
         let (view, doc) = current_ref!(cx.editor);
         let text = doc.text().slice(..);
 
@@ -727,12 +615,7 @@ pub(super) mod typed {
     pub(in crate::commands) fn reload(
         cx: &mut compositor::Context,
         _args: Args,
-        event: PromptEvent,
     ) -> anyhow::Result<()> {
-        if event != PromptEvent::Validate {
-            return Ok(());
-        }
-
         let id = current_ref!(cx.editor).1.id();
         cx.editor.reload_document(id)?;
         Ok(())
@@ -742,12 +625,7 @@ pub(super) mod typed {
     pub(in crate::commands) fn reload_all(
         cx: &mut compositor::Context,
         _args: Args,
-        event: PromptEvent,
     ) -> anyhow::Result<()> {
-        if event != PromptEvent::Validate {
-            return Ok(());
-        }
-
         let documents: Vec<_> = cx
             .editor
             .documents
@@ -769,12 +647,7 @@ pub(super) mod typed {
     pub(in crate::commands) fn update(
         cx: &mut compositor::Context,
         args: Args,
-        event: PromptEvent,
     ) -> anyhow::Result<()> {
-        if event != PromptEvent::Validate {
-            return Ok(());
-        }
-
         let (_view, doc) = current!(cx.editor);
         if doc.is_modified() {
             write_impl(
@@ -795,12 +668,7 @@ pub(super) mod typed {
     pub(in crate::commands) fn tutor(
         cx: &mut compositor::Context,
         _args: Args,
-        event: PromptEvent,
     ) -> anyhow::Result<()> {
-        if event != PromptEvent::Validate {
-            return Ok(());
-        }
-
         let path = loader::runtime_file(Path::new("tutor"));
         cx.editor.open_scratch(&path, Action::Replace)?;
         Ok(())
@@ -811,12 +679,7 @@ pub(super) mod typed {
     pub(in crate::commands) fn language(
         cx: &mut compositor::Context,
         args: Args,
-        event: PromptEvent,
     ) -> anyhow::Result<()> {
-        if event != PromptEvent::Validate {
-            return Ok(());
-        }
-
         if args.is_empty() {
             let doc = doc!(cx.editor);
             let language = &doc.language_name().unwrap_or(DEFAULT_LANGUAGE_NAME);
@@ -836,31 +699,12 @@ pub(super) mod typed {
     }
 
     #[cold]
-    pub(in crate::commands) fn move_buffer(
+    pub(in crate::commands) fn move_buffer<const FORCE: bool>(
         cx: &mut compositor::Context,
         args: Args,
-        event: PromptEvent,
     ) -> anyhow::Result<()> {
-        if event != PromptEvent::Validate {
-            return Ok(());
-        }
-
         let new_path: PathBuf = args.first().unwrap().into();
-        move_buffer_impl(cx, new_path, MoveBufferOptions { force: false })
-    }
-
-    #[cold]
-    pub(in crate::commands) fn force_move_buffer(
-        cx: &mut compositor::Context,
-        args: Args,
-        event: PromptEvent,
-    ) -> anyhow::Result<()> {
-        if event != PromptEvent::Validate {
-            return Ok(());
-        }
-
-        let new_path: PathBuf = args.first().unwrap().into();
-        move_buffer_impl(cx, new_path, MoveBufferOptions { force: true })
+        move_buffer_impl(cx, new_path, MoveBufferOptions { force: FORCE })
     }
 
     fn move_buffer_impl(
@@ -909,12 +753,7 @@ pub(super) mod typed {
     pub(in crate::commands) fn read(
         cx: &mut compositor::Context,
         args: Args,
-        event: PromptEvent,
     ) -> anyhow::Result<()> {
-        if event != PromptEvent::Validate {
-            return Ok(());
-        }
-
         let scrolloff = cx.editor.config().scroll.padding;
         let (view, doc) = current!(cx.editor);
 

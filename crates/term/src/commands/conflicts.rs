@@ -3,9 +3,9 @@
 use anyhow::{bail, Result};
 use command_line::Args;
 
+use crate::compositor;
 #[cfg(feature = "git")]
 use crate::job::Callback;
-use crate::{compositor, ui::PromptEvent};
 
 pub(super) fn next(cx: &mut super::Context) {
     if let Err(error) = view::features::conflicts::navigate(cx.editor, true, cx.count()) {
@@ -19,47 +19,37 @@ pub(super) fn previous(cx: &mut super::Context) {
     }
 }
 
-pub(super) fn navigate(cx: &mut compositor::Context, args: Args, event: PromptEvent) -> Result<()> {
-    if event == PromptEvent::Validate {
-        let forward = match args.first() {
-            None | Some("next") => true,
-            Some("previous") => false,
-            _ => bail!("Expected next or previous"),
-        };
-        view::features::conflicts::navigate(cx.editor, forward, 1)?;
-    }
+pub(super) fn navigate(cx: &mut compositor::Context, args: Args) -> Result<()> {
+    let forward = match args.first() {
+        None | Some("next") => true,
+        Some("previous") => false,
+        _ => bail!("Expected next or previous"),
+    };
+    view::features::conflicts::navigate(cx.editor, forward, 1)?;
+
     Ok(())
 }
 
-pub(super) fn resolve(cx: &mut compositor::Context, args: Args, event: PromptEvent) -> Result<()> {
-    if event == PromptEvent::Validate {
-        let choice = match args.first() {
-            Some("current") => vcs::conflict::Resolution::Current,
-            Some("incoming") => vcs::conflict::Resolution::Incoming,
-            Some("both") => vcs::conflict::Resolution::Both,
-            _ => bail!("Expected current, incoming, or both"),
-        };
-        view::features::conflicts::resolve(cx.editor, choice)?;
-    }
+pub(super) fn resolve(cx: &mut compositor::Context, args: Args) -> Result<()> {
+    let choice = match args.first() {
+        Some("current") => vcs::conflict::Resolution::Current,
+        Some("incoming") => vcs::conflict::Resolution::Incoming,
+        Some("both") => vcs::conflict::Resolution::Both,
+        _ => bail!("Expected current, incoming, or both"),
+    };
+    view::features::conflicts::resolve(cx.editor, choice)?;
+
     Ok(())
 }
 
-pub(super) fn toggle_markers(
-    cx: &mut compositor::Context,
-    _: Args,
-    event: PromptEvent,
-) -> Result<()> {
-    if event == PromptEvent::Validate {
-        let (view, doc) = view::current!(cx.editor);
-        doc.toggle_conflict_markers(view.id);
-    }
+pub(super) fn toggle_markers(cx: &mut compositor::Context, _: Args) -> Result<()> {
+    let (view, doc) = view::current!(cx.editor);
+    doc.toggle_conflict_markers(view.id);
+
     Ok(())
 }
 
-pub(super) fn source(cx: &mut compositor::Context, args: Args, event: PromptEvent) -> Result<()> {
-    if event != PromptEvent::Validate {
-        return Ok(());
-    }
+pub(super) fn source(cx: &mut compositor::Context, args: Args) -> Result<()> {
     #[cfg(not(feature = "git"))]
     {
         let _ = (cx, args);

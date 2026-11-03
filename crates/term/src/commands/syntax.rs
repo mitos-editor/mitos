@@ -319,7 +319,7 @@ pub(super) mod typed {
     use crate::{
         compositor::{self, Compositor},
         job::{self, Callback},
-        ui::{self, Popup, PromptEvent},
+        ui::{self, Popup},
     };
     use ::command_line::Args;
     use anyhow::bail;
@@ -331,12 +331,7 @@ pub(super) mod typed {
     pub(in crate::commands) fn tree_sitter_scopes(
         cx: &mut compositor::Context,
         _args: Args,
-        event: PromptEvent,
     ) -> anyhow::Result<()> {
-        if event != PromptEvent::Validate {
-            return Ok(());
-        }
-
         let (view, doc) = current!(cx.editor);
         let text = doc.text().slice(..);
 
@@ -367,12 +362,7 @@ pub(super) mod typed {
     pub(in crate::commands) fn tree_sitter_highlight_name(
         cx: &mut compositor::Context,
         _args: Args,
-        event: PromptEvent,
     ) -> anyhow::Result<()> {
-        if event != PromptEvent::Validate {
-            return Ok(());
-        }
-
         let (view, doc) = current_ref!(cx.editor);
         let Some(syntax) = doc.syntax() else {
             return Ok(());
@@ -438,12 +428,7 @@ pub(super) mod typed {
     pub(in crate::commands) fn tree_sitter_layers(
         cx: &mut compositor::Context,
         _args: Args,
-        event: PromptEvent,
     ) -> anyhow::Result<()> {
-        if event != PromptEvent::Validate {
-            return Ok(());
-        }
-
         let (view, doc) = current_ref!(cx.editor);
         let Some(syntax) = doc.syntax() else {
             bail!("Syntax information is not available");
@@ -491,12 +476,7 @@ pub(super) mod typed {
     pub(in crate::commands) fn tree_sitter_subtree(
         cx: &mut compositor::Context,
         _args: Args,
-        event: PromptEvent,
     ) -> anyhow::Result<()> {
-        if event != PromptEvent::Validate {
-            return Ok(());
-        }
-
         let (view, doc) = current!(cx.editor);
 
         if let Some(syntax) = doc.syntax() {

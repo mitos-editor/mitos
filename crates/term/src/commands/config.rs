@@ -85,15 +85,7 @@ fn next_option<T: PartialEq + Clone>(values: &[T], current: &T) -> anyhow::Resul
 
 // Fetch the current value of a config option and output as status.
 #[cold]
-pub(super) fn get_option(
-    cx: &mut compositor::Context,
-    args: Args,
-    event: PromptEvent,
-) -> anyhow::Result<()> {
-    if event != PromptEvent::Validate {
-        return Ok(());
-    }
-
+pub(super) fn get_option(cx: &mut compositor::Context, args: Args) -> anyhow::Result<()> {
     let (key, pointer) = option_path(&args[0]);
     let key_error = || anyhow::anyhow!("Unknown key `{}`", key);
 
@@ -107,15 +99,7 @@ pub(super) fn get_option(
 /// Change config at runtime. Access nested values by dot syntax, for
 /// example to disable smart case search, use `:set search.smart-case false`.
 #[cold]
-pub(super) fn set_option(
-    cx: &mut compositor::Context,
-    args: Args,
-    event: PromptEvent,
-) -> anyhow::Result<()> {
-    if event != PromptEvent::Validate {
-        return Ok(());
-    }
-
+pub(super) fn set_option(cx: &mut compositor::Context, args: Args) -> anyhow::Result<()> {
     let (key, pointer) = option_path(&args[0]);
     let arg = args[1].trim();
 
@@ -138,15 +122,7 @@ pub(super) fn set_option(
 /// syntax, for example to toggle smart case search, use `:toggle search.smart-
 /// case`.
 #[cold]
-pub(super) fn toggle_option(
-    cx: &mut compositor::Context,
-    args: Args,
-    event: PromptEvent,
-) -> anyhow::Result<()> {
-    if event != PromptEvent::Validate {
-        return Ok(());
-    }
-
+pub(super) fn toggle_option(cx: &mut compositor::Context, args: Args) -> anyhow::Result<()> {
     let (key, pointer) = option_path(&args[0]);
 
     let key_error = || anyhow::anyhow!("Unknown key `{}`", key);
@@ -214,15 +190,7 @@ pub(super) fn toggle_option(
 }
 
 #[cold]
-pub(super) fn open_config(
-    cx: &mut compositor::Context,
-    _args: Args,
-    event: PromptEvent,
-) -> anyhow::Result<()> {
-    if event != PromptEvent::Validate {
-        return Ok(());
-    }
-
+pub(super) fn open_config(cx: &mut compositor::Context, _args: Args) -> anyhow::Result<()> {
     cx.editor.open(&loader::config_file(), Action::Replace)?;
     Ok(())
 }
@@ -231,27 +199,14 @@ pub(super) fn open_config(
 pub(super) fn open_workspace_config(
     cx: &mut compositor::Context,
     _args: Args,
-    event: PromptEvent,
 ) -> anyhow::Result<()> {
-    if event != PromptEvent::Validate {
-        return Ok(());
-    }
-
     cx.editor
         .open(&loader::workspace_config_file(), Action::Replace)?;
     Ok(())
 }
 
 #[cold]
-pub(super) fn refresh_config(
-    cx: &mut compositor::Context,
-    _args: Args,
-    event: PromptEvent,
-) -> anyhow::Result<()> {
-    if event != PromptEvent::Validate {
-        return Ok(());
-    }
-
+pub(super) fn refresh_config(cx: &mut compositor::Context, _args: Args) -> anyhow::Result<()> {
     cx.config.updates.send(ConfigEvent::Refresh)?;
     Ok(())
 }
@@ -273,30 +228,18 @@ impl ui::menu::Item for MigrationChoice {
     }
 }
 
-pub(super) fn migrate_config(
-    cx: &mut compositor::Context,
-    _args: Args,
-    event: PromptEvent,
-) -> anyhow::Result<()> {
-    prompt_migration(cx, event, MigrationScope::User)
+pub(super) fn migrate_config(cx: &mut compositor::Context, _args: Args) -> anyhow::Result<()> {
+    prompt_migration(cx, MigrationScope::User)
 }
 
 pub(super) fn migrate_workspace_config(
     cx: &mut compositor::Context,
     _args: Args,
-    event: PromptEvent,
 ) -> anyhow::Result<()> {
-    prompt_migration(cx, event, MigrationScope::Workspace)
+    prompt_migration(cx, MigrationScope::Workspace)
 }
 
-fn prompt_migration(
-    cx: &mut compositor::Context,
-    event: PromptEvent,
-    scope: MigrationScope,
-) -> anyhow::Result<()> {
-    if event != PromptEvent::Validate {
-        return Ok(());
-    }
+fn prompt_migration(cx: &mut compositor::Context, scope: MigrationScope) -> anyhow::Result<()> {
     let path = Config::migration_path(scope)?;
     let target = std::fs::canonicalize(&path)?;
     let original = std::fs::read_to_string(&target)?;

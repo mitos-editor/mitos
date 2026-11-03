@@ -221,7 +221,6 @@ pub(super) mod typed {
     use crate::{
         commands::{files::typed::open_impl, windows::split},
         compositor,
-        ui::PromptEvent,
     };
     use ::command_line::Args;
     use view::editor::Action;
@@ -230,12 +229,7 @@ pub(super) mod typed {
     pub(in crate::commands) fn vsplit(
         cx: &mut compositor::Context,
         args: Args,
-        event: PromptEvent,
     ) -> anyhow::Result<()> {
-        if event != PromptEvent::Validate {
-            return Ok(());
-        }
-
         if args.is_empty() {
             split(cx.editor, Action::VerticalSplit);
         } else {
@@ -249,12 +243,7 @@ pub(super) mod typed {
     pub(in crate::commands) fn hsplit(
         cx: &mut compositor::Context,
         args: Args,
-        event: PromptEvent,
     ) -> anyhow::Result<()> {
-        if event != PromptEvent::Validate {
-            return Ok(());
-        }
-
         if args.is_empty() {
             split(cx.editor, Action::HorizontalSplit);
         } else {
@@ -268,12 +257,7 @@ pub(super) mod typed {
     pub(in crate::commands) fn vsplit_new(
         cx: &mut compositor::Context,
         _args: Args,
-        event: PromptEvent,
     ) -> anyhow::Result<()> {
-        if event != PromptEvent::Validate {
-            return Ok(());
-        }
-
         cx.editor.new_file(Action::VerticalSplit);
 
         Ok(())
@@ -283,12 +267,7 @@ pub(super) mod typed {
     pub(in crate::commands) fn hsplit_new(
         cx: &mut compositor::Context,
         _args: Args,
-        event: PromptEvent,
     ) -> anyhow::Result<()> {
-        if event != PromptEvent::Validate {
-            return Ok(());
-        }
-
         cx.editor.new_file(Action::HorizontalSplit);
 
         Ok(())

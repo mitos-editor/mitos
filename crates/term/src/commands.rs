@@ -39,7 +39,7 @@ mod windows;
 mod workspace;
 
 pub use catalog::{
-    CommandCompleter, TypableCommand, SHELL_COMPLETER, SHELL_SIGNATURE, TYPABLE_COMMAND_LIST,
+    CommandAction, CommandArgs, TypableCommand, SHELL_ARGS, TYPABLE_COMMAND_LIST,
     TYPABLE_COMMAND_MAP,
 };
 pub use command_line::complete_command_args;

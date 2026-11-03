@@ -79,19 +79,12 @@ pub(super) fn snippet_picker(cx: &mut Context) {
 }
 
 pub(super) mod typed {
-    use crate::{compositor, ui::PromptEvent};
+    use crate::compositor;
     use command_line::Args;
     use std::path::Path;
     use view::features::snippets::SnippetSource;
 
-    pub fn insert(
-        cx: &mut compositor::Context,
-        args: Args,
-        event: PromptEvent,
-    ) -> anyhow::Result<()> {
-        if event != PromptEvent::Validate {
-            return Ok(());
-        }
+    pub fn insert(cx: &mut compositor::Context, args: Args) -> anyhow::Result<()> {
         let name = args.first().ok_or_else(|| {
             anyhow::anyhow!("snippet name is required; use snippet_picker to browse snippets")
         })?;
@@ -106,35 +99,24 @@ pub(super) mod typed {
         cx.editor.insert_user_snippet(&candidate)
     }
 
-    pub fn reload(cx: &mut compositor::Context, _: Args, event: PromptEvent) -> anyhow::Result<()> {
-        if event == PromptEvent::Validate {
-            cx.editor.reload_snippets()?;
-            cx.editor.set_status("Snippet definitions reloaded");
-        }
+    pub fn reload(cx: &mut compositor::Context, _: Args) -> anyhow::Result<()> {
+        cx.editor.reload_snippets()?;
+        cx.editor.set_status("Snippet definitions reloaded");
+
         Ok(())
     }
 
-    pub fn open(
-        cx: &mut compositor::Context,
-        args: Args,
-        event: PromptEvent,
-    ) -> anyhow::Result<()> {
-        if event == PromptEvent::Validate {
-            cx.editor
-                .open_snippet_config(SnippetSource::User, args.first().map(Path::new))?;
-        }
+    pub fn open(cx: &mut compositor::Context, args: Args) -> anyhow::Result<()> {
+        cx.editor
+            .open_snippet_config(SnippetSource::User, args.first().map(Path::new))?;
+
         Ok(())
     }
 
-    pub fn open_workspace(
-        cx: &mut compositor::Context,
-        args: Args,
-        event: PromptEvent,
-    ) -> anyhow::Result<()> {
-        if event == PromptEvent::Validate {
-            cx.editor
-                .open_snippet_config(SnippetSource::Workspace, args.first().map(Path::new))?;
-        }
+    pub fn open_workspace(cx: &mut compositor::Context, args: Args) -> anyhow::Result<()> {
+        cx.editor
+            .open_snippet_config(SnippetSource::Workspace, args.first().map(Path::new))?;
+
         Ok(())
     }
 }

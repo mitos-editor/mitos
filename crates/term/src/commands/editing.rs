@@ -379,19 +379,14 @@ fn increment_impl(cx: &mut Context, increment_direction: IncrementDirection) {
 pub(super) mod typed {
     //! Typable editing commands.
 
-    use crate::{compositor, ui::PromptEvent};
+    use crate::compositor;
     use ::command_line::Args;
     use anyhow::{bail, ensure};
 
     pub(in crate::commands) fn sort(
         cx: &mut compositor::Context,
         args: Args,
-        event: PromptEvent,
     ) -> anyhow::Result<()> {
-        if event != PromptEvent::Validate {
-            return Ok(());
-        }
-
         use editor_core::{
             regex,
             transform::{SortMode, SortOptions},
@@ -437,12 +432,7 @@ pub(super) mod typed {
     pub(in crate::commands) fn reflow(
         cx: &mut compositor::Context,
         args: Args,
-        event: PromptEvent,
     ) -> anyhow::Result<()> {
-        if event != PromptEvent::Validate {
-            return Ok(());
-        }
-
         let scrolloff = cx.editor.config().scroll.padding;
         let (view, doc) = current!(cx.editor);
 
