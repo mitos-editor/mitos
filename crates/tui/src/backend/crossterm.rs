@@ -251,11 +251,7 @@ where
             }
             last_pos = Some((x, y));
             if cell.modifier != modifier {
-                let diff = ModifierDiff {
-                    from: modifier,
-                    to: cell.modifier,
-                };
-                diff.queue(&mut self.buffer)?;
+                queue_modifiers(&mut self.buffer, modifier, cell.modifier)?;
                 modifier = cell.modifier;
             }
             if cell.fg != fg || cell.bg != bg {
@@ -463,72 +459,28 @@ where
     }
 }
 
-#[derive(Debug)]
-struct ModifierDiff {
-    pub from: Modifier,
-    pub to: Modifier,
-}
-
-impl ModifierDiff {
-    fn queue<W>(&self, mut w: W) -> io::Result<()>
-    where
-        W: io::Write,
-    {
-        //use crossterm::Attribute;
-        let removed = self.from - self.to;
-        if removed.contains(Modifier::REVERSED) {
-            queue!(w, SetAttribute(CAttribute::NoReverse))?;
-        }
-        if removed.contains(Modifier::BOLD) {
-            queue!(w, SetAttribute(CAttribute::NormalIntensity))?;
-            if self.to.contains(Modifier::DIM) {
-                queue!(w, SetAttribute(CAttribute::Dim))?;
-            }
-        }
-        if removed.contains(Modifier::ITALIC) {
-            queue!(w, SetAttribute(CAttribute::NoItalic))?;
-        }
-        if removed.contains(Modifier::DIM) {
-            queue!(w, SetAttribute(CAttribute::NormalIntensity))?;
-        }
-        if removed.contains(Modifier::CROSSED_OUT) {
-            queue!(w, SetAttribute(CAttribute::NotCrossedOut))?;
-        }
-        if removed.contains(Modifier::SLOW_BLINK) || removed.contains(Modifier::RAPID_BLINK) {
-            queue!(w, SetAttribute(CAttribute::NoBlink))?;
-        }
-        if removed.contains(Modifier::HIDDEN) {
-            queue!(w, SetAttribute(CAttribute::NoHidden))?;
-        }
-
-        let added = self.to - self.from;
-        if added.contains(Modifier::REVERSED) {
-            queue!(w, SetAttribute(CAttribute::Reverse))?;
-        }
-        if added.contains(Modifier::BOLD) {
-            queue!(w, SetAttribute(CAttribute::Bold))?;
-        }
-        if added.contains(Modifier::ITALIC) {
-            queue!(w, SetAttribute(CAttribute::Italic))?;
-        }
-        if added.contains(Modifier::DIM) {
-            queue!(w, SetAttribute(CAttribute::Dim))?;
-        }
-        if added.contains(Modifier::CROSSED_OUT) {
-            queue!(w, SetAttribute(CAttribute::CrossedOut))?;
-        }
-        if added.contains(Modifier::SLOW_BLINK) {
-            queue!(w, SetAttribute(CAttribute::SlowBlink))?;
-        }
-        if added.contains(Modifier::RAPID_BLINK) {
-            queue!(w, SetAttribute(CAttribute::RapidBlink))?;
-        }
-        if added.contains(Modifier::HIDDEN) {
-            queue!(w, SetAttribute(CAttribute::Hidden))?;
-        }
-
-        Ok(())
+fn queue_modifiers<W: Write>(writer: &mut W, from: Modifier, to: Modifier) -> io::Result<()> {
+    use super::output::ModifierChange::*;
+    for change in super::output::modifier_changes(from, to) {
+        let attribute = match change {
+            Reverse(false) => CAttribute::NoReverse,
+            Reverse(true) => CAttribute::Reverse,
+            NormalIntensity => CAttribute::NormalIntensity,
+            Bold => CAttribute::Bold,
+            Dim => CAttribute::Dim,
+            Italic(false) => CAttribute::NoItalic,
+            Italic(true) => CAttribute::Italic,
+            CrossedOut(false) => CAttribute::NotCrossedOut,
+            CrossedOut(true) => CAttribute::CrossedOut,
+            NoBlink => CAttribute::NoBlink,
+            SlowBlink => CAttribute::SlowBlink,
+            RapidBlink => CAttribute::RapidBlink,
+            Hidden(false) => CAttribute::NoHidden,
+            Hidden(true) => CAttribute::Hidden,
+        };
+        queue!(writer, SetAttribute(attribute))?;
     }
+    Ok(())
 }
 
 /// Crossterm uses semicolon as a separator for colors
