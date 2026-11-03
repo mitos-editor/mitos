@@ -54,6 +54,8 @@
 | `` S `` | Split selections on regex matches | `` split_selection `` |
 | `` ; `` | Collapse selection into single cursor | `` collapse_selection `` |
 | `` <A-;> `` | Flip selection cursor and anchor | `` flip_selections `` |
+| `` <A-k> `` | Go to previous selection | `` undo_selection `` |
+| `` <A-w> `` | Go to next selection | `` redo_selection `` |
 | `` <A-o> `` | Expand selection to parent syntax node | `` expand_selection `` |
 | `` <A-up> `` | Expand selection to parent syntax node | `` expand_selection `` |
 | `` <A-i> `` | Shrink selection to previously expanded syntax node | `` shrink_selection `` |
