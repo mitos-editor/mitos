@@ -1,4 +1,5 @@
-use crate::compositor::{Component, Context};
+use crate::compositor::Component;
+use crate::compositor::DrawContext;
 use tui::buffer::Buffer as Surface;
 use tui::widgets::{Paragraph, Wrap};
 
@@ -31,7 +32,7 @@ impl From<tui::text::Text<'static>> for Text {
 }
 
 impl Component for Text {
-    fn render(&mut self, area: Rect, surface: &mut Surface, _cx: &mut Context) {
+    fn render(&mut self, area: Rect, surface: &mut Surface, _cx: &mut DrawContext) {
         use tui::widgets::Widget;
 
         let par = paragraph(self.contents.clone());

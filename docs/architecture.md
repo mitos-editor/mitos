@@ -1021,7 +1021,7 @@ Terminal callbacks have two destinations: editor mutations return
 `CallbackOutcome`, and frontend callbacks receive the compositor and its context.
 `Jobs` applies both through the same fallible outcome boundary. Shared editor
 callbacks transfer their existing box directly into the bounded queue. Required
-save/Git continuations use the frontend context to register their next exit-waiting
+Git continuations use the frontend context to register their next exit-waiting
 job; callbacks no longer bubble optional jobs through each event-loop consumer.
 
 `view::editing::replace_selections` replaces a document's selections through one
@@ -1047,11 +1047,14 @@ resolution and application. Resolve/edit failures retain the existing partial
 success policy; request failures stop that save, and formatter failures still write.
 
 `SaveProgress` distinguishes a queued write, a closed document, and a pending
-`SaveTask`. Frontends poll tasks and apply `SaveUpdate`s on the owning editor's
-mutation path, retaining every stage until completion during shutdown. The terminal
-adapter translates those stages into exit-waiting jobs without interpreting save
-policy. Switching or closing a view cannot redirect formatting or discard the
-write. Save formatting always uses a document edit; its optional origin view is
+`SaveTask`. `Editor::submit_save` retains the accepted operation; `wait_event` and
+`flush_writes` advance the same save completion stream and apply `SaveUpdate`s on
+the editor mutation path. Explicit stage-by-stage consumers can still drive tasks
+themselves. Deferred lifecycle actions belong to the editor's write barrier. The
+terminal keeps a small gate for unrelated required jobs and pumps editor events
+during shutdown, including reverse requests while saves are pending. A failure
+cancels queued lifecycle actions while other accepted saves keep draining.
+Switching or closing a view cannot redirect formatting or discard the write. Save formatting always uses a document edit; its optional origin view is
 used only to keep a displayed cursor in view. Save-all normalization does not
 synthesize selections for hidden documents.
 Formatting validates the text version, URI, language, and language-loader instance;
@@ -1180,8 +1183,8 @@ These modules adapt counts, registers, prompt phases, selections, and terminal
 jobs. Document state, diagnostic storage, quicklists, and editor operations remain
 in `view`; text algorithms remain in `core`; protocol and repository operations
 remain in their integration crates. File commands use `view::save` for shared
-preparation, batch policy, and save execution. Their terminal adapter drives typed
-save stages as exit-waiting jobs. `view::features::auto_save` owns debouncing, insert-mode deferral,
+preparation, batch policy, and save execution. The editor retains and advances typed
+save stages without a terminal job adapter. `view::features::auto_save` owns debouncing, insert-mode deferral,
 focus-loss policy, and save submission through `view::save::auto_save`. Documents
 schedule changes through weak handles to their editor's coordinator; callbacks
 return through its explicit sender and reject replaced handlers, newer edits, and
@@ -1226,6 +1229,19 @@ applying line numbers. Git status and rename resolution remain in `vcs`.
 the backend and terminal rendering integration; `ui-core` supplies shared value
 types. A shared editor feature publishes state or a typed event, and the frontend
 chooses the widget, labels, layout, and interaction.
+
+The application owns one frame deadline: input requests an immediate frame and
+background updates coalesce for 33 ms. A newly visible document can share one
+16 ms syntax grace period with other visible panes. The ordinary event loop
+continues serving input, callbacks, saves, and editor events during that grace;
+drawing never runs a nested event pump. Callback batches remain bounded.
+
+Components prepare work in `update(area, &mut Context)` before drawing. Containers
+pass their actual child areas through both phases. Updates may mutate the editor,
+admit previews, tick matching, and submit jobs; `render` receives `DrawContext`
+with read-only editor/configuration access and no job queue. Drawing may update
+local layout, scroll, and presentation caches. `update_and_render` runs both phases
+for standalone component consumers. Pending-render checks only observe state.
 
 The topmost component that declares cursor ownership controls the active cursor
 for the frame. Decorative overlays preserve the owner below them. After rendering,
@@ -1322,7 +1338,7 @@ retain their owner's handle. A frame waits only for that owner's computation gua
 those guards own their locks and can safely outlive the frontend.
 
 `Handlers` owns a bounded status channel. `Editor::wait_event` receives its messages,
-preserves severity, and schedules a redraw using the editor's existing frame-rate
+preserves severity, and returns a redraw event. The frontend applies its frame-rate
 limit. `StatusSender` clones keep their destination even on another thread; closed
 destinations discard messages immediately. Asynchronous reports wait at most 10 ms
 for an overloaded queue; synchronous reports use best-effort delivery and never wait

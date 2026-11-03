@@ -192,16 +192,14 @@ pub(super) mod typed {
     //! Typable files commands.
 
     use stdx::rope::RopeExt;
-    use view::save::{self, PreparedSave};
-    use view::save::{WriteAllOptions, WriteOptions};
+    use view::save::{self, WriteAllOptions, WriteOptions};
 
     use crate::{
         commands::{
             buffers::typed::{buffer_close_by_ids_impl, buffer_gather_paths_impl},
             catalog::{WRITE_NO_CODE_ACTIONS_FLAG, WRITE_NO_FORMAT_FLAG},
         },
-        compositor,
-        job::{self, Callback, Job, Jobs},
+        compositor, job,
         ui::{self, overlay::overlaid},
     };
     use ::command_line::Args;
@@ -275,33 +273,7 @@ pub(super) mod typed {
             path.map(Into::into),
             options,
         )?;
-        submit_save(cx.editor, cx.jobs, request)
-    }
-
-    fn submit_save(
-        editor: &mut Editor,
-        jobs: &mut Jobs,
-        request: PreparedSave,
-    ) -> anyhow::Result<()> {
-        if let save::SaveProgress::Pending(task) = save::submit(editor, request)? {
-            jobs.add(save_job(task));
-        }
-        Ok(())
-    }
-
-    fn save_job(task: save::SaveTask) -> Job {
-        Job::with_callback(async move {
-            let update = task.run().await?;
-            Ok(Callback::Ui(Box::new(move |_, cx| {
-                let editor = &mut *cx.editor;
-                let jobs = &mut *cx.jobs;
-                if let save::SaveProgress::Pending(task) = update.apply(editor)? {
-                    jobs.add(save_job(task));
-                }
-                Ok(view::callbacks::CallbackOutcome::Redraw)
-            })))
-        })
-        .wait_before_exiting()
+        Ok(cx.editor.submit_save(request)?)
     }
 
     #[cold]
@@ -437,13 +409,9 @@ pub(super) mod typed {
         Ok(())
     }
 
-    pub fn write_all_impl(
-        editor: &mut Editor,
-        jobs: &mut Jobs,
-        options: WriteAllOptions,
-    ) -> anyhow::Result<()> {
+    pub fn write_all_impl(editor: &mut Editor, options: WriteAllOptions) -> anyhow::Result<()> {
         save::save_all(editor, options, |editor, request| {
-            submit_save(editor, jobs, request)
+            Ok(editor.submit_save(request)?)
         })
     }
 
@@ -454,7 +422,6 @@ pub(super) mod typed {
     ) -> anyhow::Result<()> {
         write_all_impl(
             cx.editor,
-            cx.jobs,
             WriteAllOptions {
                 force: FORCE,
                 write_scratch: true,

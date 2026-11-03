@@ -1,10 +1,8 @@
 //! Source previews share the editor's formatter, syntax, and conflict decorations.
-use crate::{
-    compositor::Context,
-    ui::{
-        document::render_document,
-        text_decorations::{self, DecorationManager},
-    },
+use crate::compositor::DrawContext;
+use crate::ui::{
+    document::render_document,
+    text_decorations::{self, DecorationManager},
 };
 use std::cell::RefCell;
 use text_layout::{
@@ -58,7 +56,7 @@ impl ConflictView {
         height
     }
 
-    pub fn draw(&self, area: Rect, surface: &mut Buffer, cx: &Context, scroll: usize) {
+    pub fn draw(&self, area: Rect, surface: &mut Buffer, cx: &DrawContext, scroll: usize) {
         if area.is_empty() {
             return;
         }

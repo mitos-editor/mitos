@@ -1,6 +1,7 @@
 //! Git comparison selection, preview caching, and repository invalidation.
 
 use super::{conflicts::ConflictView, load, Pending, ReviewView};
+use crate::compositor::DrawContext;
 use crate::{
     compositor::{Context, EventResult},
     ui::picker::{
@@ -38,7 +39,7 @@ impl FilePreview {
             PreviewContent::Conflict(view) => view.visual_height(width, theme),
         }
     }
-    fn draw(&self, area: Rect, surface: &mut Buffer, cx: &Context, offset: usize) {
+    fn draw(&self, area: Rect, surface: &mut Buffer, cx: &DrawContext, offset: usize) {
         match &self.content {
             PreviewContent::Diff(view) => view.draw(area, surface, cx, offset),
             PreviewContent::Conflict(view) => view.draw(area, surface, cx, offset),
@@ -138,7 +139,7 @@ impl<T> PickerPreview<T> for ChangeReviewPreview<T> {
         self.opened_document
     }
 
-    fn render(&mut self, item: Option<&T>, area: Rect, surface: &mut Buffer, cx: &mut Context) {
+    fn update(&mut self, item: Option<&T>, _area: Rect, cx: &mut Context) {
         let Some(item) = item else {
             self.stop();
             return;
@@ -272,6 +273,12 @@ impl<T> PickerPreview<T> for ChangeReviewPreview<T> {
                 Err(oneshot::error::TryRecvError::Empty) => {}
             }
         }
+    }
+
+    fn render(&mut self, item: Option<&T>, area: Rect, surface: &mut Buffer, cx: &mut DrawContext) {
+        let Some(item) = item else { return };
+        let status = (self.status)(item);
+        let comparison = self.comparison_for(cx.editor, status);
         let content = Rect::new(area.x, area.y, area.width, area.height.saturating_sub(1));
         if let Some(view) = &mut self.ready {
             let text = scroll::text_area(content);
@@ -311,9 +318,9 @@ impl<T> PickerPreview<T> for ChangeReviewPreview<T> {
         if area.height > 1 {
             use crate::keymap::component::{action_hint, PickerAction};
             #[cfg(feature = "git")]
-            let keys = &cx.config.current.component_keys.git_picker;
+            let keys = &cx.config.component_keys.git_picker;
             #[cfg(not(feature = "git"))]
-            let keys = &cx.config.current.component_keys.picker;
+            let keys = &cx.config.component_keys.picker;
             let hint = |action| {
                 action_hint(keys, &action)
                     .replace("<A-left>", "A-←")

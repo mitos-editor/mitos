@@ -1,13 +1,14 @@
 //! Picker-specific shortcuts, clipped to one line and derived from the live keymap.
 
 use super::*;
+use crate::compositor::DrawContext;
 
 impl<T: Send + Sync + 'static, D: Send + Sync + 'static> Picker<T, D> {
-    pub(super) fn render_help(&self, area: Rect, surface: &mut Surface, cx: &Context) {
+    pub(super) fn render_help(&self, area: Rect, surface: &mut Surface, cx: &DrawContext) {
         if !cx.editor.config().picker.show_keybindings || area.height == 0 || area.width <= 4 {
             return;
         }
-        let keys = (self.keymap)(&cx.config.current.component_keys);
+        let keys = (self.keymap)(&cx.config.component_keys);
         let mut actions = Vec::new();
         if self.replacement_visible() {
             actions.extend([
@@ -53,7 +54,7 @@ impl<T: Send + Sync + 'static, D: Send + Sync + 'static> Picker<T, D> {
         }
         let mut hints = self
             .help
-            .map_or_else(Vec::new, |help| help(&cx.config.current.component_keys));
+            .map_or_else(Vec::new, |help| help(&cx.config.component_keys));
         hints.extend(actions.into_iter().filter_map(|(action, label)| {
             let key = crate::keymap::component::action_hint(keys, &action);
             (key != "unbound").then(|| format!("{key} {label}"))

@@ -172,7 +172,7 @@ async fn decorative_prefixes_do_not_match_and_preserve_unicode_highlights() -> a
     };
     let area = Rect::new(0, 0, 70, 20);
     let mut surface = Surface::empty(area);
-    picker.render(area, &mut surface, &mut cx);
+    picker.update_and_render(area, &mut surface, &mut cx);
     let row = surface
         .content
         .chunks(area.width as usize)
@@ -208,7 +208,7 @@ async fn decorative_prefixes_do_not_match_and_preserve_unicode_highlights() -> a
     for width in [28, 70, 28] {
         let area = Rect::new(0, 0, width, 20);
         let mut surface = Surface::empty(area);
-        picker.render(area, &mut surface, &mut cx);
+        picker.update_and_render(area, &mut surface, &mut cx);
         let row = surface
             .content
             .chunks(width as usize)

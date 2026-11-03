@@ -23,8 +23,8 @@ where
             is_cursor_owner: false,
         };
         let should_render = self.compositor.handle_event(&Event::IdleTimeout, &mut cx);
-        if should_render || self.editor.needs_redraw {
-            self.render().await;
+        if should_render {
+            self.request_redraw();
         }
     }
 
@@ -32,7 +32,6 @@ where
         let doc_save_event = match doc_save_event {
             Ok(event) => event,
             Err(err) => {
-                self.jobs.cancel_after_writes();
                 self.editor.set_error(|| err.to_string());
                 return;
             }
@@ -91,7 +90,6 @@ where
         match event {
             EditorEvent::DocumentSaved(event) => {
                 self.handle_document_write(event);
-                self.render().await;
             }
             EditorEvent::WorkspaceTrust(request) => {
                 crate::handlers::workspace_trust::prompt(
@@ -99,11 +97,9 @@ where
                     &mut self.compositor,
                     request,
                 );
-                self.render().await;
             }
             EditorEvent::ReloadConfirmation(request) => {
                 crate::handlers::auto_reload::prompt_reload_modified(&mut self.compositor, request);
-                self.render().await;
             }
             EditorEvent::Completion(update) => {
                 crate::handlers::completion::apply_update(
@@ -111,15 +107,12 @@ where
                     &mut self.compositor,
                     update,
                 );
-                self.render().await;
             }
             EditorEvent::Navigation(update) => {
                 crate::handlers::navigation::show(&mut self.editor, &mut self.compositor, update);
-                self.render().await;
             }
             EditorEvent::Hover(update) => {
                 crate::handlers::hover::show(&mut self.editor, &mut self.compositor, update);
-                self.render().await;
             }
             EditorEvent::BlameDetails(update) => {
                 crate::ui::blame::show(
@@ -128,7 +121,6 @@ where
                     update,
                     &self.config.load(),
                 );
-                self.render().await;
             }
             EditorEvent::SignatureHelp(update) => {
                 crate::handlers::signature_help::show_signature_help(
@@ -136,26 +128,20 @@ where
                     &mut self.compositor,
                     update,
                 );
-                self.render().await;
             }
             EditorEvent::ConfigEvent(event) => {
                 self.handle_config_events(event);
-                self.render().await;
             }
             EditorEvent::LanguageServerMessage((id, call)) => {
                 self.handle_language_server_message(call, id).await;
-                // limit render calls for fast language server messages
-                self.editor.redraw().request();
             }
             EditorEvent::DebuggerEvent((id, payload)) => {
                 let needs_render = self.editor.handle_debugger_event(id, payload).await;
-                if needs_render {
-                    self.render().await;
+                if !needs_render {
+                    return false;
                 }
             }
-            EditorEvent::Redraw => {
-                self.render().await;
-            }
+            EditorEvent::Redraw => {}
             EditorEvent::IdleTimer => {
                 self.editor.clear_idle_timer();
                 self.handle_idle_timeout().await;
@@ -164,6 +150,7 @@ where
             }
         }
 
+        self.request_redraw();
         false
     }
 
@@ -257,7 +244,7 @@ where
 
         should_redraw |= self.apply_pending_config_updates();
         if should_redraw && !self.editor.should_close() {
-            self.render().await;
+            self.request_frame();
         }
     }
 }

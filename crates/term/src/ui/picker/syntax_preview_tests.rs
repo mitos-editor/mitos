@@ -1,3 +1,4 @@
+use crate::compositor::Context;
 use std::time::Duration;
 
 use language::syntax;
@@ -353,7 +354,7 @@ async fn preview_rendering_tolerates_locations_beyond_a_shortened_file() -> anyh
         &mut FileScroll::default(),
         area,
         &mut Surface::empty(area),
-        &cx,
+        &cx.draw_context(),
     );
     Ok(())
 }

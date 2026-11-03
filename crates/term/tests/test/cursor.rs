@@ -3,7 +3,6 @@ use editor_config::BlockCursorRendering::{self, Native, Software};
 use term::application::TestApplication;
 use theme::Theme;
 use tui::{backend::Backend, style::Color};
-use ui_core::input::parse_macro;
 use view::current_ref;
 
 #[cfg(windows)]
@@ -12,10 +11,7 @@ use crossterm::event::Event;
 use termina::event::Event;
 
 async fn keys(app: &mut TestApplication, input: &str) {
-    for key in parse_macro(input).unwrap() {
-        app.handle_terminal_events(Ok(Event::Key(tui::backend::native::adapt(key))))
-            .await;
-    }
+    settled_keys(app, input).await.unwrap();
 }
 
 fn assert_editor_cursor(app: &TestApplication, native: bool) {
@@ -214,6 +210,7 @@ async fn terminal_focus_transfers_the_primary_cursor_but_keeps_secondary_markers
         #[cfg(windows)]
         let (lost, gained) = (Event::FocusLost, Event::FocusGained);
         app.handle_terminal_events(Ok(lost)).await;
+        super::helpers::run_event_loop_until_idle(&mut app).await;
         assert_editor_cursor(&app, true);
         let (view, doc) = current_ref!(app.editor);
         let inner = view.inner_area(doc);
@@ -222,6 +219,7 @@ async fn terminal_focus_transfers_the_primary_cursor_but_keeps_secondary_markers
             Color::Yellow
         );
         app.handle_terminal_events(Ok(gained)).await;
+        super::helpers::run_event_loop_until_idle(&mut app).await;
         assert_editor_cursor(&app, block_rendering == Native);
         assert!(app.close().await.is_empty());
     }
@@ -272,6 +270,7 @@ async fn inlay_hints_do_not_capture_the_document_cursor() {
         #[cfg(windows)]
         let focus = Event::FocusGained;
         app.handle_terminal_events(Ok(focus)).await;
+        super::helpers::run_event_loop_until_idle(&mut app).await;
         assert_editor_cursor(&app, shape != "block" || block_rendering == Native);
         let pos = app
             .terminal_backend()
