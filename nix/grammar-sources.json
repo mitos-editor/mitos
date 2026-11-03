@@ -228,10 +228,10 @@
     "hash": "sha256-GO3jbG/NSe5ORQ6p6L6T9KarA2FEe95XNVlVyUkE2Tg="
   },
   "cylc": {
-    "git": "https://github.com/elliotfontaine/tree-sitter-cylc",
+    "git": "https://github.com/seanwallawalla/ElliotFontaine_Tree-Sitter-Cylc",
     "rev": "6d1d81137112299324b526477ce1db989ab58fb8",
-    "url": "https://github.com/elliotfontaine/tree-sitter-cylc/archive/6d1d81137112299324b526477ce1db989ab58fb8.tar.gz",
-    "hash": "sha256-6MzBqiyvOJQmXwTw8Xn82w5aNlVH+1V4TVZ56O/B+x8="
+    "url": "https://github.com/seanwallawalla/ElliotFontaine_Tree-Sitter-Cylc/archive/6d1d81137112299324b526477ce1db989ab58fb8.tar.gz",
+    "hash": "sha256-wLkRrMKFEXUq0B/Lvy+HwH7I8py1pQ9cwya7HsmaYtU="
   },
   "cython": {
     "git": "https://github.com/b0o/tree-sitter-cython",
