@@ -52,8 +52,7 @@ impl Editor {
     }
 
     pub(super) fn refresh_debugger_stack(&mut self, id: DebugAdapterId) {
-        let Ok((mut context, sender)) = self.debugger_context_for(id, RequestKind::RefreshStack)
-        else {
+        let Ok((context, sender)) = self.debugger_context_for(id, RequestKind::RefreshStack) else {
             return;
         };
         let Some(thread) = context.thread else { return };
@@ -61,7 +60,7 @@ impl Editor {
         self.debugger.sessions[id]
             .requests
             .cancel(RequestKind::SelectThread);
-        context.lifetimes.push(self.debugger.inspection_handle(id));
+        let context = context.with_dependency(self.debugger.inspection_handle(id));
         let session = &self.debugger.sessions[id];
         let paging = session.stack_paging();
         let loaded = session

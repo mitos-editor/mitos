@@ -206,13 +206,13 @@ impl Editor {
             ))
         });
         let can_evaluate = can_evaluate(self);
-        let Ok((mut context, sender)) = self.debugger_context(RequestKind::InlineValues(view_id))
+        let Ok((context, sender)) = self.debugger_context(RequestKind::InlineValues(view_id))
         else {
             return;
         };
         let cache = self.debugger_inspection_cache(context.id, sender.clone());
         let data = cache.current();
-        context.lifetimes.push(data.clone());
+        let context = context.with_dependency(data.clone());
         let target = Arc::new(Target {
             view: ViewRequest::new(
                 &self.documents[&doc_id],
