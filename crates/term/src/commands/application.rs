@@ -144,7 +144,6 @@ pub(super) mod typed {
     ) -> anyhow::Result<()> {
         write_all_impl(
             cx.editor,
-            cx.jobs,
             WriteAllOptions {
                 force: FORCE,
                 write_scratch: true,

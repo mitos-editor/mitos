@@ -177,3 +177,97 @@ async fn accepted_writes_keep_their_text_and_revision_when_editing_continues() -
     assert!(doc.is_modified());
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn editor_owned_save_stages_gate_lifecycle_actions_until_the_write_completes(
+) -> anyhow::Result<()> {
+    let mut f = fixture("printf 'formatted\\n'")?;
+    let (view, doc) = current_ref!(f.editor);
+    let (view, doc, original) = (view.id, doc.id(), doc.path().unwrap().to_owned());
+    let target = f.dir.path().join("named.words");
+    let request = save::prepare(
+        &mut f.editor,
+        doc,
+        Some(view),
+        Some(target.clone()),
+        WriteOptions {
+            force: false,
+            auto_format: true,
+            code_actions: false,
+        },
+    )?;
+    f.editor.submit_save(request)?;
+    assert!(f.editor.has_pending_writes());
+    assert_eq!(
+        f.editor.document(doc).unwrap().path(),
+        Some(original.as_path())
+    );
+    let finished = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let captured = finished.clone();
+    let expected = target.clone();
+    f.editor.after_writes(Box::new(move |editor| {
+        assert_eq!(std::fs::read_to_string(&expected)?, "formatted\n");
+        assert_eq!(
+            editor.document(doc).unwrap().path(),
+            Some(stdx::path::canonicalize(&expected).as_path())
+        );
+        editor.close(view);
+        captured.store(true, std::sync::atomic::Ordering::Relaxed);
+        Ok(())
+    }))?;
+    f.editor.run_after_writes();
+    assert!(!finished.load(std::sync::atomic::Ordering::Relaxed));
+    tokio::time::timeout(std::time::Duration::from_secs(5), f.editor.flush_writes()).await??;
+    f.editor.run_after_writes();
+    assert!(finished.load(std::sync::atomic::Ordering::Relaxed));
+    assert!(!f.editor.tree.contains(view));
+    assert!(!f.editor.has_pending_writes());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn failed_save_stages_cancel_lifecycle_actions_but_drain_other_accepted_saves(
+) -> anyhow::Result<()> {
+    let mut f = fixture("printf 'formatted\\n'")?;
+    let (view, doc) = current_ref!(f.editor);
+    let (view, doc) = (view.id, doc.id());
+    let request = save::prepare(
+        &mut f.editor,
+        doc,
+        Some(view),
+        None,
+        WriteOptions {
+            force: false,
+            auto_format: true,
+            code_actions: false,
+        },
+    )?;
+    f.editor.submit_save(request)?;
+    // The document exists when accepted but cannot submit its write after pre-save work.
+    let block = f.editor.block_file_writes(vec![f.dir.path().to_owned()])?;
+    let other = f.editor.new_file(Action::Replace);
+    f.replace_and_commit("successful\n");
+    let elsewhere = tempfile::tempdir()?;
+    let good = elsewhere.path().join("good.words");
+    f.editor.save(other, Some(good.clone()), false)?;
+    f.editor
+        .after_writes(Box::new(|_| anyhow::bail!("canceled lifecycle action ran")))?;
+    let error = tokio::time::timeout(std::time::Duration::from_secs(5), f.editor.flush_writes())
+        .await?
+        .expect_err("blocked save must fail");
+    assert!(matches!(
+        error.downcast_ref::<save::SaveError>(),
+        Some(save::SaveError::Write(_))
+    ));
+    f.editor.run_after_writes();
+    assert_eq!(std::fs::read_to_string(good)?, "successful\n");
+    assert!(!f.editor.has_pending_writes());
+    assert!(!f
+        .editor
+        .get_status()
+        .unwrap()
+        .0
+        .contains("canceled lifecycle action"));
+    drop(block);
+    Ok(())
+}

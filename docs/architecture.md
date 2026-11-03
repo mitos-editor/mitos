@@ -1021,7 +1021,7 @@ Terminal callbacks have two destinations: editor mutations return
 `CallbackOutcome`, and frontend callbacks receive the compositor and its context.
 `Jobs` applies both through the same fallible outcome boundary. Shared editor
 callbacks transfer their existing box directly into the bounded queue. Required
-save/Git continuations use the frontend context to register their next exit-waiting
+Git continuations use the frontend context to register their next exit-waiting
 job; callbacks no longer bubble optional jobs through each event-loop consumer.
 
 `view::editing::replace_selections` replaces a document's selections through one
@@ -1047,11 +1047,14 @@ resolution and application. Resolve/edit failures retain the existing partial
 success policy; request failures stop that save, and formatter failures still write.
 
 `SaveProgress` distinguishes a queued write, a closed document, and a pending
-`SaveTask`. Frontends poll tasks and apply `SaveUpdate`s on the owning editor's
-mutation path, retaining every stage until completion during shutdown. The terminal
-adapter translates those stages into exit-waiting jobs without interpreting save
-policy. Switching or closing a view cannot redirect formatting or discard the
-write. Save formatting always uses a document edit; its optional origin view is
+`SaveTask`. `Editor::submit_save` retains the accepted operation; `wait_event` and
+`flush_writes` advance the same save completion stream and apply `SaveUpdate`s on
+the editor mutation path. Explicit stage-by-stage consumers can still drive tasks
+themselves. Deferred lifecycle actions belong to the editor's write barrier. The
+terminal keeps a small gate for unrelated required jobs and pumps editor events
+during shutdown, including reverse requests while saves are pending. A failure
+cancels queued lifecycle actions while other accepted saves keep draining.
+Switching or closing a view cannot redirect formatting or discard the write. Save formatting always uses a document edit; its optional origin view is
 used only to keep a displayed cursor in view. Save-all normalization does not
 synthesize selections for hidden documents.
 Formatting validates the text version, URI, language, and language-loader instance;
@@ -1180,8 +1183,8 @@ These modules adapt counts, registers, prompt phases, selections, and terminal
 jobs. Document state, diagnostic storage, quicklists, and editor operations remain
 in `view`; text algorithms remain in `core`; protocol and repository operations
 remain in their integration crates. File commands use `view::save` for shared
-preparation, batch policy, and save execution. Their terminal adapter drives typed
-save stages as exit-waiting jobs. `view::features::auto_save` owns debouncing, insert-mode deferral,
+preparation, batch policy, and save execution. The editor retains and advances typed
+save stages without a terminal job adapter. `view::features::auto_save` owns debouncing, insert-mode deferral,
 focus-loss policy, and save submission through `view::save::auto_save`. Documents
 schedule changes through weak handles to their editor's coordinator; callbacks
 return through its explicit sender and reject replaced handlers, newer edits, and

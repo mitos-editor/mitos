@@ -3,7 +3,7 @@
 use std::collections::VecDeque;
 
 use editor_core::Transaction;
-use futures_util::{future::BoxFuture, FutureExt};
+use futures_util::{future::BoxFuture, stream::FuturesUnordered, FutureExt, StreamExt};
 use lsp_client::{
     lsp::{CodeAction, CodeActionKind, CodeActionOrCommand, CodeActionTriggerKind, WorkspaceEdit},
     LanguageServerId, OffsetEncoding,
@@ -29,7 +29,8 @@ pub enum SaveProgress {
 }
 
 /// One asynchronous stage of a save. Dropping it abandons the pending save.
-/// Frontends must retain these tasks until completion, including during shutdown.
+/// Editor::submit_save retains these tasks, including during shutdown; explicit
+/// stage-by-stage consumers must retain and drive them themselves.
 #[must_use = "save tasks must be driven to completion"]
 pub struct SaveTask(BoxFuture<'static, Result<SaveUpdate, SaveError>>);
 
@@ -305,4 +306,44 @@ fn code_action_kind_matches(action: &CodeAction, requested: &CodeActionKind) -> 
         kind == requested
             || (kind.starts_with(requested) && kind[requested.len()..].starts_with('.'))
     })
+}
+
+/// Lifecycle work retained until accepted saves have completed.
+pub type AfterWrites = Box<dyn FnOnce(&mut Editor) -> anyhow::Result<()> + Send>;
+
+/// Save stages have the same owner as their eventual ordered document writes.
+#[derive(Default)]
+pub(crate) struct Operations {
+    pending: FuturesUnordered<BoxFuture<'static, Result<SaveUpdate, SaveError>>>,
+    pub(crate) after_writes: VecDeque<AfterWrites>,
+}
+
+impl Operations {
+    pub(crate) fn retain(&mut self, progress: SaveProgress) {
+        if let SaveProgress::Pending(task) = progress {
+            self.pending.push(task.0);
+        }
+    }
+
+    pub(crate) fn has_pending(&self) -> bool {
+        !self.pending.is_empty()
+    }
+}
+
+pub(crate) enum Completion {
+    Stage(Result<SaveUpdate, SaveError>),
+    Write(crate::document::DocumentSavedEventResult),
+}
+
+/// Both interactive turns and explicit flushing advance this same save stream.
+pub(crate) async fn next(
+    writes: &mut super::WriteQueue,
+    operations: &mut Operations,
+) -> Option<Completion> {
+    tokio::select! {
+        biased;
+        Some(result) = writes.next() => Some(Completion::Write(result)),
+        Some(result) = operations.pending.next() => Some(Completion::Stage(result)),
+        else => None,
+    }
 }
