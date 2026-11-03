@@ -219,15 +219,15 @@ impl<T, K: Eq> PickerPreview<T> for HistoricalReviewPreview<T, K> {
     }
 }
 
-#[cfg(all(test, feature = "integration"))]
+#[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{application::Application, job::Jobs, ui::picker::test::application};
+    use crate::{application::TestApplication, job::Jobs, ui::picker::test::application};
 
     fn render(
         preview: &mut HistoricalReviewPreview<u8, u8>,
         selected: u8,
-        app: &mut Application,
+        app: &mut TestApplication,
     ) -> Buffer {
         let config = crate::config::Config::default();
         let updates = tokio::sync::mpsc::unbounded_channel().0;

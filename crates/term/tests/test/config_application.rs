@@ -305,7 +305,7 @@ async fn theme_completion_and_commands_use_each_editors_selected_resources() -> 
         vec![
             (
                 Some(":theme shared<ret>"),
-                Some(&|app: &term::application::Application| {
+                Some(&|app: &term::application::TestApplication| {
                     assert_eq!(app.editor.theme.name(), "shared");
                     assert_eq!(
                         app.editor.theme.get("keyword"),
@@ -319,7 +319,7 @@ async fn theme_completion_and_commands_use_each_editors_selected_resources() -> 
             ),
             (
                 Some(":theme shared<ret>"),
-                Some(&|app: &term::application::Application| {
+                Some(&|app: &term::application::TestApplication| {
                     assert_eq!(
                         app.editor.theme.get("keyword"),
                         Style::default().fg(Color::Green)
@@ -330,7 +330,7 @@ async fn theme_completion_and_commands_use_each_editors_selected_resources() -> 
             ),
             (
                 Some(":theme shared<ret>"),
-                Some(&|app: &term::application::Application| {
+                Some(&|app: &term::application::TestApplication| {
                     assert_eq!(
                         app.editor.theme.get("keyword"),
                         Style::default().fg(Color::Green)
@@ -373,7 +373,7 @@ async fn config_reload_preserves_legacy_user_and_trusted_project_configs() -> an
     std::fs::write(&project, local)?;
     WorkspaceTrust::new(TrustConfig::default(), loader::workspace_trust_dir()).trust(&workspace);
     let mut app = AppBuilder::new().build()?;
-    let check = |app: &term::application::Application| {
+    let check = |app: &term::application::TestApplication| {
         assert_eq!(app.editor.config().scroll.padding, 17);
         assert_eq!(app.editor.get_status().unwrap().0, "Config refreshed");
         assert_eq!(
@@ -417,15 +417,15 @@ async fn migration_dialog_cancels_rechecks_and_migrates_only_the_confirmed_scope
     let workspace = root.join("workspace");
     WorkspaceTrust::new(TrustConfig::default(), loader::workspace_trust_dir()).trust(&workspace);
     let mut app = AppBuilder::new().build()?;
-    let unchanged = |_: &term::application::Application| {
+    let unchanged = |_: &term::application::TestApplication| {
         assert_eq!(std::fs::read_to_string(&user).unwrap(), global);
         assert!(!user.with_extension("toml.bak").exists());
     };
-    let tamper = |app: &term::application::Application| {
+    let tamper = |app: &term::application::TestApplication| {
         unchanged(app);
         std::fs::write(&user, global.replace("7", "9")).unwrap();
     };
-    let unsaved = |app: &term::application::Application| {
+    let unsaved = |app: &term::application::TestApplication| {
         assert!(app
             .editor
             .get_status()
@@ -434,7 +434,7 @@ async fn migration_dialog_cancels_rechecks_and_migrates_only_the_confirmed_scope
             .contains("unsaved configuration changes"));
         unchanged(app);
     };
-    let rejected = |app: &term::application::Application| {
+    let rejected = |app: &term::application::TestApplication| {
         assert!(app
             .editor
             .get_status()
@@ -448,7 +448,7 @@ async fn migration_dialog_cancels_rechecks_and_migrates_only_the_confirmed_scope
         assert!(!user.with_extension("toml.bak").exists());
         std::fs::write(&user, global).unwrap();
     };
-    let user_migrated = |app: &term::application::Application| {
+    let user_migrated = |app: &term::application::TestApplication| {
         assert!(app.editor.get_status().unwrap().0.contains("backup:"));
         assert_eq!(
             std::fs::read_to_string(user.with_extension("toml.bak")).unwrap(),
@@ -457,7 +457,7 @@ async fn migration_dialog_cancels_rechecks_and_migrates_only_the_confirmed_scope
         assert_eq!(std::fs::read_to_string(&project).unwrap(), local);
         assert!(!project.with_extension("toml.bak").exists());
     };
-    let workspace_migrated = |_: &term::application::Application| {
+    let workspace_migrated = |_: &term::application::TestApplication| {
         assert_eq!(
             std::fs::read_to_string(project.with_extension("toml.bak")).unwrap(),
             local
@@ -468,7 +468,7 @@ async fn migration_dialog_cancels_rechecks_and_migrates_only_the_confirmed_scope
             TrustStatus::Trusted
         );
     };
-    let canonical = |app: &term::application::Application| {
+    let canonical = |app: &term::application::TestApplication| {
         assert_eq!(
             app.editor.get_status().unwrap().0,
             "Configuration already uses current settings"
@@ -522,7 +522,7 @@ async fn migration_rejects_unsaved_config_opened_through_symlink() -> anyhow::Re
             (Some("i# unsaved<esc>:config-migrate<ret>"), None),
             (
                 Some("<down><ret>"),
-                Some(&|app: &term::application::Application| {
+                Some(&|app: &term::application::TestApplication| {
                     assert!(view::current_ref!(app.editor).1.is_modified());
                     assert!(app
                         .editor

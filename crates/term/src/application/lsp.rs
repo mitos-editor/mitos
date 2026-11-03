@@ -1,12 +1,15 @@
 //! Decode LSP messages, delegate editor effects, and present interactive requests.
-use super::Application;
+use super::App;
 use crate::ui;
 use log::{error, info, warn};
 use lsp_client::UriExt as _;
 use lsp_client::{lsp, LanguageServerId};
 use serde_json::json;
 
-impl Application {
+impl<B: tui::backend::Backend + tui::backend::BackendExt> App<B>
+where
+    B::Error: std::error::Error + Send + Sync + 'static,
+{
     pub async fn handle_language_server_message(
         &mut self,
         call: lsp_client::Call,

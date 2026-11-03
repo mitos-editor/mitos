@@ -1,5 +1,5 @@
 //! Exercise the Windows frontend in a real console, including on headless CI.
-#![cfg(all(windows, not(feature = "integration")))]
+#![cfg(windows)]
 
 #[path = "support/terminal_screen.rs"]
 mod terminal_screen;

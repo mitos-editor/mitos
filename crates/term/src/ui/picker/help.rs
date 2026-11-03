@@ -74,6 +74,6 @@ impl<T: Send + Sync + 'static, D: Send + Sync + 'static> Picker<T, D> {
     }
 }
 
-#[cfg(all(test, feature = "integration"))]
+#[cfg(test)]
 #[path = "help_tests.rs"]
 mod tests;

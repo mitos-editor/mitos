@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use super::*;
-use crate::{application::Application, config::Config as AppConfig, job::Jobs};
+use crate::{application::TestApplication, config::Config as AppConfig, job::Jobs};
 
 pub(crate) fn items<T: Send + Sync, D>(picker: &Picker<T, D>) -> impl Iterator<Item = &T> {
     let snapshot = picker.results.matcher.snapshot();
@@ -15,7 +15,7 @@ pub(crate) fn all_items<T: Send + Sync, D>(picker: &Picker<T, D>) -> impl Iterat
     (0..snapshot.item_count()).filter_map(|index| snapshot.get_item(index).map(|item| item.data))
 }
 
-pub(crate) fn application(poll: bool) -> anyhow::Result<Application> {
+pub(crate) fn application(poll: bool) -> anyhow::Result<TestApplication> {
     let mut config = AppConfig::default();
     config.editor.lsp.enable = false;
     config.editor.files.watch.enable = false;
@@ -23,7 +23,7 @@ pub(crate) fn application(poll: bool) -> anyhow::Result<Application> {
     config.editor.files.reload.enable = false;
     config.editor.files.reload.poll.enable = poll;
     config.editor.files.reload.poll.interval = 100;
-    Application::new(
+    TestApplication::new(
         Default::default(),
         config,
         language::syntax::Loader::new(
@@ -39,21 +39,21 @@ pub(crate) fn application(poll: bool) -> anyhow::Result<Application> {
 
 pub(crate) fn draw<T: Send + Sync, D: Send + Sync>(
     picker: &mut Picker<T, D>,
-    app: &mut Application,
+    app: &mut TestApplication,
 ) {
     frame(picker, app);
 }
 
 pub(crate) fn frame<T: Send + Sync, D: Send + Sync>(
     picker: &mut Picker<T, D>,
-    app: &mut Application,
+    app: &mut TestApplication,
 ) -> Surface {
     frame_with_config(picker, app, &AppConfig::default())
 }
 
 pub(crate) fn frame_with_config<T: Send + Sync, D: Send + Sync>(
     picker: &mut Picker<T, D>,
-    app: &mut Application,
+    app: &mut TestApplication,
     config: &AppConfig,
 ) -> Surface {
     let updates = tokio::sync::mpsc::unbounded_channel().0;
@@ -77,7 +77,7 @@ pub(crate) fn frame_with_config<T: Send + Sync, D: Send + Sync>(
 
 pub(crate) async fn until<T: Send + Sync, D: Send + Sync>(
     picker: &mut Picker<T, D>,
-    app: &mut Application,
+    app: &mut TestApplication,
     ready: impl Fn(&Picker<T, D>) -> bool,
 ) -> anyhow::Result<()> {
     tokio::time::timeout(Duration::from_secs(5), async {

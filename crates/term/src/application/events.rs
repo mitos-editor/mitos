@@ -1,11 +1,14 @@
 //! Adapt editor and terminal events to frontend presentation and input.
-use super::{Application, TerminalEvent};
+use super::{App, TerminalEvent};
 use crate::compositor::Event;
 use log::warn;
 use stdx::path::get_relative_path;
 use view::{document::DocumentSavedEventResult, editor::EditorEvent, graphics::Rect};
 
-impl Application {
+impl<B: tui::backend::Backend + tui::backend::BackendExt> App<B>
+where
+    B::Error: std::error::Error + Send + Sync + 'static,
+{
     pub async fn handle_idle_timeout(&mut self) {
         let config = self.config.load();
         let mut cx = crate::compositor::Context {
@@ -157,10 +160,7 @@ impl Application {
                 self.editor.clear_idle_timer();
                 self.handle_idle_timeout().await;
 
-                #[cfg(feature = "integration")]
-                {
-                    return true;
-                }
+                return true;
             }
         }
 

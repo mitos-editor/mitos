@@ -4,7 +4,7 @@ use language::syntax;
 
 use super::*;
 use crate::{
-    application::Application,
+    application::TestApplication,
     args::Args,
     config::Config,
     job::{Callback, Jobs},
@@ -14,7 +14,7 @@ use crate::{compositor::Compositor, ui::picker::Column};
 use view::editor::Action;
 
 struct Fixture {
-    app: Application,
+    app: TestApplication,
     jobs: Jobs,
     compositor: Compositor,
     dir: tempfile::TempDir,
@@ -43,7 +43,7 @@ impl Fixture {
             )?,
             loader::syntax::Resources::default(),
         )?;
-        let app = Application::new(
+        let app = TestApplication::new(
             Args::default(),
             config,
             loader,

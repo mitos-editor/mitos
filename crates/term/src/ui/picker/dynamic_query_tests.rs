@@ -1,6 +1,6 @@
 use super::*;
 use crate::{
-    application::Application,
+    application::TestApplication,
     compositor::Compositor,
     config::Config,
     job::Jobs,
@@ -8,7 +8,7 @@ use crate::{
 };
 use view::graphics::Rect;
 
-fn application() -> anyhow::Result<Application> {
+fn application() -> anyhow::Result<TestApplication> {
     let mut config = Config::default();
     config.editor.files.watch.enable = false;
     config.editor.lsp.enable = false;
@@ -19,7 +19,7 @@ fn application() -> anyhow::Result<Application> {
         },
         Default::default(),
     )?;
-    Application::new(
+    TestApplication::new(
         Default::default(),
         config,
         syntax,

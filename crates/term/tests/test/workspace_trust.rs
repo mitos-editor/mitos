@@ -25,7 +25,7 @@ fn drain_theme_events(editor: &mut view::Editor) {
     }
 }
 
-fn app(root: &std::path::Path) -> anyhow::Result<term::application::Application> {
+fn app(root: &std::path::Path) -> anyhow::Result<term::application::TestApplication> {
     std::fs::write(
         root.join("config/mitos/config.toml"),
         r#"

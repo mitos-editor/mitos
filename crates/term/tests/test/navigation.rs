@@ -7,7 +7,7 @@ use std::{
 use anyhow::Context as _;
 use editor_core::{Range, Selection, Transaction};
 use lsp_client::OffsetEncoding;
-use term::application::Application;
+use term::application::TestApplication;
 use tokio::sync::mpsc;
 use view::{
     callbacks::EditorCallback,
@@ -22,7 +22,7 @@ use super::helpers::{
 };
 
 struct Fixture {
-    app: Application,
+    app: TestApplication,
     callbacks: mpsc::UnboundedReceiver<EditorCallback>,
     logs: Vec<PathBuf>,
 }

@@ -5,7 +5,7 @@ use anyhow::Context as _;
 use editor_core::{Selection, Transaction};
 use serde_json::Value;
 use term::{
-    application::Application,
+    application::TestApplication,
     ui::{Menu, Popup},
 };
 use tokio::sync::mpsc;
@@ -24,7 +24,7 @@ use super::helpers::{
 };
 
 struct Fixture {
-    app: Application,
+    app: TestApplication,
     callbacks: mpsc::UnboundedReceiver<(bool, EditorCallback)>,
     logs: Vec<PathBuf>,
     doc: DocumentId,

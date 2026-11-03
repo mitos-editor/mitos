@@ -1,12 +1,14 @@
 //! Apply live configuration and choose a theme supported by this terminal.
-use super::{Application, Terminal};
+use super::App;
 use crate::config::{Config, EditorSettings};
 use anyhow::Error;
 use std::sync::Arc;
-use tui::backend::BackendExt;
 use view::{editor::ConfigEvent, Editor};
 
-impl Application {
+impl<B: tui::backend::Backend + tui::backend::BackendExt> App<B>
+where
+    B::Error: std::error::Error + Send + Sync + 'static,
+{
     pub fn handle_config_events(&mut self, config_event: ConfigEvent) {
         let old_editor_config = self.editor.config();
 
@@ -114,7 +116,7 @@ impl Application {
     pub(super) fn configured_theme(
         editor: &Editor,
         config: &Config,
-        terminal: &Terminal,
+        terminal: &tui::Terminal<B>,
         mode: Option<theme::Mode>,
     ) -> theme::Theme {
         let true_color = terminal.backend().supports_true_color()
@@ -153,12 +155,12 @@ pub(super) fn terminal_config(config: &Config) -> tui::terminal::Config {
     }
 }
 
-#[cfg(all(test, feature = "integration"))]
+#[cfg(test)]
 mod tests {
-    use super::*;
+    use crate::application::TestApplication;
     use crate::ui::picker::test::application;
 
-    async fn keys(app: &mut Application, input: &str) -> anyhow::Result<()> {
+    async fn keys(app: &mut TestApplication, input: &str) -> anyhow::Result<()> {
         for key in ui_core::input::parse_macro(input)? {
             #[cfg(not(windows))]
             let event = termina::event::Event::Key(tui::backend::native::adapt(key));

@@ -5,10 +5,10 @@ use super::helpers::{
 };
 use anyhow::Context as _;
 use std::{path::Path, time::Duration};
-use term::application::Application;
+use term::application::TestApplication;
 use view::{current_ref, editor::Action};
 
-async fn fixture(dir: &Path, args: &[&str]) -> anyhow::Result<Application> {
+async fn fixture(dir: &Path, args: &[&str]) -> anyhow::Result<TestApplication> {
     let initialize = Gate::new(dir.join("initialize"));
     let mut server =
         ServerConfig::feature("symbols", "--workspace-symbols", dir).initialize_gate(&initialize);

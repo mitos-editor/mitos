@@ -5,7 +5,7 @@ use std::{
 
 use anyhow::Context as _;
 use editor_core::{Selection, Transaction};
-use term::{application::Application, ui::lsp::signature_help::SignatureHelp};
+use term::{application::TestApplication, ui::lsp::signature_help::SignatureHelp};
 use tokio::sync::mpsc;
 use view::{
     callbacks::EditorCallback,
@@ -21,7 +21,7 @@ use super::helpers::lsp::{self, Gate, ServerConfig};
 use super::helpers::{run_event_loop_until_idle, test_config};
 
 struct Fixture {
-    app: Application,
+    app: TestApplication,
     callbacks: mpsc::UnboundedReceiver<(bool, EditorCallback)>,
     log: PathBuf,
     response_gate: PathBuf,

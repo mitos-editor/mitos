@@ -339,7 +339,7 @@ impl Component for Markdown {
     }
 }
 
-#[cfg(all(test, feature = "integration"))]
+#[cfg(test)]
 mod tests {
     use super::*;
 

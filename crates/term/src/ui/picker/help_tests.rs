@@ -1,9 +1,9 @@
 use super::super::{test, *};
-use crate::{application::Application, config::Config as AppConfig};
+use crate::{application::TestApplication, config::Config as AppConfig};
 
 fn frame<T: Send + Sync, D: Send + Sync>(
     picker: &mut Picker<T, D>,
-    app: &mut Application,
+    app: &mut TestApplication,
     config: &AppConfig,
 ) -> String {
     test::frame_with_config(picker, app, config)
@@ -13,7 +13,7 @@ fn frame<T: Send + Sync, D: Send + Sync>(
         .collect()
 }
 
-fn set_hints(app: &mut Application, enabled: bool) {
+fn set_hints(app: &mut TestApplication, enabled: bool) {
     let mut config = (*app.editor.config()).clone();
     config.picker.show_keybindings = enabled;
     app.editor.config = Arc::new(arc_swap::access::Constant(config));

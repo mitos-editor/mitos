@@ -129,7 +129,7 @@ impl<T: Send + Sync + 'static, D: Send + Sync + 'static> Picker<T, D> {
 
     /// Load immutable options under this picker's lifecycle. Hidden/cached pickers
     /// discard pending results and retry on restore; published rows remain stable.
-    #[cfg(any(feature = "git", all(test, feature = "integration")))]
+    #[cfg(any(feature = "git", test))]
     pub(crate) fn with_initial_options(
         self,
         load: impl Fn(
@@ -208,7 +208,7 @@ impl<T: Send + Sync + 'static, D: Send + Sync + 'static> Picker<T, D> {
     }
 }
 
-#[cfg(all(test, feature = "integration"))]
+#[cfg(test)]
 mod initial_options_tests {
     use super::*;
     use crate::{
@@ -289,7 +289,7 @@ mod initial_options_tests {
     }
 }
 
-#[cfg(all(test, feature = "integration"))]
+#[cfg(test)]
 mod deferred_refresh_tests {
     use super::*;
     use crate::ui::{

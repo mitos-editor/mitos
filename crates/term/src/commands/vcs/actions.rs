@@ -485,5 +485,5 @@ struct StashFiles {
     theme: Arc<theme::Theme>,
 }
 
-#[cfg(all(test, feature = "integration"))]
+#[cfg(test)]
 mod tests;

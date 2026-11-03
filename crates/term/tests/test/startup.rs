@@ -305,7 +305,7 @@ async fn rust_syntax_is_shown_before_its_injected_languages_compile() -> anyhow:
             .await
             .map(|callback| callback.expect("syntax callback was not delivered"))
     };
-    let doc_comment_layers = |app: &term::application::Application| {
+    let doc_comment_layers = |app: &term::application::TestApplication| {
         doc!(app.editor)
             .syntax()
             .unwrap()

@@ -347,7 +347,7 @@ async fn test_rotate_view_reverse_space_w_binding() -> anyhow::Result<()> {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn shifted_arrows_swap_splits_in_both_window_prefixes() -> anyhow::Result<()> {
-    let docs_in_screen_order = |app: &term::application::Application| {
+    let docs_in_screen_order = |app: &term::application::TestApplication| {
         let mut panes: Vec<_> = app
             .editor
             .tree
@@ -382,7 +382,7 @@ async fn shifted_arrows_swap_splits_in_both_window_prefixes() -> anyhow::Result<
 
 #[tokio::test(flavor = "multi_thread")]
 async fn resize_mode_moves_boundaries_with_defaults_and_exact_counts() -> anyhow::Result<()> {
-    let widths = |app: &term::application::Application| {
+    let widths = |app: &term::application::TestApplication| {
         let mut panes: Vec<_> = app
             .editor
             .tree
@@ -395,7 +395,7 @@ async fn resize_mode_moves_boundaries_with_defaults_and_exact_counts() -> anyhow
             .map(|(_, width)| width)
             .collect::<Vec<_>>()
     };
-    let heights = |app: &term::application::Application| {
+    let heights = |app: &term::application::TestApplication| {
         let mut panes: Vec<_> = app
             .editor
             .tree
@@ -459,7 +459,9 @@ async fn resize_mode_moves_boundaries_with_defaults_and_exact_counts() -> anyhow
     Ok(())
 }
 
-fn split_areas(app: &term::application::Application) -> Vec<(view::ViewId, view::graphics::Rect)> {
+fn split_areas(
+    app: &term::application::TestApplication,
+) -> Vec<(view::ViewId, view::graphics::Rect)> {
     app.editor
         .tree
         .views()
