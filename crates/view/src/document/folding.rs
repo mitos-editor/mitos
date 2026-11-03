@@ -277,11 +277,7 @@ impl Document {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        events::{DocumentDidChange, SelectionDidChange},
-        graphics::Rect,
-        View,
-    };
+    use crate::{graphics::Rect, View};
     use arc_swap::ArcSwap;
     use editor_core::{Range, Rope, Transaction};
     use std::sync::Arc;
@@ -384,8 +380,6 @@ mod tests {
     }
 
     fn fixture(text: &str, language: Option<&str>) -> (Document, View, View) {
-        event::register_event::<DocumentDidChange>();
-        event::register_event::<SelectionDidChange>();
         let loader = Arc::new(language::loader::default_lang_loader(
             loader::syntax::Resources::default(),
         ));

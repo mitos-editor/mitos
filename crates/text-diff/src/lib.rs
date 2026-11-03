@@ -11,7 +11,7 @@ use editor_core::Rope;
 pub use imara_diff::Hunk;
 use imara_diff::{Algorithm, IndentHeuristic, IndentLevel};
 use line_cache::InternedRopeLines;
-pub use transaction::compare_ropes;
+pub use transaction::{compare_fragments, compare_ropes};
 
 const MAX_DIFF_LINES: usize = 64 * u16::MAX as usize;
 const MAX_DIFF_BYTES: usize = MAX_DIFF_LINES * 128;

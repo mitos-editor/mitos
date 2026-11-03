@@ -138,8 +138,8 @@ pub fn show_signature_help(
     compositor.replace_or_push(SignatureHelp::ID, popup);
 }
 
-pub(super) fn register_hooks() {
-    register_hook!(move |event: &mut OnModeSwitch<'_, '_>| {
+pub(super) fn register_hooks(events: &event::EventHub) {
+    register_hook!(events => move |event: &mut OnModeSwitch<'_, '_>| {
         if event.old_mode == Mode::Insert {
             event.cx.callback.push(Box::new(|compositor, _| {
                 compositor.remove(SignatureHelp::ID);

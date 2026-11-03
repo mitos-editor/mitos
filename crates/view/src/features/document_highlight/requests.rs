@@ -182,19 +182,19 @@ fn schedule(doc: &mut crate::Document, view: ViewId) {
     }
 }
 
-pub(crate) fn register_hooks() {
-    register_hook!(move |event: &mut DocumentLanguageDidChange<'_>| {
+pub(crate) fn register_hooks(events: &event::EventHub) {
+    register_hook!(events => move |event: &mut DocumentLanguageDidChange<'_>| {
         let view_id = event.editor.tree.focus();
         request_document_highlights(event.editor, event.doc, view_id);
         Ok(())
     });
 
-    register_hook!(move |event: &mut SelectionDidChange<'_>| {
+    register_hook!(events => move |event: &mut SelectionDidChange<'_>| {
         schedule(event.doc, event.view);
         Ok(())
     });
 
-    register_hook!(move |event: &mut DocumentDidOpen<'_>| {
+    register_hook!(events => move |event: &mut DocumentDidOpen<'_>| {
         if !event.editor.config().lsp.document_highlight.auto_trigger {
             return Ok(());
         }
@@ -206,14 +206,14 @@ pub(crate) fn register_hooks() {
         Ok(())
     });
 
-    register_hook!(move |event: &mut DocumentDidChange<'_>| {
+    register_hook!(events => move |event: &mut DocumentDidChange<'_>| {
         if let Some(view) = event.view {
             schedule(event.doc, view);
         }
         Ok(())
     });
 
-    register_hook!(move |event: &mut LanguageServerInitialized<'_>| {
+    register_hook!(events => move |event: &mut LanguageServerInitialized<'_>| {
         if !event.editor.config().lsp.document_highlight.auto_trigger {
             return Ok(());
         }
@@ -226,7 +226,7 @@ pub(crate) fn register_hooks() {
         Ok(())
     });
 
-    register_hook!(move |event: &mut LanguageServerExited<'_>| {
+    register_hook!(events => move |event: &mut LanguageServerExited<'_>| {
         for doc in event.editor.documents_mut() {
             if doc.supports_language_server(event.server_id) {
                 doc.clear_all_document_highlights();
@@ -235,7 +235,7 @@ pub(crate) fn register_hooks() {
         Ok(())
     });
 
-    register_hook!(move |event: &mut ConfigDidChange<'_>| {
+    register_hook!(events => move |event: &mut ConfigDidChange<'_>| {
         // When auto document highlight is turned on, request highlights immediately
         // for the focused view instead of waiting for the next selection change.
         if !event.old.lsp.document_highlight.auto_trigger

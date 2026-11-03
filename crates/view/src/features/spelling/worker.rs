@@ -188,11 +188,14 @@ fn recheck_document(editor: &mut Editor, doc_id: DocumentId, changes: ChangeSet,
 
     let doc = editor.documents.get_mut(&doc_id).unwrap();
     doc.splice_diagnostics(diagnostics, &regions, &PROVIDER);
-    event::dispatch(crate::events::DiagnosticsDidChange {
-        editor,
-        doc: doc_id,
-    })
-    .report_to(editor.status_sender());
+    editor
+        .events()
+        .clone()
+        .dispatch(crate::events::DiagnosticsDidChange {
+            editor,
+            doc: doc_id,
+        })
+        .report_to(editor.status_sender());
 }
 
 /// Checks an entire document off the main loop and replaces its spelling diagnostics wholesale.
@@ -254,11 +257,14 @@ fn check_document(editor: &mut Editor, doc_id: DocumentId) {
                 return;
             }
             doc.replace_diagnostics(diagnostics, &[], Some(&PROVIDER));
-            event::dispatch(crate::events::DiagnosticsDidChange {
-                editor,
-                doc: doc_id,
-            })
-            .report_to(editor.status_sender());
+            editor
+                .events()
+                .clone()
+                .dispatch(crate::events::DiagnosticsDidChange {
+                    editor,
+                    doc: doc_id,
+                })
+                .report_to(editor.status_sender());
         });
     });
 }

@@ -265,11 +265,13 @@ impl Editor {
         );
         doc.review = Some(Box::new(state));
         let id = self.new_file_from_document(action, doc);
-        event::dispatch(crate::events::DocumentDidOpen {
-            editor: self,
-            doc: id,
-        })
-        .report_to(self.status_sender());
+        self.events()
+            .clone()
+            .dispatch(crate::events::DocumentDidOpen {
+                editor: self,
+                doc: id,
+            })
+            .report_to(self.status_sender());
         self.start_review(id, work);
         // Pathless projections still need the source repository's metadata watches.
         self.refresh_vcs_watches();

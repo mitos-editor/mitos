@@ -15,14 +15,15 @@ use super::{snippets::insert_snippet, Fixture};
 #[tokio::test(flavor = "multi_thread")]
 async fn document_observers_see_mapped_snippets_and_the_transaction_selection() -> anyhow::Result<()>
 {
+    let events = event::EventHub::default();
     // Install the observer before editor services to exercise the public event contract
     // independently of built-in observer registration order.
-    event::register_event::<DocumentDidChange>();
+
     let armed = Arc::new(AtomicBool::new(false));
     let calls = Arc::new(AtomicUsize::new(0));
     let observe = armed.clone();
     let observed = calls.clone();
-    register_hook!(move |event: &mut DocumentDidChange<'_>| {
+    register_hook!(&events => move |event: &mut DocumentDidChange<'_>| {
         if observe.load(Ordering::Relaxed) {
             let view = event.view.expect("native edit has an originating view");
             assert_eq!(event.doc.text().to_string(), "xxone two\n\n");
@@ -43,7 +44,7 @@ async fn document_observers_see_mapped_snippets_and_the_transaction_selection() 
         }
         Ok(())
     });
-    let mut fixture = Fixture::new("\n\n")?;
+    let mut fixture = Fixture::with_events("\n\n", events.clone())?;
     insert_snippet(&mut fixture.editor)?;
     armed.store(true, Ordering::Relaxed);
     let (view, doc) = current!(fixture.editor);
@@ -56,19 +57,20 @@ async fn document_observers_see_mapped_snippets_and_the_transaction_selection() 
 
 #[tokio::test(flavor = "multi_thread")]
 async fn selection_observers_see_invalid_snippets_removed() -> anyhow::Result<()> {
-    event::register_event::<SelectionDidChange>();
+    let events = event::EventHub::default();
+
     let armed = Arc::new(AtomicBool::new(false));
     let calls = Arc::new(AtomicUsize::new(0));
     let observe = armed.clone();
     let observed = calls.clone();
-    register_hook!(move |event: &mut SelectionDidChange<'_>| {
+    register_hook!(&events => move |event: &mut SelectionDidChange<'_>| {
         if observe.load(Ordering::Relaxed) {
             assert!(event.doc.active_snippet().is_none());
             observed.fetch_add(1, Ordering::Relaxed);
         }
         Ok(())
     });
-    let mut fixture = Fixture::new("\n\n")?;
+    let mut fixture = Fixture::with_events("\n\n", events.clone())?;
     insert_snippet(&mut fixture.editor)?;
     armed.store(true, Ordering::Relaxed);
     let (view, doc) = current!(fixture.editor);
@@ -79,17 +81,18 @@ async fn selection_observers_see_invalid_snippets_removed() -> anyhow::Result<()
 
 #[tokio::test(flavor = "multi_thread")]
 async fn document_observers_can_commit_the_complete_undo_group() -> anyhow::Result<()> {
-    event::register_event::<DocumentDidChange>();
+    let events = event::EventHub::default();
+
     let armed = Arc::new(AtomicBool::new(false));
     let observe = armed.clone();
-    register_hook!(move |event: &mut DocumentDidChange<'_>| {
+    register_hook!(&events => move |event: &mut DocumentDidChange<'_>| {
         if observe.load(Ordering::Relaxed) {
             assert!(!event.doc.changes().is_empty());
             assert!(event.doc.commit_changes().is_some());
         }
         Ok(())
     });
-    let mut fixture = Fixture::new("abc\n")?;
+    let mut fixture = Fixture::with_events("abc\n", events.clone())?;
     let (_, doc) = current!(fixture.editor);
     let transaction = Transaction::change(doc.text(), [(0, 1, Some("界".into()))].into_iter());
     armed.store(true, Ordering::Relaxed);
@@ -105,8 +108,9 @@ async fn document_observers_can_commit_the_complete_undo_group() -> anyhow::Resu
 
 #[tokio::test(flavor = "multi_thread")]
 async fn history_observers_see_the_revision_of_each_intermediate_text() -> anyhow::Result<()> {
+    let events = event::EventHub::default();
     use buffer::history::UndoKind;
-    let mut fixture = Fixture::new("abc\n")?;
+    let mut fixture = Fixture::with_events("abc\n", events.clone())?;
     let (_, doc) = current!(fixture.editor);
     for (from, to, text) in [(0, 1, "A"), (1, 2, "B")] {
         let transaction =
@@ -120,7 +124,7 @@ async fn history_observers_see_the_revision_of_each_intermediate_text() -> anyho
     doc.commit_changes();
     let observed = Arc::new(std::sync::Mutex::new(Vec::new()));
     let records = observed.clone();
-    register_hook!(move |event: &mut DocumentDidChange<'_>| {
+    register_hook!(&events => move |event: &mut DocumentDidChange<'_>| {
         records.lock().unwrap().push((
             event.doc.snapshot().revision(),
             event.doc.text().to_string(),
@@ -137,8 +141,9 @@ async fn history_observers_see_the_revision_of_each_intermediate_text() -> anyho
 
 #[tokio::test(flavor = "multi_thread")]
 async fn edits_from_history_observers_stop_remaining_replay_steps() -> anyhow::Result<()> {
+    let events = event::EventHub::default();
     use buffer::history::UndoKind;
-    let mut fixture = Fixture::new("abc\n")?;
+    let mut fixture = Fixture::with_events("abc\n", events.clone())?;
     let (_, doc) = current!(fixture.editor);
     for (from, to, text) in [(0, 1, "A"), (1, 2, "B")] {
         let transaction =
@@ -151,7 +156,7 @@ async fn edits_from_history_observers_stop_remaining_replay_steps() -> anyhow::R
     doc.apply(transaction.changes())?;
     doc.commit_changes();
     let armed = Arc::new(AtomicBool::new(true));
-    register_hook!(move |event: &mut DocumentDidChange<'_>| {
+    register_hook!(&events => move |event: &mut DocumentDidChange<'_>| {
         if armed.swap(false, Ordering::Relaxed) {
             let transaction =
                 Transaction::change(event.doc.text(), [(0, 1, Some("Q".into()))].into_iter());

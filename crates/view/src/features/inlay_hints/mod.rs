@@ -28,8 +28,8 @@ impl InlayHintsHandler {
     }
 }
 
-pub(crate) fn register_hooks() {
-    register_hook!(move |event: &mut LanguageServerExited<'_>| {
+pub(crate) fn register_hooks(events: &event::EventHub) {
+    register_hook!(events => move |event: &mut LanguageServerExited<'_>| {
         for doc in event.editor.documents_mut() {
             if doc.supports_language_server(event.server_id) {
                 doc.reset_all_inlay_hints();
@@ -37,7 +37,7 @@ pub(crate) fn register_hooks() {
         }
         Ok(())
     });
-    register_hook!(move |event: &mut ConfigDidChange<'_>| {
+    register_hook!(events => move |event: &mut ConfigDidChange<'_>| {
         if event.old.lsp.inlay_hints != event.new.lsp.inlay_hints
             || event.old.lsp.enable != event.new.lsp.enable
         {

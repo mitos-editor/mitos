@@ -397,8 +397,6 @@ pub(crate) mod tests {
 
     #[tokio::test]
     async fn syntax_aware_edits_use_document_resources_until_language_refresh() {
-        event::register_event::<crate::events::DocumentDidChange>();
-        event::register_event::<crate::events::SelectionDidChange>();
         let language_loader = |prefix: &str, token: &str| {
             Arc::new(
                 syntax::Loader::new(
@@ -528,6 +526,6 @@ pub mod syntax;
 
 mod transform;
 pub use transform::{
-    continued_line_comment_token, join_selections, move_lines, reorder_selection_contents,
-    toggle_block_comments, toggle_comments, toggle_line_comments,
+    continued_line_comment_token, join_selections, move_lines, reflow_selections,
+    reorder_selection_contents, toggle_block_comments, toggle_comments, toggle_line_comments,
 };

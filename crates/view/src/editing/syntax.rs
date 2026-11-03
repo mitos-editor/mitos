@@ -148,8 +148,6 @@ mod tests {
     use std::sync::Arc;
 
     fn document(text: &str, language: &str) -> Document {
-        event::register_event::<crate::events::SelectionDidChange>();
-        event::register_event::<crate::events::DocumentDidChange>();
         let loader = Arc::new(syntax::Loader::new(
             toml::from_str(&format!("[[language]]\nname = '{language}'\nscope = 'source.{language}'\nfile-types = []")).unwrap(),
             loader::syntax::Resources::default(),

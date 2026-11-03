@@ -21,11 +21,14 @@ fn restrict(f: &mut Fixture) -> anyhow::Result<PathBuf> {
 
 fn opened(f: &mut Fixture) {
     let doc = current_ref!(f.editor).1.id();
-    event::dispatch(DocumentDidOpen {
-        editor: &mut f.editor,
-        doc,
-    })
-    .report_to(f.editor.status_sender());
+    f.editor
+        .events()
+        .clone()
+        .dispatch(DocumentDidOpen {
+            editor: &mut f.editor,
+            doc,
+        })
+        .report_to(f.editor.status_sender());
 }
 
 #[tokio::test(flavor = "multi_thread")]

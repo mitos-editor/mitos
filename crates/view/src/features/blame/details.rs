@@ -118,8 +118,8 @@ pub fn next_update(editor: &Editor) -> Option<BlameDetailsUpdate> {
     })
 }
 
-pub(super) fn register_hooks() {
-    register_hook!(move |event: &mut DocumentFocusLost<'_>| {
+pub(super) fn register_hooks(events: &event::EventHub) {
+    register_hook!(events => move |event: &mut DocumentFocusLost<'_>| {
         let mut session = event.editor.handlers.blame.details.lock();
         session.cancel.cancel();
         session.target = None;

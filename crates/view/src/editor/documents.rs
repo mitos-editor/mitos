@@ -4,7 +4,6 @@ use std::{io::stdin, path::Path};
 
 use anyhow::Error;
 use editor_core::Selection;
-use event::dispatch;
 use workspace::trust::TrustQuery;
 
 use crate::{
@@ -98,15 +97,19 @@ impl Editor {
                 self.replace_document_in_view(view_id, id);
 
                 if let Some(doc) = closed {
-                    dispatch(DocumentDidClose { editor: self, doc })
+                    self.events()
+                        .clone()
+                        .dispatch(DocumentDidClose { editor: self, doc })
                         .report_to(self.status_sender());
                 } else {
-                    dispatch(DocumentFocusLost {
-                        editor: self,
-                        doc: old_doc_id,
-                        view: view_id,
-                    })
-                    .report_to(self.status_sender());
+                    self.events()
+                        .clone()
+                        .dispatch(DocumentFocusLost {
+                            editor: self,
+                            doc: old_doc_id,
+                            view: view_id,
+                        })
+                        .report_to(self.status_sender());
                 }
                 return;
             }
@@ -156,12 +159,14 @@ impl Editor {
 
         self._refresh();
         if let Some((focus_lost, view)) = focus_lost {
-            dispatch(DocumentFocusLost {
-                editor: self,
-                doc: focus_lost,
-                view,
-            })
-            .report_to(self.status_sender());
+            self.events()
+                .clone()
+                .dispatch(DocumentFocusLost {
+                    editor: self,
+                    doc: focus_lost,
+                    view,
+                })
+                .report_to(self.status_sender());
         }
     }
 
@@ -234,11 +239,13 @@ impl Editor {
     pub fn open_scratch(&mut self, path: &Path, action: Action) -> anyhow::Result<DocumentId> {
         let doc = Document::open_scratch(path, self.config.clone(), self.syn_loader.load_full())?;
         let id = self.new_file_from_document(action, doc);
-        dispatch(DocumentDidOpen {
-            editor: self,
-            doc: id,
-        })
-        .report_to(self.status_sender());
+        self.events()
+            .clone()
+            .dispatch(DocumentDidOpen {
+                editor: self,
+                doc: id,
+            })
+            .report_to(self.status_sender());
         Ok(id)
     }
 
@@ -286,11 +293,13 @@ impl Editor {
             }
             self.launch_language_servers(id);
 
-            event::dispatch(DocumentDidOpen {
-                editor: self,
-                doc: id,
-            })
-            .report_to(self.status_sender());
+            self.events()
+                .clone()
+                .dispatch(DocumentDidOpen {
+                    editor: self,
+                    doc: id,
+                })
+                .report_to(self.status_sender());
 
             id
         };
@@ -381,7 +390,10 @@ impl Editor {
         self._refresh();
 
         crate::handlers::lsp::close_document(&doc);
-        event::dispatch(DocumentDidClose { editor: self, doc }).report_to(self.status_sender());
+        self.events()
+            .clone()
+            .dispatch(DocumentDidClose { editor: self, doc })
+            .report_to(self.status_sender());
 
         Ok(())
     }

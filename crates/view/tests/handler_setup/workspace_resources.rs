@@ -1,4 +1,5 @@
 use super::Fixture;
+use lsp_client::UriExt as _;
 use lsp_client::{lsp, OffsetEncoding, Url};
 use serde_json::json;
 use view::{

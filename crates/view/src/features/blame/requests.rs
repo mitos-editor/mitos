@@ -149,9 +149,9 @@ fn request_visible_blame(editor: &mut Editor) {
     }
 }
 
-pub(crate) fn register_hooks() {
-    super::details::register_hooks();
-    register_hook!(move |event: &mut DocumentDidOpen<'_>| {
+pub(crate) fn register_hooks(events: &event::EventHub) {
+    super::details::register_hooks(events);
+    register_hook!(events => move |event: &mut DocumentDidOpen<'_>| {
         if event.editor.config().inline_blame.show != InlineBlameShow::Never {
             // Open hooks run before the caller installs the document in a view.
             // Check visibility on the editor queue, after that transition finishes.
@@ -167,12 +167,12 @@ pub(crate) fn register_hooks() {
         }
         Ok(())
     });
-    register_hook!(move |event: &mut DocumentFocusLost<'_>| {
+    register_hook!(events => move |event: &mut DocumentFocusLost<'_>| {
         // This event runs after buffer and split transitions; inspect the new views.
         request_visible_blame(event.editor);
         Ok(())
     });
-    register_hook!(move |event: &mut ConfigDidChange<'_>| {
+    register_hook!(events => move |event: &mut ConfigDidChange<'_>| {
         // Grants, exclusions, and stale workspace configuration can change the
         // effective decision even when the serialized settings stay the same.
         for doc in event.editor.documents.values_mut() {
