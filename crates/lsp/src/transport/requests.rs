@@ -6,7 +6,7 @@ use serde_json::Value;
 use std::{collections::HashMap, future::Future, sync::Arc};
 use tokio::sync::{
     mpsc::{UnboundedSender, WeakUnboundedSender},
-    oneshot, Notify,
+    oneshot,
 };
 
 /// Shared with request futures so dropping one never waits for the writer task.
@@ -14,7 +14,6 @@ use tokio::sync::{
 pub(crate) struct PendingRequests {
     // None closes registration atomically with draining outstanding requests.
     requests: Mutex<Option<HashMap<jsonrpc::Id, PendingRequest>>>,
-    closed: Notify,
 }
 
 #[derive(Debug)]
@@ -27,7 +26,6 @@ impl Default for PendingRequests {
     fn default() -> Self {
         Self {
             requests: Mutex::new(Some(HashMap::default())),
-            closed: Notify::new(),
         }
     }
 }
@@ -160,17 +158,7 @@ impl PendingRequests {
         let pending = self.requests.lock().take();
         let was_open = pending.is_some();
         drop(pending);
-        self.closed.notify_waiters();
         was_open
-    }
-
-    pub(super) async fn closed(&self) {
-        let notified = self.closed.notified();
-        tokio::pin!(notified);
-        notified.as_mut().enable();
-        if self.requests.lock().is_some() {
-            notified.await;
-        }
     }
 
     #[cfg(test)]

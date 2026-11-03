@@ -6,22 +6,19 @@ use serde_json::Value;
 use std::{
     collections::HashMap,
     fmt::Debug,
-    sync::{Arc, Mutex as SequenceMutex},
+    sync::{Arc, Mutex},
 };
 use tokio::{
-    io::{AsyncBufRead, AsyncBufReadExt, AsyncReadExt, AsyncWrite, AsyncWriteExt},
+    io::{AsyncBufRead, AsyncBufReadExt, AsyncWrite},
     sync::{
-        mpsc::{unbounded_channel, Sender, UnboundedReceiver, UnboundedSender},
-        oneshot, Mutex,
+        mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender},
+        oneshot,
     },
 };
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 /// DAP request envelope sent in either direction.
 pub struct Request {
-    /// Local response channel; skipped during serialization.
-    #[serde(skip)]
-    pub back_ch: Option<Sender<Result<Response>>>,
     pub seq: u64,
     pub command: String,
     pub arguments: Option<Value>,
@@ -49,7 +46,7 @@ pub struct Event {
     pub body: Option<Value>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 /// Message exchanged between a [`Transport`] and its client-facing owner.
 pub enum Payload {
@@ -63,6 +60,10 @@ pub enum Payload {
 
 #[derive(Debug)]
 enum Outgoing {
+    Request {
+        request: Request,
+        reply: oneshot::Sender<Result<Response>>,
+    },
     Message(Payload),
     Forget(u64),
 }
@@ -118,8 +119,8 @@ impl Transport {
             };
             // Both IO futures have been dropped. New requests are rejected and all
             // outstanding waits complete before the owner sees the closure event.
-            for (_, sender) in state.pending_requests.lock().await.drain() {
-                let _ = sender.try_send(Err(Error::StreamClosed));
+            for (_, sender) in state.pending_requests.lock().unwrap().drain() {
+                let _ = sender.send(Err(Error::StreamClosed));
             }
             let error = match result {
                 Ok(()) | Err(Error::StreamClosed) => None,
@@ -134,7 +135,7 @@ impl Transport {
             rx,
             TransportSender {
                 tx,
-                sequence: Arc::new(SequenceMutex::new(1)),
+                sequence: Arc::new(Mutex::new(1)),
             },
         )
     }
@@ -144,39 +145,44 @@ impl Transport {
 #[derive(Clone, Debug)]
 pub struct TransportSender {
     tx: UnboundedSender<Outgoing>,
-    sequence: Arc<SequenceMutex<u64>>,
+    sequence: Arc<Mutex<u64>>,
 }
 
 impl TransportSender {
-    pub fn send(&self, payload: Payload) -> Result<()> {
-        self.send_message(payload).map(|_| ())
+    pub fn send(&self, mut payload: Payload) -> Result<()> {
+        self.enqueue(|sequence| {
+            match &mut payload {
+                Payload::Request(request) => request.seq = sequence,
+                Payload::Response(response) => response.seq = Some(sequence),
+                Payload::Event(event) => event.seq = Some(sequence),
+            }
+            Outgoing::Message(payload)
+        })
+        .map(|_| ())
     }
 
     pub(crate) fn send_request(
         &self,
         command: &str,
         arguments: Option<Value>,
-        back_ch: Sender<Result<Response>>,
+        reply: oneshot::Sender<Result<Response>>,
     ) -> Result<u64> {
-        self.send_message(Payload::Request(Request {
-            back_ch: Some(back_ch),
-            seq: 0,
-            command: command.to_owned(),
-            arguments,
-        }))
+        self.enqueue(|seq| Outgoing::Request {
+            request: Request {
+                seq,
+                command: command.to_owned(),
+                arguments,
+            },
+            reply,
+        })
     }
 
-    fn send_message(&self, mut payload: Payload) -> Result<u64> {
+    fn enqueue(&self, message: impl FnOnce(u64) -> Outgoing) -> Result<u64> {
         // Allocate and enqueue together so cloned senders preserve wire order.
         let mut next = self.sequence.lock().unwrap();
         let sequence = *next;
-        match &mut payload {
-            Payload::Request(request) => request.seq = sequence,
-            Payload::Response(response) => response.seq = Some(sequence),
-            Payload::Event(event) => event.seq = Some(sequence),
-        }
         self.tx
-            .send(Outgoing::Message(payload))
+            .send(message(sequence))
             .map_err(|_| Error::StreamClosed)?;
         *next += 1;
         Ok(sequence)
@@ -189,7 +195,7 @@ impl TransportSender {
 
 struct TransportState {
     id: DebugAdapterId,
-    pending_requests: Mutex<HashMap<u64, Sender<Result<Response>>>>,
+    pending_requests: Mutex<HashMap<u64, oneshot::Sender<Result<Response>>>>,
 }
 
 impl TransportState {
@@ -199,39 +205,7 @@ impl TransportState {
         buffer: &mut String,
         content: &mut Vec<u8>,
     ) -> Result<Payload> {
-        let mut content_length = None;
-        loop {
-            buffer.clear();
-            if reader.read_line(buffer).await? == 0 {
-                return Err(Error::StreamClosed);
-            };
-
-            if buffer == "\r\n" {
-                // look for an empty CRLF line
-                break;
-            }
-
-            let header = buffer.trim();
-            let parts = header.split_once(": ");
-
-            match parts {
-                Some(("Content-Length", value)) => {
-                    content_length = Some(value.parse().context("invalid content length")?);
-                }
-                Some((_, _)) => {}
-                None => {
-                    // Workaround: Some non-conformant language servers will output logging and other garbage
-                    // into the same stream as JSON-RPC messages. This can also happen from shell scripts that spawn
-                    // the server. Skip such lines and log a warning.
-
-                    // warn!("Failed to parse header: {:?}", header);
-                }
-            }
-        }
-
-        let content_length = content_length.context("missing content length")?;
-        content.resize(content_length, 0);
-        reader.read_exact(content).await?;
+        protocol_io::read_frame(reader, buffer, content).await?;
         let msg = std::str::from_utf8(content).context("invalid utf8 from server")?;
 
         info!("[{}] <- DAP {}", id, msg);
@@ -262,14 +236,9 @@ impl TransportState {
     async fn send_payload_to_server(
         &self,
         server_stdin: &mut Box<dyn AsyncWrite + Unpin + Send>,
-        mut payload: Payload,
+        payload: Payload,
         json: &mut Vec<u8>,
     ) -> Result<()> {
-        if let Payload::Request(request) = &mut payload
-            && let Some(back) = request.back_ch.take()
-        {
-            self.pending_requests.lock().await.insert(request.seq, back);
-        }
         json.clear();
         sonic_rs::to_writer(&mut *json, &payload)?;
         self.send_bytes_to_server(server_stdin, json).await?;
@@ -291,16 +260,7 @@ impl TransportState {
             std::str::from_utf8(request).expect("JSON is valid UTF-8")
         );
 
-        // send the headers
-        server_stdin
-            .write_all(format!("Content-Length: {}\r\n\r\n", request.len()).as_bytes())
-            .await?;
-
-        // send the body
-        server_stdin.write_all(request).await?;
-
-        server_stdin.flush().await?;
-
+        protocol_io::write_frame(server_stdin, request).await?;
         Ok(())
     }
 
@@ -336,25 +296,16 @@ impl TransportState {
         match msg {
             Payload::Response(res) => {
                 let request_seq = res.request_seq;
-                let tx = self.pending_requests.lock().await.remove(&request_seq);
+                let tx = self.pending_requests.lock().unwrap().remove(&request_seq);
 
-                match tx {
-                    Some(tx) if !tx.is_closed() => {
-                        match tx.send(self.process_response(res)).await {
-                            Ok(_) => (),
-                            Err(_) => {
-                                log::debug!(
-                                    "Discarding response to canceled request #{request_seq}"
-                                )
-                            }
-                        }
+                if let Some(tx) = tx {
+                    if tx.send(self.process_response(res)).is_err() {
+                        log::debug!("Discarding response to canceled request #{request_seq}");
                     }
-                    Some(_) | None => {
-                        log::debug!(
-                            "Discarding response to completed or canceled request #{}",
-                            res.request_seq
-                        );
-                    }
+                } else {
+                    log::debug!(
+                        "Discarding response to completed or canceled request #{request_seq}"
+                    );
                 }
 
                 Ok(())
@@ -405,12 +356,24 @@ impl TransportState {
         let mut json = Vec::new();
         while let Some(command) = client_rx.recv().await {
             match command {
+                Outgoing::Request { request, reply } => {
+                    self.pending_requests
+                        .lock()
+                        .unwrap()
+                        .insert(request.seq, reply);
+                    self.send_payload_to_server(
+                        &mut server_stdin,
+                        Payload::Request(request),
+                        &mut json,
+                    )
+                    .await?;
+                }
                 Outgoing::Message(payload) => {
                     self.send_payload_to_server(&mut server_stdin, payload, &mut json)
                         .await?
                 }
                 Outgoing::Forget(sequence) => {
-                    self.pending_requests.lock().await.remove(&sequence);
+                    self.pending_requests.lock().unwrap().remove(&sequence);
                 }
             }
         }
@@ -496,25 +459,15 @@ mod tests {
             None,
             DebugAdapterId::default(),
         );
-        let (reply, mut response) = tokio::sync::mpsc::channel(1);
-        sender
-            .send(Payload::Request(Request {
-                back_ch: Some(reply),
-                seq: 1,
-                command: "threads".into(),
-                arguments: None,
-            }))
-            .unwrap();
+        let (reply, response) = oneshot::channel();
+        sender.send_request("threads", None, reply).unwrap();
         assert!(matches!(
             tokio::time::timeout(std::time::Duration::from_secs(5), incoming.recv())
                 .await
                 .unwrap(),
             Some((_, ClientEvent::Closed { error: Some(_) }))
         ));
-        assert!(matches!(
-            response.recv().await,
-            Some(Err(Error::StreamClosed))
-        ));
+        assert!(matches!(response.await, Ok(Err(Error::StreamClosed))));
         assert!(incoming.recv().await.is_none());
     }
 }

@@ -49,3 +49,55 @@ impl fmt::Display for RequestError {
 }
 
 impl std::error::Error for RequestError {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn display_substitutes_once_and_falls_back_for_missing_or_invalid_details() {
+        for (message, body, detail) in [
+            (Some("notStopped"), None, "notStopped"),
+            (
+                None,
+                Some(
+                    json!({"error": {"id": 42, "format": "Cannot read {name}: {reason}", "variables": {"name": "{reason}", "reason": "unavailable"}}}),
+                ),
+                "Cannot read {reason}: unavailable",
+            ),
+            (
+                Some("short error"),
+                Some(json!({"error": {"format": "Unknown {missing}"}})),
+                "Unknown {missing}",
+            ),
+            (
+                Some("fallback"),
+                Some(json!({"error": {"format": 42}})),
+                "fallback",
+            ),
+            (
+                Some("fallback"),
+                Some(json!({"error": {"format": " "}})),
+                "fallback",
+            ),
+            (
+                None,
+                Some(json!({"unexpected": true})),
+                "adapter returned no error details",
+            ),
+            (None, None, "adapter returned no error details"),
+        ] {
+            let error = RequestError {
+                command: "threads".into(),
+                request_seq: 1,
+                message: message.map(str::to_owned),
+                body,
+            };
+            assert_eq!(
+                error.to_string(),
+                format!("threads request failed: {detail}")
+            );
+        }
+    }
+}

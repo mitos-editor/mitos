@@ -50,6 +50,16 @@ pub enum Error {
 /// Result type used by DAP client and transport operations.
 pub type Result<T> = core::result::Result<T, Error>;
 
+impl From<protocol_io::ReadError> for Error {
+    fn from(error: protocol_io::ReadError) -> Self {
+        match error {
+            protocol_io::ReadError::Closed => Self::StreamClosed,
+            protocol_io::ReadError::Io(error) => Self::IO(error),
+            error => Self::Other(error.into()),
+        }
+    }
+}
+
 impl From<serde_json::Error> for Error {
     fn from(value: serde_json::Error) -> Self {
         Self::Parse(Box::new(value))
@@ -88,60 +98,42 @@ impl Request {
     }
 }
 
-#[derive(Debug)]
-/// Debug adapter events handled by the editor.
-pub enum Event {
-    Initialized(<events::Initialized as events::Event>::Body),
-    Stopped(<events::Stopped as events::Event>::Body),
-    Continued(<events::Continued as events::Event>::Body),
-    Exited(<events::Exited as events::Event>::Body),
-    Terminated(<events::Terminated as events::Event>::Body),
-    Thread(<events::Thread as events::Event>::Body),
-    Output(<events::Output as events::Event>::Body),
-    Breakpoint(<events::Breakpoint as events::Event>::Body),
-    Module(<events::Module as events::Event>::Body),
-    LoadedSource(<events::LoadedSource as events::Event>::Body),
-    Process(<events::Process as events::Event>::Body),
-    Capabilities(<events::Capabilities as events::Event>::Body),
-    ProgressStart(<events::ProgressStart as events::Event>::Body),
-    ProgressUpdate(<events::ProgressUpdate as events::Event>::Body),
-    ProgressEnd(<events::ProgressEnd as events::Event>::Body),
-    Invalidated(<events::Invalidated as events::Event>::Body),
-    Memory(<events::Memory as events::Event>::Body),
-}
-
-impl Event {
-    /// Decodes an event by its wire event name.
-    ///
-    /// Missing bodies are decoded from JSON `null`, and unknown events return
-    /// [`Error::Unhandled`].
-    pub fn parse(event: &str, body: Option<serde_json::Value>) -> Result<Self> {
-        use crate::events::Event as _;
-
-        let body = body.unwrap_or_default();
-        let event = match event {
-            events::Initialized::EVENT => Self::Initialized(parse_value(body)?),
-            events::Invalidated::EVENT => Self::Invalidated(parse_value(body)?),
-            events::Stopped::EVENT => Self::Stopped(parse_value(body)?),
-            events::Continued::EVENT => Self::Continued(parse_value(body)?),
-            events::Exited::EVENT => Self::Exited(parse_value(body)?),
-            events::Terminated::EVENT => Self::Terminated(parse_value(body)?),
-            events::Thread::EVENT => Self::Thread(parse_value(body)?),
-            events::Output::EVENT => Self::Output(parse_value(body)?),
-            events::Breakpoint::EVENT => Self::Breakpoint(parse_value(body)?),
-            events::Module::EVENT => Self::Module(parse_value(body)?),
-            events::LoadedSource::EVENT => Self::LoadedSource(parse_value(body)?),
-            events::Process::EVENT => Self::Process(parse_value(body)?),
-            events::Capabilities::EVENT => Self::Capabilities(parse_value(body)?),
-            events::ProgressStart::EVENT => Self::ProgressStart(parse_value(body)?),
-            events::ProgressUpdate::EVENT => Self::ProgressUpdate(parse_value(body)?),
-            events::ProgressEnd::EVENT => Self::ProgressEnd(parse_value(body)?),
-            events::Memory::EVENT => Self::Memory(parse_value(body)?),
-            _ => return Err(Error::Unhandled),
-        };
-
-        Ok(event)
+macro_rules! decoded_events {
+    ($($event:ident),* $(,)?) => {
+        /// Debug adapter events handled by the editor.
+        #[derive(Debug)]
+        pub enum Event { $($event(<events::$event as events::Event>::Body),)* }
+        impl Event {
+            /// Decode the event body; unknown event names remain unhandled.
+            pub fn parse(event: &str, body: Option<serde_json::Value>) -> Result<Self> {
+                use events::Event as _;
+                let body = body.unwrap_or_default();
+                Ok(match event {
+                    $(events::$event::EVENT => Self::$event(parse_value(body)?),)*
+                    _ => return Err(Error::Unhandled),
+                })
+            }
+        }
     }
+}
+decoded_events! {
+    Initialized,
+    Stopped,
+    Continued,
+    Exited,
+    Terminated,
+    Thread,
+    Output,
+    Breakpoint,
+    Module,
+    LoadedSource,
+    Process,
+    Capabilities,
+    ProgressStart,
+    ProgressUpdate,
+    ProgressEnd,
+    Invalidated,
+    Memory,
 }
 
 fn parse_value<T>(value: serde_json::Value) -> Result<T>
