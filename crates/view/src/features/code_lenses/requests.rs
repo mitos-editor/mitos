@@ -401,26 +401,26 @@ pub fn resolve_code_lenses(
     })
 }
 
-pub(crate) fn register_hooks() {
-    register_hook!(move |event: &mut DocumentDidOpen<'_>| {
+pub(crate) fn register_hooks(events: &event::EventHub) {
+    register_hook!(events => move |event: &mut DocumentDidOpen<'_>| {
         request_document_code_lenses(event.editor, event.doc, None);
         Ok(())
     });
-    register_hook!(move |event: &mut DocumentDidChange<'_>| {
+    register_hook!(events => move |event: &mut DocumentDidChange<'_>| {
         if let Some(handler) = &event.doc.code_lenses.handler {
             event::send_blocking(&handler.events, event.doc.id());
         }
         Ok(())
     });
-    register_hook!(move |event: &mut DocumentDidClose<'_>| {
+    register_hook!(events => move |event: &mut DocumentDidClose<'_>| {
         event.doc.code_lenses.cancel_requests();
         Ok(())
     });
-    register_hook!(move |event: &mut LanguageServerInitialized<'_>| {
+    register_hook!(events => move |event: &mut LanguageServerInitialized<'_>| {
         refresh_for_language_server(event.editor, event.server_id);
         Ok(())
     });
-    register_hook!(move |event: &mut LanguageServerExited<'_>| {
+    register_hook!(events => move |event: &mut LanguageServerExited<'_>| {
         let docs: Vec<_> = event
             .editor
             .documents_mut()
@@ -437,7 +437,7 @@ pub(crate) fn register_hooks() {
         }
         Ok(())
     });
-    register_hook!(move |event: &mut ConfigDidChange<'_>| {
+    register_hook!(events => move |event: &mut ConfigDidChange<'_>| {
         for doc in event.editor.documents_mut() {
             doc.code_lenses.clear();
         }

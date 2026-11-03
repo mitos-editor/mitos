@@ -31,6 +31,40 @@ pub(crate) fn symbol_kind_scope(kind: lsp_client::lsp::SymbolKind) -> &'static s
     }
 }
 
+/// Icon theme names belong to the frontend, including the unknown-kind fallback.
+pub(crate) fn symbol_kind_icon_name(kind: lsp_client::lsp::SymbolKind) -> &'static str {
+    use lsp_client::lsp::SymbolKind;
+    match kind {
+        SymbolKind::FILE => "file",
+        SymbolKind::MODULE => "module",
+        SymbolKind::NAMESPACE => "namespace",
+        SymbolKind::PACKAGE => "package",
+        SymbolKind::CLASS => "class",
+        SymbolKind::METHOD => "method",
+        SymbolKind::PROPERTY => "property",
+        SymbolKind::FIELD => "field",
+        SymbolKind::CONSTRUCTOR => "constructor",
+        SymbolKind::ENUM => "enum",
+        SymbolKind::INTERFACE => "interface",
+        SymbolKind::FUNCTION => "function",
+        SymbolKind::VARIABLE => "variable",
+        SymbolKind::CONSTANT => "constant",
+        SymbolKind::STRING => "string",
+        SymbolKind::NUMBER => "number",
+        SymbolKind::BOOLEAN => "boolean",
+        SymbolKind::ARRAY => "array",
+        SymbolKind::OBJECT => "object",
+        SymbolKind::KEY => "key",
+        SymbolKind::NULL => "null",
+        SymbolKind::ENUM_MEMBER => "enum_member",
+        SymbolKind::STRUCT => "struct",
+        SymbolKind::EVENT => "event",
+        SymbolKind::OPERATOR => "operator",
+        SymbolKind::TYPE_PARAMETER => "type_param",
+        _ => "",
+    }
+}
+
 #[derive(Default)]
 struct PageSelection {
     keys: ui_core::keymap::KeymapState,

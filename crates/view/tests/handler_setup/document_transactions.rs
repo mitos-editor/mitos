@@ -1,5 +1,6 @@
 use super::Fixture;
 use editor_core::{Selection, Transaction};
+use lsp_client::UriExt as _;
 use view::{current, current_ref, editor::Action};
 
 #[tokio::test(flavor = "multi_thread")]

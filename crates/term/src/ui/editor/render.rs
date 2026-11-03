@@ -53,6 +53,7 @@ impl PaneRenderer {
         layout: ApplicationLayout,
         surface: &mut Surface,
         image_picker: Option<&ratatui_image::picker::Picker>,
+        image_cache: &crate::ui::image::ImageCache,
         options: PaneOptions,
     ) {
         self.spinners
@@ -78,12 +79,12 @@ impl PaneRenderer {
                 let style = editor.theme.get("ui.text");
                 if let Some(picker) = image_picker {
                     let size = Size::new(content.width, content.height.saturating_sub(2).max(1));
-                    let image = self
-                        .images
-                        .entry(view.id)
-                        .or_insert_with(|| ImageDocumentView::new(doc, picker.clone(), size));
+                    let image = self.images.entry(view.id).or_insert_with(|| {
+                        ImageDocumentView::new(image_cache.clone(), doc, picker.clone(), size)
+                    });
                     if !image.matches(doc, size) {
-                        *image = ImageDocumentView::new(doc, picker.clone(), size);
+                        *image =
+                            ImageDocumentView::new(image_cache.clone(), doc, picker.clone(), size);
                     }
                     image.render(content, surface, style);
                 } else {

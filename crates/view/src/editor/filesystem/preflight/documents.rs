@@ -1,5 +1,6 @@
 //! Snapshot all open documents, then validate only the operation's affected paths.
 
+use lsp_client::UriExt as _;
 use std::{collections::HashMap, path::PathBuf};
 
 use anyhow::{ensure, Result};
@@ -80,7 +81,7 @@ impl DocumentGuard {
 
 fn append_edit_paths(paths: &mut Vec<PathBuf>, edit: &lsp::WorkspaceEdit) -> Result<()> {
     let mut append = |url: &lsp_client::Url| -> Result<()> {
-        let uri = Uri::try_from(url)?;
+        let uri = url.to_editor_uri()?;
         if let Some(path) = uri.as_path() {
             paths.push(path.to_owned());
         }

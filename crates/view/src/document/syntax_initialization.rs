@@ -256,10 +256,7 @@ mod tests {
     use editor_core::{Selection, Transaction};
 
     use super::*;
-    use crate::{
-        events::{DocumentDidChange, SelectionDidChange},
-        ViewId,
-    };
+    use crate::ViewId;
     use editor_config::Config;
 
     fn loader() -> Arc<syntax::Loader> {
@@ -380,8 +377,6 @@ mod tests {
 
     #[tokio::test]
     async fn unregistered_documents_keep_syntax_resources_across_registry_changes() {
-        event::register_event::<DocumentDidChange>();
-        event::register_event::<SelectionDidChange>();
         let resources = loader();
         let registry = ArcSwap::new(resources.clone());
         let mut doc = document(&registry.load_full());
@@ -422,8 +417,6 @@ mod tests {
 
     #[tokio::test]
     async fn edits_during_initialization_are_parsed_before_publication() {
-        event::register_event::<DocumentDidChange>();
-        event::register_event::<SelectionDidChange>();
         let loader = loader();
         let mut doc = document(&loader);
         detect_language(&mut doc, "json", &loader);
@@ -512,8 +505,6 @@ mod tests {
     }
 
     fn insert_line(doc: &mut Document) {
-        event::register_event::<DocumentDidChange>();
-        event::register_event::<SelectionDidChange>();
         let transaction =
             Transaction::change(doc.text(), [(0, 0, Some("use a;\n".into()))].into_iter());
         doc.apply(transaction.changes()).unwrap();

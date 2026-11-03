@@ -12,7 +12,8 @@
 //!
 //! Hooks run synchronously which can be advantageous since they can modify the
 //! current editor state right away (for example to immediately hide the completion
-//! popup). However, they cannot contain their own state without locking since
+//! popup). Each [`EventHub`] owns its subscriptions explicitly. Hooks cannot
+//! contain their own mutable state without locking since
 //! they only receive immutable references. For handlers that want to track state, do
 //! expensive background computations, or debounce, an [`AsyncHook`] is preferable.
 //! Async hooks are based around channels that receive events specific to
@@ -37,7 +38,7 @@ use anyhow::Result;
 pub use cancel::{cancelable_future, TaskController, TaskHandle};
 pub use debounce::{send_blocking, AsyncHook};
 pub use redraw::{Redraw, RenderLockGuard, RequestRedrawOnDrop};
-pub use registry::{Event, HookRegistration};
+pub use registry::{Event, EventHub, HookRegistration};
 
 #[doc(hidden)]
 pub type HookResult = Result<()>;
@@ -46,49 +47,10 @@ mod cancel;
 mod debounce;
 mod redraw;
 mod registry;
-#[doc(hidden)]
-pub mod runtime;
 pub mod status;
 
 #[cfg(test)]
 mod test;
-
-/// Registers an event type before hooks for that type are installed.
-///
-/// Built-in hooks are installed during startup. Owned subscriptions may also be
-/// registered and removed during event dispatch.
-pub fn register_event<E: Event + 'static>() {
-    registry::register_event::<E>()
-}
-
-/// Registers a permanent hook. Prefer [`register_hook!`] to infer the event's
-/// higher-ranked callback type from its argument.
-pub fn register_hook<E: Event>(hook: Box<E::Hook>) {
-    registry::register::<E>(hook);
-}
-
-/// Registers a typed hook owned by its returned subscription.
-/// Prefer [`register_owned_hook!`] for closure type inference.
-pub fn register_owned_hook<E: Event>(hook: Box<E::Hook>) -> HookRegistration {
-    registry::register_owned::<E>(hook)
-}
-
-/// Registers a callback for an event identified only by its dynamic name.
-/// Retain the returned registration for as long as the callback should run.
-pub fn register_dynamic_hook(
-    hook: impl Fn() -> Result<()> + 'static + Send + Sync,
-    id: &str,
-) -> Result<HookRegistration> {
-    registry::register_dynamic(hook, id)
-}
-
-/// Dispatches an event synchronously to every registered hook of its type.
-///
-/// The caller reports failures to its owning editor after the event's mutable
-/// borrows end. Call [`HookErrors::log`] when no status UI exists.
-pub fn dispatch(e: impl Event) -> HookErrors {
-    registry::dispatch(e)
-}
 
 /// Failures from synchronous observers, delivered after every hook has run.
 #[must_use = "report hook errors to the owning editor, or explicitly log them"]
@@ -124,15 +86,9 @@ impl HookErrors {
 ///     DocumentChanged<'a> { old_doc: &'a Rope, doc: &'a mut Document, changes: &'a ChangeSet  }
 /// }
 ///
-/// fn init() {
-///    register_event::<FileWrite>();
-///    register_event::<ViewScrolled>();
-///    register_event::<DocumentChanged>();
-/// }
-///
-/// fn save(path: &Path, content: &str){
+/// fn save(events: &event::EventHub, path: &Path, content: &str){
 ///     std::fs::write(path, content);
-///     dispatch(FileWrite(path)).log();
+///     events.dispatch(FileWrite(path)).log();
 /// }
 /// ```
 #[macro_export]
@@ -167,25 +123,25 @@ macro_rules! events {
 /// ```compile_fail
 /// event::events! { Borrowed<'a> { text: &'a str } }
 /// type StaticEvent = Borrowed<'static>;
-/// event::register_hook!(move |event: &mut StaticEvent| {
+/// let hub = event::EventHub::default();
+/// event::register_hook!(&hub => move |event: &mut StaticEvent| {
 ///     let _: &'static str = event.text;
 ///     Ok(())
 /// });
 /// ```
 #[macro_export]
 macro_rules! register_hook {
-    (move |$event:ident: &mut $event_ty:ty| $body:expr) => {
-        $crate::register_hook::<$event_ty>(::std::boxed::Box::new(move |$event: &mut $event_ty| {
-            $body
-        }))
+    ($hub:expr => move |$event:ident: &mut $event_ty:ty| $body:expr) => {
+        ($hub)
+            .register_hook::<$event_ty>(::std::boxed::Box::new(move |$event: &mut $event_ty| $body))
     };
 }
 
 /// Register a typed hook owned by the returned [`HookRegistration`].
 #[macro_export]
 macro_rules! register_owned_hook {
-    (move |$event:ident: &mut $event_ty:ty| $body:expr) => {
-        $crate::register_owned_hook::<$event_ty>(::std::boxed::Box::new(
+    ($hub:expr => move |$event:ident: &mut $event_ty:ty| $body:expr) => {
+        ($hub).register_owned_hook::<$event_ty>(::std::boxed::Box::new(
             move |$event: &mut $event_ty| $body,
         ))
     };

@@ -42,7 +42,14 @@ impl Application {
         lang_loader: syntax::Loader,
         workspace_trust: workspace::trust::WorkspaceTrust,
     ) -> Result<Self, Error> {
-        Self::new_with_handler_setup(args, config, lang_loader, workspace_trust, |_, _| {})
+        Self::new_with_handler_setup(
+            args,
+            config,
+            lang_loader,
+            workspace_trust,
+            event::EventHub::default(),
+            |_, _| {},
+        )
     }
 
     /// Configure shared services before the editor owns them or opens any documents.
@@ -51,6 +58,7 @@ impl Application {
         config: Config,
         lang_loader: syntax::Loader,
         workspace_trust: workspace::trust::WorkspaceTrust,
+        events: event::EventHub,
         setup: impl FnOnce(&mut view::handlers::Handlers, &editor_config::Config),
     ) -> Result<Self, Error> {
         #[cfg(feature = "integration")]
@@ -77,10 +85,13 @@ impl Application {
         let mut compositor = Compositor::new(area);
         let config = Arc::new(ArcSwap::from_pointee(config));
         let jobs = Jobs::new();
-        let mut handlers =
-            view::handlers::Handlers::new(&config.load().editor, jobs.editor_callback_sender());
+        let mut handlers = view::handlers::Handlers::with_events(
+            &config.load().editor,
+            jobs.editor_callback_sender(),
+            events,
+        );
         setup(&mut handlers, &config.load().editor);
-        handlers::register_hooks();
+        handlers::register_hooks(handlers.events());
         let mut editor = Editor::new(
             area,
             Arc::new(theme_loader),
@@ -123,6 +134,7 @@ impl Application {
             // If there are any more files specified, open them
             if files_it.peek().is_some() {
                 let mut nr_of_files = 0;
+                let mut first_view = None;
                 for (file, pos) in files_it {
                     nr_of_files += 1;
                     if file.is_dir() {
@@ -157,10 +169,8 @@ impl Application {
                             Ok(doc_id) => doc_id,
                         };
                         // with Action::Load all documents have the same view
-                        // NOTE: this isn't necessarily true anymore. If
-                        // `--vsplit` or `--hsplit` are used, the file which is
-                        // opened last is focused on.
                         let view_id = current_ref!(editor).0.id;
+                        first_view.get_or_insert(view_id);
                         let doc = doc_mut!(editor, &doc_id);
                         let selection = pos
                             .into_iter()
@@ -170,6 +180,10 @@ impl Application {
                             .collect();
                         doc.set_selection(view_id, selection);
                     }
+                }
+
+                if let Some(first_view) = first_view {
+                    editor.focus(first_view);
                 }
 
                 // if all files were invalid, replace with empty buffer

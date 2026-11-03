@@ -16,7 +16,7 @@ changelog_update = true
 changelog_path = "CHANGELOG.md"
 changelog_include = [
   "buffer", "clipboard", "command-line", "core", "diagnostics", "dap", "dap-types", "debugger", "event",
-  "grammar-build", "language", "language-config", "loader", "lsp", "lsp-types", "parsec", "search",
+  "grammar-build", "language", "language-config", "loader", "lsp", "parsec", "search",
   "snippets", "spelling", "stdx", "text-io", "theme", "tui", "ui-core", "vcs",
   "view", "workspace", "xtask",
   "word-index", "file-watch", "pane-layout", "syntax-symbols",
@@ -24,11 +24,6 @@ changelog_include = [
 ]
 git_release_name = "Mitos {{ version }}"
 git_release_enable = true
-
-[[package]]
-name = "lsp-types"
-# Preserve the vendored library's version independently of the editor.
-release = false
 
 # These crates did not exist at the last shared release. Use an unmatched tag
 # pattern so release-plz treats them as new instead of loading missing packages.

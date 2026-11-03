@@ -1,6 +1,7 @@
 //! Language-server process startup, initialization, and shutdown.
 
 use super::{workspace::workspace_for_uri, Client};
+use crate::protocol::SYMBOL_KINDS;
 use crate::{
     jsonrpc,
     lsp::{self, CodeActionCapabilityResolveSupport, PositionEncodingKind},
@@ -142,7 +143,7 @@ impl Client {
                     symbol: Some(lsp::WorkspaceSymbolClientCapabilities {
                         dynamic_registration: Some(false),
                         symbol_kind: Some(lsp::SymbolKindCapability {
-                            value_set: Some(lsp::SymbolKind::all()),
+                            value_set: Some(SYMBOL_KINDS.to_vec()),
                         }),
                         ..Default::default()
                     }),
@@ -300,7 +301,7 @@ impl Client {
                     document_symbol: Some(lsp::DocumentSymbolClientCapabilities {
                         dynamic_registration: Some(false),
                         symbol_kind: Some(lsp::SymbolKindCapability {
-                            value_set: Some(lsp::SymbolKind::all()),
+                            value_set: Some(SYMBOL_KINDS.to_vec()),
                         }),
                         hierarchical_document_symbol_support: Some(true),
                         ..Default::default()

@@ -10,7 +10,7 @@ mod file_explorer;
 mod gutter;
 pub(crate) mod highlights;
 mod icons;
-mod image;
+pub(crate) mod image;
 mod info;
 mod layout;
 mod list;

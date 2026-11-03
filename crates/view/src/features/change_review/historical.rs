@@ -348,11 +348,13 @@ impl Editor {
         });
         let id = self.new_file_from_document(action, doc);
         source.initialize_document(self.document_mut(id).unwrap(), before);
-        event::dispatch(crate::events::DocumentDidOpen {
-            editor: self,
-            doc: id,
-        })
-        .report_to(self.status_sender());
+        self.events()
+            .clone()
+            .dispatch(crate::events::DocumentDidOpen {
+                editor: self,
+                doc: id,
+            })
+            .report_to(self.status_sender());
         id
     }
 }
@@ -380,11 +382,13 @@ impl Editor {
             _task: task,
         });
         let id = self.new_file_from_document(action, doc);
-        event::dispatch(crate::events::DocumentDidOpen {
-            editor: self,
-            doc: id,
-        })
-        .report_to(self.status_sender());
+        self.events()
+            .clone()
+            .dispatch(crate::events::DocumentDidOpen {
+                editor: self,
+                doc: id,
+            })
+            .report_to(self.status_sender());
         let old = self.document(id).unwrap().snapshot();
         let worker = self.handlers.change_review.worker.clone();
         let callbacks = self.callback_sender().clone();

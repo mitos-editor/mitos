@@ -611,3 +611,83 @@ async fn key_sequence_stops_after_closing_last_view() -> anyhow::Result<()> {
     }
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn startup_preserves_requested_positions_and_focus_with_and_without_splits(
+) -> anyhow::Result<()> {
+    let first = tempfile::NamedTempFile::new()?;
+    let second = tempfile::NamedTempFile::new()?;
+    let text = "first line\nsecond line\nthird line\n";
+    std::fs::write(first.path(), text)?;
+    std::fs::write(second.path(), text)?;
+    let first_pos = editor_core::Position::new(1, 3);
+    let second_pos = editor_core::Position::new(2, 5);
+    for layout in [
+        None,
+        Some(view::tree::Layout::Horizontal),
+        Some(view::tree::Layout::Vertical),
+    ] {
+        let mut builder = AppBuilder::new()
+            .with_file(first.path(), Some(first_pos))
+            .with_file(second.path(), Some(second_pos));
+        if let Some(layout) = layout {
+            builder = builder.with_split(layout);
+        }
+        let mut app = builder.build()?;
+        let (focused_view, focused_doc) = view::current_ref!(app.editor);
+        assert_eq!(
+            focused_doc.path().unwrap(),
+            stdx::path::canonicalize(first.path())
+        );
+        assert_eq!(
+            app.editor.tree.views().count(),
+            if layout.is_some() { 2 } else { 1 }
+        );
+        let focused_view = focused_view.id;
+        for (path, position) in [(first.path(), first_pos), (second.path(), second_pos)] {
+            let doc = app
+                .editor
+                .document_by_path(stdx::path::canonicalize(path))
+                .unwrap();
+            let view_id = app
+                .editor
+                .tree
+                .views()
+                .find(|(pane, _)| pane.document_id() == doc.id())
+                .map_or(focused_view, |(pane, _)| pane.id);
+            assert_eq!(
+                doc.selection(view_id)
+                    .primary()
+                    .cursor(doc.text().slice(..)),
+                editor_core::pos_at_coords(doc.text().slice(..), position, true)
+            );
+        }
+        assert!(app.close().await.is_empty());
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn startup_skips_irregular_files_before_focusing_the_first_valid_split() -> anyhow::Result<()>
+{
+    let directory = tempfile::tempdir()?;
+    let first = directory.path().join("first.txt");
+    let second = directory.path().join("second.txt");
+    std::fs::write(&first, "first\n")?;
+    std::fs::write(&second, "second\n")?;
+    for layout in [view::tree::Layout::Horizontal, view::tree::Layout::Vertical] {
+        let mut app = AppBuilder::new()
+            .with_file("/dev/null", None)
+            .with_file(&first, None)
+            .with_file(&second, None)
+            .with_split(layout)
+            .build()?;
+        let (_, doc) = view::current_ref!(app.editor);
+        assert_eq!(doc.path().unwrap(), stdx::path::canonicalize(&first));
+        assert_eq!(app.editor.tree.views().count(), 2);
+        assert_eq!(app.editor.documents().count(), 2);
+        assert!(app.close().await.is_empty());
+    }
+    Ok(())
+}

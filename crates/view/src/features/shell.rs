@@ -220,8 +220,8 @@ pub async fn run(
     Ok(Tendril::from(output))
 }
 
-pub(crate) fn register_hooks() {
-    register_hook!(move |event: &mut DocumentFocusLost<'_>| {
+pub(crate) fn register_hooks(events: &event::EventHub) {
+    register_hook!(events => move |event: &mut DocumentFocusLost<'_>| {
         // Commands can finish in an unfocused split, but must not follow a view
         // to another document (or become valid again after switching back).
         if event
@@ -235,13 +235,13 @@ pub(crate) fn register_hooks() {
         }
         Ok(())
     });
-    register_hook!(move |event: &mut DocumentDidChange<'_>| {
+    register_hook!(events => move |event: &mut DocumentDidChange<'_>| {
         event
             .doc
             .cancel_view_requests(|state| &mut state.shell_filters);
         Ok(())
     });
-    register_hook!(move |event: &mut SelectionDidChange<'_>| {
+    register_hook!(events => move |event: &mut SelectionDidChange<'_>| {
         event
             .doc
             .cancel_view_request(event.view, |state| &mut state.shell_filters);

@@ -87,7 +87,10 @@ impl Editor {
         if matches!(kind, InputKind::Character(_)) {
             features::signature_help::post_insert_char(self);
         }
-        event::dispatch(InputApplied { editor: self, kind }).report_to(self.status_sender());
+        self.events()
+            .clone()
+            .dispatch(InputApplied { editor: self, kind })
+            .report_to(self.status_sender());
     }
 
     /// Cancel completion work and dismiss its presentation after unrelated commands.
@@ -111,7 +114,7 @@ mod tests {
         let (mut editor, _store) = editor("#[|a]#\n");
         let observed = Arc::new(Mutex::new(Vec::new()));
         let events = observed.clone();
-        event::register_hook!(move |event: &mut InputApplied<'_>| {
+        event::register_hook!(editor.events() => move |event: &mut InputApplied<'_>| {
             events.lock().unwrap().push(event.kind);
             Ok(())
         });

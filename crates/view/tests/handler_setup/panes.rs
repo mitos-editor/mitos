@@ -29,7 +29,9 @@ async fn same_document_splits_publish_the_copied_selection_and_viewport() -> any
         doc.set_view_offset(source, offset);
         let observed = Arc::new(Mutex::new(Vec::new()));
         let captured = observed.clone();
-        register_hook!(move |event: &mut SelectionDidChange<'_>| {
+        register_hook!(f.editor.events() => move |event: &mut SelectionDidChange<
+            '_,
+        >| {
             if event.doc.id() == id && event.view != source {
                 captured.lock().unwrap().push((
                     event.doc.selection(event.view).clone(),
@@ -67,7 +69,9 @@ async fn scrolling_an_unfocused_split_preserves_focus_mode_and_other_views() -> 
     let version = doc.version();
     let events = Arc::new(Mutex::new(Vec::new()));
     let captured = events.clone();
-    register_hook!(move |event: &mut DocumentFocusLost<'_>| {
+    register_hook!(f.editor.events() => move |event: &mut DocumentFocusLost<
+        '_,
+    >| {
         captured.lock().unwrap().push(event.view);
         Ok(())
     });

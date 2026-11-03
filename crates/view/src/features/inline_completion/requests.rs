@@ -373,8 +373,8 @@ pub(crate) fn mode_changed(editor: &mut Editor, old: Mode) {
     }
 }
 
-pub(crate) fn register_hooks() {
-    register_hook!(move |event: &mut DocumentDidChange<'_>| {
+pub(crate) fn register_hooks(events: &event::EventHub) {
+    register_hook!(events => move |event: &mut DocumentDidChange<'_>| {
         if event.view.is_none()
             && let Some(trigger) = &event.doc.inline_completions.trigger
         {
@@ -397,7 +397,7 @@ pub(crate) fn register_hooks() {
         }
         Ok(())
     });
-    register_hook!(move |event: &mut SelectionDidChange<'_>| {
+    register_hook!(events => move |event: &mut SelectionDidChange<'_>| {
         if let Some(trigger) = &event.doc.inline_completions.trigger {
             trigger.selection_changed(event.doc, event.view);
         }
@@ -406,7 +406,7 @@ pub(crate) fn register_hooks() {
         }
         Ok(())
     });
-    register_hook!(move |event: &mut DocumentDidClose<'_>| {
+    register_hook!(events => move |event: &mut DocumentDidClose<'_>| {
         event
             .editor
             .handlers
@@ -416,14 +416,14 @@ pub(crate) fn register_hooks() {
         event.doc.inline_completions.clear();
         Ok(())
     });
-    register_hook!(move |event: &mut DocumentFocusLost<'_>| {
+    register_hook!(events => move |event: &mut DocumentFocusLost<'_>| {
         event.editor.handlers.inline_completions.cancel();
         if let Some(doc) = event.editor.document_mut(event.doc) {
             doc.inline_completions.clear();
         }
         Ok(())
     });
-    register_hook!(move |event: &mut LanguageServerExited<'_>| {
+    register_hook!(events => move |event: &mut LanguageServerExited<'_>| {
         for doc in event.editor.documents_mut() {
             if doc.supports_language_server(event.server_id) {
                 if let Some(trigger) = &doc.inline_completions.trigger {
@@ -434,7 +434,7 @@ pub(crate) fn register_hooks() {
         }
         Ok(())
     });
-    register_hook!(move |event: &mut ConfigDidChange<'_>| {
+    register_hook!(events => move |event: &mut ConfigDidChange<'_>| {
         event.editor.handlers.inline_completions.cancel();
         for doc in event.editor.documents.values_mut() {
             doc.inline_completions.clear();

@@ -55,6 +55,35 @@ impl Fixture {
         configure: impl FnOnce(&mut Config),
         setup: impl FnOnce(&mut Handlers, &Config),
     ) -> anyhow::Result<Self> {
+        Self::with_events_and_setup(
+            text,
+            languages,
+            resources,
+            configure,
+            setup,
+            event::EventHub::default(),
+        )
+    }
+
+    pub fn with_events(text: &str, events: event::EventHub) -> anyhow::Result<Self> {
+        Self::with_events_and_setup(
+            text,
+            "language = []",
+            loader::syntax::Resources::default(),
+            |_| {},
+            |_, _| {},
+            events,
+        )
+    }
+
+    fn with_events_and_setup(
+        text: &str,
+        languages: &str,
+        resources: loader::syntax::Resources,
+        configure: impl FnOnce(&mut Config),
+        setup: impl FnOnce(&mut Handlers, &Config),
+        events: event::EventHub,
+    ) -> anyhow::Result<Self> {
         let mut config = Config::default();
         config.files.watch.enable = false;
         config.files.reload.enable = false;
@@ -66,7 +95,7 @@ impl Fixture {
         configure(&mut config);
         let config = Arc::new(ArcSwap::from_pointee(config));
         let (callbacks_tx, callbacks) = callback_channel();
-        let mut handlers = Handlers::new(&config.load(), callbacks_tx);
+        let mut handlers = Handlers::with_events(&config.load(), callbacks_tx, events);
         setup(&mut handlers, &config.load());
         let mut editor = Editor::new(
             Rect::new(0, 0, 80, 24),

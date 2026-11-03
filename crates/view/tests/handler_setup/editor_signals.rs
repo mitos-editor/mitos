@@ -1,6 +1,6 @@
 //! Frontend signals belong to the editor that created their destination.
 
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 use super::Fixture;
 use ::diagnostics::Severity;
@@ -75,9 +75,10 @@ async fn editors_in_one_runtime_receive_only_their_own_status_and_redraws() -> a
 async fn document_hook_failures_are_reported_to_the_document_owner() -> anyhow::Result<()> {
     let mut first = Fixture::new("first\n")?;
     let mut second = Fixture::new("second\n")?;
-    let _registration = event::register_owned_hook!(move |_event: &mut DocumentDidChange<'_>| {
-        anyhow::bail!("document observer failed")
-    });
+    let _registration = event::register_owned_hook!(
+        second.editor.events() =>
+        move |_event: &mut DocumentDidChange<'_>| { anyhow::bail!("document observer failed") }
+    );
     second.replace("changed\n");
     receive_status(&mut second.editor).await?;
     assert_eq!(
@@ -101,5 +102,41 @@ async fn document_hook_failures_are_reported_to_the_document_owner() -> anyhow::
             .map(|(message, _)| message.as_ref()),
         Some("first remains alive")
     );
+    Ok(())
+}
+
+#[tokio::test]
+async fn editors_in_one_runtime_route_document_hooks_and_release_their_hubs() -> anyhow::Result<()>
+{
+    let mut first = Fixture::new("first\n")?;
+    let mut second = Fixture::new("second\n")?;
+    let first_calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let second_calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let observed = first_calls.clone();
+    event::register_hook!(
+        first.editor.events() =>
+        move |_event: &mut DocumentDidChange<'_>| {
+            observed.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            Ok(())
+        }
+    );
+    let observed = second_calls.clone();
+    event::register_hook!(
+        second.editor.events() =>
+        move |_event: &mut DocumentDidChange<'_>| {
+            observed.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            Ok(())
+        }
+    );
+    first.replace("first changed\n");
+    assert_eq!(first_calls.load(std::sync::atomic::Ordering::Relaxed), 1);
+    assert_eq!(second_calls.load(std::sync::atomic::Ordering::Relaxed), 0);
+    second.replace("second changed\n");
+    assert_eq!(first_calls.load(std::sync::atomic::Ordering::Relaxed), 1);
+    assert_eq!(second_calls.load(std::sync::atomic::Ordering::Relaxed), 1);
+    drop(first);
+    assert_eq!(Arc::strong_count(&first_calls), 1);
+    second.replace("second remains alive\n");
+    assert_eq!(second_calls.load(std::sync::atomic::Ordering::Relaxed), 2);
     Ok(())
 }

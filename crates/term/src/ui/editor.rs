@@ -87,12 +87,15 @@ impl EditorView {
 
             let current_mode = cxt.editor.mode();
             if current_mode != last_mode {
-                event::dispatch(OnModeSwitch {
-                    old_mode: last_mode,
-                    new_mode: current_mode,
-                    cx: cxt,
-                })
-                .report_to(cxt.editor.status_sender());
+                cxt.editor
+                    .events()
+                    .clone()
+                    .dispatch(OnModeSwitch {
+                        old_mode: last_mode,
+                        new_mode: current_mode,
+                        cx: cxt,
+                    })
+                    .report_to(cxt.editor.status_sender());
 
                 // HAXX: if we just entered insert mode from normal, clear key buf
                 // and record the command that got us into this mode.
@@ -707,6 +710,7 @@ impl Component for EditorView {
             layout,
             surface,
             cx.image_picker,
+            &cx.jobs.image_cache,
             PaneOptions {
                 area,
                 terminal_focused: self.terminal_focused,

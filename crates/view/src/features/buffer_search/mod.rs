@@ -8,8 +8,8 @@ pub use query::Query;
 pub(crate) use state::State;
 pub use worker::Handler;
 
-pub(crate) fn register_hooks() {
-    event::register_hook!(move |event: &mut ConfigDidChange<'_>| {
+pub(crate) fn register_hooks(events: &event::EventHub) {
+    event::register_hook!(events => move |event: &mut ConfigDidChange<'_>| {
         if event.old.search != event.new.search
             || event.old.statusline.shows_search_position()
                 != event.new.statusline.shows_search_position()
@@ -20,7 +20,7 @@ pub(crate) fn register_hooks() {
         }
         Ok(())
     });
-    event::register_hook!(move |event: &mut DocumentFocusLost<'_>| {
+    event::register_hook!(events => move |event: &mut DocumentFocusLost<'_>| {
         if event
             .editor
             .tree

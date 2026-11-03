@@ -156,7 +156,10 @@ async fn full_and_unchanged_reports_preserve_provider_ids_and_utf16_ranges() -> 
     f.publish().await?;
     assert_eq!(f.messages(), ["alpha: 😀 original"]);
     let requests = f.requests(0)?;
-    assert!(requests[0].get("previousResultId").is_none());
+    // Upstream lsp-types serializes an absent result ID as JSON null.
+    assert!(requests[0]
+        .get("previousResultId")
+        .is_none_or(Value::is_null));
     assert_eq!(requests[1]["previousResultId"], "alpha:0");
     assert_eq!(requests[1]["identifier"], "alpha");
 
@@ -170,7 +173,7 @@ async fn full_and_unchanged_reports_preserve_provider_ids_and_utf16_ranges() -> 
         .last()
         .unwrap()
         .get("previousResultId")
-        .is_none());
+        .is_none_or(Value::is_null));
     assert!(f.app.close().await.is_empty());
     Ok(())
 }
@@ -192,7 +195,9 @@ async fn provider_refresh_does_not_cancel_other_providers_or_overwrite_their_res
     assert_eq!(f.messages(), ["alpha: 😀 original", "beta: 😀 original"]);
     assert_eq!(f.requests(1)?.len(), 1);
     assert!(
-        f.requests(0)?[1].get("previousResultId").is_none(),
+        f.requests(0)?[1]
+            .get("previousResultId")
+            .is_none_or(Value::is_null),
         "discarded responses must not advance result IDs"
     );
     assert!(f.app.close().await.is_empty());

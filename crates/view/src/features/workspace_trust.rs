@@ -63,8 +63,8 @@ pub enum TrustDecision {
     Exclude,
 }
 
-pub(crate) fn register_hooks() {
-    register_hook!(move |event: &mut DocumentDidOpen<'_>| {
+pub(crate) fn register_hooks(events: &event::EventHub) {
+    register_hook!(events => move |event: &mut DocumentDidOpen<'_>| {
         let editor = &mut event.editor;
         let doc = doc!(editor, &event.doc);
         let workspace = doc.workspace_root().to_path_buf();

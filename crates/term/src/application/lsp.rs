@@ -2,6 +2,7 @@
 use super::Application;
 use crate::ui;
 use log::{error, info, warn};
+use lsp_client::UriExt as _;
 use lsp_client::{lsp, LanguageServerId};
 use serde_json::json;
 
@@ -231,6 +232,9 @@ impl Application {
             ..
         } = params
         {
+            let Ok(uri) = uri.to_editor_url() else {
+                return lsp::ShowDocumentResult { success: false };
+            };
             self.jobs.callback(crate::open_external_url_callback(uri));
             return lsp::ShowDocumentResult { success: true };
         };
@@ -242,7 +246,7 @@ impl Application {
             ..
         } = params;
 
-        let uri = match editor_core::Uri::try_from(uri) {
+        let uri = match uri.to_editor_uri() {
             Ok(uri) => uri,
             Err(err) => {
                 log::error!("{err}");

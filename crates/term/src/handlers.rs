@@ -9,15 +9,11 @@ mod prompt;
 pub(crate) mod signature_help;
 pub(crate) mod workspace_trust;
 
-/// Install shared presentation hooks once per registry, independent of application count.
-pub fn register_hooks() {
-    event::runtime_local! { static REGISTER: std::sync::Once = std::sync::Once::new(); }
-    REGISTER.call_once(|| {
-        crate::events::register();
-        completion::register_hooks();
-        signature_help::register_hooks();
-        diagnostics::register_hooks();
-    });
+/// Install presentation hooks in this application's editor hub.
+pub fn register_hooks(events: &event::EventHub) {
+    completion::register_hooks(events);
+    signature_help::register_hooks(events);
+    diagnostics::register_hooks(events);
 }
 
 /// Registrations whose callbacks belong to this application's frontend.
