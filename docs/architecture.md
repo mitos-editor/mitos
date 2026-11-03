@@ -153,6 +153,10 @@ applying the transaction.
 > NOTE: `Transaction::change`/`Transaction::change_by_selection` is the main
 > interface used to generate text edits.
 
+Normal changes use `Operation<Tendril>`; large history inverses use the same
+operation type with shared Rope payloads. Both use the core inversion algorithm.
+History materializes contiguous inserts when replay publishes an ordinary transaction.
+
 Text selections, indentation normalization, comments, and visual annotations use
 text-only APIs. Parser-node conversion and structural editing live in `language`.
 Highlight IDs and overlay traversal live in `core::highlight`; the syntax
