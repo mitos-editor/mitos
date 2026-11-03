@@ -19,7 +19,7 @@ use gix::status::{
 };
 use gix::{Commit, ObjectId, Repository, ThreadSafeRepository};
 
-use crate::{ChangedFileScope, FileChange, FileStatus};
+use crate::{ChangedFileScope, DocumentVcs, FileChange, FileStatus, RepositoryWatches};
 
 #[cfg(test)]
 pub(super) mod test;
@@ -29,19 +29,28 @@ pub(super) fn get_repo_dir(file: &Path) -> Result<&Path> {
     file.parent().context("file has no parent directory")
 }
 
-pub fn get_diff_base(file: &Path, trust_full: bool) -> Result<Vec<u8>> {
+pub fn inspect_file(file: &Path, trust_full: bool, read_diff: bool) -> Result<DocumentVcs> {
     debug_assert!(!file.exists() || file.is_file());
     debug_assert!(file.is_absolute());
     let file = gix::path::realpath(file).context("resolve symlinks")?;
+    let repo = open_repo(get_repo_dir(&file)?, trust_full)?.to_thread_local();
+    Ok(DocumentVcs {
+        diff_base: read_diff
+            .then(|| {
+                diff_base(&repo, &file)
+                    .inspect_err(|error| log::debug!("Diff base for {}: {error:#}", file.display()))
+                    .ok()
+            })
+            .flatten(),
+        head_name: head_name(&repo)
+            .inspect_err(|error| log::debug!("Head name for {}: {error:#}", file.display()))
+            .ok(),
+    })
+}
 
-    // TODO cache repository lookup
-
-    let repo_dir = get_repo_dir(&file)?;
-    let repo = open_repo(repo_dir, trust_full)
-        .context("failed to open git repo")?
-        .to_thread_local();
+fn diff_base(repo: &Repository, file: &Path) -> Result<Vec<u8>> {
     let head = repo.head_commit()?;
-    let file_oid = find_file_in_commit(&repo, &head, &file)?;
+    let file_oid = find_file_in_commit(repo, &head, file)?;
 
     let file_object = repo.find_object(file_oid)?;
     let data = file_object.detach().data;
@@ -66,15 +75,7 @@ pub fn get_diff_base(file: &Path, trust_full: bool) -> Result<Vec<u8>> {
     }
 }
 
-pub fn get_current_head_name(file: &Path, trust_full: bool) -> Result<Arc<ArcSwap<Box<str>>>> {
-    debug_assert!(!file.exists() || file.is_file());
-    debug_assert!(file.is_absolute());
-    let file = gix::path::realpath(file).context("resolve symlinks")?;
-
-    let repo_dir = get_repo_dir(&file)?;
-    let repo = open_repo(repo_dir, trust_full)
-        .context("failed to open git repo")?
-        .to_thread_local();
+fn head_name(repo: &Repository) -> Result<Arc<ArcSwap<Box<str>>>> {
     let head_ref = repo.head_ref()?;
     let head_commit = repo.head_commit()?;
 
@@ -110,14 +111,12 @@ pub fn for_each_file_status(
 }
 
 /// Watch comparison inputs, including configuration and linked-worktree metadata.
-pub fn get_watched_paths(path: &Path, trust_full: bool) -> Result<Vec<PathBuf>> {
+pub fn repository_watches(path: &Path, trust_full: bool) -> Result<RepositoryWatches> {
     let repo = open_repo(path, trust_full)?.to_thread_local();
-    repository_watched_paths(&repo)
-}
-
-pub fn get_watched_files(path: &Path, trust_full: bool) -> Result<Vec<PathBuf>> {
-    let repo = open_repo(path, trust_full)?.to_thread_local();
-    crate::blame::watched_files(&repo)
+    Ok(RepositoryWatches {
+        paths: repository_watched_paths(&repo).unwrap_or_default(),
+        files: crate::blame::watched_files(&repo).unwrap_or_default(),
+    })
 }
 
 pub(super) fn repository_watched_paths(repo: &Repository) -> Result<Vec<PathBuf>> {
@@ -194,12 +193,15 @@ fn open_repo_impl(
     };
     let (repo_path, _trust_from_ownership) = gix::discover::upwards_opts(path, discover_options)
         .context("failed to discover git repo")?;
-    let (git_dir, _work_dir) = repo_path.into_repository_and_work_tree_directories();
+    let (git_dir, work_dir) = repo_path.into_repository_and_work_tree_directories();
+    // Preserve the discovered worktree spelling instead of reconstructing it from
+    // a linked worktree's gitdir backpointer, which may use a different path alias.
+    let open_path = work_dir.map_or(git_dir, |root| root.join(".git"));
 
     let options = gix::open::Options::default()
         .permissions(permissions)
-        // `git_dir` is the discovered `.git` directory (or a linked-worktree git dir), so open it
-        // as-is rather than letting gix append `.git` again.
+        // The path already names `.git` (a directory or linked-worktree file).
+        // Open it as-is rather than letting gix append `.git` again.
         .open_path_as_is(true)
         .with(trust);
     let options = if trust_full {
@@ -210,7 +212,7 @@ fn open_repo_impl(
         })
     };
 
-    Ok(ThreadSafeRepository::open_opts(git_dir, options)?)
+    Ok(ThreadSafeRepository::open_opts(open_path, options)?)
 }
 
 /// Emulates the result of running `git status` from the command line.

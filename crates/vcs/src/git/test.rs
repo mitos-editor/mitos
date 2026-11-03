@@ -58,7 +58,7 @@ fn missing_file() {
     let file = temp_git.path().join("file.txt");
     File::create(&file).unwrap().write_all(b"foo").unwrap();
 
-    assert!(git::get_diff_base(&file, true).is_err());
+    assert!(diff_base(&file, true).is_err());
 }
 
 #[test]
@@ -68,10 +68,7 @@ fn unmodified_file() {
     let contents = b"foo".as_slice();
     File::create(&file).unwrap().write_all(contents).unwrap();
     create_commit(temp_git.path(), true);
-    assert_eq!(
-        git::get_diff_base(&file, true).unwrap(),
-        Vec::from(contents)
-    );
+    assert_eq!(diff_base(&file, true).unwrap(), Vec::from(contents));
 }
 
 #[test]
@@ -83,10 +80,7 @@ fn modified_file() {
     create_commit(temp_git.path(), true);
     File::create(&file).unwrap().write_all(b"bar").unwrap();
 
-    assert_eq!(
-        git::get_diff_base(&file, true).unwrap(),
-        Vec::from(contents)
-    );
+    assert_eq!(diff_base(&file, true).unwrap(), Vec::from(contents));
 }
 
 #[test]
@@ -332,10 +326,10 @@ fn directory() {
 
     std::fs::remove_dir_all(&dir).unwrap();
     File::create(&dir).unwrap().write_all(b"bar").unwrap();
-    assert!(git::get_diff_base(&dir, true).is_err());
+    assert!(diff_base(&dir, true).is_err());
 }
 
-/// Test that `get_diff_base` resolves symlinks so that the same diff base is
+/// Test that document inspection resolves symlinks so that the same diff base is
 /// used as the target file.
 ///
 /// This is important to correctly cover cases where a symlink is removed and
@@ -359,11 +353,11 @@ fn symlink() {
     symlink("file.txt", &file_link).unwrap();
     create_commit(temp_git.path(), true);
 
-    assert_eq!(git::get_diff_base(&file_link, true).unwrap(), contents);
-    assert_eq!(git::get_diff_base(&file, true).unwrap(), contents);
+    assert_eq!(diff_base(&file_link, true).unwrap(), contents);
+    assert_eq!(diff_base(&file, true).unwrap(), contents);
 }
 
-/// Test that `get_diff_base` returns content when the file is a symlink to
+/// Test that document inspection returns content when the file is a symlink to
 /// another file that is in a git repo, but the symlink itself is not.
 #[cfg(any(unix, windows))]
 #[test]
@@ -384,8 +378,8 @@ fn symlink_to_git_repo() {
     let file_link = temp_dir.path().join("file_link.txt");
     symlink(&file, &file_link).unwrap();
 
-    assert_eq!(git::get_diff_base(&file_link, true).unwrap(), contents);
-    assert_eq!(git::get_diff_base(&file, true).unwrap(), contents);
+    assert_eq!(diff_base(&file_link, true).unwrap(), contents);
+    assert_eq!(diff_base(&file, true).unwrap(), contents);
 }
 
 #[test]
@@ -407,7 +401,7 @@ fn ignored_revision_paths_use_the_git_installation_prefix() {
         .unwrap();
     assert!(output.status.success());
     let expected = Path::new(std::str::from_utf8(&output.stdout).unwrap().trim_end());
-    let paths = git::get_watched_files(repo.path(), false).unwrap();
+    let paths = watched_files(repo.path(), false).unwrap();
     assert!(paths.contains(&expected.to_path_buf()));
 }
 
@@ -419,10 +413,10 @@ fn watched_paths_include_ignored_revision_files_before_creation() {
     exec_git_cmd(&["tag", "ignored"], repo.path());
     exec_git_cmd(&["config", "blame.ignoreRevs", "ignored"], repo.path());
     let conventional = repo.path().join(".git-blame-ignore-revs");
-    let paths = git::get_watched_paths(repo.path(), false).unwrap();
+    let paths = watched_paths(repo.path(), false).unwrap();
     assert!(paths.contains(&repo.path().join(".git/refs/tags/ignored")));
     assert!(!paths.contains(&conventional));
-    assert!(git::get_watched_files(repo.path(), false)
+    assert!(watched_files(repo.path(), false)
         .unwrap()
         .contains(&conventional));
     let external = tempfile::tempdir().unwrap();
@@ -435,14 +429,14 @@ fn watched_paths_include_ignored_revision_files_before_creation() {
         ],
         repo.path(),
     );
-    let paths = git::get_watched_files(repo.path(), false).unwrap();
+    let paths = watched_files(repo.path(), false).unwrap();
     assert!(paths.contains(&configured));
     assert!(!paths.contains(&conventional));
     exec_git_cmd(
         &["config", "--add", "blame.ignoreRevsFile", ""],
         repo.path(),
     );
-    let paths = git::get_watched_files(repo.path(), false).unwrap();
+    let paths = watched_files(repo.path(), false).unwrap();
     assert!(!paths.contains(&configured));
     assert!(!paths.contains(&conventional));
 }
@@ -452,7 +446,7 @@ fn watched_paths_include_branch_refs_and_linked_worktree_metadata() {
     let repo = empty_git_repo();
     std::fs::write(repo.path().join("file.txt"), "hello\n").unwrap();
     create_commit(repo.path(), true);
-    let paths = git::get_watched_paths(repo.path(), false).unwrap();
+    let paths = watched_paths(repo.path(), false).unwrap();
     assert!(paths.iter().any(|path| path.ends_with(".git/index")));
     assert!(paths.iter().any(|path| path.ends_with(".git/HEAD")));
     assert!(paths
@@ -467,7 +461,7 @@ fn watched_paths_include_branch_refs_and_linked_worktree_metadata() {
         .iter()
         .any(|path| path.ends_with(".git/info/attributes")));
     exec_git_cmd(&["worktree", "add", "-b", "feature", "linked"], repo.path());
-    let paths = git::get_watched_paths(&repo.path().join("linked"), false).unwrap();
+    let paths = watched_paths(&repo.path().join("linked"), false).unwrap();
     assert!(paths
         .iter()
         .any(|path| path.ends_with(".git/worktrees/linked/index")));
@@ -485,4 +479,71 @@ fn watched_paths_include_branch_refs_and_linked_worktree_metadata() {
     assert!(paths
         .iter()
         .any(|path| path.ends_with(".git/info/attributes")));
+}
+
+// Exercise the public combined inspections rather than reopening in separate test paths.
+fn diff_base(file: &Path, trust_full: bool) -> anyhow::Result<Vec<u8>> {
+    git::inspect_file(file, trust_full, true)?
+        .diff_base
+        .ok_or_else(|| anyhow::anyhow!("no diff base"))
+}
+
+fn watched_paths(path: &Path, trust_full: bool) -> anyhow::Result<Vec<std::path::PathBuf>> {
+    Ok(git::repository_watches(path, trust_full)?.paths)
+}
+
+fn watched_files(path: &Path, trust_full: bool) -> anyhow::Result<Vec<std::path::PathBuf>> {
+    Ok(git::repository_watches(path, trust_full)?.files)
+}
+
+#[test]
+fn inspection_keeps_head_for_untracked_files_and_refreshes_linked_worktrees() {
+    let repo = empty_git_repo();
+    exec_git_cmd(&["config", "core.autocrlf", "false"], repo.path());
+    let tracked = repo.path().join("file.txt");
+    std::fs::write(&tracked, "main\n").unwrap();
+    create_commit(repo.path(), true);
+    exec_git_cmd(&["worktree", "add", "-b", "feature", "linked"], repo.path());
+    let linked = repo.path().join("linked");
+    std::fs::write(linked.join("file.txt"), "feature\n").unwrap();
+    create_commit(&linked, true);
+    // Git's linked-worktree backpointer may spell the worktree through an alias.
+    #[cfg(unix)]
+    let aliases = tempfile::tempdir().unwrap();
+    #[cfg(unix)]
+    {
+        let alias = aliases.path().join("linked");
+        std::os::unix::fs::symlink(&linked, &alias).unwrap();
+        std::fs::write(
+            repo.path().join(".git/worktrees/linked/gitdir"),
+            format!("{}\n", alias.join(".git").display()),
+        )
+        .unwrap();
+    }
+    let providers = crate::DiffProviderRegistry::default();
+    for (root, branch, contents) in [
+        (repo.path(), "main", b"main\n".as_slice()),
+        (linked.as_path(), "feature", b"feature\n".as_slice()),
+    ] {
+        let inspected = providers.inspect_file(&root.join("file.txt"), false, true);
+        assert_eq!(
+            inspected.diff_base.as_deref(),
+            Some(contents),
+            "diff lookup: {:?}",
+            git::open_repo(root, false).and_then(|repo| {
+                let file = gix::path::realpath(root.join("file.txt"))?;
+                git::diff_base(&repo.to_thread_local(), &file)
+            })
+        );
+        assert_eq!(&**inspected.head_name.unwrap().load_full(), branch);
+        let inspected = providers.inspect_file(&root.join("untracked.txt"), false, true);
+        assert!(inspected.diff_base.is_none());
+        assert_eq!(&**inspected.head_name.unwrap().load_full(), branch);
+    }
+    exec_git_cmd(&["checkout", "--detach"], &linked);
+    let inspected = providers.inspect_file(&linked.join("file.txt"), false, false);
+    assert!(inspected.diff_base.is_none());
+    assert_eq!(inspected.head_name.unwrap().load().len(), 8);
+    let main = providers.inspect_file(&tracked, false, false);
+    assert_eq!(&**main.head_name.unwrap().load_full(), "main");
 }
