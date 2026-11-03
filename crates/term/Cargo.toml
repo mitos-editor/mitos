@@ -95,6 +95,8 @@ arc-swap.workspace = true
 ratatui-image.workspace = true
 image.workspace = true
 termini.workspace = true
+# Clipboard escape sequences and health queries are used on every platform.
+termina.workspace = true
 indexmap = { workspace = true, features = ["serde"] }
 
 # Logging
