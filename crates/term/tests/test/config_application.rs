@@ -211,9 +211,18 @@ async fn application_reload_publishes_settings_after_resources_and_preserves_fai
         seen.fetch_add(1, Ordering::SeqCst);
         Ok(())
     });
-    app.handle_config_events(ConfigEvent::Refresh);
+    // A shared reload must finish before the next input observes configuration,
+    // even when the host is handling input directly rather than polling editor events.
+    app.editor.config_requests().send(ConfigEvent::Refresh)?;
+    for key in ui_core::input::parse_macro(":get scrolloff<ret>")? {
+        #[cfg(not(windows))]
+        let event = termina::event::Event::Key(tui::backend::native::adapt(key));
+        #[cfg(windows)]
+        let event = crossterm::event::Event::Key(tui::backend::native::adapt(key));
+        app.handle_terminal_events(Ok(event)).await;
+    }
     assert_eq!(calls.load(Ordering::SeqCst), 1);
-    assert_eq!(app.editor.get_status().unwrap().0, "Config refreshed");
+    assert_eq!(app.editor.get_status().unwrap().0, "7");
     let active = app.editor.syn_loader.load_full();
     // A malformed application config fails before trust or language application.
     std::fs::write(&config_path, "invalid = [")?;

@@ -76,7 +76,9 @@ async fn terminal_options_remain_available_through_commands() -> anyhow::Result<
     // An editor-only update must preserve frontend state and custom commands.
     let mut editor_config = (*app.editor.config()).clone();
     editor_config.scroll.padding = 11;
-    app.handle_config_events(view::editor::ConfigEvent::Update(Box::new(editor_config)));
+    app.apply_config_update(term::config::ConfigEvent::UpdateEditor(Box::new(
+        editor_config,
+    )));
 
     test_key_sequences(
         &mut app,

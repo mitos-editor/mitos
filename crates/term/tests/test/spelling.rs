@@ -415,7 +415,7 @@ async fn session_ignore_survives_edits_and_settings_changes_without_persisting(
     wait_for_mistakes(&mut app, &[]).await?;
     keys(&mut app, ":spelling en_US<ret>").await?;
     wait_for_mistakes(&mut app, &["quik", "zorblés"]).await?;
-    app.handle_config_events(view::editor::ConfigEvent::Update(Box::new(config)));
+    app.apply_config_update(term::config::ConfigEvent::UpdateEditor(Box::new(config)));
     wait_for_mistakes(&mut app, &["quik", "zorblés"]).await?;
     Ok(())
 }
@@ -641,10 +641,12 @@ async fn scratch_buffers_follow_config_and_feed_diagnostics_quicklists() -> anyh
 
     let mut config = (*app.editor.config()).clone();
     config.spelling.words = vec!["TEH".into()];
-    app.handle_config_events(view::editor::ConfigEvent::Update(Box::new(config.clone())));
+    app.apply_config_update(term::config::ConfigEvent::UpdateEditor(Box::new(
+        config.clone(),
+    )));
     wait_for_mistakes(&mut app, &["quik"]).await?;
     config.spelling.languages = Some(Vec::new());
-    app.handle_config_events(view::editor::ConfigEvent::Update(Box::new(config)));
+    app.apply_config_update(term::config::ConfigEvent::UpdateEditor(Box::new(config)));
     wait_for_mistakes(&mut app, &[]).await?;
     Ok(())
 }
@@ -672,14 +674,16 @@ async fn editorconfig_and_manual_override_take_precedence() -> anyhow::Result<()
     let mut config = (*app.editor.config()).clone();
     config.spelling.languages = Some(Vec::new());
     config.files.editor_config = false;
-    app.handle_config_events(view::editor::ConfigEvent::Update(Box::new(config.clone())));
+    app.apply_config_update(term::config::ConfigEvent::UpdateEditor(Box::new(
+        config.clone(),
+    )));
     wait_for_mistakes(&mut app, &[]).await?;
     config.files.editor_config = true;
-    app.handle_config_events(view::editor::ConfigEvent::Update(Box::new(config)));
+    app.apply_config_update(term::config::ConfigEvent::UpdateEditor(Box::new(config)));
     wait_for_mistakes(&mut app, &["teh"]).await?;
     keys(&mut app, ":spelling off<ret>").await?;
     let config = (*app.editor.config()).clone();
-    app.handle_config_events(view::editor::ConfigEvent::Update(Box::new(config)));
+    app.apply_config_update(term::config::ConfigEvent::UpdateEditor(Box::new(config)));
     wait_for_mistakes(&mut app, &[]).await?;
     assert!(current_ref!(app.editor).1.spelling_languages().is_empty());
     Ok(())

@@ -599,7 +599,7 @@ async fn shared_path_and_word_providers_work_without_lsp() -> anyhow::Result<()>
     config.lsp.enable = false;
     config.completion.path.enable = true;
     f.app
-        .handle_config_events(view::editor::ConfigEvent::Update(Box::new(config)));
+        .apply_config_update(term::config::ConfigEvent::UpdateEditor(Box::new(config)));
     while completion::next_update(&mut f.app.editor).is_some() {}
     assert!(current_ref!(f.app.editor).1.path_completion_enabled());
     assert_eq!(f.app.editor.mode(), Mode::Insert);
@@ -614,7 +614,7 @@ async fn shared_path_and_word_providers_work_without_lsp() -> anyhow::Result<()>
     config.completion.word.enable = true;
     config.completion.path.enable = false;
     f.app
-        .handle_config_events(view::editor::ConfigEvent::Update(Box::new(config)));
+        .apply_config_update(term::config::ConfigEvent::UpdateEditor(Box::new(config)));
     let path = dir.path().join("words.completion-test");
     std::fs::write(&path, "apple apricot ap\n")?;
     f.app.editor.open(&path, Action::Replace)?;
@@ -646,7 +646,7 @@ async fn automatic_triggers_and_configuration_changes_keep_request_lifetimes() -
     let mut config = (*f.app.editor.config()).clone();
     config.completion.auto_trigger = true;
     f.app
-        .handle_config_events(view::editor::ConfigEvent::Update(Box::new(config)));
+        .apply_config_update(term::config::ConfigEvent::UpdateEditor(Box::new(config)));
     completion::trigger_auto_completion(&f.app.editor, true);
     let update = f.update().await?;
     let requests = std::fs::read_to_string(&f.log)?;
@@ -656,7 +656,7 @@ async fn automatic_triggers_and_configuration_changes_keep_request_lifetimes() -
     let mut config = (*f.app.editor.config()).clone();
     config.completion.auto_trigger = false;
     f.app
-        .handle_config_events(view::editor::ConfigEvent::Update(Box::new(config)));
+        .apply_config_update(term::config::ConfigEvent::UpdateEditor(Box::new(config)));
     assert!(update.apply(&mut f.app.editor).is_none());
     while completion::next_update(&mut f.app.editor).is_some() {}
     f.trigger();
@@ -793,7 +793,7 @@ async fn accepting_a_trigger_character_preserves_the_next_completion_request() -
     let mut config = (*f.app.editor.config()).clone();
     config.completion.auto_trigger = true;
     f.app
-        .handle_config_events(view::editor::ConfigEvent::Update(Box::new(config)));
+        .apply_config_update(term::config::ConfigEvent::UpdateEditor(Box::new(config)));
     assert!(f.app.editor.accept_completion(&session, &item).unwrap());
     assert!(f.app.editor.finish_completion().is_some());
     assert_eq!(f.text(), "😀 apricot.\n");
@@ -933,7 +933,7 @@ async fn completion_popup_and_documentation_share_the_live_border_override() -> 
         ui::Completion,
     };
     use tui::buffer::Buffer;
-    use view::{editor::ConfigEvent, graphics::Rect};
+    use view::graphics::Rect;
 
     let dir = tempfile::tempdir()?;
     let mut f = Fixture::new(dir.path(), "ap\n", &["alpha"]).await?;
@@ -951,7 +951,9 @@ async fn completion_popup_and_documentation_share_the_live_border_override() -> 
     let mut config = test_config();
     config.editor.completion.preview_insert = false;
     f.app
-        .handle_config_events(ConfigEvent::Update(Box::new(config.editor.clone())));
+        .apply_config_update(term::config::ConfigEvent::UpdateEditor(Box::new(
+            config.editor.clone(),
+        )));
     let mut completion = Completion::new(&f.app.editor, items, session);
     let viewport = Rect::new(0, 0, 120, 40);
     let area = completion.area(viewport, &f.app.editor);
@@ -974,7 +976,9 @@ async fn completion_popup_and_documentation_share_the_live_border_override() -> 
         config.editor.border_style = global;
         config.editor.completion.border_style = preference;
         f.app
-            .handle_config_events(ConfigEvent::Update(Box::new(config.editor.clone())));
+            .apply_config_update(term::config::ConfigEvent::UpdateEditor(Box::new(
+                config.editor.clone(),
+            )));
         let mut buffer = Buffer::empty(viewport);
         let mut cx = Context {
             config: term::config::Context {

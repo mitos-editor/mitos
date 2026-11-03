@@ -427,7 +427,6 @@ async fn native_and_batched_file_changes_only_reach_the_owning_editors_servers(
 async fn reload_notifications_follow_the_explicit_or_automatic_change_source() -> anyhow::Result<()>
 {
     use view::{
-        editor::ConfigEvent,
         features::auto_reload,
         file_watcher::{CanonicalPathBuf, Event, EventType, Events},
     };
@@ -453,7 +452,7 @@ async fn reload_notifications_follow_the_explicit_or_automatic_change_source() -
         config.files.reload.prompt_if_modified = true;
         config.files.reload.poll.enable = false;
         f.app
-            .handle_config_events(ConfigEvent::Update(Box::new(config)));
+            .apply_config_update(term::config::ConfigEvent::UpdateEditor(Box::new(config)));
         f.app.editor.register_language_server_capabilities(
             f.server("alpha"),
             serde_json::from_value(json!({

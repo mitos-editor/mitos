@@ -330,7 +330,9 @@ async fn disabling_lenses_discards_queued_results_and_enabling_requests_them_aga
     config.lsp.code_lenses.enable = false;
     fixture
         .app
-        .handle_config_events(view::editor::ConfigEvent::Update(Box::new(config.clone())));
+        .apply_config_update(term::config::ConfigEvent::UpdateEditor(Box::new(
+            config.clone(),
+        )));
     queued(&mut fixture.app.editor);
     assert!(!resolved.is_current(&fixture.app.editor));
     assert!(fixture
@@ -344,7 +346,7 @@ async fn disabling_lenses_discards_queued_results_and_enabling_requests_them_aga
     config.lsp.code_lenses.enable = true;
     fixture
         .app
-        .handle_config_events(view::editor::ConfigEvent::Update(Box::new(config)));
+        .apply_config_update(term::config::ConfigEvent::UpdateEditor(Box::new(config)));
     let fresh = fixture.response().await?;
     fresh(&mut fixture.app.editor);
     assert_eq!(
@@ -547,7 +549,7 @@ async fn soft_wrapping_keeps_hidden_document_lines_unresolved() -> anyhow::Resul
     config.soft_wrap.enable = Some(true);
     fixture
         .app
-        .handle_config_events(view::editor::ConfigEvent::Update(Box::new(config)));
+        .apply_config_update(term::config::ConfigEvent::UpdateEditor(Box::new(config)));
     let fresh = fixture.response().await?;
     fresh(&mut fixture.app.editor);
     let (view, _) = current!(fixture.app.editor);

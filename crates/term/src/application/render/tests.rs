@@ -402,7 +402,7 @@ async fn queued_focus_cleanup_preserves_prompts_created_after_the_focus_change(
 #[tokio::test]
 async fn compositor_resolves_native_blocks_and_prompt_cursors() -> anyhow::Result<()> {
     use editor_config::BlockCursorRendering;
-    use view::{editor::ConfigEvent, graphics::CursorKind};
+    use view::graphics::CursorKind;
 
     fn render_cursor(app: &mut TestApplication) -> Cursor {
         let area = app.compositor.size();
@@ -429,14 +429,16 @@ async fn compositor_resolves_native_blocks_and_prompt_cursors() -> anyhow::Resul
     let mut config = (*app.editor.config()).clone();
     config.welcome_screen = false;
     config.cursor.shape.insert = CursorKind::Bar;
-    app.handle_config_events(ConfigEvent::Update(Box::new(config.clone())));
+    app.apply_config_update(crate::config::ConfigEvent::UpdateEditor(Box::new(
+        config.clone(),
+    )));
     let (view, doc) = view::current_ref!(app.editor);
     let inner = view.inner_area(doc);
     let position = (inner.x, inner.y).into();
     assert_eq!(render_cursor(&mut app), Cursor::Software(position));
 
     config.cursor.block_rendering = BlockCursorRendering::Native;
-    app.handle_config_events(ConfigEvent::Update(Box::new(config)));
+    app.apply_config_update(crate::config::ConfigEvent::UpdateEditor(Box::new(config)));
     let block = Cursor::Native(position, CursorKind::Block);
     assert_eq!(render_cursor(&mut app), block);
 

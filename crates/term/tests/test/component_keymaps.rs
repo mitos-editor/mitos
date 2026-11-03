@@ -414,7 +414,6 @@ async fn hover_popup_can_hide_borders_without_changing_layout_or_scrolling() -> 
     use lsp_client::lsp::{Hover as LspHover, HoverContents, MarkedString};
     use term::ui::lsp::hover::Hover;
     use term::ui::PopupBorder;
-    use view::editor::ConfigEvent;
 
     let mut fixture = Fixture::new("")?;
     let viewport = Rect::new(0, 0, 80, 40);
@@ -476,7 +475,7 @@ async fn hover_popup_can_hide_borders_without_changing_layout_or_scrolling() -> 
             config.lsp.hover.border_style = preference;
             fixture
                 .app
-                .handle_config_events(ConfigEvent::Update(Box::new(config)));
+                .apply_config_update(term::config::ConfigEvent::UpdateEditor(Box::new(config)));
 
             popup.update_and_render(viewport, &mut buffer, &mut fixture.context());
             assert_eq!(popup.area(viewport, &fixture.app.editor), expected_area);
@@ -522,7 +521,6 @@ async fn hover_popup_can_hide_borders_without_changing_layout_or_scrolling() -> 
 async fn popup_border_overrides_follow_features_without_affecting_other_panels(
 ) -> anyhow::Result<()> {
     use term::ui::PopupBorder;
-    use view::editor::ConfigEvent;
 
     let mut fixture = Fixture::new("")?;
     let viewport = Rect::new(0, 0, 80, 40);
@@ -552,7 +550,7 @@ async fn popup_border_overrides_follow_features_without_affecting_other_panels(
             let config = Fixture::load_config(&source).editor;
             fixture
                 .app
-                .handle_config_events(ConfigEvent::Update(Box::new(config)));
+                .apply_config_update(term::config::ConfigEvent::UpdateEditor(Box::new(config)));
             let mut buffer = Buffer::empty(viewport);
             popup.update_and_render(viewport, &mut buffer, &mut fixture.context());
             assert_eq!(popup.area(viewport, &fixture.app.editor), area);
@@ -579,7 +577,6 @@ async fn popup_border_overrides_follow_features_without_affecting_other_panels(
 #[tokio::test(flavor = "multi_thread")]
 async fn signature_popup_uses_its_border_for_documentation_separators() -> anyhow::Result<()> {
     use term::ui::PopupBorder;
-    use view::editor::ConfigEvent;
 
     let mut fixture = Fixture::new("")?;
     let help = SignatureHelp::new(
@@ -604,7 +601,7 @@ async fn signature_popup_uses_its_border_for_documentation_separators() -> anyho
         let source = format!("[editor.lsp.signature-help]\nborder-style = '{style}'");
         fixture
             .app
-            .handle_config_events(ConfigEvent::Update(Box::new(
+            .apply_config_update(term::config::ConfigEvent::UpdateEditor(Box::new(
                 Fixture::load_config(&source).editor,
             )));
         let mut buffer = Buffer::empty(viewport);
