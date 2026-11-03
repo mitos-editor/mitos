@@ -33,7 +33,7 @@ Features live with the state they change; frontends adapt input and present resu
 | `spelling` | Dictionary operations, scanning, suggestions, and word persistence |
 | `lsp`, `dap`, `vcs` | Language-server, debugger, and repository integration |
 | `debugger` | Session membership and selection history, thread/frame transitions, and breakpoint models |
-| `lsp-types`, `dap-types` | Protocol data types |
+| `dap-types` | Debug Adapter Protocol data types |
 | `command-line`, `parsec`, `snippets` | Command argument parsing, parser combinators, and snippet parsing/state |
 | `event` | Event registration, cancellation, and debounced task primitives |
 | `stdx` | Shared standard-library utilities |
@@ -1053,6 +1053,13 @@ completion applies the written revision and path through
 `Editor::complete_document_write`; flushing drains all accepted writes before
 returning the first failure. Required frontend jobs likewise finish their callbacks
 and followups before reporting an error.
+
+The LSP client uses upstream `lsp-types` wire definitions. `lsp::UriExt` adapts
+protocol URIs through `stdx` for the editor's RFC3986 file encoding and path
+conversion. Symbol queries expose one normalized editor location per symbol. Icon names
+belong to the frontend; the client advertises the supported wire kinds without
+extending protocol types. Incoming URI syntax is validated by the upstream
+wire type; editor navigation additionally requires an absolute URI.
 
 ## Protocol and repository integrations
 

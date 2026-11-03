@@ -1,5 +1,6 @@
 //! Manual language navigation and selection, independent of picker presentation.
 
+use lsp_client::UriExt as _;
 mod open;
 
 use std::{
@@ -33,8 +34,11 @@ pub struct Location {
 }
 
 impl Location {
-    fn from_lsp(location: lsp::Location, offset_encoding: OffsetEncoding) -> Option<Self> {
-        match location.uri.try_into() {
+    pub(super) fn from_lsp(
+        location: lsp::Location,
+        offset_encoding: OffsetEncoding,
+    ) -> Option<Self> {
+        match location.uri.to_editor_uri() {
             Ok(uri) => Some(Self {
                 uri,
                 range: location.range,

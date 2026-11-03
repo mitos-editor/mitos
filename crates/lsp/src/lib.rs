@@ -13,7 +13,7 @@
 //! bug for non-ASCII text.
 //!
 //! Protocol wire types are available under [`lsp`] and intentionally remain in
-//! the separate `lsp-types` crate.
+//! the upstream `lsp-types` dependency, with editor URI adapters in [`UriExt`].
 
 mod client;
 pub mod file_event;
@@ -25,7 +25,13 @@ pub use client::Client;
 pub use futures_executor::block_on;
 pub use jsonrpc::Call;
 pub use lsp::{Position, Url};
-pub use lsp_types as lsp;
+pub mod lsp {
+    pub use lsp_types::Uri as Url;
+    pub use lsp_types::*;
+}
+
+mod protocol;
+pub use protocol::{UriError, UriExt};
 use std::collections::HashMap;
 
 use thiserror::Error;

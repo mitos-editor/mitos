@@ -125,11 +125,13 @@ fn request_document_diagnostics_for_language_servers(
                     .as_ref()
                     .and_then(|provider| match provider {
                         lsp::DiagnosticServerCapabilities::Options(options) => {
-                            options.identifier.clone()
+                            options.identifier.as_deref().map(Into::into)
                         }
-                        lsp::DiagnosticServerCapabilities::RegistrationOptions(options) => {
-                            options.diagnostic_options.identifier.clone()
-                        }
+                        lsp::DiagnosticServerCapabilities::RegistrationOptions(options) => options
+                            .diagnostic_options
+                            .identifier
+                            .as_deref()
+                            .map(Into::into),
                     });
             Some((
                 id,
