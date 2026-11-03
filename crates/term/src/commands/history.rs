@@ -58,7 +58,7 @@ pub(super) fn commit_undo_checkpoint(cx: &mut Context) {
 pub(super) mod typed {
     //! Typable history commands.
 
-    use crate::{compositor, ui::PromptEvent};
+    use crate::compositor;
     use ::command_line::Args;
     use anyhow::anyhow;
     use buffer::{history::UndoKind, HistoryAction};
@@ -67,12 +67,7 @@ pub(super) mod typed {
     pub(in crate::commands) fn earlier(
         cx: &mut compositor::Context,
         args: Args,
-        event: PromptEvent,
     ) -> anyhow::Result<()> {
-        if event != PromptEvent::Validate {
-            return Ok(());
-        }
-
         let uk = args.join(" ").parse::<UndoKind>().map_err(|s| anyhow!(s))?;
 
         let success = cx.editor.change_history(HistoryAction::Earlier(uk));
@@ -87,12 +82,7 @@ pub(super) mod typed {
     pub(in crate::commands) fn later(
         cx: &mut compositor::Context,
         args: Args,
-        event: PromptEvent,
     ) -> anyhow::Result<()> {
-        if event != PromptEvent::Validate {
-            return Ok(());
-        }
-
         let uk = args.join(" ").parse::<UndoKind>().map_err(|s| anyhow!(s))?;
         let success = cx.editor.change_history(HistoryAction::Later(uk));
         if !success {

@@ -68,19 +68,14 @@ fn goto_spelling(cx: &mut Context, direction: Direction) {
 pub(super) mod typed {
     //! Typable spelling commands.
 
-    use crate::{compositor, ui::PromptEvent};
+    use crate::compositor;
     use ::command_line::Args;
 
     #[cold]
     pub(in crate::commands) fn spelling_language(
         cx: &mut compositor::Context,
         args: Args,
-        event: PromptEvent,
     ) -> anyhow::Result<()> {
-        if event != PromptEvent::Validate {
-            return Ok(());
-        }
-
         if args.is_empty() {
             let doc = doc!(cx.editor);
             let status = if doc.spelling_languages().is_empty() {

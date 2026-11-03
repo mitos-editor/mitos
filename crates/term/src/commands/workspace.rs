@@ -1,6 +1,6 @@
 //! Working-directory, directory-stack, and workspace-trust commands.
 
-use crate::{compositor, ui::PromptEvent};
+use crate::compositor;
 use ::command_line::Args;
 use anyhow::anyhow;
 use std::path::{Path, PathBuf};
@@ -39,12 +39,7 @@ fn apply_directory_change(cx: &mut compositor::Context, dir: &Path) -> anyhow::R
 pub(super) fn change_current_directory(
     cx: &mut compositor::Context,
     args: Args,
-    event: PromptEvent,
 ) -> anyhow::Result<()> {
-    if event != PromptEvent::Validate {
-        return Ok(());
-    }
-
     let dir = parse_first_arg_as_dir(&args, cx.editor.get_last_cwd().map(|p| p.to_path_buf()))?;
 
     apply_directory_change(cx, &dir)
@@ -54,12 +49,7 @@ pub(super) fn change_current_directory(
 pub(super) fn show_directory_stack(
     cx: &mut compositor::Context,
     _args: Args,
-    event: PromptEvent,
 ) -> anyhow::Result<()> {
-    if event != PromptEvent::Validate {
-        return Ok(());
-    }
-
     let serialized_stack = cx
         .editor
         .dir_stack
@@ -78,15 +68,7 @@ pub(super) fn show_directory_stack(
 }
 
 #[cold]
-pub(super) fn push_directory(
-    cx: &mut compositor::Context,
-    args: Args,
-    event: PromptEvent,
-) -> anyhow::Result<()> {
-    if event != PromptEvent::Validate {
-        return Ok(());
-    }
-
+pub(super) fn push_directory(cx: &mut compositor::Context, args: Args) -> anyhow::Result<()> {
     // avoid an unbounded directory stack and reallocs for perf
     if cx.editor.dir_stack.len() == cx.editor.dir_stack.capacity() {
         cx.editor.dir_stack.pop_back();
@@ -96,19 +78,11 @@ pub(super) fn push_directory(
         .dir_stack
         .push_front(stdx::env::current_working_dir());
 
-    change_current_directory(cx, args, event)
+    change_current_directory(cx, args)
 }
 
 #[cold]
-pub(super) fn pop_directory(
-    cx: &mut compositor::Context,
-    _args: Args,
-    event: PromptEvent,
-) -> anyhow::Result<()> {
-    if event != PromptEvent::Validate {
-        return Ok(());
-    }
-
+pub(super) fn pop_directory(cx: &mut compositor::Context, _args: Args) -> anyhow::Result<()> {
     if let Some(dir) = cx.editor.dir_stack.pop_front() {
         apply_directory_change(cx, &dir)?;
     } else {
@@ -122,12 +96,7 @@ pub(super) fn pop_directory(
 pub(super) fn show_current_directory(
     cx: &mut compositor::Context,
     _args: Args,
-    event: PromptEvent,
 ) -> anyhow::Result<()> {
-    if event != PromptEvent::Validate {
-        return Ok(());
-    }
-
     let cwd = stdx::env::current_working_dir();
     let message = format!("Current working directory is {}", cwd.display());
 
@@ -145,15 +114,7 @@ fn current_workspace(cx: &compositor::Context) -> std::path::PathBuf {
 }
 
 #[cold]
-pub(super) fn trust_workspace(
-    cx: &mut compositor::Context,
-    args: Args<'_>,
-    event: PromptEvent,
-) -> anyhow::Result<()> {
-    if event != PromptEvent::Validate {
-        return Ok(());
-    }
-
+pub(super) fn trust_workspace(cx: &mut compositor::Context, args: Args<'_>) -> anyhow::Result<()> {
     let document = current_ref!(cx.editor).1.id();
     let servers: Vec<_> = args.iter().map(|arg| arg.as_ref()).collect();
     trust_and_restart(cx.editor, document, &servers)
@@ -163,12 +124,7 @@ pub(super) fn trust_workspace(
 pub(super) fn untrust_workspace(
     cx: &mut compositor::Context,
     _args: Args<'_>,
-    event: PromptEvent,
 ) -> anyhow::Result<()> {
-    if event != PromptEvent::Validate {
-        return Ok(());
-    }
-
     let workspace = current_workspace(cx);
     apply_decision(cx.editor, &workspace, TrustDecision::Untrust)
 }
@@ -177,12 +133,7 @@ pub(super) fn untrust_workspace(
 pub(super) fn exclude_workspace(
     cx: &mut compositor::Context,
     _args: Args<'_>,
-    event: PromptEvent,
 ) -> anyhow::Result<()> {
-    if event != PromptEvent::Validate {
-        return Ok(());
-    }
-
     let workspace = current_workspace(cx);
     apply_decision(cx.editor, &workspace, TrustDecision::Exclude)
 }

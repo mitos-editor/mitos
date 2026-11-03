@@ -661,7 +661,7 @@ mod tests {
 pub(super) mod typed {
     //! Typable diagnostics commands.
 
-    use crate::{compositor, ui::PromptEvent};
+    use crate::compositor;
     use ::command_line::Args;
     use anyhow::{bail, ensure};
 
@@ -669,12 +669,7 @@ pub(super) mod typed {
     pub(in crate::commands) fn yank_diagnostic(
         cx: &mut compositor::Context,
         args: Args,
-        event: PromptEvent,
     ) -> anyhow::Result<()> {
-        if event != PromptEvent::Validate {
-            return Ok(());
-        }
-
         let reg = match args.first() {
             Some(s) => {
                 ensure!(s.chars().count() == 1, format!("Invalid register {s}"));

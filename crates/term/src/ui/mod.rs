@@ -861,16 +861,16 @@ pub mod completers {
             .collect()
     }
 
-    /// This expects input to be a raw string of arguments, because this is what Signature's raw_after does.
-    pub fn repeating_filenames(editor: &Editor, input: &str) -> Vec<Completion> {
+    /// Complete the last word within an otherwise raw argument.
+    pub fn last_word(editor: &Editor, input: &str, complete: Completer) -> Vec<Completion> {
         let token = match Tokenizer::new(input, false).last() {
             Some(token) => token.unwrap(),
-            None => return filename(editor, input),
+            None => return complete(editor, input),
         };
 
         let offset = token.content_start;
 
-        let mut completions = filename(editor, &input[offset..]);
+        let mut completions = complete(editor, &input[offset..]);
         for completion in completions.iter_mut() {
             completion.0.start += offset;
         }
@@ -884,7 +884,7 @@ pub mod completers {
             return program(editor, command);
         }
 
-        let mut completions = repeating_filenames(editor, args);
+        let mut completions = last_word(editor, args, filename);
         for completion in completions.iter_mut() {
             // + 1 for separator between `command` and `args`
             completion.0.start += command.len() + 1;

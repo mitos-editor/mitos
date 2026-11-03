@@ -23,17 +23,13 @@ async fn format_callback(task: FormattingTask) -> anyhow::Result<Callback> {
 
 pub(super) mod typed {
     use super::{format_callback, formatting};
-    use crate::{compositor, ui::PromptEvent};
+    use crate::compositor;
     use command_line::Args;
 
     pub(in crate::commands) fn format(
         cx: &mut compositor::Context,
         _args: Args,
-        event: PromptEvent,
     ) -> anyhow::Result<()> {
-        if event != PromptEvent::Validate {
-            return Ok(());
-        }
         let view = current_ref!(cx.editor).0.id;
         let task = formatting::prepare_document(cx.editor, view)?;
         cx.jobs.callback(format_callback(task));

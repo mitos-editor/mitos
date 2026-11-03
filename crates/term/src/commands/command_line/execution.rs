@@ -7,7 +7,7 @@ use std::{borrow::Cow, collections::VecDeque};
 use view::{expansion, features::shell::ShellBehavior, Editor};
 
 use super::super::{
-    catalog::{TypableCommand, SHELL_SIGNATURE, TYPABLE_COMMAND_MAP},
+    catalog::{TypableCommand, SHELL_ARGS, TYPABLE_COMMAND_MAP},
     mappable::MappableCommand,
     navigation::GotoLinePreview,
 };
@@ -81,8 +81,8 @@ impl Command {
         let input = self.input.clone();
         let positional = self.positional.clone();
         let signature = match &self.invocation {
-            Invocation::Typable(command) => command.signature,
-            Invocation::Shell(_) => SHELL_SIGNATURE,
+            Invocation::Typable(command) => command.args.signature(),
+            Invocation::Shell(_) => SHELL_ARGS.signature(),
         };
         let name = match &self.invocation {
             Invocation::Typable(command) => Some(command.name),
@@ -122,7 +122,7 @@ impl Command {
                 preview.handle(cx.editor, args, PromptEvent::Validate)
             } else {
                 preview.abort(cx.editor);
-                (command.fun)(cx, args, PromptEvent::Validate)
+                command.action.execute(cx, args, PromptEvent::Validate)
             }
             .map_err(|error| anyhow::anyhow!("'{}': {error}", command.name)),
             Invocation::Shell(behavior) => {
@@ -271,7 +271,8 @@ impl Session {
                 preview_updated = true;
                 self.preview.handle(cx.editor, args, event)?;
             } else {
-                (cmd.fun)(cx, args, event)
+                cmd.action
+                    .execute(cx, args, event)
                     .map_err(|error| anyhow::anyhow!("'{}': {error}", cmd.name))?;
             }
         }
@@ -287,7 +288,7 @@ fn preview_arguments<'a>(
     input: &'a str,
     positional: &[Cow<'a, str>],
 ) -> anyhow::Result<Args<'a>> {
-    Args::parse(input, cmd.signature, false, |token| {
+    Args::parse(input, cmd.args.signature(), false, |token| {
         expansion::expand_only_arg(token, positional).map_err(Into::into)
     })
     .map_err(|error| anyhow::anyhow!("'{}': {error}", cmd.name))
@@ -343,7 +344,7 @@ pub(in crate::commands) fn execute_command(
 ) -> anyhow::Result<()> {
     if event != PromptEvent::Validate {
         let args = preview_arguments(cmd, input, positional.as_slice())?;
-        return (cmd.fun)(cx, args, event);
+        return cmd.action.execute(cx, args, event);
     }
     // Key bindings use the same expansion and cancellation path as prompt submissions.
     cx.jobs.command_expansion.cancel();

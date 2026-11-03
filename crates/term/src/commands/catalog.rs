@@ -423,80 +423,127 @@ pub struct TypableCommand {
     pub name: &'static str,
     pub aliases: &'static [&'static str],
     pub doc: &'static str,
-    // params, flags, helper, completer
-    pub fun: fn(&mut compositor::Context, Args, PromptEvent) -> anyhow::Result<()>,
-    /// What completion methods, if any, does this command have?
-    pub completer: CommandCompleter,
-    pub signature: Signature,
+    pub action: CommandAction,
+    pub args: CommandArgs,
 }
 
-#[derive(Clone)]
-pub struct CommandCompleter {
-    // Arguments with specific completion methods based on their position.
-    positional_args: &'static [Completer],
-
-    // All remaining arguments will use this completion method, if set.
-    var_args: Completer,
+/// Ordinary commands run only on submission; previews receive prompt lifecycle events.
+#[derive(Clone, Copy)]
+pub enum CommandAction {
+    Committed(fn(&mut compositor::Context, Args) -> anyhow::Result<()>),
+    Preview(fn(&mut compositor::Context, Args, PromptEvent) -> anyhow::Result<()>),
 }
 
-impl CommandCompleter {
-    const fn none() -> Self {
+impl CommandAction {
+    pub(super) fn execute(
+        self,
+        cx: &mut compositor::Context,
+        args: Args,
+        event: PromptEvent,
+    ) -> anyhow::Result<()> {
+        match self {
+            Self::Committed(run) if event == PromptEvent::Validate => run(cx, args),
+            Self::Committed(_) => Ok(()),
+            Self::Preview(run) => run(cx, args, event),
+        }
+    }
+}
+
+/// Positional arity and completion come from the same required, optional and repeating arguments.
+#[derive(Clone, Copy)]
+pub struct CommandArgs {
+    required: &'static [Completer],
+    optional: &'static [Completer],
+    rest: Option<Completer>,
+    raw_after: Option<u8>,
+    raw_words: bool,
+    flags: &'static [Flag],
+}
+
+impl CommandArgs {
+    const fn new(required: &'static [Completer], optional: &'static [Completer]) -> Self {
         Self {
-            positional_args: &[],
-            var_args: completers::none,
+            required,
+            optional,
+            rest: None,
+            raw_after: None,
+            raw_words: false,
+            flags: &[],
         }
     }
 
-    const fn positional(completers: &'static [Completer]) -> Self {
-        Self {
-            positional_args: completers,
-            var_args: completers::none,
+    const fn rest(mut self, completer: Completer) -> Self {
+        self.rest = Some(completer);
+        self
+    }
+
+    const fn raw_after(mut self, count: u8) -> Self {
+        self.raw_after = Some(count);
+        self
+    }
+
+    const fn raw_words_after(mut self, count: u8) -> Self {
+        self.raw_after = Some(count);
+        self.raw_words = true;
+        self
+    }
+
+    pub(super) fn complete(
+        &self,
+        editor: &view::Editor,
+        n: usize,
+        input: &str,
+    ) -> Vec<crate::ui::prompt::Completion> {
+        let complete = *self.for_argument_number(n);
+        if self.raw_words && self.raw_after.is_some_and(|count| n >= usize::from(count)) {
+            completers::last_word(editor, input, complete)
+        } else {
+            complete(editor, input)
         }
     }
 
-    const fn all(completer: Completer) -> Self {
-        Self {
-            positional_args: &[],
-            var_args: completer,
+    const fn flags(mut self, flags: &'static [Flag]) -> Self {
+        self.flags = flags;
+        self
+    }
+
+    pub const fn signature(&self) -> Signature {
+        Signature {
+            positionals: (
+                self.required.len(),
+                if self.rest.is_some() {
+                    None
+                } else {
+                    Some(self.required.len() + self.optional.len())
+                },
+            ),
+            raw_after: self.raw_after,
+            flags: self.flags,
+            ..Signature::DEFAULT
         }
     }
 
     pub(super) fn for_argument_number(&self, n: usize) -> &Completer {
-        match self.positional_args.get(n) {
-            Some(completer) => completer,
-            _ => &self.var_args,
-        }
+        const NONE: Completer = completers::none;
+        self.required
+            .iter()
+            .chain(self.optional)
+            .nth(n)
+            .or(self.rest.as_ref())
+            .unwrap_or(&NONE)
     }
 }
 
-/// This command accepts a single boolean --skip-visible flag and no positionals.
-const BUFFER_CLOSE_OTHERS_SIGNATURE: Signature = Signature {
-    positionals: (0, Some(0)),
-    flags: &[Flag {
-        name: "skip-visible",
-        alias: Some('s'),
-        doc: "don't close buffers that are visible",
-        ..Flag::DEFAULT
-    }],
-    ..Signature::DEFAULT
-};
+const BUFFER_CLOSE_OTHERS_ARGS: CommandArgs = CommandArgs::new(&[], &[]).flags(&[Flag {
+    name: "skip-visible",
+    alias: Some('s'),
+    doc: "don't close buffers that are visible",
+    ..Flag::DEFAULT
+}]);
 
-// TODO: SHELL_SIGNATURE should specify var args for arguments, so that just completers::filename can be used,
-// but Signature does not yet allow for var args.
-
-/// This command handles all of its input as-is with no quoting or flags.
-pub const SHELL_SIGNATURE: Signature = Signature {
-    positionals: (1, Some(2)),
-    raw_after: Some(1),
-    ..Signature::DEFAULT
-};
-
-pub const SHELL_COMPLETER: CommandCompleter = CommandCompleter::positional(&[
-    // Command name
-    completers::program,
-    // Shell argument(s)
-    completers::repeating_filenames,
-]);
+/// The raw tail stays one parsed argument and completes individual shell words.
+pub const SHELL_ARGS: CommandArgs =
+    CommandArgs::new(&[completers::program], &[completers::filename]).raw_words_after(1);
 
 pub(super) const WRITE_NO_FORMAT_FLAG: Flag = Flag {
     name: "no-format",
@@ -515,221 +562,141 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
         name: "exit",
         aliases: &["x", "xit"],
         doc: "Write changes to disk if the buffer is modified and then quit. Accepts an optional path (`:exit some/path.txt`).",
-        fun: super::application::typed::exit,
-        completer: CommandCompleter::positional(&[completers::filename]),
-        signature: Signature {
-            positionals: (0, Some(1)),
-            flags: &[WRITE_NO_FORMAT_FLAG, WRITE_NO_CODE_ACTIONS_FLAG],
-            ..Signature::DEFAULT
-        },
+        action: CommandAction::Committed(super::application::typed::exit::<false>),
+        args: CommandArgs::new(&[], &[completers::filename]).flags(&[WRITE_NO_FORMAT_FLAG, WRITE_NO_CODE_ACTIONS_FLAG]),
     },
     TypableCommand {
         name: "exit!",
         aliases: &["x!", "xit!"],
         doc: "Force write changes to disk, creating necessary subdirectories, if the buffer is modified and then quit. Accepts an optional path (`:exit! some/path.txt`).",
-        fun: super::application::typed::force_exit,
-        completer: CommandCompleter::positional(&[completers::filename]),
-        signature: Signature {
-            positionals: (0, Some(1)),
-            flags: &[WRITE_NO_FORMAT_FLAG, WRITE_NO_CODE_ACTIONS_FLAG],
-            ..Signature::DEFAULT
-        },
+        action: CommandAction::Committed(super::application::typed::exit::<true>),
+        args: CommandArgs::new(&[], &[completers::filename]).flags(&[WRITE_NO_FORMAT_FLAG, WRITE_NO_CODE_ACTIONS_FLAG]),
     },
     TypableCommand {
         name: "quit",
         aliases: &["q"],
         doc: "Close the current view.",
-        fun: super::application::typed::quit,
-        completer: CommandCompleter::none(),
-        signature: Signature {
-            positionals: (0, Some(0)),
-            ..Signature::DEFAULT
-        },
+        action: CommandAction::Committed(super::application::typed::quit::<false>),
+        args: CommandArgs::new(&[], &[]),
     },
     TypableCommand {
         name: "quit!",
         aliases: &["q!"],
         doc: "Force close the current view, ignoring unsaved changes.",
-        fun: super::application::typed::force_quit,
-        completer: CommandCompleter::none(),
-        signature: Signature {
-            positionals: (0, Some(0)),
-            ..Signature::DEFAULT
-        },
+        action: CommandAction::Committed(super::application::typed::quit::<true>),
+        args: CommandArgs::new(&[], &[]),
     },
     TypableCommand {
         name: "open",
         aliases: &["o", "edit", "e"],
         doc: "Open a file from disk into the current view.",
-        fun: super::files::typed::open,
-        completer: CommandCompleter::all(completers::filename),
-        signature: Signature {
-            positionals: (1, None),
-            ..Signature::DEFAULT
-        },
+        action: CommandAction::Committed(super::files::typed::open),
+        args: CommandArgs::new(&[completers::filename], &[]).rest(completers::filename),
     },
     TypableCommand {
         name: "buffer-close",
         aliases: &["bc", "bclose"],
         doc: "Close the current buffer.",
-        fun: super::buffers::typed::buffer_close::<false>,
-        completer: CommandCompleter::all(completers::buffer),
-        signature: Signature {
-            positionals: (0, None),
-            ..Signature::DEFAULT
-        },
+        action: CommandAction::Committed(super::buffers::typed::buffer_close::<false>),
+        args: CommandArgs::new(&[], &[]).rest(completers::buffer),
     },
     TypableCommand {
         name: "buffer-close!",
         aliases: &["bc!", "bclose!"],
         doc: "Close the current buffer forcefully, ignoring unsaved changes.",
-        fun: super::buffers::typed::buffer_close::<true>,
-        completer: CommandCompleter::all(completers::buffer),
-        signature: Signature {
-            positionals: (0, None),
-            ..Signature::DEFAULT
-        },
+        action: CommandAction::Committed(super::buffers::typed::buffer_close::<true>),
+        args: CommandArgs::new(&[], &[]).rest(completers::buffer),
     },
     TypableCommand {
         name: "buffer-close-others",
         aliases: &["bco", "bcloseother"],
         doc: "Close all buffers but the currently focused one.",
-        fun: super::buffers::typed::buffer_close_others::<false>,
-        completer: CommandCompleter::none(),
-        signature: BUFFER_CLOSE_OTHERS_SIGNATURE,
+        action: CommandAction::Committed(super::buffers::typed::buffer_close_others::<false>),
+        args: BUFFER_CLOSE_OTHERS_ARGS,
     },
     TypableCommand {
         name: "buffer-close-others!",
         aliases: &["bco!", "bcloseother!"],
         doc: "Force close all buffers but the currently focused one.",
-        fun: super::buffers::typed::buffer_close_others::<true>,
-        completer: CommandCompleter::none(),
-        signature: BUFFER_CLOSE_OTHERS_SIGNATURE,
+        action: CommandAction::Committed(super::buffers::typed::buffer_close_others::<true>),
+        args: BUFFER_CLOSE_OTHERS_ARGS,
     },
     TypableCommand {
         name: "buffer-close-all",
         aliases: &["bca", "bcloseall"],
         doc: "Close all buffers without quitting.",
-        fun: super::buffers::typed::buffer_close_all::<false>,
-        completer: CommandCompleter::none(),
-        signature: Signature {
-            positionals: (0, Some(0)),
-            ..Signature::DEFAULT
-        },
+        action: CommandAction::Committed(super::buffers::typed::buffer_close_all::<false>),
+        args: CommandArgs::new(&[], &[]),
     },
     TypableCommand {
         name: "buffer-close-all!",
         aliases: &["bca!", "bcloseall!"],
         doc: "Force close all buffers ignoring unsaved changes without quitting.",
-        fun: super::buffers::typed::buffer_close_all::<true>,
-        completer: CommandCompleter::none(),
-        signature: Signature {
-            positionals: (0, Some(0)),
-            ..Signature::DEFAULT
-        },
+        action: CommandAction::Committed(super::buffers::typed::buffer_close_all::<true>),
+        args: CommandArgs::new(&[], &[]),
     },
     TypableCommand {
         name: "buffer-next",
         aliases: &["bn", "bnext"],
         doc: "Goto next buffer.",
-        fun: super::buffers::typed::buffer_next,
-        completer: CommandCompleter::none(),
-        signature: Signature {
-            positionals: (0, Some(0)),
-            ..Signature::DEFAULT
-        },
+        action: CommandAction::Committed(super::buffers::typed::buffer_next),
+        args: CommandArgs::new(&[], &[]),
     },
     TypableCommand {
         name: "buffer-previous",
         aliases: &["bp", "bprev"],
         doc: "Goto previous buffer.",
-        fun: super::buffers::typed::buffer_previous,
-        completer: CommandCompleter::none(),
-        signature: Signature {
-            positionals: (0, Some(0)),
-            ..Signature::DEFAULT
-        },
+        action: CommandAction::Committed(super::buffers::typed::buffer_previous),
+        args: CommandArgs::new(&[], &[]),
     },
     TypableCommand {
         name: "write",
         aliases: &["w"],
         doc: "Write changes to disk. Accepts an optional path (`:write some/path.txt`).",
-        fun: super::files::typed::write,
-        completer: CommandCompleter::positional(&[completers::filename]),
-        signature: Signature {
-            positionals: (0, Some(1)),
-            flags: &[WRITE_NO_FORMAT_FLAG, WRITE_NO_CODE_ACTIONS_FLAG],
-            ..Signature::DEFAULT
-        },
+        action: CommandAction::Committed(super::files::typed::write::<false>),
+        args: CommandArgs::new(&[], &[completers::filename]).flags(&[WRITE_NO_FORMAT_FLAG, WRITE_NO_CODE_ACTIONS_FLAG]),
     },
     TypableCommand {
         name: "write!",
         aliases: &["w!"],
         doc: "Force write changes to disk creating necessary subdirectories. Accepts an optional path (`:write! some/path.txt`).",
-        fun: super::files::typed::force_write,
-        completer: CommandCompleter::positional(&[completers::filename]),
-        signature: Signature {
-            positionals: (0, Some(1)),
-            flags: &[WRITE_NO_FORMAT_FLAG,WRITE_NO_CODE_ACTIONS_FLAG],
-            ..Signature::DEFAULT
-        },
+        action: CommandAction::Committed(super::files::typed::write::<true>),
+        args: CommandArgs::new(&[], &[completers::filename]).flags(&[WRITE_NO_FORMAT_FLAG,WRITE_NO_CODE_ACTIONS_FLAG]),
     },
     TypableCommand {
         name: "write-buffer-close",
         aliases: &["wbc"],
         doc: "Write changes to disk and closes the buffer. Accepts an optional path (`:write-buffer-close some/path.txt`).",
-        fun: super::files::typed::write_buffer_close,
-        completer: CommandCompleter::positional(&[completers::filename]),
-        signature: Signature {
-            positionals: (0, Some(1)),
-            flags: &[WRITE_NO_FORMAT_FLAG,WRITE_NO_CODE_ACTIONS_FLAG],
-            ..Signature::DEFAULT
-        },
+        action: CommandAction::Committed(super::files::typed::write_buffer_close::<false>),
+        args: CommandArgs::new(&[], &[completers::filename]).flags(&[WRITE_NO_FORMAT_FLAG,WRITE_NO_CODE_ACTIONS_FLAG]),
     },
     TypableCommand {
         name: "write-buffer-close!",
         aliases: &["wbc!"],
         doc: "Force write changes to disk creating necessary subdirectories and closes the buffer. Accepts an optional path (`:write-buffer-close! some/path.txt`).",
-        fun: super::files::typed::force_write_buffer_close,
-        completer: CommandCompleter::positional(&[completers::filename]),
-        signature: Signature {
-            positionals: (0, Some(1)),
-            flags: &[WRITE_NO_FORMAT_FLAG,WRITE_NO_CODE_ACTIONS_FLAG],
-            ..Signature::DEFAULT
-        },
+        action: CommandAction::Committed(super::files::typed::write_buffer_close::<true>),
+        args: CommandArgs::new(&[], &[completers::filename]).flags(&[WRITE_NO_FORMAT_FLAG,WRITE_NO_CODE_ACTIONS_FLAG]),
     },
     TypableCommand {
         name: "new",
         aliases: &["n"],
         doc: "Create a new scratch buffer.",
-        fun: super::files::typed::new_file,
-        completer: CommandCompleter::none(),
-        signature: Signature {
-            positionals: (0, Some(0)),
-            ..Signature::DEFAULT
-        },
+        action: CommandAction::Committed(super::files::typed::new_file),
+        args: CommandArgs::new(&[], &[]),
     },
     TypableCommand {
         name: "format",
         aliases: &["fmt"],
         doc: "Format the file using an external formatter or language server.",
-        fun: super::formatting::typed::format,
-        completer: CommandCompleter::none(),
-        signature: Signature {
-            positionals: (0, Some(0)),
-            ..Signature::DEFAULT
-        },
+        action: CommandAction::Committed(super::formatting::typed::format),
+        args: CommandArgs::new(&[], &[]),
     },
     TypableCommand {
         name: "indent-style",
         aliases: &[],
         doc: "Set the indentation style for editing. ('t' for tabs or 1-16 for number of spaces.)",
-        fun: super::files::typed::set_indent_style,
-        completer: CommandCompleter::none(),
-        signature: Signature {
-            positionals: (0, Some(1)),
-            ..Signature::DEFAULT
-        },
+        action: CommandAction::Committed(super::files::typed::set_indent_style),
+        args: CommandArgs::new(&[], &[completers::none]),
     },
     TypableCommand {
         name: "line-ending",
@@ -738,638 +705,401 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
         doc: "Set the document's default line ending. Options: crlf, lf.",
         #[cfg(feature = "unicode-lines")]
         doc: "Set the document's default line ending. Options: crlf, lf, cr, ff, nel.",
-        fun: super::files::typed::set_line_ending,
-        completer: CommandCompleter::none(),
-        signature: Signature {
-            positionals: (0, Some(1)),
-            ..Signature::DEFAULT
-        },
+        action: CommandAction::Committed(super::files::typed::set_line_ending),
+        args: CommandArgs::new(&[], &[completers::none]),
     },
     TypableCommand {
         name: "earlier",
         aliases: &["ear"],
         doc: "Jump back to an earlier point in edit history. Accepts a number of steps or a time span.",
-        fun: super::history::typed::earlier,
-        completer: CommandCompleter::none(),
-        signature: Signature {
-            positionals: (0, Some(1)),
-            ..Signature::DEFAULT
-        },
+        action: CommandAction::Committed(super::history::typed::earlier),
+        args: CommandArgs::new(&[], &[completers::none]),
     },
     TypableCommand {
         name: "later",
         aliases: &["lat"],
         doc: "Jump to a later point in edit history. Accepts a number of steps or a time span.",
-        fun: super::history::typed::later,
-        completer: CommandCompleter::none(),
-        signature: Signature {
-            positionals: (0, Some(1)),
-            ..Signature::DEFAULT
-        },
+        action: CommandAction::Committed(super::history::typed::later),
+        args: CommandArgs::new(&[], &[completers::none]),
     },
     TypableCommand {
         name: "write-quit",
         aliases: &["wq"],
         doc: "Write changes to disk and close the current view. Accepts an optional path (`:wq some/path.txt`).",
-        fun: super::application::typed::write_quit,
-        completer: CommandCompleter::positional(&[completers::filename]),
-        signature: Signature {
-            positionals: (0, Some(1)),
-            flags: &[WRITE_NO_FORMAT_FLAG, WRITE_NO_CODE_ACTIONS_FLAG],
-            ..Signature::DEFAULT
-        },
+        action: CommandAction::Committed(super::application::typed::write_quit),
+        args: CommandArgs::new(&[], &[completers::filename]).flags(&[WRITE_NO_FORMAT_FLAG, WRITE_NO_CODE_ACTIONS_FLAG]),
     },
     TypableCommand {
         name: "write-quit!",
         aliases: &["wq!"],
         doc: "Write changes to disk and close the current view forcefully. Accepts an optional path (`:wq! some/path.txt`).",
-        fun: super::application::typed::force_write_quit,
-        completer: CommandCompleter::positional(&[completers::filename]),
-        signature: Signature {
-            positionals: (0, Some(1)),
-            flags: &[WRITE_NO_FORMAT_FLAG, WRITE_NO_CODE_ACTIONS_FLAG],
-            ..Signature::DEFAULT
-        },
+        action: CommandAction::Committed(super::application::typed::force_write_quit),
+        args: CommandArgs::new(&[], &[completers::filename]).flags(&[WRITE_NO_FORMAT_FLAG, WRITE_NO_CODE_ACTIONS_FLAG]),
     },
     TypableCommand {
         name: "write-all",
         aliases: &["wa"],
         doc: "Write changes from all buffers to disk.",
-        fun: super::files::typed::write_all,
-        completer: CommandCompleter::none(),
-        signature: Signature {
-            positionals: (0, Some(0)),
-            flags: &[WRITE_NO_FORMAT_FLAG, WRITE_NO_CODE_ACTIONS_FLAG],
-            ..Signature::DEFAULT
-        },
+        action: CommandAction::Committed(super::files::typed::write_all::<false>),
+        args: CommandArgs::new(&[], &[]).flags(&[WRITE_NO_FORMAT_FLAG, WRITE_NO_CODE_ACTIONS_FLAG]),
     },
     TypableCommand {
         name: "write-all!",
         aliases: &["wa!"],
         doc: "Forcefully write changes from all buffers to disk creating necessary subdirectories.",
-        fun: super::files::typed::force_write_all,
-        completer: CommandCompleter::none(),
-        signature: Signature {
-            positionals: (0, Some(0)),
-            flags: &[WRITE_NO_FORMAT_FLAG, WRITE_NO_CODE_ACTIONS_FLAG],
-            ..Signature::DEFAULT
-        },
+        action: CommandAction::Committed(super::files::typed::write_all::<true>),
+        args: CommandArgs::new(&[], &[]).flags(&[WRITE_NO_FORMAT_FLAG, WRITE_NO_CODE_ACTIONS_FLAG]),
     },
     TypableCommand {
         name: "write-quit-all",
         aliases: &["wqa", "xa"],
         doc: "Write changes from all buffers to disk and close all views.",
-        fun: super::application::typed::write_all_quit,
-        completer: CommandCompleter::none(),
-        signature: Signature {
-            positionals: (0, Some(0)),
-            flags: &[WRITE_NO_FORMAT_FLAG, WRITE_NO_CODE_ACTIONS_FLAG],
-            ..Signature::DEFAULT
-        },
+        action: CommandAction::Committed(super::application::typed::write_all_quit::<false>),
+        args: CommandArgs::new(&[], &[]).flags(&[WRITE_NO_FORMAT_FLAG, WRITE_NO_CODE_ACTIONS_FLAG]),
     },
     TypableCommand {
         name: "write-quit-all!",
         aliases: &["wqa!", "xa!"],
         doc: "Forcefully write changes from all buffers to disk, creating necessary subdirectories, and close all views after successful saves.",
-        fun: super::application::typed::force_write_all_quit,
-        completer: CommandCompleter::none(),
-        signature: Signature {
-            positionals: (0, Some(0)),
-            flags: &[WRITE_NO_FORMAT_FLAG, WRITE_NO_CODE_ACTIONS_FLAG],
-            ..Signature::DEFAULT
-        },
+        action: CommandAction::Committed(super::application::typed::write_all_quit::<true>),
+        args: CommandArgs::new(&[], &[]).flags(&[WRITE_NO_FORMAT_FLAG, WRITE_NO_CODE_ACTIONS_FLAG]),
     },
     TypableCommand {
         name: "quit-all",
         aliases: &["qa"],
         doc: "Close all views.",
-        fun: super::application::typed::quit_all,
-        completer: CommandCompleter::none(),
-        signature: Signature {
-            positionals: (0, Some(0)),
-            ..Signature::DEFAULT
-        },
+        action: CommandAction::Committed(super::application::typed::quit_all::<false>),
+        args: CommandArgs::new(&[], &[]),
     },
     TypableCommand {
         name: "quit-all!",
         aliases: &["qa!"],
         doc: "Force close all views ignoring unsaved changes.",
-        fun: super::application::typed::force_quit_all,
-        completer: CommandCompleter::none(),
-        signature: Signature {
-            positionals: (0, Some(0)),
-            ..Signature::DEFAULT
-        },
+        action: CommandAction::Committed(super::application::typed::quit_all::<true>),
+        args: CommandArgs::new(&[], &[]),
     },
     TypableCommand {
         name: "cquit",
         aliases: &["cq"],
         doc: "Quit with exit code (default 1). Accepts an optional integer exit code (`:cq 2`).",
-        fun: super::application::typed::cquit,
-        completer: CommandCompleter::none(),
-        signature: Signature {
-            positionals: (0, Some(1)),
-            ..Signature::DEFAULT
-        },
+        action: CommandAction::Committed(super::application::typed::cquit::<false>),
+        args: CommandArgs::new(&[], &[completers::none]),
     },
     TypableCommand {
         name: "cquit!",
         aliases: &["cq!"],
         doc: "Force quit with exit code (default 1) ignoring unsaved changes. Accepts an optional integer exit code (`:cq! 2`).",
-        fun: super::application::typed::force_cquit,
-        completer: CommandCompleter::none(),
-        signature: Signature {
-            positionals: (0, Some(1)),
-            ..Signature::DEFAULT
-        },
+        action: CommandAction::Committed(super::application::typed::cquit::<true>),
+        args: CommandArgs::new(&[], &[completers::none]),
     },
     TypableCommand {
         name: "theme",
         aliases: &[],
         doc: "Change the editor theme (show current theme if no name specified).",
-        fun: super::config::theme,
-        completer: CommandCompleter::positional(&[completers::theme]),
-        signature: Signature {
-            positionals: (0, Some(1)),
-            ..Signature::DEFAULT
-        },
+        action: CommandAction::Preview(super::config::theme),
+        args: CommandArgs::new(&[], &[completers::theme]),
     },
     TypableCommand {
         name: "yank-join",
         aliases: &[],
         doc: "Yank joined selections. A separator can be provided as first argument. Default value is newline.",
-        fun: super::registers::typed::yank_joined,
-        completer: CommandCompleter::none(),
-        signature: Signature {
-            positionals: (0, Some(1)),
-            ..Signature::DEFAULT
-        },
+        action: CommandAction::Committed(super::registers::typed::yank_joined),
+        args: CommandArgs::new(&[], &[completers::none]),
     },
     TypableCommand {
         name: "clipboard-yank",
         aliases: &[],
         doc: "Yank main selection into system clipboard.",
-        fun: super::registers::typed::yank_main_selection_to_clipboard,
-        completer: CommandCompleter::none(),
-        signature: Signature {
-            positionals: (0, Some(0)),
-            ..Signature::DEFAULT
-        },
+        action: CommandAction::Committed(super::registers::typed::yank_main_selection_to_clipboard),
+        args: CommandArgs::new(&[], &[]),
     },
     TypableCommand {
         name: "clipboard-yank-join",
         aliases: &[],
         doc: "Yank joined selections into system clipboard. A separator can be provided as first argument. Default value is newline.", // FIXME: current UI can't display long doc.
-        fun: super::registers::typed::yank_joined_to_clipboard,
-        completer: CommandCompleter::none(),
-        signature: Signature {
-            positionals: (0, Some(1)),
-            ..Signature::DEFAULT
-        },
+        action: CommandAction::Committed(super::registers::typed::yank_joined_to_clipboard),
+        args: CommandArgs::new(&[], &[completers::none]),
     },
     TypableCommand {
         name: "primary-clipboard-yank",
         aliases: &[],
         doc: "Yank main selection into system primary clipboard.",
-        fun: super::registers::typed::yank_main_selection_to_primary_clipboard,
-        completer: CommandCompleter::none(),
-        signature: Signature {
-            positionals: (0, Some(0)),
-            ..Signature::DEFAULT
-        },
+        action: CommandAction::Committed(super::registers::typed::yank_main_selection_to_primary_clipboard),
+        args: CommandArgs::new(&[], &[]),
     },
     TypableCommand {
         name: "primary-clipboard-yank-join",
         aliases: &[],
         doc: "Yank joined selections into system primary clipboard. A separator can be provided as first argument. Default value is newline.", // FIXME: current UI can't display long doc.
-        fun: super::registers::typed::yank_joined_to_primary_clipboard,
-        completer: CommandCompleter::none(),
-        signature: Signature {
-            positionals: (0, Some(1)),
-            ..Signature::DEFAULT
-        },
+        action: CommandAction::Committed(super::registers::typed::yank_joined_to_primary_clipboard),
+        args: CommandArgs::new(&[], &[completers::none]),
     },
     TypableCommand {
         name: "clipboard-paste-after",
         aliases: &[],
         doc: "Paste system clipboard after selections.",
-        fun: super::registers::typed::paste_clipboard_after,
-        completer: CommandCompleter::none(),
-        signature: Signature {
-            positionals: (0, Some(0)),
-            ..Signature::DEFAULT
-        },
+        action: CommandAction::Committed(super::registers::typed::paste_clipboard_after),
+        args: CommandArgs::new(&[], &[]),
     },
     TypableCommand {
         name: "clipboard-paste-before",
         aliases: &[],
         doc: "Paste system clipboard before selections.",
-        fun: super::registers::typed::paste_clipboard_before,
-        completer: CommandCompleter::none(),
-        signature: Signature {
-            positionals: (0, Some(0)),
-            ..Signature::DEFAULT
-        },
+        action: CommandAction::Committed(super::registers::typed::paste_clipboard_before),
+        args: CommandArgs::new(&[], &[]),
     },
     TypableCommand {
         name: "clipboard-paste-replace",
         aliases: &[],
         doc: "Replace selections with content of system clipboard.",
-        fun: super::registers::typed::replace_selections_with_clipboard,
-        completer: CommandCompleter::none(),
-        signature: Signature {
-            positionals: (0, Some(0)),
-            ..Signature::DEFAULT
-        },
+        action: CommandAction::Committed(super::registers::typed::replace_selections_with_clipboard),
+        args: CommandArgs::new(&[], &[]),
     },
     TypableCommand {
         name: "primary-clipboard-paste-after",
         aliases: &[],
         doc: "Paste primary clipboard after selections.",
-        fun: super::registers::typed::paste_primary_clipboard_after,
-        completer: CommandCompleter::none(),
-        signature: Signature {
-            positionals: (0, Some(0)),
-            ..Signature::DEFAULT
-        },
+        action: CommandAction::Committed(super::registers::typed::paste_primary_clipboard_after),
+        args: CommandArgs::new(&[], &[]),
     },
     TypableCommand {
         name: "primary-clipboard-paste-before",
         aliases: &[],
         doc: "Paste primary clipboard before selections.",
-        fun: super::registers::typed::paste_primary_clipboard_before,
-        completer: CommandCompleter::none(),
-        signature: Signature {
-            positionals: (0, Some(0)),
-            ..Signature::DEFAULT
-        },
+        action: CommandAction::Committed(super::registers::typed::paste_primary_clipboard_before),
+        args: CommandArgs::new(&[], &[]),
     },
     TypableCommand {
         name: "primary-clipboard-paste-replace",
         aliases: &[],
         doc: "Replace selections with content of system primary clipboard.",
-        fun: super::registers::typed::replace_selections_with_primary_clipboard,
-        completer: CommandCompleter::none(),
-        signature: Signature {
-            positionals: (0, Some(0)),
-            ..Signature::DEFAULT
-        },
+        action: CommandAction::Committed(super::registers::typed::replace_selections_with_primary_clipboard),
+        args: CommandArgs::new(&[], &[]),
     },
     TypableCommand {
         name: "show-clipboard-provider",
         aliases: &[],
         doc: "Show clipboard provider name in status bar.",
-        fun: super::registers::typed::show_clipboard_provider,
-        completer: CommandCompleter::none(),
-        signature: Signature {
-            positionals: (0, Some(0)),
-            ..Signature::DEFAULT
-        },
+        action: CommandAction::Committed(super::registers::typed::show_clipboard_provider),
+        args: CommandArgs::new(&[], &[]),
     },
     TypableCommand {
         name: "change-current-directory",
         aliases: &["cd"],
         doc: "Change the current working directory.",
-        fun: super::workspace::change_current_directory,
-        completer: CommandCompleter::positional(&[completers::directory]),
-        signature: Signature {
-            positionals: (1, Some(1)),
-            ..Signature::DEFAULT
-        },
+        action: CommandAction::Committed(super::workspace::change_current_directory),
+        args: CommandArgs::new(&[completers::directory], &[]),
     },
     TypableCommand {
         name: "show-directory-stack",
         aliases: &[],
         doc: "Show the directory stack as a space-delimited string.",
-        fun: super::workspace::show_directory_stack,
-        completer: CommandCompleter::none(),
-        signature: Signature {
-            positionals: (0, Some(0)),
-            ..Signature::DEFAULT
-        },
+        action: CommandAction::Committed(super::workspace::show_directory_stack),
+        args: CommandArgs::new(&[], &[]),
     },
     TypableCommand {
         name: "push-directory",
         aliases: &["pushd"],
         doc: "Save and then change the current directory.",
-        fun: super::workspace::push_directory,
-        completer: CommandCompleter::positional(&[completers::directory]),
-        signature: Signature {
-            positionals: (1, Some(1)),
-            ..Signature::DEFAULT
-        },
+        action: CommandAction::Committed(super::workspace::push_directory),
+        args: CommandArgs::new(&[completers::directory], &[]),
     },
     TypableCommand {
         name: "pop-directory",
         aliases: &["popd"],
         doc: "Remove the top entry from the directory stack, and cd to the new top directory..",
-        fun: super::workspace::pop_directory,
-        completer: CommandCompleter::none(),
-        signature: Signature {
-            positionals: (0, Some(0)),
-            ..Signature::DEFAULT
-        },
+        action: CommandAction::Committed(super::workspace::pop_directory),
+        args: CommandArgs::new(&[], &[]),
     },
     TypableCommand {
         name: "show-directory",
         aliases: &["pwd"],
         doc: "Show the current working directory.",
-        fun: super::workspace::show_current_directory,
-        completer: CommandCompleter::none(),
-        signature: Signature {
-            positionals: (0, Some(0)),
-            ..Signature::DEFAULT
-        },
+        action: CommandAction::Committed(super::workspace::show_current_directory),
+        args: CommandArgs::new(&[], &[]),
     },
     TypableCommand {
         name: "encoding",
         aliases: &[],
         doc: "Set encoding. Based on `https://encoding.spec.whatwg.org`.",
-        fun: super::files::typed::set_encoding,
-        completer: CommandCompleter::none(),
-        signature: Signature {
-            positionals: (0, Some(1)),
-            ..Signature::DEFAULT
-        },
+        action: CommandAction::Committed(super::files::typed::set_encoding),
+        args: CommandArgs::new(&[], &[completers::none]),
     },
     TypableCommand {
         name: "character-info",
         aliases: &["char"],
         doc: "Get info about the character under the primary cursor.",
-        fun: super::files::typed::get_character_info,
-        completer: CommandCompleter::none(),
-        signature: Signature {
-            positionals: (0, Some(0)),
-            ..Signature::DEFAULT
-        },
+        action: CommandAction::Committed(super::files::typed::get_character_info),
+        args: CommandArgs::new(&[], &[]),
     },
     TypableCommand {
         name: "reload",
         aliases: &["rl"],
         doc: "Discard changes and reload from the source file.",
-        fun: super::files::typed::reload,
-        completer: CommandCompleter::none(),
-        signature: Signature {
-            positionals: (0, Some(0)),
-            ..Signature::DEFAULT
-        },
+        action: CommandAction::Committed(super::files::typed::reload),
+        args: CommandArgs::new(&[], &[]),
     },
     TypableCommand {
         name: "reload-all",
         aliases: &["rla"],
         doc: "Discard changes and reload all documents from the source files.",
-        fun: super::files::typed::reload_all,
-        completer: CommandCompleter::none(),
-        signature: Signature {
-            positionals: (0, Some(0)),
-            ..Signature::DEFAULT
-        },
+        action: CommandAction::Committed(super::files::typed::reload_all),
+        args: CommandArgs::new(&[], &[]),
     },
     TypableCommand {
         name: "update",
         aliases: &["u"],
         doc: "Write changes only if the file has been modified.",
-        fun: super::files::typed::update,
-        completer: CommandCompleter::none(),
-        signature: Signature {
-            positionals: (0, Some(0)),
-            flags: &[WRITE_NO_FORMAT_FLAG],
-            ..Signature::DEFAULT
-        },
+        action: CommandAction::Committed(super::files::typed::update),
+        args: CommandArgs::new(&[], &[]).flags(&[WRITE_NO_FORMAT_FLAG]),
     },
     TypableCommand {
         name: "lsp-workspace-command",
         aliases: &[],
         doc: "Open workspace command picker",
-        fun: super::lsp::typed::lsp_workspace_command,
-        completer: CommandCompleter::positional(&[completers::lsp_workspace_command]),
-        signature: Signature {
-            positionals: (0, None),
-            raw_after: Some(1),
-            ..Signature::DEFAULT
-        },
+        action: CommandAction::Committed(super::lsp::typed::lsp_workspace_command),
+        args: CommandArgs::new(&[], &[completers::lsp_workspace_command]).rest(completers::none).raw_after(1),
     },
     TypableCommand {
         name: "lsp-restart",
         aliases: &[],
         doc: "Restarts the given language servers, or all language servers that are used by the current file if no arguments are supplied",
-        fun: super::lsp::typed::lsp_restart,
-        completer: CommandCompleter::all(completers::configured_language_servers),
-        signature: Signature {
-            positionals: (0, None),
-            ..Signature::DEFAULT
-        },
+        action: CommandAction::Committed(super::lsp::typed::lsp_restart),
+        args: CommandArgs::new(&[], &[]).rest(completers::configured_language_servers),
     },
     TypableCommand {
         name: "lsp-stop",
         aliases: &[],
         doc: "Stops the given language servers, or all language servers that are used by the current file if no arguments are supplied",
-        fun: super::lsp::typed::lsp_stop,
-        completer: CommandCompleter::all(completers::active_language_servers),
-        signature: Signature {
-            positionals: (0, None),
-            ..Signature::DEFAULT
-        },
+        action: CommandAction::Committed(super::lsp::typed::lsp_stop),
+        args: CommandArgs::new(&[], &[]).rest(completers::active_language_servers),
     },
     TypableCommand {
         name: "tree-sitter-scopes",
         aliases: &[],
         doc: "Display tree sitter scopes, primarily for theming and development.",
-        fun: super::syntax::typed::tree_sitter_scopes,
-        completer: CommandCompleter::none(),
-        signature: Signature {
-            positionals: (0, Some(0)),
-            ..Signature::DEFAULT
-        },
+        action: CommandAction::Committed(super::syntax::typed::tree_sitter_scopes),
+        args: CommandArgs::new(&[], &[]),
     },
     TypableCommand {
         name: "tree-sitter-highlight-name",
         aliases: &[],
         doc: "Display name of tree-sitter highlight scope under the cursor.",
-        fun: super::syntax::typed::tree_sitter_highlight_name,
-        completer: CommandCompleter::none(),
-        signature: Signature {
-            positionals: (0, Some(0)),
-            ..Signature::DEFAULT
-        },
+        action: CommandAction::Committed(super::syntax::typed::tree_sitter_highlight_name),
+        args: CommandArgs::new(&[], &[]),
     },
     TypableCommand {
         name: "tree-sitter-layers",
         aliases: &[],
         doc: "Display language names of tree-sitter injection layers under the cursor.",
-        fun: super::syntax::typed::tree_sitter_layers,
-        completer: CommandCompleter::none(),
-        signature: Signature {
-            positionals: (0, Some(0)),
-            ..Signature::DEFAULT
-        },
+        action: CommandAction::Committed(super::syntax::typed::tree_sitter_layers),
+        args: CommandArgs::new(&[], &[]),
     },
     TypableCommand {
         name: "debug-start",
         aliases: &["dbg"],
         doc: "Start a debug session from a given template with given parameters.",
-        fun: super::dap::typed::debug_start,
-        completer: CommandCompleter::none(),
-        signature: Signature {
-            positionals: (0, None),
-            ..Signature::DEFAULT
-        },
+        action: CommandAction::Committed(super::dap::typed::debug_start),
+        args: CommandArgs::new(&[], &[]).rest(completers::none),
     },
     TypableCommand {
         name: "debug-remote",
         aliases: &["dbg-tcp"],
         doc: "Connect to a debug adapter by TCP address and start a debugging session from a given template with given parameters.",
-        fun: super::dap::typed::debug_remote,
-        completer: CommandCompleter::none(),
-        signature: Signature {
-            positionals: (0, None),
-            ..Signature::DEFAULT
-        },
+        action: CommandAction::Committed(super::dap::typed::debug_remote),
+        args: CommandArgs::new(&[], &[]).rest(completers::none),
     },
     TypableCommand {
         name: "debug-eval",
         aliases: &[],
         doc: "Evaluate expression in current debug context.",
-        fun: super::dap::typed::debug_eval,
-        completer: CommandCompleter::none(),
-        signature: Signature {
-            positionals: (1, Some(1)),
-            ..Signature::DEFAULT
-        },
+        action: CommandAction::Committed(super::dap::typed::debug_eval),
+        args: CommandArgs::new(&[completers::none], &[]),
     },
     TypableCommand {
         name: "vsplit",
         aliases: &["vs"],
         doc: "Open the file in a vertical split.",
-        fun: super::windows::typed::vsplit,
-        completer: CommandCompleter::all(completers::filename),
-        signature: Signature {
-            positionals: (0, None),
-            ..Signature::DEFAULT
-        },
+        action: CommandAction::Committed(super::windows::typed::vsplit),
+        args: CommandArgs::new(&[], &[]).rest(completers::filename),
     },
     TypableCommand {
         name: "vsplit-new",
         aliases: &["vnew"],
         doc: "Open a scratch buffer in a vertical split.",
-        fun: super::windows::typed::vsplit_new,
-        completer: CommandCompleter::none(),
-        signature: Signature {
-            positionals: (0, Some(0)),
-            ..Signature::DEFAULT
-        },
+        action: CommandAction::Committed(super::windows::typed::vsplit_new),
+        args: CommandArgs::new(&[], &[]),
     },
     TypableCommand {
         name: "hsplit",
         aliases: &["hs", "sp"],
         doc: "Open the file in a horizontal split.",
-        fun: super::windows::typed::hsplit,
-        completer: CommandCompleter::all(completers::filename),
-        signature: Signature {
-            positionals: (0, None),
-            ..Signature::DEFAULT
-        },
+        action: CommandAction::Committed(super::windows::typed::hsplit),
+        args: CommandArgs::new(&[], &[]).rest(completers::filename),
     },
     TypableCommand {
         name: "hsplit-new",
         aliases: &["hnew"],
         doc: "Open a scratch buffer in a horizontal split.",
-        fun: super::windows::typed::hsplit_new,
-        completer: CommandCompleter::none(),
-        signature: Signature {
-            positionals: (0, Some(0)),
-            ..Signature::DEFAULT
-        },
+        action: CommandAction::Committed(super::windows::typed::hsplit_new),
+        args: CommandArgs::new(&[], &[]),
     },
     TypableCommand {
         name: "tutor",
         aliases: &[],
         doc: "Open the tutorial.",
-        fun: super::files::typed::tutor,
-        completer: CommandCompleter::none(),
-        signature: Signature {
-            positionals: (0, Some(0)),
-            ..Signature::DEFAULT
-        },
+        action: CommandAction::Committed(super::files::typed::tutor),
+        args: CommandArgs::new(&[], &[]),
     },
     TypableCommand {
         name: "goto",
         aliases: &["g"],
         doc: "Goto line number.",
-        fun: super::navigation::typed::goto_line_number,
-        completer: CommandCompleter::none(),
-        signature: Signature {
-            positionals: (1, Some(1)),
-            ..Signature::DEFAULT
-        },
+        action: CommandAction::Committed(super::navigation::typed::goto_line_number),
+        args: CommandArgs::new(&[completers::none], &[]),
     },
     TypableCommand {
         name: "set-language",
         aliases: &["lang"],
         doc: "Set the language of current buffer (show current language if no value specified).",
-        fun: super::files::typed::language,
-        completer: CommandCompleter::positional(&[completers::language]),
-        signature: Signature {
-            positionals: (0, Some(1)),
-            ..Signature::DEFAULT
-        },
+        action: CommandAction::Committed(super::files::typed::language),
+        args: CommandArgs::new(&[], &[completers::language]),
     },
     TypableCommand {
         name: "set-spelling-language",
         aliases: &["spelling"],
         doc: "Set the spell-checking languages for the current buffer (e.g. `en_US`); a word is flagged only when every language rejects it. Pass `off` to disable, or no value to show the current languages.",
-        fun: super::spelling::typed::spelling_language,
-        completer: CommandCompleter::all(completers::spelling_language),
-        signature: Signature {
-            positionals: (0, None),
-            ..Signature::DEFAULT
-        },
+        action: CommandAction::Committed(super::spelling::typed::spelling_language),
+        args: CommandArgs::new(&[], &[]).rest(completers::spelling_language),
     },
     TypableCommand {
         name: "set-option",
         aliases: &["set"],
         doc: "Set a config option at runtime.\nFor example to disable smart case search, use `:set search.smart-case false`.",
-        fun: super::config::set_option,
+        action: CommandAction::Committed(super::config::set_option),
         // TODO: Add support for completion of the options value(s), when appropriate.
-        completer: CommandCompleter::positional(&[completers::setting]),
-        signature: Signature {
-            positionals: (2, Some(2)),
-            raw_after: Some(1),
-            ..Signature::DEFAULT
-        },
+        args: CommandArgs::new(&[completers::setting, completers::none], &[]).raw_after(1),
     },
     TypableCommand {
         name: "toggle-option",
         aliases: &["toggle"],
         doc: "Toggle a config option at runtime.\nFor example to toggle smart case search, use `:toggle search.smart-case`.",
-        fun: super::config::toggle_option,
-        completer: CommandCompleter::positional(&[completers::setting]),
-        signature: Signature {
-            positionals: (1, None),
-            raw_after: Some(1),
-            ..Signature::DEFAULT
-        },
+        action: CommandAction::Committed(super::config::toggle_option),
+        args: CommandArgs::new(&[completers::setting], &[]).rest(completers::none).raw_after(1),
     },
     TypableCommand {
         name: "get-option",
         aliases: &["get"],
         doc: "Get the current value of a config option.",
-        fun: super::config::get_option,
-        completer: CommandCompleter::positional(&[completers::setting]),
-        signature: Signature {
-            positionals: (1, Some(1)),
-            ..Signature::DEFAULT
-        },
+        action: CommandAction::Committed(super::config::get_option),
+        args: CommandArgs::new(&[completers::setting], &[]),
     },
     TypableCommand {
         name: "sort",
         aliases: &[],
         doc: "Stably sort selected contents. Supports --numeric (-n), --natural (-N), --length (-l), --key (-k) REGEX and --ignore-leading-blanks (-b), plus --insensitive (-i) and --reverse (-r).",
-        fun: super::editing::typed::sort,
-        completer: CommandCompleter::none(),
-        signature: Signature {
-            positionals: (0, Some(0)),
-            flags: &[
+        action: CommandAction::Committed(super::editing::typed::sort),
+        args: CommandArgs::new(&[], &[]).flags(&[
                 Flag {
                     name: "insensitive",
                     alias: Some('i'),
@@ -1412,503 +1142,387 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
                     doc: "use the first regex match as the key; leave nonmatching selections in place",
                     completions: Some(&[]),
                 },
-            ],
-            ..Signature::DEFAULT
-        },
+            ]),
     },
     TypableCommand {
         name: "reflow",
         aliases: &[],
         doc: "Hard-wrap the current selection of lines to a given width.",
-        fun: super::editing::typed::reflow,
-        completer: CommandCompleter::none(),
-        signature: Signature {
-            positionals: (0, Some(1)),
-            ..Signature::DEFAULT
-        },
+        action: CommandAction::Committed(super::editing::typed::reflow),
+        args: CommandArgs::new(&[], &[completers::none]),
     },
     TypableCommand {
         name: "tree-sitter-subtree",
         aliases: &["ts-subtree"],
         doc: "Display the smallest tree-sitter subtree that spans the primary selection, primarily for debugging queries.",
-        fun: super::syntax::typed::tree_sitter_subtree,
-        completer: CommandCompleter::none(),
-        signature: Signature {
-            positionals: (0, Some(0)),
-            ..Signature::DEFAULT
-        },
+        action: CommandAction::Committed(super::syntax::typed::tree_sitter_subtree),
+        args: CommandArgs::new(&[], &[]),
     },
     TypableCommand {
         name: "snippet-insert", aliases: &[], doc: "Insert a named user-defined snippet at the selections.",
-        fun: super::snippets::typed::insert, completer: CommandCompleter::none(),
-        signature: Signature { positionals: (1, Some(1)), ..Signature::DEFAULT },
+        action: CommandAction::Committed(super::snippets::typed::insert), args: CommandArgs::new(&[completers::none], &[]),
     },
     TypableCommand {
         name: "snippets-reload", aliases: &[], doc: "Reload global and trusted workspace snippet definitions.",
-        fun: super::snippets::typed::reload, completer: CommandCompleter::none(),
-        signature: Signature { positionals: (0, Some(0)), ..Signature::DEFAULT },
+        action: CommandAction::Committed(super::snippets::typed::reload), args: CommandArgs::new(&[], &[]),
     },
     TypableCommand {
         name: "snippets-open", aliases: &[], doc: "Open the user snippet configuration or a named .toml file in snippets/.",
-        fun: super::snippets::typed::open, completer: CommandCompleter::none(),
-        signature: Signature { positionals: (0, Some(1)), ..Signature::DEFAULT },
+        action: CommandAction::Committed(super::snippets::typed::open), args: CommandArgs::new(&[], &[completers::none]),
     },
     TypableCommand {
         name: "snippets-open-workspace", aliases: &[], doc: "Open the workspace snippet configuration or a named .toml file in .mitos/snippets/.",
-        fun: super::snippets::typed::open_workspace, completer: CommandCompleter::none(),
-        signature: Signature { positionals: (0, Some(1)), ..Signature::DEFAULT },
+        action: CommandAction::Committed(super::snippets::typed::open_workspace), args: CommandArgs::new(&[], &[completers::none]),
     },
     TypableCommand {
         name: "config-reload",
         aliases: &[],
         doc: "Refresh user config.",
-        fun: super::config::refresh_config,
-        completer: CommandCompleter::none(),
-        signature: Signature {
-            positionals: (0, Some(0)),
-            ..Signature::DEFAULT
-        },
+        action: CommandAction::Committed(super::config::refresh_config),
+        args: CommandArgs::new(&[], &[]),
     },
     TypableCommand {
         name: "config-open",
         aliases: &[],
         doc: "Open the user config.toml file.",
-        fun: super::config::open_config,
-        completer: CommandCompleter::none(),
-        signature: Signature {
-            positionals: (0, Some(0)),
-            ..Signature::DEFAULT
-        },
+        action: CommandAction::Committed(super::config::open_config),
+        args: CommandArgs::new(&[], &[]),
     },
     TypableCommand {
         name: "config-migrate",
         aliases: &[],
         doc: "Migrate legacy user settings after confirmation, creating a backup.",
-        fun: super::config::migrate_config,
-        completer: CommandCompleter::none(),
-        signature: Signature {
-            positionals: (0, Some(0)),
-            ..Signature::DEFAULT
-        },
+        action: CommandAction::Committed(super::config::migrate_config),
+        args: CommandArgs::new(&[], &[]),
     },
     TypableCommand {
         name: "config-migrate-workspace",
         aliases: &[],
         doc: "Migrate legacy trusted workspace settings after confirmation, creating a backup.",
-        fun: super::config::migrate_workspace_config,
-        completer: CommandCompleter::none(),
-        signature: Signature {
-            positionals: (0, Some(0)),
-            ..Signature::DEFAULT
-        },
+        action: CommandAction::Committed(super::config::migrate_workspace_config),
+        args: CommandArgs::new(&[], &[]),
     },
     TypableCommand {
         name: "config-open-workspace",
         aliases: &[],
         doc: "Open the workspace config.toml file.",
-        fun: super::config::open_workspace_config,
-        completer: CommandCompleter::none(),
-        signature: Signature {
-            positionals: (0, Some(0)),
-            ..Signature::DEFAULT
-        },
+        action: CommandAction::Committed(super::config::open_workspace_config),
+        args: CommandArgs::new(&[], &[]),
     },
     TypableCommand {
         name: "log-open",
         aliases: &[],
         doc: "Open the mitos log file.",
-        fun: super::application::typed::open_log,
-        completer: CommandCompleter::none(),
-        signature: Signature {
-            positionals: (0, Some(0)),
-            ..Signature::DEFAULT
-        },
+        action: CommandAction::Committed(super::application::typed::open_log),
+        args: CommandArgs::new(&[], &[]),
     },
     TypableCommand {
         name: "insert-output",
         aliases: &[],
         doc: "Run shell command, inserting output before each selection.",
-        fun: super::shell::typed::insert_output,
-        completer: SHELL_COMPLETER,
-        signature: SHELL_SIGNATURE,
+        action: CommandAction::Committed(super::shell::typed::insert_output),
+        args: SHELL_ARGS,
     },
     TypableCommand {
         name: "append-output",
         aliases: &[],
         doc: "Run shell command, appending output after each selection.",
-        fun: super::shell::typed::append_output,
-        completer: SHELL_COMPLETER,
-        signature: SHELL_SIGNATURE,
+        action: CommandAction::Committed(super::shell::typed::append_output),
+        args: SHELL_ARGS,
     },
     TypableCommand {
         name: "pipe",
         aliases: &["|"],
         doc: "Pipe each selection to the shell command.",
-        fun: super::shell::typed::pipe,
-        completer: SHELL_COMPLETER,
-        signature: SHELL_SIGNATURE,
+        action: CommandAction::Committed(super::shell::typed::pipe),
+        args: SHELL_ARGS,
     },
     TypableCommand {
         name: "pipe-to",
         aliases: &[],
         doc: "Pipe each selection to the shell command, ignoring output.",
-        fun: super::shell::typed::pipe_to,
-        completer: SHELL_COMPLETER,
-        signature: SHELL_SIGNATURE,
+        action: CommandAction::Committed(super::shell::typed::pipe_to),
+        args: SHELL_ARGS,
     },
     TypableCommand {
         name: "run-shell-command",
         aliases: &["sh", "!"],
         doc: "Run a shell command",
-        fun: super::shell::typed::run_shell_command,
-        completer: SHELL_COMPLETER,
-        signature: SHELL_SIGNATURE,
+        action: CommandAction::Committed(super::shell::typed::run_shell_command),
+        args: SHELL_ARGS,
     },
     TypableCommand {
         name: "vcs-conflict-next",
         aliases: &[],
         doc: "Move to the next conflict; pass previous to move backwards.",
-        fun: super::conflicts::navigate,
-        completer: CommandCompleter::none(),
-        signature: Signature { positionals: (0, Some(1)), ..Signature::DEFAULT },
+        action: CommandAction::Committed(super::conflicts::navigate),
+        args: CommandArgs::new(&[], &[completers::none]),
     },
     TypableCommand {
         name: "vcs-conflict-resolve",
         aliases: &[],
         doc: "Keep the current side, incoming side, or both sides of the conflict at the cursor.",
-        fun: super::conflicts::resolve,
-        completer: CommandCompleter::none(),
-        signature: Signature { positionals: (1, Some(1)), ..Signature::DEFAULT },
+        action: CommandAction::Committed(super::conflicts::resolve),
+        args: CommandArgs::new(&[completers::none], &[]),
     },
     TypableCommand {
         name: "vcs-conflict-toggle-markers",
         aliases: &[],
         doc: "Show or hide raw conflict markers in the current view.",
-        fun: super::conflicts::toggle_markers,
-        completer: CommandCompleter::none(),
-        signature: Signature { positionals: (0, Some(0)), ..Signature::DEFAULT },
+        action: CommandAction::Committed(super::conflicts::toggle_markers),
+        args: CommandArgs::new(&[], &[]),
     },
     TypableCommand {
         name: "vcs-conflict-source",
         aliases: &[],
         doc: "Open the base, current, or incoming version of a conflicted file in a read-only split.",
-        fun: super::conflicts::source,
-        completer: CommandCompleter::none(),
-        signature: Signature { positionals: (1, Some(1)), ..Signature::DEFAULT },
+        action: CommandAction::Committed(super::conflicts::source),
+        args: CommandArgs::new(&[completers::none], &[]),
     },
     TypableCommand {
         name: "blame",
         aliases: &["vcs-blame"],
         doc: "Show commit details for the current line, with actions to copy the commit ID or message.",
-        fun: super::vcs::typed::blame,
-        completer: CommandCompleter::none(),
-        signature: Signature {
-            positionals: (0, Some(0)),
-            ..Signature::DEFAULT
-        },
+        action: CommandAction::Committed(super::vcs::typed::blame),
+        args: CommandArgs::new(&[], &[]),
     },
     TypableCommand {
         name: "vcs-branches",
         aliases: &["git-branches"],
         doc: "Browse local branches. Press Enter to switch to the selected branch.",
-        fun: super::vcs::typed::branches,
-        completer: CommandCompleter::none(),
-        signature: Signature { positionals: (0, Some(0)), ..Signature::DEFAULT },
+        action: CommandAction::Committed(super::vcs::typed::branches),
+        args: CommandArgs::new(&[], &[]),
     },
     TypableCommand {
         name: "vcs-branch-create",
         aliases: &["git-branch-create"],
         doc: "Create a local branch at the current commit without switching to it.",
-        fun: super::vcs::typed::branch_create,
-        completer: CommandCompleter::none(),
-        signature: Signature { positionals: (1, Some(1)), ..Signature::DEFAULT },
+        action: CommandAction::Committed(super::vcs::typed::branch_create),
+        args: CommandArgs::new(&[completers::none], &[]),
     },
     TypableCommand {
         name: "vcs-branch-switch",
         aliases: &["git-branch-switch"],
         doc: "Switch to an existing local branch. Save edited files first; Git refuses to overwrite changes.",
-        fun: super::vcs::typed::branch_switch,
-        completer: CommandCompleter::none(),
-        signature: Signature { positionals: (1, Some(1)), ..Signature::DEFAULT },
+        action: CommandAction::Committed(super::vcs::typed::branch_switch),
+        args: CommandArgs::new(&[completers::none], &[]),
     },
     TypableCommand {
         name: "vcs-worktrees",
         aliases: &["git-worktrees"],
         doc: "Browse worktrees. Enter opens the selected worktree's file picker.",
-        fun: super::vcs::typed::worktrees,
-        completer: CommandCompleter::none(),
-        signature: Signature { positionals: (0, Some(0)), ..Signature::DEFAULT },
+        action: CommandAction::Committed(super::vcs::typed::worktrees),
+        args: CommandArgs::new(&[], &[]),
     },
     TypableCommand {
         name: "vcs-worktree-create",
         aliases: &["git-worktree-create"],
         doc: "Create a worktree in a new folder. Give an existing branch name, or omit it to use the current commit without a branch.",
-        fun: super::vcs::typed::worktree_create,
-        completer: CommandCompleter::none(),
-        signature: Signature { positionals: (1, Some(2)), ..Signature::DEFAULT },
+        action: CommandAction::Committed(super::vcs::typed::worktree_create),
+        args: CommandArgs::new(&[completers::none], &[completers::none]),
     },
     TypableCommand {
         name: "vcs-worktree-open",
         aliases: &["git-worktree-open"],
         doc: "Change directory to a worktree and open its file picker, keeping your open files.",
-        fun: super::vcs::typed::worktree_open,
-        completer: CommandCompleter::none(),
-        signature: Signature { positionals: (1, Some(1)), ..Signature::DEFAULT },
+        action: CommandAction::Committed(super::vcs::typed::worktree_open),
+        args: CommandArgs::new(&[completers::none], &[]),
     },
     TypableCommand {
         name: "vcs-worktree-remove",
         aliases: &["git-worktree-remove"],
         doc: "Confirm removal of a clean worktree, keeping its branch.",
-        fun: super::vcs::typed::worktree_remove,
-        completer: CommandCompleter::none(),
-        signature: Signature { positionals: (1, Some(1)), ..Signature::DEFAULT },
+        action: CommandAction::Committed(super::vcs::typed::worktree_remove),
+        args: CommandArgs::new(&[completers::none], &[]),
     },
     TypableCommand {
         name: "vcs-fetch",
         aliases: &["git-fetch"],
         doc: "Download remote commits without changing your files. Give a remote name when several are configured.",
-        fun: super::vcs::typed::fetch,
-        completer: CommandCompleter::none(),
-        signature: Signature { positionals: (0, Some(1)), ..Signature::DEFAULT },
+        action: CommandAction::Committed(super::vcs::typed::fetch),
+        args: CommandArgs::new(&[], &[completers::none]),
     },
     TypableCommand {
         name: "vcs-pull",
         aliases: &["git-pull"],
         doc: "Download changes and move the current branch forward without creating a merge commit. Optionally give a remote name.",
-        fun: super::vcs::typed::pull,
-        completer: CommandCompleter::none(),
-        signature: Signature { positionals: (0, Some(1)), ..Signature::DEFAULT },
+        action: CommandAction::Committed(super::vcs::typed::pull),
+        args: CommandArgs::new(&[], &[completers::none]),
     },
     TypableCommand {
         name: "vcs-push",
         aliases: &["git-push"],
         doc: "Upload commits from the current branch. Optionally give a remote name.",
-        fun: super::vcs::typed::push,
-        completer: CommandCompleter::none(),
-        signature: Signature { positionals: (0, Some(1)), ..Signature::DEFAULT },
+        action: CommandAction::Committed(super::vcs::typed::push),
+        args: CommandArgs::new(&[], &[completers::none]),
     },
     TypableCommand {
         name: "show-change",
         aliases: &["vcs-show-change"],
         doc: "Inspect the current change against HEAD, including deleted lines and unsaved edits.",
-        fun: super::vcs::typed::show_change,
-        completer: CommandCompleter::none(),
-        signature: Signature { positionals: (0, Some(0)), ..Signature::DEFAULT },
+        action: CommandAction::Committed(super::vcs::typed::show_change),
+        args: CommandArgs::new(&[], &[]),
     },
     TypableCommand {
         name: "diff",
         aliases: &["vcs-diff"],
         doc: "Review the current file. Choose head (all changes), staged (next commit), unstaged (saved changes), or buffer (unstaged and unsaved changes).",
-        fun: super::vcs::typed::diff,
-        completer: CommandCompleter::positional(&[completers::diff_comparison]),
-        signature: Signature { positionals: (0, Some(1)), ..Signature::DEFAULT },
+        action: CommandAction::Committed(super::vcs::typed::diff),
+        args: CommandArgs::new(&[], &[completers::diff_comparison]),
     },
     TypableCommand {
         name: "git-history",
         aliases: &["vcs-history"],
         doc: "Browse repository commits. Select a commit, then a file to review its changes.",
-        fun: super::vcs::typed::git_history,
-        completer: CommandCompleter::none(),
-        signature: Signature {positionals:(0,Some(0)),..Signature::DEFAULT},
+        action: CommandAction::Committed(super::vcs::typed::git_history),
+        args: CommandArgs::new(&[], &[]),
     },
     TypableCommand {
         name: "file-history",
         aliases: &["git-file-history", "vcs-file-history"],
         doc: "Browse commits that changed the current file, following renames. Enter reviews the selected change; Alt-a offers more comparisons.",
-        fun: super::vcs::typed::file_history,
-        completer: CommandCompleter::none(),
-        signature: Signature {positionals: (0,Some(0)), ..Signature::DEFAULT},
+        action: CommandAction::Committed(super::vcs::typed::file_history),
+        args: CommandArgs::new(&[], &[]),
     },
     TypableCommand {
         name: "diff-refresh",
         aliases: &["vcs-diff-refresh"],
         doc: "Reload the current diff. Reviews of past commits keep the versions originally chosen.",
-        fun: super::vcs::typed::diff_refresh,
-        completer: CommandCompleter::none(),
-        signature: Signature { positionals: (0, Some(0)), ..Signature::DEFAULT },
+        action: CommandAction::Committed(super::vcs::typed::diff_refresh),
+        args: CommandArgs::new(&[], &[]),
     },
     TypableCommand {
         name: "diff-open-source",
         aliases: &["vcs-diff-open-source"],
         doc: "Open the source at the selected diff line.",
-        fun: super::vcs::typed::diff_open_source,
-        completer: CommandCompleter::none(),
-        signature: Signature { positionals: (0, Some(0)), ..Signature::DEFAULT },
+        action: CommandAction::Committed(super::vcs::typed::diff_open_source),
+        args: CommandArgs::new(&[], &[]),
     },
     TypableCommand {
         name: "diff-open-file",
         aliases: &["vcs-diff-open-file"],
         doc: "Open the current file from a diff review.",
-        fun: super::vcs::typed::diff_open_file,
-        completer: CommandCompleter::none(),
-        signature: Signature { positionals: (0, Some(0)), ..Signature::DEFAULT },
+        action: CommandAction::Committed(super::vcs::typed::diff_open_file),
+        args: CommandArgs::new(&[], &[]),
     },
     TypableCommand {
         name: "restore-change",
         aliases: &["vcs-restore-change"],
         doc: "Restore selected hunks from HEAD in the buffer. Use u to undo; saved files and staged changes stay unchanged.",
-        fun: super::vcs::typed::restore_change,
-        completer: CommandCompleter::none(),
-        signature: Signature {
-            positionals: (0, Some(0)),
-            ..Signature::DEFAULT
-        },
+        action: CommandAction::Committed(super::vcs::typed::restore_change),
+        args: CommandArgs::new(&[], &[]),
     },
     TypableCommand {
         name: "vcs-changes",
         aliases: &["git-changes"],
         doc: "Browse changed files in the workspace.",
-        fun: super::vcs::typed::changed_files,
-        completer: CommandCompleter::none(),
-        signature: Signature { positionals: (0, Some(0)), ..Signature::DEFAULT },
+        action: CommandAction::Committed(super::vcs::typed::changed_files),
+        args: CommandArgs::new(&[], &[]),
     },
     TypableCommand {
         name: "vcs-repository-changes",
         aliases: &["git-repository-changes"],
         doc: "Browse changed files throughout the current repository.",
-        fun: super::vcs::typed::repository_changes,
-        completer: CommandCompleter::none(),
-        signature: Signature { positionals: (0, Some(0)), ..Signature::DEFAULT },
+        action: CommandAction::Committed(super::vcs::typed::repository_changes),
+        args: CommandArgs::new(&[], &[]),
     },
     TypableCommand {
         name: "vcs-stashes",
         aliases: &["git-stashes"],
         doc: "Browse Git stashes in the current repository.",
-        fun: super::vcs::typed::stashes,
-        completer: CommandCompleter::none(),
-        signature: Signature { positionals: (0, Some(0)), ..Signature::DEFAULT },
+        action: CommandAction::Committed(super::vcs::typed::stashes),
+        args: CommandArgs::new(&[], &[]),
     },
     TypableCommand {
         name: "vcs-toggle-inline-blame",
         aliases: &["git-toggle-inline-blame"],
         doc: "Show or hide inline Git blame.",
-        fun: super::vcs::typed::toggle_blame,
-        completer: CommandCompleter::none(),
-        signature: Signature { positionals: (0, Some(0)), ..Signature::DEFAULT },
+        action: CommandAction::Committed(super::vcs::typed::toggle_blame),
+        args: CommandArgs::new(&[], &[]),
     },
     TypableCommand {
         name: "clear-register",
         aliases: &[],
         doc: "Clear given register. If no argument is provided, clear all registers.",
-        fun: super::registers::typed::clear_register,
-        completer: CommandCompleter::all(completers::register),
-        signature: Signature {
-            positionals: (0, Some(1)),
-            ..Signature::DEFAULT
-        },
+        action: CommandAction::Committed(super::registers::typed::clear_register),
+        args: CommandArgs::new(&[], &[completers::register]),
     },
     TypableCommand {
         name: "set-register",
         aliases: &[],
         doc: "Set contents of the given register.",
-        fun: super::registers::typed::set_register,
-        completer: CommandCompleter::positional(&[completers::register, completers::none]),
-        signature: Signature {
-            positionals: (2, Some(2)),
-            raw_after: Some(1),
-            ..Signature::DEFAULT
-        },
+        action: CommandAction::Committed(super::registers::typed::set_register),
+        args: CommandArgs::new(&[completers::register, completers::none], &[]).raw_after(1),
     },
     TypableCommand {
         name: "redraw",
         aliases: &[],
         doc: "Clear and re-render the whole UI",
-        fun: super::application::typed::redraw,
-        completer: CommandCompleter::none(),
-        signature: Signature {
-            positionals: (0, Some(0)),
-            ..Signature::DEFAULT
-        },
+        action: CommandAction::Committed(super::application::typed::redraw),
+        args: CommandArgs::new(&[], &[]),
     },
     TypableCommand {
         name: "move",
         aliases: &["mv"],
         doc: "Move the current buffer and its corresponding file to a different path",
-        fun: super::files::typed::move_buffer,
-        completer: CommandCompleter::positional(&[completers::filename]),
-        signature: Signature {
-            positionals: (1, Some(1)),
-            ..Signature::DEFAULT
-        },
+        action: CommandAction::Committed(super::files::typed::move_buffer::<false>),
+        args: CommandArgs::new(&[completers::filename], &[]),
     },
     TypableCommand {
         name: "move!",
         aliases: &["mv!"],
         doc: "Move the current buffer and its corresponding file to a different path creating necessary subdirectories",
-        fun: super::files::typed::force_move_buffer,
-        completer: CommandCompleter::positional(&[completers::filename]),
-        signature: Signature {
-            positionals: (1, Some(1)),
-            ..Signature::DEFAULT
-        },
+        action: CommandAction::Committed(super::files::typed::move_buffer::<true>),
+        args: CommandArgs::new(&[completers::filename], &[]),
     },
     TypableCommand {
         name: "yank-diagnostic",
         aliases: &[],
         doc: "Yank diagnostic(s) under primary cursor to register, or clipboard by default",
-        fun: super::diagnostics::typed::yank_diagnostic,
-        completer: CommandCompleter::all(completers::register),
-        signature: Signature {
-            positionals: (0, Some(1)),
-            ..Signature::DEFAULT
-        },
+        action: CommandAction::Committed(super::diagnostics::typed::yank_diagnostic),
+        args: CommandArgs::new(&[], &[completers::register]),
     },
     TypableCommand {
         name: "read",
         aliases: &["r"],
         doc: "Load a file into buffer",
-        fun: super::files::typed::read,
-        completer: CommandCompleter::positional(&[completers::filename]),
-        signature: Signature {
-            positionals: (1, Some(1)),
-            ..Signature::DEFAULT
-        },
+        action: CommandAction::Committed(super::files::typed::read),
+        args: CommandArgs::new(&[completers::filename], &[]),
     },
     TypableCommand {
         name: "echo",
         aliases: &[],
         doc: "Prints the given arguments to the statusline.",
-        fun: super::application::typed::echo,
-        completer: CommandCompleter::none(),
-        signature: Signature {
-            positionals: (1, None),
-            ..Signature::DEFAULT
-        },
+        action: CommandAction::Committed(super::application::typed::echo),
+        args: CommandArgs::new(&[completers::none], &[]).rest(completers::none),
     },
     TypableCommand {
         name: "noop",
         aliases: &[],
         doc: "Does nothing.",
-        fun: super::application::typed::noop,
-        completer: CommandCompleter::none(),
-        signature: Signature {
-            positionals: (0, None),
-            ..Signature::DEFAULT
-        },
+        action: CommandAction::Committed(super::application::typed::noop),
+        args: CommandArgs::new(&[], &[]).rest(completers::none),
     },
     TypableCommand {
         name: "workspace-trust",
         aliases: &[],
         doc: "Allow language servers and local config for the current workspace.",
-        fun: super::workspace::trust_workspace,
-        completer: CommandCompleter::none(),
-        signature: Signature { positionals: (0, None), ..Signature::DEFAULT },
+        action: CommandAction::Committed(super::workspace::trust_workspace),
+        args: CommandArgs::new(&[], &[]).rest(completers::none),
     },
     TypableCommand {
         name: "workspace-untrust",
         aliases: &[],
         doc: "Revoke the current workspace's trust grant or exclusion.",
-        fun: super::workspace::untrust_workspace,
-        completer: CommandCompleter::none(),
-        signature: Signature { positionals: (0, None), ..Signature::DEFAULT },
+        action: CommandAction::Committed(super::workspace::untrust_workspace),
+        args: CommandArgs::new(&[], &[]).rest(completers::none),
     },
     TypableCommand {
         name: "workspace-exclude",
         aliases: &[],
         doc: "Mark the current workspace as never-prompt. Never prompts for trust again.",
-        fun: super::workspace::exclude_workspace,
-        completer: CommandCompleter::none(),
-        signature: Signature { positionals: (0, None), ..Signature::DEFAULT },
+        action: CommandAction::Committed(super::workspace::exclude_workspace),
+        args: CommandArgs::new(&[], &[]).rest(completers::none),
     }
 ];
 

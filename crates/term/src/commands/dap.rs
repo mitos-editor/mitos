@@ -500,19 +500,14 @@ pub fn dap_switch_stack_frame(cx: &mut Context) {
 pub(super) mod typed {
     //! Typable dap commands.
 
-    use crate::{commands::dap::dap_start_impl, compositor, ui::PromptEvent};
+    use crate::{commands::dap::dap_start_impl, compositor};
     use ::command_line::Args;
 
     #[cold]
     pub(in crate::commands) fn debug_eval(
         cx: &mut compositor::Context,
         args: Args,
-        event: PromptEvent,
     ) -> anyhow::Result<()> {
-        if event != PromptEvent::Validate {
-            return Ok(());
-        }
-
         let task = cx.editor.debugger_evaluate(args.join(" "))?;
         super::debugger_query(cx.jobs, task, |editor, compositor, _context, response| {
             if !response.is_current(editor) {
@@ -537,12 +532,7 @@ pub(super) mod typed {
     pub(in crate::commands) fn debug_start(
         cx: &mut compositor::Context,
         args: Args,
-        event: PromptEvent,
     ) -> anyhow::Result<()> {
-        if event != PromptEvent::Validate {
-            return Ok(());
-        }
-
         let mut args: Vec<_> = args.into_iter().collect();
         let name = match args.len() {
             0 => None,
@@ -555,12 +545,7 @@ pub(super) mod typed {
     pub(in crate::commands) fn debug_remote(
         cx: &mut compositor::Context,
         args: Args,
-        event: PromptEvent,
     ) -> anyhow::Result<()> {
-        if event != PromptEvent::Validate {
-            return Ok(());
-        }
-
         let mut args: Vec<_> = args.into_iter().collect();
         let address = match args.len() {
             0 => None,

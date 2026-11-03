@@ -35,7 +35,6 @@ pub(super) mod typed {
             files::typed::{write_all_impl, write_impl},
         },
         compositor, job,
-        ui::PromptEvent,
     };
     use ::command_line::Args;
     use view::{
@@ -44,65 +43,30 @@ pub(super) mod typed {
     };
 
     #[cold]
-    pub(in crate::commands) fn exit(
+    pub(in crate::commands) fn exit<const FORCE: bool>(
         cx: &mut compositor::Context,
         args: Args,
-        event: PromptEvent,
     ) -> anyhow::Result<()> {
-        if event != PromptEvent::Validate {
-            return Ok(());
-        }
-
         if doc!(cx.editor).is_modified() {
             write_impl(
                 cx,
                 args.first(),
                 WriteOptions {
-                    force: false,
+                    force: FORCE,
                     auto_format: !args.has_flag(WRITE_NO_FORMAT_FLAG.name),
                     code_actions: !args.has_flag(WRITE_NO_CODE_ACTIONS_FLAG.name),
                 },
             )?;
         }
-        quit(cx, Args::default(), event)
+        quit::<false>(cx, Args::default())
     }
 
     #[cold]
-    pub(in crate::commands) fn force_exit(
-        cx: &mut compositor::Context,
-        args: Args,
-        event: PromptEvent,
-    ) -> anyhow::Result<()> {
-        if event != PromptEvent::Validate {
-            return Ok(());
-        }
-
-        if doc!(cx.editor).is_modified() {
-            write_impl(
-                cx,
-                args.first(),
-                WriteOptions {
-                    force: true,
-                    auto_format: !args.has_flag(WRITE_NO_FORMAT_FLAG.name),
-                    code_actions: !args.has_flag(WRITE_NO_CODE_ACTIONS_FLAG.name),
-                },
-            )?;
-        }
-        quit(cx, Args::default(), event)
-    }
-
-    #[cold]
-    pub(in crate::commands) fn quit(
+    pub(in crate::commands) fn quit<const FORCE: bool>(
         cx: &mut compositor::Context,
         _args: Args,
-        event: PromptEvent,
     ) -> anyhow::Result<()> {
         log::debug!("quitting...");
-
-        if event != PromptEvent::Validate {
-            return Ok(());
-        }
-
         let view = view!(cx.editor);
         let (view_id, binding) = (view.id, view.binding_revision());
         cx.after_writes(move |editor| {
@@ -113,7 +77,7 @@ pub(super) mod typed {
             {
                 return Ok(());
             }
-            if editor.tree.views().count() == 1 {
+            if !FORCE && editor.tree.views().count() == 1 {
                 buffers_remaining_impl(editor)?;
             }
             editor.close(view_id);
@@ -122,39 +86,10 @@ pub(super) mod typed {
     }
 
     #[cold]
-    pub(in crate::commands) fn force_quit(
-        cx: &mut compositor::Context,
-        _args: Args,
-        event: PromptEvent,
-    ) -> anyhow::Result<()> {
-        if event != PromptEvent::Validate {
-            return Ok(());
-        }
-
-        let view = view!(cx.editor);
-        let (view_id, binding) = (view.id, view.binding_revision());
-        cx.after_writes(move |editor| {
-            if editor
-                .tree
-                .try_get(view_id)
-                .is_some_and(|view| view.binding_revision() == binding)
-            {
-                editor.close(view_id);
-            }
-            Ok(())
-        })
-    }
-
-    #[cold]
     pub(in crate::commands) fn write_quit(
         cx: &mut compositor::Context,
         args: Args,
-        event: PromptEvent,
     ) -> anyhow::Result<()> {
-        if event != PromptEvent::Validate {
-            return Ok(());
-        }
-
         write_impl(
             cx,
             args.first(),
@@ -164,19 +99,14 @@ pub(super) mod typed {
                 code_actions: !args.has_flag(WRITE_NO_CODE_ACTIONS_FLAG.name),
             },
         )?;
-        quit(cx, Args::default(), event)
+        quit::<false>(cx, Args::default())
     }
 
     #[cold]
     pub(in crate::commands) fn force_write_quit(
         cx: &mut compositor::Context,
         args: Args,
-        event: PromptEvent,
     ) -> anyhow::Result<()> {
-        if event != PromptEvent::Validate {
-            return Ok(());
-        }
-
         write_impl(
             cx,
             args.first(),
@@ -208,52 +138,30 @@ pub(super) mod typed {
     }
 
     #[cold]
-    pub(in crate::commands) fn write_all_quit(
+    pub(in crate::commands) fn write_all_quit<const FORCE: bool>(
         cx: &mut compositor::Context,
         args: Args,
-        event: PromptEvent,
     ) -> anyhow::Result<()> {
-        if event != PromptEvent::Validate {
-            return Ok(());
-        }
         write_all_impl(
             cx.editor,
             cx.jobs,
             WriteAllOptions {
-                force: false,
+                force: FORCE,
                 write_scratch: true,
                 auto_format: !args.has_flag(WRITE_NO_FORMAT_FLAG.name),
                 code_actions: !args.has_flag(WRITE_NO_CODE_ACTIONS_FLAG.name),
             },
         )?;
-        quit_all_impl(cx, false)
+        quit_all::<false>(cx, Args::default())
     }
 
     #[cold]
-    pub(in crate::commands) fn force_write_all_quit(
+    pub(in crate::commands) fn quit_all<const FORCE: bool>(
         cx: &mut compositor::Context,
-        args: Args,
-        event: PromptEvent,
+        _args: Args,
     ) -> anyhow::Result<()> {
-        if event != PromptEvent::Validate {
-            return Ok(());
-        }
-        write_all_impl(
-            cx.editor,
-            cx.jobs,
-            WriteAllOptions {
-                force: true,
-                write_scratch: true,
-                auto_format: !args.has_flag(WRITE_NO_FORMAT_FLAG.name),
-                code_actions: !args.has_flag(WRITE_NO_CODE_ACTIONS_FLAG.name),
-            },
-        )?;
-        quit_all_impl(cx, false)
-    }
-
-    fn quit_all_impl(cx: &mut compositor::Context, force: bool) -> anyhow::Result<()> {
         cx.after_writes(move |editor| {
-            if !force {
+            if !FORCE {
                 buffers_remaining_impl(editor)?;
             }
             let views: Vec<_> = editor.tree.views().map(|(view, _)| view.id).collect();
@@ -265,79 +173,24 @@ pub(super) mod typed {
     }
 
     #[cold]
-    pub(in crate::commands) fn quit_all(
-        cx: &mut compositor::Context,
-        _args: Args,
-        event: PromptEvent,
-    ) -> anyhow::Result<()> {
-        if event != PromptEvent::Validate {
-            return Ok(());
-        }
-
-        quit_all_impl(cx, false)
-    }
-
-    #[cold]
-    pub(in crate::commands) fn force_quit_all(
-        cx: &mut compositor::Context,
-        _args: Args,
-        event: PromptEvent,
-    ) -> anyhow::Result<()> {
-        if event != PromptEvent::Validate {
-            return Ok(());
-        }
-
-        quit_all_impl(cx, true)
-    }
-
-    #[cold]
-    pub(in crate::commands) fn cquit(
+    pub(in crate::commands) fn cquit<const FORCE: bool>(
         cx: &mut compositor::Context,
         args: Args,
-        event: PromptEvent,
     ) -> anyhow::Result<()> {
-        if event != PromptEvent::Validate {
-            return Ok(());
-        }
-
         let exit_code = args
             .first()
             .and_then(|code| code.parse::<i32>().ok())
             .unwrap_or(1);
 
         cx.editor.exit_code = exit_code;
-        quit_all_impl(cx, false)
-    }
-
-    #[cold]
-    pub(in crate::commands) fn force_cquit(
-        cx: &mut compositor::Context,
-        args: Args,
-        event: PromptEvent,
-    ) -> anyhow::Result<()> {
-        if event != PromptEvent::Validate {
-            return Ok(());
-        }
-
-        let exit_code = args
-            .first()
-            .and_then(|code| code.parse::<i32>().ok())
-            .unwrap_or(1);
-        cx.editor.exit_code = exit_code;
-
-        quit_all_impl(cx, true)
+        quit_all::<FORCE>(cx, Args::default())
     }
 
     #[cold]
     pub(in crate::commands) fn open_log(
         cx: &mut compositor::Context,
         _args: Args,
-        event: PromptEvent,
     ) -> anyhow::Result<()> {
-        if event != PromptEvent::Validate {
-            return Ok(());
-        }
-
         cx.editor.open(&loader::log_file(), Action::Replace)?;
         Ok(())
     }
@@ -346,12 +199,7 @@ pub(super) mod typed {
     pub(in crate::commands) fn redraw(
         cx: &mut compositor::Context,
         _args: Args,
-        event: PromptEvent,
     ) -> anyhow::Result<()> {
-        if event != PromptEvent::Validate {
-            return Ok(());
-        }
-
         let callback = Box::pin(async move {
             let call: job::Callback =
                 job::Callback::EditorCompositor(Box::new(|_editor, compositor| {
@@ -370,12 +218,7 @@ pub(super) mod typed {
     pub(in crate::commands) fn echo(
         cx: &mut compositor::Context,
         args: Args,
-        event: PromptEvent,
     ) -> anyhow::Result<()> {
-        if event != PromptEvent::Validate {
-            return Ok(());
-        }
-
         let output = args.into_iter().fold(String::new(), |mut acc, arg| {
             if !acc.is_empty() {
                 acc.push(' ');
@@ -392,7 +235,6 @@ pub(super) mod typed {
     pub(in crate::commands) fn noop(
         _cx: &mut compositor::Context,
         _args: Args,
-        _event: PromptEvent,
     ) -> anyhow::Result<()> {
         Ok(())
     }

@@ -606,70 +606,64 @@ pub(super) fn hunk_range(hunk: Hunk, text: RopeSlice) -> Range {
 pub(super) mod typed {
     //! Typable vcs commands.
 
-    use crate::{compositor, ui::PromptEvent};
+    use crate::compositor;
     use ::command_line::Args;
     use anyhow::bail;
 
     /// Adapt bindable Git commands while preserving their compositor callbacks.
     fn run_command(
         cx: &mut compositor::Context,
-        event: PromptEvent,
         command: fn(&mut super::Context),
     ) -> anyhow::Result<()> {
-        if event == PromptEvent::Validate {
-            cx.jobs.callback(async move {
-                Ok(crate::job::Callback::Context(Box::new(
-                    move |compositor, cx| {
-                        let mut command_cx = super::Context {
-                            config: cx.config,
-                            register: None,
-                            count: None,
-                            editor: cx.editor,
-                            callback: Vec::new(),
-                            on_next_key_callback: None,
-                            jobs: cx.jobs,
-                        };
-                        command(&mut command_cx);
-                        for callback in command_cx.callback {
-                            callback(compositor, cx);
-                        }
-                    },
-                )))
-            });
-        }
+        cx.jobs.callback(async move {
+            Ok(crate::job::Callback::Context(Box::new(
+                move |compositor, cx| {
+                    let mut command_cx = super::Context {
+                        config: cx.config,
+                        register: None,
+                        count: None,
+                        editor: cx.editor,
+                        callback: Vec::new(),
+                        on_next_key_callback: None,
+                        jobs: cx.jobs,
+                    };
+                    command(&mut command_cx);
+                    for callback in command_cx.callback {
+                        callback(compositor, cx);
+                    }
+                },
+            )))
+        });
+
         Ok(())
     }
 
     pub(in crate::commands) fn changed_files(
         cx: &mut compositor::Context,
         _args: Args,
-        event: PromptEvent,
     ) -> anyhow::Result<()> {
-        run_command(cx, event, super::changed_file_picker)
+        run_command(cx, super::changed_file_picker)
     }
 
     pub(in crate::commands) fn repository_changes(
         cx: &mut compositor::Context,
         _args: Args,
-        event: PromptEvent,
     ) -> anyhow::Result<()> {
-        run_command(cx, event, super::changed_file_picker_in_repository)
+        run_command(cx, super::changed_file_picker_in_repository)
     }
 
     pub(in crate::commands) fn stashes(
         cx: &mut compositor::Context,
         _args: Args,
-        event: PromptEvent,
     ) -> anyhow::Result<()> {
-        run_command(cx, event, super::git_stash_picker)
+        run_command(cx, super::git_stash_picker)
     }
 
     pub(in crate::commands) fn toggle_blame(
         cx: &mut compositor::Context,
         _args: Args,
-        event: PromptEvent,
     ) -> anyhow::Result<()> {
-        run_command(cx, event, super::toggle_inline_blame)
+        run_command(cx, super::toggle_inline_blame)
     }
 
     macro_rules! repository_command {
@@ -677,11 +671,7 @@ pub(super) mod typed {
             pub(in crate::commands) fn $name(
                 cx: &mut compositor::Context,
                 args: Args,
-                event: PromptEvent,
             ) -> anyhow::Result<()> {
-                if event != PromptEvent::Validate {
-                    return Ok(());
-                }
                 #[cfg(feature = "git")]
                 {
                     super::repository::execute(cx, args, super::repository::Command::$command)
@@ -708,34 +698,26 @@ pub(super) mod typed {
     pub(in crate::commands) fn blame(
         cx: &mut compositor::Context,
         _args: Args,
-        event: PromptEvent,
     ) -> anyhow::Result<()> {
-        if event == PromptEvent::Validate {
-            view::features::blame::request_details(cx.editor);
-        }
+        view::features::blame::request_details(cx.editor);
+
         Ok(())
     }
 
     pub(in crate::commands) fn show_change(
         cx: &mut compositor::Context,
         _args: Args,
-        event: PromptEvent,
     ) -> anyhow::Result<()> {
-        if event == PromptEvent::Validate {
-            super::request_change(cx.editor, cx.jobs);
-        }
+        super::request_change(cx.editor, cx.jobs);
+
         Ok(())
     }
 
     pub(in crate::commands) fn diff(
         cx: &mut compositor::Context,
         args: Args,
-        event: PromptEvent,
     ) -> anyhow::Result<()> {
         use view::features::change_review::ReviewComparison;
-        if event != PromptEvent::Validate {
-            return Ok(());
-        }
         let comparison = match args.first() {
             None | Some("head") => ReviewComparison::Head,
             Some("staged") => ReviewComparison::Staged,
@@ -749,25 +731,16 @@ pub(super) mod typed {
     pub(in crate::commands) fn file_history(
         cx: &mut compositor::Context,
         _args: Args,
-        event: PromptEvent,
     ) -> anyhow::Result<()> {
-        open_history(cx, event, false)
+        open_history(cx, false)
     }
     pub(in crate::commands) fn git_history(
         cx: &mut compositor::Context,
         _args: Args,
-        event: PromptEvent,
     ) -> anyhow::Result<()> {
-        open_history(cx, event, true)
+        open_history(cx, true)
     }
-    fn open_history(
-        cx: &mut compositor::Context,
-        event: PromptEvent,
-        repository: bool,
-    ) -> anyhow::Result<()> {
-        if event != PromptEvent::Validate {
-            return Ok(());
-        }
+    fn open_history(cx: &mut compositor::Context, repository: bool) -> anyhow::Result<()> {
         #[cfg(feature = "git")]
         {
             cx.jobs.callback(async move {
@@ -797,33 +770,27 @@ pub(super) mod typed {
     pub(in crate::commands) fn diff_refresh(
         cx: &mut compositor::Context,
         _args: Args,
-        event: PromptEvent,
     ) -> anyhow::Result<()> {
-        if event == PromptEvent::Validate {
-            cx.editor.refresh_review()?;
-        }
+        cx.editor.refresh_review()?;
+
         Ok(())
     }
     pub(in crate::commands) fn diff_open_source(
         cx: &mut compositor::Context,
         _args: Args,
-        event: PromptEvent,
     ) -> anyhow::Result<()> {
-        if event == PromptEvent::Validate {
-            cx.editor
-                .open_review_source(true, view::editor::Action::Replace)?;
-        }
+        cx.editor
+            .open_review_source(true, view::editor::Action::Replace)?;
+
         Ok(())
     }
     pub(in crate::commands) fn diff_open_file(
         cx: &mut compositor::Context,
         _args: Args,
-        event: PromptEvent,
     ) -> anyhow::Result<()> {
-        if event == PromptEvent::Validate {
-            cx.editor
-                .open_review_source(false, view::editor::Action::Replace)?;
-        }
+        cx.editor
+            .open_review_source(false, view::editor::Action::Replace)?;
+
         Ok(())
     }
 
@@ -831,12 +798,7 @@ pub(super) mod typed {
     pub(in crate::commands) fn restore_change(
         cx: &mut compositor::Context,
         _args: Args,
-        event: PromptEvent,
     ) -> anyhow::Result<()> {
-        if event != PromptEvent::Validate {
-            return Ok(());
-        }
-
         let editor = &mut cx.editor;
         let scrolloff = editor.config().scroll.padding;
 
