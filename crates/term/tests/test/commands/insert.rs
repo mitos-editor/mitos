@@ -712,7 +712,7 @@ async fn input_notifications_report_only_accepted_input() -> anyhow::Result<()> 
         .build()?;
     let events = Arc::new(AtomicUsize::new(0));
     let observed = events.clone();
-    event::register_hook!(move |_event: &mut InputApplied<'_>| {
+    event::register_hook!(app.editor.events() => move |_event: &mut InputApplied<'_>| {
         observed.fetch_add(1, Ordering::Relaxed);
         Ok(())
     });

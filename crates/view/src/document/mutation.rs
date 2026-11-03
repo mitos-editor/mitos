@@ -147,7 +147,7 @@ impl Document {
         if changes.is_empty() {
             if let (Some(selection), Some(view_id)) = (selection, view_id) {
                 self.update_selection(view_id, selection.clone());
-                let errors = event::dispatch(SelectionDidChange {
+                let errors = self.events().clone().dispatch(SelectionDidChange {
                     doc: self,
                     view: view_id,
                 });
@@ -178,7 +178,7 @@ impl Document {
         crate::handlers::lsp::synchronize_document(self, old_doc, changes);
 
         // Observers see mapped caches and the final selection, and may now schedule work.
-        let errors = event::dispatch(DocumentDidChange {
+        let errors = self.events().clone().dispatch(DocumentDidChange {
             doc: self,
             view: view_id,
             old_text: old_doc,
@@ -186,7 +186,7 @@ impl Document {
         });
         self.report_hook_errors(errors);
         if let (Some(_), Some(view_id)) = (selection, view_id) {
-            let errors = event::dispatch(SelectionDidChange {
+            let errors = self.events().clone().dispatch(SelectionDidChange {
                 doc: self,
                 view: view_id,
             });

@@ -193,11 +193,13 @@ impl Editor {
                 SpellingEvent::CheckRequested { doc: doc_id },
             );
         }
-        event::dispatch(crate::events::DiagnosticsDidChange {
-            editor: self,
-            doc: doc_id,
-        })
-        .report_to(self.status_sender());
+        self.events()
+            .clone()
+            .dispatch(crate::events::DiagnosticsDidChange {
+                editor: self,
+                doc: doc_id,
+            })
+            .report_to(self.status_sender());
     }
 
     /// Capture the spelling findings overlapping the primary selection, then generate corrections,
@@ -352,8 +354,8 @@ impl Editor {
 }
 
 /// Each event supplies its owning editor or document queue.
-pub(crate) fn register_hooks() {
-    register_hook!(move |event: &mut DocumentDidOpen<'_>| {
+pub(crate) fn register_hooks(events: &event::EventHub) {
+    register_hook!(events => move |event: &mut DocumentDidOpen<'_>| {
         let doc = doc!(event.editor, &event.doc);
         if !doc.spelling_languages.is_empty() {
             send_blocking(
@@ -364,7 +366,7 @@ pub(crate) fn register_hooks() {
         Ok(())
     });
 
-    register_hook!(move |event: &mut DocumentDidChange<'_>| {
+    register_hook!(events => move |event: &mut DocumentDidChange<'_>| {
         if !event.doc.spelling_languages.is_empty()
             && let Some(tx) = &event.doc.spelling_events
         {
@@ -380,7 +382,7 @@ pub(crate) fn register_hooks() {
         Ok(())
     });
 
-    register_hook!(move |event: &mut DocumentDidClose<'_>| {
+    register_hook!(events => move |event: &mut DocumentDidClose<'_>| {
         // Cancel any in-flight full check for the closed document.
         event
             .editor
@@ -397,7 +399,7 @@ pub(crate) fn register_hooks() {
         Ok(())
     });
 
-    register_hook!(move |event: &mut ConfigDidChange<'_>| {
+    register_hook!(events => move |event: &mut ConfigDidChange<'_>| {
         let doc_ids: Vec<_> = event.editor.documents().map(|doc| doc.id()).collect();
         for doc_id in doc_ids {
             event.editor.refresh_spelling(doc_id);

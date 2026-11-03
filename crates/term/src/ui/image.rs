@@ -25,9 +25,9 @@ static IMAGE_PREVIEW_WORKER: tokio::sync::Semaphore = tokio::sync::Semaphore::co
 
 const IMAGE_CACHE_CAPACITY: usize = 16;
 
-event::runtime_local! {
-    static IMAGE_CACHE: Mutex<ImageCache> = Mutex::new(ImageCache { entries: VecDeque::new(), revision: 0 });
-}
+/// Shared by this application's image previews and decoder workers.
+#[derive(Clone, Default)]
+pub(crate) struct ImageCache(Arc<Mutex<CacheEntries>>);
 
 #[derive(Clone, PartialEq)]
 struct ImageKey {
@@ -66,13 +66,14 @@ impl PreparedImage {
     }
 }
 
-struct ImageCache {
+#[derive(Default)]
+struct CacheEntries {
     revision: u64,
     // Least recently used first. Only encoded previews are retained, never source pixels.
     entries: VecDeque<Arc<PreparedImage>>,
 }
 
-impl ImageCache {
+impl CacheEntries {
     fn get(&mut self, key: &ImageKey) -> Option<Arc<PreparedImage>> {
         let index = self.entries.iter().position(|image| image.key == *key)?;
         let image = self.entries.remove(index).unwrap();
@@ -95,32 +96,37 @@ impl ImageCache {
 }
 
 pub(super) fn cached_image(
+    cache: &ImageCache,
     path: &Path,
     picker: &ImagePicker,
     size: Size,
 ) -> Option<Arc<PreparedImage>> {
     let key = ImageKey::new(path, picker, size)?;
-    IMAGE_CACHE.lock().unwrap().get(&key)
+    cache.0.lock().unwrap().get(&key)
 }
 
-pub(super) fn invalidate_cached_image(path: &Path) {
+pub(super) fn invalidate_cached_image(cache: &ImageCache, path: &Path) {
     let path = stdx::path::canonicalize_existing(path);
-    let mut cache = IMAGE_CACHE.lock().unwrap();
+    let mut cache = cache.0.lock().unwrap();
     cache.revision = cache.revision.wrapping_add(1);
     cache.entries.retain(|image| image.key.path != path);
 }
 
 type ImageResult = Result<Arc<PreparedImage>, String>;
 
-pub(super) async fn load_image(path: Arc<Path>, picker: ImagePicker, size: Size) -> ImageResult {
+pub(super) async fn load_image(
+    cache: ImageCache,
+    path: Arc<Path>,
+    picker: ImagePicker,
+    size: Size,
+) -> ImageResult {
     let permit = IMAGE_PREVIEW_WORKER.acquire().await.unwrap();
-    let cache: &'static Mutex<ImageCache> = &IMAGE_CACHE;
     tokio::task::spawn_blocking(move || {
         let _permit = permit;
         let key = ImageKey::new(&path, &picker, size).ok_or("Image file is unavailable")?;
         // Another request may have completed while we waited for the worker.
         let revision = {
-            let mut cache = cache.lock().unwrap();
+            let mut cache = cache.0.lock().unwrap();
             if let Some(image) = cache.get(&key) {
                 return Ok(image);
             }
@@ -133,7 +139,7 @@ pub(super) async fn load_image(path: Arc<Path>, picker: ImagePicker, size: Size)
             details,
         });
         if image.is_current(&path, &picker, size) {
-            let mut cache = cache.lock().unwrap();
+            let mut cache = cache.0.lock().unwrap();
             if cache.revision == revision {
                 cache.insert(image.clone());
             }
@@ -218,9 +224,9 @@ pub(super) struct ImageDocumentView {
 }
 
 impl ImageDocumentView {
-    pub fn new(doc: &Document, picker: ImagePicker, size: Size) -> Self {
+    pub fn new(cache: ImageCache, doc: &Document, picker: ImagePicker, size: Size) -> Self {
         let path = doc.path().expect("binary documents have a path").to_owned();
-        let result = cached_image(&path, &picker, size).map(Ok);
+        let result = cached_image(&cache, &path, &picker, size).map(Ok);
         let (sender, receiver) = oneshot::channel();
         let task = if result.is_some() {
             None
@@ -228,7 +234,7 @@ impl ImageDocumentView {
             let worker_path = Arc::from(path.as_path());
             let redraw = doc.redraw().callback();
             Some(tokio::spawn(async move {
-                let result = load_image(worker_path, picker, size).await;
+                let result = load_image(cache, worker_path, picker, size).await;
                 if sender.send(result).is_ok() {
                     redraw();
                 }
@@ -313,20 +319,33 @@ mod tests {
 
     #[tokio::test]
     async fn prepared_images_are_shared_and_reopened_without_a_loading_frame() {
+        let cache = ImageCache::default();
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("cached.png");
         image::DynamicImage::new_rgb8(40, 20).save(&path).unwrap();
         let picker = ImagePicker::halfblocks();
         let size = Size::new(60, 18);
-        let prepared = load_image(Arc::from(path.as_path()), picker.clone(), size)
-            .await
-            .unwrap();
-        let cached = cached_image(&path, &picker, size).unwrap();
+        let prepared = load_image(
+            cache.clone(),
+            Arc::from(path.as_path()),
+            picker.clone(),
+            size,
+        )
+        .await
+        .unwrap();
+        let cached = cached_image(&cache, &path, &picker, size).unwrap();
         assert!(Arc::ptr_eq(&prepared, &cached));
+        let other = ImageCache::default();
+        assert!(cached_image(&other, &path, &picker, size).is_none());
+        invalidate_cached_image(&other, &path);
+        assert!(Arc::ptr_eq(
+            &prepared,
+            &cached_image(&cache, &path, &picker, size).unwrap()
+        ));
 
         let doc = open(&path);
         for _ in 0..2 {
-            let mut view = ImageDocumentView::new(&doc, picker.clone(), size);
+            let mut view = ImageDocumentView::new(cache.clone(), &doc, picker.clone(), size);
             assert!(
                 view.task.is_none(),
                 "a cache hit must not start a loading task"
@@ -345,18 +364,24 @@ mod tests {
 
     #[tokio::test]
     async fn cached_images_are_invalidated_by_file_changes_and_render_settings() {
+        let cache = ImageCache::default();
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("cached.png");
         image::DynamicImage::new_rgb8(40, 20).save(&path).unwrap();
         let picker = ImagePicker::halfblocks();
         let size = Size::new(60, 18);
-        let original = load_image(Arc::from(path.as_path()), picker.clone(), size)
-            .await
-            .unwrap();
-        assert!(cached_image(&path, &picker, Size::new(30, 18)).is_none());
+        let original = load_image(
+            cache.clone(),
+            Arc::from(path.as_path()),
+            picker.clone(),
+            size,
+        )
+        .await
+        .unwrap();
+        assert!(cached_image(&cache, &path, &picker, Size::new(30, 18)).is_none());
         let mut other_protocol = picker.clone();
         other_protocol.set_protocol_type(ProtocolType::Kitty);
-        assert!(cached_image(&path, &other_protocol, size).is_none());
+        assert!(cached_image(&cache, &path, &other_protocol, size).is_none());
 
         // A same-size rewrite must not reuse stale pixels.
         std::fs::File::options()
@@ -365,19 +390,24 @@ mod tests {
             .unwrap()
             .set_modified(SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(10))
             .unwrap();
-        assert!(cached_image(&path, &picker, size).is_none());
+        assert!(cached_image(&cache, &path, &picker, size).is_none());
         assert!(!original.is_current(&path, &picker, size));
-        let updated = load_image(Arc::from(path.as_path()), picker.clone(), size)
-            .await
-            .unwrap();
+        let updated = load_image(
+            cache.clone(),
+            Arc::from(path.as_path()),
+            picker.clone(),
+            size,
+        )
+        .await
+        .unwrap();
         assert!(!Arc::ptr_eq(&original, &updated));
         assert!(Arc::ptr_eq(
             &updated,
-            &cached_image(&path, &picker, size).unwrap()
+            &cached_image(&cache, &path, &picker, size).unwrap()
         ));
         // Native events also invalidate replacements that preserve the metadata key.
-        invalidate_cached_image(&path);
-        assert!(cached_image(&path, &picker, size).is_none());
+        invalidate_cached_image(&cache, &path);
+        assert!(cached_image(&cache, &path, &picker, size).is_none());
     }
 
     #[test]
@@ -399,7 +429,7 @@ mod tests {
                 details: details.clone(),
             })
         };
-        let mut cache = ImageCache {
+        let mut cache = CacheEntries {
             entries: VecDeque::new(),
             revision: 0,
         };
@@ -438,13 +468,15 @@ mod tests {
 
     #[tokio::test]
     async fn opened_image_renders_with_metadata_and_invalidates_after_a_resize() {
+        let cache = ImageCache::default();
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("image.png");
         image::DynamicImage::new_rgb8(40, 20).save(&path).unwrap();
         let doc = open(&path);
         let area = Rect::new(0, 0, 60, 20);
         let size = Size::new(60, 18);
-        let mut image = ImageDocumentView::new(&doc, ImagePicker::halfblocks(), size);
+        let mut image =
+            ImageDocumentView::new(cache.clone(), &doc, ImagePicker::halfblocks(), size);
         image.task.as_mut().unwrap().await.unwrap();
         let mut buffer = Buffer::empty(area);
         image.render(area, &mut buffer, Style::default());
@@ -457,12 +489,18 @@ mod tests {
 
     #[tokio::test]
     async fn unsupported_binary_files_render_a_disclaimer() {
+        let cache = ImageCache::default();
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("broken.png");
         fs::write(&path, b"\x89PNG\r\n\0not an image\x1b[2J").unwrap();
         let doc = open(&path);
         let area = Rect::new(0, 0, 60, 20);
-        let mut image = ImageDocumentView::new(&doc, ImagePicker::halfblocks(), Size::new(60, 18));
+        let mut image = ImageDocumentView::new(
+            cache.clone(),
+            &doc,
+            ImagePicker::halfblocks(),
+            Size::new(60, 18),
+        );
         image.task.as_mut().unwrap().await.unwrap();
         let mut buffer = Buffer::empty(area);
         image.render(area, &mut buffer, Style::default());

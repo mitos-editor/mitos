@@ -69,6 +69,7 @@ fn application(
         config,
         lang_loader,
         workspace::trust::WorkspaceTrust::fully_trusted(loader::workspace_trust_dir()),
+        event::EventHub::default(),
         move |handlers, _| {
             handlers.syntax = view::features::syntax::SyntaxHandler::new(sender);
         },
@@ -230,12 +231,16 @@ async fn focus_cleanup_stays_with_its_application_and_unregisters_on_drop() -> a
     }
     let doc = doc!(first.editor).id();
     let view = first.editor.tree.focus();
-    event::dispatch(view::events::DocumentFocusLost {
-        editor: &mut first.editor,
-        doc,
-        view,
-    })
-    .report_to(first.editor.status_sender());
+    first
+        .editor
+        .events()
+        .clone()
+        .dispatch(view::events::DocumentFocusLost {
+            editor: &mut first.editor,
+            doc,
+            view,
+        })
+        .report_to(first.editor.status_sender());
     let callback = first.jobs.callbacks.try_recv()?;
     first.jobs.handle_callback(
         crate::config::Context {
@@ -256,12 +261,16 @@ async fn focus_cleanup_stays_with_its_application_and_unregisters_on_drop() -> a
     sender.send(|_, _| {}).await;
     let doc = doc!(second.editor).id();
     let view = second.editor.tree.focus();
-    event::dispatch(view::events::DocumentFocusLost {
-        editor: &mut second.editor,
-        doc,
-        view,
-    })
-    .report_to(second.editor.status_sender());
+    second
+        .editor
+        .events()
+        .clone()
+        .dispatch(view::events::DocumentFocusLost {
+            editor: &mut second.editor,
+            doc,
+            view,
+        })
+        .report_to(second.editor.status_sender());
     let callback = second.jobs.callbacks.try_recv()?;
     second.jobs.handle_callback(
         crate::config::Context {
@@ -317,12 +326,15 @@ async fn queued_focus_cleanup_preserves_prompts_created_after_the_focus_change(
     app.compositor.push(Box::new(prompt()));
     let doc = doc!(app.editor).id();
     let view = app.editor.tree.focus();
-    event::dispatch(view::events::DocumentFocusLost {
-        editor: &mut app.editor,
-        doc,
-        view,
-    })
-    .report_to(app.editor.status_sender());
+    app.editor
+        .events()
+        .clone()
+        .dispatch(view::events::DocumentFocusLost {
+            editor: &mut app.editor,
+            doc,
+            view,
+        })
+        .report_to(app.editor.status_sender());
     let callback = app.jobs.callbacks.try_recv()?;
     app.compositor.pop();
     app.compositor.push(Box::new(prompt()));

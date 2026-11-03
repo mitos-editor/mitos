@@ -61,6 +61,7 @@ pub(crate) struct InteractiveShellRequest {
 }
 
 pub struct Jobs {
+    pub(crate) image_cache: crate::ui::image::ImageCache,
     sender: JobSender,
     editor_callbacks: EditorCallbackSender,
     pub(crate) command_expansion: event::TaskController,
@@ -114,6 +115,7 @@ impl Jobs {
         );
         let (interactive_sender, interactive_requests) = channel(1);
         Self {
+            image_cache: Default::default(),
             sender,
             editor_callbacks,
             command_expansion: event::TaskController::new(),

@@ -311,8 +311,8 @@ impl Editor {
     }
 }
 
-pub(crate) fn register_hooks() {
-    register_hook!(move |event: &mut DocumentDidClose<'_>| {
+pub(crate) fn register_hooks(events: &event::EventHub) {
+    register_hook!(events => move |event: &mut DocumentDidClose<'_>| {
         let startups: Vec<_> = event.editor.debugger.sessions.iter().filter_map(|(id, session)| {
             let startup = session.startup.as_ref()?;
             matches!(startup.origin, StartupOrigin::Document(document) if document == event.doc.id()).then_some(id)

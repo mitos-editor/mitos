@@ -598,8 +598,8 @@ impl Editor {
     }
 }
 
-pub(super) fn register_hooks() {
-    event::register_hook!(move |event: &mut DocumentDidClose<'_>| {
+pub(super) fn register_hooks(events: &event::EventHub) {
+    event::register_hook!(events => move |event: &mut DocumentDidClose<'_>| {
         if let (Some(saved), Some(path)) = (&event.doc.breakpoint_saved_text, event.doc.path())
             && !event.editor.debugger.breakpoints(path).is_empty()
         {

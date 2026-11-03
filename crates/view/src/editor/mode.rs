@@ -54,12 +54,14 @@ impl Editor {
         if old == Mode::Insert {
             self.handlers.auto_save.left_insert_mode();
         }
-        event::dispatch(ModeDidChange {
-            editor: self,
-            old,
-            new: mode,
-        })
-        .report_to(self.status_sender());
+        self.events()
+            .clone()
+            .dispatch(ModeDidChange {
+                editor: self,
+                old,
+                new: mode,
+            })
+            .report_to(self.status_sender());
         self.redraw().request();
     }
 

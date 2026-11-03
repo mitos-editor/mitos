@@ -81,13 +81,8 @@ mod tests {
 
     #[tokio::test]
     async fn presentation_maps_annotations_without_publishing_or_canceling_live_work() {
-        crate::events::register();
         let events = Arc::new(AtomicUsize::new(0));
         let observed = events.clone();
-        event::register_hook!(move |_event: &mut DocumentDidChange<'_>| {
-            observed.fetch_add(1, Ordering::Relaxed);
-            Ok(())
-        });
         let mut doc = Document::from(
             Rope::from("界abc\n"),
             None,
@@ -96,6 +91,10 @@ mod tests {
             )),
             Arc::new(language::syntax::Loader::default()),
         );
+        event::register_hook!(doc.events() => move |_event: &mut DocumentDidChange<'_>| {
+            observed.fetch_add(1, Ordering::Relaxed);
+            Ok(())
+        });
         let view = ViewId::default();
         doc.ensure_view_init(view);
         doc.set_document_highlights(view, std::iter::once(1..4).collect());

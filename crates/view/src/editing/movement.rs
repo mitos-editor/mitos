@@ -206,7 +206,7 @@ pub fn align_middle(doc: &mut Document, view: &View) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{events::SelectionDidChange, graphics::Rect, view::ViewPosition, ViewId};
+    use crate::{graphics::Rect, view::ViewPosition, ViewId};
     use arc_swap::ArcSwap;
     use editor_config::{Config, GutterConfig};
     use editor_core::{Range, Rope, Selection};
@@ -221,7 +221,6 @@ mod tests {
         height: u16,
         configure: impl FnOnce(&mut Config),
     ) -> (Document, View, View) {
-        event::register_event::<SelectionDidChange>();
         let mut config = Config::default();
         config.statusline.global = true;
         config.soft_wrap.enable = Some(true);

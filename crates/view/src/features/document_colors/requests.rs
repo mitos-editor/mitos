@@ -149,19 +149,19 @@ fn attach_document_colors(
     });
 }
 
-pub(crate) fn register_hooks() {
-    register_hook!(move |event: &mut DocumentLanguageDidChange<'_>| {
+pub(crate) fn register_hooks(events: &event::EventHub) {
+    register_hook!(events => move |event: &mut DocumentLanguageDidChange<'_>| {
         request_document_colors(event.editor, event.doc, None);
         Ok(())
     });
-    register_hook!(move |event: &mut DocumentDidOpen<'_>| {
+    register_hook!(events => move |event: &mut DocumentDidOpen<'_>| {
         // when a document is initially opened, request colors for it
         request_document_colors(event.editor, event.doc, None);
 
         Ok(())
     });
 
-    register_hook!(move |event: &mut DocumentDidChange<'_>| {
+    register_hook!(events => move |event: &mut DocumentDidChange<'_>| {
         // Cancel the ongoing request, if present.
         event.doc.document_colors.request.cancel();
         if let Some(handler) = &event.doc.document_colors.handler {
@@ -171,7 +171,7 @@ pub(crate) fn register_hooks() {
         Ok(())
     });
 
-    register_hook!(move |event: &mut LanguageServerInitialized<'_>| {
+    register_hook!(events => move |event: &mut LanguageServerInitialized<'_>| {
         let doc_ids: Vec<_> = event.editor.documents().map(|doc| doc.id()).collect();
 
         for doc_id in doc_ids {
@@ -181,7 +181,7 @@ pub(crate) fn register_hooks() {
         Ok(())
     });
 
-    register_hook!(move |event: &mut LanguageServerExited<'_>| {
+    register_hook!(events => move |event: &mut LanguageServerExited<'_>| {
         // Clear and re-request all color swatches when a server exits.
         for doc in event.editor.documents_mut() {
             if doc.supports_language_server(event.server_id) {

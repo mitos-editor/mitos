@@ -140,30 +140,30 @@ fn apply_code_action_hint(doc: &mut Document, view: ViewId, available: bool) {
     }
 }
 
-pub(crate) fn register_hooks() {
-    register_hook!(move |event: &mut SelectionDidChange<'_>| {
+pub(crate) fn register_hooks(events: &event::EventHub) {
+    register_hook!(events => move |event: &mut SelectionDidChange<'_>| {
         schedule(event.doc, event.view);
         Ok(())
     });
-    register_hook!(move |event: &mut DocumentDidOpen<'_>| {
+    register_hook!(events => move |event: &mut DocumentDidOpen<'_>| {
         let view = event.editor.tree.focus();
         if let Some(doc) = event.editor.document_mut(event.doc) {
             schedule(doc, view);
         }
         Ok(())
     });
-    register_hook!(move |event: &mut DocumentDidChange<'_>| {
+    register_hook!(events => move |event: &mut DocumentDidChange<'_>| {
         schedule_document(event.doc);
 
         Ok(())
     });
-    register_hook!(move |event: &mut DiagnosticsDidChange<'_>| {
+    register_hook!(events => move |event: &mut DiagnosticsDidChange<'_>| {
         if let Some(doc) = event.editor.document_mut(event.doc) {
             schedule_document(doc);
         }
         Ok(())
     });
-    register_hook!(move |event: &mut LanguageServerInitialized<'_>| {
+    register_hook!(events => move |event: &mut LanguageServerInitialized<'_>| {
         for doc in event.editor.documents_mut() {
             if doc.supports_language_server(event.server_id) {
                 schedule_document(doc);
@@ -171,7 +171,7 @@ pub(crate) fn register_hooks() {
         }
         Ok(())
     });
-    register_hook!(move |event: &mut LanguageServerExited<'_>| {
+    register_hook!(events => move |event: &mut LanguageServerExited<'_>| {
         for doc in event.editor.documents_mut() {
             if doc.supports_language_server(event.server_id) {
                 doc.clear_all_code_action_hints();
@@ -182,7 +182,7 @@ pub(crate) fn register_hooks() {
         }
         Ok(())
     });
-    register_hook!(move |event: &mut ConfigDidChange<'_>| {
+    register_hook!(events => move |event: &mut ConfigDidChange<'_>| {
         if event.old.code_action_hint() && !event.new.code_action_hint() {
             for doc in event.editor.documents_mut() {
                 doc.clear_all_code_action_hints();

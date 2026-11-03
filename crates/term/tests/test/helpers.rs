@@ -362,6 +362,7 @@ pub fn new_readonly_tempfile_in_dir(
 type HandlerSetup = Box<dyn FnOnce(&mut view::handlers::Handlers, &editor_config::Config)>;
 
 pub struct AppBuilder {
+    events: event::EventHub,
     args: Args,
     config: Config,
     syn_loader: language::syntax::Loader,
@@ -372,6 +373,7 @@ pub struct AppBuilder {
 impl Default for AppBuilder {
     fn default() -> Self {
         Self {
+            events: event::EventHub::default(),
             args: Args::default(),
             config: test_config(),
             syn_loader: test_syntax_loader(None),
@@ -422,6 +424,11 @@ impl AppBuilder {
         self
     }
 
+    pub fn with_events(mut self, events: event::EventHub) -> Self {
+        self.events = events;
+        self
+    }
+
     pub fn with_handler_setup(
         mut self,
         setup: impl FnOnce(&mut view::handlers::Handlers, &editor_config::Config) + 'static,
@@ -444,6 +451,7 @@ impl AppBuilder {
             self.config,
             self.syn_loader,
             WorkspaceTrust::fully_trusted(loader::workspace_trust_dir()),
+            self.events,
             self.handler_setup,
         )?;
 

@@ -14,10 +14,13 @@ async fn replacement_reports_the_previous_document_and_view() -> anyhow::Result<
     let expected = (doc.id(), view.id);
     let events = Arc::new(Mutex::new(Vec::new()));
     let captured = events.clone();
-    register_hook!(move |event: &mut DocumentFocusLost<'_>| {
-        captured.lock().unwrap().push((event.doc, event.view));
-        Ok(())
-    });
+    register_hook!(
+        fixture.editor.events() =>
+        move |event: &mut DocumentFocusLost<'_>| {
+            captured.lock().unwrap().push((event.doc, event.view));
+            Ok(())
+        }
+    );
     let incoming = fixture.editor.new_file(Action::Replace);
     assert_ne!(incoming, expected.0);
     assert_eq!(*events.lock().unwrap(), vec![expected]);
@@ -32,10 +35,13 @@ async fn splits_and_focus_changes_report_the_originating_view() -> anyhow::Resul
     let id = doc.id();
     let events = Arc::new(Mutex::new(Vec::new()));
     let captured = events.clone();
-    register_hook!(move |event: &mut DocumentFocusLost<'_>| {
-        captured.lock().unwrap().push((event.doc, event.view));
-        Ok(())
-    });
+    register_hook!(
+        fixture.editor.events() =>
+        move |event: &mut DocumentFocusLost<'_>| {
+            captured.lock().unwrap().push((event.doc, event.view));
+            Ok(())
+        }
+    );
     fixture.editor.switch(id, Action::VerticalSplit);
     let second = current_ref!(fixture.editor).0.id;
     fixture.editor.focus(first);
@@ -51,22 +57,28 @@ async fn replacing_an_empty_scratch_reports_closed_document_after_rebinding() ->
     let scratch = fixture.editor.new_file(Action::Replace);
     let events = Arc::new(Mutex::new(Vec::new()));
     let captured = events.clone();
-    register_hook!(move |event: &mut DocumentDidClose<'_>| {
-        let focused = event
-            .editor
-            .tree
-            .get(event.editor.tree.focus())
-            .document_id();
-        assert!(event.editor.document(focused).is_some());
-        captured.lock().unwrap().push((event.doc.id(), focused));
-        Ok(())
-    });
+    register_hook!(
+        fixture.editor.events() =>
+        move |event: &mut DocumentDidClose<'_>| {
+            let focused = event
+                .editor
+                .tree
+                .get(event.editor.tree.focus())
+                .document_id();
+            assert!(event.editor.document(focused).is_some());
+            captured.lock().unwrap().push((event.doc.id(), focused));
+            Ok(())
+        }
+    );
     let focus_events = Arc::new(Mutex::new(Vec::new()));
     let captured = focus_events.clone();
-    register_hook!(move |event: &mut DocumentFocusLost<'_>| {
-        captured.lock().unwrap().push((event.doc, event.view));
-        Ok(())
-    });
+    register_hook!(
+        fixture.editor.events() =>
+        move |event: &mut DocumentFocusLost<'_>| {
+            captured.lock().unwrap().push((event.doc, event.view));
+            Ok(())
+        }
+    );
     fixture.editor.switch(existing, Action::Replace);
     assert!(fixture.editor.document(scratch).is_none());
     assert_eq!(*events.lock().unwrap(), vec![(scratch, existing)]);
