@@ -22,4 +22,3 @@ log.workspace = true
 futures-executor.workspace = true
 
 [features]
-integration_test = []

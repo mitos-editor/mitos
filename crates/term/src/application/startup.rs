@@ -120,7 +120,7 @@ impl<B: tui::backend::Backend + tui::backend::BackendExt> App<B>
 where
     B::Error: std::error::Error + Send + Sync + 'static,
 {
-    /// Construct the same frontend loop with a supplied backend and no process terminal IO.
+    /// Construct the same frontend loop with a supplied backend and no process terminal input.
     #[allow(clippy::too_many_arguments)]
     pub fn with_backend(
         backend: B,
@@ -342,4 +342,32 @@ fn setup_integration_logging() {
         .unwrap_or(log::LevelFilter::Info);
 
     crate::logging::init_stdout(level);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn supplied_backend_controls_the_frame_without_process_input() -> anyhow::Result<()> {
+        let mut config = Config::default();
+        config.editor.lsp.enable = false;
+        config.editor.files.watch.enable = false;
+        config.editor.files.reload.poll.enable = false;
+        let app = App::with_backend(
+            TestBackend::new(37, 9),
+            Args::default(),
+            config,
+            syntax::Loader::new(
+                toml::from_str("language = []")?,
+                loader::syntax::Resources::default(),
+            )?,
+            workspace::trust::WorkspaceTrust::fully_trusted(loader::workspace_trust_dir()),
+            event::EventHub::default(),
+            |_, _| {},
+        )?;
+        assert_eq!(app.terminal_backend().buffer().area, Rect::new(0, 0, 37, 9));
+        assert!(app.terminal_input.is_none());
+        Ok(())
+    }
 }
