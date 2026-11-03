@@ -95,6 +95,15 @@ mod tests {
             observed.fetch_add(1, Ordering::Relaxed);
             Ok(())
         });
+        let redraw = event::Redraw::default();
+        let callbacks =
+            crate::callbacks::EditorCallbackSender::new(redraw.clone(), |_| async {}, |_| {});
+        let handlers = crate::handlers::Handlers::with_events(
+            &doc.config.load(),
+            callbacks,
+            doc.events().clone(),
+        );
+        doc.bind_services(Arc::new(super::super::DocumentServices::new(&handlers)));
         let view = ViewId::default();
         doc.ensure_view_init(view);
         doc.set_document_highlights(view, std::iter::once(1..4).collect());
@@ -112,6 +121,13 @@ mod tests {
             Transaction::change(doc.text(), [(0, 1, Some("é\n\t".into()))].into_iter())
                 .with_selection(Selection::point(3));
         let presentation = doc.presentation(&transaction, view);
+        redraw.start_frame();
+        presentation.redraw().request();
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(5), redraw.requested(),)
+                .await
+                .is_err()
+        );
         assert_eq!(presentation.text(), "é\n\tabc\n");
         assert_eq!(
             presentation.document_highlights(view),

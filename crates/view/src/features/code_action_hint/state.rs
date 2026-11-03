@@ -4,12 +4,11 @@ use event::TaskController;
 use std::collections::HashMap;
 
 use crate::Document;
-use crate::{features::code_action_hint::CodeActionHintHandler, ViewId};
+use crate::ViewId;
 
 #[derive(Default)]
 pub(crate) struct CodeActionHints {
     views: HashMap<ViewId, (bool, Option<TaskController>)>,
-    pub(super) handler: Option<CodeActionHintHandler>,
 }
 
 impl CodeActionHints {
@@ -21,12 +20,7 @@ impl CodeActionHints {
                 .filter(|(_, (available, _))| *available)
                 .map(|(&view, _)| (view, (true, None)))
                 .collect(),
-            ..Self::default()
         }
-    }
-
-    pub(crate) fn bind_handler(&mut self, handler: CodeActionHintHandler) {
-        self.handler = Some(handler);
     }
 
     pub(crate) fn remove_view(&mut self, view: ViewId) {

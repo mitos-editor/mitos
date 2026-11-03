@@ -26,7 +26,6 @@ use crate::{
 /// Cancellation and result IDs follow the document and are independent per server.
 #[derive(Default)]
 pub(crate) struct DocumentDiagnostics {
-    handler: Option<PullDiagnosticsHandler>,
     result_ids: HashMap<LanguageServerId, String>,
     requests: HashMap<LanguageServerId, TaskController>,
 }
@@ -35,10 +34,6 @@ impl DocumentDiagnostics {
     pub(crate) fn clear(&mut self) {
         self.requests.clear();
         self.result_ids.clear();
-    }
-
-    pub(crate) fn bind_handler(&mut self, handler: PullDiagnosticsHandler) {
-        self.handler = Some(handler);
     }
 }
 
@@ -256,10 +251,10 @@ pub(crate) fn register_hooks(events: &event::EventHub) {
         {
             return Ok(());
         }
-        let Some(handler) = &event.doc.pull_diagnostics.handler else {
+        let Some(services) = event.doc.services() else {
             return Ok(());
         };
-        send_blocking(&handler.documents, event.doc.id());
+        send_blocking(&services.pull_diagnostics.documents, event.doc.id());
         let servers: HashSet<_> = event
             .doc
             .language_servers_with_feature(LanguageServerFeature::PullDiagnostics)
@@ -280,7 +275,7 @@ pub(crate) fn register_hooks(events: &event::EventHub) {
             .map(|server| server.id())
             .collect();
         if !servers.is_empty() {
-            send_blocking(&handler.inter_file, servers);
+            send_blocking(&services.pull_diagnostics.inter_file, servers);
         }
         Ok(())
     });

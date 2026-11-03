@@ -174,7 +174,7 @@ impl Editor {
     fn new_document(&mut self, doc: Document) -> DocumentId {
         let id = self.documents.insert(doc);
         let doc = self.documents.get_mut(&id).unwrap();
-        self.handlers.attach_document(doc);
+        doc.bind_services(self.document_services.clone());
         doc.breakpoint_source = doc.path().map(|path| self.debugger.breakpoint_source(path));
         doc.breakpoint_saved_text = doc.path().map(|_| doc.text().clone());
         if let Some(path) = doc.path()

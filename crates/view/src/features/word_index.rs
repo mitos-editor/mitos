@@ -259,9 +259,9 @@ pub(crate) fn register_hooks(events: &event::EventHub) {
 
     register_hook!(events => move |event: &mut DocumentDidChange<'_>| {
         if event.doc.word_completion_enabled()
-            && let Some(trigger) = &event.doc.word_index_trigger
+            && let Some(services) = event.doc.services()
         {
-            trigger.event(Event::Edit {
+            services.word_index.event(Event::Edit {
                 document: event.doc.id(),
                 text: event.doc.text().clone(),
                 significant: is_changeset_significant(event.changes),
@@ -271,8 +271,8 @@ pub(crate) fn register_hooks(events: &event::EventHub) {
     });
 
     register_hook!(events => move |event: &mut DocumentDidClose<'_>| {
-        if let Some(trigger) = &event.doc.word_index_trigger {
-            trigger.event(Event::Close(event.doc.id()));
+        if let Some(services) = event.doc.services() {
+            services.word_index.event(Event::Close(event.doc.id()));
         }
         Ok(())
     });

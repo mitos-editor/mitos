@@ -4,6 +4,6 @@ mod state;
 pub use requests::{
     accept, cycle, dismiss, trigger, AppliedInlineCompletion, InlineCompletionHandler,
 };
-pub(crate) use requests::{mode_changed, register_hooks};
+pub(crate) use requests::{mode_changed, register_hooks, InlineCompletionTrigger};
 pub use state::InlineCompletion;
 pub(crate) use state::InlineCompletions;

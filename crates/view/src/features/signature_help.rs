@@ -397,14 +397,16 @@ pub fn post_insert_char(editor: &Editor) {
 
 pub(crate) fn register_hooks(events: &event::EventHub) {
     register_hook!(events => move |event: &mut DocumentDidChange<'_>| {
-        if let Some(trigger) = &event.doc.signature_help_trigger {
-            trigger.retrigger(event.doc, None);
+        if let Some(services) = event.doc.services() {
+            services.signature_help.retrigger(event.doc, None);
         }
         Ok(())
     });
     register_hook!(events => move |event: &mut SelectionDidChange<'_>| {
-        if let Some(trigger) = &event.doc.signature_help_trigger {
-            trigger.retrigger(event.doc, Some(event.view));
+        if let Some(services) = event.doc.services() {
+            services
+                .signature_help
+                .retrigger(event.doc, Some(event.view));
         }
         Ok(())
     });

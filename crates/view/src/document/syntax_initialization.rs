@@ -202,7 +202,7 @@ impl Document {
             })
         });
         if self.pending_syntax.is_some()
-            && let Some(handler) = self.syntax_handler.clone()
+            && let Some(handler) = self.syntax_handler().cloned()
         {
             handler.request(self);
         }
