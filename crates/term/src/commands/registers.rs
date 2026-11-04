@@ -231,7 +231,7 @@ pub(super) fn select_register(cx: &mut Context) {
     cx.on_next_key(move |cx, event| {
         cx.editor.autoinfo = None;
         if let Some(ch) = event.char() {
-            cx.editor.selected_register = Some(ch);
+            cx.interaction.selected_register = Some(ch);
         }
     })
 }
@@ -334,7 +334,7 @@ pub(super) mod typed {
         let default_sep = Cow::Borrowed(doc.line_ending.as_str());
         let separator = args.first().unwrap_or(&default_sep);
         let register = cx
-            .editor
+            .interaction
             .selected_register
             .unwrap_or(cx.editor.config().clipboard.default_yank_register);
         yank_joined_impl(cx.editor, separator, register);

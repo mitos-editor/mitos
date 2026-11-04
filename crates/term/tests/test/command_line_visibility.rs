@@ -141,7 +141,7 @@ async fn auto_command_line_keeps_pending_keys_counts_and_macro_recording_visible
     keys(&mut app, "Q").await?;
     assert!(bottom_text(&app).ends_with("[@]"));
     keys(&mut app, "Q").await?;
-    assert!(app.editor.macro_recording.is_none());
+    assert!(app.interaction.macro_recording.is_none());
     keys(&mut app, "<esc>").await?;
     assert!(bottom_row(&app) == statusline);
     assert!(app.close().await.is_empty());

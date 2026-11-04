@@ -908,7 +908,8 @@ impl Component for Prompt {
         true
     }
 
-    fn cursor(&self, area: Rect, editor: &Editor) -> Cursor {
+    fn cursor(&self, area: Rect, cx: &DrawContext) -> Cursor {
+        let editor = cx.editor;
         if area.is_empty() || self.line_area.is_empty() {
             return Cursor::Hidden;
         }

@@ -44,6 +44,7 @@ impl Harness {
                     updates: &updates,
                 },
                 editor: &mut self.app.editor,
+                interaction: &mut self.app.interaction,
                 jobs: &mut self.jobs,
                 scroll: None,
                 image_picker: None,
@@ -87,13 +88,13 @@ impl Harness {
                     updates: &updates,
                 },
                 editor: &mut self.app.editor,
+                interaction: &mut self.app.interaction,
                 jobs: &mut self.jobs,
                 scroll: None,
                 image_picker: None,
                 is_cursor_owner: true,
             },
         );
-        let _ = picker.cursor(area, &self.app.editor);
         surface
             .content
             .chunks(usize::from(width).max(1))
@@ -118,6 +119,7 @@ impl Harness {
                             updates: &updates,
                         },
                         &mut self.app.editor,
+                        &mut self.app.interaction,
                         &mut self.compositor,
                         Ok(Some(callback)),
                     );
@@ -517,6 +519,7 @@ async fn closing_during_case_refresh_keeps_reopened_replacement_usable() -> anyh
             updates: &tokio::sync::mpsc::unbounded_channel().0,
         },
         &mut h.app.editor,
+        &mut h.app.interaction,
         &mut h.compositor,
         Ok(Some(callback)),
     );

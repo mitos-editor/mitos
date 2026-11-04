@@ -94,7 +94,7 @@ pub(super) fn action(
         }
         PickerItemAction::YankPath => {
             if let Some((path, _)) = item {
-                yank(cx.editor, &stdx::path::normalize(path));
+                yank(cx, &stdx::path::normalize(path));
             }
             PickerCallbackResult::KeepOpen
         }
@@ -146,11 +146,13 @@ fn before_extension(path: &Path, is_dir: bool) -> Option<Movement> {
     })
 }
 
-fn yank(editor: &mut Editor, path: &Path) {
-    let register = editor
+fn yank(cx: &mut Context, path: &Path) {
+    let register = cx
+        .interaction
         .selected_register
         .take()
-        .unwrap_or(editor.config().clipboard.default_yank_register);
+        .unwrap_or(cx.editor.config().clipboard.default_yank_register);
+    let editor = &mut cx.editor;
     let path = display(path);
     match editor.registers.write(register, vec![path.clone()]) {
         Ok(()) => editor.set_status(format!("Yanked {path} to register {register}")),

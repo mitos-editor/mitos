@@ -294,9 +294,10 @@ impl Component for Variables {
     fn owns_cursor(&self) -> bool {
         self.current.picker.owns_cursor()
     }
-    fn cursor(&self, area: Rect, editor: &Editor) -> Cursor {
+    fn cursor(&self, area: Rect, cx: &DrawContext) -> Cursor {
+        let editor = cx.editor;
         if self.current.data.can_refresh(editor) {
-            self.current.picker.cursor(area, editor)
+            self.current.picker.cursor(area, cx)
         } else {
             Cursor::Hidden
         }

@@ -64,6 +64,7 @@ impl MappableCommand {
                     let mut cx = compositor::Context {
                         config: cx.config,
                         editor: cx.editor,
+                        interaction: cx.interaction,
                         jobs: cx.jobs,
                         scroll: None,
                         image_picker: None,
@@ -85,19 +86,19 @@ impl MappableCommand {
             Self::Static { fun, .. } => (fun)(cx),
             Self::Macro { keys, .. } => {
                 // Protect against recursive macros.
-                if cx.editor.macro_replaying.contains(&'@') {
+                if cx.interaction.macro_replaying.contains(&'@') {
                     cx.editor.set_error(|| {
                         "Cannot execute macro because the [@] register is already playing a macro"
                     });
                     return;
                 }
-                cx.editor.macro_replaying.push('@');
+                cx.interaction.macro_replaying.push('@');
                 let keys = keys.clone();
                 cx.callback.push(Box::new(move |compositor, cx| {
                     for key in keys.into_iter() {
                         compositor.handle_event(&compositor::Event::Key(key), cx);
                     }
-                    cx.editor.macro_replaying.pop();
+                    cx.interaction.macro_replaying.pop();
                 }));
             }
         }

@@ -18,6 +18,32 @@ mod vcs;
 mod write;
 
 #[tokio::test(flavor = "multi_thread")]
+async fn named_register_and_count_survive_pending_keymap() -> anyhow::Result<()> {
+    let mut config = test_config();
+    let source = "[keys.normal.g]\nz = [\"select_line_below\", \"yank\"]".to_owned();
+    config.keys =
+        term::config::Config::load(Ok(&source), Err(term::config::ConfigLoadError::default()))
+            .unwrap()
+            .keys;
+    let mut app = AppBuilder::new()
+        .with_config(config)
+        .with_input_text("#[|]#one\ntwo\nthree\nfour\n")
+        .build()?;
+    helpers::keys(&mut app, "\"a3g").await?;
+    assert_eq!(app.interaction.count.map(|count| count.get()), Some(3));
+    assert_eq!(app.interaction.selected_register, Some('a'));
+    helpers::keys(&mut app, "z").await?;
+    assert_eq!(
+        app.editor.first_register_value('a').unwrap(),
+        "one\ntwo\nthree\n"
+    );
+    assert!(app.interaction.count.is_none());
+    assert!(app.interaction.selected_register.is_none());
+    assert!(app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn select_all_diagnostics_inside_selection() -> anyhow::Result<()> {
     use ::diagnostics::{
         Diagnostic, DiagnosticProvider, DiagnosticTag, LanguageServerId, Severity,
@@ -1525,7 +1551,7 @@ async fn macro_replay_clears_pending_count() -> anyhow::Result<()> {
     test_key_sequence(
         &mut app,
         Some("Q123456Qq"),
-        Some(&|app| assert_eq!(None, app.editor.count)),
+        Some(&|app| assert_eq!(None, app.interaction.count)),
         false,
     )
     .await?;

@@ -54,6 +54,7 @@ pub struct App<B: Backend + BackendExt> {
     terminal: tui::Terminal<B>,
     render_state: render::RenderState,
     pub editor: Editor,
+    pub interaction: crate::compositor::InteractionState,
     image_picker: Option<ratatui_image::picker::Picker>,
 
     config: Arc<ArcSwap<Config>>,
@@ -290,7 +291,10 @@ where
                 } => {
                     match self.jobs.try_handle_callback(
                         crate::config::Context { current: &self.config.load(), updates: &self.config_updates.0 },
-                        &mut self.editor, &mut self.compositor, result,
+                        &mut self.editor,
+                        &mut self.interaction,
+                        &mut self.compositor,
+                        result,
                     ) {
                         Ok(()) => (),
                         Err(error) => errs.push(error),

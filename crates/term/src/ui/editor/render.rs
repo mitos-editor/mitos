@@ -13,7 +13,7 @@ use diagnostics::NumberOrString;
 use editor_config::{DiagnosticFilter, RulerStyle};
 use editor_core::unicode::width::UnicodeWidthStr;
 use loader::VERSION_AND_GIT_HASH;
-use std::{collections::HashMap, rc::Rc, sync::LazyLock};
+use std::{cell::Cell, collections::HashMap, rc::Rc, sync::LazyLock};
 use stdx::rope::RopeExt as _;
 use text_layout::{visual_offset_from_block, DisplayPosition};
 use theme::{icons::ICONS, Theme};
@@ -37,6 +37,7 @@ pub(super) struct PaneOptions {
     pub terminal_focused: bool,
     pub is_cursor_owner: bool,
     pub true_color: bool,
+    pub selected_register: Option<char>,
 }
 
 #[derive(Default)]
@@ -84,7 +85,7 @@ impl PaneRenderer {
         layout: ApplicationLayout,
         surface: &mut Surface,
         options: PaneOptions,
-    ) {
+    ) -> Option<DisplayPosition> {
         self.spinners
             .synchronize(editor.progressing_language_servers());
         surface.set_style(options.area, editor.theme.get("ui.background"));
@@ -94,6 +95,7 @@ impl PaneRenderer {
 
         self.syntax
             .retain(|id, _| editor.tree.try_get(*id).is_some());
+        let mut cursor = None;
         for (view, is_focused) in editor.tree.views() {
             let doc = editor.document(view.document_id()).unwrap();
             let content = view.content_area(doc);
@@ -105,7 +107,7 @@ impl PaneRenderer {
                     render_placeholder("<Binary file>", content, surface, style);
                 }
             }
-            Self::render_view(
+            let position = Self::render_view(
                 self.syntax.entry(view.id).or_default(),
                 editor,
                 options,
@@ -115,15 +117,31 @@ impl PaneRenderer {
                 surface,
                 is_focused,
             );
-            let mut context = statusline::RenderContext::new(editor, doc, view, &self.spinners);
+            if is_focused {
+                cursor = position;
+            }
+            let mut context = statusline::RenderContext::new(
+                editor,
+                doc,
+                view,
+                &self.spinners,
+                options.selected_register,
+            );
             statusline::render(&mut context, view.statusline_area(doc), surface);
         }
 
         if layout.statusline.height > 0 {
             let (view, doc) = current_ref!(editor);
-            let mut context = statusline::RenderContext::new(editor, doc, view, &self.spinners);
+            let mut context = statusline::RenderContext::new(
+                editor,
+                doc,
+                view,
+                &self.spinners,
+                options.selected_register,
+            );
             statusline::render(&mut context, layout.statusline, surface);
         }
+        cursor
     }
     fn render_welcome(theme: &Theme, area: Rect, surface: &mut Surface, colorful: bool) {
         const LOGO: &str = r#"███╗   ███╗██╗████████╗ ██████╗ ███████╗
@@ -294,13 +312,13 @@ impl PaneRenderer {
         viewport: Rect,
         surface: &mut Surface,
         is_focused: bool,
-    ) {
+    ) -> Option<DisplayPosition> {
         if doc.is_binary() || doc.review().is_some() {
             *syntax_cache = syntax_cache::ViewportSyntaxCache::default();
         }
         if doc.is_binary() {
             Self::render_view_border(editor, view, viewport, surface);
-            return;
+            return None;
         }
         let layout = view.layout(doc, Some(&editor.theme));
         let inner = layout.viewport;
@@ -409,12 +427,11 @@ impl PaneRenderer {
             .selection(view.id)
             .primary()
             .cursor(doc.text().slice(..));
+        let cursor = Cell::new(None);
         if is_focused {
-            // This frame's rendered grapheme is authoritative. An offscreen cursor
-            // stays absent instead of reusing a position cached before an edit.
-            editor.cursor_cache.set(None);
+            // Only the rendered grapheme establishes a visible cursor this frame.
             decorations.add_decoration(text_decorations::Cursor {
-                cache: &editor.cursor_cache,
+                position: &cursor,
                 primary_cursor: layout.annotations.display_anchor(primary_cursor),
             });
         }
@@ -518,6 +535,11 @@ impl PaneRenderer {
         {
             Self::render_diagnostics(doc, view, inner, surface, theme);
         }
+        cursor.get().map(|mut position| {
+            position.col += inner.x as usize;
+            position.row += inner.y as usize;
+            position
+        })
     }
 
     fn render_view_border(editor: &Editor, view: &View, viewport: Rect, surface: &mut Surface) {
