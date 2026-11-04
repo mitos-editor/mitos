@@ -173,14 +173,45 @@ pub fn paste<T: AsRef<str>>(
     count: usize,
     mode: crate::document::Mode,
 ) -> Result<bool, EditError> {
-    let Some((mut transaction, inserted)) = editor_core::transform::paste(
+    let pasted = editor_core::transform::paste(
         doc.text(),
         doc.selection(origin),
         values,
         position,
         count,
         doc.line_ending,
-    ) else {
+    );
+    commit_paste(doc, origin, pasted, mode)
+}
+
+/// Paste every value at each selection, selecting each pasted value separately.
+/// Undo, insert-mode and selection behavior match [`paste`].
+pub fn paste_all<T: AsRef<str>>(
+    doc: &mut Document,
+    origin: ViewId,
+    values: &[T],
+    position: editor_core::transform::PastePosition,
+    count: usize,
+    mode: crate::document::Mode,
+) -> Result<bool, EditError> {
+    let pasted = editor_core::transform::paste_all(
+        doc.text(),
+        doc.selection(origin),
+        values,
+        position,
+        count,
+        doc.line_ending,
+    );
+    commit_paste(doc, origin, pasted, mode)
+}
+
+fn commit_paste(
+    doc: &mut Document,
+    origin: ViewId,
+    pasted: Option<(Transaction, Selection)>,
+    mode: crate::document::Mode,
+) -> Result<bool, EditError> {
+    let Some((mut transaction, inserted)) = pasted else {
         return Ok(false);
     };
     if transaction.changes().is_empty() {

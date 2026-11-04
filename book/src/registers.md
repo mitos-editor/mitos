@@ -18,6 +18,25 @@ If a register is selected before invoking a change or delete command, the select
 - `"hc` - Store the selection in register `h` and then change it (delete and enter insert mode).
 - `"md` - Store the selection in register `m` and delete it.
 
+## Pasting every value
+
+`p` and `P` give each selection one value from the register. To copy several
+selections somewhere else, such as every field of a struct, yank them, move to
+the target and use `paste_after_all` or `paste_before_all`. They paste every
+value at each selection and select each pasted value separately, so you can keep
+editing them as separate selections. Values are placed on separate lines;
+the separating newlines are not selected.
+
+These commands have no default keys. To bind them:
+
+```toml
+[keys.normal]
+A-P = "paste_before_all"
+
+[keys.select]
+A-P = "paste_before_all"
+```
+
 ## Default registers
 
 Commands that use registers, like yank (`y`), use a default register if none is specified.

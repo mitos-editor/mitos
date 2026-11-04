@@ -14,6 +14,16 @@ use anyhow::Result;
 use editor_core::{transform::PastePosition, Transaction};
 use std::borrow::Cow;
 
+/// [`editing::paste`] or [`editing::paste_all`].
+type PasteFn = fn(
+    &mut crate::Document,
+    crate::ViewId,
+    &[String],
+    PastePosition,
+    usize,
+    crate::document::Mode,
+) -> Result<bool, editing::EditError>;
+
 impl Editor {
     /// Copy each selection into a register, returning the number of copied ranges.
     pub fn yank_selections(&mut self, register: char) -> Result<usize> {
@@ -117,13 +127,34 @@ impl Editor {
         position: PastePosition,
         count: usize,
     ) -> Result<bool> {
+        self.paste_register_with(register, position, count, editing::paste)
+    }
+
+    /// Paste every value of a register at each selection as one undo group,
+    /// selecting each pasted value separately.
+    pub fn paste_register_all(
+        &mut self,
+        register: char,
+        position: PastePosition,
+        count: usize,
+    ) -> Result<bool> {
+        self.paste_register_with(register, position, count, editing::paste_all)
+    }
+
+    fn paste_register_with(
+        &mut self,
+        register: char,
+        position: PastePosition,
+        count: usize,
+        paste: PasteFn,
+    ) -> Result<bool> {
         let Some(values) = self.read_register(register) else {
             return Ok(false);
         };
         let values: Vec<_> = values.map(Cow::into_owned).collect();
         let mode = self.mode();
         let (view, doc) = current!(self);
-        let changed = editing::paste(doc, view.id, &values, position, count, mode)?;
+        let changed = paste(doc, view.id, &values, position, count, mode)?;
         if changed {
             view.sync_changes(doc);
         }
