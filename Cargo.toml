@@ -137,7 +137,7 @@ ropey = { version = "2.0.0-beta.1", default-features = false, features = ["simd"
 textwrap = "0.16.2"
 unicode-general-category = "1.1"
 unicode-segmentation = "1.13"
-unicode-width = "=0.2.2"
+unicode-width = "=0.2.3"
 spellbook = "0.4"
 str_indices = "0.4"
 
