@@ -77,7 +77,10 @@ simple workflow is:
 4. Press `Alt-r`, type the replacement, and press `Enter` to replace every selection.
 
 Use `c` instead to change the matches interactively in insert mode. Press `,`
-to keep only the primary selection. See [Search and replacement](./search.md)
+to keep only the primary selection. If a command replaces selections you still
+need, press `Alt-k` to go back to the previous selections and `Alt-w` to go
+forward again. Each split keeps its own selection history, and editing the text
+starts a new one. See [Search and replacement](./search.md)
 for more examples and [Selections](./usage.md) for other ways to build selections.
 
 ## Search, save, and quit

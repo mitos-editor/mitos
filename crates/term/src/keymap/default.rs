@@ -89,6 +89,8 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
         "S" => split_selection,
         ";" => collapse_selection,
         "A-;" => flip_selections,
+        "A-k" => undo_selection,
+        "A-w" => redo_selection,
         "A-o" | "A-up" => expand_selection,
         "A-i" | "A-down" => shrink_selection,
         "A-I" | "A-S-down" => select_all_children,

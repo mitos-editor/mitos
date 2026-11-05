@@ -13,6 +13,10 @@ pub(crate) struct DocumentViewState {
     pub restore_append_cursor: bool,
     pub raw_conflicts: bool,
     pub expansion_history: Vec<Selection>,
+    pub(super) selection_undo: super::selection_undo::SelectionUndo,
+    /// False while `selection` is a placeholder from `Document::view_state_mut`,
+    /// which the view's first real selection replaces without recording it.
+    pub(super) selection_shown: bool,
     pub hover: Option<event::TaskController>,
     pub navigation: Option<event::TaskController>,
     pub code_actions: Option<event::TaskController>,
@@ -30,6 +34,9 @@ impl Clone for DocumentViewState {
             restore_append_cursor: self.restore_append_cursor,
             raw_conflicts: self.raw_conflicts,
             expansion_history: self.expansion_history.clone(),
+            // Selection history belongs to the view that made the changes.
+            selection_undo: Default::default(),
+            selection_shown: self.selection_shown,
             hover: Default::default(),
             navigation: Default::default(),
             code_actions: Default::default(),
@@ -49,11 +56,21 @@ impl DocumentViewState {
             restore_append_cursor: false,
             raw_conflicts: false,
             expansion_history: Vec::new(),
+            selection_undo: Default::default(),
+            selection_shown: true,
             hover: Default::default(),
             navigation: Default::default(),
             code_actions: Default::default(),
             shell_filters: Default::default(),
             search: Default::default(),
+        }
+    }
+
+    /// State created before the view has a selection of its own.
+    pub(super) fn placeholder(selection: Selection) -> Self {
+        Self {
+            selection_shown: false,
+            ..Self::new(selection)
         }
     }
 }

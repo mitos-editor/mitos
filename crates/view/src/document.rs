@@ -10,6 +10,7 @@ mod snippet;
 use snippet::SnippetSession;
 mod folding;
 mod mutation;
+mod selection_undo;
 mod view_state;
 pub use folding::FoldAction;
 use view_state::DocumentViewState;
@@ -739,9 +740,9 @@ impl Document {
 
     pub(crate) fn view_state_mut(&mut self, view_id: ViewId) -> &mut DocumentViewState {
         let text = self.buffer.text().slice(..);
-        self.view_states
-            .entry(view_id)
-            .or_insert_with(|| DocumentViewState::new(Selection::point(0).ensure_invariants(text)))
+        self.view_states.entry(view_id).or_insert_with(|| {
+            DocumentViewState::placeholder(Selection::point(0).ensure_invariants(text))
+        })
     }
 
     pub(crate) fn get_view_offset(&self, view_id: ViewId) -> Option<ViewPosition> {

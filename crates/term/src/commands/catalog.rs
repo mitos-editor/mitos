@@ -134,6 +134,8 @@ impl MappableCommand {
         unfold_all => super::folding::unfold_all, "Open all folds",
         collapse_selection => super::selection::collapse_selection, "Collapse selection into single cursor",
         flip_selections => super::selection::flip_selections, "Flip selection cursor and anchor",
+        undo_selection => super::selection::undo_selection, "Go to previous selection",
+        redo_selection => super::selection::redo_selection, "Go to next selection",
         ensure_selections_forward => super::selection::ensure_selections_forward, "Ensure all selections face forward",
         insert_mode => super::mode::insert_mode, "Insert before selection"; keep_completion,
         append_mode => super::mode::append_mode, "Append after selection"; keep_completion,
