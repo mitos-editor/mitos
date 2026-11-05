@@ -1805,3 +1805,49 @@ async fn move_lines_preserves_empty_tail_at_eof() -> anyhow::Result<()> {
     .await?;
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn reload_commands_protect_unsaved_edits_unless_forced() -> anyhow::Result<()> {
+    for (reload, force, all) in [
+        ("reload", "reload!", false),
+        ("rl", "rl!", false),
+        ("reload-all", "reload-all!", true),
+        ("rla", "rla!", true),
+    ] {
+        let directory = tempfile::tempdir()?;
+        let path = directory.path().join("modified.txt");
+        let clean_path = directory.path().join("clean.txt");
+        std::fs::write(&path, "original\n")?;
+        std::fs::write(&clean_path, "clean\n")?;
+        let mut app = AppBuilder::new().with_file(&path, None).build()?;
+        let id = view::current_ref!(app.editor).1.id();
+        let clean = app.editor.open(&clean_path, view::editor::Action::Load)?;
+        helpers::keys(&mut app, "iunsaved <esc>").await?;
+        std::fs::write(&path, "updated\n")?;
+        std::fs::write(&clean_path, "clean updated\n")?;
+
+        helpers::keys(&mut app, &format!(":{reload}<ret>")).await?;
+        assert_eq!(
+            app.editor.document(id).unwrap().text(),
+            "unsaved original\n"
+        );
+        assert!(app.editor.document(id).unwrap().is_modified());
+        assert!(app.editor.is_err());
+        assert_eq!(
+            app.editor.document(clean).unwrap().text(),
+            if all { "clean updated\n" } else { "clean\n" }
+        );
+
+        // Typing and canceling a force command must not discard edits.
+        helpers::keys(&mut app, &format!(":{force}<esc>")).await?;
+        assert_eq!(
+            app.editor.document(id).unwrap().text(),
+            "unsaved original\n"
+        );
+        helpers::keys(&mut app, &format!(":{force}<ret>")).await?;
+        assert_eq!(app.editor.document(id).unwrap().text(), "updated\n");
+        assert!(!app.editor.document(id).unwrap().is_modified());
+        assert!(app.close().await.is_empty());
+    }
+    Ok(())
+}

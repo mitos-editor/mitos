@@ -226,7 +226,7 @@ async fn test_reload_all_with_split_jumplist() -> anyhow::Result<()> {
     // * 2G       Go to line 2. `goto_line` calls `push_jump`, recording a jump
     //            whose selection is valid at the *current* (grown) revision.
     // * ms/      Surround-add `/`, growing the document again.
-    // * :rla     reload-all: re-reads the file from disk (shrinking the buffer
+    // * :rla!    reload-all!: re-reads the file from disk (shrinking the buffer
     //            back to its original contents) but only syncs the first view of
     //            each document, leaving the other split's `doc_revisions` stale.
     // * %J       Select-all and join, forcing a sync of the stale view.
@@ -237,7 +237,7 @@ async fn test_reload_all_with_split_jumplist() -> anyhow::Result<()> {
     // `ChangeSet::update_positions` panics.
     use std::io::Write;
     let mut file = tempfile::NamedTempFile::new()?;
-    // `:reload-all` re-reads from disk, so the file must have on-disk contents
+    // `:reload-all!` re-reads from disk, so the file must have on-disk contents
     // for the reload to shrink the (grown) buffer back down.
     file.write_all(b"line1\nline2\nline3\n")?;
     file.flush()?;
@@ -251,7 +251,7 @@ async fn test_reload_all_with_split_jumplist() -> anyhow::Result<()> {
         // The trailing `<C-w>q` closes the split so a single window remains for
         // the harness's automatic `:q!` teardown. It also exercises the sync
         // that runs when a window is closed.
-        Some("<C-w>s]<space>%2Gms/:rla<ret>%J<C-w>q"),
+        Some("<C-w>s]<space>%2Gms/:rla!<ret>%J<C-w>q"),
         Some(&|app| {
             helpers::assert_status_not_error(&app.editor);
         }),

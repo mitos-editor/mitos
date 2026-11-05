@@ -109,7 +109,9 @@ async fn workspace_edits_and_reload_do_not_create_hidden_buffer_selections() -> 
     assert_eq!(doc.text(), "abc\n");
     assert!(doc.redo());
     std::fs::write(&path, "disk\n")?;
-    fixture.editor.reload_document(id)?;
+    assert!(fixture.editor.reload_document(id).is_err());
+    assert_eq!(fixture.editor.document(id).unwrap().text(), "Abc\n");
+    fixture.editor.force_reload_document(id)?;
     let doc = fixture.editor.document_mut(id).unwrap();
     assert_eq!(doc.text(), "disk\n");
     assert!(doc.selections().next().is_none());
