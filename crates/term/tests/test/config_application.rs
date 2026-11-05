@@ -401,7 +401,33 @@ async fn config_reload_preserves_legacy_user_and_trusted_project_configs() -> an
 #[tokio::test(flavor = "multi_thread")]
 async fn migration_dialog_cancels_rechecks_and_migrates_only_the_confirmed_scope(
 ) -> anyhow::Result<()> {
-    use super::helpers::{isolation, test_key_sequences};
+    use super::helpers::{isolation, keys};
+    use term::application::TestApplication;
+
+    async fn open_migration(app: &mut TestApplication, command: &str) -> anyhow::Result<()> {
+        keys(app, command).await?;
+        // The dialog is queued by a background job. Idle alone does not prove
+        // it is present, so wait before sending cancellation/confirmation keys.
+        tokio::time::timeout(std::time::Duration::from_secs(10), async {
+            loop {
+                let screen: String = app
+                    .terminal_backend()
+                    .buffer()
+                    .content()
+                    .iter()
+                    .map(|cell| cell.symbol())
+                    .collect();
+                if screen.contains("Cancel") && screen.contains("Migrate") {
+                    break;
+                }
+                keys(app, "").await?;
+            }
+            anyhow::Ok(())
+        })
+        .await
+        .map_err(|_| anyhow::anyhow!("migration dialog did not open"))??;
+        Ok(())
+    }
     use workspace::trust::{Config as TrustConfig, TrustStatus, WorkspaceTrust};
     let Some(root) = isolation::workspace(
         "test::config_application::migration_dialog_cancels_rechecks_and_migrates_only_the_confirmed_scope",
@@ -475,28 +501,31 @@ async fn migration_dialog_cancels_rechecks_and_migrates_only_the_confirmed_scope
         );
         assert!(!user.with_extension("toml.bak.1").exists());
     };
-    test_key_sequences(
-        &mut app,
-        vec![
-            (Some(":config-migrate<ret>"), Some(&unchanged)),
-            (Some("<ret>"), Some(&unchanged)),
-            (Some(":config-migrate<ret>"), None),
-            (Some("<esc>"), Some(&unchanged)),
-            (Some(":config-open<ret>i# unsaved<esc>"), None),
-            (Some(":config-migrate<ret>"), None),
-            (Some("<down><ret>"), Some(&unsaved)),
-            (Some(":reload<ret>"), None),
-            (Some(":config-migrate<ret>"), Some(&tamper)),
-            (Some("<down><ret>"), Some(&rejected)),
-            (Some(":config-migrate<ret>"), None),
-            (Some("<down><ret>"), Some(&user_migrated)),
-            (Some(":config-migrate-workspace<ret>"), None),
-            (Some("<down><ret>"), Some(&workspace_migrated)),
-            (Some(":config-migrate<ret>"), Some(&canonical)),
-        ],
-        false,
-    )
-    .await?;
+    open_migration(&mut app, ":config-migrate<ret>").await?;
+    unchanged(&app);
+    keys(&mut app, "<ret>").await?;
+    unchanged(&app);
+    open_migration(&mut app, ":config-migrate<ret>").await?;
+    keys(&mut app, "<esc>").await?;
+    unchanged(&app);
+    keys(&mut app, ":config-open<ret>i# unsaved<esc>").await?;
+    open_migration(&mut app, ":config-migrate<ret>").await?;
+    keys(&mut app, "<down><ret>").await?;
+    unsaved(&app);
+    keys(&mut app, ":reload<ret>").await?;
+    open_migration(&mut app, ":config-migrate<ret>").await?;
+    tamper(&app);
+    keys(&mut app, "<down><ret>").await?;
+    rejected(&app);
+    open_migration(&mut app, ":config-migrate<ret>").await?;
+    keys(&mut app, "<down><ret>").await?;
+    user_migrated(&app);
+    open_migration(&mut app, ":config-migrate-workspace<ret>").await?;
+    keys(&mut app, "<down><ret>").await?;
+    workspace_migrated(&app);
+    keys(&mut app, ":config-migrate<ret>").await?;
+    canonical(&app);
+    assert!(app.close().await.is_empty());
     Ok(())
 }
 
