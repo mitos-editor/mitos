@@ -922,12 +922,13 @@ async fn test_insert_with_indent() -> anyhow::Result<()> {
         "
     };
 
+    // Splitting the forward whole-buffer selection keeps the last line primary.
     // insert_at_line_start
     test((
         INPUT,
         ":lang rust<ret>%<A-s>I",
         indoc! { "
-            #[f|]#n foo() {
+            #(f|)#n foo() {
                 #(i|)#f let Some(_) = None {
                     #(\n|)#
                 #(}|)#
@@ -936,7 +937,7 @@ async fn test_insert_with_indent() -> anyhow::Result<()> {
             #(\n|)#
             #(f|)#n bar() {
                 #(\n|)#
-            #(}|)#
+            #[}|]#
             "
         },
     ))
@@ -947,7 +948,7 @@ async fn test_insert_with_indent() -> anyhow::Result<()> {
         INPUT,
         ":lang rust<ret>%<A-s>A",
         indoc! { "
-            fn foo() {#[\n|]#
+            fn foo() {#(\n|)#
                 if let Some(_) = None {#(\n|)#
                     #(\n|)#
                 }#(\n|)#
@@ -956,7 +957,7 @@ async fn test_insert_with_indent() -> anyhow::Result<()> {
             #(\n|)#
             fn bar() {#(\n|)#
                 #(\n|)#
-            }#(\n|)#
+            }#[\n|]#
             "
         },
     ))
@@ -1415,7 +1416,7 @@ fn foo() {
             f
             "},
         "s\\n<ret>r,",
-        "a#[,|]#b#(,|)#c#(,|)#d#(,|)#e\nf\n",
+        "a#(,|)#b#(,|)#c#(,|)#d#[,|]#e\nf\n",
     ))
     .await?;
 
