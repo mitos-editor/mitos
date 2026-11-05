@@ -1,0 +1,17 @@
+[
+  (function)
+  (bind)
+  (class)
+  (instance)
+  (data_type)
+  (newtype)
+  (do)
+  (case)
+  (let_in)
+  (list)
+  (list_comprehension)
+  (tuple)
+  (record)
+  (comment)
+  (haddock)
+] @fold

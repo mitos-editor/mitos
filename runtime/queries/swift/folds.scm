@@ -1,0 +1,18 @@
+[
+  (class_body)
+  (enum_class_body)
+  (protocol_body)
+  (function_body)
+  (computed_property)
+  (do_statement)
+  (if_statement)
+  (guard_statement)
+  (for_statement)
+  (while_statement)
+  (repeat_while_statement)
+  (switch_statement)
+  (array_literal)
+  (dictionary_literal)
+  (multi_line_string_literal)
+  (multiline_comment)
+] @fold
