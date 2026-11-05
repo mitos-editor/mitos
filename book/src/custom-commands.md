@@ -18,19 +18,12 @@ Mapped typable commands must be built-ins; custom commands cannot invoke other c
 
 ## Keybindings
 
-Bind custom commands by their typable name, including the `:` prefix:
+Use the command name with the `:` prefix in a keybinding:
 
 ```toml
-[commands]
-":git-blame" = ":echo %sh{git blame -L %{cursor_line},+1 %{buffer_name}}"
-
 [keys.normal]
-G = ":git-blame"
+C-h = ":hints"
 ```
-
-Keybindings accept arguments, such as `":line 42"`, and use the merged global
-and workspace command definitions. Custom commands take precedence over
-built-ins here too; use `:^name` to bypass a custom definition.
 
 ## Arguments
 
