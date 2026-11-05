@@ -20,22 +20,33 @@ If a register is selected before invoking a change or delete command, the select
 
 ## Pasting every value
 
-`p` and `P` give each selection one value from the register. To copy several
-selections somewhere else, such as every field of a struct, yank them, move to
-the target and use `paste_after_all` or `paste_before_all`. They paste every
-value at each selection and select each pasted value separately, so you can keep
-editing them as separate selections. Values are placed on separate lines;
-the separating newlines are not selected.
+To copy several selections to a new location, such as every field of a struct,
+yank them and use `paste_after_all` or `paste_before_all` at the destination.
+Each destination selection receives every value from the register, in order.
+Ordinary `p` and `P` give each destination selection one value instead.
 
-These commands have no default keys. To bind them:
+These commands have no default keys. Open `config.toml` with `:config-open`
+and add bindings, for example:
 
 ```toml
 [keys.normal]
+A-p = "paste_after_all"
 A-P = "paste_before_all"
 
 [keys.select]
+A-p = "paste_after_all"
 A-P = "paste_before_all"
 ```
+
+For example, select `name` and `email`, press `y`, then move to the destination
+and keep one selection. Press `Alt-p` to paste both values after it, with a
+newline between them. In normal mode, each pasted value becomes a separate
+selection, so you can continue editing both at once.
+
+Values copied with their trailing newlines are pasted as whole lines, without
+extra blank lines between them. Empty values are skipped. Like `p` and `P`,
+these commands accept a count to repeat each value and `"` to choose a register.
+In select mode, they keep the existing selections and return to normal mode.
 
 ## Default registers
 

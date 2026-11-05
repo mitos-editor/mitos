@@ -135,10 +135,19 @@ async fn absent_and_empty_registers_leave_pending_typing_uncommitted() {
     editing::apply(doc, &edit, view.id).unwrap();
     assert!(!editor.paste_register('z', PastePosition::After, 1).unwrap());
     assert!(!editor.paste_register('_', PastePosition::After, 1).unwrap());
+    assert!(!editor
+        .paste_register_all('z', PastePosition::After, 1)
+        .unwrap());
+    assert!(!editor
+        .paste_register_all('_', PastePosition::After, 1)
+        .unwrap());
     assert!(!editor.replace_from_register('z', 1).unwrap());
     assert!(!editor.replace_from_register('_', 1).unwrap());
     editor.registers.write('e', vec![String::new()]).unwrap();
     assert!(!editor.paste_register('e', PastePosition::After, 1).unwrap());
+    assert!(!editor
+        .paste_register_all('e', PastePosition::After, 1)
+        .unwrap());
     let (view, doc) = current!(editor);
     let edit = Transaction::change(doc.text(), [(0, 1, Some("b".into()))].into_iter());
     editing::apply(doc, &edit, view.id).unwrap();
@@ -188,6 +197,9 @@ async fn rejected_paste_keeps_pending_edits_uncommitted() {
     editor.registers.write('a', vec!["value".into()]).unwrap();
     assert!(editor
         .paste_register('a', PastePosition::Cursor, 1)
+        .is_err());
+    assert!(editor
+        .paste_register_all('a', PastePosition::Cursor, 1)
         .is_err());
     assert!(editor.replace_from_register('a', 1).is_err());
     assert_eq!(editor.mode(), Mode::Insert);
