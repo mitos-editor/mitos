@@ -512,7 +512,7 @@ async fn migration_dialog_cancels_rechecks_and_migrates_only_the_confirmed_scope
     open_migration(&mut app, ":config-migrate<ret>").await?;
     keys(&mut app, "<down><ret>").await?;
     unsaved(&app);
-    keys(&mut app, ":reload<ret>").await?;
+    keys(&mut app, ":reload!<ret>").await?;
     open_migration(&mut app, ":config-migrate<ret>").await?;
     tamper(&app);
     keys(&mut app, "<down><ret>").await?;

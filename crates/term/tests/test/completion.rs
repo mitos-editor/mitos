@@ -406,7 +406,7 @@ async fn accepted_completions_resolve_imports_without_blocking_typing_or_resurre
         }
         if action == "reload" {
             let document = current_ref!(f.app.editor).1.id();
-            f.app.editor.reload_document(document)?;
+            f.app.editor.force_reload_document(document)?;
         }
         if action == "close" {
             let doc = current_ref!(f.app.editor).1.id();
