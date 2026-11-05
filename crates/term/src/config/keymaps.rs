@@ -91,6 +91,57 @@ pub struct Keys {
 }
 
 impl Keys {
+    pub(super) fn validate_commands(
+        &self,
+        custom: &editor_config::CustomCommands,
+    ) -> Result<(), toml::de::Error> {
+        use crate::commands::{MappableCommand, TYPABLE_COMMAND_MAP};
+        use serde::de::Error;
+
+        fn validate(
+            command: &MappableCommand,
+            custom: &editor_config::CustomCommands,
+        ) -> Result<(), toml::de::Error> {
+            if let MappableCommand::Typable { name, .. } = command {
+                let builtin = name.strip_prefix(editor_config::CustomCommand::ESCAPE);
+                if !(builtin.is_none() && custom.get(name).is_some())
+                    && !TYPABLE_COMMAND_MAP.contains_key(builtin.unwrap_or(name))
+                {
+                    return Err(toml::de::Error::custom(format!(
+                        "No TypableCommand named ':{name}'"
+                    )));
+                }
+            }
+            Ok(())
+        }
+
+        fn visit(
+            node: &keymap::KeyTrieNode,
+            custom: &editor_config::CustomCommands,
+        ) -> Result<(), toml::de::Error> {
+            for binding in node.values() {
+                match binding {
+                    KeyTrie::MappableCommand(command) => validate(command, custom)?,
+                    KeyTrie::Sequence(_, commands) => {
+                        for command in commands {
+                            validate(command, custom)?;
+                        }
+                    }
+                    KeyTrie::Node(node) => visit(node, custom)?,
+                }
+            }
+            Ok(())
+        }
+
+        for node in [&self.normal, &self.insert, &self.select]
+            .into_iter()
+            .flatten()
+        {
+            visit(node, custom)?;
+        }
+        Ok(())
+    }
+
     fn apply(
         self,
         editor: &mut HashMap<Mode, KeyTrie>,

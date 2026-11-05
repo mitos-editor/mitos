@@ -1,7 +1,7 @@
 //! Terminal command prompt, dispatch, help, and completion.
 
 mod execution;
-pub(super) use execution::{execute_command, execute_shell};
+pub(super) use execution::{execute_keybinding, execute_shell};
 
 use std::{borrow::Cow, fmt::Write, ops};
 

@@ -16,6 +16,22 @@ The available typable and static commands are listed in the [Commands](./command
 
 Mapped typable commands must be built-ins; custom commands cannot invoke other custom commands.
 
+## Keybindings
+
+Bind custom commands by their typable name, including the `:` prefix:
+
+```toml
+[commands]
+":git-blame" = ":echo %sh{git blame -L %{cursor_line},+1 %{buffer_name}}"
+
+[keys.normal]
+G = ":git-blame"
+```
+
+Keybindings accept arguments, such as `":line 42"`, and use the merged global
+and workspace command definitions. Custom commands take precedence over
+built-ins here too; use `:^name` to bypass a custom definition.
+
 ## Arguments
 
 Use `%arg{n}` to pass a positional argument to a mapped typable command. Argument indexes start at zero.

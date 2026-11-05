@@ -797,3 +797,92 @@ async fn prompt_history_keeps_most_recent_unique_entries() -> anyhow::Result<()>
     )
     .await
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn custom_command_keybindings_execute_commands_arguments_and_macros() -> anyhow::Result<()> {
+    let source = r#"
+[commands]
+":message" = [":set-register a %arg{0}", ":echo %reg{a}"]
+":echo" = ":echo shadowed"
+":w" = ":echo alias"
+"hidden" = ":echo hidden"
+":insert-text" = "@i界<esc>"
+[keys.normal]
+G = ":message 'hello world'"
+E = ":echo original"
+B = ":^echo builtin"
+H = ":hidden"
+M = ":insert-text"
+W = ":w"
+[keys.insert]
+C-g = ":message insert"
+[keys.select]
+G = ":message select"
+[keys.normal.space]
+m = { label = "Message", command = ":message labeled" }
+s = [":message sequence", "select_all"]
+"#
+    .to_owned();
+    let loaded = Config::load(Ok(&source), Err(term::config::ConfigLoadError::default())).unwrap();
+    let mut config = test_config();
+    config.keys = loaded.keys;
+    config.editor.commands = loaded.editor.commands;
+    for (keys, expected) in [
+        ("G", "hello world"),
+        ("E", "shadowed"),
+        ("B", "builtin"),
+        ("H", "hidden"),
+        ("W", "alias"),
+        ("i<C-g>", "insert"),
+        ("vG", "select"),
+        (" m", "labeled"),
+        (" s", "sequence"),
+    ] {
+        test_key_sequence(
+            &mut AppBuilder::new().with_config(config.clone()).build()?,
+            Some(keys),
+            Some(&|app| {
+                assert_eq!(
+                    app.editor.get_status().map(|status| status.0.as_ref()),
+                    Some(expected),
+                    "keys: {keys}"
+                );
+            }),
+            false,
+        )
+        .await?;
+    }
+    test_key_sequence(
+        &mut AppBuilder::new().with_config(config).build()?,
+        Some("M"),
+        Some(&|app| {
+            let (_, doc) = view::current_ref!(app.editor);
+            assert!(doc.text().to_string().starts_with('界'));
+        }),
+        false,
+    )
+    .await
+}
+
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn custom_command_keybindings_resume_after_shell_expansion() -> anyhow::Result<()> {
+    let source = r#"
+[commands]
+":capture" = [":set-register a %sh{printf first}", ":echo %reg{a}"]
+[keys.normal]
+G = ":capture"
+"#
+    .to_owned();
+    let loaded = Config::load(Ok(&source), Err(term::config::ConfigLoadError::default())).unwrap();
+    let mut config = test_config();
+    config.keys = loaded.keys;
+    config.editor.commands = loaded.editor.commands;
+    test_key_sequence(
+        &mut AppBuilder::new().with_config(config).build()?,
+        Some("G"),
+        Some(&|app| assert_eq!(app.editor.get_status().unwrap().0.as_ref(), "first")),
+        false,
+    )
+    .await
+}
