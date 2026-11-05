@@ -29,6 +29,8 @@ are Modus Operandi and Modus Vivendi. See [Themes](./themes.md) to choose anothe
 - The [quicklist](./quicklist.md) keeps picker locations available after closing
   the picker.
 - [Spell checking](./spell-checking.md) works without a language server.
+- `paste_after_all` and `paste_before_all` paste every yanked value at each
+  selection. See [Pasting every value](./registers.md#pasting-every-value).
 - Supported [images](./image-previews.md) open as read-only previews.
 - [Custom commands](./custom-commands.md) define your own `:` commands.
 - [Component keys](./remapping.md#component-keys) let you remap pickers, prompts,

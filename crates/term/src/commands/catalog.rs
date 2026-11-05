@@ -281,6 +281,8 @@ impl MappableCommand {
         replace_selections_with_primary_clipboard => super::registers::replace_selections_with_primary_clipboard, "Replace selections by primary clipboard",
         paste_after => super::registers::paste_after, "Paste after selection",
         paste_before => super::registers::paste_before, "Paste before selection",
+        paste_after_all => super::registers::paste_after_all, "Paste every register value after each selection",
+        paste_before_all => super::registers::paste_before_all, "Paste every register value before each selection",
         paste_clipboard_after => super::registers::paste_clipboard_after, "Paste clipboard after selections",
         paste_clipboard_before => super::registers::paste_clipboard_before, "Paste clipboard before selections",
         paste_primary_clipboard_after => super::registers::paste_primary_clipboard_after, "Paste primary clipboard after selections",

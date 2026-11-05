@@ -223,6 +223,25 @@ pub(super) fn paste_before(cx: &mut Context) {
     }
 }
 
+fn paste_all(cx: &mut Context, position: PastePosition) {
+    let register = cx
+        .register
+        .unwrap_or(cx.editor.config().clipboard.default_yank_register);
+    match cx.editor.paste_register_all(register, position, cx.count()) {
+        Ok(true) => exit_select_mode(cx),
+        Ok(false) => {}
+        Err(error) => cx.editor.set_error(|| error.to_string()),
+    }
+}
+
+pub(super) fn paste_after_all(cx: &mut Context) {
+    paste_all(cx, PastePosition::After);
+}
+
+pub(super) fn paste_before_all(cx: &mut Context) {
+    paste_all(cx, PastePosition::Before);
+}
+
 pub(super) fn select_register(cx: &mut Context) {
     cx.editor.autoinfo = Some(Info::from_registers(
         "Select register",

@@ -61,18 +61,7 @@ pub fn paste<T: AsRef<str>>(
     let mut offset = 0;
     let mut ranges = SmallVec::with_capacity(selection.len());
     let transaction = Transaction::change_by_selection(doc, selection, |range| {
-        let pos = match (position, linewise) {
-            (PastePosition::Before, true) => {
-                doc.line_to_char_idx(doc.char_to_line_idx(range.from()))
-            }
-            (PastePosition::After, true) => {
-                let line = range.line_range(doc.slice(..)).1;
-                doc.line_to_char_idx((line + 1).min(doc.len_lines(stdx::rope::LINE_TYPE)))
-            }
-            (PastePosition::Before, false) => range.from(),
-            (PastePosition::After, false) => range.to(),
-            (PastePosition::Cursor, _) => range.cursor(doc.slice(..)),
-        };
+        let pos = insert_position(doc, range, position, linewise);
         let value = replacements.next().unwrap(); // The last value repeats indefinitely.
         let len = value.chars().count();
         let start = pos + offset;
@@ -83,6 +72,86 @@ pub fn paste<T: AsRef<str>>(
     Some((
         transaction,
         Selection::new(ranges, selection.primary_index()),
+    ))
+}
+
+fn insert_position(doc: &Rope, range: &Range, position: PastePosition, linewise: bool) -> usize {
+    match (position, linewise) {
+        (PastePosition::Before, true) => doc.line_to_char_idx(doc.char_to_line_idx(range.from())),
+        (PastePosition::After, true) => {
+            let line = range.line_range(doc.slice(..)).1;
+            doc.line_to_char_idx((line + 1).min(doc.len_lines(stdx::rope::LINE_TYPE)))
+        }
+        (PastePosition::Before, false) => range.from(),
+        (PastePosition::After, false) => range.to(),
+        (PastePosition::Cursor, _) => range.cursor(doc.slice(..)),
+    }
+}
+
+/// Paste every value at each selected range, selecting each pasted value separately.
+///
+/// Unlike [`paste`], which gives each range one value, every range receives all
+/// values in order. Values are normalized and repeated `count` times like [`paste`].
+/// Characterwise values are separated by `line_ending`, which stays unselected, so
+/// the pasted ranges never touch and are not merged. When any value ends in a
+/// newline the paste is linewise: each value is completed to a whole line.
+/// Empty values are skipped. The primary selection becomes the first value pasted
+/// at the original primary range.
+pub fn paste_all<T: AsRef<str>>(
+    doc: &Rope,
+    selection: &Selection,
+    values: &[T],
+    position: PastePosition,
+    count: usize,
+    line_ending: LineEnding,
+) -> Option<(Transaction, Selection)> {
+    let values: Vec<_> = values
+        .iter()
+        .map(AsRef::as_ref)
+        .filter(|value| !value.is_empty())
+        .collect();
+    let linewise = values
+        .iter()
+        .any(|value| get_line_ending_of_str(value).is_some());
+    let values: Vec<Tendril> = replacement_values(&values, line_ending, count)?
+        .take(values.len())
+        .map(|mut value| {
+            if linewise && get_line_ending_of_str(&value).is_none() {
+                value.push_str(line_ending.as_str());
+            }
+            value
+        })
+        .collect();
+    let separator = if linewise { "" } else { line_ending.as_str() };
+    let separator_len = separator.chars().count();
+    let mut block = Tendril::new();
+    let mut block_len = 0;
+    let mut spans = Vec::with_capacity(values.len());
+    for (index, value) in values.iter().enumerate() {
+        if index > 0 {
+            block.push_str(separator);
+            block_len += separator_len;
+        }
+        let start = block_len;
+        block.push_str(value);
+        block_len += value.chars().count();
+        spans.push((start, block_len));
+    }
+
+    let mut offset = 0;
+    let mut ranges = SmallVec::with_capacity(selection.len() * spans.len());
+    let transaction = Transaction::change_by_selection(doc, selection, |range| {
+        let pos = insert_position(doc, range, position, linewise);
+        let start = pos + offset;
+        ranges.extend(spans.iter().map(|&(from, to)| {
+            Range::new(start + from, start + to).with_direction(range.direction())
+        }));
+        offset += block_len;
+        (pos, pos, Some(block.clone()))
+    });
+    Some((
+        transaction,
+        Selection::new(ranges, selection.primary_index() * spans.len()),
     ))
 }
 
@@ -153,6 +222,102 @@ mod tests {
                     format!("界{newline}")
                 );
             }
+        }
+    }
+
+    #[test]
+    fn paste_all_selects_each_value_separately_at_every_range() {
+        let mut text = Rope::from("ab\n");
+        let selection = Selection::new(smallvec![Range::new(0, 1), Range::new(2, 1)], 1);
+        let (transaction, inserted) = paste_all(
+            &text,
+            &selection,
+            &["界", "", "x\r\ny"],
+            PastePosition::After,
+            1,
+            LineEnding::LF,
+        )
+        .unwrap();
+        assert!(transaction.apply(&mut text));
+        // The paste after `a` holds both values; the separator newline is not selected.
+        assert_eq!(text, "a界\nx\nyb界\nx\ny\n");
+        let fragments: Vec<_> = inserted.fragments(text.slice(..)).collect();
+        assert_eq!(fragments, ["界", "x\ny", "界", "x\ny"]);
+        assert_eq!(inserted.ranges()[2], Range::new(8, 7));
+        assert_eq!(inserted.primary_index(), 2);
+    }
+
+    #[test]
+    fn linewise_paste_all_completes_every_value_to_a_line_and_repeats_by_count() {
+        let mut text = Rope::from("a\r\nb\r\n");
+        let selection = Selection::single(0, 1);
+        let (transaction, inserted) = paste_all(
+            &text,
+            &selection,
+            &["one\n", "two"],
+            PastePosition::After,
+            2,
+            LineEnding::Crlf,
+        )
+        .unwrap();
+        assert!(transaction.apply(&mut text));
+        assert_eq!(text, "a\r\none\r\none\r\ntwotwo\r\nb\r\n");
+        let fragments: Vec<_> = inserted.fragments(text.slice(..)).collect();
+        assert_eq!(fragments, ["one\r\none\r\n", "twotwo\r\n"]);
+    }
+
+    #[test]
+    fn linewise_paste_all_keeps_ranges_when_destinations_share_a_line() {
+        for ending in [LineEnding::LF, LineEnding::Crlf] {
+            let newline = ending.as_str();
+            for position in [PastePosition::Before, PastePosition::After] {
+                let mut text = Rope::from(format!("ab{newline}"));
+                let selection = Selection::new(smallvec![Range::new(0, 1), Range::new(2, 1)], 1);
+                let (transaction, inserted) =
+                    paste_all(&text, &selection, &["界\n", "é\n"], position, 1, ending).unwrap();
+                assert!(transaction.apply(&mut text));
+                let block = format!("界{newline}é{newline}");
+                let expected = match position {
+                    PastePosition::Before => format!("{block}{block}ab{newline}"),
+                    PastePosition::After => format!("ab{newline}{block}{block}"),
+                    PastePosition::Cursor => unreachable!(),
+                };
+                assert_eq!(text, expected.as_str());
+                let fragments: Vec<_> = inserted.fragments(text.slice(..)).collect();
+                let first = format!("界{newline}");
+                let second = format!("é{newline}");
+                assert_eq!(
+                    fragments,
+                    [
+                        first.as_str(),
+                        second.as_str(),
+                        first.as_str(),
+                        second.as_str()
+                    ]
+                );
+                assert_eq!(inserted.primary_index(), 2);
+                assert_eq!(
+                    inserted.primary().direction(),
+                    selection.primary().direction()
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn paste_all_needs_a_nonempty_value() {
+        let text = Rope::from("a");
+        let selection = Selection::single(0, 1);
+        for values in [&[] as &[&str], &["", ""]] {
+            assert!(paste_all(
+                &text,
+                &selection,
+                values,
+                PastePosition::After,
+                1,
+                LineEnding::LF
+            )
+            .is_none());
         }
     }
 

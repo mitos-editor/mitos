@@ -6,7 +6,7 @@ mod paste;
 mod selection_contents;
 mod sort;
 pub use move_lines::{move_lines, MoveLinesDirection};
-pub use paste::{paste, replace_selection_contents, PastePosition};
+pub use paste::{paste, paste_all, replace_selection_contents, PastePosition};
 pub use selection_contents::{increment_selections, reflow_selections, replace_graphemes};
 pub use sort::{sort_selection_contents, SortMode, SortOptions};
 
