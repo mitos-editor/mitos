@@ -2,13 +2,13 @@
 
 use std::fmt;
 
-use ::command_line::{self, Args};
+use ::command_line;
 use anyhow::{anyhow, ensure};
 use serde::de::{self, Deserialize, Deserializer};
 use ui_core::input::{self, KeyEvent};
 
-use super::{catalog::TYPABLE_COMMAND_MAP, command_line::execute_command, context::Context};
-use crate::{compositor, ui::PromptEvent};
+use super::{catalog::TYPABLE_COMMAND_MAP, command_line::execute_keybinding, context::Context};
+use crate::compositor;
 
 /// MappableCommands are commands that can be bound to keys, executable in
 /// normal, insert or select mode.
@@ -41,6 +41,27 @@ pub enum MappableCommand {
 }
 
 impl MappableCommand {
+    /// Resolve typable keybindings against the configured command table later.
+    pub(crate) fn from_keybinding(input: &str) -> anyhow::Result<Self> {
+        let Some(suffix) = input.strip_prefix(':') else {
+            return input.parse();
+        };
+        let (name, args, _) = command_line::split(suffix);
+        ensure!(!name.is_empty(), "Expected typable command name");
+        let builtin = name
+            .strip_prefix(editor_config::CustomCommand::ESCAPE)
+            .unwrap_or(name);
+        let doc = TYPABLE_COMMAND_MAP
+            .get(builtin)
+            .filter(|_| args.is_empty())
+            .map_or_else(|| input.to_owned(), |command| command.doc.to_owned());
+        Ok(Self::Typable {
+            name: name.to_owned(),
+            args: args.to_owned(),
+            doc,
+        })
+    }
+
     pub fn execute(&self, cx: &mut Context) {
         self.execute_inner(cx);
         if cx.editor.mode() == view::document::Mode::Insert
@@ -60,27 +81,18 @@ impl MappableCommand {
     fn execute_inner(&self, cx: &mut Context) {
         match &self {
             Self::Typable { name, args, doc: _ } => {
-                if let Some(command) = TYPABLE_COMMAND_MAP.get(name.as_str()) {
-                    let mut cx = compositor::Context {
-                        config: cx.config,
-                        editor: cx.editor,
-                        interaction: cx.interaction,
-                        jobs: cx.jobs,
-                        scroll: None,
-                        image_picker: None,
-                        is_cursor_owner: false,
-                    };
-                    if let Err(e) = execute_command(
-                        &mut cx,
-                        command,
-                        args,
-                        &Args::empty(),
-                        PromptEvent::Validate,
-                    ) {
-                        cx.editor.set_error(|| format!("{}", e));
-                    }
-                } else {
-                    cx.editor.set_error(|| format!("no such command: '{name}'"));
+                let mut context = compositor::Context {
+                    config: cx.config,
+                    editor: cx.editor,
+                    interaction: cx.interaction,
+                    jobs: cx.jobs,
+                    scroll: None,
+                    image_picker: None,
+                    is_cursor_owner: false,
+                };
+                match execute_keybinding(&mut context, name, args) {
+                    Ok(callbacks) => cx.callback.extend(callbacks),
+                    Err(error) => cx.editor.set_error(|| error.to_string()),
                 }
             }
             Self::Static { fun, .. } => (fun)(cx),

@@ -16,6 +16,15 @@ The available typable and static commands are listed in the [Commands](./command
 
 Mapped typable commands must be built-ins; custom commands cannot invoke other custom commands.
 
+## Keybindings
+
+Use the command name with the `:` prefix in a keybinding:
+
+```toml
+[keys.normal]
+C-h = ":hints"
+```
+
 ## Arguments
 
 Use `%arg{n}` to pass a positional argument to a mapped typable command. Argument indexes start at zero.

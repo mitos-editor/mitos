@@ -154,8 +154,7 @@ impl<'de> serde::de::Visitor<'de> for KeyTrieVisitor {
     where
         E: serde::de::Error,
     {
-        command
-            .parse::<MappableCommand>()
+        MappableCommand::from_keybinding(command)
             .map(KeyTrie::MappableCommand)
             .map_err(E::custom)
     }
@@ -166,11 +165,8 @@ impl<'de> serde::de::Visitor<'de> for KeyTrieVisitor {
     {
         let mut commands = Vec::new();
         while let Some(command) = seq.next_element::<String>()? {
-            commands.push(
-                command
-                    .parse::<MappableCommand>()
-                    .map_err(serde::de::Error::custom)?,
-            )
+            commands
+                .push(MappableCommand::from_keybinding(&command).map_err(serde::de::Error::custom)?)
         }
 
         // Prevent macro keybindings from being used in command sequences.
@@ -255,7 +251,20 @@ impl KeyTrie {
                 KeyTrie::MappableCommand(cmd) => {
                     let name = cmd.name();
                     if name != "no_op" {
-                        cmd_map.entry(name.into()).or_default().push(keys.clone())
+                        cmd_map.entry(name.into()).or_default().push(keys.clone());
+                        if let MappableCommand::Typable { .. } = cmd {
+                            let builtin = name
+                                .strip_prefix(editor_config::CustomCommand::ESCAPE)
+                                .unwrap_or(name);
+                            if let Some(command) = crate::commands::TYPABLE_COMMAND_MAP.get(builtin)
+                                && command.name != name
+                            {
+                                cmd_map
+                                    .entry(command.name.into())
+                                    .or_default()
+                                    .push(keys.clone());
+                            }
+                        }
                     }
                 }
                 KeyTrie::Node(next) => {

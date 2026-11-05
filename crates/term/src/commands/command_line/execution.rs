@@ -336,26 +336,12 @@ fn resolve(editor: &Editor, input: &str, validate: bool) -> anyhow::Result<VecDe
     Ok(steps)
 }
 
-pub(in crate::commands) fn execute_command(
+pub(in crate::commands) fn execute_keybinding(
     cx: &mut compositor::Context,
-    cmd: &TypableCommand,
-    input: &str,
-    positional: &Args,
-    event: PromptEvent,
-) -> anyhow::Result<()> {
-    if event != PromptEvent::Validate {
-        let args = preview_arguments(cmd, input, positional.as_slice())?;
-        return cmd.action.execute(cx, args, event);
-    }
-    // Key bindings use the same expansion and cancellation path as prompt submissions.
-    cx.jobs.command_expansion.cancel();
-    let callbacks = Sequence {
-        steps: VecDeque::from([command(cmd, input, positional.as_slice())]),
-        preview: GotoLinePreview::default(),
-    }
-    .run(cx)?;
-    debug_assert!(callbacks.is_empty());
-    Ok(())
+    name: &str,
+    args: &str,
+) -> anyhow::Result<Vec<compositor::Callback>> {
+    Session::default().execute(cx, &format!("{name} {args}"), PromptEvent::Validate)
 }
 
 pub(in crate::commands) fn execute_shell(

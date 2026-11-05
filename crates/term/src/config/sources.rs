@@ -84,7 +84,6 @@ impl Config {
             (Ok(config), Err(_)) | (Err(_), Ok(config)) => (config, ConfigRaw::default()),
             (Err(err), Err(_)) => return Err(err),
         };
-        let (keys, component_keys) = resolve_keymaps(global.keys.into_iter().chain(local.keys));
         let mut settings =
             settings_from_sources(global.editor, global.terminal, local.editor, local.terminal)?;
         if let Some(local_commands) = local.commands {
@@ -97,6 +96,11 @@ impl Config {
         if let Some(commands) = global.commands {
             settings.editor.commands = commands.into_custom_commands();
         }
+        for keys in global.keys.iter().chain(local.keys.iter()) {
+            keys.validate_commands(&settings.editor.commands)
+                .map_err(ConfigLoadError::BadConfig)?;
+        }
+        let (keys, component_keys) = resolve_keymaps(global.keys.into_iter().chain(local.keys));
         Ok(Config {
             theme: local.theme.or(global.theme),
             keys,

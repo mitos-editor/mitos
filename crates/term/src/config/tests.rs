@@ -88,7 +88,7 @@ fn labeled_editor_bindings_preserve_commands_and_descriptions() {
     let KeyTrie::MappableCommand(save) = binding("s") else {
         panic!("expected typable command");
     };
-    assert_eq!(save.name(), "write");
+    assert_eq!(save.name(), "w");
     assert_eq!(save.doc(), "Save");
     let KeyTrie::MappableCommand(MappableCommand::Typable { name, args, doc }) = binding("c")
     else {
@@ -909,4 +909,53 @@ fn popup_border_overrides_merge_by_feature_and_can_restore_inheritance() {
     assert_eq!(merged.lsp.hover.border_style, BorderStyleOverride::Inherit);
     assert_eq!(PopupBorder::Hover.resolve(&merged), BorderStyle::Double);
     assert_eq!(PopupBorder::Completion.resolve(&merged), BorderStyle::Plain);
+}
+
+#[test]
+fn custom_command_keybindings_load_after_merging_layers() {
+    let global = r#"
+[commands]
+":git-blame" = ":echo %sh{git blame -L %{cursor_line},+1 %{buffer_name}}"
+[keys.normal]
+G = ":git-blame"
+[keys.insert]
+C-g = { label = "Blame", command = ":git-blame" }
+[keys.select.space]
+g = [":git-blame", "normal_mode"]
+"#
+    .to_owned();
+    let local = r#"
+[commands]
+":git-blame" = ":echo workspace"
+[keys.normal]
+B = ":git-blame"
+"#
+    .to_owned();
+    let config = Config::load(Ok(&global), Ok(local)).unwrap();
+    assert_eq!(
+        config.editor.commands.get("git-blame").unwrap().commands,
+        [":echo workspace"]
+    );
+}
+
+#[test]
+fn workspace_keybinding_can_use_a_global_custom_command() {
+    let global = "[commands]\n':show-message' = ':echo global'".to_owned();
+    let local = "[keys.normal]\nG = ':show-message'".to_owned();
+    Config::load(Ok(&global), Ok(local)).unwrap();
+}
+
+#[test]
+fn undefined_typable_keybindings_remain_configuration_errors() {
+    for binding in [
+        "':missing-command'",
+        "[':missing-command']",
+        "{ label = 'Missing', command = ':missing-command' }",
+        "':^custom'",
+        "':'",
+    ] {
+        let source =
+            format!("[commands]\n':custom' = ':echo custom'\n[keys.normal.space]\nx = {binding}");
+        assert!(Config::load_test_result(&source).is_err(), "{binding}");
+    }
 }
