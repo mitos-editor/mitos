@@ -1,0 +1,15 @@
+[
+  (function)
+  (anonymous_function)
+  (block)
+  (case)
+  (if)
+  (receive)
+  (try)
+  (maybe)
+  (list)
+  (tuple)
+  (map)
+  (record)
+  (bitstring)
+] @fold
