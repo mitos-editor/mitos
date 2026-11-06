@@ -181,7 +181,10 @@ mod tests {
 pub(super) mod typed {
     //! Typable buffers commands.
 
-    use crate::{commands::navigation::goto_buffer, compositor};
+    use crate::{
+        commands::navigation::{goto_buffer, move_buffer_down, move_buffer_up},
+        compositor,
+    };
     use ::command_line::Args;
     use anyhow::bail;
     use editor_core::movement::Direction;
@@ -336,6 +339,24 @@ pub(super) mod typed {
         _args: Args,
     ) -> anyhow::Result<()> {
         goto_buffer(cx.editor, Direction::Backward, 1);
+        Ok(())
+    }
+
+    #[cold]
+    pub(in crate::commands) fn buffer_order_increment(
+        cx: &mut compositor::Context,
+        _args: Args,
+    ) -> anyhow::Result<()> {
+        move_buffer_up(cx.editor);
+        Ok(())
+    }
+
+    #[cold]
+    pub(in crate::commands) fn buffer_order_decrement(
+        cx: &mut compositor::Context,
+        _args: Args,
+    ) -> anyhow::Result<()> {
+        move_buffer_down(cx.editor);
         Ok(())
     }
 

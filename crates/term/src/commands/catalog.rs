@@ -654,6 +654,20 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
         args: CommandArgs::new(&[], &[]),
     },
     TypableCommand {
+        name: "buffer-order-increment",
+        aliases: &[],
+        doc: "Increment current buffer order.",
+        action: CommandAction::Committed(super::buffers::typed::buffer_order_increment),
+        args: CommandArgs::new(&[], &[]),
+    },
+    TypableCommand {
+        name: "buffer-order-decrement",
+        aliases: &[],
+        doc: "Decrement current buffer order.",
+        action: CommandAction::Committed(super::buffers::typed::buffer_order_decrement),
+        args: CommandArgs::new(&[], &[]),
+    },
+    TypableCommand {
         name: "write",
         aliases: &["w"],
         doc: "Write changes to disk. Accepts an optional path (`:write some/path.txt`).",
