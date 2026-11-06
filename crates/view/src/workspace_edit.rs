@@ -41,6 +41,101 @@ pub enum ApplyEditErrorKind {
 }
 
 impl Editor {
+    /// Merge text-only actions and preflight every target before mutating any buffer.
+    /// Each document receives one transaction, keeping all cursor edits in one undo step.
+    pub(crate) fn apply_code_action_edits(
+        &mut self,
+        encoding: OffsetEncoding,
+        actions: Vec<lsp::WorkspaceEdit>,
+    ) -> anyhow::Result<()> {
+        let mut documents: Vec<(lsp_client::Url, Option<i32>, Vec<lsp::TextEdit>)> = Vec::new();
+        for action in actions {
+            let incoming = match action.document_changes {
+                Some(lsp::DocumentChanges::Edits(edits)) => edits,
+                Some(lsp::DocumentChanges::Operations(operations)) => operations
+                    .into_iter()
+                    .map(|op| match op {
+                        lsp::DocumentChangeOperation::Edit(edit) => Ok(edit),
+                        lsp::DocumentChangeOperation::Op(_) => {
+                            anyhow::bail!("File operations cannot be applied across selections")
+                        }
+                    })
+                    .collect::<anyhow::Result<Vec<_>>>()?,
+                None => action
+                    .changes
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|(uri, edits)| lsp::TextDocumentEdit {
+                        text_document: lsp::OptionalVersionedTextDocumentIdentifier {
+                            uri,
+                            version: None,
+                        },
+                        edits: edits.into_iter().map(lsp::OneOf::Left).collect(),
+                    })
+                    .collect(),
+            };
+            for document in incoming {
+                let uri = document.text_document.uri;
+                let version = document.text_document.version;
+                let index = documents
+                    .iter()
+                    .position(|(target, ..)| *target == uri)
+                    .unwrap_or_else(|| {
+                        documents.push((uri, version, Vec::new()));
+                        documents.len() - 1
+                    });
+                let (_, expected, edits) = &mut documents[index];
+                anyhow::ensure!(
+                    expected.is_none() || version.is_none() || *expected == version,
+                    "Code actions disagree on document version"
+                );
+                *expected = expected.or(version);
+                let previous_len = edits.len();
+                for edit in document.edits {
+                    let edit = match edit {
+                        lsp::OneOf::Left(edit) => edit,
+                        lsp::OneOf::Right(edit) => edit.text_edit,
+                    };
+                    // Shared imports and file-wide fixes often occur at several cursors.
+                    if !edits[..previous_len].contains(&edit) {
+                        edits.push(edit);
+                    }
+                }
+            }
+        }
+        let mut prepared = Vec::new();
+        for (url, expected, mut edits) in documents {
+            edits.sort_by_key(|edit| (edit.range.start, edit.range.end));
+            // Distinct inserts at the same position have no unambiguous ordering
+            // across actions. Equal inserts have already been deduplicated.
+            anyhow::ensure!(
+                !edits
+                    .windows(2)
+                    .any(|pair| pair[0].range.start == pair[0].range.end
+                        && pair[0].range.start == pair[1].range.start),
+                "Code actions contain conflicting inserts"
+            );
+            let uri = url.to_editor_uri()?;
+            let id = self.open(uri.as_path().expect("URIs are valid paths"), Action::Load)?;
+            anyhow::ensure!(
+                !prepared.iter().any(|(target, _, _)| *target == id),
+                "Code actions contain aliases for the same document"
+            );
+            let doc = self.document(id).unwrap();
+            anyhow::ensure!(
+                expected.is_none_or(|version| version == doc.version()),
+                "Code action is no longer current"
+            );
+            let transaction = generate_transaction_from_edits(doc.text(), edits, encoding)?;
+            doc.validate_changes(transaction.changes())?;
+            prepared.push((id, doc.version(), transaction));
+        }
+        for (id, version, transaction) in prepared {
+            self.apply_document_changes(id, version, transaction.changes())?;
+        }
+        Ok(())
+    }
+
     fn apply_text_edits(
         &mut self,
         url: &lsp_client::Url,
