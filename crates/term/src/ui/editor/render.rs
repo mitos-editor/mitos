@@ -875,8 +875,8 @@ impl PaneRenderer {
                     Some(Severity::Info) => info,
                     Some(Severity::Hint) => hint,
                 });
-            let text = Text::styled(&*diagnostic.message, style);
-            lines.extend(text.lines);
+            let text = Text::raw(&*diagnostic.message);
+            lines.extend(text.lines.into_iter().map(|line| line.style(style)));
             let code = diagnostic.code.as_ref().map(|x| match x {
                 NumberOrString::Number(n) => format!("({n})"),
                 NumberOrString::String(s) => format!("({s})"),
