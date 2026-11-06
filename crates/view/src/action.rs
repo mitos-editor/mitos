@@ -59,6 +59,75 @@ impl Action {
         (self.action)(editor);
     }
 
+    /// Resolve all occurrences against the same snapshot before applying any edits.
+    pub(crate) fn lsp_batch(
+        context: LspActionContext,
+        server_id: LanguageServerId,
+        actions: Vec<lsp::CodeAction>,
+    ) -> Self {
+        if actions.len() == 1 {
+            return Self::lsp(
+                context,
+                server_id,
+                CodeActionOrCommand::CodeAction(actions.into_iter().next().unwrap()),
+            );
+        }
+        let title = actions[0].title.clone();
+        let priority = actions
+            .iter()
+            .map(|a| lsp_code_action_priority(&CodeActionOrCommand::CodeAction(a.clone())))
+            .max()
+            .unwrap();
+        Self::new(title, priority, move |editor| {
+            if !context.is_current(editor, server_id) {
+                editor.set_error(|| "Code action is no longer current");
+                return;
+            }
+            let server = editor.language_server_by_id(server_id).unwrap();
+            let requests: Vec<_> = actions
+                .iter()
+                .map(|action| {
+                    let resolve = (action.edit.is_none() || action.command.is_none())
+                        .then(|| server.resolve_code_action(action))
+                        .flatten();
+                    let action = action.clone();
+                    async move {
+                        match resolve {
+                            Some(resolve) => resolve.await,
+                            None => Ok(action),
+                        }
+                    }
+                })
+                .collect();
+            let encoding = server.offset_encoding();
+            let callbacks = editor.handlers.callbacks.clone();
+            let context = context.clone();
+            tokio::spawn(async move {
+                let result = futures_util::future::try_join_all(requests).await;
+                callbacks.send(move |editor| {
+                    if !context.is_current(editor, server_id) {
+                        editor.set_error(|| "Code action is no longer current");
+                        return;
+                    }
+                    let result = result.map_err(anyhow::Error::from).and_then(|actions| {
+                        let mut edits = Vec::new();
+                        for action in actions {
+                            anyhow::ensure!(action.disabled.is_none(), "Code action is no longer available");
+                            anyhow::ensure!(action.command.is_none(), "Command-based code actions cannot be applied across selections");
+                            if let Some(edit) = action.edit {
+                                edits.push(edit);
+                            }
+                        }
+                        editor.apply_code_action_edits(encoding, edits)
+                    });
+                    if let Err(error) = result {
+                        editor.set_error(|| format!("Failed to apply code actions: {error}"));
+                    }
+                }).await;
+            });
+        })
+    }
+
     /// Builds an action bound to the document snapshot used to request it.
     pub fn lsp(
         context: LspActionContext,

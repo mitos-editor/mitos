@@ -49,6 +49,15 @@ impl Fixture {
         kinds: &[&str],
         format: bool,
     ) -> anyhow::Result<Self> {
+        Self::with_options(resolve, kinds, format, false).await
+    }
+
+    async fn with_options(
+        resolve: bool,
+        kinds: &[&str],
+        format: bool,
+        multicursor: bool,
+    ) -> anyhow::Result<Self> {
         let save = !kinds.is_empty();
         let dir = tempfile::tempdir()?;
         let log = fixture_lsp::log_path(dir.path(), "alpha");
@@ -59,7 +68,9 @@ impl Fixture {
             .arg("--response-gate")
             .arg(gate.path())
             .arg(if resolve { "--resolve" } else { "--no-resolve" })
-            .arg(if save {
+            .arg(if multicursor {
+                "--multicursor-actions"
+            } else if save {
                 "--save-actions"
             } else {
                 "--interactive-actions"
@@ -139,6 +150,32 @@ impl Fixture {
             gate,
             _dir: dir,
         })
+    }
+
+    async fn multicursor(resolve: bool) -> anyhow::Result<Self> {
+        let mut fixture = Self::with_options(resolve, &[], false, true).await?;
+        let (view, doc) = current!(fixture.editor);
+        doc.set_selection(
+            view.id,
+            editor_core::Selection::new(
+                [0, 1, 2]
+                    .into_iter()
+                    .map(editor_core::Range::point)
+                    .collect(),
+                0,
+            ),
+        );
+        Ok(fixture)
+    }
+
+    async fn available_actions(&mut self) -> anyhow::Result<Vec<Action>> {
+        self.editor
+            .request_code_actions()
+            .run()
+            .await
+            .context("actions canceled")?
+            .into_actions(&self.editor)
+            .context("actions invalid")
     }
 
     fn action(&self, failure: &str) -> Action {
@@ -575,5 +612,174 @@ async fn repeated_action_requests_cancel_previous_gathering() -> anyhow::Result<
         .context("actions canceled")?
         .into_actions(&f.editor)
         .is_some());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn multicursor_actions_apply_available_edits_in_one_undo_step() -> anyhow::Result<()> {
+    let mut f = Fixture::multicursor(true).await?;
+    let actions = f.available_actions().await?;
+    assert_eq!(actions.iter().filter(|a| a.title() == "expand").count(), 1);
+    let action = actions
+        .iter()
+        .find(|a| a.title() == "expand")
+        .context("missing expand")?;
+    action.execute(&mut f.editor);
+    f.resolved().await?(&mut f.editor);
+    assert_eq!(
+        f.editor.document(f.doc).unwrap().text().to_string(),
+        "XXlXX\n"
+    );
+    let (view, doc) = current!(f.editor);
+    assert!(view::editing::undo(doc, view.id));
+    assert_eq!(doc.text().to_string(), "old\n");
+    f.assert_no_command().await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn multicursor_actions_group_conservatively_without_counts() -> anyhow::Result<()> {
+    let mut f = Fixture::multicursor(true).await?;
+    let actions = f.available_actions().await?;
+    let count = |title| {
+        actions
+            .iter()
+            .filter(|action| action.title() == title)
+            .count()
+    };
+    assert_eq!(count("expand"), 1);
+    assert_eq!(count("shared"), 1);
+    assert_eq!(count("secondary only"), 1);
+    assert_eq!(count("command"), 1);
+    assert_eq!(count("disabled"), 0);
+    assert_eq!(count("different kind"), 2);
+    assert_eq!(count("ambiguous"), 2);
+    let requests: Vec<_> = f
+        .messages()
+        .into_iter()
+        .filter(|message| message["method"] == "textDocument/codeAction")
+        .collect();
+    assert_eq!(requests.len(), 3);
+    let mut positions: Vec<_> = requests
+        .iter()
+        .map(|request| {
+            request["params"]["range"]["start"]["character"]
+                .as_u64()
+                .unwrap()
+        })
+        .collect();
+    positions.sort();
+    assert_eq!(positions, [0, 1, 2]);
+    actions
+        .iter()
+        .find(|a| a.title() == "secondary only")
+        .unwrap()
+        .execute(&mut f.editor);
+    f.resolved().await?(&mut f.editor);
+    assert_eq!(
+        f.editor.document(f.doc).unwrap().text().to_string(),
+        "olYY\n"
+    );
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn multicursor_actions_deduplicate_shared_edits() -> anyhow::Result<()> {
+    for resolve in [false, true] {
+        let mut f = Fixture::multicursor(resolve).await?;
+        let actions = f.available_actions().await?;
+        actions
+            .iter()
+            .find(|a| a.title() == "shared")
+            .unwrap()
+            .execute(&mut f.editor);
+        if resolve {
+            f.resolved().await?(&mut f.editor);
+        } else {
+            // Batched inline edits also publish one async callback, without a resolve request.
+            loop {
+                let (blocking, callback) =
+                    tokio::time::timeout(Duration::from_secs(10), f.callbacks.recv())
+                        .await?
+                        .context("missing callback")?;
+                callback(&mut f.editor);
+                if !blocking {
+                    break;
+                }
+            }
+            assert!(!f
+                .messages()
+                .iter()
+                .any(|message| message["method"] == "codeAction/resolve"));
+        }
+        assert_eq!(
+            f.editor.document(f.doc).unwrap().text().to_string(),
+            "import\nold\n"
+        );
+        f.assert_no_command().await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn multicursor_actions_reject_conflicts_commands_and_resolution_failures(
+) -> anyhow::Result<()> {
+    for (title, error) in [
+        ("overlap", "overlaps"),
+        ("conflicting insert", "conflicting inserts"),
+        ("invalid target", "reversed range"),
+        ("resource operation", "File operations"),
+        ("late command", "Command-based"),
+        ("resolve failure", "fixture resolve failure"),
+    ] {
+        let mut f = Fixture::multicursor(true).await?;
+        let actions = f.available_actions().await?;
+        actions
+            .iter()
+            .find(|a| a.title() == title)
+            .unwrap()
+            .execute(&mut f.editor);
+        f.resolved().await?(&mut f.editor);
+        assert_eq!(
+            f.editor.document(f.doc).unwrap().text().to_string(),
+            "old\n",
+            "{title}"
+        );
+        assert!(f
+            .editor
+            .get_status()
+            .context("missing error")?
+            .0
+            .contains(error));
+        f.assert_no_command().await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn multicursor_actions_reject_stale_queued_resolutions() -> anyhow::Result<()> {
+    let mut f = Fixture::multicursor(true).await?;
+    let actions = f.available_actions().await?;
+    actions
+        .iter()
+        .find(|a| a.title() == "expand")
+        .unwrap()
+        .execute(&mut f.editor);
+    let callback = f.resolved().await?;
+    let (view, doc) = current!(f.editor);
+    let transaction = Transaction::change(doc.text(), [(0, 3, Some("new".into()))].into_iter());
+    view::editing::apply(doc, &transaction, view.id)?;
+    callback(&mut f.editor);
+    assert_eq!(
+        f.editor.document(f.doc).unwrap().text().to_string(),
+        "new\n"
+    );
+    assert!(f
+        .editor
+        .get_status()
+        .context("missing error")?
+        .0
+        .contains("no longer current"));
+    f.assert_no_command().await?;
     Ok(())
 }

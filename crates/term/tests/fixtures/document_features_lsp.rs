@@ -331,6 +331,68 @@ fn main() -> anyhow::Result<()> {
         }
         if method == "textDocument/codeAction"
             && action_execution
+            && args.iter().any(|a| a == "--multicursor-actions")
+        {
+            let start = params["range"]["start"]["character"].as_u64().unwrap();
+            let mut result = Vec::new();
+            if start != 1 {
+                for (title, from, to, replacement) in [
+                    ("expand", start, start + 1, "XX"),
+                    ("shared", 0, 0, "import\n"),
+                    ("overlap", 0, 3, if start == 0 { "first" } else { "second" }),
+                    ("late command", start, start + 1, "XX"),
+                    ("resolve failure", start, start + 1, "XX"),
+                    ("different kind", start, start + 1, "XX"),
+                    ("invalid target", start, start + 1, "XX"),
+                    ("resource operation", start, start + 1, "XX"),
+                    (
+                        "conflicting insert",
+                        0,
+                        0,
+                        if start == 0 { "first" } else { "second" },
+                    ),
+                    ("ambiguous", start, start + 1, "XX"),
+                ] {
+                    let mut action = json!({
+                        "title": title, "kind": "refactor.rewrite",
+                        "data": {"uri": uri, "version": versions[uri], "multicursor": true,
+                            "start": from, "end": to, "replacement": replacement}
+                    });
+                    if title == "resolve failure" && start == 2 {
+                        action["data"]["failure"] = json!("resolve");
+                    }
+                    if title == "late command" {
+                        action["data"]["lateCommand"] = json!(true);
+                    }
+                    if title == "different kind" && start == 2 {
+                        action["kind"] = json!("quickfix");
+                    }
+                    if args.iter().any(|a| a == "--no-resolve") {
+                        action["edit"] = json!({"changes": {uri: [{
+                            "range": range(from as usize, to as usize), "newText": replacement
+                        }]}});
+                    }
+                    if title == "ambiguous" && start == 0 {
+                        result.push(action.clone());
+                    }
+                    result.push(action);
+                }
+                result.push(json!({"title": "command", "command": "fixture.command"}));
+                result.push(json!({"title": "disabled", "disabled": {"reason": "unavailable"}}));
+                if start == 2 {
+                    result.push(json!({"title": "secondary only", "kind": "quickfix",
+                        "data": {"uri": uri, "version": versions[uri], "multicursor": true,
+                            "start": start, "end": start + 1, "replacement": "YY"}}));
+                }
+            }
+            respond(
+                &mut output,
+                json!({"jsonrpc": "2.0", "id": id, "result": result}),
+            )?;
+            continue;
+        }
+        if method == "textDocument/codeAction"
+            && action_execution
             && args.iter().any(|arg| arg == "--save-actions")
         {
             let kind = params["context"]["only"][0].as_str().unwrap_or("quickfix");
@@ -611,10 +673,25 @@ fn main() -> anyhow::Result<()> {
                 };
                 action["edit"] = json!({"documentChanges": [{
                     "textDocument": {"uri": params["data"]["uri"], "version": version},
-                    "edits": [{"range": range(0, params["data"]["end"].as_u64().unwrap_or(3) as usize),
+                    "edits": [{"range": range(params["data"]["start"].as_u64().unwrap_or(0) as usize, params["data"]["end"].as_u64().unwrap_or(3) as usize),
                         "newText": params["data"]["replacement"].as_str().unwrap_or("fixed")}]
                 }]});
-                action["command"] = json!({"title": "after edit", "command": "fixture.command"});
+                if params["title"] == "invalid target" {
+                    let other_uri = format!("{}-other", params["data"]["uri"].as_str().unwrap());
+                    action["edit"]["documentChanges"].as_array_mut().unwrap().push(json!({
+                        "textDocument": {"uri": other_uri, "version": null},
+                        "edits": [{"range": {"start": {"line": 99, "character": 0}, "end": {"line": 0, "character": 0}}, "newText": "invalid"}]
+                    }));
+                }
+                if params["title"] == "resource operation" {
+                    action["edit"]["documentChanges"].as_array_mut().unwrap().push(json!({
+                        "kind": "create", "uri": format!("{}-created", params["data"]["uri"].as_str().unwrap())
+                    }));
+                }
+                if params["data"]["multicursor"] != true || params["data"]["lateCommand"] == true {
+                    action["command"] =
+                        json!({"title": "after edit", "command": "fixture.command"});
+                }
                 respond(
                     &mut output,
                     json!({"jsonrpc": "2.0", "id": id, "result": action}),
