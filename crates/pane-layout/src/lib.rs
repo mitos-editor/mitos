@@ -538,7 +538,7 @@ impl<K: Key, P: Pane<K>> Tree<K, P> {
         let mut index = 0;
         while index < order.len() {
             if let Content::Container(container) = &self.nodes[order[index]].content {
-                order.extend(&container.children);
+                order.extend(container.children.iter().map(|child| child.id));
             }
             index += 1;
         }
@@ -551,7 +551,7 @@ impl<K: Key, P: Pane<K>> Tree<K, P> {
                 weight[axis] = container
                     .children
                     .iter()
-                    .map(|&child| weights[child][axis])
+                    .map(|child| weights[child.id][axis])
                     .sum();
             }
             weights.insert(key, weight);
@@ -602,8 +602,9 @@ impl<K: Key, P: Pane<K>> Tree<K, P> {
                         let available = length.saturating_sub(gap * (total - 1));
                         let mut used = 0;
                         let mut offset = 0;
+                        let mut balanced = Vec::with_capacity(container.children.len());
                         for &child in &container.children {
-                            used += weights[child][axis];
+                            used += weights[child.id][axis];
                             let end = (available * used / total + gap * (used - 1)).min(length);
                             let size = (end - offset) as u16;
                             let child_area = if vertical {
@@ -621,10 +622,24 @@ impl<K: Key, P: Pane<K>> Tree<K, P> {
                                     size,
                                 )
                             };
-                            self.stack.push((child, child_area));
+                            balanced.push((child.id, child_area));
                             offset = (end + gap).min(length);
                         }
-                        continue;
+                        // Equalizing perpendicular groups can make a nested split
+                        // smaller than its minimum, even when the viewport has room.
+                        // Use the constrained shares in that case.
+                        if minimums.iter().sum::<usize>() > container.used_extent()
+                            || balanced.iter().enumerate().all(|(index, (_, area))| {
+                                let minimum = minimums[index].saturating_sub(usize::from(
+                                    vertical && index + 1 == minimums.len(),
+                                ));
+                                usize::from(if vertical { area.width } else { area.height })
+                                    >= minimum
+                            })
+                        {
+                            self.stack.extend(balanced);
+                            continue;
+                        }
                     }
 
                     match container.layout {
@@ -1917,6 +1932,21 @@ mod invariants {
         }
         fn set_area(&mut self, area: Rect) {
             self.area = area;
+        }
+    }
+
+    #[test]
+    fn balanced_splits_preserve_minimum_sizes_of_perpendicular_groups() {
+        let mut tree = Tree::with_minimum_size(Rect::new(0, 0, 21, 20), 5, 2);
+        tree.insert(Value::new());
+        let top = tree.split(Value::new(), Layout::Vertical);
+        tree.split(Value::new(), Layout::Horizontal);
+        tree.set_focus(top);
+        tree.split(Value::new(), Layout::Vertical);
+        tree.set_split_strategy(SplitStrategy::Balanced);
+        for (_, pane) in tree.traverse() {
+            assert!(pane.area.width >= 5, "{:?}", pane.area);
+            assert!(pane.area.height >= 2, "{:?}", pane.area);
         }
     }
 
