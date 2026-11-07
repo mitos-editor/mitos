@@ -29,4 +29,5 @@ toml_edit.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tempfile.workspace = true
-gix = { workspace = true, features = ["blocking-http-transport-curl-openssl", "sha1", "sha256"] }
+# Source installation must not require system OpenSSL development packages.
+gix = { workspace = true, features = ["blocking-http-transport-reqwest-rust-tls", "sha1", "sha256"] }
