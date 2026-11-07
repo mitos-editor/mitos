@@ -25,3 +25,6 @@ log.workspace = true
 tree-house.workspace = true
 
 tempfile.workspace = true
+
+[build-dependencies]
+gix = { workspace = true, features = ["sha1", "sha256"] }

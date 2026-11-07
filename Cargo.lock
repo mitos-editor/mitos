@@ -2966,6 +2966,7 @@ version = "0.1.3"
 dependencies = [
  "anyhow",
  "etcetera",
+ "gix",
  "log",
  "serde",
  "snippets",
