@@ -4,6 +4,26 @@ use editor_core::{
     graphemes::next_grapheme_boundary, textobject::TextObject, Range, RopeSlice, SmallVec,
 };
 
+/// Convert a capture without selecting CRLF when a comment grammar includes only CR.
+pub(crate) fn capture_range(
+    text: RopeSlice,
+    object_name: &str,
+    start_byte: usize,
+    end_byte: usize,
+) -> Range {
+    use stdx::rope::RopeExt as _;
+    let start = text.byte_to_char_idx(start_byte);
+    let mut end = text.byte_to_char_idx(end_byte);
+    if object_name == "comment"
+        && end > start
+        && text.char_at(end - 1) == '\r'
+        && text.get_char_at(end) == Some('\n')
+    {
+        end -= 1;
+    }
+    Range::new(start, end)
+}
+
 pub fn textobject_pair_surround(
     syntax: Option<&Syntax>,
     slice: RopeSlice,
@@ -97,10 +117,7 @@ pub fn textobject_treesitter(
                 return None;
             }
 
-            let start_char = slice.byte_to_char_idx(start_byte);
-            let end_char = slice.byte_to_char_idx(end_byte);
-
-            Some(Range::new(start_char, end_char))
+            Some(capture_range(slice, object_name, start_byte, end_byte))
         })
         .unwrap_or(range)
 }
@@ -143,11 +160,8 @@ pub fn textobject_treesitter_ranges(
                 return None;
             }
 
-            let object_range = Range::new(
-                text.byte_to_char_idx(start_byte),
-                text.byte_to_char_idx(end_byte),
-            )
-            .with_direction(range.direction());
+            let object_range = capture_range(text, obj_name, start_byte, end_byte)
+                .with_direction(range.direction());
 
             range.contains_range(&object_range).then_some(object_range)
         })

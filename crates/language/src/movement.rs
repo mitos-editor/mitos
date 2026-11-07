@@ -56,11 +56,12 @@ pub fn goto_treesitter_object(
             return None;
         }
 
-        let start_char = slice.byte_to_char_idx(start_byte);
-        let end_char = slice.byte_to_char_idx(end_byte);
-
-        // head of range should be at beginning
-        Some(Range::new(start_char, end_char))
+        Some(crate::textobject::capture_range(
+            slice,
+            object_name,
+            start_byte,
+            end_byte,
+        ))
     };
     let mut last_range = range;
     for _ in 0..count {

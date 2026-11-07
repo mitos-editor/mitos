@@ -203,28 +203,41 @@ async fn goto_comments_across_injected_layers() -> anyhow::Result<()> {
     for (file, input, keys, expected) in [
         (
             "foo.scm",
-            "#[|]#(define x 1)\n; one\n(define y 2)\n; two\n",
+            "#[|]#(define x 1)\n; one\n(define y 2)\n; twö\n",
             "]c]c",
-            "(define x 1)\n; one\n(define y 2)\n#[; two|]#\n",
+            "(define x 1)\n; one\n(define y 2)\n#[; twö|]#\n",
         ),
         (
             "foo.scm",
-            "(define x 1)\n; one\n(define y 2)\n; two#[|]#\n",
+            "(define x 1)\n; one\n(define y 2)\n; twö#[|]#\n",
             "[c[c",
-            "(define x 1)\n#[|; one]#\n(define y 2)\n; two\n",
+            "(define x 1)\n#[|; one]#\n(define y 2)\n; twö\n",
         ),
         (
             "queries/c/tags.scm",
-            "#[|]#(identifier) @type\n; one\n(identifier) @type\n; two\n",
+            "#[|]#(identifier) @type\n; one\n(identifier) @type\n; twö\n",
             "]c]c",
-            "(identifier) @type\n; one\n(identifier) @type\n#[; two|]#\n",
+            "(identifier) @type\n; one\n(identifier) @type\n#[; twö|]#\n",
+        ),
+        (
+            "queries/c/tags.scm",
+            "(identifier) @type\n; caf#[|é]#\n",
+            "mic",
+            "(identifier) @type\n#[; café|]#\n",
         ),
     ] {
-        test_with_config(
-            AppBuilder::new().with_file(file, None),
-            (input, keys, expected),
-        )
-        .await?;
+        for line_ending in ["\n", "\r\n"] {
+            test_with_config(
+                AppBuilder::new().with_file(file, None),
+                (
+                    input.replace('\n', line_ending),
+                    keys,
+                    expected.replace('\n', line_ending),
+                    super::super::helpers::LineFeedHandling::AsIs,
+                ),
+            )
+            .await?;
+        }
     }
     Ok(())
 }
