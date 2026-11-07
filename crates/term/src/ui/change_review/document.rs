@@ -231,6 +231,7 @@ pub(crate) fn render_project_hints(
         (A::Unstage, "unstage"),
         (A::ToggleFold, "fold"),
         (A::OpenSource, "edit"),
+        (A::Commit, "commit"),
         (A::ToggleBuffers, "buffers"),
         (A::Refresh, "refresh"),
     ] {

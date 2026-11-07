@@ -153,7 +153,10 @@ fn dispatch(
             Err(error) => cx.editor.set_error(|| error.to_string()),
         },
         Command::Run(
-            action @ (GitAction::File(..) | GitAction::Repository(..) | GitAction::Partial { .. }),
+            action @ (GitAction::File(..)
+            | GitAction::Repository(..)
+            | GitAction::Commit(..)
+            | GitAction::Partial { .. }),
         )
         | Command::Confirmed(action) => start(cx, workspace, action),
         Command::Run(action) => {
@@ -179,7 +182,10 @@ fn dispatch(
                     ),
                     "Apply and keep stash",
                 ),
-                GitAction::File(..) | GitAction::Repository(..) | GitAction::Partial { .. } => {
+                GitAction::File(..)
+                | GitAction::Repository(..)
+                | GitAction::Commit(..)
+                | GitAction::Partial { .. } => {
                     unreachable!()
                 }
             };

@@ -1390,6 +1390,18 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
         args: CommandArgs::new(&[], &[completers::none]),
     },
     TypableCommand {
+        name: "vcs-commit",
+        aliases: &[],
+        doc: "Review staged changes and write a commit message. Run again to update the review and keep the message.",
+        action: CommandAction::Committed(super::vcs::typed::commit), args: CommandArgs::new(&[], &[]),
+    },
+    TypableCommand {
+        name: "vcs-commit-submit",
+        aliases: &[],
+        doc: "Commit the reviewed changes with this message. If Git rejects the commit, the message stays open.",
+        action: CommandAction::Committed(super::vcs::typed::commit_submit), args: CommandArgs::new(&[], &[]),
+    },
+    TypableCommand {
         name: "vcs-show-change",
         aliases: &[],
         doc: "Inspect the current change against HEAD, including deleted lines and unsaved edits.",

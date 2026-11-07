@@ -101,6 +101,8 @@ impl Document {
             DocumentSource::Virtual { .. } | DocumentSource::ProjectReview { .. } => {
                 (DocumentKind::Virtual, None)
             }
+            #[cfg(feature = "git")]
+            DocumentSource::CommitMessage(_) => (DocumentKind::Virtual, None),
             DocumentSource::FileOrScratch => (
                 if self.path().is_some() {
                     DocumentKind::File

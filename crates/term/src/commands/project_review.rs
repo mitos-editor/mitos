@@ -97,6 +97,18 @@ pub(crate) fn action(
 ) -> Result<()> {
     use crate::keymap::component::ProjectReviewAction as A;
     match action {
+        A::Commit => {
+            let mut context = compositor::Context {
+                config: cx.config,
+                editor: cx.editor,
+                interaction: cx.interaction,
+                jobs: cx.jobs,
+                scroll: None,
+                image_picker: None,
+                is_cursor_owner: false,
+            };
+            super::vcs::typed::commit(&mut context, Args::empty())?;
+        }
         A::Stage | A::Unstage => {
             #[cfg(feature = "git")]
             {

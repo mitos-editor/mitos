@@ -114,6 +114,8 @@
 | `:vcs-fetch` | Download remote commits without changing your files. Give a remote name when several are configured. |
 | `:vcs-pull` | Download changes and move the current branch forward without creating a merge commit. Optionally give a remote name. |
 | `:vcs-push` | Upload commits from the current branch. Optionally give a remote name. |
+| `:vcs-commit` | Review staged changes and write a commit message. Run again to update the review and keep the message. |
+| `:vcs-commit-submit` | Commit the reviewed changes with this message. If Git rejects the commit, the message stays open. |
 | `:vcs-show-change` | Inspect the current change against HEAD, including deleted lines and unsaved edits. |
 | `:vcs-diff` | Review the current file. Choose head (all changes), staged (next commit), unstaged (saved changes), or buffer (unstaged and unsaved changes). |
 | `:vcs-history` | Browse repository commits. Select a commit, then a file to review its changes. |

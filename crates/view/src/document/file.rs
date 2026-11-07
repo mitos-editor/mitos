@@ -233,6 +233,11 @@ impl Document {
             !self.is_content_readonly(),
             "Review documents cannot be written, including with force or a new filename"
         );
+        #[cfg(feature = "git")]
+        anyhow::ensure!(
+            self.commit_message().is_none(),
+            "Commit messages cannot be saved as files; use :vcs-commit-submit or copy the text to a new buffer"
+        );
         if self.file.binary {
             bail!("Binary files are read-only and cannot be saved as text");
         }
@@ -642,6 +647,10 @@ impl Document {
     pub fn workspace_root(&self) -> &Path {
         if let Some(review) = self.project_review() {
             return &review.workspace;
+        }
+        #[cfg(feature = "git")]
+        if let Some(commit) = self.commit_message() {
+            return commit.workspace();
         }
         if let Some(review) = self.review() {
             return review.workspace();

@@ -21,6 +21,8 @@ pub(super) enum DocumentSource {
         name: String,
         state: Box<crate::features::project_review::ProjectReviewDocument>,
     },
+    #[cfg(feature = "git")]
+    CommitMessage(Box<crate::features::git_commit::CommitMessage>),
 }
 
 impl Document {
@@ -34,6 +36,8 @@ impl Document {
             DocumentSource::Revision(source) => Some(&source.path),
             DocumentSource::Review(review) => Some(review.path()),
             DocumentSource::ProjectReview { state, .. } => Some(&state.root),
+            #[cfg(feature = "git")]
+            DocumentSource::CommitMessage(state) => Some(state.repository().root()),
         }
     }
 
@@ -51,7 +55,12 @@ impl Document {
 
     /// Intrinsic immutability is independent of filesystem permissions.
     pub(super) fn is_source_readonly(&self) -> bool {
-        !matches!(self.source, DocumentSource::FileOrScratch)
+        match self.source {
+            DocumentSource::FileOrScratch => false,
+            #[cfg(feature = "git")]
+            DocumentSource::CommitMessage(_) => false,
+            _ => true,
+        }
     }
 
     pub fn review(&self) -> Option<&ReviewDocument> {
@@ -101,6 +110,30 @@ impl Document {
         };
     }
 
+    #[cfg(feature = "git")]
+    pub fn commit_message(&self) -> Option<&crate::features::git_commit::CommitMessage> {
+        match &self.source {
+            DocumentSource::CommitMessage(state) => Some(state),
+            _ => None,
+        }
+    }
+
+    #[cfg(feature = "git")]
+    pub(crate) fn commit_message_mut(
+        &mut self,
+    ) -> Option<&mut crate::features::git_commit::CommitMessage> {
+        match &mut self.source {
+            DocumentSource::CommitMessage(state) => Some(state),
+            _ => None,
+        }
+    }
+
+    #[cfg(feature = "git")]
+    pub(crate) fn set_commit_message(&mut self, state: crate::features::git_commit::CommitMessage) {
+        assert!(self.path().is_none(), "commit messages must be pathless");
+        self.source = DocumentSource::CommitMessage(Box::new(state));
+    }
+
     pub(crate) fn historical(&self) -> Option<&HistoricalDocument> {
         match &self.source {
             DocumentSource::Revision(source) => Some(source),
@@ -136,6 +169,8 @@ impl Document {
             DocumentSource::Virtual { name } | DocumentSource::ProjectReview { name, .. } => {
                 Some(name)
             }
+            #[cfg(feature = "git")]
+            DocumentSource::CommitMessage(state) => Some(state.name()),
             _ => None,
         }
     }

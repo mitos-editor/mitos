@@ -15,6 +15,7 @@ use tokio::{
 
 use crate::{FileChange, FileStatus};
 
+mod commit;
 pub mod history;
 pub mod repository;
 pub use repository::RepositoryOperation;
@@ -24,6 +25,7 @@ mod fetch;
 mod index;
 mod partial;
 mod stage;
+pub use commit::CommitSnapshot;
 pub use partial::{PartialSelection, PartialSource};
 mod stash;
 mod unstage;
@@ -67,7 +69,7 @@ impl FileOperation {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 enum Operation {
     Repository(RepositoryOperation),
     Partial {
@@ -86,6 +88,7 @@ enum Operation {
         id: String,
         restore_index: bool,
     },
+    Commit(commit::CommitFiles),
 }
 
 /// Immutable preflight. A changed index, HEAD, configuration, or selected file invalidates it.
@@ -120,6 +123,11 @@ impl PreparedOperation {
         )
     }
 
+    /// Commit hooks may update files, but unsaved editor text can be retained.
+    pub fn requires_clean_buffers(&self) -> bool {
+        self.changes_worktree() && !matches!(self.operation, Operation::Commit(_))
+    }
+
     /// File paths, or the entire worktree for stash application, whose writes must be suspended.
     pub fn affected_paths(&self) -> Vec<PathBuf> {
         match &self.operation {
@@ -129,7 +137,9 @@ impl PreparedOperation {
                 .iter()
                 .map(|path| self.repository.root.join(path))
                 .collect(),
-            Operation::Stash | Operation::Apply { .. } => vec![self.repository.root.clone()],
+            Operation::Stash | Operation::Apply { .. } | Operation::Commit(_) => {
+                vec![self.repository.root.clone()]
+            }
         }
     }
 
@@ -143,6 +153,7 @@ impl PreparedOperation {
             Operation::File { kind, .. } => kind.label(),
             Operation::Stash => "Stash all repository changes",
             Operation::Apply { .. } => "Apply stash (keep stash)",
+            Operation::Commit(_) => "Commit staged changes",
         }
     }
 
@@ -159,6 +170,11 @@ impl PreparedOperation {
 
     /// Once started, a mutation must be driven to completion, even after its originating UI closes.
     pub async fn execute(self) -> Result<()> {
+        self.execute_with_notice().await.map(|_| ())
+    }
+
+    /// A committed change remains successful even if newer staging prevents refreshing the index.
+    pub async fn execute_with_notice(self) -> Result<Option<String>> {
         let prepared = tokio::task::spawn_blocking(move || {
             self.ensure_current()?;
             if matches!(
@@ -216,10 +232,10 @@ impl PreparedOperation {
         })
         .await??;
         let Some(prepared) = prepared else {
-            return Ok(());
+            return Ok(None);
         };
         if let Operation::Repository(operation) = &prepared.operation {
-            return operation.execute(&prepared.repository).await;
+            return operation.execute(&prepared.repository).await.map(|()| None);
         }
         let mut command = prepared.repository.command();
         match &prepared.operation {
@@ -253,7 +269,7 @@ impl PreparedOperation {
                     literal(&err)
                 );
                 write?;
-                return Ok(());
+                return Ok(None);
             }
             Operation::File {
                 kind: FileOperation::Stage,
@@ -295,8 +311,33 @@ impl PreparedOperation {
                 }
                 command.arg(id);
             }
+            Operation::Commit(files) => {
+                command
+                    .args(["commit", "--cleanup=strip", "--file"])
+                    .arg(dunce::simplified(files.path()))
+                    .env("GIT_INDEX_FILE", dunce::simplified(files.index_path()));
+                let result = run(command).await;
+                let notice = tokio::task::spawn_blocking(move || {
+                    let Operation::Commit(files) = &prepared.operation else {
+                        unreachable!()
+                    };
+                    files.reconcile(&prepared.repository)
+                })
+                .await
+                .unwrap_or_else(|error| {
+                    log::warn!("Commit index refresh worker failed: {error}");
+                    Some("Staging area could not be refreshed; review staged changes".into())
+                });
+                return match result {
+                    Ok(_) => Ok(notice),
+                    Err(error) => match notice {
+                        Some(notice) => Err(anyhow::anyhow!("{error}; {notice}")),
+                        None => Err(error),
+                    },
+                };
+            }
         }
-        run(command).await.map(|_| ())
+        run(command).await.map(|_| None)
     }
 }
 
