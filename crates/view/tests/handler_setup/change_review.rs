@@ -1436,3 +1436,36 @@ async fn inspected_hunk_restoration_rejects_changed_buffer_and_repository() -> a
     assert_eq!(current_ref!(f.editor).1.text().to_string(), "newer\n");
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn closing_live_reviews_releases_the_last_recursive_root_owner() -> anyhow::Result<()> {
+    use std::time::Duration;
+    let mut f = Fixture::new("committed\n")?;
+    prepare(&mut f, "initial");
+    f.configure(|config| config.files.watch.enable = true);
+    let path = current_ref!(f.editor).1.path().unwrap().to_owned();
+    let first = f.editor.open_review(
+        review_request(&f, &path, ReviewComparison::Head),
+        Action::VerticalSplit,
+        None,
+    );
+    let second = f.editor.open_review(
+        review_request(&f, &path, ReviewComparison::Unstaged),
+        Action::VerticalSplit,
+        None,
+    );
+    assert_ne!(first, second);
+    finish_review(&mut f, first).await?;
+    finish_review(&mut f, second).await?;
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while !f.editor.file_watcher.is_watching(&path) {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await?;
+    assert!(f.editor.close_document(first, true).is_ok());
+    assert!(f.editor.file_watcher.is_watching(&path));
+    assert!(f.editor.close_document(second, true).is_ok());
+    assert!(!f.editor.file_watcher.is_watching(&path));
+    Ok(())
+}
