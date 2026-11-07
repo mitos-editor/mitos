@@ -12,6 +12,7 @@ homepage.workspace = true
 
 [dependencies]
 core.workspace = true
+memchr.workspace = true
 ignore.workspace = true
 grep-matcher.workspace = true
 grep-regex.workspace = true
@@ -32,4 +33,8 @@ harness = false
 
 [[bench]]
 name = "selected_replacement"
+harness = false
+
+[[bench]]
+name = "match_coordinates"
 harness = false

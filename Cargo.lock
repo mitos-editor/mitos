@@ -4324,6 +4324,7 @@ dependencies = [
  "grep-searcher",
  "ignore",
  "log",
+ "memchr",
  "tempfile",
 ]
 
