@@ -199,6 +199,50 @@ async fn test_move_parent_node_start() -> anyhow::Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn goto_comments_across_injected_layers() -> anyhow::Result<()> {
+    for (file, input, keys, expected) in [
+        (
+            "foo.scm",
+            "#[|]#(define x 1)\n; one\n(define y 2)\n; twö\n",
+            "]c]c",
+            "(define x 1)\n; one\n(define y 2)\n#[; twö|]#\n",
+        ),
+        (
+            "foo.scm",
+            "(define x 1)\n; one\n(define y 2)\n; twö#[|]#\n",
+            "[c[c",
+            "(define x 1)\n#[|; one]#\n(define y 2)\n; twö\n",
+        ),
+        (
+            "queries/c/tags.scm",
+            "#[|]#(identifier) @type\n; one\n(identifier) @type\n; twö\n",
+            "]c]c",
+            "(identifier) @type\n; one\n(identifier) @type\n#[; twö|]#\n",
+        ),
+        (
+            "queries/c/tags.scm",
+            "(identifier) @type\n; caf#[|é]#\n",
+            "mic",
+            "(identifier) @type\n#[; café|]#\n",
+        ),
+    ] {
+        for line_ending in ["\n", "\r\n"] {
+            test_with_config(
+                AppBuilder::new().with_file(file, None),
+                (
+                    input.replace('\n', line_ending),
+                    keys,
+                    expected.replace('\n', line_ending),
+                    super::super::helpers::LineFeedHandling::AsIs,
+                ),
+            )
+            .await?;
+        }
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn test_smart_tab_move_parent_node_end() -> anyhow::Result<()> {
     let tests = vec![
         // single cursor stays single cursor, first goes to end of current
