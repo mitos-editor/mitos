@@ -1,8 +1,9 @@
 use editor_core::indent::{indent_level_for_line, IndentStyle};
+use gix::bstr::ByteSlice;
 use language::{indent::treesitter_indent_for_pos, syntax::Loader, Syntax};
 use language_config::Configuration;
 use ropey::Rope;
-use std::{ops::Range, path::PathBuf, process::Command, time::Duration};
+use std::{ops::Range, path::PathBuf, time::Duration};
 use stdx::rope::RopeExt as _;
 use stdx::rope::RopeSliceExt;
 
@@ -11,25 +12,39 @@ fn test_treesitter_indent_rust_mitos() {
     // We pin a specific git revision to prevent unrelated changes from causing the indent tests to fail.
     // Ideally, someone updates this once in a while and fixes any errors that occur.
     let rev = "af382768cdaf89ff547dbd8f644a1bddd90e7c8f";
-    let files = Command::new("git")
-        .args([
-            "ls-tree",
-            "-r",
-            "--name-only",
-            "--full-tree",
-            rev,
-            "crates/term/src",
-        ])
-        .output()
-        .unwrap();
-    let files = String::from_utf8(files.stdout).unwrap();
+    let options = gix::open::Options::isolated();
+    let repo = gix::ThreadSafeRepository::discover_opts(
+        env!("CARGO_MANIFEST_DIR"),
+        Default::default(),
+        gix::sec::trust::Mapping {
+            full: options.clone(),
+            reduced: options,
+        },
+    )
+    .expect("discover fixture repository")
+    .to_thread_local();
+    let revision = gix::ObjectId::from_hex(rev.as_bytes()).unwrap();
+    let Some(commit) = repo
+        .try_find_object(revision)
+        .expect("read pinned indentation corpus")
+    else {
+        eprintln!("Skipping historical indentation corpus: revision {rev} is unavailable");
+        return;
+    };
+    let tree = commit.try_into_commit().unwrap().tree().unwrap();
+    let mut files = tree.traverse().breadthfirst.files().unwrap();
+    files.sort_by(|left, right| left.filepath.cmp(&right.filepath));
 
     let ignored_files = [
         // Contains many macros that tree-sitter does not parse in a meaningful way and is otherwise not very interesting
         "crates/term/src/health.rs",
     ];
 
-    for file in files.split_whitespace() {
+    for entry in files {
+        let file = entry.filepath.to_str().unwrap();
+        if !file.starts_with("crates/term/src/") {
+            continue;
+        }
         if ignored_files.contains(&file) {
             continue;
         }
@@ -100,12 +115,8 @@ fn test_treesitter_indent_rust_mitos() {
             _ => Vec::new(),
         };
 
-        let git_object = rev.to_string() + ":" + file;
-        let content = Command::new("git")
-            .args(["cat-file", "blob", &git_object])
-            .output()
-            .unwrap();
-        let doc = Rope::from_reader(&mut content.stdout.as_slice()).unwrap();
+        let content = repo.find_blob(entry.oid).expect("read pinned source file");
+        let doc = Rope::from_reader(&mut content.data.as_slice()).unwrap();
         test_treesitter_indent(file, doc, "source.rust", ignored_lines);
     }
 }

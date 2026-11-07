@@ -2864,6 +2864,7 @@ dependencies = [
  "arc-swap",
  "core",
  "foldhash 0.2.0",
+ "gix",
  "globset",
  "language-config",
  "loader",
