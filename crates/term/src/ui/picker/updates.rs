@@ -10,6 +10,14 @@ pub(super) type QueryUpdates<D> = Box<dyn FnMut(&mut Editor, &D) -> bool>;
 /// Feature-owned state is sampled on redraw without rebuilding unchanged rows.
 pub(crate) struct UpdateContext<'a, T> {
     pub editor: &'a mut Editor,
+    /// Search input, including column filters.
+    pub query: &'a str,
+    /// Selection or viewport is within one screen of the final matched row.
+    pub near_end: bool,
+    /// Persistent source status displayed below the search input.
+    pub status: &'a mut Option<String>,
+    /// Loaded rows cover only part of the source; their count is not its total.
+    pub incomplete: &'a mut bool,
     pub selected: Option<&'a T>,
     pub task: &'a mut event::TaskController,
     /// A cached picker was restored and may have discarded an unpublished refresh.
@@ -23,6 +31,8 @@ pub(super) struct EditorUpdates<T> {
     same: fn(&T, &T) -> bool,
     pub task: event::TaskController,
     pub resumed: bool,
+    pub status: Option<String>,
+    pub incomplete: bool,
 }
 
 impl<T: Send + Sync + 'static, D: Send + Sync + 'static> Picker<T, D> {
@@ -90,6 +100,8 @@ impl<T: Send + Sync + 'static, D: Send + Sync + 'static> Picker<T, D> {
             same: T::eq,
             task: event::TaskController::new(),
             resumed: false,
+            status: None,
+            incomplete: false,
         });
         self
     }
@@ -109,6 +121,21 @@ impl<T: Send + Sync + 'static, D: Send + Sync + 'static> Picker<T, D> {
         let resumed = std::mem::take(&mut updates.resumed);
         if let Some(options) = (updates.refresh)(UpdateContext {
             editor,
+            query: self.prompt.line(),
+            near_end: {
+                let count = self.results.matcher.snapshot().matched_item_count();
+                let height = u32::from(self.completion_height);
+                count > 0
+                    && self
+                        .results
+                        .cursor
+                        .saturating_add(1)
+                        .max(self.results.offset.saturating_add(height))
+                        .saturating_add(height)
+                        >= count
+            },
+            status: &mut updates.status,
+            incomplete: &mut updates.incomplete,
             selected: self.selection(),
             task: &mut updates.task,
             resumed,

@@ -172,3 +172,138 @@ async fn merge_files_use_the_explicit_parent_and_missing_objects_report_errors()
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn repository_history_uses_git_default_order_across_merged_branches() -> Result<()> {
+    let dir = empty_git_repo();
+    std::fs::write(dir.path().join("file.txt"), "root\n")?;
+    commit(dir.path(), "root");
+    let repo = GitRepository::discover(dir.path())?;
+    let root = current(&repo).id;
+    let tree = repo.open(false)?.head_commit()?.tree_id()?.to_string();
+    async fn create(
+        repo: &GitRepository,
+        tree: &str,
+        parents: &[&RevisionId],
+        time: u64,
+        subject: &str,
+    ) -> Result<RevisionId> {
+        let mut cmd = repo.command();
+        cmd.args(["commit-tree", tree, "-m", subject])
+            .env("GIT_AUTHOR_NAME", "History Test")
+            .env("GIT_AUTHOR_EMAIL", "history@example.com")
+            .env("GIT_COMMITTER_NAME", "History Test")
+            .env("GIT_COMMITTER_EMAIL", "history@example.com")
+            .env("GIT_AUTHOR_DATE", format!("{time} +0000"))
+            .env("GIT_COMMITTER_DATE", format!("{time} +0000"));
+        for parent in parents {
+            cmd.args(["-p", parent.as_str()]);
+        }
+        let id = run(cmd).await?;
+        RevisionId::parse(std::str::from_utf8(&id)?.trim())
+    }
+    let side_old = create(&repo, &tree, &[&root], 1_600_000_100, "side old").await?;
+    let main = create(&repo, &tree, &[&root], 1_600_000_200, "main").await?;
+    let side_new = create(&repo, &tree, &[&side_old], 1_600_000_300, "side new").await?;
+    let merge = create(&repo, &tree, &[&main, &side_new], 1_600_000_400, "merge").await?;
+    let mut update = repo.command();
+    update.args(["update-ref", "HEAD", merge.as_str()]);
+    run(update).await?;
+    let cursor = repo.history_cursor(None)?.unwrap();
+    let page = repo.history_page(cursor).await?;
+    let subjects: Vec<_> = page
+        .commits
+        .iter()
+        .map(|commit| commit.subject.as_str())
+        .collect();
+    assert_eq!(subjects, ["merge", "side new", "main", "side old", "root"]);
+    assert!(page.next.is_none());
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn history_reads_work_without_git_executable() -> Result<()> {
+    const FIXTURE: &str = "MITOS_NATIVE_HISTORY_FIXTURE";
+    if let Some(root) = std::env::var_os(FIXTURE) {
+        let root = PathBuf::from(root);
+        let repo = GitRepository::discover(&root)?;
+        let cursor = repo
+            .history_cursor(Some(&root.join("new name.txt")))?
+            .unwrap();
+        let first = repo.history_page(cursor.clone()).await?;
+        assert_eq!(first.commits.len(), 2);
+        assert!(first.next.is_none());
+        assert_eq!(first.commits[0].subject, "renamed and edited");
+        assert_eq!(first.commits[0].date, "2024-01-02T10:30:00+00:00");
+        let renamed = first.commits[0].file.as_ref().unwrap();
+        assert_eq!(renamed.before.as_deref(), Some(Path::new("old name.txt")));
+        assert_eq!(renamed.after.as_deref(), Some(Path::new("new name.txt")));
+        assert!(renamed.status.starts_with('R'));
+        let files = repo.commit_files(&first.commits[0], 0).await?;
+        assert!(files.contains(renamed));
+        let current = RevisionFile::new(first.commits[0].id.clone(), "new name.txt".into())?;
+        assert!(repo
+            .read_revision_file(&current, false)?
+            .ends_with(b"edited\n"));
+        let repeated = repo.history_page(cursor).await?;
+        assert_eq!(
+            first.commits, repeated.commits,
+            "cursor retries must be stable"
+        );
+        assert_eq!(
+            repo.history_page(repo.history_cursor(None)?.unwrap())
+                .await?
+                .commits
+                .len(),
+            2
+        );
+        return Ok(());
+    }
+    let dir = empty_git_repo();
+    let root = dir.path();
+    let original: String = (0..20).map(|i| format!("line {i}\n")).collect();
+    std::fs::write(root.join("old name.txt"), &original)?;
+    std::fs::write(root.join(".gitattributes"), "*.txt text eol=lf\n")?;
+    commit(root, "root");
+    exec_git_cmd(&["mv", "old name.txt", "new name.txt"], root);
+    std::fs::write(root.join("new name.txt"), original + "edited\n")?;
+    exec_git_cmd(&["add", "."], root);
+    let committed = std::process::Command::new("git")
+        .arg("-C")
+        .arg(root)
+        .args([
+            "-c",
+            "commit.gpgsign=false",
+            "commit",
+            "-m",
+            "renamed and edited",
+        ])
+        .env_remove("GIT_DIR")
+        .env("GIT_AUTHOR_DATE", "2020-01-01T23:30:00-1100")
+        .env("GIT_COMMITTER_DATE", "2024-01-01T23:30:00-1100")
+        .output()?;
+    ensure!(
+        committed.status.success(),
+        "{}",
+        String::from_utf8_lossy(&committed.stderr)
+    );
+    let no_programs = tempfile::tempdir()?;
+    let child = std::process::Command::new(std::env::current_exe()?)
+        .args([
+            "--exact",
+            "operations::history::tests::history_reads_work_without_git_executable",
+            "--nocapture",
+        ])
+        .env(FIXTURE, root)
+        .env("PATH", no_programs.path())
+        .env("GIT_EXEC_PATH", no_programs.path())
+        .output()?;
+    ensure!(
+        child.status.success(),
+        "native history without Git failed:\n{}\n{}",
+        String::from_utf8_lossy(&child.stdout),
+        String::from_utf8_lossy(&child.stderr)
+    );
+    Ok(())
+}

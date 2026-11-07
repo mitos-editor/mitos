@@ -16,6 +16,8 @@ pub(crate) mod scroll;
 #[cfg(test)]
 mod scroll_tests;
 #[cfg(test)]
+mod status_tests;
+#[cfg(test)]
 pub(crate) mod test;
 mod updates;
 
@@ -910,7 +912,15 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                 ""
             },
             snapshot.matched_item_count(),
-            snapshot.item_count(),
+            if self
+                .editor_updates
+                .as_ref()
+                .is_some_and(|updates| updates.incomplete || self.results.is_refreshing())
+            {
+                "?".to_owned()
+            } else {
+                snapshot.item_count().to_string()
+            },
         );
 
         let prompt_area = input_areas.search.clip_left(1);
@@ -938,6 +948,20 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         let sep_style = cx.editor.theme.get("ui.background.separator");
         panel::top_border(sep_style, cx.editor.config().border_style)
             .render(input_areas.search_separator, surface);
+        if let Some(status) = self
+            .editor_updates
+            .as_ref()
+            .and_then(|updates| updates.status.as_ref())
+        {
+            // Source status uses the existing separator so it cannot shrink the query
+            // or consume result rows, including when a preview narrows the picker.
+            Paragraph::new(status.as_str())
+                .style(cx.editor.theme.get("ui.text.inactive"))
+                .render(
+                    input_areas.search_separator.clip_left(1).clip_right(1),
+                    surface,
+                );
+        }
         if let Some(area) = input_areas.replacement_separator {
             panel::top_border(sep_style, cx.editor.config().border_style).render(area, surface);
         }

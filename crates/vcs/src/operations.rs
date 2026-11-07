@@ -182,7 +182,7 @@ impl GitRepository {
             .ancestors()
             .find(|path| path.is_dir())
             .context("Git scope no longer exists")?;
-        let repo = crate::git::open_repo_for_operations(directory, false)?.to_thread_local();
+        let repo = crate::git::open_repo_for_history(directory, false)?.to_thread_local();
         let root = stdx::path::canonicalize_existing(
             repo.workdir()
                 .context("Git repository has no working tree")?,
@@ -315,7 +315,15 @@ impl GitRepository {
     }
 
     pub(super) fn open(&self, trusted: bool) -> Result<gix::Repository> {
-        let repo = crate::git::open_repo_for_operations(&self.root, trusted)?.to_thread_local();
+        self.verify_repository(crate::git::open_repo_for_operations(&self.root, trusted)?)
+    }
+
+    fn open_history(&self, trusted: bool) -> Result<gix::Repository> {
+        self.verify_repository(crate::git::open_repo_for_history(&self.root, trusted)?)
+    }
+
+    fn verify_repository(&self, repository: gix::ThreadSafeRepository) -> Result<gix::Repository> {
+        let repo = repository.to_thread_local();
         ensure!(
             stdx::path::canonicalize_existing(repo.git_dir()) == self.git_dir
                 && stdx::path::canonicalize_existing(repo.common_dir()) == self.common_dir

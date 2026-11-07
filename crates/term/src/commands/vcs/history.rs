@@ -5,15 +5,7 @@ use crate::{
     ui::{overlay::overlaid, picker::PickerCallbackResult, Picker, PickerColumn},
 };
 use anyhow::Result;
-use std::{
-    cell::RefCell,
-    path::PathBuf,
-    rc::Rc,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc,
-    },
-};
+use std::{cell::RefCell, path::PathBuf, rc::Rc, sync::Arc};
 use tui::text::Span;
 use vcs::operations::{
     history::{CommitEntry, HistoryCursor, HistoryFile, HistoryPage, RevisionFile},
@@ -21,11 +13,9 @@ use vcs::operations::{
 };
 use view::{features::change_review::HistoricalReviewRequest, DocumentId, Editor};
 
-#[derive(Clone, PartialEq, Eq)]
-enum Row {
-    Commit(CommitEntry),
-    More,
-}
+#[cfg(test)]
+mod tests;
+
 #[derive(Clone)]
 struct Data {
     repo: GitRepository,
@@ -42,7 +32,12 @@ pub(super) fn file_history(editor: &Editor) -> Result<Box<dyn Component>> {
         .to_owned();
     let repo = GitRepository::discover(&path)?;
     let buffer = doc.path().map(|_| doc.id());
-    browser(editor, repo, Some(path), buffer)
+    Ok(Box::new(overlaid(browser(
+        editor,
+        repo,
+        Some(path),
+        buffer,
+    )?)))
 }
 
 pub(super) fn repository_history(editor: &Editor) -> Result<Box<dyn Component>> {
@@ -51,7 +46,12 @@ pub(super) fn repository_history(editor: &Editor) -> Result<Box<dyn Component>> 
         .display_metadata()
         .source_path
         .map_or_else(stdx::env::current_working_dir, |path| path.to_owned());
-    browser(editor, GitRepository::discover(&path)?, None, None)
+    Ok(Box::new(overlaid(browser(
+        editor,
+        GitRepository::discover(&path)?,
+        None,
+        None,
+    )?)))
 }
 
 fn browser(
@@ -59,15 +59,13 @@ fn browser(
     repo: GitRepository,
     path: Option<PathBuf>,
     buffer: Option<DocumentId>,
-) -> Result<Box<dyn Component>> {
+) -> Result<Picker<CommitEntry, Data>> {
     let cursor = repo.history_cursor(path.as_deref())?;
     let title = if path.is_some() {
         "File history · first parent · Enter review"
     } else {
         "Git history · Enter files"
     };
-    let requested = Arc::new(AtomicBool::new(true));
-    let more = requested.clone();
     let data = Data {
         repo: repo.clone(),
         buffer,
@@ -81,78 +79,59 @@ fn browser(
         cursor,
         pending: None,
         rows: Vec::new(),
-        requested,
-        exhausted: false,
+        failed: false,
+        capped: false,
     };
     let picker = Picker::new_with_callback_result(
         editor.redraw().clone(),
         [
-            PickerColumn::new("commit", |row: &Row, data: &Data| match row {
-                Row::Commit(c) => Span::styled(c.id.short(), data.theme.get("constant")).into(),
-                Row::More => Span::styled("…", data.theme.get("ui.text.inactive")).into(),
+            PickerColumn::new("commit", |c: &CommitEntry, data: &Data| {
+                Span::styled(c.id.short(), data.theme.get("constant")).into()
             }),
-            PickerColumn::new("date", |row: &Row, data| match row {
-                Row::Commit(c) => Span::styled(
+            PickerColumn::new("committed", |c: &CommitEntry, data: &Data| {
+                Span::styled(
                     c.date.get(..10).unwrap_or(&c.date),
                     data.theme.get("ui.text.inactive"),
                 )
-                .into(),
-                _ => "".into(),
+                .into()
             }),
-            PickerColumn::new("author", |row: &Row, data| match row {
-                Row::Commit(c) => {
-                    Span::styled(c.author.as_str(), data.theme.get("string.special")).into()
-                }
-                _ => "".into(),
+            PickerColumn::new("author", |c: &CommitEntry, data: &Data| {
+                Span::styled(c.author.as_str(), data.theme.get("string.special")).into()
             }),
-            PickerColumn::new("subject", |row: &Row, data| match row {
-                Row::Commit(c) => c.subject.as_str().into(),
-                Row::More => Span::styled(
-                    "Load 100 older commits…",
-                    data.theme.get("ui.text.inactive"),
-                )
-                .into(),
+            PickerColumn::new("subject", |c: &CommitEntry, _: &Data| {
+                c.subject.as_str().into()
             }),
         ],
         3,
         [],
         data,
-        move |cx, row, action| match row {
-            Row::More => {
-                more.store(true, Ordering::Relaxed);
-                PickerCallbackResult::KeepOpen
-            }
-            Row::Commit(commit) => {
-                if let Some(file) = &commit.file {
-                    match review_request(cx.editor, &accept.repo, commit, file, 0) {
-                        Ok(request) => {
-                            cx.editor.open_historical_review(request, action);
-                        }
-                        Err(error) => {
-                            cx.editor.set_error(|| error.to_string());
-                            return PickerCallbackResult::KeepOpen;
-                        }
+        move |cx, commit, action| {
+            if let Some(file) = &commit.file {
+                match review_request(cx.editor, &accept.repo, commit, file, 0) {
+                    Ok(request) => {
+                        cx.editor.open_historical_review(request, action);
                     }
-                    PickerCallbackResult::Close
-                } else {
-                    let data = accept.clone();
-                    let commit = commit.clone();
-                    PickerCallbackResult::CloseWithCallback(Box::new(move |compositor, cx| {
-                        let parent = compositor.last_picker.take();
-                        compositor.push(Box::new(overlaid(files_picker(
-                            cx.editor, data, commit, 0, None, parent,
-                        ))));
-                    }))
+                    Err(error) => {
+                        cx.editor.set_error(|| error.to_string());
+                        return PickerCallbackResult::KeepOpen;
+                    }
                 }
+                PickerCallbackResult::Close
+            } else {
+                let data = accept.clone();
+                let commit = commit.clone();
+                PickerCallbackResult::CloseWithCallback(Box::new(move |compositor, cx| {
+                    let parent = compositor.last_picker.take();
+                    compositor.push(Box::new(overlaid(files_picker(
+                        cx.editor, data, commit, 0, None, parent,
+                    ))));
+                }))
             }
         },
     )
     .with_title(title)
     .with_help(|maps| super::actions::help(&maps.history_picker))
-    .with_item_key(|row| match row {
-        Row::Commit(c) => c.id.as_str().to_owned(),
-        Row::More => "more".into(),
-    })
+    .with_item_key(|c| c.id.as_str().to_owned())
     .with_editor_updates(move |cx| pager.update(cx))
     .with_item_actions(
         |maps| &maps.history_picker,
@@ -160,7 +139,7 @@ fn browser(
             if action != PickerItemAction::Actions {
                 return PickerCallbackResult::KeepOpen;
             }
-            let Some(Row::Commit(commit)) = row else {
+            let Some(commit) = row else {
                 return PickerCallbackResult::KeepOpen;
             };
             let data = actions.clone();
@@ -174,14 +153,8 @@ fn browser(
     );
     let picker = if path.is_some() {
         picker.with_custom_preview(crate::ui::change_review::HistoricalReviewPreview::new(
-            |row: &Row| match row {
-                Row::Commit(commit) if commit.file.is_some() => Some(commit.id.clone()),
-                _ => None,
-            },
-            move |editor, row| {
-                let Row::Commit(commit) = row else {
-                    anyhow::bail!("Select a commit to preview");
-                };
+            |commit: &CommitEntry| commit.file.as_ref().map(|_| commit.id.clone()),
+            move |editor, commit| {
                 review_request(
                     editor,
                     &preview_repo,
@@ -194,63 +167,64 @@ fn browser(
     } else {
         picker
     };
-    Ok(Box::new(overlaid(picker)))
+    Ok(picker)
 }
+
+const HISTORY_DISPLAY_LIMIT: usize = 5000;
 
 struct Pager {
     repo: GitRepository,
     cursor: Option<HistoryCursor>,
     pending: Option<tokio::sync::oneshot::Receiver<Result<HistoryPage>>>,
-    rows: Vec<Row>,
-    requested: Arc<AtomicBool>,
-    exhausted: bool,
+    rows: Vec<CommitEntry>,
+    failed: bool,
+    capped: bool,
 }
 impl Pager {
-    fn update(&mut self, cx: crate::ui::picker::UpdateContext<'_, Row>) -> Option<Vec<Row>> {
-        if cx.resumed && (self.pending.take().is_some() || self.rows.is_empty()) {
-            self.requested.store(true, Ordering::Relaxed);
+    fn update(
+        &mut self,
+        cx: crate::ui::picker::UpdateContext<'_, CommitEntry>,
+    ) -> Option<Vec<CommitEntry>> {
+        if cx.resumed {
+            self.pending = None;
+            self.failed = false;
         }
+        let mut changed = false;
         if let Some(pending) = &mut self.pending {
             match pending.try_recv() {
                 Ok(result) => {
                     self.pending = None;
                     match result {
                         Ok(page) => {
-                            self.rows.retain(|row| !matches!(row, Row::More));
-                            self.rows.extend(page.commits.into_iter().map(Row::Commit));
+                            self.rows.extend(page.commits);
                             self.cursor = page.next;
-                            if self.rows.len() >= 5000 {
+                            self.capped =
+                                self.rows.len() >= HISTORY_DISPLAY_LIMIT && self.cursor.is_some();
+                            if self.capped {
                                 self.cursor = None;
-                                cx.editor
-                                    .set_status("History display limit reached (5000 commits)");
                             }
-                            if self.cursor.is_some() {
-                                self.rows.push(Row::More);
-                            }
-                            self.exhausted = self.cursor.is_none();
-                            if self.rows.is_empty() {
-                                cx.editor.set_status("No commits in this history");
-                            }
-                            return Some(self.rows.clone());
+                            changed = true;
                         }
-                        Err(error) => cx.editor.set_error(|| error.to_string()),
+                        Err(error) => {
+                            self.failed = true;
+                            cx.editor.set_error(|| error.to_string());
+                        }
                     }
                 }
                 Err(tokio::sync::oneshot::error::TryRecvError::Closed) => {
                     self.pending = None;
+                    self.failed = true;
                 }
                 Err(tokio::sync::oneshot::error::TryRecvError::Empty) => {}
             }
         }
-        if self.pending.is_none()
-            && !self.exhausted
-            && self.requested.swap(false, Ordering::Relaxed)
+        // Wait for the published page to be matched before consulting its viewport.
+        if !changed
+            && self.pending.is_none()
+            && !self.failed
+            && (self.rows.is_empty() || !cx.query.trim().is_empty() || cx.near_end)
+            && let Some(cursor) = self.cursor.clone()
         {
-            let Some(cursor) = self.cursor.clone() else {
-                self.exhausted = true;
-                cx.editor.set_status("No commits in this history");
-                return Some(Vec::new());
-            };
             let repo = self.repo.clone();
             let cancel = cx.task.restart();
             let redraw = cx.editor.redraw().clone();
@@ -265,7 +239,19 @@ impl Pager {
                 }
             });
         }
-        None
+        *cx.incomplete = self.cursor.is_some() || self.capped || self.failed;
+        *cx.status = Some(if self.failed {
+            "History incomplete; reopen to retry".into()
+        } else if self.capped {
+            "5000 loaded; history limit reached".into()
+        } else if self.pending.is_some() {
+            "Loading history…".into()
+        } else if self.cursor.is_some() {
+            "More history available".into()
+        } else {
+            "Complete history".into()
+        });
+        changed.then(|| self.rows.clone())
     }
 }
 

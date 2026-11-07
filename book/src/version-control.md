@@ -32,7 +32,7 @@ g = "changed_file_picker"
 g = "changed_file_picker"
 ```
 
-Staging, stashes, and history browsing require the `git` executable on `PATH`.
+Staging and stashes require the `git` executable on `PATH`.
 
 ## Reviewing changes
 
@@ -369,12 +369,22 @@ connection failure, run the matching Git command in your terminal.
 Use history to review older changes or compare a past version with your current
 buffer. Browsing history does not check out revisions or change files or staged
 changes. Choose `git_file_history` or `git_history` from the command palette
-(`Space ?`), or use the commands below.
+(`Space ?`), or use the commands below. The **committed** column shows committer
+dates in UTC.
+
+Older commits load automatically as you scroll toward the end of the list.
+Searching also loads older commits; clear the query to stop searching further
+back. The status below the search field shows whether more history is available
+or loading.
+
+A `?` in the result count, such as `80/?`, means the full history has not loaded.
+Each picker loads up to 5000 commits and shows a notice when older history is
+excluded.
 
 ### File history
 
 Run `:file-history` to browse commits that changed the current file, following
-renames detected by Git. The preview shows the selected commit's diff against
+detected renames. The preview shows the selected commit's diff against
 its first parent. `Ctrl-t` hides or shows the preview; `Alt-k` / `Alt-j` or
 `Alt-Up` / `Alt-Down` scroll it.
 
@@ -415,10 +425,6 @@ to open the current file instead.
 
 Refreshing a historical comparison keeps the same revisions and any buffer text
 from when you opened it. Start a new comparison to include newer edits.
-
-History loads 100 commits at a time, up to 5000 per picker. Select
-**Load 100 older commits…** to continue; clear the query if that row is hidden by
-your filter. Filtering searches only commits already loaded.
 
 Remap history actions under `[keys.history-picker]`, which inherits shared picker
 bindings. See [Component keys](./remapping.md#component-keys).

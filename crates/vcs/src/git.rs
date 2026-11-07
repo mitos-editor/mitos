@@ -139,7 +139,7 @@ pub(super) fn repository_watched_paths(repo: &Repository) -> Result<Vec<PathBuf>
 }
 
 pub(super) fn open_repo(path: &Path, trust_full: bool) -> Result<ThreadSafeRepository> {
-    open_repo_impl(path, trust_full, true)
+    open_repo_impl(path, trust_full, true, true)
 }
 
 /// Preflight for mutations uses the selected repository rather than a launching Git process's
@@ -148,13 +148,19 @@ pub(super) fn open_repo_for_operations(
     path: &Path,
     trust_full: bool,
 ) -> Result<ThreadSafeRepository> {
-    open_repo_impl(path, trust_full, false)
+    open_repo_impl(path, trust_full, false, true)
+}
+
+/// Read-only native history must also work without Git for Windows installed.
+pub(super) fn open_repo_for_history(path: &Path, trust_full: bool) -> Result<ThreadSafeRepository> {
+    open_repo_impl(path, trust_full, false, false)
 }
 
 fn open_repo_impl(
     path: &Path,
     trust_full: bool,
     inherit_environment: bool,
+    allow_git_binary: bool,
 ) -> Result<ThreadSafeRepository> {
     // Discover paths before opening so gix's discovery cannot replace the caller's workspace
     // trust decision with an ownership check. `with(trust)` sets the initial level, but gix can
@@ -175,7 +181,7 @@ fn open_repo_impl(
         user: true,
         env: inherit_environment,
         includes: true,
-        git_binary: cfg!(windows),
+        git_binary: cfg!(windows) && allow_git_binary,
     };
 
     let mut permissions = gix::open::Permissions {
