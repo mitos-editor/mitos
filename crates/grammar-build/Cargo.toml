@@ -22,8 +22,8 @@ path = "src/build.rs"
 [dependencies]
 loader.workspace = true
 workspace.workspace = true
-stdx.workspace = true
 anyhow.workspace = true
 cc.workspace = true
 threadpool.workspace = true
 tempfile.workspace = true
+gix = { workspace = true, features = ["blocking-http-transport-reqwest-rust-tls", "worktree-mutation", "sha1", "sha256"] }
