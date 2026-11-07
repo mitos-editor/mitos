@@ -70,6 +70,7 @@ pub fn render_text(
     let mut reached_view_top = false;
     let mut trailing_line = usize::MAX;
     let mut trailing_start = 0;
+    let mut attempted_tail_line = usize::MAX;
 
     loop {
         let Some(mut grapheme) = formatter.next() else {
@@ -177,6 +178,26 @@ pub fn render_text(
             grapheme.visual_pos,
         );
         last_line_end = grapheme.visual_pos.col + grapheme_width;
+        // Formatting every offscreen grapheme makes a minified line cost a full
+        // traversal on each frame. Keep exact EOL geometry and fall back whenever
+        // text, annotations or pending decoration anchors need normal iteration.
+        if attempted_tail_line != grapheme.line_idx
+            && !matches!(grapheme.raw, Grapheme::Newline)
+            && grapheme.visual_pos.row >= renderer.offset.row
+            && formatter.next_visual_pos().col
+                >= renderer.offset.col + renderer.viewport.width as usize
+        {
+            attempted_tail_line = grapheme.line_idx;
+            if let Some(tail) =
+                formatter.try_skip_ascii_line_tail(decorations.next_grapheme_anchor())
+            {
+                last_line_end = tail.end_column;
+                if is_in_indent_area && let Some(column) = tail.first_non_whitespace_column {
+                    last_line_indent_level = column;
+                    is_in_indent_area = false;
+                }
+            }
+        }
     }
 
     renderer.draw_indent_guides(last_line_indent_level, last_line_pos.visual_line);

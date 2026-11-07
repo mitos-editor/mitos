@@ -86,6 +86,14 @@ pub struct DecorationManager<'a> {
 }
 
 impl<'a> DecorationManager<'a> {
+    pub(crate) fn next_grapheme_anchor(&self) -> usize {
+        self.decorations
+            .iter()
+            .map(|(_, next)| *next)
+            .min()
+            .unwrap_or(usize::MAX)
+    }
+
     pub fn add_decoration(&mut self, decoration: impl Decoration + 'a) {
         self.decorations.push((Box::new(decoration), 0));
     }

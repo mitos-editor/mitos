@@ -254,3 +254,87 @@ fn annotation_and_overlay() {
         "fooo  bar "
     );
 }
+#[test]
+fn ascii_tail_advancement_keeps_exact_eol_tabs_and_following_lines() {
+    use editor_core::Rope;
+    for source in [
+        format!("{}\nnext\nlast", "x \t".repeat(2_000)),
+        format!("{}\r\nnext\r\n", " \t ".repeat(2_000)),
+        "a".repeat(10_000),
+        format!("{}text\n", " \t".repeat(5_000)),
+    ] {
+        let text = Rope::from_str(&source);
+        let format = TextFormat::new_test(false);
+        let annotations = TextAnnotations::default();
+        let mut fast =
+            DocumentFormatter::new_at_prev_checkpoint(text.slice(..), &format, &annotations, 0);
+        let mut reference =
+            DocumentFormatter::new_at_prev_checkpoint(text.slice(..), &format, &annotations, 0);
+        for _ in 0..70 {
+            fast.next().unwrap();
+            reference.next().unwrap();
+        }
+        let tail = fast.try_skip_ascii_line_tail(usize::MAX).unwrap();
+        while reference.next_char_pos() < tail.end_char {
+            reference.next().unwrap();
+        }
+        assert_eq!(fast.next_visual_pos(), reference.next_visual_pos());
+        let collect =
+            |formatter: DocumentFormatter| formatter.map(|g| format!("{g:?}")).collect::<Vec<_>>();
+        assert_eq!(collect(fast), collect(reference));
+    }
+}
+
+#[test]
+fn unsupported_tail_or_pending_anchor_does_not_advance_formatter() {
+    use editor_core::Rope;
+    for suffix in ["界", "é", "\x1b", "\0", "\x7f"] {
+        let text = Rope::from_str(&format!("{}{suffix}\nnext", "a".repeat(10_000)));
+        let format = TextFormat::new_test(false);
+        let annotations = TextAnnotations::default();
+        let mut formatter =
+            DocumentFormatter::new_at_prev_checkpoint(text.slice(..), &format, &annotations, 0);
+        formatter.next();
+        let before = (formatter.next_char_pos(), formatter.next_visual_pos());
+        assert!(formatter.try_skip_ascii_line_tail(usize::MAX).is_none());
+        assert_eq!(
+            (formatter.next_char_pos(), formatter.next_visual_pos()),
+            before
+        );
+    }
+    let text = Rope::from_str("abcdefgh\nnext");
+    let format = TextFormat::new_test(false);
+    let annotations = TextAnnotations::default();
+    let mut formatter =
+        DocumentFormatter::new_at_prev_checkpoint(text.slice(..), &format, &annotations, 0);
+    formatter.next();
+    assert!(formatter.try_skip_ascii_line_tail(7).is_none());
+    assert_eq!(formatter.next_char_pos(), 1);
+    assert_eq!(formatter.try_skip_ascii_line_tail(8).unwrap().end_column, 8);
+}
+#[test]
+fn ascii_tail_preserves_standalone_controls_and_unicode_separators() {
+    use editor_core::Rope;
+    for ending in ["\r", "\u{85}", "\u{2028}", "\u{2029}", "\x0b", "\x0c"] {
+        let text = Rope::from_str(&format!("short{ending}{}", "a".repeat(1_000)));
+        let format = TextFormat::new_test(false);
+        let annotations = TextAnnotations::default();
+        let mut formatter =
+            DocumentFormatter::new_at_prev_checkpoint(text.slice(..), &format, &annotations, 0);
+        let mut reference =
+            DocumentFormatter::new_at_prev_checkpoint(text.slice(..), &format, &annotations, 0);
+        for _ in 0..100 {
+            formatter.next().unwrap();
+            reference.next().unwrap();
+        }
+        let tail = formatter.try_skip_ascii_line_tail(usize::MAX);
+        if let Some(tail) = tail {
+            while reference.next_char_pos() < tail.end_char {
+                reference.next().unwrap();
+            }
+        }
+        let collect =
+            |formatter: DocumentFormatter| formatter.map(|g| format!("{g:?}")).collect::<Vec<_>>();
+        assert_eq!(collect(formatter), collect(reference));
+    }
+}

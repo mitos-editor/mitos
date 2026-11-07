@@ -22,3 +22,7 @@ ratatui-core.workspace = true
 
 [dev-dependencies]
 toml.workspace = true
+
+[[bench]]
+name = "long_lines"
+harness = false
