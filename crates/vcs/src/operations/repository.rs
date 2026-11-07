@@ -157,15 +157,10 @@ async fn pull(repo: &GitRepository, remote: &str) -> Result<()> {
     fetch.args(["fetch", "--no-recurse-submodules", "--", remote, &reference]);
     run_private(fetch, "Fetch for pull").await?;
 
-    // Resolve FETCH_HEAD once. Never ask the eventual merge to resolve a moving ref.
-    let mut resolve = repo.command();
-    resolve.args(["rev-parse", "--verify", "FETCH_HEAD^{commit}"]);
-    let bytes = run_private(resolve, "Read fetched commit").await?;
-    let target = history::RevisionId::parse(std::str::from_utf8(&bytes)?.trim())?;
     let validate = repo.clone();
-    tokio::task::spawn_blocking(move || {
+    let target = tokio::task::spawn_blocking(move || {
         let git = validate
-            .open(true)
+            .open_read(true)
             .map_err(|_| anyhow::anyhow!("Could not read Git repository settings"))?;
         let name = format!("refs/heads/{branch}");
         ensure!(
@@ -176,7 +171,7 @@ async fn pull(repo: &GitRepository, remote: &str) -> Result<()> {
                 && git.state().is_none(),
             "Git branch or HEAD changed during fetch; retry pull"
         );
-        Ok::<_, anyhow::Error>(())
+        fetched_commit(&git)
     })
     .await??;
 
@@ -196,6 +191,14 @@ async fn pull(repo: &GitRepository, remote: &str) -> Result<()> {
     run_private(merge, "Pull (fast-forward only)")
         .await
         .map(|_| ())
+}
+
+// Resolve and peel once so checkout receives an immutable commit ID.
+fn fetched_commit(repo: &gix::Repository) -> Result<history::RevisionId> {
+    let id = repo
+        .rev_parse_single("FETCH_HEAD^{commit}")
+        .map_err(|_| anyhow::anyhow!("Could not read fetched commit; retry pull"))?;
+    history::RevisionId::parse(&id.to_string())
 }
 
 fn current_head(repo: &gix::Repository) -> Result<Option<gix::ObjectId>> {

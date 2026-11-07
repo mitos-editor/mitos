@@ -560,3 +560,19 @@ async fn repository_lists_work_without_git_executable() -> Result<()> {
     );
     Ok(())
 }
+
+#[test]
+fn fetched_commit_is_pinned_and_rejects_noncommits() -> Result<()> {
+    let dir = initial()?;
+    let repository = GitRepository::discover(dir.path())?;
+    let repo = repository.open_read(false)?;
+    let id = repo.head_id()?;
+    let path = repo.git_dir().join("FETCH_HEAD");
+    std::fs::write(&path, format!("{id}\t\tbranch 'main' of local-fixture\n"))?;
+    let pinned = fetched_commit(&repo)?;
+    assert_eq!(pinned.as_str(), id.to_string());
+    std::fs::write(&path, format!("{}\t\tinvalid tree\n", repo.head_tree_id()?))?;
+    assert!(fetched_commit(&repo).is_err());
+    assert_eq!(pinned.as_str(), id.to_string());
+    Ok(())
+}
