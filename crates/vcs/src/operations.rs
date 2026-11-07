@@ -1,5 +1,5 @@
-//! Optional Git workflows. Reads use captured repository paths; writes use Git's index locking
-//! and filter semantics, never a shell. Frontends own authorization and document coordination.
+//! Optional Git workflows. Reads use captured repository paths; writes respect index locking
+//! and clean-filter semantics. Frontends own authorization and document coordination.
 
 use std::{
     path::{Path, PathBuf},
@@ -18,6 +18,8 @@ use crate::{FileChange, FileStatus};
 pub mod history;
 pub mod repository;
 pub use repository::RepositoryOperation;
+mod index;
+mod stage;
 mod stash;
 mod unstage;
 pub use stash::{StashEntry, StashFile, StashLayer};
@@ -121,6 +123,16 @@ impl PreparedOperation {
     pub async fn execute(self) -> Result<()> {
         let prepared = tokio::task::spawn_blocking(move || {
             self.ensure_current()?;
+            if matches!(
+                self.operation,
+                Operation::File {
+                    kind: FileOperation::Stage,
+                    ..
+                }
+            ) && self.stage()?
+            {
+                return Ok(None);
+            }
             if matches!(
                 self.operation,
                 Operation::File {
