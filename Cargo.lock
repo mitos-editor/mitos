@@ -645,6 +645,7 @@ dependencies = [
  "anyhow",
  "dap-types",
  "log",
+ "protocol-io",
  "serde",
  "serde_json",
  "slotmap",
@@ -2629,6 +2630,7 @@ dependencies = [
  "log",
  "lsp-types",
  "parking_lot",
+ "protocol-io",
  "serde",
  "serde_json",
  "slotmap",
@@ -3206,6 +3208,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "962200e2d7d551451297d9fdce85138374019ada198e30ea9ede38034e27604c"
 dependencies = [
  "parking_lot",
+]
+
+[[package]]
+name = "protocol-io"
+version = "0.1.3"
+dependencies = [
+ "thiserror 2.0.21",
+ "tokio",
 ]
 
 [[package]]

@@ -13,6 +13,7 @@ members = [
   "crates/term",
   "crates/tui",
   "crates/lsp",
+  "crates/protocol-io",
   "crates/event",
   "crates/dap-types",
   "crates/dap",
@@ -65,6 +66,7 @@ package.term.opt-level = 1
 package.term.debug = 1
 
 [workspace.dependencies]
+protocol-io = { path = "crates/protocol-io" }
 # Workspace crates
 command-line = { path = "crates/command-line" }
 core = { path = "crates/core" }

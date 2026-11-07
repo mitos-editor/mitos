@@ -60,205 +60,60 @@ pub struct ExceptionBreakpointsFilter {
     pub condition_description: Option<String>,
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DebuggerCapabilities {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub supports_configuration_done_request: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub supports_function_breakpoints: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub supports_conditional_breakpoints: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub supports_hit_conditional_breakpoints: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub supports_evaluate_for_hovers: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub supports_step_back: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub supports_set_variable: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub supports_restart_frame: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub supports_goto_targets_request: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub supports_step_in_targets_request: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub supports_completions_request: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub supports_modules_request: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub supports_restart_request: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub supports_exception_options: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub supports_value_formatting_options: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub supports_exception_info_request: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub support_terminate_debuggee: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub support_suspend_debuggee: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub supports_delayed_stack_trace_loading: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub supports_loaded_sources_request: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub supports_log_points: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub supports_terminate_threads_request: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub supports_set_expression: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub supports_terminate_request: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub supports_data_breakpoints: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub supports_read_memory_request: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub supports_write_memory_request: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub supports_disassemble_request: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub supports_cancel_request: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub supports_breakpoint_locations_request: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub supports_clipboard_context: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub supports_stepping_granularity: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub supports_instruction_breakpoints: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub supports_exception_filter_options: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub exception_breakpoint_filters: Option<Vec<ExceptionBreakpointsFilter>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub completion_trigger_characters: Option<Vec<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub additional_module_columns: Option<Vec<ColumnDescriptor>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub supported_checksum_algorithms: Option<Vec<String>>,
-}
-
-impl DebuggerCapabilities {
-    /// Apply a capabilities event, preserving fields omitted by the adapter.
-    pub fn apply_update(&mut self, update: Self) {
-        *self = Self {
-            supports_configuration_done_request: update
-                .supports_configuration_done_request
-                .or(self.supports_configuration_done_request.take()),
-            supports_function_breakpoints: update
-                .supports_function_breakpoints
-                .or(self.supports_function_breakpoints.take()),
-            supports_conditional_breakpoints: update
-                .supports_conditional_breakpoints
-                .or(self.supports_conditional_breakpoints.take()),
-            supports_hit_conditional_breakpoints: update
-                .supports_hit_conditional_breakpoints
-                .or(self.supports_hit_conditional_breakpoints.take()),
-            supports_evaluate_for_hovers: update
-                .supports_evaluate_for_hovers
-                .or(self.supports_evaluate_for_hovers.take()),
-            supports_step_back: update.supports_step_back.or(self.supports_step_back.take()),
-            supports_set_variable: update
-                .supports_set_variable
-                .or(self.supports_set_variable.take()),
-            supports_restart_frame: update
-                .supports_restart_frame
-                .or(self.supports_restart_frame.take()),
-            supports_goto_targets_request: update
-                .supports_goto_targets_request
-                .or(self.supports_goto_targets_request.take()),
-            supports_step_in_targets_request: update
-                .supports_step_in_targets_request
-                .or(self.supports_step_in_targets_request.take()),
-            supports_completions_request: update
-                .supports_completions_request
-                .or(self.supports_completions_request.take()),
-            supports_modules_request: update
-                .supports_modules_request
-                .or(self.supports_modules_request.take()),
-            supports_restart_request: update
-                .supports_restart_request
-                .or(self.supports_restart_request.take()),
-            supports_exception_options: update
-                .supports_exception_options
-                .or(self.supports_exception_options.take()),
-            supports_value_formatting_options: update
-                .supports_value_formatting_options
-                .or(self.supports_value_formatting_options.take()),
-            supports_exception_info_request: update
-                .supports_exception_info_request
-                .or(self.supports_exception_info_request.take()),
-            support_terminate_debuggee: update
-                .support_terminate_debuggee
-                .or(self.support_terminate_debuggee.take()),
-            support_suspend_debuggee: update
-                .support_suspend_debuggee
-                .or(self.support_suspend_debuggee.take()),
-            supports_delayed_stack_trace_loading: update
-                .supports_delayed_stack_trace_loading
-                .or(self.supports_delayed_stack_trace_loading.take()),
-            supports_loaded_sources_request: update
-                .supports_loaded_sources_request
-                .or(self.supports_loaded_sources_request.take()),
-            supports_log_points: update
-                .supports_log_points
-                .or(self.supports_log_points.take()),
-            supports_terminate_threads_request: update
-                .supports_terminate_threads_request
-                .or(self.supports_terminate_threads_request.take()),
-            supports_set_expression: update
-                .supports_set_expression
-                .or(self.supports_set_expression.take()),
-            supports_terminate_request: update
-                .supports_terminate_request
-                .or(self.supports_terminate_request.take()),
-            supports_data_breakpoints: update
-                .supports_data_breakpoints
-                .or(self.supports_data_breakpoints.take()),
-            supports_read_memory_request: update
-                .supports_read_memory_request
-                .or(self.supports_read_memory_request.take()),
-            supports_write_memory_request: update
-                .supports_write_memory_request
-                .or(self.supports_write_memory_request.take()),
-            supports_disassemble_request: update
-                .supports_disassemble_request
-                .or(self.supports_disassemble_request.take()),
-            supports_cancel_request: update
-                .supports_cancel_request
-                .or(self.supports_cancel_request.take()),
-            supports_breakpoint_locations_request: update
-                .supports_breakpoint_locations_request
-                .or(self.supports_breakpoint_locations_request.take()),
-            supports_clipboard_context: update
-                .supports_clipboard_context
-                .or(self.supports_clipboard_context.take()),
-            supports_stepping_granularity: update
-                .supports_stepping_granularity
-                .or(self.supports_stepping_granularity.take()),
-            supports_instruction_breakpoints: update
-                .supports_instruction_breakpoints
-                .or(self.supports_instruction_breakpoints.take()),
-            supports_exception_filter_options: update
-                .supports_exception_filter_options
-                .or(self.supports_exception_filter_options.take()),
-            exception_breakpoint_filters: update
-                .exception_breakpoint_filters
-                .or(self.exception_breakpoint_filters.take()),
-            completion_trigger_characters: update
-                .completion_trigger_characters
-                .or(self.completion_trigger_characters.take()),
-            additional_module_columns: update
-                .additional_module_columns
-                .or(self.additional_module_columns.take()),
-            supported_checksum_algorithms: update
-                .supported_checksum_algorithms
-                .or(self.supported_checksum_algorithms.take()),
-        };
+macro_rules! capabilities {
+    ($($field:ident: $ty:ty),* $(,)?) => {
+        #[derive(Debug, PartialEq, Eq, Clone, Deserialize, Serialize)]
+        #[serde(rename_all = "camelCase")]
+        pub struct DebuggerCapabilities {
+            $(#[serde(skip_serializing_if = "Option::is_none")] pub $field: Option<$ty>,)*
+        }
+        impl DebuggerCapabilities {
+            /// Replace supplied fields, preserving capabilities omitted by the adapter.
+            pub fn apply_update(&mut self, update: Self) {
+                $(if update.$field.is_some() { self.$field = update.$field; })*
+            }
+        }
     }
+}
+capabilities! {
+    supports_configuration_done_request: bool,
+    supports_function_breakpoints: bool,
+    supports_conditional_breakpoints: bool,
+    supports_hit_conditional_breakpoints: bool,
+    supports_evaluate_for_hovers: bool,
+    supports_step_back: bool,
+    supports_set_variable: bool,
+    supports_restart_frame: bool,
+    supports_goto_targets_request: bool,
+    supports_step_in_targets_request: bool,
+    supports_completions_request: bool,
+    supports_modules_request: bool,
+    supports_restart_request: bool,
+    supports_exception_options: bool,
+    supports_value_formatting_options: bool,
+    supports_exception_info_request: bool,
+    support_terminate_debuggee: bool,
+    support_suspend_debuggee: bool,
+    supports_delayed_stack_trace_loading: bool,
+    supports_loaded_sources_request: bool,
+    supports_log_points: bool,
+    supports_terminate_threads_request: bool,
+    supports_set_expression: bool,
+    supports_terminate_request: bool,
+    supports_data_breakpoints: bool,
+    supports_read_memory_request: bool,
+    supports_write_memory_request: bool,
+    supports_disassemble_request: bool,
+    supports_cancel_request: bool,
+    supports_breakpoint_locations_request: bool,
+    supports_clipboard_context: bool,
+    supports_stepping_granularity: bool,
+    supports_instruction_breakpoints: bool,
+    supports_exception_filter_options: bool,
+    exception_breakpoint_filters: Vec<ExceptionBreakpointsFilter>,
+    completion_trigger_characters: Vec<String>,
+    additional_module_columns: Vec<ColumnDescriptor>,
+    supported_checksum_algorithms: Vec<String>,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Deserialize, Serialize)]
@@ -1284,17 +1139,14 @@ pub enum ConnectionType {
 }
 
 #[test]
-fn test_deserialize_module_id_from_number() {
-    let raw = r#"{"id": 0, "name": "Name"}"#;
-    let module: Module = serde_json::from_str(raw).expect("Error!");
-    assert_eq!(module.id, "0");
-}
-
-#[test]
-fn test_deserialize_module_id_from_string() {
-    let raw = r#"{"id": "0", "name": "Name"}"#;
-    let module: Module = serde_json::from_str(raw).expect("Error!");
-    assert_eq!(module.id, "0");
+fn module_ids_accept_numbers_and_strings() {
+    for raw in [
+        r#"{"id": 0, "name": "Name"}"#,
+        r#"{"id": "0", "name": "Name"}"#,
+    ] {
+        let module: Module = serde_json::from_str(raw).unwrap();
+        assert_eq!(module.id, "0");
+    }
 }
 
 #[test]
