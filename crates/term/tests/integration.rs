@@ -1,6 +1,7 @@
 #[cfg(feature = "integration")]
 mod test {
     mod helpers;
+    mod sidebar;
 
     use editor_core::Selection;
     use language_config::AutoPairConfig;

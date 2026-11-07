@@ -5,7 +5,11 @@ use crate::compositor::DrawContext;
 
 impl<T: Send + Sync + 'static, D: Send + Sync + 'static> Picker<T, D> {
     pub(super) fn render_help(&self, area: Rect, surface: &mut Surface, cx: &DrawContext) {
-        if !cx.editor.config().picker.show_keybindings || area.height == 0 || area.width <= 4 {
+        if self.on_close.is_some()
+            || !cx.editor.config().picker.show_keybindings
+            || area.height == 0
+            || area.width <= 4
+        {
             return;
         }
         let keys = (self.keymap)(&cx.config.component_keys);

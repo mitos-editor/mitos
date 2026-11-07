@@ -29,7 +29,7 @@ Use `:new` to create an unnamed scratch buffer. Save it with
 | `Ctrl-w v` | Split vertically, showing the current buffer |
 | `Ctrl-w s` | Split horizontally, showing the current buffer |
 | `Ctrl-w h` / `j` / `k` / `l` | Focus the split to the left / below / above / right |
-| `Ctrl-w w` | Focus the next split |
+| `Ctrl-w w` / `Ctrl-w W` | Focus the next / previous pane, including the visible sidebar |
 | `Ctrl-w H` / `J` / `K` / `L` | Swap the current view with an adjacent view |
 | `Ctrl-w q` | Close the current view |
 | `Ctrl-w o` | Keep only the current view |
@@ -41,6 +41,11 @@ or `:open`. In a picker, `Ctrl-v` opens the selected file vertically and
 
 You can also use `:vsplit <path>` or `:hsplit <path>`. To start with files in
 separate views, see [Starting Mitos](./invocation.md).
+
+Press `Ctrl-e` to switch between the editor and the
+[file explorer sidebar](./pickers.md#sidebar). Jumping left from a split at the
+left edge also focuses the visible sidebar. In sidebar navigation, `Ctrl-w l`
+returns to the last focused editor split; `Ctrl-w q` hides the sidebar.
 
 ### Resize splits
 

@@ -959,3 +959,50 @@ fn undefined_typable_keybindings_remain_configuration_errors() {
         assert!(Config::load_test_result(&source).is_err(), "{binding}");
     }
 }
+
+#[test]
+fn sidebar_specific_bindings_override_inherited_workspace_bindings() {
+    use crate::keymap::component::{PickerAction as P, PickerItemAction as I, SidebarAction as S};
+    use ui_core::keymap::{KeymapState, Lookup};
+
+    let global = r#"
+        [keys.sidebar]
+        F2 = "create_path"
+        [keys.sidebar-filter]
+        F3 = "focus_editor"
+    "#
+    .to_owned();
+    let local = r#"
+        [keys.file-explorer]
+        F2 = "delete_path"
+        F3 = "move_path"
+        F4 = "yank_path"
+    "#
+    .to_owned();
+    let config = Config::load(Ok(&global), Ok(local)).unwrap();
+    let maps = config.component_keys;
+    let mut state = KeymapState::default();
+    assert_eq!(
+        state.lookup(&maps.sidebar, "F2".parse().unwrap()),
+        Lookup::Actions(&[S::Picker(P::Item(I::CreatePath))])
+    );
+    assert_eq!(
+        state.lookup(&maps.sidebar_filter, "F3".parse().unwrap()),
+        Lookup::Actions(&[S::FocusEditor])
+    );
+    for keys in [&maps.sidebar, &maps.sidebar_filter] {
+        assert_eq!(
+            state.lookup(keys, "F4".parse().unwrap()),
+            Lookup::Actions(&[S::Picker(P::Item(I::YankPath))])
+        );
+    }
+    // The filter releases Ctrl-w to the prompt, while navigation starts a prefix.
+    assert_eq!(
+        state.lookup(&maps.sidebar_filter, "C-w".parse().unwrap()),
+        Lookup::Unbound
+    );
+    assert_eq!(
+        state.lookup(&maps.sidebar, "C-w".parse().unwrap()),
+        Lookup::Pending
+    );
+}

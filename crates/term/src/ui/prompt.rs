@@ -166,6 +166,12 @@ impl Prompt {
         &self.session
     }
 
+    pub(super) fn cancel_input(&mut self) {
+        self.keys.clear();
+        self.next_char_handler = None;
+        self.completion.clear();
+    }
+
     /// Gets the byte index in the input representing the current cursor location.
     #[inline]
     pub(crate) fn position(&self) -> usize {

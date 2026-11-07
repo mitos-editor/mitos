@@ -9,6 +9,7 @@ pub mod graphics;
 pub mod input;
 pub mod keyboard;
 pub mod keymap;
+pub mod tree;
 
 pub mod theme {
     pub use crate::graphics::{Color, Modifier, Style};

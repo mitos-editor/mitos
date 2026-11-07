@@ -24,6 +24,8 @@ pub use ui_core::input::Event;
 /// Terminal input continuations belong to their application, not the shared editor.
 #[derive(Default)]
 pub struct InteractionState {
+    /// Whether the current application layout offers the sidebar as a focus target.
+    pub sidebar_visible: bool,
     pub count: Option<std::num::NonZeroUsize>,
     pub selected_register: Option<char>,
     pub macro_recording: Option<(char, Vec<ui_core::input::KeyEvent>)>,
@@ -245,6 +247,11 @@ impl Compositor {
             keys.push(*key);
         }
 
+        self.replay_event(event, cx)
+    }
+
+    /// Dispatch input that has already passed through macro playback.
+    pub(crate) fn replay_event(&mut self, event: &Event, cx: &mut Context) -> bool {
         let mut callbacks = Vec::new();
         let mut consumed = false;
 
