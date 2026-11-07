@@ -892,3 +892,32 @@ async fn append_mode_adjacent_selections() -> anyhow::Result<()> {
 
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn closest_pair_textobjects_share_pair_boundaries() -> anyhow::Result<()> {
+    for (input, keys, expected) in [
+        (
+            "fn main() {func(#[\"|]#string\");}",
+            "mim",
+            "fn main() {func(\"#[string|]#\");}",
+        ),
+        (
+            "fn main() {func(\"st#[|r]#ing\");}",
+            "mimmammimmam",
+            "fn main() {func#[|(\"string\")]#;}",
+        ),
+        (
+            "fn main() {func(#[\"string\"|]#);}",
+            "mim",
+            "fn main() {func(#[\"string\"|]#);}",
+        ),
+        ("#[|]#", "mim", "#[\n|]#"),
+    ] {
+        test_with_config(
+            AppBuilder::new().with_file("foo.rs", None),
+            (input, keys, expected),
+        )
+        .await?;
+    }
+    Ok(())
+}

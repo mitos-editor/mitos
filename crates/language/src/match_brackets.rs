@@ -117,7 +117,8 @@ fn find_pair(
     }
     let node_start = doc.byte_to_char_idx(node.start_byte() as usize);
     let node_text = doc.slice(node.start_byte() as usize..node.end_byte() as usize);
-    find_matching_bracket_plaintext(node_text, pos_ - node_start).map(|pos| pos + node_start)
+    find_matching_bracket_plaintext(node_text, pos_.checked_sub(node_start)?)
+        .map(|pos| pos + node_start)
 }
 
 /// Tests if this node is a pair close char and returns the expected open char
