@@ -82,7 +82,7 @@ impl ReviewTrigger {
     }
 }
 
-pub(super) fn configure(editor: &Editor) {
+pub(crate) fn configure(editor: &Editor) {
     editor
         .handlers
         .change_review
@@ -122,25 +122,54 @@ impl AsyncHook for Debounce {
                     }
                     RefreshEvent::Source(id) => {
                         if let Some(path) = editor.document(id).and_then(|doc| doc.path()) {
-                            reviews.extend(for_path(editor, path));
+                            reviews.extend(
+                                editor
+                                    .documents()
+                                    .filter(|doc| {
+                                        doc.review().is_some_and(|review| {
+                                            review.is_live() && review.path() == path
+                                        }) || doc.project_review().is_some_and(|review| {
+                                            review.comparison == super::ReviewComparison::Buffer
+                                                && review.source_documents.contains(&id)
+                                        })
+                                    })
+                                    .map(|doc| doc.id()),
+                            );
                         }
                     }
                 }
             }
             for id in reviews {
-                editor.refresh_scheduled_review(id);
+                if editor
+                    .document(id)
+                    .is_some_and(|doc| doc.project_review().is_some())
+                {
+                    #[cfg(feature = "git")]
+                    if editor.handlers().git_operations.busy() {
+                        queue(editor, id);
+                        continue;
+                    }
+                    editor.start_project_review(id);
+                } else {
+                    editor.refresh_scheduled_review(id);
+                }
             }
         });
     }
 }
 
+// Lifecycle events also refresh buffer reviews for newly opened lexical aliases;
+// their repository membership is resolved off-thread by project loading.
 fn for_path<'a>(editor: &'a Editor, path: &Path) -> impl Iterator<Item = DocumentId> + 'a {
     // Own the path because callers can obtain it from a document that is closing.
     let path = path.to_owned();
     editor.documents().filter_map(move |doc| {
-        doc.review()
-            .filter(|review| review.is_live() && review.path() == path)
-            .map(|_| doc.id())
+        (doc.review()
+            .is_some_and(|review| review.is_live() && review.path() == path)
+            || doc
+                .project_review()
+                .is_some_and(|review| review.comparison == super::ReviewComparison::Buffer))
+        .then_some(doc.id())
     })
 }
 
@@ -150,7 +179,7 @@ pub(super) fn queue_path(editor: &Editor, path: &Path) {
     }
 }
 
-pub(super) fn queue(editor: &Editor, id: DocumentId) {
+pub(crate) fn queue(editor: &Editor, id: DocumentId) {
     send_blocking(
         &editor.handlers.change_review.events,
         RefreshEvent::Review(id),
@@ -158,9 +187,9 @@ pub(super) fn queue(editor: &Editor, id: DocumentId) {
 }
 
 pub(crate) fn has_live_reviews(editor: &Editor) -> bool {
-    editor
-        .documents()
-        .any(|doc| doc.review().is_some_and(|review| review.is_live()))
+    editor.documents().any(|doc| {
+        doc.project_review().is_some() || doc.review().is_some_and(|review| review.is_live())
+    })
 }
 
 /// Polling also covers ignored files and repositories outside native watch roots.
@@ -181,7 +210,7 @@ pub(crate) fn poll(editor: &mut Editor) {
 
 pub(crate) fn invalidate(editor: &Editor) {
     for doc in editor.documents() {
-        if doc.review().is_some_and(|review| review.is_live()) {
+        if doc.project_review().is_some() || doc.review().is_some_and(|review| review.is_live()) {
             queue(editor, doc.id());
         }
     }
@@ -189,7 +218,13 @@ pub(crate) fn invalidate(editor: &Editor) {
 
 pub(crate) fn handle_file_events(editor: &Editor, events: &Events) {
     for doc in editor.documents() {
-        if doc.review().is_some_and(|review| {
+        if doc.project_review().is_some_and(|review| {
+            events.iter().any(|event| {
+                event.ty != EventType::Tempfile
+                    && (event.path.as_std_path().starts_with(&review.root)
+                        || editor.file_watcher.is_vcs_path(event.path.as_std_path()))
+            })
+        }) || doc.review().is_some_and(|review| {
             review.is_live()
                 && events.iter().any(|event| {
                     event.ty != EventType::Tempfile && review.affected_by(event.path.as_std_path())

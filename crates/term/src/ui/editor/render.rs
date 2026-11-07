@@ -32,12 +32,13 @@ use view::{
 mod syntax_cache;
 
 #[derive(Clone, Copy)]
-pub(super) struct PaneOptions {
+pub(super) struct PaneOptions<'a> {
     pub area: Rect,
     pub terminal_focused: bool,
     pub is_cursor_owner: bool,
     pub true_color: bool,
     pub selected_register: Option<char>,
+    pub review_keys: &'a ui_core::keymap::Keymap<crate::keymap::component::ProjectReviewAction>,
 }
 
 #[derive(Default)]
@@ -84,7 +85,7 @@ impl PaneRenderer {
         editor: &Editor,
         layout: ApplicationLayout,
         surface: &mut Surface,
-        options: PaneOptions,
+        options: PaneOptions<'_>,
     ) -> Option<DisplayPosition> {
         self.spinners
             .synchronize(editor.progressing_language_servers());
@@ -128,6 +129,13 @@ impl PaneRenderer {
                 options.selected_register,
             );
             statusline::render(&mut context, view.statusline_area(doc), surface);
+            super::super::change_review::document::render_project_hints(
+                doc,
+                view.statusline_area(doc),
+                options.review_keys,
+                &editor.theme,
+                surface,
+            );
         }
 
         if layout.statusline.height > 0 {
@@ -140,6 +148,13 @@ impl PaneRenderer {
                 options.selected_register,
             );
             statusline::render(&mut context, layout.statusline, surface);
+            super::super::change_review::document::render_project_hints(
+                doc,
+                layout.statusline,
+                options.review_keys,
+                &editor.theme,
+                surface,
+            );
         }
         cursor
     }
@@ -306,14 +321,14 @@ impl PaneRenderer {
     fn render_view(
         syntax_cache: &mut syntax_cache::ViewportSyntaxCache,
         editor: &Editor,
-        options: PaneOptions,
+        options: PaneOptions<'_>,
         doc: &Document,
         view: &View,
         viewport: Rect,
         surface: &mut Surface,
         is_focused: bool,
     ) -> Option<DisplayPosition> {
-        if doc.is_binary() || doc.review().is_some() {
+        if doc.is_binary() || doc.review().is_some() || doc.project_review().is_some() {
             *syntax_cache = syntax_cache::ViewportSyntaxCache::default();
         }
         if doc.is_binary() {
@@ -328,7 +343,7 @@ impl PaneRenderer {
 
         let mut decorations = DecorationManager::default();
         decorations.add_decoration(text_decorations::conflicts::line_backgrounds(doc, theme));
-        if doc.review().is_some() {
+        if doc.review().is_some() || doc.project_review().is_some() {
             decorations.add_decoration(crate::ui::change_review::document::line_backgrounds(
                 doc, theme,
             ));
@@ -507,7 +522,7 @@ impl PaneRenderer {
                 hidden_line,
             ));
         }
-        if doc.review().is_some() {
+        if doc.review().is_some() || doc.project_review().is_some() {
             render_document(surface, doc, &layout, overlays, theme, decorations);
         } else {
             let styles = syntax_cache.styles(doc, &layout, editor.theme.revision(), || {

@@ -312,6 +312,7 @@
 | Key | Description | Command |
 | --- | --- | --- |
 | `` <space>gs `` | Browse changed files | `` changed_file_picker `` |
+| `` <space>gr `` | Review staged and unstaged repository changes | `` git_project_review `` |
 | `` <space>gd `` | Show file diff | `` diff `` |
 | `` <space>gf `` | Browse file history | `` git_file_history `` |
 | `` <space>gl `` | Browse commits | `` git_history `` |
