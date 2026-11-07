@@ -982,6 +982,14 @@ the same editor hub through a separate central registration path. Application-ow
 presentation subscriptions remain separate and unregister when their application
 is dropped.
 
+Terminal commands and shared editor reload/theme requests enter one application-owned
+configuration queue. `ConfigRequests` is installed before editor construction; a
+headless editor supplies its own receiver instead. The application drains pending
+requests before and after input, installs settings, and refreshes shared state once.
+Full reload remains distinct from an in-memory settings update. Hosts driving the
+application manually must apply requests taken with `take_config_request` before
+accepting more input.
+
 Configure a `Handlers` value before passing it to `Editor::new`. The editor owns
 it and exposes `Editor::handlers()` for reading and scheduling work. All new
 documents receive their service bindings through `Handlers::attach_document`

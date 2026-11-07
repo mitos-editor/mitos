@@ -216,7 +216,7 @@ async fn inlay_hints_refresh_each_split_after_an_edit() -> anyhow::Result<()> {
     let mut config = (*f.app.editor.config()).clone();
     config.lsp.inlay_hints.length_limit = None;
     f.app
-        .handle_config_events(view::editor::ConfigEvent::Update(Box::new(config)));
+        .apply_config_update(term::config::ConfigEvent::UpdateEditor(Box::new(config)));
     let document = current_ref!(f.app.editor).1.id();
     f.app.editor.switch(document, Action::HorizontalSplit);
     inlay_hints::refresh(&mut f.app.editor);

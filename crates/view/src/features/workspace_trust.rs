@@ -147,7 +147,7 @@ pub fn apply_decision(
     decision: TrustDecision,
 ) -> anyhow::Result<()> {
     record_decision(editor, workspace, decision);
-    editor.config_events.0.send(ConfigEvent::Refresh)?;
+    editor.config_requests().send(ConfigEvent::Refresh)?;
     Ok(())
 }
 
@@ -184,6 +184,6 @@ pub fn resolve_request(
             editor.launch_language_servers(document);
         }
     }
-    editor.config_events.0.send(ConfigEvent::Refresh)?;
+    editor.config_requests().send(ConfigEvent::Refresh)?;
     Ok(true)
 }

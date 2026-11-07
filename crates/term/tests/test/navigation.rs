@@ -12,7 +12,7 @@ use tokio::sync::mpsc;
 use view::{
     callbacks::EditorCallback,
     current, current_ref,
-    editor::{Action, ConfigEvent},
+    editor::Action,
     features::navigation::{self, Location, NavigationHandler, NavigationKind, NavigationUpdate},
 };
 
@@ -184,7 +184,7 @@ async fn references_use_the_configured_declaration_policy() -> anyhow::Result<()
     let mut config = (*f.app.editor.config()).clone();
     config.lsp.references.include_declaration = false;
     f.app
-        .handle_config_events(ConfigEvent::Update(Box::new(config)));
+        .apply_config_update(term::config::ConfigEvent::UpdateEditor(Box::new(config)));
     f.locations(NavigationKind::References).await?;
     let request = f.wait_message("textDocument/references").await?;
     assert_eq!(request["params"]["context"]["includeDeclaration"], false);

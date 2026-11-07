@@ -207,7 +207,9 @@ pub(super) fn open_workspace_config(
 
 #[cold]
 pub(super) fn refresh_config(cx: &mut compositor::Context, _args: Args) -> anyhow::Result<()> {
-    cx.config.updates.send(ConfigEvent::Refresh)?;
+    cx.config
+        .updates
+        .send(ConfigEvent::Shared(view::editor::ConfigEvent::Refresh))?;
     Ok(())
 }
 

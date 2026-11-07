@@ -299,7 +299,7 @@ async fn inline_completion_preserves_a_soft_wrapped_document_suffix() -> anyhow:
     let mut config = (*f.app.editor.config()).clone();
     config.soft_wrap.enable = Some(true);
     f.app
-        .handle_config_events(view::editor::ConfigEvent::Update(Box::new(config)));
+        .apply_config_update(term::config::ConfigEvent::UpdateEditor(Box::new(config)));
     f.key("<C-g>").await?;
     f.response().await?(&mut f.app.editor);
     f.app.editor.reset_idle_timer();

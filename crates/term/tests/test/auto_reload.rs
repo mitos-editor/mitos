@@ -182,7 +182,9 @@ async fn polling_starts_after_config_reload_and_can_be_disabled() -> anyhow::Res
     let mut config = (*app.editor.config()).clone();
     config.files.reload.poll.enable = true;
     config.files.reload.poll.interval = 100;
-    app.handle_config_events(view::editor::ConfigEvent::Update(Box::new(config.clone())));
+    app.apply_config_update(term::config::ConfigEvent::UpdateEditor(Box::new(
+        config.clone(),
+    )));
     changed(&path, "polled\n", 2)?;
     tokio::time::timeout(Duration::from_secs(5), async {
         while text(&app) != "polled\n" {
@@ -196,7 +198,7 @@ async fn polling_starts_after_config_reload_and_can_be_disabled() -> anyhow::Res
     })
     .await?;
     config.files.reload.enable = false;
-    app.handle_config_events(view::editor::ConfigEvent::Update(Box::new(config)));
+    app.apply_config_update(term::config::ConfigEvent::UpdateEditor(Box::new(config)));
     changed(&path, "disabled\n", 3)?;
     notify(&mut app, &path, EventType::Modified).await;
     assert_eq!(text(&app), "polled\n");
@@ -362,7 +364,7 @@ async fn polling_uses_its_owner_and_queued_polls_respect_disabled_settings() -> 
         config.files.reload.poll.enable = true;
         config.files.reload.poll.interval = 100;
         f.app
-            .handle_config_events(view::editor::ConfigEvent::Update(Box::new(config)));
+            .apply_config_update(term::config::ConfigEvent::UpdateEditor(Box::new(config)));
     }
     changed(&first_path, "polled first\n", 2)?;
     changed(&second_path, "polled second\n", 2)?;
@@ -375,7 +377,7 @@ async fn polling_uses_its_owner_and_queued_polls_respect_disabled_settings() -> 
     config.files.reload.poll.enable = false;
     second
         .app
-        .handle_config_events(view::editor::ConfigEvent::Update(Box::new(config)));
+        .apply_config_update(term::config::ConfigEvent::UpdateEditor(Box::new(config)));
     callback(&mut second.app.editor);
     assert_eq!(text(&second.app), "second\n");
     assert!(first.app.close().await.is_empty());
@@ -417,7 +419,7 @@ async fn stale_confirmations_cannot_overwrite_edited_renamed_closed_saved_or_cha
             "disable" => {
                 let mut config = (*app.editor.config()).clone();
                 config.files.reload.enable = false;
-                app.handle_config_events(view::editor::ConfigEvent::Update(Box::new(config)));
+                app.apply_config_update(term::config::ConfigEvent::UpdateEditor(Box::new(config)));
             }
             _ => unreachable!(),
         }
