@@ -46,6 +46,35 @@ fn path(f: &Fixture) -> PathBuf {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn commit_admission_preserves_unsaved_source_buffers() -> anyhow::Result<()> {
+    let mut f = fixture()?;
+    git(f.dir.path(), &["config", "commit.gpgsign", "false"]);
+    std::fs::write(path(&f), "staged\n")?;
+    git(f.dir.path(), &["add", "."]);
+    let repo = vcs::operations::GitRepository::discover(f.dir.path())?;
+    let snapshot = repo.commit_snapshot(true)?;
+    f.replace_and_commit("unsaved buffer\n");
+    let request = GitRequest::capture(
+        &f.editor,
+        f.dir.path().into(),
+        GitAction::Commit(snapshot, "focused commit".into()),
+    )?;
+    let task = request.prepare().await?.admit(&mut f.editor)?;
+    assert!(f.editor.file_writes_blocked(&path(&f)));
+    let completion = task.execute().await;
+    assert!(completion.succeeded());
+    completion.finish(&mut f.editor);
+    assert_eq!(
+        current_ref!(f.editor).1.text().to_string(),
+        "unsaved buffer\n"
+    );
+    assert!(current_ref!(f.editor).1.is_modified());
+    assert_eq!(std::fs::read_to_string(path(&f))?, "staged\n");
+    assert!(!f.editor.handlers().git_operations.busy());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn stash_rechecks_dirty_buffers_after_preflight_and_releases_admission() -> anyhow::Result<()>
 {
     let mut f = fixture()?;

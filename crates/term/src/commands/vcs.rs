@@ -16,6 +16,8 @@ use view::{document::Mode, Editor};
 #[cfg(feature = "git")]
 mod actions;
 #[cfg(feature = "git")]
+mod commit;
+#[cfg(feature = "git")]
 mod history;
 #[cfg(feature = "git")]
 pub(crate) mod partial;
@@ -765,6 +767,36 @@ pub(super) mod typed {
         _args: Args,
     ) -> anyhow::Result<()> {
         partial_action(cx, true, false, false, true)
+    }
+
+    pub(in crate::commands) fn commit(
+        cx: &mut compositor::Context,
+        _args: Args,
+    ) -> anyhow::Result<()> {
+        #[cfg(feature = "git")]
+        {
+            super::commit::open(cx)
+        }
+        #[cfg(not(feature = "git"))]
+        {
+            let _ = cx;
+            bail!("No Git support included in this build")
+        }
+    }
+
+    pub(in crate::commands) fn commit_submit(
+        cx: &mut compositor::Context,
+        _args: Args,
+    ) -> anyhow::Result<()> {
+        #[cfg(feature = "git")]
+        {
+            super::commit::submit(cx)
+        }
+        #[cfg(not(feature = "git"))]
+        {
+            let _ = cx;
+            bail!("No Git support included in this build")
+        }
     }
 
     pub(in crate::commands) fn blame(
