@@ -199,6 +199,7 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
 
         "esc" => normal_mode,
         "C-b" | "pageup" => page_up,
+        "C-e" => switch_sidebar_focus,
         "C-f" | "pagedown" => page_down,
         "C-u" => page_cursor_half_up,
         "C-d" => page_cursor_half_down,
@@ -206,6 +207,8 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
         "C-j" => move_lines_down,
 
         "C-w" => { "Window"
+            "b" => toggle_sidebar,
+            "e" => focus_sidebar,
             "C-w" | "w" => rotate_view,
             "W" => rotate_view_reverse,
             "C-s" | "s" => hsplit,
@@ -288,6 +291,8 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
                 "E" => dap_disable_exceptions,
             },
             "w" => { "Window"
+                "b" => toggle_sidebar,
+                "e" => focus_sidebar,
                 "C-w" | "w" => rotate_view,
             "W" => rotate_view_reverse,
                 "C-s" | "s" => hsplit,

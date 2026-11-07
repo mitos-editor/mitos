@@ -1,7 +1,7 @@
 //! Editor and component keymaps, including picker-specific inheritance.
 use crate::keymap::component::{
     quicklist_picker_keymap, BlameAction, ComponentKeymaps, DiffAction, MenuAction, PageAction,
-    PickerAction, PickerItemAction, PopupAction, PromptAction,
+    PickerAction, PickerItemAction, PopupAction, PromptAction, SidebarAction,
 };
 use crate::keymap::{self, KeyTrie};
 use serde::{Deserialize, Deserializer};
@@ -48,6 +48,26 @@ struct HistoryPickerAction(PickerAction);
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct FileExplorerAction(PickerAction);
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct SidebarBinding(SidebarAction);
+
+impl<'de> Deserialize<'de> for SidebarBinding {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        use serde::de::IntoDeserializer;
+        let action = String::deserialize(deserializer)?;
+        Ok(Self(match action.as_str() {
+            "filter" => SidebarAction::Filter,
+            "focus_editor" => SidebarAction::FocusEditor,
+            "hide" => SidebarAction::Hide,
+            "next_view" => SidebarAction::NextView,
+            "previous_view" => SidebarAction::PreviousView,
+            action => SidebarAction::Picker(
+                FileExplorerAction::deserialize(action.into_deserializer())?.0,
+            ),
+        }))
+    }
+}
+
 macro_rules! picker_actions {
     ($schema:ident, {$($name:literal => $action:ident),* $(,)?}) => {
         impl<'de> Deserialize<'de> for $schema {
@@ -82,6 +102,8 @@ pub struct Keys {
     stash_picker: Keymap<StashPickerAction>,
     history_picker: Keymap<HistoryPickerAction>,
     file_explorer: Keymap<FileExplorerAction>,
+    sidebar: Keymap<SidebarBinding>,
+    sidebar_filter: Keymap<SidebarBinding>,
     menu: Keymap<MenuAction>,
     popup: Keymap<PopupAction>,
     hover: Keymap<PageAction>,
@@ -146,7 +168,7 @@ impl Keys {
         self,
         editor: &mut HashMap<Mode, KeyTrie>,
         components: &mut ComponentKeymaps,
-    ) -> [Keymap<PickerAction>; 6] {
+    ) -> ([Keymap<PickerAction>; 6], [Keymap<SidebarAction>; 2]) {
         for (mode, keys) in [
             (Mode::Normal, self.normal),
             (Mode::Insert, self.insert),
@@ -169,14 +191,20 @@ impl Keys {
         components.signature_help.merge(self.signature_help);
         components.blame.merge(self.blame);
         components.diff.merge(self.diff);
-        [
-            self.buffer_picker.map_actions(|action| action.0),
-            self.quicklist_picker.map_actions(|action| action.0),
-            self.git_picker.map_actions(|action| action.0),
-            self.stash_picker.map_actions(|action| action.0),
-            self.history_picker.map_actions(|action| action.0),
-            self.file_explorer.map_actions(|action| action.0),
-        ]
+        (
+            [
+                self.buffer_picker.map_actions(|action| action.0),
+                self.quicklist_picker.map_actions(|action| action.0),
+                self.git_picker.map_actions(|action| action.0),
+                self.stash_picker.map_actions(|action| action.0),
+                self.history_picker.map_actions(|action| action.0),
+                self.file_explorer.map_actions(|action| action.0),
+            ],
+            [
+                self.sidebar.map_actions(|action| action.0),
+                self.sidebar_filter.map_actions(|action| action.0),
+            ],
+        )
     }
 }
 
@@ -187,9 +215,13 @@ pub(super) fn resolve_keymaps(
     let mut components = ComponentKeymaps::default();
     let [mut buffer_overrides, mut quicklist_overrides, mut git_overrides, mut stash_overrides, mut history_overrides, mut explorer_overrides] =
         std::array::from_fn(|_| Keymap::default());
+    let mut sidebar_overrides = Keymap::default();
+    let mut sidebar_filter_overrides = Keymap::default();
     for keys in configured {
-        let [buffer, quicklist, git, stash, history, explorer] =
+        let ([buffer, quicklist, git, stash, history, explorer], [sidebar, filter]) =
             keys.apply(&mut editor, &mut components);
+        sidebar_overrides.merge(sidebar);
+        sidebar_filter_overrides.merge(filter);
         buffer_overrides.merge(buffer);
         quicklist_overrides.merge(quicklist);
         git_overrides.merge(git);
@@ -211,5 +243,9 @@ pub(super) fn resolve_keymaps(
     components.history_picker.merge(history_overrides);
     components.file_explorer = ComponentKeymaps::file_explorer(components.picker.clone());
     components.file_explorer.merge(explorer_overrides);
+    components.sidebar = ComponentKeymaps::sidebar(components.file_explorer.clone());
+    components.sidebar.merge(sidebar_overrides);
+    components.sidebar_filter = ComponentKeymaps::sidebar_filter(components.file_explorer.clone());
+    components.sidebar_filter.merge(sidebar_filter_overrides);
     (editor, components)
 }
