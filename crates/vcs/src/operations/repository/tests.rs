@@ -576,3 +576,50 @@ fn fetched_commit_is_pinned_and_rejects_noncommits() -> Result<()> {
     assert_eq!(pinned.as_str(), id.to_string());
     Ok(())
 }
+
+#[tokio::test]
+async fn worktree_safety_checks_do_not_need_git() -> Result<()> {
+    const FIXTURE: &str = "MITOS_NATIVE_WORKTREE_SAFETY_FIXTURE";
+    if let Some(root) = std::env::var_os(FIXTURE) {
+        let root = PathBuf::from(root);
+        let owner = GitRepository::discover(&root)?;
+        let linked = stdx::path::canonicalize_existing(&root.parent().unwrap().join("linked"));
+        ensure_clean_worktree(&linked, &owner).await?;
+        std::fs::write(linked.join("ignored.txt"), "keep\n")?;
+        assert!(ensure_clean_worktree(&linked, &owner).await.is_err());
+        std::fs::remove_file(linked.join("ignored.txt"))?;
+        std::fs::write(linked.join("untracked.txt"), "keep\n")?;
+        assert!(ensure_clean_worktree(&linked, &owner).await.is_err());
+        return Ok(());
+    }
+    let parent = tempfile::tempdir()?;
+    let root = parent.path().join("main");
+    std::fs::create_dir(&root)?;
+    exec_git_cmd(&["init"], &root);
+    std::fs::write(root.join(".gitignore"), "ignored.txt\n")?;
+    std::fs::write(root.join(".gitattributes"), "* text eol=lf\n")?;
+    create_commit_with_message(&root, true, "initial");
+    let linked = parent.path().join("linked");
+    exec_git_cmd(
+        &["worktree", "add", "--detach", linked.to_str().unwrap()],
+        &root,
+    );
+    let no_programs = tempfile::tempdir()?;
+    let child = std::process::Command::new(std::env::current_exe()?)
+        .args([
+            "--exact",
+            "operations::repository::tests::worktree_safety_checks_do_not_need_git",
+            "--nocapture",
+        ])
+        .env(FIXTURE, &root)
+        .env("PATH", no_programs.path())
+        .env("GIT_EXEC_PATH", no_programs.path())
+        .output()?;
+    ensure!(
+        child.status.success(),
+        "{}\n{}",
+        String::from_utf8_lossy(&child.stdout),
+        String::from_utf8_lossy(&child.stderr)
+    );
+    Ok(())
+}
