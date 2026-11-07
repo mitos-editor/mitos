@@ -122,6 +122,26 @@ Moving or copying onto an existing directory puts the entry inside it. Existing
 paths are never overwritten, and missing parent directories are created. Remap
 these keys under [`[keys.file-explorer]`](./remapping.md#component-keys).
 
+### Sidebar
+
+Press `Ctrl-e` in normal or select mode to open and focus the file explorer
+sidebar. Press it again to return to the same editor split, leaving the sidebar
+visible. The sidebar starts at the workspace root. `Ctrl-w b` (or `Space w b`)
+shows or hides it, keeping the current directory, filter, and selection.
+
+Use `j` / `k` or `Up` / `Down` to select an entry. `Enter` enters a directory
+or opens a file in the last focused editor split. Opening a file or pressing
+`Esc` returns focus to the editor. Press `q` to hide the sidebar.
+
+Press `/` to edit the filter. While filtering, `Ctrl-w` deletes the previous
+word; `Ctrl-e` returns to the editor. File actions such as `Alt-n` and `Alt-m`
+work in both navigation and filtering. Remap these bindings under
+[`keys.sidebar` and `keys.sidebar-filter`](./remapping.md#component-keys).
+
+The sidebar participates in [window navigation](./files.md#work-in-splits).
+It temporarily disappears when the terminal becomes too small and reappears
+without taking focus when space is available again.
+
 ## Hidden and ignored files
 
 The file picker and global search omit hidden and ignored files by default.

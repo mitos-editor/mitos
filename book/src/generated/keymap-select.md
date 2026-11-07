@@ -108,6 +108,7 @@
 | `` <esc> `` | Exit selection mode | `` exit_select_mode `` |
 | `` <C-b> `` | Move page up | `` page_up `` |
 | `` <pageup> `` | Move page up | `` page_up `` |
+| `` <C-e> `` | Switch focus between editor and file explorer sidebar | `` switch_sidebar_focus `` |
 | `` <C-f> `` | Move page down | `` page_down `` |
 | `` <pagedown> `` | Move page down | `` page_down `` |
 | `` <C-u> `` | Move page and cursor half up | `` page_cursor_half_up `` |
@@ -222,6 +223,8 @@
 
 | Key | Description | Command |
 | --- | --- | --- |
+| `` <C-w>b `` | Toggle file explorer sidebar | `` toggle_sidebar `` |
+| `` <C-w>e `` | Open and focus file explorer sidebar | `` focus_sidebar `` |
 | `` <C-w><C-w> `` | Goto next window | `` rotate_view `` |
 | `` <C-w>w `` | Goto next window | `` rotate_view `` |
 | `` <C-w>W `` | Goto previous window | `` rotate_view_reverse `` |
@@ -352,6 +355,8 @@
 
 | Key | Description | Command |
 | --- | --- | --- |
+| `` <space>wb `` | Toggle file explorer sidebar | `` toggle_sidebar `` |
+| `` <space>we `` | Open and focus file explorer sidebar | `` focus_sidebar `` |
 | `` <space>w<C-w> `` | Goto next window | `` rotate_view `` |
 | `` <space>ww `` | Goto next window | `` rotate_view `` |
 | `` <space>wW `` | Goto previous window | `` rotate_view_reverse `` |

@@ -289,6 +289,9 @@
 | `save_selection` | Save current selection to jumplist | normal: `` <C-s> ``, select: `` <C-s> `` |
 | `jump_view_right` | Jump to right split | normal: `` <C-w>l ``, `` <space>wl ``, `` <C-w><C-l> ``, `` <C-w><right> ``, `` <space>w<C-l> ``, `` <space>w<right> ``, select: `` <C-w>l ``, `` <space>wl ``, `` <C-w><C-l> ``, `` <C-w><right> ``, `` <space>w<C-l> ``, `` <space>w<right> `` |
 | `jump_view_left` | Jump to left split | normal: `` <C-w>h ``, `` <space>wh ``, `` <C-w><C-h> ``, `` <C-w><left> ``, `` <space>w<C-h> ``, `` <space>w<left> ``, select: `` <C-w>h ``, `` <space>wh ``, `` <C-w><C-h> ``, `` <C-w><left> ``, `` <space>w<C-h> ``, `` <space>w<left> `` |
+| `toggle_sidebar` | Toggle file explorer sidebar | normal: `` <C-w>b ``, `` <space>wb ``, select: `` <C-w>b ``, `` <space>wb `` |
+| `focus_sidebar` | Open and focus file explorer sidebar | normal: `` <C-w>e ``, `` <space>we ``, select: `` <C-w>e ``, `` <space>we `` |
+| `switch_sidebar_focus` | Switch focus between editor and file explorer sidebar | normal: `` <C-e> ``, select: `` <C-e> `` |
 | `jump_view_up` | Jump to split above | normal: `` <C-w>k ``, `` <C-w><up> ``, `` <space>wk ``, `` <C-w><C-k> ``, `` <space>w<up> ``, `` <space>w<C-k> ``, select: `` <C-w>k ``, `` <C-w><up> ``, `` <space>wk ``, `` <C-w><C-k> ``, `` <space>w<up> ``, `` <space>w<C-k> `` |
 | `jump_view_down` | Jump to split below | normal: `` <C-w>j ``, `` <space>wj ``, `` <C-w><C-j> ``, `` <C-w><down> ``, `` <space>w<C-j> ``, `` <space>w<down> ``, select: `` <C-w>j ``, `` <space>wj ``, `` <C-w><C-j> ``, `` <C-w><down> ``, `` <space>w<C-j> ``, `` <space>w<down> `` |
 | `swap_view_right` | Swap with right split | normal: `` <C-w>L ``, `` <space>wL ``, `` <C-w><S-right> ``, `` <space>w<S-right> ``, select: `` <C-w>L ``, `` <space>wL ``, `` <C-w><S-right> ``, `` <space>w<S-right> `` |

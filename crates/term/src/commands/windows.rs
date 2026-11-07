@@ -7,11 +7,30 @@ use view::{editor::Action, tree, Editor};
 //
 
 pub(super) fn rotate_view(cx: &mut Context) {
-    cx.editor.focus_next()
+    rotate(cx, false);
 }
 
 pub(super) fn rotate_view_reverse(cx: &mut Context) {
-    cx.editor.focus_prev()
+    rotate(cx, true);
+}
+
+fn rotate(cx: &mut Context, reverse: bool) {
+    let boundary = if reverse {
+        cx.editor.tree.views().next().map(|(view, _)| view.id)
+    } else {
+        cx.editor.tree.views().last().map(|(view, _)| view.id)
+    };
+    if cx.interaction.sidebar_visible && boundary == Some(cx.editor.tree.focus()) {
+        cx.callback.push(Box::new(|compositor, cx| {
+            if let Some(view) = compositor.find::<crate::ui::EditorView>() {
+                view.focus_visible_sidebar(cx.editor);
+            }
+        }));
+    } else if reverse {
+        cx.editor.focus_prev();
+    } else {
+        cx.editor.focus_next();
+    }
 }
 
 pub(super) fn jump_view_right(cx: &mut Context) {
@@ -19,7 +38,39 @@ pub(super) fn jump_view_right(cx: &mut Context) {
 }
 
 pub(super) fn jump_view_left(cx: &mut Context) {
-    cx.editor.focus_direction(tree::Direction::Left)
+    let previous = cx.editor.tree.focus();
+    cx.editor.focus_direction(tree::Direction::Left);
+    if cx.editor.tree.focus() == previous {
+        cx.callback.push(Box::new(|compositor, cx| {
+            if let Some(view) = compositor.find::<crate::ui::EditorView>() {
+                view.focus_visible_sidebar(cx.editor);
+            }
+        }));
+    }
+}
+
+pub(super) fn toggle_sidebar(cx: &mut Context) {
+    cx.callback.push(Box::new(|compositor, cx| {
+        if let Some(view) = compositor.find::<crate::ui::EditorView>() {
+            view.toggle_sidebar(cx.editor);
+        }
+    }));
+}
+
+pub(super) fn focus_sidebar(cx: &mut Context) {
+    cx.callback.push(Box::new(|compositor, cx| {
+        if let Some(view) = compositor.find::<crate::ui::EditorView>() {
+            view.focus_sidebar(cx.editor);
+        }
+    }));
+}
+
+pub(super) fn switch_sidebar_focus(cx: &mut Context) {
+    cx.callback.push(Box::new(|compositor, cx| {
+        if let Some(view) = compositor.find::<crate::ui::EditorView>() {
+            view.switch_sidebar_focus(cx.editor);
+        }
+    }));
 }
 
 pub(super) fn jump_view_up(cx: &mut Context) {

@@ -284,6 +284,8 @@ pub struct Picker<T: 'static + Send + Sync, D: 'static> {
     widths: Vec<Constraint>,
 
     callback_fn: PickerCallback<T, D>,
+    /// Embedded pickers return focus to their parent instead of popping a layer.
+    on_close: Option<fn(&mut Compositor, &mut Context)>,
     default_action: Action,
 
     pub truncate_start: bool,
@@ -426,6 +428,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             show_preview: true,
             preview_area: None,
             callback_fn: Box::new(callback_fn),
+            on_close: None,
             default_action: Action::Replace,
             completion_height: 0,
             widths,
@@ -460,6 +463,29 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             redraw: self.redraw.clone(),
             _redraw: self.redraw.on_drop(),
         }
+    }
+
+    pub(crate) fn embedded(mut self, on_close: fn(&mut Compositor, &mut Context)) -> Self {
+        self.on_close = Some(on_close);
+        self.show_preview = false;
+        self
+    }
+
+    pub(crate) fn suspend(&mut self) {
+        self.keys.clear();
+        self.poll = None;
+        if let Some(updates) = &mut self.file_updates {
+            updates.stop();
+        }
+    }
+
+    pub(super) fn cancel_input(&mut self) {
+        self.keys.clear();
+        self.prompt.cancel_input();
+    }
+
+    pub(super) fn set_title(&mut self, title: &'static str) {
+        self.title = Some(title.into());
     }
 
     pub fn truncate_start(mut self, truncate_start: bool) -> Self {
@@ -750,7 +776,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         }
     }
 
-    fn prompt_handle_event(&mut self, event: &Event, cx: &mut Context) -> EventResult {
+    pub(super) fn prompt_handle_event(&mut self, event: &Event, cx: &mut Context) -> EventResult {
         if self.replacement_pending() {
             return EventResult::Consumed(None);
         }
@@ -871,7 +897,14 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
     fn render_picker(&mut self, area: Rect, surface: &mut Surface, cx: &mut DrawContext) {
         let snapshot = self.results.matcher.snapshot();
         let text_style = cx.editor.theme.get("ui.text");
-        let selected = cx.editor.theme.get("ui.text.focus");
+        let selected = cx
+            .editor
+            .theme
+            .get(if self.on_close.is_some() && !cx.is_cursor_owner {
+                "ui.text.inactive"
+            } else {
+                "ui.text.focus"
+            });
         let highlight_style = cx.editor.theme.get("special").add_modifier(Modifier::BOLD);
 
         // -- Render the frame:
@@ -881,7 +914,12 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
 
         let mut block = panel::bordered(&cx.editor.theme, cx.editor.config().border_style);
         if let Some(title) = &self.title {
-            block = block.title(title.clone()).title_style(text_style);
+            let title_style = if self.on_close.is_some() && cx.is_cursor_owner {
+                text_style.add_modifier(Modifier::BOLD)
+            } else {
+                text_style
+            };
+            block = block.title(title.clone()).title_style(title_style);
         }
         let inner = block.inner(area);
         block.render(area, surface);
@@ -1122,8 +1160,20 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         }
     }
 
-    fn execute_actions(&mut self, actions: &[PickerAction], ctx: &mut Context) -> EventResult {
+    pub(super) fn execute_actions(
+        &mut self,
+        actions: &[PickerAction],
+        ctx: &mut Context,
+    ) -> EventResult {
         let close_fn = |picker: &mut Self, after: Option<compositor::Callback>| {
+            if let Some(on_close) = picker.on_close {
+                return EventResult::Consumed(Some(Box::new(move |compositor, cx| {
+                    on_close(compositor, cx);
+                    if let Some(after) = after {
+                        after(compositor, cx);
+                    }
+                })));
+            }
             picker.cancel_replacement();
             picker.query_needs_refresh =
                 picker.dynamic_query_handler.is_some() && picker.file_updates.is_none();

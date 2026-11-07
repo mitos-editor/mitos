@@ -34,6 +34,8 @@ use tui::{
 };
 
 pub struct EditorView {
+    pub(super) sidebar: Option<super::sidebar::Sidebar>,
+    sidebar_area: Option<Rect>,
     pub keymaps: Keymaps,
     on_next_key: Option<OnKeyCallback>,
     pseudo_pending: Vec<KeyEvent>,
@@ -47,6 +49,8 @@ pub struct EditorView {
 impl EditorView {
     pub fn new(keymaps: Keymaps) -> Self {
         Self {
+            sidebar: None,
+            sidebar_area: None,
             keymaps,
             on_next_key: None,
             pseudo_pending: Vec::new(),
@@ -55,6 +59,68 @@ impl EditorView {
             renderer: PaneRenderer::default(),
             terminal_focused: true,
         }
+    }
+
+    pub(crate) fn focus_sidebar(&mut self, editor: &mut Editor) {
+        editor.cancel_completions();
+        self.clear_completion(editor);
+        self.keymaps.reset();
+        self.on_next_key = None;
+        self.pseudo_pending.clear();
+        editor.autoinfo = None;
+        if let Some(sidebar) = &mut self.sidebar {
+            sidebar.focus();
+        } else {
+            match super::sidebar::Sidebar::new(editor) {
+                Ok(sidebar) => self.sidebar = Some(sidebar),
+                Err(error) => editor.set_error(|| error.to_string()),
+            }
+        }
+    }
+
+    pub(crate) fn focus_visible_sidebar(&mut self, editor: &mut Editor) -> bool {
+        if let Some(sidebar) = &mut self.sidebar
+            && sidebar.visible()
+            && self.sidebar_area.is_some()
+        {
+            self.focus_sidebar(editor);
+            true
+        } else {
+            false
+        }
+    }
+
+    pub(crate) fn switch_sidebar_focus(&mut self, editor: &mut Editor) {
+        if self.sidebar_focused() {
+            self.sidebar.as_mut().unwrap().focus_buffer();
+        } else {
+            self.focus_sidebar(editor);
+        }
+    }
+
+    pub(crate) fn toggle_sidebar(&mut self, editor: &mut Editor) {
+        if let Some(sidebar) = &mut self.sidebar
+            && sidebar.visible()
+        {
+            sidebar.hide();
+        } else {
+            self.focus_sidebar(editor);
+        }
+    }
+
+    fn layout(&self, editor: &Editor, area: Rect) -> (ApplicationLayout, Option<Rect>) {
+        let mut layout = editor_layout(editor, area);
+        let sidebar = self
+            .sidebar
+            .as_ref()
+            .and_then(|sidebar| sidebar.layout(&mut layout));
+        (layout, sidebar)
+    }
+
+    fn sidebar_focused(&self) -> bool {
+        self.sidebar
+            .as_ref()
+            .is_some_and(|sidebar| sidebar.focused())
     }
 
     pub(crate) fn set_next_key_callback(&mut self, callback: commands::OnKeyCallback) {
@@ -538,6 +604,51 @@ impl Component for EditorView {
         event: &Event,
         context: &mut crate::compositor::Context,
     ) -> EventResult {
+        if let Event::Mouse(mouse) = event {
+            let in_sidebar = self.sidebar_area.is_some_and(|area| {
+                mouse.column >= area.x
+                    && mouse.column < area.right()
+                    && mouse.row >= area.y
+                    && mouse.row < area.bottom()
+            });
+            if !context.editor.config().mouse.enable {
+                return EventResult::Consumed(None);
+            }
+            if matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left)) {
+                if in_sidebar && !self.sidebar_focused() {
+                    let callbacks = {
+                        let mut cx = commands::Context {
+                            config: context.config,
+                            editor: context.editor,
+                            interaction: context.interaction,
+                            count: None,
+                            register: None,
+                            callback: Vec::new(),
+                            on_next_key_callback: None,
+                            jobs: context.jobs,
+                        };
+                        self.handle_non_key_input(&mut cx);
+                        cx.interaction.count = None;
+                        cx.interaction.selected_register = None;
+                        cx.callback
+                    };
+                    self.focus_visible_sidebar(context.editor);
+                    return EventResult::Consumed(Some(Box::new(move |compositor, cx| {
+                        for callback in callbacks {
+                            callback(compositor, cx);
+                        }
+                    })));
+                } else if !in_sidebar && let Some(sidebar) = &mut self.sidebar {
+                    sidebar.focus_buffer();
+                }
+            }
+            if in_sidebar {
+                return self.sidebar.as_mut().unwrap().handle_event(event, context);
+            }
+        }
+        if self.sidebar_focused() && matches!(event, Event::Key(_) | Event::Paste(_)) {
+            return self.sidebar.as_mut().unwrap().handle_event(event, context);
+        }
         let mut cx = commands::Context {
             config: context.config,
             editor: context.editor,
@@ -702,7 +813,17 @@ impl Component for EditorView {
     }
 
     fn update(&mut self, area: Rect, cx: &mut Context) {
-        let layout = editor_layout(cx.editor, area);
+        let (layout, sidebar_area) = self.layout(cx.editor, area);
+        self.sidebar_area = sidebar_area;
+        cx.interaction.sidebar_visible = sidebar_area.is_some();
+        if let Some(sidebar) = &mut self.sidebar {
+            if let Some(sidebar_area) = sidebar_area {
+                sidebar.picker.update(sidebar_area, cx);
+            } else {
+                sidebar.focus_buffer();
+                sidebar.picker.suspend();
+            }
+        }
         cx.editor.resize(layout.editor);
         cx.editor.refresh_debugger_inline_values();
         self.renderer
@@ -714,7 +835,8 @@ impl Component for EditorView {
 
     fn render(&mut self, area: Rect, surface: &mut Surface, cx: &mut DrawContext) {
         let config = cx.editor.config();
-        let layout = editor_layout(cx.editor, area);
+        let (layout, sidebar_area) = self.layout(cx.editor, area);
+        let sidebar_focused = self.sidebar_focused();
         cx.editor_cursor = self.renderer.render(
             cx.editor,
             layout,
@@ -722,11 +844,22 @@ impl Component for EditorView {
             PaneOptions {
                 area,
                 terminal_focused: self.terminal_focused,
-                is_cursor_owner: cx.is_cursor_owner,
+                is_cursor_owner: cx.is_cursor_owner && !sidebar_focused,
                 true_color: cx.config.terminal.true_color || crate::true_color(),
                 selected_register: cx.interaction.selected_register,
             },
         );
+
+        if let Some(sidebar_area) = sidebar_area {
+            let owner = cx.is_cursor_owner;
+            cx.is_cursor_owner = owner && sidebar_focused;
+            self.sidebar
+                .as_mut()
+                .unwrap()
+                .picker
+                .render(sidebar_area, surface, cx);
+            cx.is_cursor_owner = owner;
+        }
 
         if config.auto_info
             && let Some(info) = cx.editor.autoinfo.as_ref()
@@ -858,7 +991,28 @@ impl Component for EditorView {
         true
     }
 
-    fn cursor(&self, _area: Rect, cx: &DrawContext) -> Cursor {
+    fn has_pending_keys(&self) -> bool {
+        if self.sidebar_focused() {
+            self.sidebar.as_ref().unwrap().has_pending_keys()
+        } else {
+            self.on_next_key.is_some() || !self.keymaps.pending().is_empty()
+        }
+    }
+
+    fn has_pending_render(&self) -> bool {
+        self.sidebar_area.is_some()
+            && self
+                .sidebar
+                .as_ref()
+                .is_some_and(|sidebar| sidebar.visible() && sidebar.picker.has_pending_render())
+    }
+
+    fn cursor(&self, area: Rect, cx: &DrawContext) -> Cursor {
+        if self.sidebar_focused()
+            && let Some(sidebar_area) = self.layout(cx.editor, area).1
+        {
+            return self.sidebar.as_ref().unwrap().cursor(sidebar_area, cx);
+        }
         let editor = cx.editor;
         if current_ref!(editor).1.is_binary() {
             return Cursor::Hidden;

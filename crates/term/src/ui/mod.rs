@@ -23,6 +23,7 @@ pub mod picker;
 pub mod popup;
 pub mod prompt;
 mod select;
+mod sidebar;
 mod spinner;
 mod statusline;
 mod text;
@@ -393,6 +394,7 @@ pub fn file_explorer(root: PathBuf, editor: &Editor) -> Result<FileExplorer, std
                         format!("unable to open \"{}\"", path.display())
                     }
                 });
+                return picker::PickerCallbackResult::KeepOpen;
             }
             picker::PickerCallbackResult::Close
         },
