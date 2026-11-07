@@ -551,3 +551,63 @@ async fn unstaging_a_file_that_replaced_a_directory_keeps_git_semantics() -> Res
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn staging_without_git_applies_attributes_and_keeps_other_entries() -> Result<()> {
+    const FIXTURE: &str = "MITOS_STAGE_FIXTURE";
+    if let Some(root) = std::env::var_os(FIXTURE) {
+        let repo = GitRepository::discover(Path::new(&root))?;
+        let git = repo.open_read(true)?;
+        let other = git
+            .open_index()?
+            .entry_by_path("other.txt".into())
+            .unwrap()
+            .id;
+        for path in ["file.txt", "new.txt"] {
+            let status = FileStatus {
+                staged: None,
+                unstaged: Some(FileChange::Modified {
+                    path: repo.root.join(path),
+                }),
+            };
+            repo.prepare_file(&status, FileOperation::Stage, true)?
+                .execute()
+                .await?;
+        }
+        let index = git.open_index()?;
+        assert_eq!(index.entry_by_path("other.txt".into()).unwrap().id, other);
+        assert_eq!(
+            git.find_blob(index.entry_by_path("file.txt".into()).unwrap().id)?
+                .data,
+            b"changed\n"
+        );
+        assert_eq!(
+            git.find_blob(index.entry_by_path("new.txt".into()).unwrap().id)?
+                .data,
+            b"new\n"
+        );
+        assert_eq!(std::fs::read(repo.root.join("file.txt"))?, b"changed\r\n");
+        return Ok(());
+    }
+    let dir = initial();
+    std::fs::write(dir.path().join("file.txt"), "changed\r\n")?;
+    std::fs::write(dir.path().join("new.txt"), "new\r\n")?;
+    let no_programs = tempfile::tempdir()?;
+    let child = std::process::Command::new(std::env::current_exe()?)
+        .args([
+            "--exact",
+            "operations::tests::staging_without_git_applies_attributes_and_keeps_other_entries",
+            "--nocapture",
+        ])
+        .env(FIXTURE, dir.path())
+        .env("PATH", no_programs.path())
+        .env("GIT_EXEC_PATH", no_programs.path())
+        .output()?;
+    ensure!(
+        child.status.success(),
+        "{}\n{}",
+        String::from_utf8_lossy(&child.stdout),
+        String::from_utf8_lossy(&child.stderr)
+    );
+    Ok(())
+}
