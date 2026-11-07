@@ -522,32 +522,33 @@ fn current_branch(repo: &gix::Repository, remote: &str) -> Result<(String, Strin
 }
 
 async fn ensure_clean_worktree(path: &Path, owner: &GitRepository) -> Result<()> {
-    let repo = GitRepository::discover(path)?;
-    ensure!(
-        repo.root == path && repo.common_dir == owner.common_dir,
-        "Selected path is no longer a linked worktree of this repository"
-    );
-    // Status deliberately trusts these flags. Worktree removal would otherwise
-    // delete hidden local modifications while reporting the worktree as clean.
-    let mut flags = repo.command();
-    flags.args(["ls-files", "--cached", "-v", "-z"]);
-    let entries = run(flags).await?;
-    ensure!(!entries.split(|byte| *byte == 0).any(|entry| entry.first().is_some_and(|tag| tag.is_ascii_lowercase() || *tag == b'S')),
-        "Worktree has assume-unchanged or skip-worktree index entries; inspect these files in Git before removing it");
-    let mut command = repo.command();
-    command.args([
-        "status",
-        "--porcelain=v1",
-        "--untracked-files=all",
-        "--ignored=matching",
-        "-z",
-    ]);
-    let output = run(command).await?;
-    ensure!(
-        output.is_empty(),
-        "Worktree contains modified, untracked, or ignored files; clean it before removal"
-    );
-    Ok(())
+    let path = path.to_owned();
+    let common_dir = owner.common_dir.clone();
+    tokio::task::spawn_blocking(move || {
+        let repository = GitRepository::discover(&path)?;
+        ensure!(repository.root == path && repository.common_dir == common_dir,
+            "Selected path is no longer a linked worktree of this repository");
+        // Status needs Git for Windows' installed filter/line-ending defaults too.
+        let repo = repository.open(false)?;
+        let index = repo.index_or_empty()?;
+        let hidden = gix::index::entry::Flags::ASSUME_VALID | gix::index::entry::Flags::SKIP_WORKTREE;
+        ensure!(!index.entries().iter().any(|entry| entry.flags.intersects(hidden)),
+            "Worktree has assume-unchanged or skip-worktree index entries; inspect these files in Git before removing it");
+        let mut status = repo.status(gix::progress::Discard)?
+            .untracked_files(gix::status::UntrackedFiles::Files)
+            .dirwalk_options(|options| options.emit_ignored(Some(gix::dir::walk::EmissionMode::Matching)))
+            .index_worktree_submodules(gix::status::Submodule::Given {
+                ignore: gix::submodule::config::Ignore::None,
+                check_dirty: true,
+            })
+            .tree_index_track_renames(gix::status::tree_index::TrackRenames::Disabled)
+            .into_iter(std::iter::empty::<gix::bstr::BString>())?;
+        if let Some(change) = status.next() {
+            change?;
+            bail!("Worktree contains modified, untracked, or ignored files; clean it before removal");
+        }
+        Ok(())
+    }).await?
 }
 
 /// Discard error output from Git, credential helpers, and hooks. It can contain remote URLs.
