@@ -163,6 +163,7 @@ impl MappableCommand {
         changed_file_picker => super::vcs::changed_file_picker, "Browse changed files",
         diff => super::vcs::diff, "Show file diff",
         diff_refresh => super::vcs::diff_refresh, "Retry loading the current diff review buffer",
+        git_project_review => super::project_review::open_default, "Review staged and unstaged repository changes",
         diff_open_source => super::vcs::diff_open_source, "Jump from a diff review to its source location",
         diff_open_file => super::vcs::diff_open_file, "Open the current file from a diff review",
         changed_file_picker_in_repository => super::vcs::changed_file_picker_in_repository, "Open changed file picker in repository",
@@ -1296,6 +1297,22 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
         doc: "Open the base, current, or incoming version of a conflicted file in a read-only split.",
         action: CommandAction::Committed(super::conflicts::source),
         args: CommandArgs::new(&[completers::none], &[]),
+    },
+    TypableCommand {
+        name: "vcs-project-diff", aliases: &[], doc: "Review staged and unstaged changes together. Use buffer to include unsaved edits, or staged / unstaged for one comparison.",
+        action: CommandAction::Committed(super::project_review::open), args: CommandArgs::new(&[], &[completers::none]),
+    },
+    TypableCommand {
+        name: "vcs-project-refresh", aliases: &[], doc: "Update the project review with the latest file and staged changes.",
+        action: CommandAction::Committed(super::project_review::refresh), args: CommandArgs::new(&[], &[]),
+    },
+    TypableCommand {
+        name: "vcs-project-next", aliases: &[], doc: "Move to the next file or hunk; use file, previous-file, hunk, or previous-hunk.",
+        action: CommandAction::Committed(super::project_review::navigate), args: CommandArgs::new(&[], &[completers::none]),
+    },
+    TypableCommand {
+        name: "vcs-project-open", aliases: &[], doc: "Open the selected file's review. Use Ctrl-o to return to the project review.",
+        action: CommandAction::Committed(super::project_review::open_file), args: CommandArgs::new(&[], &[]),
     },
     TypableCommand {
         name: "blame",

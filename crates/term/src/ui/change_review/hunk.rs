@@ -24,11 +24,15 @@ impl HunkReviewView {
             } else {
                 vcs::operations::FileOperation::Stage
             };
-            let captured = view::features::git_operations::partial::capture_cursor_hunk(
+            let (request, next) = view::features::git_operations::partial::capture_cursor_hunk(
                 cx.editor,
                 kind,
                 &self.snapshot,
             )?;
+            let captured = (
+                request.with_review_guard(self.snapshot.action_guard()),
+                next,
+            );
             crate::commands::start_partial_git(cx.editor, cx.jobs, captured, advance);
             Ok(())
         }

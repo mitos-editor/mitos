@@ -131,6 +131,18 @@ pub enum DiffAction {
     StageAndNext,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProjectReviewAction {
+    Stage,
+    Unstage,
+    ToggleFold,
+    ToggleBuffers,
+    OpenSource,
+    OpenReview,
+    Refresh,
+}
+
 /// Terminal component maps, resolved from defaults and user configuration.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ComponentKeymaps {
@@ -148,6 +160,7 @@ pub struct ComponentKeymaps {
     pub signature_help: Keymap<PageAction>,
     pub blame: Keymap<BlameAction>,
     pub diff: Keymap<DiffAction>,
+    pub project_review: Keymap<ProjectReviewAction>,
 }
 
 fn bindings<A: Copy>(entries: &[(&str, A)]) -> Keymap<A> {
@@ -344,6 +357,15 @@ impl Default for ComponentKeymaps {
                 ("s", DiffAction::Stage),
                 ("u", DiffAction::Unstage),
                 ("S", DiffAction::StageAndNext),
+            ]),
+            project_review: bindings(&[
+                ("s", ProjectReviewAction::Stage),
+                ("u", ProjectReviewAction::Unstage),
+                ("tab", ProjectReviewAction::ToggleFold),
+                ("A-b", ProjectReviewAction::ToggleBuffers),
+                ("ret", ProjectReviewAction::OpenSource),
+                ("A-o", ProjectReviewAction::OpenReview),
+                ("R", ProjectReviewAction::Refresh),
             ]),
             blame: bindings(&[
                 ("y", BlameAction::CopyCommitId),

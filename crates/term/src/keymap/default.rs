@@ -254,6 +254,7 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
             "D" => workspace_diagnostics_picker,
             "g" => { "Git"
                 "s" => changed_file_picker,
+                "r" => git_project_review,
                 "d" => diff,
                 "f" => git_file_history,
                 "l" => git_history,

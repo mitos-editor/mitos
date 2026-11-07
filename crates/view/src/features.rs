@@ -28,6 +28,7 @@ pub mod inline_completion;
 pub mod lsp_progress;
 pub mod navigation;
 pub(crate) mod process;
+pub mod project_review;
 pub mod rename;
 pub(crate) mod request;
 pub mod shell;

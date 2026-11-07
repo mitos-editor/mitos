@@ -823,6 +823,20 @@ impl Editor {
             .map(|doc| {
                 let review = doc.review().filter(|review| review.is_live());
                 let mut demand = Demand::default();
+                if let Some(project) = doc.project_review() {
+                    demand.roots.push(project.root.clone());
+                    if watch_vcs {
+                        let trusted = self
+                            .workspace_trust
+                            .query(&project.workspace, workspace::trust::TrustQuery::Git)
+                            .is_trusted();
+                        let watches = self
+                            .diff_providers
+                            .repository_watches(&project.root, trusted);
+                        demand.metadata.extend(watches.paths);
+                        demand.files.extend(watches.files);
+                    }
+                }
                 if let Some(parent) = review.and_then(|review| review.path().parent()) {
                     demand.roots.push(parent.to_owned());
                 }
