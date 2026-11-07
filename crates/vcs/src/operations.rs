@@ -19,6 +19,7 @@ pub mod history;
 pub mod repository;
 pub use repository::RepositoryOperation;
 mod branch;
+mod fetch;
 mod index;
 mod stage;
 mod stash;
