@@ -22,14 +22,12 @@ pub(super) fn request(editor: &mut Editor, jobs: &mut Jobs, remote: Option<Strin
         let sender = jobs.sender();
         jobs.callback(async move {
             let response = request.run(remote).await?;
-            Ok(crate::job::Callback::EditorCompositor(Box::new(
-                move |editor, _| {
-                    let Some(result) = response.resolve(editor) else {
-                        return;
-                    };
-                    publish(editor, &sender, result, open);
-                },
-            )))
+            Ok(crate::job::Callback::editor(move |editor| {
+                let Some(result) = response.resolve(editor) else {
+                    return;
+                };
+                publish(editor, &sender, result, open);
+            }))
         });
     }
     #[cfg(not(feature = "git"))]
@@ -63,14 +61,12 @@ pub(in crate::commands) fn request_commit(
     let sender = jobs.sender();
     jobs.callback(async move {
         let response = request.run(remote).await?;
-        Ok(crate::job::Callback::EditorCompositor(Box::new(
-            move |editor, _| {
-                let Some(result) = response.resolve(editor) else {
-                    return;
-                };
-                publish(editor, &sender, result, open);
-            },
-        )))
+        Ok(crate::job::Callback::editor(move |editor| {
+            let Some(result) = response.resolve(editor) else {
+                return;
+            };
+            publish(editor, &sender, result, open);
+        }))
     });
 }
 
@@ -94,7 +90,7 @@ fn publish(
                     Ok(callback) => sender.send_callback(callback).await,
                     Err(error) => {
                         sender
-                            .send(move |editor, _| editor.set_error(|| error.to_string()))
+                            .send(move |_, cx| cx.editor.set_error(|| error.to_string()))
                             .await
                     }
                 }
