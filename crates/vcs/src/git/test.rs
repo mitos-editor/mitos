@@ -2,7 +2,7 @@ use std::{cell::RefCell, fs::File, io::Write, path::Path, process::Command};
 
 use tempfile::TempDir;
 
-use crate::{git, ChangedFileScope, FileChange};
+use crate::{git, ChangedFileScope, DiffProviderRegistry, FileChange};
 
 pub(crate) fn exec_git_cmd(args: &[&str], git_dir: &Path) {
     let res = Command::new("git")
@@ -45,7 +45,9 @@ pub(crate) fn create_commit_with_message(repo: &Path, add_modified: bool, messag
 }
 
 pub(crate) fn empty_git_repo() -> TempDir {
-    let tmp = tempfile::tempdir().expect("create temp dir for git testing");
+    // Fixtures use the same path spelling as editor documents on Windows.
+    let tmp = tempfile::tempdir_in(stdx::path::normalize(tempfile::env::temp_dir()))
+        .expect("create temp dir for git testing");
     exec_git_cmd(&["init"], tmp.path());
     exec_git_cmd(&["config", "user.email", "test@mitos.org"], tmp.path());
     exec_git_cmd(&["config", "user.name", "mitos-test"], tmp.path());
@@ -546,4 +548,120 @@ fn inspection_keeps_head_for_untracked_files_and_refreshes_linked_worktrees() {
     assert_eq!(inspected.head_name.unwrap().load().len(), 8);
     let main = providers.inspect_file(&tracked, false, false);
     assert_eq!(&**main.head_name.unwrap().load_full(), "main");
+}
+
+#[tokio::test]
+async fn changed_files_preserve_repository_discovery_errors() {
+    let directory = tempfile::tempdir().unwrap();
+    let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
+    DiffProviderRegistry::default().for_each_changed_file(
+        ChangedFileScope::Directory(directory.path().to_owned()),
+        false,
+        move |_, result| {
+            sender.send(result).unwrap();
+            false
+        },
+    );
+    let result = tokio::time::timeout(std::time::Duration::from_secs(5), receiver.recv())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(format!("{:#}", result.unwrap_err()).contains("failed to discover git repo"));
+}
+
+#[test]
+fn diff_base_accepts_a_relative_worktree_path() {
+    let repository = empty_git_repo();
+    std::fs::write(repository.path().join("file.txt"), "base\n").unwrap();
+    create_commit(repository.path(), true);
+    exec_git_cmd(
+        &["worktree", "add", "-b", "relative", "linked"],
+        repository.path(),
+    );
+    // Relative backlinks should not require a recent Git CLI to construct the fixture.
+    std::fs::write(
+        repository.path().join("linked/.git"),
+        "gitdir: ../.git/worktrees/linked\n",
+    )
+    .unwrap();
+    std::fs::write(
+        repository.path().join(".git/worktrees/linked/gitdir"),
+        "../../../linked/.git\n",
+    )
+    .unwrap();
+    let file = repository.path().join("linked/file.txt");
+    for trust_full in [false, true] {
+        // Windows canonical paths have a verbatim prefix unlike Git's metadata.
+        for path in [file.clone(), file.canonicalize().unwrap()] {
+            assert_eq!(
+                git::inspect_file(&path, trust_full, true)
+                    .unwrap()
+                    .diff_base
+                    .unwrap(),
+                b"base\n"
+            );
+        }
+    }
+    std::fs::write(&file, "changed\n").unwrap();
+    let directory = file.parent().unwrap();
+    for trust_full in [false, true] {
+        for scope in [
+            ChangedFileScope::Repository(directory.to_owned()),
+            ChangedFileScope::Directory(directory.to_owned()),
+            ChangedFileScope::Directory(directory.canonicalize().unwrap()),
+        ] {
+            let expected_root = stdx::path::normalize(scope.path());
+            let found = std::cell::Cell::new(false);
+            git::for_each_changed_file(&scope, trust_full, |root, change| {
+                assert_eq!(root, expected_root);
+                if change.unwrap().path() == expected_root.join("file.txt") {
+                    found.set(true);
+                }
+                true
+            })
+            .unwrap();
+            assert!(found.get());
+        }
+    }
+}
+
+#[tokio::test]
+async fn file_status_cancellation_does_not_report_a_provider_failure() {
+    let repository = empty_git_repo();
+    std::fs::write(repository.path().join("first.txt"), "first\n").unwrap();
+    std::fs::write(repository.path().join("second.txt"), "second\n").unwrap();
+    let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
+    DiffProviderRegistry::default().for_each_file_status(
+        ChangedFileScope::Repository(repository.path().to_owned()),
+        false,
+        move |_, result| {
+            sender.send(result).unwrap();
+            false
+        },
+    );
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        receiver.recv().await.unwrap().unwrap();
+        assert!(receiver.recv().await.is_none());
+    })
+    .await
+    .unwrap();
+}
+
+#[test]
+fn directory_scopes_accept_native_and_normalized_path_spellings() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = stdx::path::normalize(directory.path());
+    let nested = directory.path().join("nested");
+    std::fs::create_dir(&nested).unwrap();
+    for path in [
+        directory.path().to_owned(),
+        directory.path().canonicalize().unwrap(),
+    ] {
+        let patterns = git::status_patterns(&root, &ChangedFileScope::Directory(path)).unwrap();
+        assert!(patterns.is_empty());
+    }
+    for path in [nested.clone(), nested.canonicalize().unwrap()] {
+        let patterns = git::status_patterns(&root, &ChangedFileScope::Directory(path)).unwrap();
+        assert_eq!(patterns, [":(top,literal)nested"]);
+    }
 }

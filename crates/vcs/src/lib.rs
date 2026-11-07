@@ -144,14 +144,10 @@ impl DiffProviderRegistry {
         f: impl Fn(&Path, Result<FileStatus>) -> bool + Send + 'static,
     ) {
         tokio::task::spawn_blocking(move || {
-            if self
-                .query(|provider| provider.for_each_file_status(&scope, trust_full, &f))
-                .is_err()
+            if let Err(error) =
+                self.query(|provider| provider.for_each_file_status(&scope, trust_full, &f))
             {
-                f(
-                    scope.path(),
-                    Err(anyhow!("no diff provider returns success")),
-                );
+                f(scope.path(), Err(error));
             }
         });
     }
