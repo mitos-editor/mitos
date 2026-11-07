@@ -25,5 +25,8 @@ thiserror.workspace = true
 slotmap.workspace = true
 sonic-rs.workspace = true
 
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
+
 [dev-dependencies]
 tempfile.workspace = true

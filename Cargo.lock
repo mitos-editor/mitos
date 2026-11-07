@@ -644,6 +644,7 @@ version = "0.1.3"
 dependencies = [
  "anyhow",
  "dap-types",
+ "libc",
  "log",
  "serde",
  "serde_json",
