@@ -75,17 +75,17 @@ pub struct CommitEntry {
     pub id: RevisionId,
     pub parents: Vec<RevisionId>,
     pub author: String,
+    /// Committer timestamp in UTC, matching the traversal's commit-time priority.
     pub date: String,
     pub subject: String,
     /// Paths at this commit and its first parent, including followed renames.
     pub file: Option<HistoryFile>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug)]
 pub struct HistoryCursor {
-    head: RevisionId,
-    path: Option<PathBuf>,
-    skip: usize,
+    source: std::sync::Arc<walk::Source>,
+    offset: usize,
 }
 
 pub struct HistoryPage {
@@ -94,97 +94,42 @@ pub struct HistoryPage {
 }
 
 impl GitRepository {
-    /// Resolve HEAD once. Subsequent pages never consult the branch name again.
+    /// Pin HEAD without loading commit objects on the UI thread. Clones and
+    /// continuations share one native walk and can retry already published pages.
     pub fn history_cursor(&self, path: Option<&Path>) -> Result<Option<HistoryCursor>> {
-        let repo = self.open(false)?;
-        if repo.head()?.is_unborn() {
+        let repo = self.open_history(false)?;
+        let head = repo.head()?;
+        let Some(id) = head.id() else {
             return Ok(None);
-        }
+        };
         let path = path.map(|path| self.relative(path)).transpose()?;
         Ok(Some(HistoryCursor {
-            head: RevisionId::parse(&repo.head_commit()?.id.to_string())?,
-            path,
-            skip: 0,
+            source: std::sync::Arc::new(walk::Source::new(self.clone(), id.detach(), path)),
+            offset: 0,
         }))
     }
 
-    /// Repository history walks the pinned ancestry; file history follows first parents for stable rename continuation.
-    /// Dropping this future kills its Git process, including when a browser is hidden.
+    /// Request a page from the persistent native walk. Dropping the future stops
+    /// the current read cooperatively; the cursor retains progress for restoration.
     pub async fn history_page(&self, cursor: HistoryCursor) -> Result<HistoryPage> {
-        let mut command = self.command();
-        command
-            .args([
-                "log",
-                "--no-color",
-                "--no-ext-diff",
-                "--no-textconv",
-                "--no-show-signature",
-                "--format=%x00%H%x00%P%x00%an%x00%aI%x00%s%x00",
-                "-z",
-            ])
-            .arg(format!("--max-count={}", HISTORY_PAGE_SIZE + 1));
-        if cursor.path.is_some() {
-            command.args([
-                "--first-parent",
-                "--diff-merges=first-parent",
-                "--follow",
-                "--name-status",
-                "--find-renames=50%",
-                "-l1000",
-            ]);
-        } else {
-            command
-                .args(["--topo-order", "--no-patch"])
-                .arg(format!("--skip={}", cursor.skip));
-        }
-        command.arg(cursor.head.as_str()).arg("--");
-        if let Some(path) = &cursor.path {
-            command.arg(literal_pathspec(path));
-        }
-        let bytes = tokio::time::timeout(std::time::Duration::from_secs(15), run(command))
-            .await
-            .context("Git history query timed out")??;
-        let mut records = parse_log(&bytes)?;
-        let has_more = records.len() > HISTORY_PAGE_SIZE;
-        records.truncate(HISTORY_PAGE_SIZE);
-        let mut path = cursor.path;
-        let mut commits = Vec::with_capacity(records.len());
-        for (mut commit, changes) in records {
-            if let Some(current) = &path {
-                let file = changes
-                    .into_iter()
-                    .find(|file| {
-                        file.after.as_ref() == Some(current)
-                            || file.before.as_ref() == Some(current)
-                    })
-                    .context("Git did not report the historical file path")?;
-                // The next older commit sees the path at this commit's first parent.
-                if let Some(before) = &file.before {
-                    path = Some(before.clone());
-                }
-                commit.file = Some(file);
-            }
-            commits.push(commit);
-        }
-        let next = if !has_more {
-            None
-        } else if path.is_none() {
-            Some(HistoryCursor {
-                head: cursor.head,
-                path: None,
-                skip: cursor.skip + commits.len(),
-            })
-        } else {
-            commits
-                .last()
-                .and_then(|commit| commit.parents.first())
-                .map(|head| HistoryCursor {
-                    head: head.clone(),
-                    path,
-                    skip: 0,
-                })
-        };
-        Ok(HistoryPage { commits, next })
+        ensure!(
+            cursor.source.belongs_to(self),
+            "History cursor belongs to another repository"
+        );
+        let (commits, more) = tokio::time::timeout(
+            std::time::Duration::from_secs(15),
+            cursor.source.page(cursor.offset),
+        )
+        .await
+        .context("Git history query timed out")??;
+        let offset = cursor.offset + commits.len();
+        Ok(HistoryPage {
+            commits,
+            next: more.then(|| HistoryCursor {
+                source: cursor.source,
+                offset,
+            }),
+        })
     }
 
     /// Compare a chosen parent with the commit, explicitly handling roots and merges.
@@ -197,34 +142,38 @@ impl GitRepository {
             parent < commit.parents.len().max(1),
             "Selected commit parent is unavailable"
         );
-        let mut command = self.command();
-        command.args([
-            "diff-tree",
-            "--root",
-            "--no-commit-id",
-            "--name-status",
-            "--no-ext-diff",
-            "--no-textconv",
-            "--no-color",
-            "--find-renames=50%",
-            "-l1000",
-            "-r",
-            "-z",
-        ]);
-        if let Some(parent) = commit.parents.get(parent) {
-            command.arg(parent.as_str());
-        }
-        command.arg(commit.id.as_str()).arg("--");
-        let bytes = tokio::time::timeout(std::time::Duration::from_secs(15), run(command))
+        let repository = self.clone();
+        let commit = commit.clone();
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        tokio::task::spawn_blocking(move || {
+            if tx.is_closed() {
+                return;
+            }
+            let result = (|| {
+                let repo = repository.open_history(false)?;
+                let tree = repo
+                    .find_commit(gix::ObjectId::from_hex(commit.id.as_str().as_bytes())?)?
+                    .tree()?;
+                let before = match commit.parents.get(parent) {
+                    Some(id) => repo
+                        .find_commit(gix::ObjectId::from_hex(id.as_str().as_bytes())?)?
+                        .tree()?,
+                    None => repo.empty_tree(),
+                };
+                changes::between(&before, &tree, || tx.is_closed())
+            })();
+            let _ = tx.send(result);
+        });
+        tokio::time::timeout(std::time::Duration::from_secs(15), rx)
             .await
-            .context("Git changed-file query timed out")??;
-        parse_changes(&mut bytes.split(|byte| *byte == 0).peekable())
+            .context("Git changed-file query timed out")?
+            .context("History changed-file worker stopped")?
     }
 
     /// Read an exact historical blob without worktree conversions, filters, or external tools.
     pub fn read_revision_file(&self, file: &RevisionFile, trusted: bool) -> Result<Vec<u8>> {
         validate_path(file.path())?;
-        let repo = self.open(trusted)?;
+        let repo = self.open_history(trusted)?;
         let id = gix::ObjectId::from_hex(file.revision.as_str().as_bytes())?;
         let tree = repo
             .find_commit(id)
@@ -248,93 +197,8 @@ fn validate_path(path: &Path) -> Result<()> {
     Ok(())
 }
 
-fn parse_changes<'a>(
-    fields: &mut std::iter::Peekable<impl Iterator<Item = &'a [u8]>>,
-) -> Result<Vec<HistoryFile>> {
-    let mut files = Vec::new();
-    while let Some(status) = fields.peek().filter(|status| !status.is_empty()) {
-        let status = status.strip_prefix(b"\n").unwrap_or(status);
-        let kind = *status.first().context("Missing historical change kind")?;
-        ensure!(
-            matches!(kind, b'A' | b'D' | b'M' | b'T' | b'R' | b'C'),
-            "Unsupported historical change kind"
-        );
-        let status = literal(status);
-        fields.next();
-        let path = fields.next().context("Missing historical file path")?;
-        let path = gix::path::from_bstr(gix::bstr::BStr::new(path)).into_owned();
-        validate_path(&path)?;
-        let (before, after) = if matches!(kind, b'R' | b'C') {
-            let new = fields
-                .next()
-                .context("Missing historical rename destination")?;
-            let new = gix::path::from_bstr(gix::bstr::BStr::new(new)).into_owned();
-            validate_path(&new)?;
-            (Some(path), Some(new))
-        } else {
-            (
-                (kind != b'A').then(|| path.clone()),
-                (kind != b'D').then_some(path),
-            )
-        };
-        files.push(HistoryFile {
-            before,
-            after,
-            status,
-        });
-        ensure!(
-            files.len() <= 20_000,
-            "Commit contains too many files to display (limit 20000)"
-        );
-    }
-    Ok(files)
-}
-
-fn parse_log(bytes: &[u8]) -> Result<Vec<(CommitEntry, Vec<HistoryFile>)>> {
-    let mut fields = bytes.split(|byte| *byte == 0).peekable();
-    let mut commits = Vec::new();
-    while let Some(id) = fields.next() {
-        if id.is_empty() {
-            continue;
-        }
-        let id = RevisionId::parse(std::str::from_utf8(id)?)?;
-        let parents = fields
-            .next()
-            .context("Missing commit parents")?
-            .split(|byte| *byte == b' ')
-            .filter(|id| !id.is_empty())
-            .map(|id| RevisionId::parse(std::str::from_utf8(id)?))
-            .collect::<Result<Vec<_>>>()?;
-        let author = literal(fields.next().context("Missing commit author")?);
-        let date = literal(fields.next().context("Missing commit date")?);
-        let subject = literal(fields.next().context("Missing commit subject")?);
-        // `-z` terminates the pretty record before its optional name-status records.
-        if fields.peek() == Some(&b"".as_slice()) {
-            fields.next();
-        }
-        let changes = if fields.peek().is_some_and(|field| field.starts_with(b"\n")) {
-            parse_changes(&mut fields)?
-        } else {
-            Vec::new()
-        };
-        commits.push((
-            CommitEntry {
-                id,
-                parents,
-                author,
-                date,
-                subject,
-                file: None,
-            },
-            changes,
-        ));
-        ensure!(
-            commits.len() <= HISTORY_PAGE_SIZE + 1,
-            "Git returned too many history rows"
-        );
-    }
-    Ok(commits)
-}
+mod changes;
+mod walk;
 
 #[cfg(test)]
 mod tests;
