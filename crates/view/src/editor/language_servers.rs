@@ -97,21 +97,14 @@ impl Editor {
             return;
         }
 
-        doc.attach_language_servers(language_servers, &self.initialized_language_servers);
+        doc.attach_language_servers(language_servers, &self.language_servers);
     }
 
     /// Publish editor readiness only after configuration is queued. Pending documents
     /// open with their latest snapshot before feature observers can request work.
     pub fn handle_language_server_initialized(&mut self, server_id: LanguageServerId) {
-        let Some(server) = self.language_servers.get_by_id(server_id).cloned() else {
-            log::debug!("ignoring initialization from removed server {server_id}");
+        if !self.language_servers.configure(server_id) {
             return;
-        };
-        if !server.is_initialized() || !self.initialized_language_servers.insert(server_id) {
-            return;
-        }
-        if let Some(config) = server.config() {
-            server.did_change_configuration(config.clone());
         }
         for doc in self.documents.values_mut() {
             doc.open_language_server_document(server_id);
@@ -123,14 +116,6 @@ impl Editor {
                 server_id,
             })
             .report_to(self.status_sender());
-    }
-
-    pub(crate) fn forget_language_server(&mut self, server_id: LanguageServerId) {
-        self.initialized_language_servers.remove(&server_id);
-    }
-
-    pub(crate) fn language_server_is_ready(&self, server_id: LanguageServerId) -> bool {
-        self.initialized_language_servers.contains(&server_id)
     }
 
     /// Stop selected servers attached to a document across all workspaces.
@@ -147,7 +132,7 @@ impl Editor {
         let language_servers: Vec<_> = doc
             .language_servers
             .values()
-            .map(|ls| ls.name().to_owned())
+            .map(|attachment| attachment.client.name().to_owned())
             .collect();
         let language_servers = if servers.is_empty() {
             language_servers

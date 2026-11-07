@@ -602,3 +602,168 @@ async fn reload_notifications_follow_the_explicit_or_automatic_change_source() -
     }
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn pending_roots_stay_separate_and_ready_clients_adopt_without_duplicate_opens(
+) -> anyhow::Result<()> {
+    use super::helpers::{
+        self,
+        lsp::{Gate, ServerConfig},
+    };
+    use language_config::LanguageServerFeature;
+    use view::{current_ref, editor::Action};
+    let Some(root) = helpers::isolation::workspace(
+        "test::lsp_workspace::pending_roots_stay_separate_and_ready_clients_adopt_without_duplicate_opens",
+    )? else { return Ok(()); };
+    for notifications in [true, false] {
+        let case = root
+            .join("workspace")
+            .join(if notifications { "notifying" } else { "quiet" });
+        let roots = [case.join("first"), case.join("second"), case.join("third")];
+        for root in &roots {
+            std::fs::create_dir_all(root)?;
+            std::fs::write(root.join(".lsp-root"), "")?;
+        }
+        let paths = [
+            roots[0].join("first.workspace-test"),
+            roots[0].join("same.workspace-test"),
+            roots[1].join("second.workspace-test"),
+            roots[2].join("third.workspace-test"),
+        ];
+        for path in &paths {
+            std::fs::write(path, "😀 original\n")?;
+        }
+        let gate = Gate::new(case.join("initialize-ready"));
+        let mut server = ServerConfig::new("alpha")
+            .arg("--workspace-folders")
+            .arg("--request-log")
+            .arg("lsp.jsonl")
+            .initialize_gate(&gate);
+        if !notifications {
+            server = server.arg("--no-workspace-notifications");
+        }
+        let loader = helpers::test_syntax_loader(Some(format!(
+            r#"
+{}
+[[language]]
+name = "workspace-test"
+scope = "source.workspace-test"
+file-types = ["workspace-test"]
+roots = [".lsp-root"]
+language-servers = [
+    {{ name = "alpha", only-features = ["document-symbols"] }},
+    {{ name = "alpha", only-features = ["document-colors"] }},
+]
+"#,
+            server.toml()
+        )));
+        let mut config = helpers::test_config();
+        config.editor.lsp.enable = true;
+        let mut app = helpers::AppBuilder::new()
+            .with_config(config)
+            .with_lang_loader(loader)
+            .build()?;
+        let document = app.editor.open(&paths[0], Action::Replace)?;
+        let first = app.editor.language_servers().next().unwrap().id();
+        let client = app.editor.language_server_by_id(first).unwrap();
+        assert!(client.try_add_workspace(
+            &roots[0],
+            Some(lsp::Url::from_directory_path(&roots[0]).unwrap()),
+            true
+        ));
+        assert!(!client.try_add_workspace(
+            &roots[2],
+            Some(lsp::Url::from_directory_path(&roots[2]).unwrap()),
+            true
+        ));
+        app.editor.open(&paths[1], Action::Replace)?;
+        assert_eq!(app.editor.language_servers().count(), 1);
+        app.editor.open(&paths[2], Action::Replace)?;
+        assert_eq!(app.editor.language_servers().count(), 2);
+        let second = app
+            .editor
+            .language_servers()
+            .find(|client| client.root_path() == roots[1])
+            .unwrap()
+            .id();
+        assert_ne!(first, second);
+        gate.release()?;
+        helpers::lsp::initialize(&mut app, 2).await?;
+        app.editor.open(&paths[3], Action::Replace)?;
+        assert_eq!(app.editor.language_servers().count(), 2);
+        assert!(current_ref!(app.editor)
+            .1
+            .language_servers()
+            .all(|client| client.id() == first));
+        let doc = app.editor.document(document).unwrap();
+        assert_eq!(
+            doc.language_servers()
+                .map(|client| client.id())
+                .collect::<Vec<_>>(),
+            [first, first]
+        );
+        for feature in [
+            LanguageServerFeature::DocumentSymbols,
+            LanguageServerFeature::DocumentColors,
+        ] {
+            assert_eq!(doc.language_servers_with_feature(feature).count(), 1);
+        }
+        let (view, doc) = current!(app.editor);
+        let edited = doc.id();
+        let transaction =
+            editor_core::Transaction::insert(doc.text(), doc.selection(view.id), "changed ".into());
+        view::editing::apply(doc, &transaction, view.id).unwrap();
+        assert!(app.editor.close_document(edited, true).is_ok());
+        for (id, server_root, expected_paths) in [
+            (first, &roots[0], vec![&paths[0], &paths[1], &paths[3]]),
+            (second, &roots[1], vec![&paths[2]]),
+        ] {
+            let client = app.editor.language_server_by_id(id).unwrap();
+            client.shutdown().await?; // Barrier includes all preceding workspace/open messages.
+            let messages = helpers::lsp::read_log(&server_root.join("lsp.jsonl"))?;
+            let mut opened = messages
+                .iter()
+                .filter(|m| m["method"] == "textDocument/didOpen")
+                .map(|m| {
+                    m["params"]["textDocument"]["uri"]
+                        .as_str()
+                        .unwrap()
+                        .to_owned()
+                })
+                .collect::<Vec<_>>();
+            let mut expected = expected_paths
+                .into_iter()
+                .map(|path| lsp::Url::from_file_path(path).unwrap().to_string())
+                .collect::<Vec<_>>();
+            opened.sort();
+            expected.sort();
+            assert_eq!(opened, expected);
+            assert_eq!(
+                messages
+                    .iter()
+                    .filter(|m| m["method"] == "workspace/didChangeWorkspaceFolders")
+                    .count(),
+                usize::from(id == first && notifications)
+            );
+            for method in ["textDocument/didChange", "textDocument/didClose"] {
+                assert_eq!(
+                    messages.iter().filter(|m| m["method"] == method).count(),
+                    usize::from(id == first),
+                    "{method}"
+                );
+            }
+            assert_eq!(
+                client.workspace_folders().await.len(),
+                if id == first { 2 } else { 1 }
+            );
+        }
+        app.editor.stop_language_servers(document, &["alpha"])?;
+        assert_eq!(app.editor.language_servers().count(), 0);
+        assert!(app
+            .editor
+            .documents()
+            .all(|doc| doc.language_servers().next().is_none()));
+        assert!(app.close().await.is_empty());
+    }
+    Ok(())
+}

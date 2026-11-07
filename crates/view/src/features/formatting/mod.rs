@@ -181,12 +181,13 @@ pub fn prepare_selections(editor: &Editor, view: ViewId) -> anyhow::Result<Forma
         .flat_map(|config| &config.language_servers)
         .filter(|config| config.has_feature(LanguageServerFeature::Format))
         .filter_map(|config| doc.language_servers.get(&config.name))
+        .filter(|attachment| attachment.opened)
+        .map(|attachment| &attachment.client)
         .find(|server| {
-            server.is_initialized()
-                && matches!(
-                    server.capabilities().document_range_formatting_provider,
-                    Some(lsp::OneOf::Left(true) | lsp::OneOf::Right(_))
-                )
+            matches!(
+                server.capabilities().document_range_formatting_provider,
+                Some(lsp::OneOf::Left(true) | lsp::OneOf::Right(_))
+            )
         })
         .context("No configured language server supports range formatting")?;
     target.server = Some(server.id());
