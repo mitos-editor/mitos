@@ -323,6 +323,9 @@ impl PaneRenderer {
         let layout = view.layout(doc, Some(&editor.theme));
         let inner = layout.viewport;
         let area = view.content_area(doc);
+        if area.is_empty() {
+            return None;
+        }
         let theme = &editor.theme;
         let config = editor.config();
 

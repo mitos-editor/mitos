@@ -144,6 +144,7 @@ belong in `keys.normal`, `keys.insert`, and `keys.select`.
 | `keys.stash-picker` | All `keys.picker` actions, plus `apply_stash`, `apply_stash_with_index`, `actions` |
 | `keys.history-picker` | All `keys.picker` actions, plus `actions`, `back` |
 | `keys.file-explorer` | All `keys.picker` actions, plus `create_path`, `move_path`, `copy_path`, `delete_path`, `yank_path` |
+| `keys.sidebar`, `keys.sidebar-filter` | All `keys.file-explorer` actions, plus `filter`, `focus_editor`, `hide`, `next_view`, `previous_view` |
 | `keys.menu` | `accept`, `cancel`, `move_up`, `move_down`, `page_up`, `page_down` |
 | `keys.popup` | `cancel`, `scroll_up`, `scroll_down` |
 | `keys.hover`, `keys.signature-help` | `previous`, `next` |
@@ -168,6 +169,11 @@ current action list. It has no default binding.
 `remove_entry` removes the highlighted quicklist entry while keeping the picker
 open, preserving the filter and selecting a nearby row. It stops the current
 action list. See [Quicklist](./quicklist.md) for adding and removing locations.
+
+The sidebar inherits `keys.file-explorer` bindings. Use `keys.sidebar` to override
+navigation bindings and `keys.sidebar-filter` to override bindings while editing
+its filter. The editor shortcut is `switch_sidebar_focus` under `keys.normal`
+and `keys.select`.
 
 ## Special keys and modifiers
 

@@ -80,6 +80,18 @@ pub enum PickerItemAction {
     YankPath,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SidebarAction {
+    Filter,
+    FocusEditor,
+    Hide,
+    NextView,
+    PreviousView,
+    #[serde(untagged)]
+    Picker(PickerAction),
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum MenuAction {
@@ -132,6 +144,8 @@ pub struct ComponentKeymaps {
     pub stash_picker: Keymap<PickerAction>,
     pub history_picker: Keymap<PickerAction>,
     pub file_explorer: Keymap<PickerAction>,
+    pub sidebar: Keymap<SidebarAction>,
+    pub sidebar_filter: Keymap<SidebarAction>,
     pub menu: Keymap<MenuAction>,
     pub popup: Keymap<PopupAction>,
     pub hover: Keymap<PageAction>,
@@ -163,6 +177,36 @@ pub(crate) fn quicklist_picker_keymap(picker: &Keymap<PickerAction>) -> Keymap<P
 }
 
 impl ComponentKeymaps {
+    pub fn sidebar_filter(explorer: Keymap<PickerAction>) -> Keymap<SidebarAction> {
+        let mut keys = explorer.map_actions(SidebarAction::Picker);
+        keys.merge(bindings(&[("C-e", SidebarAction::FocusEditor)]));
+        keys
+    }
+
+    pub fn sidebar(explorer: Keymap<PickerAction>) -> Keymap<SidebarAction> {
+        use SidebarAction as S;
+        let mut keys = Self::sidebar_filter(explorer);
+        keys.merge(bindings(&[
+            ("/", S::Filter),
+            ("j", S::Picker(PickerAction::MoveDown)),
+            ("k", S::Picker(PickerAction::MoveUp)),
+            ("q", S::Hide),
+        ]));
+        let windows = bindings(&[
+            ("l", S::FocusEditor),
+            ("C-l", S::FocusEditor),
+            ("right", S::FocusEditor),
+            ("w", S::NextView),
+            ("C-w", S::NextView),
+            ("W", S::PreviousView),
+            ("q", S::Hide),
+            ("C-q", S::Hide),
+            ("b", S::Hide),
+        ]);
+        keys.0
+            .insert("C-w".parse().unwrap(), Binding::Keys(windows));
+        keys
+    }
     pub fn git_picker(mut shared: Keymap<PickerAction>) -> Keymap<PickerAction> {
         use PickerItemAction as I;
         shared.merge(bindings(&[
@@ -293,6 +337,8 @@ impl Default for ComponentKeymaps {
             stash_picker: Self::stash_picker(picker.clone()),
             history_picker: Self::history_picker(picker.clone()),
             file_explorer: Self::file_explorer(picker.clone()),
+            sidebar: Self::sidebar(Self::file_explorer(picker.clone())),
+            sidebar_filter: Self::sidebar_filter(Self::file_explorer(picker.clone())),
             picker,
             menu: bindings(&[
                 ("esc", M::Cancel),

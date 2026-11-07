@@ -286,6 +286,8 @@ pub struct Picker<T: 'static + Send + Sync, D: 'static> {
     widths: Vec<Constraint>,
 
     callback_fn: PickerCallback<T, D>,
+    /// Embedded pickers return focus to their parent instead of popping a layer.
+    on_close: Option<fn(&mut Compositor, &mut Context)>,
     default_action: Action,
 
     pub truncate_start: bool,
@@ -306,6 +308,7 @@ pub struct Picker<T: 'static + Send + Sync, D: 'static> {
     file_updates: Option<file_updates::FileUpdates<T, D>>,
     editor_updates: Option<updates::EditorUpdates<T>>,
     query_updates: Option<updates::QueryUpdates<D>>,
+    query_options: Option<QueryOptions<T, D>>,
     query_refresh: bool,
     query_needs_refresh: bool,
     title: Option<Line<'static>>,
@@ -427,7 +430,8 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             truncate_start: true,
             show_preview: true,
             preview_area: None,
-            callback_fn: Box::new(callback_fn),
+            callback_fn: Box::new(move |cx, item, _, action| callback_fn(cx, item, action)),
+            on_close: None,
             default_action: Action::Replace,
             completion_height: 0,
             widths,
@@ -445,6 +449,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             file_updates: None,
             editor_updates: None,
             query_updates: None,
+            query_options: None,
             query_refresh: false,
             query_needs_refresh: false,
             title: None,
@@ -462,6 +467,57 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             redraw: self.redraw.clone(),
             _redraw: self.redraw.on_drop(),
         }
+    }
+
+    pub(super) fn editor_data(&self) -> &D {
+        &self.results.editor_data
+    }
+
+    /// Let a hierarchical source retain context rows that do not themselves match.
+    pub(super) fn with_query_options(
+        mut self,
+        callback: impl Fn(&Editor, &str, &D, Option<&T>) -> anyhow::Result<(Vec<T>, D, usize)> + 'static,
+    ) -> Self {
+        self.query_options = Some(Box::new(callback));
+        self
+    }
+
+    pub(super) fn with_data_callback(
+        mut self,
+        callback: impl Fn(&mut Context, &T, &D, Action) -> PickerCallbackResult<T, D> + 'static,
+    ) -> Self {
+        self.callback_fn = Box::new(callback);
+        self
+    }
+
+    pub(crate) fn embedded(mut self, on_close: fn(&mut Compositor, &mut Context)) -> Self {
+        self.on_close = Some(on_close);
+        self.show_preview = false;
+        self
+    }
+
+    pub(crate) fn suspend(&mut self) {
+        self.keys.clear();
+        self.poll = None;
+        if let Some(updates) = &mut self.file_updates {
+            updates.stop();
+        }
+    }
+
+    pub(super) fn cancel_input(&mut self) {
+        self.keys.clear();
+        self.prompt.cancel_input();
+    }
+
+    pub(super) fn clear_filter(&mut self, editor: &Editor) {
+        self.prompt.clear(editor);
+        if self.handle_prompt_change(false) {
+            self.refresh_query_options(editor, true);
+        }
+    }
+
+    pub(super) fn set_title(&mut self, title: &'static str) {
+        self.title = Some(title.into());
     }
 
     pub fn truncate_start(mut self, truncate_start: bool) -> Self {
@@ -664,17 +720,42 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
     }
 
     fn replace_options(&mut self, options: Vec<T>, editor_data: D, editor: &Editor) {
-        self.results.cursor = 0;
-        self.results.offset = 0;
-
-        self.prompt.clear(editor);
-        self.handle_prompt_change(false);
-        self.reset_options(options, editor_data);
+        if self.on_close.is_some() {
+            if let Some(updates) = &mut self.file_updates {
+                updates.stop();
+            }
+            // Keep the old filtered snapshot until publication so expansion can
+            // resolve the selected node before exposing the unfiltered tree.
+            self.refresh_options(options, Arc::new(editor_data));
+            self.prompt.clear(editor);
+            self.query.parse("");
+            let pending = self.results.pending_options.as_mut().unwrap();
+            for column in 0..self.columns.iter().filter(|column| column.filter).count() {
+                pending.matcher.pattern.reparse(
+                    column,
+                    "",
+                    nucleo::pattern::CaseMatching::Smart,
+                    nucleo::pattern::Normalization::Smart,
+                    false,
+                );
+            }
+            pending.matcher.tick(10);
+            self.publish_options();
+        } else {
+            self.clear_filter(editor);
+            self.results.cursor = 0;
+            self.results.offset = 0;
+            self.reset_options(options, editor_data);
+        }
     }
 
     fn reset_options(&mut self, options: Vec<T>, editor_data: D) {
         if let Some(updates) = &mut self.file_updates {
-            updates.stop();
+            if self.query_options.is_some() {
+                updates.query_changed();
+            } else {
+                updates.stop();
+            }
         }
         self.results.discard_pending();
         self.reset_options_shared(options, Arc::new(editor_data));
@@ -752,24 +833,59 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         }
     }
 
-    fn prompt_handle_event(&mut self, event: &Event, cx: &mut Context) -> EventResult {
+    pub(super) fn prompt_handle_event(&mut self, event: &Event, cx: &mut Context) -> EventResult {
         if self.replacement_pending() {
             return EventResult::Consumed(None);
         }
         let search_active = !self.replacement_active();
         let result = self.active_prompt_mut().handle_event(event, cx);
-        if search_active && matches!(result, EventResult::Consumed(_)) {
-            self.handle_prompt_change(matches!(event, Event::Paste(_)));
+        if search_active
+            && matches!(result, EventResult::Consumed(_))
+            && self.handle_prompt_change(matches!(event, Event::Paste(_)))
+        {
+            self.refresh_query_options(cx.editor, false);
         }
         EventResult::Consumed(None)
     }
 
-    fn handle_prompt_change(&mut self, is_paste: bool) {
+    pub(super) fn refresh_query_options(&mut self, editor: &Editor, preserve_selection: bool) {
+        self.publish_options();
+        let preserve_selection = preserve_selection && !self.results.is_refreshing();
+        if let Some(source) = &self.query_options {
+            match source(
+                editor,
+                &self.primary_query(),
+                &self.results.editor_data,
+                self.selection().filter(|_| preserve_selection),
+            ) {
+                Ok((options, data, cursor)) => {
+                    if let Some(updates) = &mut self.file_updates {
+                        updates.query_changed();
+                    }
+                    self.refresh_options(options, Arc::new(data));
+                    let pending = self.results.pending_options.as_mut().unwrap();
+                    pending.preserve_selection = preserve_selection;
+                    pending.cursor = Some(cursor as u32);
+                    if !preserve_selection {
+                        self.results.offset = 0;
+                    }
+                    self.matching = true;
+                    self.redraw.request();
+                }
+                Err(error) => editor.status_sender().report_blocking(error),
+            }
+        }
+    }
+
+    fn handle_prompt_change(&mut self, is_paste: bool) -> bool {
         // TODO: better track how the pattern has changed
         let line = self.prompt.line();
         let old_query = self.query.parse(line);
         if self.query == old_query {
-            return;
+            return false;
+        }
+        if self.query_options.is_some() {
+            return true;
         }
         // If the query has meaningfully changed, reset the cursor to the top of the results.
         self.results.cursor = 0;
@@ -836,6 +952,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             };
             event::send_blocking(handler, event);
         }
+        true
     }
 
     /// Get (cached) preview for the currently selected item. If a document corresponding
@@ -870,10 +987,33 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         Some((preview, range, &mut self.preview_scroll))
     }
 
+    fn frame(
+        &self,
+        theme: &theme::Theme,
+        border_style: editor_config::BorderStyle,
+    ) -> tui::widgets::Block<'static> {
+        if self.on_close.is_some() {
+            tui::widgets::Block::new()
+                .borders(tui::widgets::Borders::RIGHT)
+                .border_set(tui::symbols::border::PLAIN)
+                .border_style(theme.get("ui.window"))
+                .title(self.title.clone().unwrap_or_default())
+        } else {
+            panel::bordered(theme, border_style)
+        }
+    }
+
     fn render_picker(&mut self, area: Rect, surface: &mut Surface, cx: &mut DrawContext) {
         let snapshot = self.results.matcher.snapshot();
         let text_style = cx.editor.theme.get("ui.text");
-        let selected = cx.editor.theme.get("ui.text.focus");
+        let selected = cx
+            .editor
+            .theme
+            .get(if self.on_close.is_some() && !cx.is_cursor_owner {
+                "ui.text.inactive"
+            } else {
+                "ui.text.focus"
+            });
         let highlight_style = cx.editor.theme.get("special").add_modifier(Modifier::BOLD);
 
         // -- Render the frame:
@@ -881,9 +1021,17 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         let background = cx.editor.theme.get("ui.background");
         surface.clear_with(area, background);
 
-        let mut block = panel::bordered(&cx.editor.theme, cx.editor.config().border_style);
+        let mut block = self.frame(&cx.editor.theme, cx.editor.config().border_style);
         if let Some(title) = &self.title {
-            block = block.title(title.clone()).title_style(text_style);
+            let title_style = if self.on_close.is_some() && cx.is_cursor_owner {
+                text_style.add_modifier(Modifier::BOLD)
+            } else {
+                text_style
+            };
+            if self.on_close.is_none() {
+                block = block.title(title.clone());
+            }
+            block = block.title_style(title_style);
         }
         let inner = block.inner(area);
         block.render(area, surface);
@@ -946,8 +1094,10 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             .render(count_area, surface);
 
         let sep_style = cx.editor.theme.get("ui.background.separator");
-        panel::top_border(sep_style, cx.editor.config().border_style)
-            .render(input_areas.search_separator, surface);
+        if self.on_close.is_none() {
+            panel::top_border(sep_style, cx.editor.config().border_style)
+                .render(input_areas.search_separator, surface);
+        }
         if let Some(status) = self
             .editor_updates
             .as_ref()
@@ -986,6 +1136,13 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         } else {
             fuzzy::MatchKind::Text
         });
+        let source_pattern = self.query_options.as_ref().map(|_| {
+            nucleo::pattern::Pattern::parse(
+                &self.primary_query(),
+                nucleo::pattern::CaseMatching::Smart,
+                nucleo::pattern::Normalization::Smart,
+            )
+        });
         let matcher = &mut self.highlight_matcher;
 
         let options = snapshot.matched_items(offset..end).map(|item| {
@@ -1002,11 +1159,18 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                 };
                 let mut cell = column.format(item.data, &self.results.editor_data);
                 let mut width = if column.filter {
-                    matcher.indices(
-                        snapshot.pattern().column_pattern(matcher_index),
-                        item.matcher_columns[matcher_index].slice(..),
-                        &mut indices,
-                    );
+                    if matcher
+                        .indices(
+                            source_pattern.as_ref().unwrap_or_else(|| {
+                                snapshot.pattern().column_pattern(matcher_index)
+                            }),
+                            item.matcher_columns[matcher_index].slice(..),
+                            &mut indices,
+                        )
+                        .is_none()
+                    {
+                        indices.clear();
+                    }
                     indices.sort_unstable();
                     indices.dedup();
                     let mut indices = indices.drain(..);
@@ -1146,8 +1310,20 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         }
     }
 
-    fn execute_actions(&mut self, actions: &[PickerAction], ctx: &mut Context) -> EventResult {
+    pub(super) fn execute_actions(
+        &mut self,
+        actions: &[PickerAction],
+        ctx: &mut Context,
+    ) -> EventResult {
         let close_fn = |picker: &mut Self, after: Option<compositor::Callback>| {
+            if let Some(on_close) = picker.on_close {
+                return EventResult::Consumed(Some(Box::new(move |compositor, cx| {
+                    on_close(compositor, cx);
+                    if let Some(after) = after {
+                        after(compositor, cx);
+                    }
+                })));
+            }
             picker.cancel_replacement();
             picker.query_needs_refresh =
                 picker.dynamic_query_handler.is_some() && picker.file_updates.is_none();
@@ -1201,6 +1377,15 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
 
         // A restored picker can receive input before its first redraw.
         self.refresh_from_editor(ctx.editor);
+        if self.query_options.is_some() {
+            self.results.matcher.tick(10);
+        }
+        if self.on_close.is_some() {
+            if let Some(pending) = &mut self.results.pending_options {
+                pending.matcher.tick(10);
+            }
+            self.publish_options();
+        }
         for &action in actions {
             if self.replacement_pending()
                 && !matches!(
@@ -1316,7 +1501,12 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                 }
                 PickerAction::AcceptKeepOpen => {
                     if let Some(option) = self.selection() {
-                        let result = (self.callback_fn)(ctx, option, self.default_action);
+                        let result = (self.callback_fn)(
+                            ctx,
+                            option,
+                            &self.results.editor_data,
+                            self.default_action,
+                        );
                         if let PickerClose::Close(Some(callback))
                         | PickerClose::KeepOpen(Some(callback)) =
                             self.apply_callback_result(result, ctx.editor)
@@ -1355,13 +1545,20 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                         self.prompt.set_line(completion, ctx.editor);
 
                         // Inserting from the history register is a paste.
-                        self.handle_prompt_change(true);
+                        if self.handle_prompt_change(true) {
+                            self.refresh_query_options(ctx.editor, false);
+                        }
                     } else {
-                        let callback_result = self
-                            .selection()
-                            .map_or(PickerCallbackResult::Close, |option| {
-                                (self.callback_fn)(ctx, option, self.default_action)
-                            });
+                        let callback_result =
+                            self.selection()
+                                .map_or(PickerCallbackResult::Close, |option| {
+                                    (self.callback_fn)(
+                                        ctx,
+                                        option,
+                                        &self.results.editor_data,
+                                        self.default_action,
+                                    )
+                                });
                         if let Some(history_register) = self.prompt.history_register()
                             && let Err(err) = ctx
                                 .editor
@@ -1387,7 +1584,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                     let callback_result = self
                         .selection()
                         .map_or(PickerCallbackResult::Close, |option| {
-                            (self.callback_fn)(ctx, option, action)
+                            (self.callback_fn)(ctx, option, &self.results.editor_data, action)
                         });
                     match self.apply_callback_result(callback_result, ctx.editor) {
                         PickerClose::Close(callback) => return close_fn(self, callback),
@@ -1473,7 +1670,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
 
 impl<I: 'static + Send + Sync, D: 'static + Send + Sync> Component for Picker<I, D> {
     fn has_pending_render(&self) -> bool {
-        self.matching
+        self.matching || (self.on_close.is_some() && self.results.is_refreshing())
     }
 
     fn update(&mut self, area: Rect, cx: &mut Context) {
@@ -1636,7 +1833,9 @@ impl<I: 'static + Send + Sync, D: 'static + Send + Sync> Component for Picker<I,
             && (self.file_fn.is_some() || self.custom_preview.is_some())
             && area.width > MIN_AREA_WIDTH_FOR_PREVIEW;
         let (picker_area, _) = split_picker_area(area, render_preview);
-        let inner = panel::bordered(&editor.theme, editor.config().border_style).inner(picker_area);
+        let inner = self
+            .frame(&editor.theme, editor.config().border_style)
+            .inner(picker_area);
         let areas = split_picker_input_area(inner, self.replacement_visible());
         let area = if self.replacement_active() {
             areas.replacement.unwrap().clip_right(1)
@@ -1679,7 +1878,10 @@ pub(crate) enum PickerCallbackResult<T, D> {
     },
 }
 
-type PickerCallback<T, D> = Box<dyn Fn(&mut Context, &T, Action) -> PickerCallbackResult<T, D>>;
+type QueryOptions<T, D> =
+    Box<dyn Fn(&Editor, &str, &D, Option<&T>) -> anyhow::Result<(Vec<T>, D, usize)>>;
+
+type PickerCallback<T, D> = Box<dyn Fn(&mut Context, &T, &D, Action) -> PickerCallbackResult<T, D>>;
 type PickerItemCallback<T, D> =
     Box<dyn Fn(&mut Context, Option<&T>, &D, PickerItemAction) -> PickerCallbackResult<T, D>>;
 

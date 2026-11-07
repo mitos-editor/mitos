@@ -122,6 +122,39 @@ Moving or copying onto an existing directory puts the entry inside it. Existing
 paths are never overwritten, and missing parent directories are created. Remap
 these keys under [`[keys.file-explorer]`](./remapping.md#component-keys).
 
+### Sidebar
+
+Press `Ctrl-e` in normal or select mode to open the file explorer sidebar at the
+workspace root. Press it again to return to the editor. In the editor,
+`Ctrl-w b` (or `Space w b`) shows or hides the sidebar, keeping expanded
+directories and your selection.
+
+| Key | Action |
+| --- | --- |
+| `j` / `k` or `Down` / `Up` | Select an entry |
+| `Enter` | Expand or collapse a directory, or open a file |
+| `/` | Start a search |
+| `Enter` while searching | Confirm the search and navigate the filtered tree |
+| `Esc` with a search | Clear the search and keep the sidebar focused |
+| `Esc` without a search | Return to the editor |
+| `q` while navigating | Hide the sidebar |
+
+Search uses fuzzy matching and includes collapsed directories, excluding Git
+and other version control metadata. Results show matching names with their
+parent directories expanded, and hide unrelated files. Directories come first,
+with names sorted alphabetically within each directory. Each new query selects
+the first match; background updates keep your selection when possible.
+Include a path separator to search relative paths. `Ctrl-w` deletes the previous
+word in the search.
+After confirming a search, press `Enter` again to open the selected file.
+Opening a file returns focus to the editor. The sidebar keeps your search and
+selection when you return. Press `/` to start a new search or `Esc` to clear it.
+
+[File actions](#file-explorer), such as `Alt-n` to create a file and `Alt-m` to
+move it, also work in the sidebar. Remap navigation keys under `keys.sidebar`
+and search keys under `keys.sidebar-filter`; see [component keys](./remapping.md#component-keys).
+For moving between the sidebar and editor splits, see [window navigation](./files.md#work-in-splits).
+
 ## Hidden and ignored files
 
 The file picker and global search omit hidden and ignored files by default.

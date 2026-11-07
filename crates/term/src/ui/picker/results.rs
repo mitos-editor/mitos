@@ -20,6 +20,8 @@ pub(super) struct PendingOptions<T: Send + Sync + 'static, D> {
     pub matcher: Nucleo<T>,
     data: Arc<D>,
     pub preserve_selection: bool,
+    /// A query's initial selection belongs to the replacement rows.
+    pub cursor: Option<u32>,
 }
 
 pub(super) struct Results<T: Send + Sync + 'static, D> {
@@ -149,6 +151,7 @@ impl<T: Send + Sync + 'static, D: Send + Sync + 'static> Results<T, D> {
             matcher,
             data,
             preserve_selection: true,
+            cursor: None,
         });
         redraw.request();
     }
@@ -176,6 +179,7 @@ impl<T: Send + Sync + 'static, D: Send + Sync + 'static> Results<T, D> {
                     self.cursor,
                 )
             })
+            .or(pending.cursor)
             .unwrap_or(self.cursor)
             .min(
                 pending
@@ -273,6 +277,37 @@ mod tests {
                 .unwrap()
                 .data,
             "b"
+        );
+    }
+
+    #[tokio::test]
+    async fn publication_applies_the_new_query_cursor_only_with_its_rows() {
+        let mut results = results();
+        let columns = columns();
+        results.reset(vec!["old".into()], Arc::new(()), &columns);
+        matched(&mut results).await;
+        results.refresh(
+            ["parent", "nested", "match"].map(String::from).into(),
+            Arc::new(()),
+            &columns,
+            false,
+            &event::Redraw::default(),
+        );
+        let pending = results.pending_options.as_mut().unwrap();
+        pending.preserve_selection = false;
+        pending.cursor = Some(2);
+        assert_eq!(results.cursor, 0);
+        assert_eq!(results.matcher.snapshot().matched_item_count(), 1);
+        published(&mut results).await;
+        assert_eq!(results.cursor, 2);
+        assert_eq!(
+            results
+                .matcher
+                .snapshot()
+                .get_matched_item(results.cursor)
+                .unwrap()
+                .data,
+            "match"
         );
     }
 

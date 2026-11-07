@@ -242,6 +242,28 @@ async fn unsaved_document_changes_refresh_without_filesystem_events_or_polling(
 }
 
 #[tokio::test]
+async fn embedded_directory_navigation_rejects_the_previous_scan() -> anyhow::Result<()> {
+    let mut app = application(false)?;
+    let dir = tempfile::tempdir()?;
+    let sub = dir.path().join("sub");
+    std::fs::create_dir(&sub)?;
+    let mut picker =
+        ui::file_explorer::picker(dir.path().to_owned(), &app.editor, true)?.embedded(|_, _| {});
+    until(&mut picker, &mut app, |picker| picker.selection().is_some()).await?;
+    let (complete, result) = tokio::sync::oneshot::channel();
+    picker.file_updates.as_mut().unwrap().pending = Some(super::Pending {
+        version: picker.results.version.load(atomic::Ordering::Relaxed),
+        data: picker.results.editor_data.clone(),
+        result,
+    });
+    let mut expanded = picker.editor_data().clone();
+    expanded.tree.as_mut().unwrap().expanded.toggle(sub.clone());
+    picker.replace_options(vec![(sub, true)], expanded, &app.editor);
+    assert!(complete.send(Ok(Vec::new())).is_err());
+    Ok(())
+}
+
+#[tokio::test]
 async fn continuous_changes_publish_completed_scans_and_queue_a_followup() -> anyhow::Result<()> {
     type Scan = tokio::sync::oneshot::Sender<anyhow::Result<Vec<PathBuf>>>;
     struct Data {

@@ -362,6 +362,11 @@ impl Keymaps {
         &self.state
     }
 
+    pub(crate) fn reset(&mut self) {
+        self.state.clear();
+        self.sticky = None;
+    }
+
     pub fn sticky(&self) -> Option<&KeyTrieNode> {
         self.sticky.as_ref()
     }

@@ -23,6 +23,7 @@ pub mod picker;
 pub mod popup;
 pub mod prompt;
 mod select;
+mod sidebar;
 mod spinner;
 mod statusline;
 mod text;
@@ -44,16 +45,11 @@ use stdx::rope;
 pub use text::Text;
 use theme::icons::ICONS;
 use theme::Theme;
-use view::{
-    graphics::RectExt as _,
-    quicklist::{QuicklistEntry, QuicklistPosition, QuicklistTarget},
-    Editor,
-};
+use view::{graphics::RectExt as _, Editor};
 
 use tui::text::{Line, Span};
 
 use std::{
-    borrow::Cow,
     error::Error,
     path::{Path, PathBuf},
     sync::Arc,
@@ -325,148 +321,14 @@ pub fn file_picker(editor: &Editor, root: PathBuf) -> FilePicker {
 type FileExplorer = Picker<file_explorer::ExplorerItem, file_explorer::ExplorerData>;
 
 pub fn file_explorer(root: PathBuf, editor: &Editor) -> Result<FileExplorer, std::io::Error> {
-    let options = directory_content(&root, &editor.config().file_explorer)?;
-
-    let columns = [PickerColumn::new(
-        "path",
-        |(path, is_dir): &(PathBuf, bool), (_root, theme, _): &(PathBuf, Arc<Theme>, bool)| {
-            let name = path.file_name();
-            let name = name.map_or_else(|| Cow::Borrowed(".."), |name| name.to_string_lossy());
-            let directory_style = theme.get("ui.text.directory");
-
-            if *is_dir {
-                Span::styled(format!("{name}/"), directory_style).into()
-            } else {
-                name.into_owned().into()
-            }
-        },
-    )
-    .with_prefix(|(path, is_dir), (_, theme, show_icons)| {
-        if !show_icons {
-            return None;
-        }
-        let icon = if *is_dir {
-            let name = path.file_name();
-            let is_open = name.is_none();
-            let name = name.map_or_else(|| Cow::Borrowed(".."), |name| name.to_string_lossy());
-            ICONS.fs().directory().get_with_style_or_default(
-                &name,
-                is_open,
-                theme,
-                theme.get("ui.text.directory"),
-            )
-        } else {
-            ICONS.fs().file().get_with_style_or_default(path, theme)
-        };
-        Some(icon_span(icon.with_no_left_padding()))
-    })];
-    let picker = Picker::new_with_callback_result(
-        editor.redraw().clone(),
-        columns,
-        0,
-        options,
-        (root, Arc::new(editor.theme.clone()), editor.config().icons),
-        move |cx, (path, is_dir): &(PathBuf, bool), action| {
-            if *is_dir {
-                let new_root = stdx::path::normalize(path);
-                return match directory_content(&new_root, &cx.editor.config().file_explorer) {
-                    Ok(options) => picker::PickerCallbackResult::Replace {
-                        options,
-                        editor_data: (
-                            new_root,
-                            Arc::new(cx.editor.theme.clone()),
-                            cx.editor.config().icons,
-                        ),
-                    },
-                    Err(err) => {
-                        cx.editor.set_error(|| err.to_string());
-                        picker::PickerCallbackResult::KeepOpen
-                    }
-                };
-            }
-
-            if let Err(err) = cx.editor.open(path, action) {
-                cx.editor.set_error(|| {
-                    if let Some(err) = err.source() {
-                        format!("{}", err)
-                    } else {
-                        format!("unable to open \"{}\"", path.display())
-                    }
-                });
-            }
-            picker::PickerCallbackResult::Close
-        },
-    )
-    .with_title("File Explorer")
-    .with_preview(|_editor, (path, _is_dir)| Some((path.as_path().into(), None)))
-    .with_quicklist(|_editor, (path, is_dir)| {
-        if *is_dir {
-            return None;
-        }
-
-        Some(QuicklistEntry {
-            target: QuicklistTarget::Path(path.clone()),
-            position: QuicklistPosition::None,
-        })
-    })
-    .with_file_updates(
-        editor,
-        |data| &data.0,
-        |_, editor, data, cancel| {
-            let config = editor.config().file_explorer.clone();
-            Box::pin(async move {
-                Ok(tokio::task::spawn_blocking(move || {
-                    directory_content_cancellable(&data.0, &config, || cancel.is_canceled())
-                })
-                .await??)
-            })
-        },
-    )
-    .with_refresh_generation(editor, Editor::file_operation_revision)
-    .with_item_key(|(path, _)| path.clone())
-    .with_item_data_actions(|maps| &maps.file_explorer, file_explorer::action);
-
-    Ok(picker)
+    file_explorer::picker(root, editor, false)
 }
 
 fn directory_content(
     root: &Path,
     config: &editor_config::FileExplorerConfig,
-) -> Result<Vec<(PathBuf, bool)>, std::io::Error> {
-    directory_content_cancellable(root, config, || false)
-}
-
-fn directory_content_cancellable(
-    root: &Path,
-    config: &editor_config::FileExplorerConfig,
-    cancelled: impl Fn() -> bool,
-) -> Result<Vec<(PathBuf, bool)>, std::io::Error> {
-    // Keep the previous listing when its directory disappears or becomes unreadable.
-    std::fs::read_dir(root)?;
-    let mut content: Vec<(PathBuf, bool)> = crate::files::explorer_options(config)
-        .walker(root)
-        .types(crate::files::excluded_types())
-        .build()
-        .take_while(|_| !cancelled())
-        .filter_map(|entry| {
-            entry
-                .map(|entry| {
-                    let path = entry.path();
-                    let is_dir = search::entry_file_type(&entry).is_some_and(|kind| kind.is_dir());
-                    (path.to_path_buf(), is_dir)
-                })
-                .ok()
-                .filter(|entry| entry.0 != root)
-        })
-        .collect();
-
-    content.sort_by(|(path1, is_dir1), (path2, is_dir2)| (!is_dir1, path1).cmp(&(!is_dir2, path2)));
-
-    if root.parent().is_some() {
-        content.insert(0, (root.join(".."), true));
-    }
-
-    Ok(content)
+) -> std::io::Result<Vec<(PathBuf, bool)>> {
+    file_explorer::directory_content(root, config)
 }
 
 pub mod completers {

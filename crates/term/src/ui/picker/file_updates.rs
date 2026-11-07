@@ -46,6 +46,11 @@ impl<T, D> FileUpdates<T, D> {
         self.changes.mark_documents_refreshed(editor);
     }
 
+    pub(super) fn query_changed(&mut self) {
+        self.task.cancel();
+        self.dirty |= self.pending.take().is_some();
+    }
+
     pub(super) fn stop(&mut self) {
         self.task.cancel();
         self.pending = None;

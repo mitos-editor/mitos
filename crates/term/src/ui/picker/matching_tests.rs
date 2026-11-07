@@ -6,8 +6,12 @@ use std::{path::PathBuf, time::Duration};
 async fn settle<T: Send + Sync, D: Send + Sync>(picker: &mut Picker<T, D>) {
     tokio::time::timeout(Duration::from_secs(5), async {
         loop {
+            picker.publish_options();
             let status = picker.results.matcher.tick(10);
-            if !status.running && picker.results.matcher.active_injectors() == 0 {
+            if !status.running
+                && picker.results.matcher.active_injectors() == 0
+                && !picker.results.is_refreshing()
+            {
                 break;
             }
             tokio::task::yield_now().await;
@@ -95,11 +99,12 @@ async fn file_explorer_match_text_and_order_ignore_icons() -> anyhow::Result<()>
     for icons in [false, true] {
         picker.results.reset(
             options.clone(),
-            Arc::new((
-                dir.path().to_owned(),
-                Arc::new(app.editor.theme.clone()),
-                icons,
-            )),
+            Arc::new(ui::file_explorer::ExplorerData {
+                root: dir.path().to_owned(),
+                theme: Arc::new(app.editor.theme.clone()),
+                show_icons: icons,
+                tree: None,
+            }),
             &picker.columns,
         );
         for (index, pattern) in ["", "core", "^core", "cr"].iter().enumerate() {
@@ -124,6 +129,97 @@ async fn file_explorer_match_text_and_order_ignore_icons() -> anyhow::Result<()>
             }
         }
     }
+    Ok(())
+}
+
+#[tokio::test]
+async fn embedded_picker_waits_for_unpublished_directory_rows() -> anyhow::Result<()> {
+    let mut app = application(false)?;
+    let dir = tempfile::tempdir()?;
+    std::fs::create_dir(dir.path().join("sub"))?;
+    let mut picker =
+        ui::file_explorer::picker(dir.path().to_owned(), &app.editor, true)?.embedded(|_, _| {});
+    test::draw(&mut picker, &mut app);
+    settle(&mut picker).await;
+    // Keep the replacement incomplete regardless of worker scheduling.
+    picker.refresh_options(matched(&picker), picker.results.editor_data.clone());
+    let held = picker
+        .results
+        .pending_options
+        .as_ref()
+        .unwrap()
+        .matcher
+        .injector();
+    picker.matching = false;
+    assert!(picker.has_pending_render());
+    drop(held);
+    settle(&mut picker).await;
+    assert!(!picker.has_pending_render());
+    Ok(())
+}
+
+#[tokio::test]
+async fn tree_search_preserves_navigation_on_refresh_and_resets_it_for_a_new_query(
+) -> anyhow::Result<()> {
+    let app = application(false)?;
+    let dir = tempfile::tempdir()?;
+    for name in ["alpha/a_test.rs", "zeta/test.rs"] {
+        let path = dir.path().join(name);
+        std::fs::create_dir_all(path.parent().unwrap())?;
+        std::fs::write(path, "")?;
+    }
+    let mut picker = ui::file_explorer::picker(dir.path().to_owned(), &app.editor, true)?;
+    let index = picker.editor_data().tree.as_ref().unwrap().index.clone();
+    *index.lock().unwrap() = Some(ui::file_explorer::search_index(
+        dir.path(),
+        &app.editor.config().file_explorer,
+        || false,
+    )?);
+    picker.prompt.set_line("test".into(), &app.editor);
+    picker.handle_prompt_change(false);
+    picker.refresh_query_options(&app.editor, false);
+    settle(&mut picker).await;
+    assert_eq!(
+        picker.selection().unwrap().0,
+        dir.path().join("alpha/a_test.rs")
+    );
+
+    picker.results.cursor = 3;
+    assert_eq!(
+        picker.selection().unwrap().0,
+        dir.path().join("zeta/test.rs")
+    );
+    std::fs::write(dir.path().join("alpha/0_test.rs"), "")?;
+    *index.lock().unwrap() = Some(ui::file_explorer::search_index(
+        dir.path(),
+        &app.editor.config().file_explorer,
+        || false,
+    )?);
+    picker.refresh_query_options(&app.editor, true);
+    settle(&mut picker).await;
+    assert_eq!(
+        picker.selection().unwrap().0,
+        dir.path().join("zeta/test.rs")
+    );
+
+    picker.refresh_query_options(&app.editor, true);
+    picker.results.cursor = 2;
+    settle(&mut picker).await;
+    assert_eq!(
+        picker.selection().unwrap().0,
+        dir.path().join("alpha/a_test.rs")
+    );
+
+    // Fuzzy matching still accepts noncontiguous characters, but each new
+    // query starts at the first match instead of retaining a later selection.
+    picker.prompt.set_line("ts".into(), &app.editor);
+    picker.handle_prompt_change(false);
+    picker.refresh_query_options(&app.editor, false);
+    settle(&mut picker).await;
+    assert_eq!(
+        picker.selection().unwrap().0,
+        dir.path().join("alpha/0_test.rs")
+    );
     Ok(())
 }
 
