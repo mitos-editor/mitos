@@ -25,3 +25,4 @@ log.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
+gix = { workspace = true, features = ["sha1"] }
