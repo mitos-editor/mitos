@@ -10,7 +10,7 @@ use std::{
     path::{Path, PathBuf},
     process::Command,
     sync::{
-        atomic::{AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
         mpsc::channel,
         Arc,
     },
@@ -19,15 +19,12 @@ use std::{
 use tempfile::TempPath;
 
 const BUILD_TARGET: &str = env!("BUILD_TARGET");
-const REMOTE_NAME: &str = "origin";
 
 pub fn fetch_grammars(
     grammars: Vec<GrammarConfiguration>,
     runtime_directory: &Path,
     strict: bool,
 ) -> Result<()> {
-    stdx::env::which("git")?;
-
     // We do not need to fetch local grammars.
     let mut grammars = grammars;
     let runtime_directory = runtime_directory.to_owned();
@@ -169,10 +166,10 @@ enum GitObjectFormat {
 }
 
 impl GitObjectFormat {
-    fn as_str(&self) -> &'static str {
+    fn kind(self) -> gix::hash::Kind {
         match self {
-            Self::Sha1 => "sha1",
-            Self::Sha256 => "sha256",
+            Self::Sha1 => gix::hash::Kind::Sha1,
+            Self::Sha256 => gix::hash::Kind::Sha256,
         }
     }
 }
@@ -207,64 +204,80 @@ impl VendoredGrammar {
         Self { dir }
     }
 
-    /// Gets the current revision of the repo.
     fn revision(&self) -> Option<String> {
-        git(&self.dir, ["rev-parse", "HEAD"]).ok()
+        gix::open(&self.dir)
+            .ok()?
+            .head_id()
+            .ok()
+            .map(|id| id.to_string())
     }
 
-    /// Fetches grammar at the given revision.
-    ///
-    /// To ensure clean state, existing grammar directory is removed and re-inited
-    /// before fetch operation.
+    /// Grammar sources are disposable: populate a fresh worktree at the pinned revision.
     fn fetch(&self, remote: &str, rev: &str, object_format: GitObjectFormat) -> Result<()> {
-        self.reinit(remote, object_format)?;
-
-        git(&self.dir, ["fetch", "--depth", "1", REMOTE_NAME, rev])?;
-        git(&self.dir, ["checkout", "FETCH_HEAD"])?;
-
-        Ok(())
-    }
-
-    /// Initializes the grammar directory.
-    ///
-    /// Creates directory and sets it up as a git repo, with remote set correctly.
-    fn init(&self, remote: &str, object_format: GitObjectFormat) -> Result<()> {
-        // Create the grammar directory if needed.
-        fs::create_dir_all(&self.dir)
-            .context(format!("Could not create grammar directory {:?}", self.dir))?;
-
-        // Ensure directory is git initialized.
-        if !self.dir.join(".git").exists() {
-            git(
-                &self.dir,
-                ["init", "--object-format", object_format.as_str()],
-            )?;
+        match fs::remove_dir_all(&self.dir) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
         }
-
-        // Ensure the remote matches the configured remote, setting if needed.
-        if self.remote().as_deref() != Some(remote) {
-            self.set_remote(remote)?;
+        fs::create_dir_all(&self.dir)?;
+        let mut repo = gix::ThreadSafeRepository::init_opts(
+            &self.dir,
+            gix::create::Kind::WithWorktree,
+            gix::create::Options {
+                object_hash: Some(object_format.kind()),
+                ..Default::default()
+            },
+            gix::open::Options::default(),
+        )?
+        .to_thread_local();
+        repo.committer_or_set_generic_fallback()?;
+        let refspec = format!("{rev}:refs/mitos/grammar");
+        let mut upstream = repo.remote_at(remote)?;
+        let mut url = upstream
+            .url(gix::remote::Direction::Fetch)
+            .context("Grammar remote has no URL")?
+            .clone();
+        if url.scheme == gix::url::Scheme::File {
+            let path = gix::path::from_bstr(&url.path);
+            if !path.is_absolute() {
+                url.path = gix::path::into_bstr(self.dir.join(path)).into_owned();
+                upstream = upstream.with_url_without_url_rewrite(url)?;
+            }
         }
-
-        Ok(())
-    }
-
-    /// Removes the grammar directory before initializing again.
-    fn reinit(&self, remote: &str, object_format: GitObjectFormat) -> Result<()> {
-        fs::remove_dir_all(&self.dir)?;
-        self.init(remote, object_format)?;
-        Ok(())
-    }
-
-    /// Gets remote URL of grammar repo.
-    fn remote(&self) -> Option<String> {
-        git(&self.dir, ["remote", "get-url", REMOTE_NAME]).ok()
-    }
-
-    /// Sets remote URL of grammar repo.
-    fn set_remote(&self, remote: &str) -> Result<()> {
-        git(&self.dir, ["remote", "set-url", REMOTE_NAME, remote])
-            .or_else(|_| git(&self.dir, ["remote", "add", REMOTE_NAME, remote]))?;
+        upstream
+            .with_refspecs([refspec.as_str()], gix::remote::Direction::Fetch)?
+            .with_fetch_tags(gix::remote::fetch::Tags::None)
+            .connect(gix::remote::Direction::Fetch)?
+            .prepare_fetch(gix::progress::Discard, Default::default())?
+            .with_shallow(gix::remote::fetch::Shallow::DepthAtRemote(1.try_into()?))
+            .receive(gix::progress::Discard, &AtomicBool::new(false))?;
+        let commit = repo
+            .find_reference("refs/mitos/grammar")?
+            .peel_to_commit()?;
+        let mut index = repo.index_from_tree(&commit.tree_id()?)?;
+        let mut options =
+            repo.checkout_options(gix::worktree::stack::state::attributes::Source::IdMapping)?;
+        options.destination_is_initially_empty = true;
+        let outcome = gix::worktree::state::checkout(
+            &mut index,
+            repo.workdir()
+                .context("grammar repository has no worktree")?,
+            repo.objects.clone().into_arc()?,
+            &gix::progress::Discard,
+            &gix::progress::Discard,
+            &AtomicBool::new(false),
+            options,
+        )?;
+        if !outcome.errors.is_empty() || !outcome.collisions.is_empty() {
+            bail!("Could not check out grammar files: {outcome:?}");
+        }
+        index.write(Default::default())?;
+        repo.reference(
+            "HEAD",
+            commit.id,
+            gix::refs::transaction::PreviousValue::Any,
+            "checkout grammar",
+        )?;
         Ok(())
     }
 }
@@ -281,9 +294,6 @@ fn fetch_grammar(grammar: GrammarConfiguration, runtime_directory: &Path) -> Res
 
     let (object_format, revision) = extract_object_format_from_revision(&revision);
 
-    // WARN: Must init before other operations are done.
-    repo.init(&remote, object_format)?;
-
     if repo.revision().is_some_and(|rev| rev == revision) {
         return Ok(FetchStatus::GitUpToDate);
     }
@@ -294,32 +304,6 @@ fn fetch_grammar(grammar: GrammarConfiguration, runtime_directory: &Path) -> Res
     Ok(FetchStatus::GitUpdated {
         revision: revision.to_string(),
     })
-}
-
-// A wrapper around 'git' commands which returns stdout in success and a
-// helpful error message showing the command, stdout, and stderr in error.
-fn git<I, S>(repository_dir: &Path, args: I) -> Result<String>
-where
-    I: IntoIterator<Item = S>,
-    S: AsRef<std::ffi::OsStr>,
-{
-    let output = Command::new("git")
-        .args(args)
-        .current_dir(repository_dir)
-        .output()?;
-
-    if output.status.success() {
-        Ok(String::from_utf8_lossy(&output.stdout)
-            .trim_end()
-            .to_owned())
-    } else {
-        // TODO: figure out how to display the git command using `args`
-        Err(anyhow!(
-            "Git command failed.\nStdout: {}\nStderr: {}",
-            String::from_utf8_lossy(&output.stdout),
-            String::from_utf8_lossy(&output.stderr),
-        ))
-    }
 }
 
 enum BuildStatus {
@@ -542,11 +526,36 @@ fn mtime(path: &Path) -> Result<SystemTime> {
 mod tests {
     use super::*;
 
+    fn git<I, S>(repository_dir: &Path, args: I) -> Result<String>
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<std::ffi::OsStr>,
+    {
+        let output = Command::new("git")
+            .args(args)
+            .current_dir(repository_dir)
+            .output()?;
+
+        if output.status.success() {
+            Ok(String::from_utf8_lossy(&output.stdout)
+                .trim_end()
+                .to_owned())
+        } else {
+            Err(anyhow!(
+                "Git command failed.\nStdout: {}\nStderr: {}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr),
+            ))
+        }
+    }
+
     #[test]
     fn fetched_tag_checks_out_the_requested_revision() {
         let source = tempfile::tempdir().unwrap();
         let runtime = tempfile::tempdir().unwrap();
         git(source.path(), ["init"]).unwrap();
+        fs::write(source.path().join("parser.c"), "first parser\n").unwrap();
+        git(source.path(), ["add", "parser.c"]).unwrap();
         git(
             source.path(),
             [
@@ -583,9 +592,6 @@ mod tests {
         .unwrap();
         let grammar = VendoredGrammar::new("fixture", runtime.path());
         grammar
-            .init(source.path().to_str().unwrap(), GitObjectFormat::Sha1)
-            .unwrap();
-        grammar
             .fetch(
                 source.path().to_str().unwrap(),
                 "fixture-v1",
@@ -593,6 +599,58 @@ mod tests {
             )
             .unwrap();
         assert_eq!(grammar.revision().unwrap(), expected);
+        assert_eq!(
+            fs::read_to_string(grammar.dir.join("parser.c")).unwrap(),
+            "first parser\n"
+        );
+        // Full object IDs, including SHA-256, are used by pinned grammar definitions.
+        let relative = Path::new("..")
+            .join("..")
+            .join("..")
+            .join("..")
+            .join(source.path().file_name().unwrap());
+        grammar
+            .fetch(relative.to_str().unwrap(), &expected, GitObjectFormat::Sha1)
+            .unwrap();
+        assert_eq!(grammar.revision().unwrap(), expected);
+    }
+
+    #[test]
+    fn fetches_sha256_pinned_revision() {
+        let source = tempfile::tempdir().unwrap();
+        let runtime = tempfile::tempdir().unwrap();
+        git(source.path(), ["init", "--object-format=sha256"]).unwrap();
+        fs::write(source.path().join("parser.c"), "parser\n").unwrap();
+        git(source.path(), ["add", "parser.c"]).unwrap();
+        git(
+            source.path(),
+            [
+                "-c",
+                "user.name=fixture",
+                "-c",
+                "user.email=fixture@example.com",
+                "-c",
+                "commit.gpgsign=false",
+                "commit",
+                "-m",
+                "parser",
+            ],
+        )
+        .unwrap();
+        let expected = git(source.path(), ["rev-parse", "HEAD"]).unwrap();
+        let grammar = VendoredGrammar::new("fixture", runtime.path());
+        grammar
+            .fetch(
+                source.path().to_str().unwrap(),
+                &expected,
+                GitObjectFormat::Sha256,
+            )
+            .unwrap();
+        assert_eq!(grammar.revision().unwrap(), expected);
+        assert_eq!(
+            fs::read_to_string(grammar.dir.join("parser.c")).unwrap(),
+            "parser\n"
+        );
     }
 
     #[test]
