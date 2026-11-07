@@ -723,3 +723,66 @@ async fn branch_creation_inherits_tracking_like_git() -> Result<()> {
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn native_fetch_updates_tracking_refs_and_fetch_head_without_checkout() -> Result<()> {
+    let source = initial()?;
+    exec_git_cmd(&["branch", "other"], source.path());
+    exec_git_cmd(&["tag", "fixture-v1"], source.path());
+    let directory = tempfile::tempdir()?;
+    let root = directory.path().join("checkout");
+    exec_git_cmd(
+        &[
+            "clone",
+            source.path().to_str().unwrap(),
+            root.to_str().unwrap(),
+        ],
+        directory.path(),
+    );
+    std::fs::write(source.path().join("file.txt"), "remote change\n")?;
+    create_commit_with_message(source.path(), true, "remote change");
+    let repository = GitRepository::discover(&root)?;
+    let git = repository.open_read(true)?;
+    let before = git.head_id()?.detach();
+    for key in [
+        "fetch.prune",
+        "fetch.pruneTags",
+        "fetch.writeCommitGraph",
+        "fetch.fsckObjects",
+        "transfer.fsckObjects",
+    ] {
+        exec_git_cmd(&["config", key, "false"], &root);
+    }
+    // Calling the native entry point asserts this configuration doesn't silently fall back.
+    assert!(fetch::execute(&repository, "origin", None)?.is_some());
+    assert_eq!(git.head_id()?.detach(), before);
+    assert_eq!(std::fs::read_to_string(root.join("file.txt"))?, "initial\n");
+    let expected = gix::open(source.path())?.head_id()?.detach();
+    assert_eq!(
+        git.find_reference("refs/remotes/origin/main")?
+            .id()
+            .detach(),
+        expected
+    );
+    let contents = std::fs::read_to_string(git.git_dir().join("FETCH_HEAD"))?;
+    assert!(contents.starts_with(&format!("{expected}\t\tbranch 'main' of origin\n")));
+    assert!(contents.contains("\tnot-for-merge\tbranch 'other' of origin\n"));
+    assert_eq!(fetched_commit(&git)?.as_str(), expected.to_string());
+    let relative = Path::new("..")
+        .join("..")
+        .join(source.path().file_name().unwrap());
+    exec_git_cmd(
+        &["remote", "set-url", "origin", relative.to_str().unwrap()],
+        &root,
+    );
+    let fetched = fetch::execute(&repository, "origin", Some("main"))?.unwrap();
+    assert_eq!(fetched.target.unwrap().as_str(), expected.to_string());
+    execute(&repository, RepositoryOperation::Pull { remote: None }).await?;
+    assert_eq!(
+        std::fs::read_to_string(root.join("file.txt"))?,
+        "remote change\n"
+    );
+    exec_git_cmd(&["config", "fetch.prune", "true"], &root);
+    assert!(fetch::execute(&repository, "origin", None)?.is_none());
+    Ok(())
+}

@@ -97,6 +97,14 @@ impl RepositoryOperation {
             }
             Self::Fetch { remote } => {
                 let remote = remote.as_deref().context("Choose a remote first")?;
+                let capture = repo.clone();
+                let selected = remote.to_owned();
+                if tokio::task::spawn_blocking(move || fetch::execute(&capture, &selected, None))
+                    .await??
+                    .is_some()
+                {
+                    return Ok(());
+                }
                 command.args(["fetch", "--no-recurse-submodules", "--", remote]);
             }
             Self::Pull { remote } => {
@@ -150,10 +158,25 @@ async fn pull(repo: &GitRepository, remote: &str) -> Result<()> {
         Ok::<_, anyhow::Error>((branch, destination, current_head(&git)?))
     })
     .await??;
-    let mut fetch = repo.command();
-    let reference = format!("refs/heads/{destination}");
-    fetch.args(["fetch", "--no-recurse-submodules", "--", remote, &reference]);
-    run_private(fetch, "Fetch for pull").await?;
+    let capture = repo.clone();
+    let selected = remote.to_owned();
+    let requested = destination.clone();
+    let fetched =
+        tokio::task::spawn_blocking(move || fetch::execute(&capture, &selected, Some(&requested)))
+            .await??;
+    let target = if let Some(fetched) = fetched {
+        Some(
+            fetched
+                .target
+                .context("Remote did not provide the requested branch")?,
+        )
+    } else {
+        let mut fetch = repo.command();
+        let reference = format!("refs/heads/{destination}");
+        fetch.args(["fetch", "--no-recurse-submodules", "--", remote, &reference]);
+        run_private(fetch, "Fetch for pull").await?;
+        None
+    };
 
     let validate = repo.clone();
     let target = tokio::task::spawn_blocking(move || {
@@ -169,7 +192,7 @@ async fn pull(repo: &GitRepository, remote: &str) -> Result<()> {
                 && git.state().is_none(),
             "Git branch or HEAD changed during fetch; retry pull"
         );
-        fetched_commit(&git)
+        target.map_or_else(|| fetched_commit(&git), Ok)
     })
     .await??;
 
