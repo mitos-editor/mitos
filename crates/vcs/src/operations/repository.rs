@@ -62,9 +62,7 @@ impl RepositoryOperation {
     pub(super) async fn execute(&self, repo: &GitRepository) -> Result<()> {
         let mut command = repo.command();
         match self {
-            Self::CreateBranch { name } => {
-                command.args(["branch", "--", name]);
-            }
+            Self::CreateBranch { .. } => unreachable!("branch creation runs in the native worker"),
             Self::SwitchBranch { name } => {
                 command.args(["switch", "--no-guess", "--no-overwrite-ignore", "--", name]);
             }
@@ -313,9 +311,12 @@ impl GitRepository {
             trusted,
             "Git actions require workspace trust; run :workspace-trust first"
         );
-        let repo = self
-            .open(true)
-            .map_err(|_| anyhow::anyhow!("Could not read Git repository settings"))?;
+        let repo = if matches!(operation, RepositoryOperation::CreateBranch { .. }) {
+            self.open_read(true)
+        } else {
+            self.open(true)
+        }
+        .map_err(|_| anyhow::anyhow!("Could not read Git repository settings"))?;
         if !matches!(
             operation,
             RepositoryOperation::Fetch { .. } | RepositoryOperation::Push { .. }
