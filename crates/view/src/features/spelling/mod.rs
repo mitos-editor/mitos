@@ -368,10 +368,10 @@ pub(crate) fn register_hooks(events: &event::EventHub) {
 
     register_hook!(events => move |event: &mut DocumentDidChange<'_>| {
         if !event.doc.spelling_languages.is_empty()
-            && let Some(tx) = &event.doc.spelling_events
+            && let Some(services) = event.doc.services()
         {
             send_blocking(
-                tx,
+                &services.spelling,
                 SpellingEvent::DocumentChanged {
                     doc: event.doc.id(),
                     changes: event.changes.clone(),

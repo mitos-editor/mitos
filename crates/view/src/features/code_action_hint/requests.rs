@@ -43,9 +43,9 @@ fn schedule(doc: &mut Document, view: ViewId) {
     // Invalidate immediately: an old response may already be queued for publication.
     doc.clear_code_action_hints(view);
     if doc.config.load().code_action_hint()
-        && let Some(handler) = &doc.code_action_hints.handler
+        && let Some(services) = doc.services()
     {
-        send_blocking(&handler.events, (doc.id(), view));
+        send_blocking(&services.code_action_hint.events, (doc.id(), view));
     }
 }
 

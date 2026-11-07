@@ -202,8 +202,8 @@ pub(crate) fn handle_file_events(editor: &Editor, events: &Events) {
 
 pub(super) fn register_hooks(events: &event::EventHub) {
     register_hook!(events => move |event: &mut DocumentDidChange<'_>| {
-        if let Some(trigger) = &event.doc.review_trigger {
-            trigger.changed(event.doc.id());
+        if let Some(services) = event.doc.services() {
+            services.review.changed(event.doc.id());
         }
         Ok(())
     });

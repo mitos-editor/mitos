@@ -130,8 +130,9 @@ pub struct Editor {
     pub exit_code: i32,
 
     pub config_events: (UnboundedSender<ConfigEvent>, UnboundedReceiver<ConfigEvent>),
-    /// Editor-owned services; replacements must preserve document bindings.
+    /// Editor-owned services configured before construction.
     pub(crate) handlers: Handlers,
+    pub(crate) document_services: Arc<crate::document::DocumentServices>,
 
     pub file_watcher: Watcher,
     pub workspace_trust: WorkspaceTrust,
@@ -250,6 +251,7 @@ impl Editor {
             auto_pairs,
             exit_code: 0,
             config_events: unbounded_channel(),
+            document_services: Arc::new(crate::document::DocumentServices::new(&handlers)),
             handlers,
             file_watcher,
             dir_stack: VecDeque::with_capacity(DIR_STACK_CAP),

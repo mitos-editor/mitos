@@ -6,7 +6,6 @@ use event::{cancelable_future, TaskController, TaskHandle};
 use tokio::sync::Semaphore;
 use vcs::FileBlame;
 
-use crate::features::blame::BlameHandler;
 use crate::Document;
 
 // Running blocking work retains its permit even when its request is canceled.
@@ -19,7 +18,6 @@ pub(crate) struct DocumentBlame {
     trust_full: Option<bool>,
     request: TaskController,
     status_line: Option<u32>,
-    pub(super) handler: Option<BlameHandler>,
 }
 
 impl DocumentBlame {
@@ -36,13 +34,6 @@ impl DocumentBlame {
             status_line: self.status_line,
             ..Self::default()
         }
-    }
-
-    pub(crate) fn bind_handler(&mut self, handler: BlameHandler) {
-        self.handler = Some(handler);
-    }
-    pub(crate) fn handler(&self) -> Option<&BlameHandler> {
-        self.handler.as_ref()
     }
 
     pub(crate) fn clear(&mut self) {

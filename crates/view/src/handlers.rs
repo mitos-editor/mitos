@@ -22,7 +22,7 @@ pub mod lsp;
 mod snippet;
 
 /// Services configured before an editor takes ownership. Access owned services through
-/// [`Editor::handlers()`]; use explicit editor methods when replacing a running service.
+/// [`Editor::handlers()`]. Configure all destinations before passing this value to the editor.
 pub struct Handlers {
     pub(crate) presentations: crate::presentation::Inbox,
     events: event::EventHub,
@@ -124,39 +124,6 @@ impl Handlers {
             callbacks,
             presentations,
         }
-    }
-
-    /// Attach every document-scoped service before opening or initializing a document.
-    pub(crate) fn attach_document(&self, doc: &mut crate::Document) {
-        doc.events = self.events.clone();
-        doc.bind_signals(self.callbacks.redraw().clone(), self.status.clone());
-        if doc.historical.is_some() {
-            doc.syntax_handler = Some(self.syntax.clone());
-        }
-        if doc.is_content_readonly() {
-            return;
-        }
-        doc.document_colors
-            .bind_handler(self.document_colors.clone());
-        doc.code_lenses.bind_handler(self.code_lenses.clone());
-        doc.document_links.bind_handler(self.document_links.clone());
-        doc.document_highlights
-            .bind_handler(self.document_highlight.clone());
-        doc.document_symbols
-            .bind_handler(self.document_symbols.clone());
-        doc.pull_diagnostics
-            .bind_handler(self.pull_diagnostics.clone());
-        doc.code_action_hints
-            .bind_handler(self.code_action_hint.clone());
-        doc.inline_completions
-            .bind_handler(&self.inline_completions);
-        doc.signature_help_trigger = Some(self.signature_hints.document_trigger());
-        doc.auto_save_trigger = Some(self.auto_save.trigger());
-        doc.review_trigger = Some(self.change_review.document_trigger());
-        doc.word_index_trigger = Some(self.word_index.document_trigger());
-        doc.syntax_handler = Some(self.syntax.clone());
-        doc.blame.bind_handler(self.blame.clone());
-        doc.spelling_events = Some(self.spelling.event_tx.clone());
     }
 
     /// Manually trigger completion (c-x)

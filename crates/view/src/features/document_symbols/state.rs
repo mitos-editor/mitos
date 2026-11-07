@@ -7,7 +7,6 @@ use lsp_client::{
 };
 use std::{collections::HashMap, sync::Arc};
 
-use super::DocumentSymbolsHandler;
 use crate::{Document, ViewId};
 
 #[derive(Default)]
@@ -16,7 +15,6 @@ pub(crate) struct DocumentSymbols {
     breadcrumbs: HashMap<ViewId, Vec<Crumb>>,
     pub(super) request: TaskController,
     pub(super) picker: TaskController,
-    pub(super) handler: Option<DocumentSymbolsHandler>,
 }
 
 impl DocumentSymbols {
@@ -26,10 +24,6 @@ impl DocumentSymbols {
             breadcrumbs: self.breadcrumbs.clone(),
             ..Self::default()
         }
-    }
-
-    pub(crate) fn bind_handler(&mut self, handler: DocumentSymbolsHandler) {
-        self.handler = Some(handler);
     }
 
     /// Cancel symbol requests and invalidate every derived breadcrumb.
