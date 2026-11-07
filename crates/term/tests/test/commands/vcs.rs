@@ -557,7 +557,7 @@ fn partial_index(path: &Path) -> String {
     String::from_utf8(output.stdout).unwrap()
 }
 
-async fn finish_partial(app: &mut Application) -> anyhow::Result<()> {
+async fn finish_partial(app: &mut TestApplication) -> anyhow::Result<()> {
     tokio::time::timeout(Duration::from_secs(10), async {
         loop {
             run_event_loop_until_idle(app).await;

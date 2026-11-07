@@ -42,7 +42,7 @@ fn key(
 }
 
 fn key_with_config(
-    app: &mut Application,
+    app: &mut TestApplication,
     compositor: &mut compositor::Compositor,
     jobs: &mut crate::job::Jobs,
     config: &crate::config::Config,

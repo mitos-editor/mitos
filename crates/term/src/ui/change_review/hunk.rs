@@ -58,7 +58,7 @@ impl Component for HunkReviewView {
         content.height = content.height.saturating_sub(2);
         self.view.render(content, surface, cx);
         let footer = panel::content_area(area);
-        let keys = &cx.config.current.component_keys.diff;
+        let keys = &cx.config.component_keys.diff;
         let rows = [
             format!(
                 "{} restore hunk from HEAD · undo with u",
@@ -104,6 +104,7 @@ impl Component for HunkReviewView {
             Lookup::Pending => EventResult::Consumed(None),
             Lookup::Unbound => EventResult::Ignored(None),
             Lookup::Actions(actions) => {
+                let actions = actions.to_vec();
                 for action in actions {
                     match action {
                         DiffAction::Restore => {
@@ -114,8 +115,22 @@ impl Component for HunkReviewView {
                                 compositor.remove(ReviewView::ID);
                             })));
                         }
+                        action @ (DiffAction::Stage
+                        | DiffAction::Unstage
+                        | DiffAction::StageAndNext) => {
+                            if let Err(error) = self.stage(
+                                cx,
+                                action == DiffAction::Unstage,
+                                action == DiffAction::StageAndNext,
+                            ) {
+                                cx.editor.set_error(|| error.to_string());
+                            }
+                            return EventResult::Consumed(Some(Box::new(|compositor, _| {
+                                compositor.remove(ReviewView::ID);
+                            })));
+                        }
                         action => {
-                            self.view.scroll_action(*action);
+                            self.view.scroll_action(action);
                         }
                     }
                 }
