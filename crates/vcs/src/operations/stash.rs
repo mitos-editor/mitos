@@ -77,86 +77,70 @@ pub(super) fn trees<'a>(repo: &'a gix::Repository, id: &str) -> Result<StashTree
 impl GitRepository {
     /// Keep the list bounded. Newer entries come first; no filters or external diff tools run.
     pub async fn stashes(&self) -> Result<Vec<StashEntry>> {
-        let mut command = self.command();
-        command.args([
-            "stash",
-            "list",
-            "--max-count=500",
-            "--format=%H%x00%gd%x00%gs",
-            "-z",
-        ]);
-        let bytes = run(command).await?;
-        let mut entries = Vec::new();
-        let mut fields = bytes.split(|byte| *byte == 0);
-        while let Some(id) = fields.next().filter(|id| !id.is_empty()) {
-            ensure!(
-                matches!(id.len(), 40 | 64) && id.iter().all(u8::is_ascii_hexdigit),
-                "Invalid stash object ID"
-            );
-            let selector = fields.next().context("Missing stash selector")?;
-            let message = fields.next().context("Missing stash message")?;
-            entries.push(StashEntry {
-                id: String::from_utf8(id.to_vec())?,
-                selector: literal(selector),
-                message: literal(message),
-            });
-        }
-        Ok(entries)
+        let repository = self.clone();
+        tokio::task::spawn_blocking(move || {
+            let repo = repository.open_read(false)?;
+            let Some(stash) = repo.try_find_reference("refs/stash")? else {
+                return Ok(Vec::new());
+            };
+            let mut logs = stash.log_iter();
+            // Read from the end without loading the entire stash reflog. Keep the
+            // same 1 MiB bound as other repository listings, even for long messages.
+            logs.buf.resize(1024 * 1024, 0);
+            let Some(log) = logs.store.reflog_iter_rev(logs.name, &mut logs.buf)? else {
+                return Ok(Vec::new());
+            };
+            let mut entries = Vec::new();
+            let mut bytes = 0;
+            for (index, line) in log.take(500).enumerate() {
+                let line = line?;
+                let id = line.new_oid.to_string();
+                bytes += id.len() + line.message.len();
+                ensure!(
+                    bytes <= 1024 * 1024,
+                    "Stash listing exceeds the 1 MiB display limit"
+                );
+                entries.push(StashEntry {
+                    id,
+                    selector: format!("stash@{{{index}}}"),
+                    message: literal(&line.message),
+                });
+            }
+            Ok(entries)
+        })
+        .await?
     }
 
     /// Inspect tracked changes and separately stored untracked files without rename scanning.
     pub async fn stash_files(&self, entry: &StashEntry) -> Result<Vec<StashFile>> {
         let id = entry.id.clone();
         let repository = self.clone();
-        let (base, worktree, index, untracked) = tokio::task::spawn_blocking(move || {
-            let repo = repository.open(false)?;
+        tokio::task::spawn_blocking(move || {
+            let repo = repository.open_read(false)?;
             let trees = trees(&repo, &id)?;
-            Ok::<_, anyhow::Error>((
-                trees.base.id.to_string(),
-                trees.worktree.id.to_string(),
-                trees.index.id.to_string(),
-                trees.untracked.map(|tree| tree.id.to_string()),
-            ))
+            let mut files = Vec::new();
+            for (after, layer) in [
+                (&trees.index, StashLayer::Staged),
+                (&trees.worktree, StashLayer::Worktree),
+            ] {
+                changed_paths(&trees.base, after, layer, &mut files)?;
+            }
+            if let Some(untracked) = &trees.untracked {
+                changed_paths(
+                    &repo.empty_tree(),
+                    untracked,
+                    StashLayer::Untracked,
+                    &mut files,
+                )?;
+            }
+            files.sort_by(|left, right| {
+                left.path
+                    .cmp(&right.path)
+                    .then(left.layer.cmp(&right.layer))
+            });
+            Ok(files)
         })
-        .await??;
-        let mut files = Vec::new();
-        for (tree, layer) in [
-            (index, StashLayer::Staged),
-            (worktree, StashLayer::Worktree),
-        ] {
-            let mut command = self.command();
-            command
-                .args([
-                    "diff-tree",
-                    "--no-ext-diff",
-                    "--no-textconv",
-                    "--no-commit-id",
-                    "--name-only",
-                    "--no-renames",
-                    "-r",
-                    "-z",
-                ])
-                .arg(&base)
-                .arg(tree);
-            files.extend(paths(&run(command).await?, layer)?);
-        }
-        if let Some(untracked) = untracked {
-            let mut command = self.command();
-            command
-                .args(["ls-tree", "--name-only", "-r", "-z"])
-                .arg(untracked);
-            files.extend(paths(&run(command).await?, StashLayer::Untracked)?);
-        }
-        ensure!(
-            files.len() <= 20_000,
-            "Stash contains too many files to display (limit 20000)"
-        );
-        files.sort_by(|left, right| {
-            left.path
-                .cmp(&right.path)
-                .then(left.layer.cmp(&right.layer))
-        });
-        Ok(files)
+        .await?
     }
 
     pub fn read_stash_file(
@@ -165,7 +149,7 @@ impl GitRepository {
         file: &StashFile,
         trusted: bool,
     ) -> Result<crate::review::Comparison> {
-        let repo = self.open(trusted)?;
+        let repo = self.open_read(trusted)?;
         let trees = trees(&repo, &entry.id)?;
         let read = |tree: &gix::Tree<'_>| -> Result<Vec<u8>> {
             match tree.lookup_entry_by_path(&file.path)? {
@@ -195,21 +179,55 @@ impl GitRepository {
     }
 }
 
-fn paths(bytes: &[u8], layer: StashLayer) -> Result<Vec<StashFile>> {
-    bytes
-        .split(|byte| *byte == 0)
-        .filter(|path| !path.is_empty())
-        .map(|path| {
-            let path = gix::path::from_bstr(gix::bstr::BStr::new(path));
-            ensure!(
-                path.components()
-                    .all(|part| matches!(part, std::path::Component::Normal(_))),
-                "Invalid stash file path"
-            );
-            Ok(StashFile {
-                path: path.into_owned(),
-                layer,
-            })
-        })
-        .collect()
+fn changed_paths(
+    before: &gix::Tree<'_>,
+    after: &gix::Tree<'_>,
+    layer: StashLayer,
+    files: &mut Vec<StashFile>,
+) -> Result<()> {
+    use gix::object::tree::diff::Change;
+    use std::ops::ControlFlow;
+    let mut diff = before.changes()?;
+    diff.options(|options| {
+        options.track_path().track_rewrites(None);
+    });
+    let mut bytes = 0;
+    diff.for_each_to_obtain_tree(after, |change| -> Result<_> {
+        let location = match change {
+            Change::Addition {
+                location,
+                entry_mode,
+                ..
+            }
+            | Change::Deletion {
+                location,
+                entry_mode,
+                ..
+            }
+            | Change::Modification {
+                location,
+                entry_mode,
+                ..
+            } if !entry_mode.is_tree() => location,
+            _ => return Ok(ControlFlow::Continue(())),
+        };
+        let path = gix::path::from_bstr(location).into_owned();
+        ensure!(
+            path.components()
+                .all(|part| matches!(part, std::path::Component::Normal(_))),
+            "Invalid stash file path"
+        );
+        bytes += location.len();
+        ensure!(
+            bytes <= 1024 * 1024,
+            "Stash file listing exceeds the 1 MiB display limit"
+        );
+        ensure!(
+            files.len() < 20_000,
+            "Stash contains too many files to display (limit 20000)"
+        );
+        files.push(StashFile { path, layer });
+        Ok(ControlFlow::Continue(()))
+    })?;
+    Ok(())
 }

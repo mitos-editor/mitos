@@ -399,3 +399,60 @@ async fn non_utf8_filenames_remain_literal() -> Result<()> {
     assert!(statuses(repo.path())[0].staged.is_some());
     Ok(())
 }
+
+#[tokio::test]
+async fn stash_browsing_works_without_git_executable() -> Result<()> {
+    const FIXTURE: &str = "MITOS_NATIVE_STASH_FIXTURE";
+    if let Some(root) = std::env::var_os(FIXTURE) {
+        let repo = GitRepository::discover(Path::new(&root))?;
+        let entries = repo.stashes().await?;
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].selector, "stash@{0}");
+        assert_eq!(entries[1].selector, "stash@{1}");
+        assert!(entries[0].message.contains("Mitos: repository changes"));
+        let files = repo.stash_files(&entries[0]).await?;
+        let file = files
+            .iter()
+            .find(|file| file.layer() == StashLayer::Worktree)
+            .unwrap();
+        assert_eq!(
+            repo.read_stash_file(&entries[0], file, false)?.after,
+            b"newer\n"
+        );
+        let files = repo.stash_files(&entries[1]).await?;
+        let file = files.iter().find(|file| file.untracked()).unwrap();
+        assert_eq!(file.path(), Path::new("nested/new file.txt"));
+        assert_eq!(
+            repo.read_stash_file(&entries[1], file, false)?.after,
+            b"untracked\n"
+        );
+        return Ok(());
+    }
+    let dir = initial();
+    let repo = GitRepository::discover(dir.path())?;
+    assert!(repo.stashes().await?.is_empty());
+    std::fs::write(dir.path().join("file.txt"), "older\n")?;
+    std::fs::create_dir(dir.path().join("nested"))?;
+    std::fs::write(dir.path().join("nested/new file.txt"), "untracked\n")?;
+    repo.prepare_stash(true)?.execute().await?;
+    std::fs::write(dir.path().join("file.txt"), "newer\n")?;
+    repo.prepare_stash(true)?.execute().await?;
+    let no_programs = tempfile::tempdir()?;
+    let child = std::process::Command::new(std::env::current_exe()?)
+        .args([
+            "--exact",
+            "operations::tests::stash_browsing_works_without_git_executable",
+            "--nocapture",
+        ])
+        .env(FIXTURE, dir.path())
+        .env("PATH", no_programs.path())
+        .env("GIT_EXEC_PATH", no_programs.path())
+        .output()?;
+    ensure!(
+        child.status.success(),
+        "{}\n{}",
+        String::from_utf8_lossy(&child.stdout),
+        String::from_utf8_lossy(&child.stderr)
+    );
+    Ok(())
+}

@@ -32,7 +32,8 @@ g = "changed_file_picker"
 g = "changed_file_picker"
 ```
 
-Staging and stashes require the `git` executable on `PATH`.
+Staging changes and saving or applying stashes require the `git` executable on
+`PATH`.
 
 ## Reviewing changes
 
