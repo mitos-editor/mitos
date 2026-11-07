@@ -156,6 +156,7 @@ newline = "all"
 [editor.whitespace.characters]
 tab = "→"
 tabpad = "·"
+tabend = "←" # Optional final tab cell; defaults to tabpad
 ```
 
 Each kind also accepts `"trailing"` independently, for example:
