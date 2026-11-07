@@ -623,3 +623,103 @@ async fn worktree_safety_checks_do_not_need_git() -> Result<()> {
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn branch_creation_and_tracking_work_without_git_executable() -> Result<()> {
+    const FIXTURE: &str = "MITOS_NATIVE_BRANCH_FIXTURE";
+    if let Some(root) = std::env::var_os(FIXTURE) {
+        let repo = GitRepository::discover(Path::new(&root))?;
+        let before = repo.open_read(true)?.head_id()?.detach();
+        execute(
+            &repo,
+            RepositoryOperation::CreateBranch {
+                name: "topic/native".into(),
+            },
+        )
+        .await?;
+        let git = repo.open_read(true)?;
+        assert_eq!(git.head_id()?.detach(), before);
+        assert_eq!(
+            git.find_reference("refs/heads/topic/native")?.id().detach(),
+            before
+        );
+        let config = git.config_snapshot();
+        assert_eq!(
+            config.string("branch.topic/native.remote").as_deref(),
+            Some(".".into())
+        );
+        assert_eq!(
+            config.string("branch.topic/native.merge").as_deref(),
+            Some("refs/heads/main".into())
+        );
+        assert_eq!(config.boolean("branch.topic/native.rebase"), Some(true));
+        let contents = std::fs::read(repo.common_dir.join("config"))?;
+        assert!(execute(
+            &repo,
+            RepositoryOperation::CreateBranch {
+                name: "topic/native".into()
+            }
+        )
+        .await
+        .is_err());
+        assert_eq!(std::fs::read(repo.common_dir.join("config"))?, contents);
+        assert_eq!(
+            std::fs::read_to_string(repo.root.join("file.txt"))?,
+            "initial\n"
+        );
+        return Ok(());
+    }
+    let dir = initial()?;
+    exec_git_cmd(&["config", "branch.autoSetupMerge", "always"], dir.path());
+    exec_git_cmd(&["config", "branch.autoSetupRebase", "local"], dir.path());
+    let no_programs = tempfile::tempdir()?;
+    let child = std::process::Command::new(std::env::current_exe()?)
+        .args(["--exact", "operations::repository::tests::branch_creation_and_tracking_work_without_git_executable", "--nocapture"])
+        .env(FIXTURE, dir.path())
+        .env("PATH", no_programs.path())
+        .env("GIT_EXEC_PATH", no_programs.path())
+        .output()?;
+    ensure!(
+        child.status.success(),
+        "{}\n{}",
+        String::from_utf8_lossy(&child.stdout),
+        String::from_utf8_lossy(&child.stderr)
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn branch_creation_inherits_tracking_like_git() -> Result<()> {
+    let dir = initial()?;
+    let root = dir.path();
+    exec_git_cmd(&["remote", "add", "origin", "."], root);
+    exec_git_cmd(&["config", "branch.main.remote", "origin"], root);
+    exec_git_cmd(
+        &["config", "branch.main.merge", "refs/heads/upstream"],
+        root,
+    );
+    exec_git_cmd(&["config", "branch.autoSetupMerge", "inherit"], root);
+    exec_git_cmd(&["config", "branch.autoSetupRebase", "remote"], root);
+    exec_git_cmd(&["branch", "oracle"], root);
+    let repo = GitRepository::discover(root)?;
+    execute(
+        &repo,
+        RepositoryOperation::CreateBranch {
+            name: "native".into(),
+        },
+    )
+    .await?;
+    let git = repo.open_read(true)?;
+    let config = git.config_snapshot();
+    for key in ["remote", "merge", "rebase"] {
+        assert_eq!(
+            config.string(&format!("branch.native.{key}")),
+            config.string(&format!("branch.oracle.{key}"))
+        );
+    }
+    assert_eq!(
+        config.string("branch.native.remote").as_deref(),
+        Some("origin".into())
+    );
+    Ok(())
+}
