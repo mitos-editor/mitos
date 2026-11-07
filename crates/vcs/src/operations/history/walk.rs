@@ -102,7 +102,7 @@ fn run_worker(
             None => return,
         }
     };
-    let mut repo = match repository.open_history(false) {
+    let mut repo = match repository.open_read(false) {
         Ok(repo) => repo,
         Err(error) => {
             let _ = first.reply.send(Err(error));

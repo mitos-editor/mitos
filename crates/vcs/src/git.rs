@@ -151,8 +151,8 @@ pub(super) fn open_repo_for_operations(
     open_repo_impl(path, trust_full, false, true)
 }
 
-/// Read-only native history must also work without Git for Windows installed.
-pub(super) fn open_repo_for_history(path: &Path, trust_full: bool) -> Result<ThreadSafeRepository> {
+/// Native repository reads must also work without Git for Windows installed.
+pub(super) fn open_repo_for_read(path: &Path, trust_full: bool) -> Result<ThreadSafeRepository> {
     open_repo_impl(path, trust_full, false, false)
 }
 
