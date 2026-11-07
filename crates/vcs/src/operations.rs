@@ -18,6 +18,7 @@ use crate::{FileChange, FileStatus};
 pub mod history;
 pub mod repository;
 pub use repository::RepositoryOperation;
+mod branch;
 mod index;
 mod stage;
 mod stash;
@@ -141,6 +142,12 @@ impl PreparedOperation {
                 }
             ) && self.unstage()?
             {
+                return Ok(None);
+            }
+            if let Operation::Repository(RepositoryOperation::CreateBranch { name }) =
+                &self.operation
+            {
+                self.create_branch(name)?;
                 return Ok(None);
             }
             Ok::<_, anyhow::Error>(Some(self))
