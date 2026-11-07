@@ -272,18 +272,19 @@ fn match_line_cols(
     matched: std::ops::Range<usize>,
 ) -> Option<(usize, usize, usize, usize)> {
     let prefix = line_content.get(..matched.start)?;
-    let matched_text = line_content.get(..matched.end)?;
+    let matched_text = line_content.get(matched)?;
 
-    let start_line = line_start + prefix.matches('\n').count();
-    let start_col = prefix.rsplit('\n').next().unwrap_or(prefix).chars().count();
-
-    let end_line = line_start + matched_text.matches('\n').count();
-    let end_col = matched_text
-        .rsplit('\n')
-        .next()
-        .unwrap_or(matched_text)
+    let start_line = line_start + memchr::memchr_iter(b'\n', prefix.as_bytes()).count();
+    let start_col = prefix[memchr::memrchr(b'\n', prefix.as_bytes()).map_or(0, |i| i + 1)..]
         .chars()
         .count();
+
+    // Continue from the start position instead of scanning the prefix twice.
+    let end_line = start_line + memchr::memchr_iter(b'\n', matched_text.as_bytes()).count();
+    let end_col = match memchr::memrchr(b'\n', matched_text.as_bytes()) {
+        Some(index) => matched_text[index + 1..].chars().count(),
+        None => start_col + matched_text.chars().count(),
+    };
 
     Some((start_line, start_col, end_line, end_col))
 }
@@ -292,6 +293,52 @@ fn match_line_cols(
 mod tests {
     use super::*;
     use std::sync::{atomic::AtomicUsize, Mutex};
+
+    #[test]
+    fn match_coordinates_agree_with_character_positions() {
+        for text in [
+            "",
+            "ascii",
+            "\n\n",
+            "é😀界",
+            "a\r\nb\nc\r",
+            "é\n😀 first\n界 end\n",
+            "line\u{2028}separator\u{85}is not LF",
+        ] {
+            let boundaries: Vec<_> = text
+                .char_indices()
+                .map(|(index, _)| index)
+                .chain(std::iter::once(text.len()))
+                .collect();
+            let position = |prefix: &str| {
+                prefix.chars().fold((7, 0), |(line, col), ch| {
+                    if ch == '\n' {
+                        (line + 1, 0)
+                    } else {
+                        (line, col + 1)
+                    }
+                })
+            };
+            for &start in &boundaries {
+                for &end in boundaries.iter().filter(|&&end| end >= start) {
+                    let (start_line, start_col) = position(&text[..start]);
+                    let (end_line, end_col) = position(&text[..end]);
+                    assert_eq!(
+                        match_line_cols(7, text, start..end),
+                        Some((start_line, start_col, end_line, end_col)),
+                        "{text:?} {start}..{end}"
+                    );
+                }
+            }
+            for offset in 0..text.len() {
+                if !text.is_char_boundary(offset) {
+                    assert_eq!(match_line_cols(7, text, offset..text.len()), None);
+                    assert_eq!(match_line_cols(7, text, 0..offset), None);
+                }
+            }
+            assert_eq!(match_line_cols(7, text, 0..text.len() + 1), None);
+        }
+    }
 
     #[test]
     fn selected_replacement_keeps_canonical_matches_and_validates_targets() {
