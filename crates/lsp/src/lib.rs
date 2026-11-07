@@ -322,3 +322,7 @@ impl LspProgressMap {
             });
     }
 }
+
+#[cfg(feature = "test-support")]
+#[doc(hidden)]
+pub mod test_support;

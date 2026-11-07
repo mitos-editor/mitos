@@ -60,7 +60,7 @@ async fn fixture(dir: &Path, args: &[&str]) -> anyhow::Result<Fixture> {
             "rename",
             "rename",
             &["rename"],
-            &server.toml(),
+            &server.toml(env!("CARGO_BIN_EXE_mitos-test-lsp")),
         ))
         .build()?;
     let path = dir.join("document.rename");

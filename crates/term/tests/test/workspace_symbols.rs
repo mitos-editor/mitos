@@ -25,7 +25,7 @@ async fn fixture(dir: &Path, args: &[&str]) -> anyhow::Result<TestApplication> {
             "symbols",
             "symbols",
             &["symbols"],
-            &server.toml(),
+            &server.toml(env!("CARGO_BIN_EXE_mitos-test-lsp")),
         ))
         .build()?;
     let path = dir.join("document.symbols");

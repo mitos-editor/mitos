@@ -19,7 +19,7 @@ async fn application(dir: &std::path::Path) -> anyhow::Result<TestApplication> {
             "formatting-test",
             "formatting-test",
             &["alpha"],
-            &server.toml(),
+            &server.toml(env!("CARGO_BIN_EXE_mitos-test-lsp")),
         ))
         .build()?;
     let path = dir.join("document.formatting-test");

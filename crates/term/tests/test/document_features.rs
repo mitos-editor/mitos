@@ -88,9 +88,9 @@ impl Fixture {
                         .arg("--resolve-links")
                         .arg("--resolve-link-gate")
                         .arg(path.with_extension("resolve-ready"))
-                        .toml()
+                        .toml(env!("CARGO_BIN_EXE_mitos-test-lsp"))
                 } else {
-                    server.toml()
+                    server.toml(env!("CARGO_BIN_EXE_mitos-test-lsp"))
                 }
             })
             .collect::<String>();

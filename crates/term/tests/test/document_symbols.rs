@@ -59,7 +59,7 @@ async fn document_symbol_picker_refreshes_after_edits_and_when_reopened() -> any
     let server = ServerConfig::feature("symbols", "--document-symbols", dir.path())
         .initialize_gate(&gate)
         .arg("--symbols-from-text")
-        .toml();
+        .toml(env!("CARGO_BIN_EXE_mitos-test-lsp"));
     let mut config = test_config();
     config.editor.lsp.enable = true;
     let mut app = AppBuilder::new()
@@ -111,15 +111,15 @@ async fn document_symbol_queries_preserve_hierarchy_locations_and_origin() -> an
         "{}{}{}",
         ServerConfig::feature("nested", "--document-symbols", dir.path())
             .initialize_gate(&gate)
-            .toml(),
+            .toml(env!("CARGO_BIN_EXE_mitos-test-lsp")),
         ServerConfig::feature("flat", "--document-symbols", dir.path())
             .initialize_gate(&gate)
             .arg("--flat-symbols")
-            .toml(),
+            .toml(env!("CARGO_BIN_EXE_mitos-test-lsp")),
         ServerConfig::feature("failing", "--document-symbols", dir.path())
             .initialize_gate(&gate)
             .arg("--fail-symbols")
-            .toml()
+            .toml(env!("CARGO_BIN_EXE_mitos-test-lsp"))
     );
     let mut config = test_config();
     config.editor.lsp.enable = true;
