@@ -19,6 +19,7 @@ pub mod history;
 pub mod repository;
 pub use repository::RepositoryOperation;
 mod stash;
+mod unstage;
 pub use stash::{StashEntry, StashFile, StashLayer};
 
 /// Paths are captured before any subprocess starts, including in linked worktrees.
@@ -105,19 +106,37 @@ impl PreparedOperation {
         }
     }
 
+    fn ensure_current(&self) -> Result<()> {
+        ensure!(
+            self.expected
+                == self
+                    .repository
+                    .stamp(self.expected.iter().map(|(path, _)| path.clone())),
+            "Git state changed while preparing this action; refresh and try again"
+        );
+        Ok(())
+    }
+
     /// Once started, a mutation must be driven to completion, even after its originating UI closes.
     pub async fn execute(self) -> Result<()> {
         let prepared = tokio::task::spawn_blocking(move || {
-            ensure!(
-                self.expected
-                    == self
-                        .repository
-                        .stamp(self.expected.iter().map(|(path, _)| path.clone())),
-                "Git state changed while preparing this action; refresh and try again"
-            );
-            Ok::<_, anyhow::Error>(self)
+            self.ensure_current()?;
+            if matches!(
+                self.operation,
+                Operation::File {
+                    kind: FileOperation::Unstage,
+                    ..
+                }
+            ) && self.unstage()?
+            {
+                return Ok(None);
+            }
+            Ok::<_, anyhow::Error>(Some(self))
         })
         .await??;
+        let Some(prepared) = prepared else {
+            return Ok(());
+        };
         if let Operation::Repository(operation) = &prepared.operation {
             return operation.execute(&prepared.repository).await;
         }
@@ -205,7 +224,10 @@ impl GitRepository {
             "Git actions require workspace trust; run :workspace-trust first"
         );
 
-        let repo = self.open(true)?;
+        let repo = match kind {
+            FileOperation::Unstage => self.open_read(true)?,
+            FileOperation::Stage => self.open(true)?,
+        };
         let change = match kind {
             FileOperation::Stage => status
                 .unstaged

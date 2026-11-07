@@ -456,3 +456,98 @@ async fn stash_browsing_works_without_git_executable() -> Result<()> {
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn unstaging_works_without_git_and_preserves_other_staged_files() -> Result<()> {
+    const FIXTURE: &str = "MITOS_NATIVE_UNSTAGE_FIXTURE";
+    if let Some(root) = std::env::var_os(FIXTURE) {
+        let repo = GitRepository::discover(Path::new(&root))?;
+        let git = repo.open_read(true)?;
+        let other = git
+            .open_index()?
+            .entry_by_path("other.txt".into())
+            .unwrap()
+            .id;
+        let status = FileStatus {
+            staged: Some(FileChange::Modified {
+                path: repo.root.join("file.txt"),
+            }),
+            unstaged: None,
+        };
+        let plan = repo.prepare_file(&status, FileOperation::Unstage, true)?;
+        let lock = git.index_path().with_extension("lock");
+        std::fs::write(&lock, "another process")?;
+        assert!(plan.execute().await.is_err());
+        assert_eq!(std::fs::read_to_string(&lock)?, "another process");
+        std::fs::remove_file(lock)?;
+        repo.prepare_file(&status, FileOperation::Unstage, true)?
+            .execute()
+            .await?;
+        let index = git.open_index()?;
+        let tree = git.head_commit()?.tree()?;
+        assert_eq!(
+            index.entry_by_path("file.txt".into()).unwrap().id,
+            tree.lookup_entry_by_path("file.txt")?.unwrap().object_id()
+        );
+        assert_eq!(index.entry_by_path("other.txt".into()).unwrap().id, other);
+        assert_eq!(
+            std::fs::read_to_string(repo.root.join("file.txt"))?,
+            "worktree\n"
+        );
+        return Ok(());
+    }
+    let dir = initial();
+    std::fs::write(dir.path().join("file.txt"), "index\n")?;
+    std::fs::write(dir.path().join("other.txt"), "keep staged\n")?;
+    exec_git_cmd(&["add", "."], dir.path());
+    std::fs::write(dir.path().join("file.txt"), "worktree\n")?;
+    let no_programs = tempfile::tempdir()?;
+    let child = std::process::Command::new(std::env::current_exe()?)
+        .args([
+            "--exact",
+            "operations::tests::unstaging_works_without_git_and_preserves_other_staged_files",
+            "--nocapture",
+        ])
+        .env(FIXTURE, dir.path())
+        .env("PATH", no_programs.path())
+        .env("GIT_EXEC_PATH", no_programs.path())
+        .output()?;
+    ensure!(
+        child.status.success(),
+        "{}\n{}",
+        String::from_utf8_lossy(&child.stdout),
+        String::from_utf8_lossy(&child.stderr)
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn unstaging_a_file_that_replaced_a_directory_keeps_git_semantics() -> Result<()> {
+    let dir = initial();
+    let root = dir.path();
+    std::fs::create_dir(root.join("directory"))?;
+    std::fs::write(root.join("directory/old.txt"), "old\n")?;
+    create_commit_with_message(root, true, "directory");
+    std::fs::remove_dir_all(root.join("directory"))?;
+    std::fs::write(root.join("directory"), "replacement\n")?;
+    exec_git_cmd(&["add", "."], root);
+    let repo = GitRepository::discover(root)?;
+    let status = FileStatus {
+        staged: Some(FileChange::Added {
+            path: root.join("directory"),
+        }),
+        unstaged: None,
+    };
+    repo.prepare_file(&status, FileOperation::Unstage, true)?
+        .execute()
+        .await?;
+    let git = repo.open_read(true)?;
+    let index = git.open_index()?;
+    assert!(index.entry_by_path("directory/old.txt".into()).is_some());
+    assert!(index.entry_by_path("directory".into()).is_none());
+    assert_eq!(
+        std::fs::read_to_string(root.join("directory"))?,
+        "replacement\n"
+    );
+    Ok(())
+}
