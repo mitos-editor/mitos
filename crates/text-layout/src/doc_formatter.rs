@@ -500,8 +500,8 @@ impl<'t> DocumentFormatter<'t> {
     }
 
     /// returns the char index at the end of the last yielded grapheme
-    #[cfg(test)]
-    fn next_visual_pos(&self) -> DisplayPosition {
+    /// Visual position immediately after the last yielded grapheme.
+    pub fn next_visual_pos(&self) -> DisplayPosition {
         self.visual_pos
     }
 

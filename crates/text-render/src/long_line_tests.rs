@@ -10,6 +10,7 @@ use text_layout::{
 use theme::{Color, Style, Theme};
 use ui_core::graphics::Rect;
 
+#[derive(Clone)]
 struct EmptyLine;
 impl LineAnnotation for EmptyLine {
     fn insert_virtual_lines(&mut self, _: usize, _: DisplayPosition, _: usize) -> DisplayPosition {
@@ -71,7 +72,7 @@ fn paint(
     );
     let mut annotations = TextAnnotations::default();
     if force_slow {
-        annotations.add_line_annotation(Box::new(EmptyLine));
+        annotations.add_line_annotation(EmptyLine);
     }
     let visited = Rc::new(RefCell::new(Vec::new()));
     let mut decorations = DecorationManager::default();
