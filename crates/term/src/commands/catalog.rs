@@ -1424,6 +1424,48 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
         args: CommandArgs::new(&[], &[]),
     },
     TypableCommand {
+        name: "vcs-stage-hunk",
+        aliases: &[],
+        doc: "Stage hunks touched by the selections, including unsaved edits. Does not save the file.",
+        action: CommandAction::Committed(super::vcs::typed::stage_hunk), args: CommandArgs::new(&[], &[]),
+    },
+    TypableCommand {
+        name: "vcs-stage-lines",
+        aliases: &[],
+        doc: "Stage only selected lines, including unsaved edits. Does not save the file.",
+        action: CommandAction::Committed(super::vcs::typed::stage_lines), args: CommandArgs::new(&[], &[]),
+    },
+    TypableCommand {
+        name: "vcs-stage-hunk-disk",
+        aliases: &[],
+        doc: "Stage hunks touched by the selections from the saved file. Save the buffer first.",
+        action: CommandAction::Committed(super::vcs::typed::stage_hunk_disk), args: CommandArgs::new(&[], &[]),
+    },
+    TypableCommand {
+        name: "vcs-stage-lines-disk",
+        aliases: &[],
+        doc: "Stage only selected lines from the saved file. Save the buffer first.",
+        action: CommandAction::Committed(super::vcs::typed::stage_lines_disk), args: CommandArgs::new(&[], &[]),
+    },
+    TypableCommand {
+        name: "vcs-unstage-hunk",
+        aliases: &[],
+        doc: "Unstage hunks touched by the selections, keeping saved and unsaved edits.",
+        action: CommandAction::Committed(super::vcs::typed::unstage_hunk), args: CommandArgs::new(&[], &[]),
+    },
+    TypableCommand {
+        name: "vcs-unstage-lines",
+        aliases: &[],
+        doc: "Unstage only selected lines, keeping saved and unsaved edits.",
+        action: CommandAction::Committed(super::vcs::typed::unstage_lines), args: CommandArgs::new(&[], &[]),
+    },
+    TypableCommand {
+        name: "vcs-stage-and-next",
+        aliases: &[],
+        doc: "Stage the selected hunks and move to the next unstaged hunk.",
+        action: CommandAction::Committed(super::vcs::typed::stage_and_next), args: CommandArgs::new(&[], &[]),
+    },
+    TypableCommand {
         name: "restore-change",
         aliases: &["vcs-restore-change"],
         doc: "Restore selected hunks from HEAD in the buffer. Use u to undo; saved files and staged changes stay unchanged.",

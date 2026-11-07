@@ -131,7 +131,9 @@ fn dispatch(
             Ok(picker) => compositor.push(picker),
             Err(error) => cx.editor.set_error(|| error.to_string()),
         },
-        Command::Run(action @ (GitAction::File(..) | GitAction::Repository(..)))
+        Command::Run(
+            action @ (GitAction::File(..) | GitAction::Repository(..) | GitAction::Partial { .. }),
+        )
         | Command::Confirmed(action) => start(cx, workspace, action),
         Command::Run(action) => {
             let (message, label) = match &action {
@@ -156,7 +158,9 @@ fn dispatch(
                     ),
                     "Apply and keep stash",
                 ),
-                GitAction::File(..) | GitAction::Repository(..) => unreachable!(),
+                GitAction::File(..) | GitAction::Repository(..) | GitAction::Partial { .. } => {
+                    unreachable!()
+                }
             };
             compositor.push(menu(
                 message,
@@ -263,16 +267,6 @@ pub(super) fn file_action<T, D>(
     }))
 }
 
-pub(super) fn help(
-    keys: &ui_core::keymap::Keymap<crate::keymap::component::PickerAction>,
-) -> Vec<String> {
-    use crate::keymap::component::PickerAction;
-    action_hints(
-        keys,
-        &[(PickerAction::Item(PickerItemAction::Actions), "actions")],
-    )
-}
-
 pub(super) fn file_help(
     keys: &ui_core::keymap::Keymap<crate::keymap::component::PickerAction>,
 ) -> Vec<String> {
@@ -299,16 +293,16 @@ fn stash_help(
         &[
             (P::Accept, "inspect"),
             (P::Item(PickerItemAction::ApplyStash), "apply"),
+            (P::Item(PickerItemAction::Actions), "actions"),
             (
                 P::Item(PickerItemAction::ApplyStashWithIndex),
                 "apply with staged changes",
             ),
-            (P::Item(PickerItemAction::Actions), "actions"),
         ],
     )
 }
 
-fn action_hints(
+pub(super) fn action_hints(
     keys: &ui_core::keymap::Keymap<crate::keymap::component::PickerAction>,
     actions: &[(crate::keymap::component::PickerAction, &str)],
 ) -> Vec<String> {
