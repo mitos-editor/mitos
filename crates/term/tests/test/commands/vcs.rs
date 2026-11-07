@@ -1263,7 +1263,10 @@ async fn conflict_headings_stay_stable_during_navigation_and_follow_undo() -> an
     let (dir, path) = committed_file()?;
     std::fs::write(&path, original)?;
     let mut app = AppBuilder::new().with_file(&path, None).build()?;
-    run_event_loop_until_idle(&mut app).await;
+    // The idle test pump does not request the initial frame like event_loop does.
+    app.handle_editor_event(view::editor::EditorEvent::Redraw)
+        .await;
+    wait_for_review_screen(&mut app, "Current: HEAD", "Incoming: topic").await?;
     let screen = review_screen(&app);
     assert!(screen.contains("Current: HEAD"), "{screen}");
     assert!(screen.contains("Incoming: topic"));
