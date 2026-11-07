@@ -134,6 +134,7 @@
 | `vcs_diff_open_source` | Jump from a diff review to its source location | normal: `` <ret> ``, select: `` <ret> `` |
 | `vcs_diff_open_file` | Open the current file from a diff review |  |
 | `vcs_changed_file_picker_in_repository` | Open changed file picker in repository |  |
+| `vcs_project_review` | Review staged and unstaged repository changes | normal: `` <space>gr ``, select: `` <space>gr `` |
 | `select_references_to_symbol_under_cursor` | Select symbol references | normal: `` <space>h ``, select: `` <space>h `` |
 | `workspace_symbol_picker` | Open workspace symbol picker |  |
 | `syntax_workspace_symbol_picker` | Open workspace symbol picker from syntax information |  |

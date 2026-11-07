@@ -39,6 +39,7 @@ pub struct EditorView {
     sidebar_area: Option<Rect>,
     resizing: Option<resize::Resize>,
     pub keymaps: Keymaps,
+    review_keys: ui_core::keymap::KeymapState,
     on_next_key: Option<OnKeyCallback>,
     pseudo_pending: Vec<KeyEvent>,
     pub(crate) repeat: crate::repeat::RepeatController,
@@ -55,6 +56,7 @@ impl EditorView {
             sidebar_area: None,
             resizing: None,
             keymaps,
+            review_keys: Default::default(),
             on_next_key: None,
             pseudo_pending: Vec::new(),
             repeat: crate::repeat::RepeatController::default(),
@@ -230,6 +232,31 @@ impl EditorView {
     }
 
     fn command_mode(&mut self, mode: Mode, cxt: &mut commands::Context, event: KeyEvent) {
+        if self.keymaps.pending().is_empty()
+            && view::current_ref!(cxt.editor).1.project_review().is_some()
+        {
+            use ui_core::keymap::Lookup;
+            match self
+                .review_keys
+                .lookup(&cxt.config.current.component_keys.project_review, event)
+            {
+                Lookup::Pending => return,
+                Lookup::Actions(actions) => {
+                    let actions = actions.to_vec();
+                    for action in actions {
+                        if let Err(error) = commands::project_review::action(cxt, action) {
+                            cxt.editor.set_error(|| error.to_string());
+                            break;
+                        }
+                    }
+                    cxt.interaction.count = None;
+                    return;
+                }
+                Lookup::Unbound => {}
+            }
+        } else {
+            self.review_keys.clear();
+        }
         match (event, cxt.interaction.count) {
             // If the count is already started and the input is a number, always continue the count.
             (key!(i @ '0'..='9'), Some(count)) => {
@@ -818,6 +845,7 @@ impl Component for EditorView {
                 is_cursor_owner: cx.is_cursor_owner && !sidebar_focused,
                 true_color: cx.config.terminal.true_color || crate::true_color(),
                 selected_register: cx.interaction.selected_register,
+                review_keys: &cx.config.component_keys.project_review,
             },
             &mut cx.hyperlinks.borrow_mut(),
         );
@@ -978,6 +1006,9 @@ impl Component for EditorView {
     }
 
     fn has_pending_keys(&self) -> bool {
+        if self.review_keys.is_pending() {
+            return true;
+        }
         if self.resizing.is_some() {
             return true;
         }

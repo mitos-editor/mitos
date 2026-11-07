@@ -324,6 +324,7 @@
 | `` <space>gi `` | Show hunk diff | `` vcs_show_change `` |
 | `` <space>gt `` | Toggle inline blame | `` vcs_toggle_inline_blame `` |
 | `` <space>gS `` | Browse stashes | `` vcs_stash_picker `` |
+| `` <space>gr `` | Review staged and unstaged repository changes | `` vcs_project_review `` |
 
 #### `` <space>G `` — Debug (experimental)
 

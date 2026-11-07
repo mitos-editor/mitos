@@ -33,12 +33,13 @@ use view::{
 mod syntax_cache;
 
 #[derive(Clone, Copy)]
-pub(super) struct PaneOptions {
+pub(super) struct PaneOptions<'a> {
     pub area: Rect,
     pub terminal_focused: bool,
     pub is_cursor_owner: bool,
     pub true_color: bool,
     pub selected_register: Option<char>,
+    pub review_keys: &'a ui_core::keymap::Keymap<crate::keymap::component::ProjectReviewAction>,
 }
 
 #[derive(Default)]
@@ -85,7 +86,7 @@ impl PaneRenderer {
         editor: &Editor,
         layout: ApplicationLayout,
         surface: &mut Surface,
-        options: PaneOptions,
+        options: PaneOptions<'_>,
         hyperlinks: &mut ui_core::hyperlinks::HyperlinkBuffer,
     ) -> Option<DisplayPosition> {
         self.spinners
@@ -131,6 +132,13 @@ impl PaneRenderer {
                 options.selected_register,
             );
             statusline::render(&mut context, view.statusline_area(doc), surface);
+            super::super::change_review::document::render_project_hints(
+                doc,
+                view.statusline_area(doc),
+                options.review_keys,
+                &editor.theme,
+                surface,
+            );
         }
 
         if layout.statusline.height > 0 {
@@ -143,6 +151,13 @@ impl PaneRenderer {
                 options.selected_register,
             );
             statusline::render(&mut context, layout.statusline, surface);
+            super::super::change_review::document::render_project_hints(
+                doc,
+                layout.statusline,
+                options.review_keys,
+                &editor.theme,
+                surface,
+            );
         }
         cursor
     }
@@ -309,7 +324,7 @@ impl PaneRenderer {
     fn render_view(
         syntax_cache: &mut syntax_cache::ViewportSyntaxCache,
         editor: &Editor,
-        options: PaneOptions,
+        options: PaneOptions<'_>,
         doc: PresentedDocument<'_>,
         view: &View,
         viewport: Rect,
@@ -317,7 +332,9 @@ impl PaneRenderer {
         is_focused: bool,
         hyperlinks: &mut ui_core::hyperlinks::HyperlinkBuffer,
     ) -> Option<DisplayPosition> {
-        if doc.source().is_binary() || doc.source().review().is_some() {
+        if doc.source().is_binary()
+            || (doc.source().review().is_some() || doc.source().project_review().is_some())
+        {
             *syntax_cache = syntax_cache::ViewportSyntaxCache::default();
         }
         if doc.source().is_binary() {
@@ -338,7 +355,7 @@ impl PaneRenderer {
         decorations.add_decoration(text_decorations::links::DocumentLinks::new(
             doc, view.id, hyperlinks,
         ));
-        if doc.source().review().is_some() {
+        if doc.source().review().is_some() || doc.source().project_review().is_some() {
             decorations.add_decoration(crate::ui::change_review::document::line_backgrounds(
                 doc, theme,
             ));
@@ -526,7 +543,7 @@ impl PaneRenderer {
                 hidden_line,
             ));
         }
-        if doc.source().review().is_some() {
+        if doc.source().review().is_some() || doc.source().project_review().is_some() {
             render_document(surface, doc, &layout, overlays, theme, decorations);
         } else {
             let styles = syntax_cache.styles(doc, &layout, editor.theme.revision(), || {

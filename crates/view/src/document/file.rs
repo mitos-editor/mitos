@@ -640,6 +640,9 @@ impl Document {
     /// `.jj`, or `.mitos`. Falls back to the current working directory's workspace when the
     /// document has no path (scratch buffers). Lazily memoised on first call.
     pub fn workspace_root(&self) -> &Path {
+        if let Some(review) = self.project_review() {
+            return &review.workspace;
+        }
         if let Some(review) = self.review() {
             return review.workspace();
         }

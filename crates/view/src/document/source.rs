@@ -12,9 +12,15 @@ use super::Document;
 
 pub(super) enum DocumentSource {
     FileOrScratch,
-    Virtual { name: String },
+    Virtual {
+        name: String,
+    },
     Revision(HistoricalDocument),
     Review(Box<ReviewDocument>),
+    ProjectReview {
+        name: String,
+        state: Box<crate::features::project_review::ProjectReviewDocument>,
+    },
 }
 
 impl Document {
@@ -27,6 +33,7 @@ impl Document {
             DocumentSource::Virtual { .. } => self.path(),
             DocumentSource::Revision(source) => Some(&source.path),
             DocumentSource::Review(review) => Some(review.path()),
+            DocumentSource::ProjectReview { state, .. } => Some(&state.root),
         }
     }
 
@@ -36,7 +43,9 @@ impl Document {
     pub fn is_content_readonly(&self) -> bool {
         matches!(
             self.source,
-            DocumentSource::Revision(_) | DocumentSource::Review(_)
+            DocumentSource::Revision(_)
+                | DocumentSource::Review(_)
+                | DocumentSource::ProjectReview { .. }
         )
     }
 
@@ -57,6 +66,39 @@ impl Document {
             DocumentSource::Review(review) => Some(review),
             _ => None,
         }
+    }
+
+    pub fn project_review(
+        &self,
+    ) -> Option<&crate::features::project_review::ProjectReviewDocument> {
+        match &self.source {
+            DocumentSource::ProjectReview { state, .. } => Some(state),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn project_review_mut(
+        &mut self,
+    ) -> Option<&mut crate::features::project_review::ProjectReviewDocument> {
+        match &mut self.source {
+            DocumentSource::ProjectReview { state, .. } => Some(state),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn set_project_review(
+        &mut self,
+        name: String,
+        state: crate::features::project_review::ProjectReviewDocument,
+    ) {
+        assert!(
+            self.path().is_none(),
+            "project review documents must be pathless"
+        );
+        self.source = DocumentSource::ProjectReview {
+            name,
+            state: Box::new(state),
+        };
     }
 
     pub(crate) fn historical(&self) -> Option<&HistoricalDocument> {
@@ -83,12 +125,17 @@ impl Document {
     }
 
     pub(crate) fn is_virtual(&self) -> bool {
-        matches!(self.source, DocumentSource::Virtual { .. })
+        matches!(
+            self.source,
+            DocumentSource::Virtual { .. } | DocumentSource::ProjectReview { .. }
+        )
     }
 
     pub(super) fn virtual_name(&self) -> Option<&str> {
         match &self.source {
-            DocumentSource::Virtual { name } => Some(name),
+            DocumentSource::Virtual { name } | DocumentSource::ProjectReview { name, .. } => {
+                Some(name)
+            }
             _ => None,
         }
     }

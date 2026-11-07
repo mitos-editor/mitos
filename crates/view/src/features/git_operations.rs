@@ -75,6 +75,7 @@ pub struct GitRequest {
     workspace: PathBuf,
     admission: Admission,
     document: Option<(crate::DocumentId, buffer::Snapshot)>,
+    review_guard: Option<super::change_review::ReviewGuard>,
 }
 
 pub struct PreparedGitAction {
@@ -102,6 +103,12 @@ struct GitTaskState {
 }
 
 impl GitRequest {
+    /// A review action must retain its displayed repository inputs through admission.
+    pub fn with_review_guard(mut self, guard: super::change_review::ReviewGuard) -> Self {
+        self.review_guard = Some(guard);
+        self
+    }
+
     pub fn capture(editor: &Editor, workspace: PathBuf, action: GitAction) -> Result<Self> {
         Self::capture_with_document(editor, workspace, action, None)
     }
@@ -164,6 +171,7 @@ impl GitRequest {
             workspace,
             admission: Admission(busy.clone()),
             document,
+            review_guard: None,
         })
     }
 
@@ -218,6 +226,13 @@ impl PreparedGitAction {
                 "Change directory out of this worktree before removing it"
             );
         }
+        ensure!(
+            self.request
+                .review_guard
+                .as_ref()
+                .is_none_or(|guard| guard.is_current()),
+            "Git state or source changed since this review; refresh and try again"
+        );
         ensure!(
             Arc::ptr_eq(
                 &self.request.admission.0,
@@ -282,6 +297,10 @@ impl GitTask {
 }
 
 impl GitCompletion {
+    pub fn succeeded(&self) -> bool {
+        self.result.is_ok()
+    }
+
     pub fn next_partial_line(&self) -> Option<u32> {
         self.result.as_ref().ok().and(self.state.next_line)
     }

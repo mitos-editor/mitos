@@ -297,6 +297,7 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
                 "i" => vcs_show_change,
                 "t" => vcs_toggle_inline_blame,
                 "S" => vcs_stash_picker,
+                "r" => vcs_project_review,
             },
             "a" => code_action,
             "l" => show_code_lenses_under_cursor,

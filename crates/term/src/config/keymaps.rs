@@ -1,7 +1,7 @@
 //! Editor and component keymaps, including picker-specific inheritance.
 use crate::keymap::component::{
     quicklist_picker_keymap, BlameAction, ComponentKeymaps, DiffAction, MenuAction, PageAction,
-    PickerAction, PickerItemAction, PopupAction, PromptAction, SidebarAction,
+    PickerAction, PickerItemAction, PopupAction, ProjectReviewAction, PromptAction, SidebarAction,
 };
 use crate::keymap::{self, KeyTrie};
 use serde::{Deserialize, Deserializer};
@@ -119,6 +119,7 @@ pub struct Keys {
     signature_help: Keymap<PageAction>,
     blame: Keymap<BlameAction>,
     diff: Keymap<DiffAction>,
+    project_review: Keymap<ProjectReviewAction>,
 }
 
 impl Keys {
@@ -200,6 +201,7 @@ impl Keys {
         components.signature_help.merge(self.signature_help);
         components.blame.merge(self.blame);
         components.diff.merge(self.diff);
+        components.project_review.merge(self.project_review);
         (
             [
                 self.buffer_picker.map_actions(|action| action.0),
