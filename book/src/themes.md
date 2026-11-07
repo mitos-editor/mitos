@@ -59,6 +59,21 @@ For inspiration, you can find the built-in ANSI theme `base16_terminal.toml`
 user-submitted themes
 [here](https://github.com/mitos-editor/mitos/blob/main/runtime/themes).
 
+### Panel and popup borders
+
+Use `ui.border` to style panel and popup borders, including file pickers and
+documentation hovers, independently of their text:
+
+```toml
+"ui.text" = "#d8dee9"
+"ui.border" = "#4c566a"
+```
+
+If `ui.border` is omitted, borders use `ui.text`. Split separators use
+`ui.window`; internal separators retain their own theme scopes.
+Border shapes and visibility are controlled by the
+[border configuration](./configuration.md#popup-borders).
+
 
 ## The details of theme creation
 
@@ -350,12 +365,13 @@ These scopes are used for theming the editor interface:
 | `ui.bufferline.background`        | Style for bufferline background                                                                |
 | `ui.popup`                        | Documentation popups (e.g. Space k)                                                          |
 | `ui.popup.info`                   | Prompt for multiple key options                                                                |
+| `ui.border`                       | Panel and popup borders; falls back to `ui.text`                                                |
 | `ui.picker.header`                | Header row area in pickers with multiple columns                                               |
 | `ui.picker.header.column`         | Column names in pickers with multiple columns                                                  |
 | `ui.picker.header.column.active`  | The column name in pickers with multiple columns where the cursor is entering into.            |
 | `ui.window`                       | Borderlines separating splits                                                                  |
 | `ui.help`                         | Description box for commands                                                                   |
-| `ui.text`                         | Default text style, command prompts, panel borders and titles, popup text, etc.                |
+| `ui.text`                         | Default text style, command prompts, panel titles, popup text, and fallback for panel borders    |
 | `ui.text.focus`                   | The currently selected line in the picker                                                      |
 | `ui.text.inactive`                | Same as `ui.text` but when the text is inactive (e.g. suggestions)                             |
 | `ui.text.info`                    | The key: command text in `ui.popup.info` boxes                                                 |

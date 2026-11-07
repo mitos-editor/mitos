@@ -158,7 +158,8 @@ For common examples, see [Configure Mitos](./editor.md).
 and separators. It accepts `"none"`, `"plain"`, `"rounded"` (the default),
 `"double"`, `"thick"`,
 `"quadrant-inside"`, or `"quadrant-outside"`. The style controls the border
-characters; the theme controls their colors.
+characters; the theme's [`ui.border`](./themes.md#panel-and-popup-borders) scope
+controls panel and popup border colors, falling back to `ui.text` when omitted.
 
 Individual popups can use their own `border-style`. Each setting accepts the
 same styles or `"inherit"` (the default), which follows `editor.border-style`.

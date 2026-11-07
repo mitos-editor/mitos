@@ -56,12 +56,18 @@ fn border_set(style: BorderStyle) -> border::Set<'static> {
     }
 }
 
+fn border_style(theme: &Theme) -> Style {
+    theme
+        .try_get_exact("ui.border")
+        .unwrap_or_else(|| theme.get("ui.text"))
+}
+
 pub fn bordered(theme: &Theme, style: BorderStyle) -> Block<'static> {
-    tui::panel::bordered(theme.get("ui.text"), border_set(style))
+    tui::panel::bordered(border_style(theme), border_set(style))
 }
 
 pub fn horizontally_padded(theme: &Theme, style: BorderStyle) -> Block<'static> {
-    tui::panel::horizontally_padded(theme.get("ui.text"), border_set(style))
+    tui::panel::horizontally_padded(border_style(theme), border_set(style))
 }
 
 pub fn top_border(style: Style, border_style: BorderStyle) -> Block<'static> {
@@ -73,6 +79,41 @@ mod tests {
     use super::*;
     use tui::{buffer::Buffer, layout::Rect, widgets::Widget};
     use ui_core::graphics::Color;
+
+    #[test]
+    fn panel_border_scope_overrides_text_with_compatible_fallback() {
+        let area = Rect::new(0, 0, 7, 5);
+        for (scopes, expected) in [
+            (toml::toml! { "ui.text" = "red" }, Color::Red),
+            (
+                toml::toml! {
+                    "ui" = "green"
+                    "ui.text" = "red"
+                },
+                Color::Red,
+            ),
+            (
+                toml::toml! {
+                    "ui.text" = "red"
+                    "ui.border" = "blue"
+                },
+                Color::Blue,
+            ),
+        ] {
+            let theme = Theme::from(toml::Value::Table(scopes));
+            for block in [
+                bordered(&theme, BorderStyle::Rounded),
+                horizontally_padded(&theme, BorderStyle::Rounded),
+            ] {
+                let mut surface = Buffer::empty(area);
+                surface.set_style(area, theme.get("ui.text"));
+                block.render(area, &mut surface);
+                assert_eq!(surface[(0, 0)].symbol(), "╭");
+                assert_eq!(surface[(0, 0)].fg, expected);
+                assert_eq!(surface[(3, 2)].fg, Color::Red);
+            }
+        }
+    }
 
     #[test]
     fn border_choice_survives_theme_changes_and_uses_theme_colors() {
