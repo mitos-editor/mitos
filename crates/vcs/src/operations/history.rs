@@ -97,7 +97,7 @@ impl GitRepository {
     /// Pin HEAD without loading commit objects on the UI thread. Clones and
     /// continuations share one native walk and can retry already published pages.
     pub fn history_cursor(&self, path: Option<&Path>) -> Result<Option<HistoryCursor>> {
-        let repo = self.open_history(false)?;
+        let repo = self.open_read(false)?;
         let head = repo.head()?;
         let Some(id) = head.id() else {
             return Ok(None);
@@ -150,7 +150,7 @@ impl GitRepository {
                 return;
             }
             let result = (|| {
-                let repo = repository.open_history(false)?;
+                let repo = repository.open_read(false)?;
                 let tree = repo
                     .find_commit(gix::ObjectId::from_hex(commit.id.as_str().as_bytes())?)?
                     .tree()?;
@@ -173,7 +173,7 @@ impl GitRepository {
     /// Read an exact historical blob without worktree conversions, filters, or external tools.
     pub fn read_revision_file(&self, file: &RevisionFile, trusted: bool) -> Result<Vec<u8>> {
         validate_path(file.path())?;
-        let repo = self.open_history(trusted)?;
+        let repo = self.open_read(trusted)?;
         let id = gix::ObjectId::from_hex(file.revision.as_str().as_bytes())?;
         let tree = repo
             .find_commit(id)

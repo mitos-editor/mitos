@@ -505,3 +505,58 @@ async fn pull_revalidates_the_branch_after_fetch_before_any_checkout() -> Result
     assert!(repo.open(false)?.state().is_none());
     Ok(())
 }
+
+#[tokio::test]
+async fn repository_lists_work_without_git_executable() -> Result<()> {
+    const FIXTURE: &str = "MITOS_NATIVE_REPOSITORY_LISTS_FIXTURE";
+    if let Some(root) = std::env::var_os(FIXTURE) {
+        let repo = GitRepository::discover(Path::new(&root))?;
+        let branches = repo.branches().await?;
+        assert_eq!(branches.len(), 2);
+        assert_eq!(branches[0].name, "main");
+        assert!(branches[0].current);
+        assert_eq!(branches[0].upstream, "origin/main");
+        assert_eq!(branches[1].name, "topic");
+        assert!(!branches[1].current);
+        let trees = repo.worktrees().await?;
+        assert_eq!(trees.len(), 2);
+        assert!(trees[0].main);
+        assert_eq!(trees[1].branch.as_deref(), Some("topic"));
+        assert!(trees[1].locked);
+        assert!(!trees[1].prunable);
+        assert_eq!(
+            GitRepository::discover(&trees[1].path)?.worktrees().await?,
+            trees
+        );
+        return Ok(());
+    }
+    let dir = initial()?;
+    let root = dir.path();
+    let linked = tempfile::tempdir()?;
+    let path = linked.path().join("linked tree");
+    exec_git_cmd(&["branch", "topic"], root);
+    exec_git_cmd(&["remote", "add", "origin", "."], root);
+    exec_git_cmd(&["update-ref", "refs/remotes/origin/main", "HEAD"], root);
+    exec_git_cmd(&["branch", "--set-upstream-to=origin/main", "main"], root);
+    exec_git_cmd(&["pack-refs", "--all"], root);
+    exec_git_cmd(&["worktree", "add", path.to_str().unwrap(), "topic"], root);
+    exec_git_cmd(&["worktree", "lock", path.to_str().unwrap()], root);
+    let no_programs = tempfile::tempdir()?;
+    let child = std::process::Command::new(std::env::current_exe()?)
+        .args([
+            "--exact",
+            "operations::repository::tests::repository_lists_work_without_git_executable",
+            "--nocapture",
+        ])
+        .env(FIXTURE, root)
+        .env("PATH", no_programs.path())
+        .env("GIT_EXEC_PATH", no_programs.path())
+        .output()?;
+    ensure!(
+        child.status.success(),
+        "{}\n{}",
+        String::from_utf8_lossy(&child.stdout),
+        String::from_utf8_lossy(&child.stderr)
+    );
+    Ok(())
+}

@@ -224,60 +224,81 @@ pub struct Worktree {
 
 impl GitRepository {
     pub async fn branches(&self) -> Result<Vec<Branch>> {
-        let mut command = self.command();
-        command.args([
-            "branch",
-            "--no-color",
-            "--format=%(HEAD)%00%(refname:short)%00%(upstream:short)%00",
-        ]);
-        let bytes = run(command).await?;
-        bytes
-            .split(|byte| *byte == b'\n')
-            .filter(|line| !line.is_empty())
-            .map(|line| {
-                let fields = line.split(|byte| *byte == 0).collect::<Vec<_>>();
-                ensure!(fields.len() == 4, "Invalid branch listing");
-                Ok(Branch {
-                    name: std::str::from_utf8(fields[1])?.to_owned(),
-                    current: fields[0] == b"*",
-                    upstream: std::str::from_utf8(fields[2])?.to_owned(),
-                })
-            })
-            .collect()
+        let repository = self.clone();
+        tokio::task::spawn_blocking(move || {
+            let repo = repository.open_read(false)?;
+            let head = repo.head_name()?;
+            let mut branches = Vec::new();
+            let mut bytes = 0;
+            for reference in repo.references()?.local_branches()? {
+                let reference = reference.map_err(anyhow::Error::from_boxed)?;
+                let upstream = upstream_name(&repo, reference.name())?;
+                let name = reference.name().shorten().to_str()?.to_owned();
+                bytes += name.len() + upstream.len();
+                ensure!(
+                    bytes <= 1024 * 1024,
+                    "Branch listing exceeds the 1 MiB display limit"
+                );
+                branches.push(Branch {
+                    current: head
+                        .as_ref()
+                        .is_some_and(|head| head.as_ref() == reference.name()),
+                    name,
+                    upstream,
+                });
+            }
+            branches.sort_by(|a, b| a.name.cmp(&b.name));
+            Ok(branches)
+        })
+        .await?
     }
 
     pub async fn worktrees(&self) -> Result<Vec<Worktree>> {
-        let mut command = self.command();
-        command.args(["worktree", "list", "--porcelain", "-z"]);
-        let bytes = run(command).await?;
-        let mut result = Vec::new();
-        let mut tree: Option<Worktree> = None;
-        for field in bytes.split(|byte| *byte == 0) {
-            if let Some(path) = field.strip_prefix(b"worktree ") {
-                ensure!(tree.is_none(), "Invalid worktree listing");
-                tree = Some(Worktree {
-                    path: stdx::path::canonicalize_existing(&gix::path::from_bstr(
-                        gix::bstr::BStr::new(path),
-                    )),
-                    branch: None,
-                    main: result.is_empty(),
-                    locked: false,
-                    prunable: false,
+        let repository = self.clone();
+        tokio::task::spawn_blocking(move || {
+            let repo = repository.open_read(false)?;
+            let main = repo.main_repo()?;
+            let mut result = vec![Worktree {
+                path: stdx::path::canonicalize_existing(
+                    main.workdir().unwrap_or(main.common_dir()),
+                ),
+                branch: if main.is_bare() {
+                    None
+                } else {
+                    local_head(&main)?
+                },
+                main: true,
+                locked: false,
+                prunable: false,
+            }];
+            let mut bytes = 0;
+            for worktree in repo.worktrees()? {
+                let path = stdx::path::canonicalize_existing(&worktree.base()?);
+                bytes += path.as_os_str().as_encoded_bytes().len();
+                ensure!(
+                    bytes <= 1024 * 1024,
+                    "Worktree listing exceeds the 1 MiB display limit"
+                );
+                let locked = worktree.is_locked();
+                let prunable = !locked
+                    && match std::fs::metadata(path.join(".git")) {
+                        Ok(_) => false,
+                        Err(error) if error.kind() == std::io::ErrorKind::NotFound => true,
+                        Err(error) => return Err(error.into()),
+                    };
+                let linked = worktree.into_repo_with_possibly_inaccessible_worktree()?;
+                result.push(Worktree {
+                    path,
+                    branch: local_head(&linked)?,
+                    main: false,
+                    locked,
+                    prunable,
                 });
-            } else if field.is_empty() {
-                if let Some(tree) = tree.take() {
-                    result.push(tree);
-                }
-            } else if let Some(tree) = &mut tree {
-                if let Some(branch) = field.strip_prefix(b"branch refs/heads/") {
-                    tree.branch = Some(std::str::from_utf8(branch)?.to_owned());
-                }
-                tree.locked |= field == b"locked" || field.starts_with(b"locked ");
-                tree.prunable |= field == b"prunable" || field.starts_with(b"prunable ");
             }
-        }
-        ensure!(tree.is_none(), "Incomplete worktree listing");
-        Ok(result)
+            result[1..].sort_by(|a, b| a.path.cmp(&b.path));
+            Ok(result)
+        })
+        .await?
     }
 
     pub fn prepare_repository(
@@ -365,6 +386,65 @@ impl GitRepository {
             operation: Operation::Repository(operation),
         })
     }
+}
+
+// Only read tracking names and refspecs. The high-level remote lookup filters
+// repository-local remotes in reduced-trust workspaces, even for display.
+fn upstream_name(repo: &gix::Repository, branch: &gix::refs::FullNameRef) -> Result<String> {
+    let config = repo.config_snapshot();
+    let config = config.plumbing();
+    let short = branch.shorten();
+    let Some(remote) = config.string_by("branch", Some(short), "remote") else {
+        return Ok(String::new());
+    };
+    let Some(merge) = config.string_by("branch", Some(short), "merge") else {
+        return Ok(String::new());
+    };
+    let merge = gix::refs::FullName::try_from(merge.into_owned())?;
+    if *remote == "." {
+        return Ok(merge.shorten().to_str()?.to_owned());
+    }
+    let Some(specs) = config.strings_by("remote", Some(remote.as_ref()), "fetch") else {
+        return Ok(String::new());
+    };
+    let specs = specs
+        .iter()
+        .map(|spec| gix::refspec::parse(spec.as_ref(), gix::refspec::parse::Operation::Fetch))
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    let null = repo.object_hash().null();
+    let mappings = gix::refspec::MatchGroup::from_fetch_specs(specs).match_lhs(
+        [gix::refspec::match_group::Item {
+            full_ref_name: merge.as_bstr(),
+            target: &null,
+            object: None,
+        }]
+        .into_iter(),
+    );
+    mappings
+        .mappings
+        .into_iter()
+        .find_map(|mapping| mapping.rhs)
+        .map(|name| {
+            Ok(gix::refs::FullName::try_from(name.into_owned())?
+                .shorten()
+                .to_str()?
+                .to_owned())
+        })
+        .transpose()
+        .map(Option::unwrap_or_default)
+}
+
+fn local_head(repo: &gix::Repository) -> Result<Option<String>> {
+    repo.head_name()?
+        .map(|name| {
+            Ok(name
+                .as_bstr()
+                .to_str()?
+                .strip_prefix("refs/heads/")
+                .map(str::to_owned))
+        })
+        .transpose()
+        .map(Option::flatten)
 }
 
 fn validate_branch(name: &str) -> Result<()> {
