@@ -18,6 +18,7 @@ use crate::{FileChange, FileStatus};
 pub mod history;
 pub mod repository;
 pub use repository::RepositoryOperation;
+mod fetch;
 mod stash;
 mod unstage;
 pub use stash::{StashEntry, StashFile, StashLayer};
