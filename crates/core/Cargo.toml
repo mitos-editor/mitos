@@ -20,6 +20,7 @@ integration = []
 
 [dependencies]
 stdx.workspace = true
+memchr.workspace = true
 
 ropey.workspace = true
 str_indices.workspace = true
@@ -51,4 +52,8 @@ quickcheck.workspace = true
 
 [[bench]]
 name = "byte_transactions"
+harness = false
+
+[[bench]]
+name = "line_endings"
 harness = false

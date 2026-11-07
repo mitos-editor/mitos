@@ -1,13 +1,33 @@
 use crate::{Rope, RopeSlice};
-use std::{borrow::Cow, sync::LazyLock};
+use std::borrow::Cow;
 use stdx::rope::RopeExt as _;
 
 /// Normalize CRLF, bare CR, and LF sequences to the requested line ending.
 /// Other Unicode line separators and text are left unchanged.
 pub fn normalize_line_endings(text: &str, line_ending: LineEnding) -> Cow<'_, str> {
-    static LINE_ENDING_REGEX: LazyLock<regex::Regex> =
-        LazyLock::new(|| regex::Regex::new(r"\r\n|\r|\n").unwrap());
-    LINE_ENDING_REGEX.replace_all(text, line_ending.as_str())
+    let bytes = text.as_bytes();
+    let mut endings = memchr::memchr2_iter(b'\r', b'\n', bytes).peekable();
+    if endings.peek().is_none() {
+        return Cow::Borrowed(text);
+    }
+
+    let mut normalized = String::with_capacity(text.len());
+    let mut copied = 0;
+    for index in endings {
+        // A CRLF pair is one line ending; its LF was consumed with the CR.
+        if index < copied {
+            continue;
+        }
+        // ASCII CR and LF bytes are always UTF-8 boundaries.
+        normalized.push_str(&text[copied..index]);
+        normalized.push_str(line_ending.as_str());
+        copied = index + 1;
+        if bytes[index] == b'\r' && bytes.get(copied) == Some(&b'\n') {
+            copied += 1;
+        }
+    }
+    normalized.push_str(&text[copied..]);
+    Cow::Owned(normalized)
 }
 
 #[cfg(target_os = "windows")]
@@ -217,6 +237,51 @@ pub fn line_without_line_ending<'a>(slice: &'a RopeSlice, line_idx: usize) -> Ro
 #[cfg(test)]
 mod line_ending_tests {
     use super::*;
+
+    #[test]
+    fn normalization_matches_regex_for_mixed_endings_and_unicode() {
+        let reference = regex::Regex::new(r"\r\n|\r|\n").unwrap();
+        let mut inputs = vec![String::new()];
+        for _ in 0..5 {
+            inputs = inputs
+                .iter()
+                .flat_map(|prefix| {
+                    ["x", "\r", "\n", "é😀", "\u{2028}", "$1"]
+                        .map(|suffix| format!("{prefix}{suffix}"))
+                })
+                .collect();
+            for text in &inputs {
+                for ending in [
+                    LineEnding::LF,
+                    LineEnding::Crlf,
+                    #[cfg(feature = "unicode-lines")]
+                    LineEnding::VT,
+                    #[cfg(feature = "unicode-lines")]
+                    LineEnding::FF,
+                    #[cfg(feature = "unicode-lines")]
+                    LineEnding::CR,
+                    #[cfg(feature = "unicode-lines")]
+                    LineEnding::Nel,
+                    #[cfg(feature = "unicode-lines")]
+                    LineEnding::LS,
+                    #[cfg(feature = "unicode-lines")]
+                    LineEnding::PS,
+                ] {
+                    assert_eq!(
+                        normalize_line_endings(text, ending),
+                        reference.replace_all(text, ending.as_str()),
+                        "{text:?} {ending:?}"
+                    );
+                }
+            }
+        }
+        for text in ["", "no endings", "é😀\u{2028}\u{85}"] {
+            assert!(matches!(
+                normalize_line_endings(text, LineEnding::LF),
+                Cow::Borrowed(_)
+            ));
+        }
+    }
 
     #[test]
     fn normalize_mixed_line_endings_preserves_other_text() {
