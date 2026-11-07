@@ -19,7 +19,44 @@ pub struct SpellingFilter {
     min_word_length: usize,
     /// Lowercased for case-insensitive matching.
     words: HashSet<String>,
-    ignore: Vec<regex::Regex>,
+    ignore: IgnorePatterns,
+}
+
+/// Compile valid multi-pattern configurations together. Keep individual matching
+/// when a set cannot compile so one bad or oversized pattern does not disable others.
+#[derive(Debug)]
+enum IgnorePatterns {
+    Individual(Vec<regex::Regex>),
+    Set(regex::RegexSet),
+}
+
+impl IgnorePatterns {
+    fn new(patterns: &[String]) -> Self {
+        if patterns.len() > 1
+            && let Ok(set) = regex::RegexSet::new(patterns)
+        {
+            return Self::Set(set);
+        }
+        Self::Individual(
+            patterns
+                .iter()
+                .filter_map(|pattern| {
+                    regex::Regex::new(pattern)
+                        .map_err(|err| {
+                            log::error!("ignoring invalid spelling ignore-regex {pattern:?}: {err}")
+                        })
+                        .ok()
+                })
+                .collect(),
+        )
+    }
+
+    fn is_match(&self, word: &str) -> bool {
+        match self {
+            Self::Individual(regexes) => regexes.iter().any(|regex| regex.is_match(word)),
+            Self::Set(set) => set.is_match(word),
+        }
+    }
 }
 
 impl SpellingFilter {
@@ -29,17 +66,7 @@ impl SpellingFilter {
             .iter()
             .map(|word| word.to_lowercase())
             .collect();
-        let ignore = config
-            .ignore_regexes
-            .iter()
-            .filter_map(|pattern| {
-                regex::Regex::new(pattern)
-                    .map_err(|err| {
-                        log::error!("ignoring invalid spelling ignore-regex {pattern:?}: {err}")
-                    })
-                    .ok()
-            })
-            .collect();
+        let ignore = IgnorePatterns::new(&config.ignore_regexes);
         Self {
             min_word_length: config.min_word_length(),
             words,
@@ -51,7 +78,7 @@ impl SpellingFilter {
     pub fn ignores(&self, word: &str) -> bool {
         word.chars().count() < self.min_word_length
             || self.words.contains(&word.to_lowercase())
-            || self.ignore.iter().any(|regex| regex.is_match(word))
+            || self.ignore.is_match(word)
     }
 }
 
@@ -302,6 +329,75 @@ mod tests {
         let diagnostics = check(text, 0..text.len());
         assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
         assert!(diagnostics[0].message.contains("teh"), "{diagnostics:?}");
+    }
+
+    #[test]
+    fn combined_ignore_patterns_preserve_independent_regex_semantics() {
+        let patterns = [
+            r"(?i)^mitos$",
+            r"^[A-Z0-9_]+$",
+            r"^v[0-9]+$",
+            r"界",
+            r"^$",
+            r"(?P<word>café)$",
+            r"(?P<word>Grüße)$",
+        ]
+        .map(str::to_owned);
+        let filter = SpellingFilter::new(&SpellingConfig {
+            ignore_regexes: patterns.to_vec(),
+            ..Default::default()
+        });
+        assert!(matches!(filter.ignore, IgnorePatterns::Set(_)));
+        let references: Vec<_> = patterns
+            .iter()
+            .map(|p| regex::Regex::new(p).unwrap())
+            .collect();
+        for word in [
+            "mitos",
+            "MITOS",
+            "SCREAMING_CASE",
+            "v123",
+            "界",
+            "世界",
+            "café",
+            "Grüße",
+            "cafe",
+            "ordinary",
+            "",
+            "😀",
+        ] {
+            assert_eq!(
+                filter.ignores(word),
+                word.is_empty() || references.iter().any(|r| r.is_match(word)),
+                "{word:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn invalid_ignore_patterns_do_not_disable_valid_neighbors() {
+        let filter = SpellingFilter::new(&SpellingConfig {
+            ignore_regexes: [r"[", r"^v[0-9]+$", r"(?i)^mitos$", r"("]
+                .map(str::to_owned)
+                .to_vec(),
+            ..Default::default()
+        });
+        assert!(matches!(filter.ignore, IgnorePatterns::Individual(_)));
+        assert!(filter.ignores("v123"));
+        assert!(filter.ignores("MITOS"));
+        assert!(!filter.ignores("ordinary"));
+        for patterns in [vec![], vec!["[".to_owned()], vec!["^v[0-9]+$".to_owned()]] {
+            let expected = patterns
+                .iter()
+                .filter_map(|p| regex::Regex::new(p).ok())
+                .any(|r| r.is_match("v123"));
+            let filter = SpellingFilter::new(&SpellingConfig {
+                ignore_regexes: patterns,
+                ..Default::default()
+            });
+            assert!(matches!(filter.ignore, IgnorePatterns::Individual(_)));
+            assert_eq!(filter.ignores("v123"), expected);
+        }
     }
 
     #[test]
