@@ -167,7 +167,9 @@ fn browser(
             },
         ))
     } else {
-        picker
+        picker.with_custom_preview(crate::ui::change_review::CommitReviewPreview::new(
+            preview_repo,
+        ))
     };
     Ok(picker)
 }

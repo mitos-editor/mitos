@@ -21,6 +21,28 @@ fn current(repo: &GitRepository) -> CommitEntry {
 }
 
 #[tokio::test]
+async fn full_commit_messages_are_loaded_from_the_pinned_revision() -> Result<()> {
+    let dir = empty_git_repo();
+    let body = format!(
+        "Full body with 日本語.\n\n{}\nmessage-tail",
+        "body\n".repeat(400)
+    );
+    let message = format!("Subject\n\n{body}");
+    std::fs::write(dir.path().join("history.txt"), "initial\n")?;
+    commit(dir.path(), &message);
+    let repo = GitRepository::discover(dir.path())?;
+    let selected = current(&repo).id;
+    std::fs::write(dir.path().join("history.txt"), "later\n")?;
+    commit(dir.path(), "Later commit");
+    assert_eq!(repo.commit_message(&selected).await?.trim_end(), message);
+    assert!(repo
+        .commit_message(&RevisionId::parse(&"0".repeat(40))?)
+        .await
+        .is_err());
+    Ok(())
+}
+
+#[tokio::test]
 async fn history_pins_objects_follows_renames_and_handles_root_and_deletion() -> Result<()> {
     let dir = empty_git_repo();
     let root = dir.path();

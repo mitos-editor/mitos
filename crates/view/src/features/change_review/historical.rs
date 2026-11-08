@@ -324,6 +324,24 @@ pub(crate) struct HistoricalDocument {
 }
 
 impl Editor {
+    /// Open the exact combined commit preview as a named, pathless buffer.
+    #[cfg(feature = "git")]
+    pub fn open_commit_preview(
+        &mut self,
+        revision: &vcs::operations::history::RevisionId,
+        text: String,
+        action: Action,
+    ) -> DocumentId {
+        let doc = Document::from(
+            text.into(),
+            None,
+            self.config.clone(),
+            self.syn_loader.load_full(),
+        )
+        .with_readonly_name(format!("Commit {}", revision.short()));
+        self.new_file_from_document(action, doc)
+    }
+
     pub(super) fn open_historical_source(
         &mut self,
         path: PathBuf,
