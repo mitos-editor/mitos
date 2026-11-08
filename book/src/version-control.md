@@ -517,10 +517,6 @@ Available placeholders are:
 Press `Space g s` and open a conflicted file. Use `]m` to move to the next
 conflict or `[m` to move to the previous one.
 
-Mitos labels the two sides `(Current Change)` and `(Incoming Change)` and
-highlights them using your theme. You can edit the text and Git's marker lines
-directly. To change the colors, see [Themes](themes.md#interface).
-
 Place the cursor inside a conflict and press `Space a`. Choose **Accept current**,
 **Accept incoming**, or **Accept both (current then incoming)** to keep that text.
 The menu also includes other available code actions.

@@ -1,6 +1,6 @@
 //! Conflict sections use side-specific theme overrides with semantic color fallbacks.
 use super::Decoration;
-use theme::{Color, Style, Theme};
+use theme::{Style, Theme};
 use view::{features::conflicts::ConflictSide, graphics::Rect, Document};
 
 pub fn side_style(theme: &Theme, side: ConflictSide) -> Style {
@@ -19,16 +19,7 @@ pub fn line_backgrounds<'a>(doc: &'a Document, theme: &'a Theme) -> impl Decorat
             return;
         };
         let style = side_style(theme, side);
-        let background = style
-            .bg
-            .or_else(|| match (theme.get("ui.background").bg, style.fg) {
-                (Some(Color::Rgb(r, g, b)), Some(Color::Rgb(fr, fg, fb))) => Some(Color::Rgb(
-                    ((r as u16 * 7 + fr as u16) / 8) as u8,
-                    ((g as u16 * 7 + fg as u16) / 8) as u8,
-                    ((b as u16 * 7 + fb as u16) / 8) as u8,
-                )),
-                _ => None,
-            });
+        let background = style.bg.or_else(|| theme.tinted_background(style.fg));
         renderer.set_style(
             Rect::new(
                 renderer.viewport.x,
@@ -47,6 +38,7 @@ pub fn line_backgrounds<'a>(doc: &'a Document, theme: &'a Theme) -> impl Decorat
 #[cfg(test)]
 mod tests {
     use super::*;
+    use theme::Color;
 
     #[test]
     fn conflict_backgrounds_tint_text_and_the_rest_of_the_row() {
