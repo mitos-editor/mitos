@@ -4,8 +4,8 @@ use gix::bstr::{BString, ByteSlice};
 use std::collections::BTreeMap;
 
 impl PreparedOperation {
-    /// Return false for index shapes the native writer cannot round-trip yet.
-    pub(super) fn unstage(&self) -> Result<bool> {
+    /// Return Unsupported for index shapes the native writer cannot round-trip yet.
+    pub(super) fn unstage(&self) -> Result<NativeOutcome> {
         let Operation::File { paths, unborn, .. } = &self.operation else {
             unreachable!()
         };
@@ -19,7 +19,7 @@ impl PreparedOperation {
         self.ensure_current()?;
         let mut index = repo.open_index()?;
         if !index::can_write(&repo, &index) {
-            return Ok(false);
+            return Ok(NativeOutcome::Unsupported("index format"));
         }
         let tree = if *unborn {
             None
@@ -75,6 +75,6 @@ impl PreparedOperation {
         }
         index.sort_entries();
         index::write(&mut index, lock)?;
-        Ok(true)
+        Ok(NativeOutcome::Applied(()))
     }
 }

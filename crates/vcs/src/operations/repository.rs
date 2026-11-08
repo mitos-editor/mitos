@@ -79,6 +79,7 @@ impl RepositoryOperation {
                 let selected = remote.to_owned();
                 if tokio::task::spawn_blocking(move || fetch::execute(&capture, &selected, None))
                     .await??
+                    .into_applied()
                     .is_some()
                 {
                     return Ok(());
@@ -140,7 +141,8 @@ async fn pull(repo: &GitRepository, remote: &str) -> Result<()> {
     let requested = destination.clone();
     let fetched =
         tokio::task::spawn_blocking(move || fetch::execute(&capture, &selected, Some(&requested)))
-            .await??;
+            .await??
+            .into_applied();
     let target = if let Some(fetched) = fetched {
         Some(
             fetched
@@ -177,11 +179,14 @@ async fn pull(repo: &GitRepository, remote: &str) -> Result<()> {
             },
             true,
         )?;
-        let done = prepared.fast_forward(
-            &branch,
-            head,
-            gix::ObjectId::from_hex(target.as_str().as_bytes())?,
-        )?;
+        let done = prepared
+            .fast_forward(
+                &branch,
+                head,
+                gix::ObjectId::from_hex(target.as_str().as_bytes())?,
+            )?
+            .into_applied()
+            .is_some();
         Ok::<_, anyhow::Error>((target, done))
     })
     .await??;
