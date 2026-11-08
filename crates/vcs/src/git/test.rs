@@ -489,11 +489,11 @@ fn diff_base(file: &Path, trust_full: bool) -> anyhow::Result<Vec<u8>> {
 }
 
 fn watched_paths(path: &Path, trust_full: bool) -> anyhow::Result<Vec<std::path::PathBuf>> {
-    Ok(git::repository_watches(path, trust_full)?.paths)
+    Ok(crate::repository::repository_watches(path, trust_full)?.paths)
 }
 
 fn watched_files(path: &Path, trust_full: bool) -> anyhow::Result<Vec<std::path::PathBuf>> {
-    Ok(git::repository_watches(path, trust_full)?.files)
+    Ok(crate::repository::repository_watches(path, trust_full)?.files)
 }
 
 #[test]
@@ -530,7 +530,7 @@ fn inspection_keeps_head_for_untracked_files_and_refreshes_linked_worktrees() {
             inspected.diff_base.as_deref(),
             Some(contents),
             "diff lookup: {:?}",
-            git::open_repo(root, false).and_then(|repo| {
+            crate::repository::open_repo(root, false).and_then(|repo| {
                 let file = gix::path::realpath(root.join("file.txt"))?;
                 git::diff_base(&repo.to_thread_local(), &file)
             })

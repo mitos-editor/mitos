@@ -10,7 +10,7 @@ mod git {
         std::fs::write(&file, "first = 1\nsecond = 2\n").unwrap();
         create_commit_with_message(repo.path(), true, "initial");
         let head = || {
-            crate::git::open_repo(repo.path(), true)
+            crate::repository::open_repo(repo.path(), true)
                 .unwrap()
                 .to_thread_local()
                 .head_commit()

@@ -27,13 +27,7 @@ mod stash;
 mod unstage;
 pub use stash::{StashEntry, StashFile, StashLayer};
 
-/// Paths are captured before any subprocess starts, including in linked worktrees.
-#[derive(Clone, Debug)]
-pub struct GitRepository {
-    root: PathBuf,
-    git_dir: PathBuf,
-    common_dir: PathBuf,
-}
+pub use crate::repository::GitRepository;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FileOperation {
@@ -227,30 +221,6 @@ impl PreparedOperation {
 }
 
 impl GitRepository {
-    pub fn root(&self) -> &Path {
-        &self.root
-    }
-    pub fn common_dir(&self) -> &Path {
-        &self.common_dir
-    }
-
-    pub fn discover(path: &Path) -> Result<Self> {
-        let directory = path
-            .ancestors()
-            .find(|path| path.is_dir())
-            .context("Git scope no longer exists")?;
-        let repo = crate::git::open_repo_for_read(directory, false)?.to_thread_local();
-        let root = stdx::path::canonicalize_existing(
-            repo.workdir()
-                .context("Git repository has no working tree")?,
-        );
-        Ok(Self {
-            root,
-            git_dir: stdx::path::canonicalize_existing(repo.git_dir()),
-            common_dir: stdx::path::canonicalize_existing(repo.common_dir()),
-        })
-    }
-
     pub fn prepare_file(
         &self,
         status: &FileStatus,
@@ -301,7 +271,7 @@ impl GitRepository {
                 "Git actions require a file, not a directory"
             );
         }
-        let mut watched = crate::git::repository_watched_paths(&repo)?;
+        let mut watched = crate::repository::repository_watched_paths(&repo)?;
         for path in &paths {
             let full = self.root.join(path);
             watched.extend(
@@ -342,7 +312,7 @@ impl GitRepository {
                 .all(|entry| entry.stage() == gix::index::entry::Stage::Unconflicted),
             "Resolve index conflicts before stashing"
         );
-        let expected = self.stamp(crate::git::repository_watched_paths(&repo)?);
+        let expected = self.stamp(crate::repository::repository_watched_paths(&repo)?);
         Ok(PreparedOperation {
             repository: self.clone(),
             operation: Operation::Stash,
@@ -363,7 +333,7 @@ impl GitRepository {
 
         let repo = self.open(true)?;
         stash::trees(&repo, &entry.id)?;
-        let expected = self.stamp(crate::git::repository_watched_paths(&repo)?);
+        let expected = self.stamp(crate::repository::repository_watched_paths(&repo)?);
         Ok(PreparedOperation {
             repository: self.clone(),
             operation: Operation::Apply {
@@ -372,27 +342,6 @@ impl GitRepository {
             },
             expected,
         })
-    }
-
-    pub(super) fn open(&self, trusted: bool) -> Result<gix::Repository> {
-        self.verify_repository(crate::git::open_repo_for_operations(&self.root, trusted)?)
-    }
-
-    fn open_read(&self, trusted: bool) -> Result<gix::Repository> {
-        self.verify_repository(crate::git::open_repo_for_read(&self.root, trusted)?)
-    }
-
-    fn verify_repository(&self, repository: gix::ThreadSafeRepository) -> Result<gix::Repository> {
-        let repo = repository.to_thread_local();
-        ensure!(
-            stdx::path::canonicalize_existing(repo.git_dir()) == self.git_dir
-                && stdx::path::canonicalize_existing(repo.common_dir()) == self.common_dir
-                && repo
-                    .workdir()
-                    .is_some_and(|root| stdx::path::canonicalize_existing(root) == self.root),
-            "Git repository changed; reopen the picker"
-        );
-        Ok(repo)
     }
 
     fn relative(&self, path: &Path) -> Result<PathBuf> {

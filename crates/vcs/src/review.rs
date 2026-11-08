@@ -37,7 +37,7 @@ pub(crate) fn read_git_comparison(
     use gix::{bstr::ByteSlice, objs::tree::EntryKind};
     use std::path::Path;
 
-    use crate::{git::open_repo, FileChange};
+    use crate::{repository::open_repo, FileChange};
 
     let path = status.path();
     let directory = path

@@ -46,7 +46,7 @@ impl DiffProvider {
     ) -> Result<RepositoryWatches> {
         match *self {
             #[cfg(feature = "git")]
-            Self::Git => crate::git::repository_watches(_path, _trust_full),
+            Self::Git => crate::repository::repository_watches(_path, _trust_full),
             #[cfg(test)]
             Self::Test(name) => {
                 let name = test_name(name)?;

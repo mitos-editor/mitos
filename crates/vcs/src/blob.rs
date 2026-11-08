@@ -49,7 +49,7 @@ mod tests {
             "*.txt text eol=crlf\n",
         )
         .unwrap();
-        let repo = crate::git::open_repo(directory.path(), false)
+        let repo = crate::repository::open_repo(directory.path(), false)
             .unwrap()
             .to_thread_local();
         let path = Path::new("file.txt");

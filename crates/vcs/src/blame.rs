@@ -104,7 +104,7 @@ impl FileBlame {
         trust_full: bool,
         cached: Option<Arc<Self>>,
     ) -> Result<Arc<Self>> {
-        use crate::git::{get_repo_dir, open_repo};
+        use crate::{git::get_repo_dir, repository::open_repo};
         use anyhow::Context as _;
 
         let file = gix::path::realpath(&file).context("resolve symlinks")?;
