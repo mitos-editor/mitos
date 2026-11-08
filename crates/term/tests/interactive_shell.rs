@@ -17,6 +17,39 @@ use std::{
 mod terminal_screen;
 use terminal_screen::Screen;
 
+fn read_terminal(terminal: &mut File, buffer: &mut [u8]) -> io::Result<usize> {
+    match terminal.read(buffer) {
+        // Linux reports a closed PTY slave as EIO instead of returning EOF.
+        #[cfg(target_os = "linux")]
+        Err(error) if error.raw_os_error() == Some(libc::EIO) => Ok(0),
+        result => result,
+    }
+}
+
+#[test]
+fn closed_terminal_slave_is_end_of_stream() -> io::Result<()> {
+    let mut master = -1;
+    let mut slave = -1;
+    // SAFETY: openpty initializes both descriptors on success; File owns them below.
+    if unsafe {
+        libc::openpty(
+            &mut master,
+            &mut slave,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+        )
+    } == -1
+    {
+        return Err(io::Error::last_os_error());
+    }
+    let mut master = unsafe { File::from_raw_fd(master) };
+    let slave = unsafe { File::from_raw_fd(slave) };
+    drop(slave);
+    assert_eq!(read_terminal(&mut master, &mut [0; 1])?, 0);
+    Ok(())
+}
+
 struct Editor {
     child: Child,
     terminal: Option<File>,
@@ -128,7 +161,7 @@ shell = {shell}
     fn drain(&mut self) -> anyhow::Result<()> {
         let mut buffer = [0; 16384];
         loop {
-            match self.terminal.as_mut().unwrap().read(&mut buffer) {
+            match read_terminal(self.terminal.as_mut().unwrap(), &mut buffer) {
                 Ok(0) => break,
                 Ok(count) => {
                     let output = String::from_utf8_lossy(&buffer[..count]);
