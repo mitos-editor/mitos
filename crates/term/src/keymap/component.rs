@@ -92,6 +92,64 @@ pub enum SidebarAction {
     Picker(PickerAction),
 }
 
+impl SidebarAction {
+    pub fn description(self) -> &'static str {
+        match self {
+            Self::Filter => "Filter files",
+            Self::FocusEditor => "Focus document window",
+            Self::Hide => "Hide file explorer",
+            Self::NextView => "Focus next window",
+            Self::PreviousView => "Focus previous window",
+            Self::Picker(action) => action.description(),
+        }
+    }
+}
+
+impl PickerAction {
+    pub fn description(self) -> &'static str {
+        match self {
+            Self::MoveUp => "Move up",
+            Self::MoveDown => "Move down",
+            Self::PageUp => "Page up",
+            Self::PageDown => "Page down",
+            Self::MoveStart => "Move to start",
+            Self::MoveEnd => "Move to end",
+            Self::Cancel => "Cancel",
+            Self::Accept => "Open selection",
+            Self::AcceptKeepOpen => "Open selection and keep explorer focused",
+            Self::AcceptHorizontalSplit => "Open in horizontal split",
+            Self::AcceptVerticalSplit => "Open in vertical split",
+            Self::TogglePreview => "Toggle preview",
+            Self::ToggleReplacement => "Toggle replacement input",
+            Self::ToggleCaseSensitive => "Toggle case sensitivity",
+            Self::ReplaceAll => "Replace all",
+            Self::PreviewScrollUp => "Scroll preview up",
+            Self::PreviewScrollDown => "Scroll preview down",
+            Self::PreviewPrevious => "Previous preview",
+            Self::PreviewNext => "Next preview",
+            Self::OpenPreview => "Open preview",
+            Self::PopulateQuicklist => "Populate quicklist",
+            Self::Item(action) => match action {
+                PickerItemAction::CloseBuffer => "Close buffer",
+                PickerItemAction::RemoveQuicklistEntry => "Remove entry",
+                PickerItemAction::Stage => "Stage",
+                PickerItemAction::Unstage => "Unstage",
+                PickerItemAction::Stash => "Stash",
+                PickerItemAction::Actions => "Show actions",
+                PickerItemAction::Stashes => "Show stashes",
+                PickerItemAction::ApplyStash => "Apply stash",
+                PickerItemAction::ApplyStashWithIndex => "Apply stash with index",
+                PickerItemAction::HistoryBack => "Go back",
+                PickerItemAction::CreatePath => "Create file or directory",
+                PickerItemAction::MovePath => "Move file or directory",
+                PickerItemAction::CopyPath => "Copy file or directory",
+                PickerItemAction::DeletePath => "Delete file or directory",
+                PickerItemAction::YankPath => "Yank path",
+            },
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum MenuAction {

@@ -151,6 +151,11 @@ impl KeymapState {
         !self.pending.is_empty()
     }
 
+    /// Resolve the active prefix against the current map, including config reloads.
+    pub fn pending_map<'a, A>(&self, map: &'a Keymap<A>) -> Option<&'a Keymap<A>> {
+        self.is_pending().then(|| map.at(&self.pending)).flatten()
+    }
+
     pub fn lookup<'a, A>(&mut self, map: &'a Keymap<A>, mut key: KeyEvent) -> Lookup<'a, A> {
         if self.is_pending() && key.code == KeyCode::Esc && key.modifiers == KeyModifiers::NONE {
             self.clear();
@@ -293,11 +298,16 @@ mod tests {
     fn pending_lookup_uses_reloaded_bindings_and_recovers_removed_prefixes() {
         let mut keys = map(&[("g", Binding::Keys(map(&[("j", action(1))])))]);
         let mut state = KeymapState::default();
+        assert!(state.pending_map(&keys).is_none());
         assert_eq!(state.lookup(&keys, key("g")), Lookup::Pending);
+        assert_eq!(state.pending_map(&keys), Some(&map(&[("j", action(1))])));
         keys.merge(map(&[("g", Binding::Keys(map(&[("j", action(2))])))]));
+        assert_eq!(state.pending_map(&keys), Some(&map(&[("j", action(2))])));
         assert_eq!(state.lookup(&keys, key("j")), Lookup::Actions(&[2]));
+        assert!(state.pending_map(&keys).is_none());
         assert_eq!(state.lookup(&keys, key("g")), Lookup::Pending);
         let keys = map(&[("j", action(3))]);
+        assert!(state.pending_map(&keys).is_none());
         assert_eq!(state.lookup(&keys, key("j")), Lookup::Actions(&[3]));
         assert!(!state.is_pending());
     }

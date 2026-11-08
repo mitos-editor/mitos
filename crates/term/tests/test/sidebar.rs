@@ -644,3 +644,84 @@ async fn failed_search_discards_input_queued_for_its_result() -> anyhow::Result<
     assert_eq!(current_ref!(app.editor).1.text().to_string(), "alpha\n");
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn window_prefix_shows_hints_in_the_sidebar_and_clears_them() -> anyhow::Result<()> {
+    if super::helpers::isolation::workspace(
+        "test::sidebar::window_prefix_shows_hints_in_the_sidebar_and_clears_them",
+    )?
+    .is_none()
+    {
+        return Ok(());
+    }
+    let (mut app, _dir, _root) = sidebar().await?;
+    keys(&mut app, "<C-w>").await?;
+    assert!(screen(&app).contains("Focus document window"));
+    assert!(screen(&app).contains("Hide file explorer"));
+    // The sidebar has its own available window actions, without split commands.
+    assert!(!screen(&app).contains("Split horizontally"));
+    for suffix in ["<esc>", "z", "l"] {
+        keys(&mut app, suffix).await?;
+        assert!(!screen(&app).contains("Focus document window"));
+        if suffix == "l" {
+            keys(&mut app, "<C-e>").await?;
+        }
+        keys(&mut app, "<C-w>").await?;
+        assert!(screen(&app).contains("Focus document window"));
+    }
+    keys(&mut app, "q").await?;
+    assert!(!screen(&app).contains("Hide file explorer"));
+    assert!(!screen(&app).contains("File Explorer"));
+    keys(&mut app, ":set auto-info false<ret><C-w>e<C-w>").await?;
+    assert!(!screen(&app).contains("Focus document window"));
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn sidebar_hints_follow_remapped_and_nested_prefixes() -> anyhow::Result<()> {
+    if super::helpers::isolation::workspace(
+        "test::sidebar::sidebar_hints_follow_remapped_and_nested_prefixes",
+    )?
+    .is_none()
+    {
+        return Ok(());
+    }
+    let configured = term::config::Config::load(
+        Ok(&r#"
+            [keys.sidebar.F12]
+            x = "focus_editor"
+            z = "no_op"
+            u = "unbound"
+            n = { y = "hide" }
+            a = ["filter", "focus_editor"]
+            [keys.sidebar-filter.F12]
+            q = "focus_editor"
+        "#
+        .to_owned()),
+        Err(Default::default()),
+    )
+    .unwrap();
+    let mut config = test_config();
+    config.component_keys = configured.component_keys;
+    let (mut app, _dir, _root) = sidebar_with_config(config).await?;
+    keys(&mut app, "<F12>").await?;
+    let hints = screen(&app);
+    assert!(hints.contains("x  Focus document window"));
+    assert!(hints.contains("n  More keys"));
+    assert!(hints.contains("a  Filter files; Focus document window"));
+    assert!(!hints.contains("z  "));
+    assert!(!hints.contains("u  "));
+    assert!(!hints.contains("Hide file explorer"));
+    keys(&mut app, "n").await?;
+    assert!(screen(&app).contains("y  Hide file explorer"));
+    assert!(!screen(&app).contains("Focus document window"));
+    keys(&mut app, "<esc>").await?;
+    assert!(!screen(&app).contains("Hide file explorer"));
+    // Prefixes also work while editing the explorer's filter.
+    keys(&mut app, "/<F12>").await?;
+    assert!(screen(&app).contains("q  Focus document window"));
+    assert!(!screen(&app).contains("More keys"));
+    keys(&mut app, "<esc>").await?;
+    assert!(!screen(&app).contains("Focus document window"));
+    Ok(())
+}

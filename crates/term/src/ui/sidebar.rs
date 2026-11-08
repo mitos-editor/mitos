@@ -1,12 +1,14 @@
 //! A retained file browser beside, and independent of, document splits.
 
-use view::{graphics::Rect, Editor};
+use std::collections::{BTreeMap, BTreeSet};
+
+use view::{graphics::Rect, info::Info, Editor};
 
 use crate::{
     compositor::{Component, Context, Cursor, DrawContext, Event, EventResult},
-    keymap::component::{PickerAction, SidebarAction},
+    keymap::component::{ComponentKeymaps, PickerAction, SidebarAction},
 };
-use ui_core::keymap::{KeymapState, Lookup};
+use ui_core::keymap::{Binding, Keymap, KeymapState, Lookup};
 
 use super::{editor::EditorView, layout::ApplicationLayout, FileExplorer};
 
@@ -118,6 +120,39 @@ impl Sidebar {
             bufferline.width -= width;
         }
         Some(area)
+    }
+
+    fn keymap<'a>(&self, maps: &'a ComponentKeymaps) -> &'a Keymap<SidebarAction> {
+        if self.state == State::Filtering {
+            &maps.sidebar_filter
+        } else {
+            &maps.sidebar
+        }
+    }
+
+    pub fn infobox(&self, maps: &ComponentKeymaps) -> Option<Info> {
+        let keys = self.keys.pending_map(self.keymap(maps))?;
+        let mut body = BTreeMap::<String, BTreeSet<_>>::new();
+        for (&key, binding) in &keys.0 {
+            let description = match binding {
+                Binding::Actions(actions) if !actions.is_empty() => actions
+                    .iter()
+                    .map(|action| action.description())
+                    .collect::<Vec<_>>()
+                    .join("; "),
+                Binding::Keys(_) => "More keys".to_owned(),
+                _ => continue,
+            };
+            body.entry(description).or_default().insert(key);
+        }
+        let body: Vec<_> = body
+            .into_iter()
+            .map(|(description, keys)| {
+                let keys = keys.iter().map(ToString::to_string).collect::<Vec<_>>();
+                (keys.join(", "), description)
+            })
+            .collect();
+        (!body.is_empty()).then(|| Info::new("File Explorer", &body))
     }
 
     pub fn has_pending_keys(&self) -> bool {
@@ -266,12 +301,7 @@ impl Sidebar {
         if self.picker.has_pending_keys() {
             return self.picker.handle_event(event, cx);
         }
-        let maps = &cx.config.current.component_keys;
-        let map = if self.state == State::Filtering {
-            &maps.sidebar_filter
-        } else {
-            &maps.sidebar
-        };
+        let map = self.keymap(&cx.config.current.component_keys);
         let actions = match self.keys.lookup(map, *key) {
             Lookup::Pending => return EventResult::Consumed(None),
             Lookup::Unbound if self.state == State::Filtering => {
