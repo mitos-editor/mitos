@@ -864,8 +864,18 @@ impl Component for EditorView {
             cx.is_cursor_owner = owner;
         }
 
+        let sidebar_info = self
+            .sidebar
+            .as_ref()
+            .filter(|sidebar| sidebar.focused())
+            .and_then(|sidebar| sidebar.infobox(&cx.config.component_keys));
+        let info = if sidebar_focused {
+            sidebar_info.as_ref()
+        } else {
+            cx.editor.autoinfo.as_ref()
+        };
         if config.auto_info
-            && let Some(info) = cx.editor.autoinfo.as_ref()
+            && let Some(info) = info
         {
             // Global statuslines are already outside layout.editor; per-view
             // statuslines occupy its bottom row.

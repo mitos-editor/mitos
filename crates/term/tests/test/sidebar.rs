@@ -18,6 +18,34 @@ async fn sidebar() -> anyhow::Result<(TestApplication, tempfile::TempDir, PathBu
     sidebar_with_config(test_config()).await
 }
 
+#[tokio::test(flavor = "multi_thread")]
+async fn selection_follows_files_opened_outside_the_sidebar() -> anyhow::Result<()> {
+    if super::helpers::isolation::workspace(
+        "test::sidebar::selection_follows_files_opened_outside_the_sidebar",
+    )?
+    .is_none()
+    {
+        return Ok(());
+    }
+    let (mut app, _dir, root) = sidebar().await?;
+    keys(&mut app, "/b.txt<ret><ret>").await?;
+    let name = root.file_name().unwrap().to_str().unwrap();
+    let relative = PathBuf::from(name).join("sub").join("deep").join("d.txt");
+    keys(&mut app, &format!("<space>f{}<ret>", relative.display())).await?;
+    let nested = root.join("sub").join("deep").join("d.txt");
+    assert_eq!(current_ref!(app.editor).1.path(), Some(nested.as_path()));
+    for expected in [nested, root.join("b.txt")] {
+        keys(&mut app, "<C-w>e<A-y><C-e>").await?;
+        let selected: Vec<_> = app.editor.registers.read('"').unwrap().collect();
+        assert_eq!(
+            selected,
+            [stdx::path::get_relative_path(&expected).to_string_lossy()]
+        );
+        keys(&mut app, ":buffer-previous<ret>").await?;
+    }
+    Ok(())
+}
+
 async fn sidebar_with_config(
     config: term::config::Config,
 ) -> anyhow::Result<(TestApplication, tempfile::TempDir, PathBuf)> {
@@ -642,5 +670,86 @@ async fn failed_search_discards_input_queued_for_its_result() -> anyhow::Result<
     keys(&mut app, "/a.txt<ret>").await?;
     keys(&mut app, "iY<esc>").await?;
     assert_eq!(current_ref!(app.editor).1.text().to_string(), "alpha\n");
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn window_prefix_shows_hints_in_the_sidebar_and_clears_them() -> anyhow::Result<()> {
+    if super::helpers::isolation::workspace(
+        "test::sidebar::window_prefix_shows_hints_in_the_sidebar_and_clears_them",
+    )?
+    .is_none()
+    {
+        return Ok(());
+    }
+    let (mut app, _dir, _root) = sidebar().await?;
+    keys(&mut app, "<C-w>").await?;
+    assert!(screen(&app).contains("Focus document window"));
+    assert!(screen(&app).contains("Hide file explorer"));
+    // The sidebar has its own available window actions, without split commands.
+    assert!(!screen(&app).contains("Split horizontally"));
+    for suffix in ["<esc>", "z", "l"] {
+        keys(&mut app, suffix).await?;
+        assert!(!screen(&app).contains("Focus document window"));
+        if suffix == "l" {
+            keys(&mut app, "<C-e>").await?;
+        }
+        keys(&mut app, "<C-w>").await?;
+        assert!(screen(&app).contains("Focus document window"));
+    }
+    keys(&mut app, "q").await?;
+    assert!(!screen(&app).contains("Hide file explorer"));
+    assert!(!screen(&app).contains("File Explorer"));
+    keys(&mut app, ":set auto-info false<ret><C-w>e<C-w>").await?;
+    assert!(!screen(&app).contains("Focus document window"));
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn sidebar_hints_follow_remapped_and_nested_prefixes() -> anyhow::Result<()> {
+    if super::helpers::isolation::workspace(
+        "test::sidebar::sidebar_hints_follow_remapped_and_nested_prefixes",
+    )?
+    .is_none()
+    {
+        return Ok(());
+    }
+    let configured = term::config::Config::load(
+        Ok(&r#"
+            [keys.sidebar.F12]
+            x = "focus_editor"
+            z = "no_op"
+            u = "unbound"
+            n = { y = "hide" }
+            a = ["filter", "focus_editor"]
+            [keys.sidebar-filter.F12]
+            q = "focus_editor"
+        "#
+        .to_owned()),
+        Err(Default::default()),
+    )
+    .unwrap();
+    let mut config = test_config();
+    config.component_keys = configured.component_keys;
+    let (mut app, _dir, _root) = sidebar_with_config(config).await?;
+    keys(&mut app, "<F12>").await?;
+    let hints = screen(&app);
+    assert!(hints.contains("x  Focus document window"));
+    assert!(hints.contains("n  More keys"));
+    assert!(hints.contains("a  Filter files; Focus document window"));
+    assert!(!hints.contains("z  "));
+    assert!(!hints.contains("u  "));
+    assert!(!hints.contains("Hide file explorer"));
+    keys(&mut app, "n").await?;
+    assert!(screen(&app).contains("y  Hide file explorer"));
+    assert!(!screen(&app).contains("Focus document window"));
+    keys(&mut app, "<esc>").await?;
+    assert!(!screen(&app).contains("Hide file explorer"));
+    // Prefixes also work while editing the explorer's filter.
+    keys(&mut app, "/<F12>").await?;
+    assert!(screen(&app).contains("q  Focus document window"));
+    assert!(!screen(&app).contains("More keys"));
+    keys(&mut app, "<esc>").await?;
+    assert!(!screen(&app).contains("Focus document window"));
     Ok(())
 }

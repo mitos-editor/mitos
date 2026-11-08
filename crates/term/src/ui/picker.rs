@@ -852,28 +852,49 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         self.publish_options();
         let preserve_selection = preserve_selection && !self.results.is_refreshing();
         if let Some(source) = &self.query_options {
-            match source(
+            let result = source(
                 editor,
                 &self.primary_query(),
                 &self.results.editor_data,
                 self.selection().filter(|_| preserve_selection),
-            ) {
-                Ok((options, data, cursor)) => {
-                    if let Some(updates) = &mut self.file_updates {
-                        updates.query_changed();
-                    }
-                    self.refresh_options(options, Arc::new(data));
-                    let pending = self.results.pending_options.as_mut().unwrap();
-                    pending.preserve_selection = preserve_selection;
-                    pending.cursor = Some(cursor as u32);
-                    if !preserve_selection {
-                        self.results.offset = 0;
-                    }
-                    self.matching = true;
-                    self.redraw.request();
+            );
+            self.apply_query_options(editor, result, preserve_selection);
+        }
+    }
+
+    /// Reveal an owner-selected item, clearing any filter that could hide it.
+    pub(super) fn reveal_query_item(&mut self, editor: &Editor, item: &T) {
+        self.publish_options();
+        if let Some(source) = &self.query_options {
+            let result = source(editor, "", &self.results.editor_data, Some(item));
+            self.prompt.clear(editor);
+            self.handle_prompt_change(false);
+            self.apply_query_options(editor, result, false);
+        }
+    }
+
+    fn apply_query_options(
+        &mut self,
+        editor: &Editor,
+        result: anyhow::Result<(Vec<T>, D, usize)>,
+        preserve_selection: bool,
+    ) {
+        match result {
+            Ok((options, data, cursor)) => {
+                if let Some(updates) = &mut self.file_updates {
+                    updates.query_changed();
                 }
-                Err(error) => editor.status_sender().report_blocking(error),
+                self.refresh_options(options, Arc::new(data));
+                let pending = self.results.pending_options.as_mut().unwrap();
+                pending.preserve_selection = preserve_selection;
+                pending.cursor = Some(cursor as u32);
+                if !preserve_selection {
+                    self.results.offset = 0;
+                }
+                self.matching = true;
+                self.redraw.request();
             }
+            Err(error) => editor.status_sender().report_blocking(error),
         }
     }
 
