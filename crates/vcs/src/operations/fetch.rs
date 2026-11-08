@@ -79,7 +79,10 @@ fn execute_inner(
     let update_head = branch.is_none()
         && !follow_head
             .as_ref()
-            .is_some_and(|value| value.eq_ignore_ascii_case(b"never"));
+            .is_some_and(|value| value.eq_ignore_ascii_case(b"never"))
+        // An existing HEAD is preserved, so retain remote prefix filtering on
+        // subsequent fetches instead of enumerating unrelated namespaces.
+        && repo.try_find_reference(format!("refs/remotes/{name}/HEAD").as_str())?.is_none();
     let mut upstream = repo.find_remote(name.as_bytes().as_bstr())?;
     let mut url = upstream
         .url(gix::remote::Direction::Fetch)
