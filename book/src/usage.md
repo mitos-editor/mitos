@@ -36,6 +36,16 @@ Use `x` to select a line, `%` to select the whole buffer, and `miw` to select
 inside a word. [Textobjects](./textobjects.md) and
 [syntax-aware motions](./syntax-aware-motions.md) select larger structures.
 
+## Undo selection changes
+
+Press `Alt-u` to restore the previous selections and `Alt-Shift-u` to redo.
+For example, use `Alt-u` after accidentally pressing `,` or `;` to recover
+multiple selections. Prefix either command with a count to step further.
+
+Each split keeps its own selection history. Editing text clears that history;
+use `u` and `U` to undo and redo text changes. Confirming a search records one
+selection change. Canceling a search keeps the previous selection history.
+
 ## Transform selected text
 
 `d`, `c`, `y`, and `Alt-r` operate on every selection. `J` joins selected

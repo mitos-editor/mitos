@@ -17,6 +17,8 @@ const LIMIT: usize = 100;
 pub(crate) struct SelectionUndo {
     /// Selections before the current one, newest last.
     past: Vec<Selection>,
+    /// Original selection while a prompt previews changes.
+    preview: Option<Selection>,
     /// Selections undone from the current one, the next one to restore last.
     future: Vec<Selection>,
 }
@@ -24,6 +26,9 @@ pub(crate) struct SelectionUndo {
 impl SelectionUndo {
     /// The view moved from `previous` to a new selection.
     pub(super) fn record(&mut self, previous: Selection) {
+        if self.preview.is_some() {
+            return;
+        }
         if self.past.len() == LIMIT {
             self.past.remove(0);
         }
@@ -34,6 +39,7 @@ impl SelectionUndo {
     pub(super) fn clear(&mut self) {
         self.past.clear();
         self.future.clear();
+        self.preview = None;
     }
 
     /// Step `count` entries back (`undo`) or forward, as far as the history goes,
@@ -59,6 +65,24 @@ impl SelectionUndo {
 }
 
 impl Document {
+    /// Defer history recording while a prompt previews selection changes.
+    pub fn begin_selection_preview(&mut self, view: ViewId) {
+        if let Some(state) = self.view_states.get_mut(&view) {
+            state.selection_undo.preview = Some(state.selection.clone());
+        }
+    }
+
+    /// Record the final selection as one change. Restore the original selection
+    /// before calling this when canceling a preview.
+    pub fn finish_selection_preview(&mut self, view: ViewId) {
+        if let Some(state) = self.view_states.get_mut(&view)
+            && let Some(original) = state.selection_undo.preview.take()
+            && original != state.selection
+        {
+            state.selection_undo.record(original);
+        }
+    }
+
     /// Restore the selection from `count` changes ago. Returns `false` when there
     /// is no older selection for this view.
     pub fn undo_selection(&mut self, view: ViewId, count: usize) -> bool {

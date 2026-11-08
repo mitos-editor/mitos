@@ -49,7 +49,7 @@ fn repository(count: usize) -> (tempfile::TempDir, GitRepository) {
     (dir, repo)
 }
 
-fn press(picker: &mut Picker<CommitEntry, Data>, app: &mut TestApplication, key: &str) {
+fn press(picker: &mut Picker<CommitEntry, Data>, app: &mut TestApplication, key: &str) -> String {
     let config = crate::config::Config::default();
     let updates = tokio::sync::mpsc::unbounded_channel().0;
     let mut jobs = crate::job::Jobs::new();
@@ -68,7 +68,7 @@ fn press(picker: &mut Picker<CommitEntry, Data>, app: &mut TestApplication, key:
             is_cursor_owner: true,
         },
     );
-    draw(picker, app);
+    screen(picker, app)
 }
 
 fn screen(picker: &mut Picker<CommitEntry, Data>, app: &mut TestApplication) -> String {
@@ -145,10 +145,13 @@ async fn clearing_history_search_stops_loading_more_pages() -> Result<()> {
     let mut app = application(false)?;
     let mut picker = browser(&app.editor, repo, None, None)?;
     until(&mut picker, &mut app, |p| all_items(p).count() == 100).await?;
-    press(&mut picker, &mut app, "z");
+    // Inspect every rendered frame, including the keypress frame: the next
+    // render may already consume the completed page and hide its loading status.
+    let mut rendered = press(&mut picker, &mut app, "z");
     tokio::time::timeout(std::time::Duration::from_secs(5), async {
-        while !screen(&mut picker, &mut app).contains("Loading history") {
+        while !rendered.contains("Loading history") {
             tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+            rendered = screen(&mut picker, &mut app);
         }
     })
     .await?;

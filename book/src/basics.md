@@ -78,7 +78,7 @@ simple workflow is:
 
 Use `c` instead to change the matches interactively in insert mode. Press `,`
 to keep only the primary selection. If a command replaces selections you still
-need, press `Alt-k` to go back to the previous selections and `Alt-w` to go
+need, press `Alt-u` to go back to the previous selections and `Alt-Shift-u` to go
 forward again. Each split keeps its own selection history, and editing the text
 starts a new one. See [Search and replacement](./search.md)
 for more examples and [Selections](./usage.md) for other ways to build selections.

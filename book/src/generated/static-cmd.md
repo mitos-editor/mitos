@@ -100,8 +100,8 @@
 | `unfold_all` | Open all folds | normal: `` Zfr ``, `` zfr ``, select: `` Zfr ``, `` zfr `` |
 | `collapse_selection` | Collapse selection into single cursor | normal: `` ; ``, select: `` ; `` |
 | `flip_selections` | Flip selection cursor and anchor | normal: `` <A-;> ``, select: `` <A-;> `` |
-| `undo_selection` | Go to previous selection | normal: `` <A-k> ``, select: `` <A-k> `` |
-| `redo_selection` | Go to next selection | normal: `` <A-w> ``, select: `` <A-w> `` |
+| `undo_selection` | Go to previous selection | normal: `` <A-u> ``, select: `` <A-u> `` |
+| `redo_selection` | Go to next selection | normal: `` <A-U> ``, select: `` <A-U> `` |
 | `ensure_selections_forward` | Ensure all selections face forward | normal: `` <A-:> ``, select: `` <A-:> `` |
 | `insert_mode` | Insert before selection | normal: `` i ``, select: `` i `` |
 | `append_mode` | Append after selection | normal: `` a ``, select: `` a `` |
@@ -233,8 +233,8 @@
 | `kill_to_line_end` | Delete till end of line | insert: `` <C-k> `` |
 | `undo` | Undo change | normal: `` u ``, select: `` u `` |
 | `redo` | Redo change | normal: `` U ``, select: `` U `` |
-| `earlier` | Move backward in history | normal: `` <A-u> ``, select: `` <A-u> `` |
-| `later` | Move forward in history | normal: `` <A-U> ``, select: `` <A-U> `` |
+| `earlier` | Move backward in history | normal: `` g<minus> ``, select: `` g<minus> `` |
+| `later` | Move forward in history | normal: `` g+ ``, select: `` g+ `` |
 | `commit_undo_checkpoint` | Commit changes to new checkpoint | insert: `` <C-s> `` |
 | `yank` | Yank selection | normal: `` y ``, select: `` y `` |
 | `yank_to_clipboard` | Yank selections to clipboard | normal: `` <space>y ``, select: `` <space>y `` |

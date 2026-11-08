@@ -31,8 +31,8 @@ are Modus Operandi and Modus Vivendi. See [Themes](./themes.md) to choose anothe
 - [Spell checking](./spell-checking.md) works without a language server.
 - `paste_after_all` and `paste_before_all` paste every yanked value at each
   selection. See [Pasting every value](./registers.md#pasting-every-value).
-- `Alt-k` and `Alt-w` undo and redo selection changes (`undo_selection` and
-  `redo_selection`), from helix-editor/helix#15775.
+- `Alt-u` and `Alt-Shift-u` undo and redo selection changes. Use `g-` and `g+`
+  to move backward and forward through text history.
 - Supported [images](./image-previews.md) open as read-only previews.
 - [Custom commands](./custom-commands.md) define your own `:` commands.
 - [Component keys](./remapping.md#component-keys) let you remap pickers, prompts,

@@ -54,8 +54,6 @@
 | `` S `` | Split selections on regex matches | `` split_selection `` |
 | `` ; `` | Collapse selection into single cursor | `` collapse_selection `` |
 | `` <A-;> `` | Flip selection cursor and anchor | `` flip_selections `` |
-| `` <A-k> `` | Go to previous selection | `` undo_selection `` |
-| `` <A-w> `` | Go to next selection | `` redo_selection `` |
 | `` <A-o> `` | Expand selection to parent syntax node | `` expand_selection `` |
 | `` <A-up> `` | Expand selection to parent syntax node | `` expand_selection `` |
 | `` <A-i> `` | Shrink selection to previously expanded syntax node | `` shrink_selection `` |
@@ -84,8 +82,8 @@
 | `` <A-*> `` | Use current selection as search pattern | `` search_selection `` |
 | `` u `` | Undo change | `` undo `` |
 | `` U `` | Redo change | `` redo `` |
-| `` <A-u> `` | Move backward in history | `` earlier `` |
-| `` <A-U> `` | Move forward in history | `` later `` |
+| `` <A-u> `` | Go to previous selection | `` undo_selection `` |
+| `` <A-U> `` | Go to next selection | `` redo_selection `` |
 | `` y `` | Yank selection | `` yank `` |
 | `` p `` | Paste after selection | `` paste_after `` |
 | `` P `` | Paste before selection | `` paste_before `` |
@@ -162,6 +160,8 @@
 | `` gk `` | Move up | `` move_line_up `` |
 | `` gj `` | Move down | `` move_line_down `` |
 | `` g. `` | Goto last modification | `` goto_last_modification `` |
+| `` g<minus> `` | Move backward in history | `` earlier `` |
+| `` g+ `` | Move forward in history | `` later `` |
 | `` gw `` | Jump to a two-character label | `` goto_word `` |
 
 ### `` m `` — Match
