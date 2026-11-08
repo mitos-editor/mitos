@@ -231,15 +231,22 @@ impl ConflictPresentation {
 
 impl Document {
     pub(crate) fn invalidate_conflicts(&mut self, before: &Rope, changes: &ChangeSet) {
-        // An empty presentation has no positions to remap. Only edits that can
-        // introduce markers need another full scan; padding covers joined runs.
+        // An empty presentation has no positions to remap. Recheck only affected
+        // lines, including joins and edits to marker suffixes or line endings.
         let keep_empty = self.conflicts.get().is_some_and(|model| {
             !model.active()
                 && before.len() <= vcs::MAX_REVIEW_BYTES
                 && self.text().len() <= vcs::MAX_REVIEW_BYTES
-                && !changes
-                    .changed_ranges(7)
-                    .any(|(_, range)| contains_marker_candidate(self.text().slice_chars(range)))
+                && !changes.changed_ranges(0).any(|(_, range)| {
+                    let text = self.text();
+                    let first = text.char_to_line_idx(range.start);
+                    let after_last = (text.char_to_line_idx(range.end) + 1)
+                        .min(text.len_lines(stdx::rope::LINE_TYPE));
+                    contains_marker_candidate(text.slice(
+                        text.line_to_byte_idx(first, stdx::rope::LINE_TYPE)
+                            ..text.line_to_byte_idx(after_last, stdx::rope::LINE_TYPE),
+                    ))
+                })
         });
         if !keep_empty {
             self.conflicts.take();
@@ -362,6 +369,7 @@ mod tests {
             ("préfix\n<<<<<< HEAD\n", 7, 7, "<"),
             ("préfix\n<<<x<<<< HEAD\n", 10, 11, ""),
             ("préfix >>>>>>> topic\n", 7, 7, "\n"),
+            ("préfix\n<<<<<<<\r\rx\n", 16, 17, ""),
             (
                 "préfix\nordinary\n",
                 7,
