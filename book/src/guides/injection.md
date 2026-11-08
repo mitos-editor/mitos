@@ -9,6 +9,10 @@ uses the injected language's own indentation, textobjects, and comment tokens â€
 so, for example, editing JavaScript inside an HTML `<script>` indents and
 comments as JavaScript.
 
+Markdown `php` fences can contain snippets without `<?php`. These use the PHP
+snippet grammar (`php-only`). Fences containing a PHP opening tag use the PHP
+document grammar, which also supports mixed HTML and PHP.
+
 An example of a simple query that would highlight all strings as bash in Nix:
 ```scm
 ((string_expression (string_fragment) @injection.content)

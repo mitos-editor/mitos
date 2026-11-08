@@ -305,3 +305,74 @@ fn staged_markdown_parsing_includes_nested_languages() {
         .iter()
         .any(|(pos, scopes)| *pos == offset as u32 && scopes.contains(&keyword)));
 }
+
+#[test]
+fn markdown_php_fences_highlight_tagless_snippets_and_tagged_templates() {
+    let (loader, _) = rust_loader();
+    let markdown = loader.language_for_name("markdown").unwrap();
+    let keyword = loader
+        .scopes()
+        .iter()
+        .position(|scope| scope == "keyword")
+        .unwrap() as u32;
+    for (code, language) in [
+        ("require 'vendor/autoload.php';", "php-only"),
+        ("<?php require 'vendor/autoload.php';", "php"),
+        ("<div><?php require 'vendor/autoload.php'; ?></div>", "php"),
+    ] {
+        let source = format!("```php\n{code}\n```\n");
+        let text = Rope::from_str(&source);
+        let syntax = Syntax::new(text.slice(..), markdown, &loader).unwrap();
+        let offset = source.find("require").unwrap();
+        assert_eq!(
+            layer_languages(&syntax, &loader, &text)[offset],
+            names(
+                &loader,
+                &[markdown, loader.language_for_name(language).unwrap()]
+            ),
+            "{code}"
+        );
+        assert!(
+            highlights(&syntax, &loader, &text)
+                .iter()
+                .any(|(pos, scopes)| *pos == offset as u32 && scopes.contains(&keyword)),
+            "{code}"
+        );
+    }
+}
+
+#[test]
+fn markdown_php_fences_switch_grammars_when_the_opening_tag_changes() {
+    let (loader, _) = rust_loader();
+    let markdown = loader.language_for_name("markdown").unwrap();
+    let old = Rope::from_str("```php\nrequire 'vendor/autoload.php';\n```\n");
+    let (_, missing) = Syntax::new_with_compiled(old.slice(..), markdown, &loader).unwrap();
+    assert_eq!(names(&loader, &missing), ["php-only"]);
+    loader.compile_syntax_configs(&missing);
+    let mut syntax = Syntax::new(old.slice(..), markdown, &loader).unwrap();
+
+    let transaction = Transaction::change(&old, [(7, 7, Some("<?php ".into()))].into_iter());
+    let mut text = old.clone();
+    assert!(transaction.apply(&mut text));
+    syntax
+        .update(
+            old.slice(..),
+            text.slice(..),
+            transaction.changes(),
+            &loader,
+        )
+        .unwrap();
+    let fresh = Syntax::new(text.slice(..), markdown, &loader).unwrap();
+    assert_eq!(
+        layer_languages(&syntax, &loader, &text)[13],
+        ["markdown", "php"]
+    );
+    assert_eq!(
+        layer_languages(&syntax, &loader, &text),
+        layer_languages(&fresh, &loader, &text)
+    );
+    assert_eq!(
+        highlights(&syntax, &loader, &text),
+        highlights(&fresh, &loader, &text)
+    );
+}

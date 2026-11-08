@@ -7,7 +7,29 @@
 (fenced_code_block
   (info_string
     (language) @injection.language)
-  (code_fence_content) @injection.content (#set! injection.include-unnamed-children))
+  (code_fence_content) @injection.content
+  (#not-eq? @injection.language "php")
+  (#set! injection.include-unnamed-children))
+
+; PHP snippets commonly omit the opening tag. The document grammar treats
+; those as HTML, so use the snippet grammar unless a PHP opening tag is present.
+(fenced_code_block
+  (info_string
+    (language) @_language)
+  (code_fence_content) @injection.content
+  (#eq? @_language "php")
+  (#not-match? @injection.content "<\\?")
+  (#set! injection.language "php-only")
+  (#set! injection.include-unnamed-children))
+
+(fenced_code_block
+  (info_string
+    (language) @_language)
+  (code_fence_content) @injection.content
+  (#eq? @_language "php")
+  (#match? @injection.content "<\\?")
+  (#set! injection.language "php")
+  (#set! injection.include-unnamed-children))
 
 ((html_block) @injection.content
  (#set! injection.language "html")
