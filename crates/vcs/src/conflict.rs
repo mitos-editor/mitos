@@ -49,7 +49,7 @@ pub fn read_source(path: &std::path::Path, side: &str, trusted: bool) -> Result<
         .ancestors()
         .find(|path| path.is_dir())
         .ok_or_else(|| anyhow::anyhow!("File has no existing parent directory"))?;
-    let repo = crate::git::open_repo(directory, trusted)?.to_thread_local();
+    let repo = crate::repository::open_repo(directory, trusted)?.to_thread_local();
     let root = stdx::path::canonicalize_existing(
         repo.workdir()
             .ok_or_else(|| anyhow::anyhow!("Repository has no working tree"))?,

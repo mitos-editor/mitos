@@ -316,7 +316,7 @@ impl GitRepository {
                 "Finish the current Git operation first"
             );
         }
-        let mut watched = crate::git::repository_watched_paths(&repo)?;
+        let mut watched = crate::repository::repository_watched_paths(&repo)?;
         match &mut operation {
             RepositoryOperation::CreateBranch { name }
             | RepositoryOperation::DeleteBranch { name }
