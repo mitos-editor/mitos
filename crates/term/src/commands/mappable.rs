@@ -365,6 +365,53 @@ mod tests {
     }
 
     #[test]
+    fn naming_conventions_preserve_original_and_intermediate_aliases() {
+        for (legacy, canonical) in [
+            ("goto_prev_diag", "goto_previous_diagnostic"),
+            ("goto_prev_diagnostic", "goto_previous_diagnostic"),
+            ("goto_prev_change", "vcs_goto_previous_change"),
+            ("vcs_goto_prev_change", "vcs_goto_previous_change"),
+            ("prev_snippet_choice", "snippet_previous_choice"),
+            ("goto_next_tabstop", "snippet_next_tabstop"),
+            ("dap_launch", "debug_launch_picker"),
+            ("dap_next", "debug_step_over"),
+            ("dap_switch_session", "debug_session_picker"),
+            ("dap_switch_thread", "debug_thread_picker"),
+            ("dap_switch_stack_frame", "debug_stack_frame_picker"),
+        ] {
+            let command = legacy.parse::<MappableCommand>().unwrap();
+            assert_eq!(command.name(), canonical);
+            assert_eq!(command, canonical.parse::<MappableCommand>().unwrap());
+        }
+        for (legacy, canonical) in [
+            ("debug-eval value", "debug-evaluate value"),
+            ("snippets-reload", "snippet-reload"),
+            ("snippets-open name", "snippet-open name"),
+            (
+                "snippets-open-workspace name",
+                "snippet-open-workspace name",
+            ),
+        ] {
+            assert_eq!(
+                format!(":{legacy}").parse::<MappableCommand>().unwrap(),
+                format!(":{canonical}").parse::<MappableCommand>().unwrap(),
+            );
+        }
+    }
+
+    #[test]
+    fn canonical_names_follow_direction_and_subsystem_conventions() {
+        for command in MappableCommand::STATIC_COMMAND_LIST {
+            let name = command.name();
+            assert!(!name.split('_').any(|part| part == "prev"), "{name}");
+            assert!(!name.starts_with("dap_"), "{name}");
+            if name.contains("snippet") || name.contains("tabstop") {
+                assert!(name.starts_with("snippet_"), "{name}");
+            }
+        }
+    }
+
+    #[test]
     fn legacy_typable_vcs_names_resolve_to_canonical_commands() {
         for (old, new) in [
             ("blame", "vcs-blame"),

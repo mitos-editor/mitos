@@ -6,8 +6,8 @@ from a picker or a key binding.
 
 ## Create a snippet
 
-Run `:snippets-open` to open `snippets.toml` in your Mitos configuration directory.
-Add a definition, save the file, and run `:snippets-reload`:
+Run `:snippet-open` to open `snippets.toml` in your Mitos configuration directory.
+Add a definition, save the file, and run `:snippet-reload`:
 
 ```toml
 [[snippet]]
@@ -70,12 +70,12 @@ Subdirectories are included. Filenames only organize the collection: set `scope`
 in each definition to choose its languages. Names must be unique across all
 user snippet files. Duplicate-name errors identify both files.
 
-Run `:snippets-open go/http.toml` to open a file in `snippets/`. Mitos creates
+Run `:snippet-open go/http.toml` to open a file in `snippets/`. Mitos creates
 missing parent directories; save the file to create it. The filename must be a
 relative `.toml` path. Other extensions and directory symlinks are ignored when
 loading collections; symlinks to regular files are supported.
 
-After adding, editing, renaming, or deleting files, run `:snippets-reload`.
+After adding, editing, renaming, or deleting files, run `:snippet-reload`.
 `:config-reload` also reloads snippets. If any file contains an error, the reload
 reports it and your previous snippets remain available.
 
@@ -90,8 +90,8 @@ same name as a user snippet replaces it, including its triggers and language
 scope. Removing the project definition and reloading restores the user snippet.
 Other user snippets remain available. Each workspace uses its own project snippets.
 
-Use `:snippets-open-workspace` to edit the project's primary file, or
-`:snippets-open-workspace go/http.toml` to edit a file in its snippet directory.
+Use `:snippet-open-workspace` to edit the project's primary file, or
+`:snippet-open-workspace go/http.toml` to edit a file in its snippet directory.
 Save and reload as above. Changes to trusted project settings may require you to
 renew workspace trust.
 
@@ -130,9 +130,9 @@ body = '(${TM_SELECTED_TEXT})$0'
 | --- | --- |
 | `snippet_picker` | Browse and insert snippets for the current language. |
 | `:snippet-insert <name>` | Insert a snippet by its exact name. |
-| `:snippets-open [file]` | Open the user snippet file, or a named file in `snippets/`. |
-| `:snippets-open-workspace [file]` | Open the project snippet file, or a named file in `.mitos/snippets/`. |
-| `:snippets-reload` | Reload user and open workspace snippets. |
+| `:snippet-open [file]` | Open the user snippet file, or a named file in `snippets/`. |
+| `:snippet-open-workspace [file]` | Open the project snippet file, or a named file in `.mitos/snippets/`. |
+| `:snippet-reload` | Reload user and open workspace snippets. |
 
 ## Write snippet bodies
 
@@ -153,8 +153,8 @@ commands to cycle the available values:
 
 ```toml
 [keys.insert]
-A-n = "next_snippet_choice"
-A-p = "prev_snippet_choice"
+A-n = "snippet_next_choice"
+A-p = "snippet_previous_choice"
 ```
 
 Use TOML literal strings (`'...'` or `'''...'''`) to avoid a second layer of

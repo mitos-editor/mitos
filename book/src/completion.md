@@ -42,8 +42,8 @@ You can bind placeholder navigation directly, including backward navigation:
 
 ```toml
 [keys.insert]
-A-j = "goto_next_tabstop"
-A-k = "goto_prev_tabstop"
+A-j = "snippet_next_tabstop"
+A-k = "snippet_previous_tabstop"
 ```
 
 LSP snippets are enabled by default. To disable them, set
@@ -83,7 +83,7 @@ C-y = "inline_completion_accept"
 C-e = "inline_completion_dismiss"
 C-g = "inline_completion_trigger"
 A-n = "inline_completion_next"
-A-p = "inline_completion_prev"
+A-p = "inline_completion_previous"
 ```
 
 To request suggestions only with your trigger binding:

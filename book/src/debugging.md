@@ -88,7 +88,7 @@ These bindings are available in normal and select mode:
 | `Space G Ctrl-l` | Edit the breakpoint log message on the current line |
 | `Space G e` / `Space G E` | Enable / disable exception breakpoints |
 
-Use `:debug-eval <expression>` to evaluate an expression in the selected frame.
+Use `:debug-evaluate <expression>` to evaluate an expression in the selected frame.
 Expandable results open in the variable browser. Run the command again for a new
 result. Supported expressions depend on the debug adapter.
 
@@ -127,7 +127,7 @@ editor session.
 ## Stack frames
 
 Use `Space G s f` to choose a frame in the paused thread. Selecting a frame
-opens its source and updates inline values. Use `Space G v` or `:debug-eval`
+opens its source and updates inline values. Use `Space G v` or `:debug-evaluate`
 to inspect values in that frame. Select `Load more…` to see more frames in a
 deep call stack.
 

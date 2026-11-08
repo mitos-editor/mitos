@@ -523,9 +523,11 @@ impl EditorView {
                             doc.set_selection(view_id, Selection::point(pos));
                             match modifiers {
                                 KeyModifiers::ALT => {
-                                    commands::MappableCommand::dap_edit_log.execute(cxt)
+                                    commands::MappableCommand::debug_edit_breakpoint_log_message
+                                        .execute(cxt)
                                 }
-                                _ => commands::MappableCommand::dap_edit_condition.execute(cxt),
+                                _ => commands::MappableCommand::debug_edit_breakpoint_condition
+                                    .execute(cxt),
                             };
                         }
                     }

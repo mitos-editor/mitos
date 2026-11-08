@@ -13,7 +13,7 @@
 | `` t `` | Extend till next occurrence of char | `` extend_till_next_char `` |
 | `` f `` | Extend to next occurrence of char | `` extend_next_char `` |
 | `` T `` | Extend till previous occurrence of char | `` extend_till_previous_char `` |
-| `` F `` | Extend to previous occurrence of char | `` extend_prev_char `` |
+| `` F `` | Extend to previous occurrence of char | `` extend_previous_char `` |
 | `` r `` | Replace each selected grapheme with a character | `` replace_char `` |
 | `` <A-r> `` | Replace selections with entered text | `` replace `` |
 | `` R `` | Replace with yanked text | `` replace_with_yanked `` |
@@ -24,10 +24,10 @@
 | `` <home> `` | Extend to line start | `` extend_to_line_start `` |
 | `` <end> `` | Extend to line end | `` extend_to_line_end `` |
 | `` w `` | Extend to start of next word | `` extend_next_word_start `` |
-| `` b `` | Extend to start of previous word | `` extend_prev_word_start `` |
+| `` b `` | Extend to start of previous word | `` extend_previous_word_start `` |
 | `` e `` | Extend to end of next word | `` extend_next_word_end `` |
 | `` W `` | Extend to start of next long word | `` extend_next_long_word_start `` |
-| `` B `` | Extend to start of previous long word | `` extend_prev_long_word_start `` |
+| `` B `` | Extend to start of previous long word | `` extend_previous_long_word_start `` |
 | `` E `` | Extend to end of next long word | `` extend_next_long_word_end `` |
 | `` v `` | Enter normal mode | `` normal_mode `` |
 | `` G `` | Goto line | `` goto_line `` |
@@ -46,7 +46,7 @@
 | `` c `` | Change selection | `` change_selection `` |
 | `` <A-c> `` | Change selection without yanking | `` change_selection_noyank `` |
 | `` C `` | Copy selection on next line | `` copy_selection_on_next_line `` |
-| `` <A-C> `` | Copy selection on previous line | `` copy_selection_on_prev_line `` |
+| `` <A-C> `` | Copy selection on previous line | `` copy_selection_on_previous_line `` |
 | `` s `` | Select all regex matches inside selections | `` select_regex `` |
 | `` <A-s> `` | Split selection on newlines | `` split_selection_on_newline `` |
 | `` <A-minus> `` | Merge selections | `` merge_selections `` |
@@ -60,8 +60,8 @@
 | `` <A-down> `` | Shrink selection to previously expanded syntax node | `` shrink_selection `` |
 | `` <A-I> `` | Select all children of the current node | `` select_all_children `` |
 | `` <S-A-down> `` | Select all children of the current node | `` select_all_children `` |
-| `` <A-p> `` | Select previous sibling the in syntax tree | `` select_prev_sibling `` |
-| `` <A-left> `` | Select previous sibling the in syntax tree | `` select_prev_sibling `` |
+| `` <A-p> `` | Select previous sibling the in syntax tree | `` select_previous_sibling `` |
+| `` <A-left> `` | Select previous sibling the in syntax tree | `` select_previous_sibling `` |
 | `` <A-n> `` | Select next sibling in the syntax tree | `` select_next_sibling `` |
 | `` <A-right> `` | Select next sibling in the syntax tree | `` select_next_sibling `` |
 | `` <A-e> `` | Extend to end of the parent node | `` extend_parent_node_end `` |
@@ -77,7 +77,7 @@
 | `` / `` | Search forward for regex pattern | `` search_forward `` |
 | `` ? `` | Search backward for regex pattern | `` search_backward `` |
 | `` n `` | Add next search match to selection | `` extend_search_next `` |
-| `` N `` | Add previous search match to selection | `` extend_search_prev `` |
+| `` N `` | Add previous search match to selection | `` extend_search_previous `` |
 | `` * `` | Use current selection as the search pattern, automatically wrapping with `\b` on word boundaries | `` search_selection_detect_word_boundaries `` |
 | `` <A-*> `` | Use current selection as search pattern | `` search_selection `` |
 | `` u `` | Undo change | `` undo `` |
@@ -179,22 +179,22 @@
 
 | Key | Description | Command |
 | --- | --- | --- |
-| `` [d `` | Goto previous diagnostic | `` goto_prev_diagnostic `` |
-| `` [s `` | Goto previous spelling finding | `` goto_prev_spelling `` |
-| `` [q `` | Goto previous quicklist entry | `` goto_prev_quicklist `` |
+| `` [d `` | Goto previous diagnostic | `` goto_previous_diagnostic `` |
+| `` [s `` | Goto previous spelling finding | `` goto_previous_spelling `` |
+| `` [q `` | Goto previous quicklist entry | `` goto_previous_quicklist `` |
 | `` [D `` | Goto first diagnostic | `` goto_first_diagnostic `` |
-| `` [g `` | Goto previous change | `` vcs_goto_prev_change `` |
+| `` [g `` | Goto previous change | `` vcs_goto_previous_change `` |
 | `` [m `` | Go to the previous unresolved conflict | `` vcs_goto_previous_conflict `` |
 | `` [G `` | Goto first change | `` vcs_goto_first_change `` |
-| `` [l `` | Goto previous quicklist entry in current file | `` goto_prev_file_quicklist `` |
-| `` [f `` | Goto previous function | `` goto_prev_function `` |
-| `` [t `` | Goto previous type definition | `` goto_prev_class `` |
-| `` [a `` | Goto previous parameter | `` goto_prev_parameter `` |
-| `` [c `` | Goto previous comment | `` goto_prev_comment `` |
-| `` [e `` | Goto previous pairing | `` goto_prev_entry `` |
-| `` [T `` | Goto previous test | `` goto_prev_test `` |
-| `` [p `` | Goto previous paragraph | `` goto_prev_paragraph `` |
-| `` [x `` | Goto previous (X)HTML element | `` goto_prev_xml_element `` |
+| `` [l `` | Goto previous quicklist entry in current file | `` goto_previous_file_quicklist `` |
+| `` [f `` | Goto previous function | `` goto_previous_function `` |
+| `` [t `` | Goto previous type definition | `` goto_previous_class `` |
+| `` [a `` | Goto previous parameter | `` goto_previous_parameter `` |
+| `` [c `` | Goto previous comment | `` goto_previous_comment `` |
+| `` [e `` | Goto previous pairing | `` goto_previous_entry `` |
+| `` [T `` | Goto previous test | `` goto_previous_test `` |
+| `` [p `` | Goto previous paragraph | `` goto_previous_paragraph `` |
+| `` [x `` | Goto previous (X)HTML element | `` goto_previous_xml_element `` |
 | `` [<space> `` | Add newline above | `` add_newline_above `` |
 
 ### `` ] `` — Right bracket
@@ -327,29 +327,29 @@
 
 | Key | Description | Command |
 | --- | --- | --- |
-| `` <space>Gl `` | Launch debug target | `` dap_launch `` |
-| `` <space>Gr `` | Restart debugging session | `` dap_restart `` |
-| `` <space>Gb `` | Toggle breakpoints | `` dap_toggle_breakpoints `` |
-| `` <space>Gc `` | Continue program execution | `` dap_continue `` |
-| `` <space>Gh `` | Pause program execution | `` dap_pause `` |
-| `` <space>Gi `` | Step in | `` dap_step_in `` |
-| `` <space>Go `` | Step out | `` dap_step_out `` |
-| `` <space>Gn `` | Step to next | `` dap_next `` |
-| `` <space>Gv `` | Browse variables | `` dap_variables `` |
-| `` <space>Gt `` | End debug session | `` dap_terminate `` |
-| `` <space>G<C-c> `` | Edit breakpoint condition on current line | `` dap_edit_condition `` |
-| `` <space>G<C-l> `` | Edit breakpoint log message on current line | `` dap_edit_log `` |
+| `` <space>Gl `` | Choose a launch configuration and start debugging | `` debug_launch_picker `` |
+| `` <space>Gr `` | Restart debugging session | `` debug_restart `` |
+| `` <space>Gb `` | Toggle breakpoints | `` debug_toggle_breakpoints `` |
+| `` <space>Gc `` | Continue program execution | `` debug_continue `` |
+| `` <space>Gh `` | Pause program execution | `` debug_pause `` |
+| `` <space>Gi `` | Step in | `` debug_step_in `` |
+| `` <space>Go `` | Step out | `` debug_step_out `` |
+| `` <space>Gn `` | Step over the current statement | `` debug_step_over `` |
+| `` <space>Gv `` | Browse variables | `` debug_variables `` |
+| `` <space>Gt `` | End debug session | `` debug_terminate `` |
+| `` <space>G<C-c> `` | Edit breakpoint condition on current line | `` debug_edit_breakpoint_condition `` |
+| `` <space>G<C-l> `` | Edit breakpoint log message on current line | `` debug_edit_breakpoint_log_message `` |
 | `` <space>Gs `` | Switch | Prefix |
-| `` <space>Ge `` | Enable exception breakpoints | `` dap_enable_exceptions `` |
-| `` <space>GE `` | Disable exception breakpoints | `` dap_disable_exceptions `` |
+| `` <space>Ge `` | Enable exception breakpoints | `` debug_enable_exception_breakpoints `` |
+| `` <space>GE `` | Disable exception breakpoints | `` debug_disable_exception_breakpoints `` |
 
 ##### `` <space>Gs `` — Switch
 
 | Key | Description | Command |
 | --- | --- | --- |
-| `` <space>Gss `` | Switch debugging session | `` dap_switch_session `` |
-| `` <space>Gst `` | Switch current thread | `` dap_switch_thread `` |
-| `` <space>Gsf `` | Switch stack frame | `` dap_switch_stack_frame `` |
+| `` <space>Gss `` | Open debug session picker | `` debug_session_picker `` |
+| `` <space>Gst `` | Choose the current debug thread | `` debug_thread_picker `` |
+| `` <space>Gsf `` | Open debug stack frame picker | `` debug_stack_frame_picker `` |
 
 #### `` <space>w `` — Window
 
@@ -430,7 +430,7 @@
 | `` z/ `` | Search forward for regex pattern | `` search_forward `` |
 | `` z? `` | Search backward for regex pattern | `` search_backward `` |
 | `` zn `` | Select next search match | `` search_next `` |
-| `` zN `` | Select previous search match | `` search_prev `` |
+| `` zN `` | Select previous search match | `` search_previous `` |
 
 #### `` zf `` — Folding
 
@@ -468,7 +468,7 @@
 | `` Z/ `` | Search forward for regex pattern | `` search_forward `` |
 | `` Z? `` | Search backward for regex pattern | `` search_backward `` |
 | `` Zn `` | Select next search match | `` search_next `` |
-| `` ZN `` | Select previous search match | `` search_prev `` |
+| `` ZN `` | Select previous search match | `` search_previous `` |
 
 #### `` Zf `` — Folding
 
