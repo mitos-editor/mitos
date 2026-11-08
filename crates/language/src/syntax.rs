@@ -374,6 +374,8 @@ impl Loader {
         })
     }
 
+    /// Resolve document language tags by exact name, file extension, then longest
+    /// injection-regex match. Shared by all queries using `@injection.language`.
     pub fn language_for_match(&self, text: RopeSlice) -> Option<Language> {
         // PERF: If the name matches up with the id, then this saves the need to do expensive regex.
         let shortcircuit = self.language_for_name(text);
@@ -381,7 +383,12 @@ impl Loader {
             return shortcircuit;
         }
 
-        // If the name did not match up with a known id, then match on injection regex.
+        // Prefer a known extension over a partial regex match: for example, `c++`
+        // must select C++ rather than matching C's injection regex.
+        let marker: Cow<str> = text.into();
+        if let Some(language) = self.language_for_extension(marker.as_ref()) {
+            return Some(language);
+        }
 
         let mut best_match_length = 0;
         let mut best_match_position = None;
