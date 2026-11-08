@@ -96,6 +96,18 @@ pub struct Watcher {
     extra_watched_files: Vec<PathBuf>,
 }
 
+/// Keep metadata symlinks available for polling alongside their native-watched targets.
+/// Resolve the parent directory while retaining the configured leaf spelling.
+fn metadata_paths(path: &Path) -> [PathBuf; 2] {
+    let target = canonicalize_existing(path);
+    let alias = path
+        .parent()
+        .zip(path.file_name())
+        .map(|(parent, name)| canonicalize_existing(parent).join(name))
+        .unwrap_or_else(|| target.clone());
+    [alias, target]
+}
+
 impl Watcher {
     /// Whether a native backend is active; individual roots may still be starting.
     pub fn is_running(&self) -> bool {
@@ -265,8 +277,8 @@ impl Watcher {
         let mut paths: Vec<_> = demand
             .metadata
             .into_iter()
+            .flat_map(|path| metadata_paths(&path))
             .chain(files.iter().cloned())
-            .map(|path| canonicalize_existing(&path))
             .collect();
         paths.sort();
         paths.dedup();
@@ -301,9 +313,9 @@ impl Watcher {
         self.extra_watched_paths = paths
             .into_iter()
             .map(|path| {
-                let mtime = old
-                    .remove(&path)
-                    .unwrap_or_else(|| path.metadata().ok().and_then(|m| m.modified().ok()));
+                let mtime = old.remove(&path).unwrap_or_else(|| {
+                    path.symlink_metadata().ok().and_then(|m| m.modified().ok())
+                });
                 (path, mtime)
             })
             .collect();
@@ -319,7 +331,8 @@ impl Watcher {
     pub fn poll_extra_paths(&mut self) -> bool {
         let mut changed = false;
         for (path, previous) in &mut self.extra_watched_paths {
-            let current = path.metadata().ok().and_then(|m| m.modified().ok());
+            // The native backend omits symlinks; detect link replacement in metadata/focus polls.
+            let current = path.symlink_metadata().ok().and_then(|m| m.modified().ok());
             changed |= current != *previous;
             *previous = current;
         }
@@ -394,5 +407,95 @@ mod tests {
         assert!(!watcher.is_vcs_path(&path));
         assert!(!watcher.poll_extra_paths());
         assert!(!batch.is_current(&watcher));
+    }
+}
+
+#[cfg(all(test, unix))]
+mod symlink_tests {
+    use super::*;
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn external_metadata_links_watch_targets_and_poll_retargeting() {
+        let workspace = tempfile::tempdir().unwrap();
+        let links = tempfile::tempdir().unwrap();
+        let targets = tempfile::tempdir().unwrap();
+        let target = targets.path().canonicalize().unwrap().join("first");
+        let next_target = targets.path().canonicalize().unwrap().join("second");
+        let alias = links.path().canonicalize().unwrap().join("attributes");
+        std::fs::write(&target, "first\n").unwrap();
+        std::fs::write(&next_target, "second\n").unwrap();
+        std::os::unix::fs::symlink(&target, &alias).unwrap();
+        let (mut watcher, mut receiver) = Watcher::new(&Options::default(), workspace.path(), true);
+        let demand = || Demand {
+            metadata: vec![alias.clone()],
+            ..Default::default()
+        };
+        watcher.set_paths(demand());
+        assert!(watcher.is_vcs_path(&alias));
+        assert!(watcher.is_vcs_path(&target));
+        fn ready(watcher: &Watcher, path: &Path) {
+            let deadline = Instant::now() + Duration::from_secs(10);
+            while !watcher.is_watching(path) {
+                assert!(
+                    Instant::now() < deadline,
+                    "metadata watch did not become ready: {}",
+                    path.display()
+                );
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        }
+        fn event(
+            receiver: &mut mpsc::UnboundedReceiver<EventBatch>,
+            watcher: &Watcher,
+            path: &Path,
+        ) {
+            let deadline = Instant::now() + Duration::from_secs(10);
+            loop {
+                if let Ok(batch) = receiver.try_recv()
+                    && batch.is_current(watcher)
+                    && batch
+                        .events
+                        .iter()
+                        .any(|event| event.path.as_std_path() == path && watcher.is_vcs_path(path))
+                {
+                    return;
+                }
+                assert!(
+                    Instant::now() < deadline,
+                    "missing VCS metadata event: {}",
+                    path.display()
+                );
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        }
+        ready(&watcher, &target);
+        std::fs::write(&target, "updated first\n").unwrap();
+        event(&mut receiver, &watcher, &target);
+        assert!(watcher.poll_extra_paths());
+        assert!(!watcher.poll_extra_paths());
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(&next_target)
+            .unwrap()
+            .set_times(
+                std::fs::FileTimes::new()
+                    .set_modified(target.metadata().unwrap().modified().unwrap()),
+            )
+            .unwrap();
+        let replacement = alias.with_file_name("replacement");
+        std::os::unix::fs::symlink(&next_target, &replacement).unwrap();
+        std::fs::rename(replacement, &alias).unwrap();
+        // filesentry excludes symlink nodes. The regular metadata/focus poll detects
+        // replacement of the link itself, even if the two targets share an mtime.
+        assert!(watcher.poll_extra_paths());
+        assert!(!watcher.poll_extra_paths());
+        // The application refreshes demand after invalidation and follows the new target.
+        watcher.set_paths(demand());
+        assert!(watcher.is_vcs_path(&next_target));
+        assert!(!watcher.is_vcs_path(&target));
+        ready(&watcher, &next_target);
+        std::fs::write(&next_target, "updated second\n").unwrap();
+        event(&mut receiver, &watcher, &next_target);
     }
 }

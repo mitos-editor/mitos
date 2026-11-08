@@ -814,3 +814,37 @@ async fn global_attribute_changes_invalidate_prepared_operations() -> Result<()>
     }
     Ok(())
 }
+
+#[cfg(unix)]
+#[tokio::test]
+async fn linked_global_attribute_targets_invalidate_prepared_operations() -> Result<()> {
+    let repo = initial();
+    let external = tempfile::tempdir()?;
+    let target = external.path().join("attributes-source");
+    let attributes = external.path().join("global-attributes");
+    std::os::unix::fs::symlink(&target, &attributes)?;
+    exec_git_cmd(
+        &[
+            "config",
+            "core.attributesFile",
+            attributes.to_str().unwrap(),
+        ],
+        repo.path(),
+    );
+    let git = GitRepository::discover(repo.path())?;
+    std::fs::write(repo.path().join("file.txt"), "new\n")?;
+    // Both creating a missing target and editing an existing target leave the link unchanged.
+    for contents in ["*.txt text eol=lf\n", "*.txt -text\n"] {
+        let plan =
+            git.prepare_file(&statuses(repo.path()).remove(0), FileOperation::Stage, true)?;
+        std::fs::write(&target, contents)?;
+        assert!(plan
+            .execute()
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("Git state changed"));
+        assert!(statuses(repo.path())[0].staged.is_none());
+    }
+    Ok(())
+}
