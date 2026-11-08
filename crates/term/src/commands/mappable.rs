@@ -320,6 +320,51 @@ mod tests {
     }
 
     #[test]
+    fn descriptive_command_names_preserve_legacy_keybindings() {
+        let legacy: crate::keymap::KeyTrie = toml::from_str(
+            r#"
+            a = ["join_selections", "rotate_selections_forward", "align_view_middle"]
+            b = ["yank_main_selection_to_clipboard", "rsearch", "global_search"]
+            c = ["hsplit", "wclose", "till_prev_char"]
+            "#,
+        )
+        .unwrap();
+        let canonical: crate::keymap::KeyTrie = toml::from_str(
+            r#"
+            a = ["join_lines", "cycle_primary_selection_forward", "center_view_horizontally"]
+            b = ["yank_primary_selection_to_clipboard", "search_backward", "search_picker_in_current_working_directory"]
+            c = ["split_horizontal", "close_view", "find_till_previous_char"]
+            "#,
+        )
+        .unwrap();
+        assert_eq!(legacy, canonical);
+    }
+
+    #[test]
+    fn descriptive_typable_names_preserve_aliases_and_arguments() {
+        for (old, new) in [
+            ("hsplit notes.txt", "split-horizontal notes.txt"),
+            ("sp notes.txt", "split-horizontal notes.txt"),
+            ("vsplit notes.txt", "split-vertical notes.txt"),
+            ("vs notes.txt", "split-vertical notes.txt"),
+            ("hsplit-new", "split-horizontal-new"),
+            ("vsplit-new", "split-vertical-new"),
+            ("cd src", "change-current-working-directory src"),
+            (
+                "change-current-directory src",
+                "change-current-working-directory src",
+            ),
+            ("pwd", "show-current-working-directory"),
+            ("show-directory", "show-current-working-directory"),
+        ] {
+            assert_eq!(
+                format!(":{old}").parse::<MappableCommand>().unwrap(),
+                format!(":{new}").parse::<MappableCommand>().unwrap(),
+            );
+        }
+    }
+
+    #[test]
     fn legacy_typable_vcs_names_resolve_to_canonical_commands() {
         for (old, new) in [
             ("blame", "vcs-blame"),

@@ -46,11 +46,11 @@
 | `:primary-clipboard-paste-before` | Paste primary clipboard before selections. |
 | `:primary-clipboard-paste-replace` | Replace selections with content of system primary clipboard. |
 | `:show-clipboard-provider` | Show clipboard provider name in status bar. |
-| `:change-current-directory`, `:cd` | Change the current working directory. |
+| `:change-current-working-directory`, `:change-current-directory`, `:cd` | Change the current working directory. |
 | `:show-directory-stack` | Show the directory stack as a space-delimited string. |
 | `:push-directory`, `:pushd` | Save and then change the current directory. |
 | `:pop-directory`, `:popd` | Remove the top entry from the directory stack, and cd to the new top directory.. |
-| `:show-directory`, `:pwd` | Show the current working directory. |
+| `:show-current-working-directory`, `:show-directory`, `:pwd` | Show the current working directory. |
 | `:encoding` | Set encoding. Based on `https://encoding.spec.whatwg.org`. |
 | `:character-info`, `:char` | Get info about the character under the primary cursor. |
 | `:reload!`, `:rl!` | Discard changes and reload from the source file. |
@@ -67,10 +67,10 @@
 | `:debug-start`, `:dbg` | Start a debug session from a given template with given parameters. |
 | `:debug-remote`, `:dbg-tcp` | Connect to a debug adapter by TCP address and start a debugging session from a given template with given parameters. |
 | `:debug-eval` | Evaluate expression in current debug context. |
-| `:vsplit`, `:vs` | Open the file in a vertical split. |
-| `:vsplit-new`, `:vnew` | Open a scratch buffer in a vertical split. |
-| `:hsplit`, `:hs`, `:sp` | Open the file in a horizontal split. |
-| `:hsplit-new`, `:hnew` | Open a scratch buffer in a horizontal split. |
+| `:split-vertical`, `:vsplit`, `:vs` | Open the file in a vertical split. |
+| `:split-vertical-new`, `:vsplit-new`, `:vnew` | Open a scratch buffer in a vertical split. |
+| `:split-horizontal`, `:hsplit`, `:hs`, `:sp` | Open the file in a horizontal split. |
+| `:split-horizontal-new`, `:hsplit-new`, `:hnew` | Open a scratch buffer in a horizontal split. |
 | `:tutor` | Open the tutorial. |
 | `:goto`, `:g` | Goto line number. |
 | `:set-language`, `:lang` | Set the language of current buffer (show current language if no value specified). |
