@@ -76,7 +76,6 @@ pub(super) fn execute(cx: &mut Context, args: Args, command: Command) -> Result<
             remote: args.first().map(str::to_owned),
         }),
     };
-    cx.editor.set_status("Reading Git repository…");
     cx.jobs.callback(async move {
         let repo =
             tokio::task::spawn_blocking(move || GitRepository::discover(&scope.path)).await??;
