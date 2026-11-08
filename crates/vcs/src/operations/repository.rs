@@ -67,9 +67,7 @@ impl RepositoryOperation {
         let mut command = repo.command();
         match self {
             Self::CreateBranch { .. } => unreachable!("branch creation runs in the native worker"),
-            Self::DeleteBranch { name } => {
-                command.args(["branch", "--delete", "--", name]);
-            }
+            Self::DeleteBranch { .. } => unreachable!("branch deletion runs in the native worker"),
             Self::SwitchBranch { name } => {
                 command.args(["switch", "--no-guess", "--no-overwrite-ignore", "--", name]);
             }
@@ -323,7 +321,10 @@ impl GitRepository {
             trusted,
             "Git actions require workspace trust; run :workspace-trust first"
         );
-        let repo = if matches!(operation, RepositoryOperation::CreateBranch { .. }) {
+        let repo = if matches!(
+            operation,
+            RepositoryOperation::CreateBranch { .. } | RepositoryOperation::DeleteBranch { .. }
+        ) {
             self.open_read(true)
         } else {
             self.open(true)
@@ -408,21 +409,31 @@ impl GitRepository {
 // Only read tracking names and refspecs. The high-level remote lookup filters
 // repository-local remotes in reduced-trust workspaces, even for display.
 fn upstream_name(repo: &gix::Repository, branch: &gix::refs::FullNameRef) -> Result<String> {
+    upstream_reference(repo, branch)?
+        .map(|name| Ok(name.shorten().to_str()?.to_owned()))
+        .transpose()
+        .map(Option::unwrap_or_default)
+}
+
+pub(super) fn upstream_reference(
+    repo: &gix::Repository,
+    branch: &gix::refs::FullNameRef,
+) -> Result<Option<gix::refs::FullName>> {
     let config = repo.config_snapshot();
     let config = config.plumbing();
     let short = branch.shorten();
     let Some(remote) = config.string_by("branch", Some(short), "remote") else {
-        return Ok(String::new());
+        return Ok(None);
     };
     let Some(merge) = config.string_by("branch", Some(short), "merge") else {
-        return Ok(String::new());
+        return Ok(None);
     };
     let merge = gix::refs::FullName::try_from(merge.into_owned())?;
     if *remote == "." {
-        return Ok(merge.shorten().to_str()?.to_owned());
+        return Ok(Some(merge));
     }
     let Some(specs) = config.strings_by("remote", Some(remote.as_ref()), "fetch") else {
-        return Ok(String::new());
+        return Ok(None);
     };
     let specs = specs
         .iter()
@@ -441,14 +452,8 @@ fn upstream_name(repo: &gix::Repository, branch: &gix::refs::FullNameRef) -> Res
         .mappings
         .into_iter()
         .find_map(|mapping| mapping.rhs)
-        .map(|name| {
-            Ok(gix::refs::FullName::try_from(name.into_owned())?
-                .shorten()
-                .to_str()?
-                .to_owned())
-        })
+        .map(|name| gix::refs::FullName::try_from(name.into_owned()).map_err(Into::into))
         .transpose()
-        .map(Option::unwrap_or_default)
 }
 
 fn local_head(repo: &gix::Repository) -> Result<Option<String>> {

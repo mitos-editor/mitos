@@ -991,3 +991,199 @@ async fn branch_deletion_keeps_unmerged_and_checked_out_branches() -> Result<()>
         .is_err());
     Ok(())
 }
+
+#[tokio::test]
+async fn native_branch_deletion_removes_packed_refs_and_configuration_without_git() -> Result<()> {
+    const FIXTURE: &str = "MITOS_NATIVE_BRANCH_DELETE_FIXTURE";
+    if let Some(root) = std::env::var_os(FIXTURE) {
+        let repo = GitRepository::discover(Path::new(&root))?;
+        execute(
+            &repo,
+            RepositoryOperation::DeleteBranch {
+                name: "topic/native".into(),
+            },
+        )
+        .await?;
+        let git = repo.open_read(true)?;
+        assert!(git.try_find_reference("refs/heads/topic/native")?.is_none());
+        assert!(git
+            .config_snapshot()
+            .plumbing()
+            .sections_by_name("branch")
+            .into_iter()
+            .flatten()
+            .all(|section| section.header().subsection_name() != Some("topic/native".into())));
+        assert!(!repo
+            .common_dir
+            .join("logs/refs/heads/topic/native")
+            .exists());
+        assert_eq!(git.head_name()?.unwrap().shorten(), "main");
+        return Ok(());
+    }
+    let dir = initial()?;
+    exec_git_cmd(&["branch", "topic/native"], dir.path());
+    exec_git_cmd(&["config", "branch.topic/native.remote", "."], dir.path());
+    exec_git_cmd(
+        &["config", "branch.topic/native.merge", "refs/heads/main"],
+        dir.path(),
+    );
+    use std::io::Write;
+    std::fs::OpenOptions::new()
+        .append(true)
+        .open(dir.path().join(".git/config"))?
+        .write_all(b"\n[branch \"topic/native\"]\n\tdescription = remove this too\n")?;
+    exec_git_cmd(&["pack-refs", "--all"], dir.path());
+    let no_programs = tempfile::tempdir()?;
+    let child = std::process::Command::new(std::env::current_exe()?)
+        .args(["--exact", "operations::repository::tests::native_branch_deletion_removes_packed_refs_and_configuration_without_git", "--nocapture"])
+        .env(FIXTURE, dir.path()).env("PATH", no_programs.path()).env("GIT_EXEC_PATH", no_programs.path()).output()?;
+    ensure!(
+        child.status.success(),
+        "{}\n{}",
+        String::from_utf8_lossy(&child.stdout),
+        String::from_utf8_lossy(&child.stderr)
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn native_branch_deletion_uses_upstream_merge_state_and_preserves_configuration_on_failure(
+) -> Result<()> {
+    let dir = initial()?;
+    let repo = GitRepository::discover(dir.path())?;
+    exec_git_cmd(&["checkout", "-b", "topic"], dir.path());
+    std::fs::write(dir.path().join("file.txt"), "topic\n")?;
+    create_commit_with_message(dir.path(), true, "topic");
+    exec_git_cmd(&["branch", "upstream"], dir.path());
+    exec_git_cmd(&["checkout", "main"], dir.path());
+    exec_git_cmd(&["config", "branch.topic.remote", "."], dir.path());
+    exec_git_cmd(
+        &["config", "branch.topic.merge", "refs/heads/main"],
+        dir.path(),
+    );
+    let config = std::fs::read(repo.common_dir.join("config"))?;
+    assert!(execute(
+        &repo,
+        RepositoryOperation::DeleteBranch {
+            name: "topic".into()
+        }
+    )
+    .await
+    .is_err());
+    assert_eq!(std::fs::read(repo.common_dir.join("config"))?, config);
+    // Match git branch -d: the upstream, when it exists, takes precedence over HEAD.
+    exec_git_cmd(
+        &["config", "branch.topic.merge", "refs/heads/upstream"],
+        dir.path(),
+    );
+    let lock = repo.common_dir.join("config.lock");
+    std::fs::write(&lock, "locked")?;
+    assert!(execute(
+        &repo,
+        RepositoryOperation::DeleteBranch {
+            name: "topic".into()
+        }
+    )
+    .await
+    .is_err());
+    assert!(repo
+        .open_read(true)?
+        .try_find_reference("refs/heads/topic")?
+        .is_some());
+    std::fs::remove_file(lock)?;
+    execute(
+        &repo,
+        RepositoryOperation::DeleteBranch {
+            name: "topic".into(),
+        },
+    )
+    .await?;
+    assert!(!repo
+        .branches()
+        .await?
+        .iter()
+        .any(|branch| branch.name == "topic"));
+    // A branch merged into HEAD but not into its upstream must also be kept.
+    exec_git_cmd(&["checkout", "upstream"], dir.path());
+    exec_git_cmd(&["branch", "keep"], dir.path());
+    exec_git_cmd(&["config", "branch.keep.remote", "."], dir.path());
+    exec_git_cmd(
+        &["config", "branch.keep.merge", "refs/heads/main"],
+        dir.path(),
+    );
+    assert!(execute(
+        &repo,
+        RepositoryOperation::DeleteBranch {
+            name: "keep".into()
+        }
+    )
+    .await
+    .is_err());
+    exec_git_cmd(
+        &["config", "branch.keep.merge", "refs/heads/missing"],
+        dir.path(),
+    );
+    execute(
+        &repo,
+        RepositoryOperation::DeleteBranch {
+            name: "keep".into(),
+        },
+    )
+    .await?;
+    exec_git_cmd(
+        &["symbolic-ref", "refs/heads/alias", "refs/heads/main"],
+        dir.path(),
+    );
+    assert!(execute(
+        &repo,
+        RepositoryOperation::DeleteBranch {
+            name: "alias".into()
+        }
+    )
+    .await
+    .is_err());
+    assert!(repo
+        .open_read(true)?
+        .try_find_reference("refs/heads/main")?
+        .is_some());
+    Ok(())
+}
+
+#[tokio::test]
+async fn native_branch_deletion_keeps_branches_reserved_by_detached_worktrees() -> Result<()> {
+    let dir = initial()?;
+    let repo = GitRepository::discover(dir.path())?;
+    exec_git_cmd(&["branch", "keep"], dir.path());
+    let parent = tempfile::tempdir()?;
+    let linked = parent.path().join("linked");
+    execute(
+        &repo,
+        RepositoryOperation::CreateWorktree {
+            path: linked.clone(),
+            branch: None,
+        },
+    )
+    .await?;
+    let git = GitRepository::discover(&linked)?.git_dir;
+    for (file, contents) in [
+        ("rebase-merge/head-name", "refs/heads/keep\n"),
+        ("rebase-apply/head-name", "refs/heads/keep\n"),
+        ("BISECT_START", "keep\n"),
+        ("rebase-merge/update-refs", "refs/heads/keep\n0000000000000000000000000000000000000000\n0000000000000000000000000000000000000000\n"),
+    ] {
+        let path = git.join(file);
+        std::fs::create_dir_all(path.parent().unwrap())?;
+        std::fs::write(&path, contents)?;
+        assert!(execute(&repo, RepositoryOperation::DeleteBranch { name: "keep".into() }).await.is_err(), "{file}");
+        assert!(repo.open_read(true)?.try_find_reference("refs/heads/keep")?.is_some());
+        std::fs::remove_file(&path)?;
+    }
+    execute(
+        &repo,
+        RepositoryOperation::DeleteBranch {
+            name: "keep".into(),
+        },
+    )
+    .await?;
+    Ok(())
+}

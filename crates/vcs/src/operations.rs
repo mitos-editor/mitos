@@ -145,11 +145,16 @@ impl PreparedOperation {
             {
                 return Ok(None);
             }
-            if let Operation::Repository(RepositoryOperation::CreateBranch { name }) =
-                &self.operation
-            {
-                self.create_branch(name)?;
-                return Ok(None);
+            match &self.operation {
+                Operation::Repository(RepositoryOperation::CreateBranch { name }) => {
+                    self.create_branch(name)?;
+                    return Ok(None);
+                }
+                Operation::Repository(RepositoryOperation::DeleteBranch { name }) => {
+                    self.delete_branch(name)?;
+                    return Ok(None);
+                }
+                _ => {}
             }
             Ok::<_, anyhow::Error>(Some(self))
         })
