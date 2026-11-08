@@ -3,7 +3,7 @@ use super::*;
 use gix::bstr::ByteSlice;
 
 impl PreparedOperation {
-    pub(super) fn stage(&self) -> Result<bool> {
+    pub(super) fn stage(&self) -> Result<NativeOutcome> {
         let Operation::File { paths, .. } = &self.operation else {
             unreachable!()
         };
@@ -17,7 +17,7 @@ impl PreparedOperation {
         self.ensure_current()?;
         let mut index = (*repo.index_or_empty()?).clone();
         if !index::can_write(&repo, &index) {
-            return Ok(false);
+            return Ok(NativeOutcome::Unsupported("index format"));
         }
         let config = repo.config_snapshot();
         let ignore_case = config.boolean("core.ignoreCase").unwrap_or(false);
@@ -38,7 +38,7 @@ impl PreparedOperation {
                 gix::validate::path::component(component.as_bstr(), None, Default::default())
                     .is_err()
             }) {
-                return Ok(false);
+                return Ok(NativeOutcome::Unsupported("invalid native path"));
             }
             for entry in index.entries() {
                 let existing = entry.path(&index);
@@ -56,7 +56,9 @@ impl PreparedOperation {
                                 | gix::index::entry::Flags::SKIP_WORKTREE,
                         ))
                 {
-                    return Ok(false);
+                    return Ok(NativeOutcome::Unsupported(
+                        "hidden entry or submodule transition",
+                    ));
                 }
                 if existing == path.as_bstr() {
                     if entry.flags.intersects(
@@ -64,7 +66,9 @@ impl PreparedOperation {
                             | gix::index::entry::Flags::SKIP_WORKTREE,
                     ) || (!symlinks && entry.mode == gix::index::entry::Mode::SYMLINK)
                     {
-                        return Ok(false);
+                        return Ok(NativeOutcome::Unsupported(
+                            "hidden entry or symlink configuration",
+                        ));
                     }
                 } else if ignore_case
                     && existing
@@ -73,7 +77,7 @@ impl PreparedOperation {
                         .take_while(|(left, right)| left.eq_ignore_ascii_case(right))
                         .any(|(left, right)| left != right)
                 {
-                    return Ok(false);
+                    return Ok(NativeOutcome::Unsupported("case alias"));
                 }
             }
             let metadata = match std::fs::symlink_metadata(
@@ -92,7 +96,9 @@ impl PreparedOperation {
             };
             if let Some(metadata) = metadata {
                 if metadata.is_dir() || (!symlinks && metadata.is_symlink()) {
-                    return Ok(false);
+                    return Ok(NativeOutcome::Unsupported(
+                        "directory or symlink configuration",
+                    ));
                 }
                 if metadata.is_symlink()
                     && path
@@ -100,7 +106,7 @@ impl PreparedOperation {
                         .next()
                         .is_some_and(|name| name.eq_ignore_ascii_case(b".gitmodules"))
                 {
-                    return Ok(false);
+                    return Ok(NativeOutcome::Unsupported("symlinked Git modules file"));
                 }
                 ensure!(
                     metadata.is_file() || metadata.is_symlink(),
@@ -182,6 +188,6 @@ impl PreparedOperation {
         index.sort_entries();
         self.ensure_current()?;
         index::write(&mut index, lock)?;
-        Ok(true)
+        Ok(NativeOutcome::Applied(()))
     }
 }

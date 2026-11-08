@@ -557,7 +557,9 @@ fn native_directory_file_transitions_match_git_and_keep_unrelated_staged_edits()
     // Calling the native entry points prevents a Git fallback from hiding missing support.
     assert!(repo
         .prepare_file(&status, FileOperation::Stage, true)?
-        .stage()?);
+        .stage()?
+        .into_applied()
+        .is_some());
     let native = entries(&git)?;
     std::fs::write(git.index_path(), original)?;
     exec_git_cmd(
@@ -578,7 +580,9 @@ fn native_directory_file_transitions_match_git_and_keep_unrelated_staged_edits()
     };
     assert!(repo
         .prepare_file(&status, FileOperation::Unstage, true)?
-        .unstage()?);
+        .unstage()?
+        .into_applied()
+        .is_some());
     let native = entries(&git)?;
     std::fs::write(git.index_path(), staged)?;
     exec_git_cmd(
@@ -693,9 +697,11 @@ fn native_stage_keeps_hidden_descendants_when_a_directory_becomes_a_file() -> Re
     ] {
         exec_git_cmd(&["update-index", enable, "directory/hidden.txt"], root);
         let before = std::fs::read(git.index_path())?;
-        assert!(!repo
+        assert!(repo
             .prepare_file(&status, FileOperation::Stage, true)?
-            .stage()?);
+            .stage()?
+            .into_applied()
+            .is_none());
         assert_eq!(std::fs::read(git.index_path())?, before);
         exec_git_cmd(&["update-index", disable, "directory/hidden.txt"], root);
     }
@@ -733,9 +739,11 @@ fn native_file_to_directory_stages_only_selected_descendants() -> Result<()> {
     ] {
         exec_git_cmd(&["update-index", enable, "file.txt"], root);
         let before = std::fs::read(git.index_path())?;
-        assert!(!repo
+        assert!(repo
             .prepare_file(&status("file.txt/selected.txt"), FileOperation::Stage, true)?
-            .stage()?);
+            .stage()?
+            .into_applied()
+            .is_none());
         assert_eq!(std::fs::read(git.index_path())?, before);
         exec_git_cmd(&["update-index", disable, "file.txt"], root);
     }
@@ -747,7 +755,9 @@ fn native_file_to_directory_stages_only_selected_descendants() -> Result<()> {
     assert_eq!(std::fs::read(git.index_path())?, before);
     assert!(repo
         .prepare_file(&status("file.txt/selected.txt"), FileOperation::Stage, true)?
-        .stage()?);
+        .stage()?
+        .into_applied()
+        .is_some());
     let entries = || -> Result<Vec<_>> {
         let index = git.open_index()?;
         Ok(index
@@ -781,6 +791,48 @@ fn native_file_to_directory_stages_only_selected_descendants() -> Result<()> {
         git.find_blob(index.entry_by_path("other.txt".into()).unwrap().id)?
             .data,
         b"unrelated staged\n"
+    );
+    Ok(())
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn failed_native_filters_are_not_retried_with_git() -> Result<()> {
+    let dir = initial();
+    let root = dir.path();
+    std::fs::write(root.join(".gitattributes"), "file.txt filter=once\n")?;
+    exec_git_cmd(
+        &[
+            "config",
+            "filter.once.clean",
+            "echo called >> filter-calls; exit 1",
+        ],
+        root,
+    );
+    exec_git_cmd(&["config", "filter.once.required", "true"], root);
+    std::fs::write(root.join("file.txt"), "local changes\n")?;
+    let repo = GitRepository::discover(root)?;
+    let git = repo.open_read(true)?;
+    let before = std::fs::read(git.index_path())?;
+    let status = FileStatus {
+        staged: None,
+        unstaged: Some(FileChange::Modified {
+            path: root.join("file.txt"),
+        }),
+    };
+    assert!(repo
+        .prepare_file(&status, FileOperation::Stage, true)?
+        .execute()
+        .await
+        .is_err());
+    assert_eq!(
+        std::fs::read_to_string(root.join("filter-calls"))?,
+        "called\n"
+    );
+    assert_eq!(std::fs::read(git.index_path())?, before);
+    assert_eq!(
+        std::fs::read_to_string(root.join("file.txt"))?,
+        "local changes\n"
     );
     Ok(())
 }
