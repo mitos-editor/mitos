@@ -524,9 +524,23 @@ The menu also includes other available code actions. You can edit the text direc
 Press `u` to undo a choice. If you keep both sides, review and edit the combined
 text. When you have resolved every conflict, save the file and stage it.
 
-The editor labels each side of the conflict. To see or edit the marker lines,
-run `:vcs-conflict-toggle-markers`. Run it again to restore the headings. This
-affects only the current view.
+Git's marker lines stay visible and editable. Mitos adds virtual
+`(Current Change)` and `(Incoming Change)` labels to the opening and closing
+markers and tints the blocks using your theme. In three-way conflicts, the
+`|||||||` and `=======` separator lines keep their normal colors.
+
+The [conflict theme scopes](themes.md#interface) can set an explicit block
+background. Otherwise, RGB themes derive a subtle tint from the side's foreground
+color and `ui.background`. Themes with transparent or terminal-palette backgrounds
+need explicit conflict backgrounds to show a tint.
+
+Each section starts at the same line number. Numbering after a conflict advances
+by its longest section; marker lines have no number. Relative numbers still count
+cursor movements through the file.
+
+Run `:vcs-conflict-toggle-markers` to hide the virtual labels and show physical
+file line numbers. Run it again to restore the conflict presentation. This affects
+only the current view.
 
 You can also resolve conflicts with commands:
 

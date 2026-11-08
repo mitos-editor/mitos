@@ -1,9 +1,14 @@
 //! A document-owned interpretation shared by conflict commands and presentation.
 
+use std::ops::Range;
+
 use crate::{Document, ViewId};
-use editor_core::Rope;
+use editor_core::{
+    highlight::{Highlight, OverlayHighlights},
+    Rope,
+};
 use stdx::rope::RopeExt as _;
-use text_layout::text_annotations::{LineReplacement, TextAnnotations};
+use text_layout::text_annotations::{InlineAnnotation, TextAnnotations};
 use vcs::conflict::{self, Conflict};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -19,23 +24,36 @@ impl ConflictSide {
         match self {
             Self::Current => "ui.virtual.conflict.current",
             Self::Base => "ui.virtual.conflict.base",
-            Self::Incoming => "ui.virtual.conflict.incoming",
-            Self::End => "ui.virtual.conflict.end",
+            Self::Incoming | Self::End => "ui.virtual.conflict.incoming",
         }
     }
     pub fn fallback(self) -> &'static str {
         match self {
-            Self::Current => "info",
-            Self::Incoming => "hint",
+            Self::Current => "diff.plus",
+            Self::Incoming | Self::End => "info",
             _ => "ui.text.inactive",
         }
+    }
+    fn highlight(self, theme: &theme::Theme) -> Option<Highlight> {
+        theme
+            .find_highlight_exact(self.scope())
+            .or_else(|| theme.find_highlight_exact("ui.virtual.conflict"))
+            .or_else(|| theme.find_highlight(self.fallback()))
     }
 }
 
 pub struct ConflictMarker {
     pub line: usize,
     pub side: ConflictSide,
-    pub replacement: LineReplacement,
+    /// Source character offsets, excluding the line ending.
+    pub range: Range<usize>,
+}
+
+struct ConflictLineNumbers {
+    lines: Range<usize>,
+    sections: [Range<usize>; 3],
+    display_start: usize,
+    removed_lines: usize,
 }
 
 #[derive(Default)]
@@ -43,6 +61,8 @@ pub struct ConflictPresentation {
     pub regions: Vec<Conflict>,
     pub markers: Vec<ConflictMarker>,
     pub error: Option<String>,
+    line_numbers: Vec<ConflictLineNumbers>,
+    labels: [Vec<InlineAnnotation>; 2],
 }
 
 impl ConflictPresentation {
@@ -75,55 +95,60 @@ impl ConflictPresentation {
             }
         };
         let mut markers = Vec::new();
-        let label = |value: &str| {
-            value
-                .chars()
-                .filter(|c| !c.is_control() && !matches!(c, '\u{2028}' | '\u{2029}'))
-                .take(100)
-                .collect::<String>()
-        };
-        for (index, region) in regions.iter().enumerate() {
-            let items = [
-                (
-                    Some(&region.markers.current),
-                    ConflictSide::Current,
-                    format!(
-                        "── Conflict {} of {} · Current: {} ──",
-                        index + 1,
-                        regions.len(),
-                        label(&region.current_label)
-                    ),
-                ),
-                (
-                    region.markers.base.as_ref(),
-                    ConflictSide::Base,
-                    "── Base ──".into(),
-                ),
-                (
-                    Some(&region.markers.incoming),
-                    ConflictSide::Incoming,
-                    format!("── Incoming: {} ──", label(&region.incoming_label)),
-                ),
-                (
-                    Some(&region.markers.end),
-                    ConflictSide::End,
-                    "── End conflict ──".into(),
-                ),
+        let mut labels: [Vec<InlineAnnotation>; 2] = Default::default();
+        let mut line_numbers = Vec::with_capacity(regions.len());
+        let mut removed_lines = 0;
+        for region in &regions {
+            let section_lines = |range: &Range<usize>| {
+                text.byte_to_line_idx(range.start, stdx::rope::LINE_TYPE)
+                    ..text.byte_to_line_idx(range.end, stdx::rope::LINE_TYPE)
+            };
+            let sections = [
+                section_lines(&region.current),
+                region.base.as_ref().map_or(0..0, section_lines),
+                section_lines(&region.incoming),
             ];
-            for (range, side, heading) in items {
+            let lines = text.byte_to_line_idx(region.whole.start, stdx::rope::LINE_TYPE)
+                ..text.byte_to_line_idx(region.markers.end.start, stdx::rope::LINE_TYPE) + 1;
+            let display_start = lines.start - removed_lines;
+            let longest = sections
+                .iter()
+                .map(|section| section.len())
+                .max()
+                .unwrap_or(0);
+            removed_lines += lines.len() - longest;
+            line_numbers.push(ConflictLineNumbers {
+                lines,
+                sections,
+                display_start,
+                removed_lines,
+            });
+            let items = [
+                (Some(&region.markers.current), ConflictSide::Current),
+                (region.markers.base.as_ref(), ConflictSide::Base),
+                (Some(&region.markers.incoming), ConflictSide::Incoming),
+                (Some(&region.markers.end), ConflictSide::End),
+            ];
+            for (range, side) in items {
                 let Some(range) = range else {
                     continue;
                 };
                 let start = text.byte_to_char_idx(range.start);
                 let content = source[range.clone()].trim_end_matches(['\r', '\n']);
-                let replacement = LineReplacement {
-                    range: start..start + content.chars().count(),
-                    text: heading.clone().into(),
-                };
+                let range = start..start + content.chars().count();
+                match side {
+                    ConflictSide::Current => {
+                        labels[0].push(InlineAnnotation::new(range.end, " (Current Change)"))
+                    }
+                    ConflictSide::End => {
+                        labels[1].push(InlineAnnotation::new(range.end, " (Incoming Change)"))
+                    }
+                    _ => {}
+                }
                 markers.push(ConflictMarker {
                     line: text.char_to_line_idx(start),
                     side,
-                    replacement,
+                    range,
                 });
             }
         }
@@ -131,7 +156,42 @@ impl ConflictPresentation {
             regions,
             markers,
             error: None,
+            line_numbers,
+            labels,
         }
+    }
+
+    /// Zero-based gutter number. Conflict sections share their first number;
+    /// following text advances by the longest section, excluding marker lines.
+    /// Markers themselves use that first number when serving as a fold header.
+    pub fn line_number(&self, line: usize) -> usize {
+        let index = self
+            .line_numbers
+            .partition_point(|region| region.lines.end <= line);
+        if let Some(region) = self
+            .line_numbers
+            .get(index)
+            .filter(|region| region.lines.contains(&line))
+        {
+            let offset = region
+                .sections
+                .iter()
+                .find(|section| section.contains(&line))
+                .map_or(0, |section| line - section.start);
+            return region.display_start + offset;
+        }
+        line - index
+            .checked_sub(1)
+            .map_or(0, |index| self.line_numbers[index].removed_lines)
+    }
+
+    /// Number of document lines after overlapping conflict sections in the gutter.
+    pub fn line_count(&self, physical_lines: usize) -> usize {
+        physical_lines
+            - self
+                .line_numbers
+                .last()
+                .map_or(0, |region| region.removed_lines)
     }
 
     pub fn active(&self) -> bool {
@@ -150,17 +210,18 @@ impl ConflictPresentation {
         if !region.whole.contains(&pos) {
             return None;
         }
+        // In diff3, only the outer markers belong to the colored blocks.
+        if let Some(base) = &region.markers.base
+            && (base.contains(&pos) || region.markers.incoming.contains(&pos))
+        {
+            return None;
+        }
         if region.current.contains(&pos) || region.markers.current.contains(&pos) {
             Some(ConflictSide::Current)
         } else if region
             .base
             .as_ref()
             .is_some_and(|range| range.contains(&pos))
-            || region
-                .markers
-                .base
-                .as_ref()
-                .is_some_and(|range| range.contains(&pos))
         {
             Some(ConflictSide::Base)
         } else if region.incoming.contains(&pos) || region.markers.incoming.contains(&pos) {
@@ -184,7 +245,7 @@ impl Document {
         })
     }
 
-    pub fn conflict_marker_hidden(&self, view: ViewId, line: usize) -> bool {
+    pub fn conflict_marker_line_number_hidden(&self, view: ViewId, line: usize) -> bool {
         if self.raw_conflict_markers(view) {
             return false;
         }
@@ -197,12 +258,36 @@ impl Document {
     }
 
     fn conflict_marker_unfolded(&self, view: ViewId, marker: &ConflictMarker) -> bool {
-        let range = &marker.replacement.range;
+        let range = &marker.range;
         let folds = self.folded_ranges(view);
         let next = folds.partition_point(|fold| fold.range.end <= range.start);
         folds
             .get(next)
             .is_none_or(|fold| fold.range.start >= range.end)
+    }
+
+    /// Color source markers without replacing their text or cursor positions.
+    pub fn conflict_marker_highlights(
+        &self,
+        visible: Range<usize>,
+        theme: &theme::Theme,
+    ) -> OverlayHighlights {
+        let model = self.conflict_presentation();
+        let first = model
+            .markers
+            .partition_point(|marker| marker.range.end <= visible.start);
+        let highlights = model.markers[first..]
+            .iter()
+            .take_while(|marker| marker.range.start < visible.end)
+            .filter_map(|marker| {
+                let highlight = model
+                    .side_at_line(self.text(), marker.line)
+                    .and_then(|side| side.highlight(theme))
+                    .or_else(|| theme.find_highlight_exact("ui.text"))?;
+                Some((highlight, marker.range.clone()))
+            })
+            .collect();
+        OverlayHighlights::Heterogenous { highlights }
     }
 
     pub fn annotate_conflicts<'a>(
@@ -214,16 +299,14 @@ impl Document {
         if self.raw_conflict_markers(view) {
             return;
         }
-        for marker in &self.conflict_presentation().markers {
-            if !self.conflict_marker_unfolded(view, marker) {
-                continue;
-            }
-            let highlight = theme.and_then(|theme| {
-                theme
-                    .find_highlight(marker.side.scope())
-                    .or_else(|| theme.find_highlight(marker.side.fallback()))
-            });
-            annotations.add_line_replacement(&marker.replacement, highlight);
+        for (labels, side) in self
+            .conflict_presentation()
+            .labels
+            .iter()
+            .zip([ConflictSide::Current, ConflictSide::End])
+        {
+            let highlight = theme.and_then(|theme| side.highlight(theme));
+            annotations.add_inline_annotations(labels, highlight);
         }
     }
 }
@@ -231,6 +314,86 @@ impl Document {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn line_numbers_overlap_sections_and_accumulate_across_conflicts() {
+        for newline in ["\n", "\r\n"] {
+            let source = [
+                "préfix",
+                "<<<<<<< HEAD",
+                "a",
+                "b",
+                "||||||| base",
+                "old a",
+                "old b",
+                "old c",
+                "=======",
+                "界",
+                "two",
+                "three",
+                "four",
+                ">>>>>>> topic",
+                "middle",
+                "<<<<<<< HEAD",
+                "=======",
+                "incoming",
+                ">>>>>>> topic",
+                "suffix",
+            ]
+            .join(newline);
+            let model = ConflictPresentation::new(&Rope::from(source));
+            assert!(model.error.is_none());
+            for (physical, displayed) in [
+                (0, 0),
+                (2, 1),
+                (3, 2),
+                (5, 1),
+                (6, 2),
+                (7, 3),
+                (9, 1),
+                (10, 2),
+                (11, 3),
+                (12, 4),
+                (14, 5),
+                (17, 6),
+                (19, 7),
+            ] {
+                assert_eq!(model.line_number(physical), displayed, "line {physical}");
+            }
+            assert_eq!(model.line_count(20), 8);
+        }
+    }
+
+    #[test]
+    fn line_numbers_use_current_or_base_when_they_are_longest() {
+        for source in [
+            "<<<<<<< HEAD\na\nb\n||||||| base\nold\n=======\nc\n>>>>>>> topic\nsuffix",
+            "<<<<<<< HEAD\na\n||||||| base\nold a\nold b\n=======\nc\n>>>>>>> topic\nsuffix",
+        ] {
+            let text = Rope::from(source);
+            let model = ConflictPresentation::new(&text);
+            assert_eq!(
+                model.line_number(text.len_lines(stdx::rope::LINE_TYPE) - 1),
+                2
+            );
+            assert_eq!(model.line_count(text.len_lines(stdx::rope::LINE_TYPE)), 3);
+        }
+        for ending in ["", "\n"] {
+            let text = Rope::from(format!(
+                "prefix\n<<<<<<< HEAD\n=======\n>>>>>>> topic{ending}"
+            ));
+            let model = ConflictPresentation::new(&text);
+            assert!(model.error.is_none());
+            // Empty sides contribute no lines; an optional trailing EOF row remains.
+            assert_eq!(
+                model.line_count(text.len_lines(stdx::rope::LINE_TYPE)),
+                1 + usize::from(!ending.is_empty())
+            );
+        }
+        let model = ConflictPresentation::new(&Rope::from("<<<<<<< HEAD\nbroken\n"));
+        assert_eq!(model.line_number(2), 2);
+        assert_eq!(model.line_count(3), 3);
+    }
 
     #[test]
     fn marker_spans_preserve_unicode_crlf_custom_width_and_empty_sides() {
@@ -248,12 +411,25 @@ mod tests {
             [1, 2, 4, 6]
         );
         for marker in &model.markers {
-            let source = text
-                .slice_chars(marker.replacement.range.clone())
-                .to_string();
+            let source = text.slice_chars(marker.range.clone()).to_string();
+            let label = match marker.side {
+                ConflictSide::Current => Some(" (Current Change)"),
+                ConflictSide::End => Some(" (Incoming Change)"),
+                _ => None,
+            };
+            let annotation = model
+                .labels
+                .iter()
+                .flatten()
+                .find(|label| label.char_idx == marker.range.end);
+            assert_eq!(annotation.map(|label| label.text.as_str()), label);
             assert!(!source.contains(['\r', '\n']));
             assert!(source.len() >= 8);
-            assert_eq!(model.side_at_line(&text, marker.line), Some(marker.side));
+            let side = match marker.side {
+                ConflictSide::Base | ConflictSide::Incoming => None,
+                side => Some(side),
+            };
+            assert_eq!(model.side_at_line(&text, marker.line), side);
         }
         assert_eq!(model.side_at_line(&text, 5), Some(ConflictSide::Incoming));
         assert_eq!(model.side_at_line(&text, 0), None);

@@ -248,6 +248,8 @@ fn line_numbers<'doc>(
     let current_line = layout.block_line_at_pos(doc.selection(view.id).primary().cursor(text));
 
     let view_id = view.id;
+    let raw_conflict_markers = doc.raw_conflict_markers(view_id);
+    let conflicts = doc.conflict_presentation();
     let line_number = editor.config().line_number;
     let folds = doc.folded_ranges(view.id);
     let wrap_indicator = editor
@@ -263,7 +265,7 @@ fn line_numbers<'doc>(
 
     Box::new(
         move |line: usize, selected: bool, first_visual_line: bool, out: &mut String| {
-            if doc.conflict_marker_hidden(view_id, line) {
+            if doc.conflict_marker_line_number_hidden(view_id, line) {
                 return None;
             }
             if line == last_line_in_view && !draw_last {
@@ -280,8 +282,10 @@ fn line_numbers<'doc>(
 
                 let display_num = if relative {
                     text_layout::movement::document_line_distance(text, current_line, line, folds)
-                } else {
+                } else if raw_conflict_markers {
                     line + 1
+                } else {
+                    conflicts.line_number(line) + 1
                 };
 
                 let style = if selected && is_focused {

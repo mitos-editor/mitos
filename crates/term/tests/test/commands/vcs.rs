@@ -1176,8 +1176,9 @@ async fn conflicted_file_preview_shows_sections_and_tracks_unsaved_resolution() 
     let index = std::fs::read(repo.join(".git/index"))?;
     let mut app = AppBuilder::new().build()?;
     press_keys(&mut app, "<space>gsfile.txt").await?;
-    wait_for_review_screen(&mut app, "Conflicts · file.txt", "Current: HEAD").await?;
-    assert!(!review_screen(&app).contains("<<<<<<<"));
+    wait_for_review_screen(&mut app, "Conflicts · file.txt", "(Current Change)").await?;
+    assert!(review_screen(&app).contains("<<<<<<< HEAD"));
+    assert!(review_screen(&app).contains("(Incoming Change)"));
     press_keys(&mut app, "<A-n><A-p>").await?;
     wait_for_review_screen(&mut app, "Conflicts · file.txt", "theirs").await?;
     assert!(!review_screen(&app).contains("Unmerged file"));
@@ -1252,7 +1253,7 @@ async fn conflict_source_opens_the_index_stage_in_a_readonly_split() -> anyhow::
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn conflict_headings_stay_stable_during_navigation_and_follow_undo() -> anyhow::Result<()> {
+async fn conflict_markers_stay_literal_during_navigation_and_follow_undo() -> anyhow::Result<()> {
     let original =
         "préfix\n<<<<<<< HEAD\nours\n||||||| base\nold\n=======\ntheirs\n>>>>>>> topic\nsuffix\n";
     let (dir, path) = committed_file()?;
@@ -1261,24 +1262,28 @@ async fn conflict_headings_stay_stable_during_navigation_and_follow_undo() -> an
     // The idle test pump does not request the initial frame like event_loop does.
     app.handle_editor_event(view::editor::EditorEvent::Redraw)
         .await;
-    wait_for_review_screen(&mut app, "Current: HEAD", "Incoming: topic").await?;
+    wait_for_review_screen(&mut app, "<<<<<<< HEAD", ">>>>>>> topic").await?;
     let screen = review_screen(&app);
-    assert!(screen.contains("Current: HEAD"), "{screen}");
-    assert!(screen.contains("Incoming: topic"));
-    assert!(screen.contains("Base"));
-    assert!(!screen.contains("<<<<<<<"));
-    assert!(!screen.contains("======="));
+    assert!(screen.contains("<<<<<<< HEAD"), "{screen}");
+    assert!(screen.contains(">>>>>>> topic"));
+    assert!(screen.contains("||||||| base"));
+    assert!(screen.contains("<<<<<<< HEAD (Current Change)"));
+    assert!(screen.contains(">>>>>>> topic (Incoming Change)"));
+    assert!(!screen.contains("======= (Incoming Change)"));
+    assert!(!screen.contains("Current:"));
+    assert!(!screen.contains("Incoming:"));
+    assert!(screen.contains("======="));
     assert!(screen.contains("│"));
     assert!(!screen.contains("▍"));
     assert_eq!(current_ref!(app.editor).1.text().to_string(), original);
 
-    // Navigating through labels must not reveal raw markers or lose the caret.
+    // Navigating and toggling decorations must preserve literal markers and the caret.
     press_keys(&mut app, "]mlll").await?;
-    assert!(!review_screen(&app).contains("<<<<<<< HEAD"));
+    assert!(review_screen(&app).contains("<<<<<<< HEAD"));
     assert!(app.editor.cursor().0.is_some());
     press_keys(&mut app, "6j").await?;
-    assert!(review_screen(&app).contains("End conflict"));
-    assert!(!review_screen(&app).contains(">>>>>>> topic"));
+    assert!(!review_screen(&app).contains("End conflict"));
+    assert!(review_screen(&app).contains(">>>>>>> topic"));
     assert!(app.editor.cursor().0.is_some());
     press_keys(&mut app, "]mj").await?;
     press_keys(&mut app, ":vcs-conflict-toggle-markers<ret>").await?;
@@ -1287,6 +1292,8 @@ async fn conflict_headings_stay_stable_during_navigation_and_follow_undo() -> an
     assert!(current_ref!(app.editor)
         .1
         .raw_conflict_markers(current_ref!(app.editor).0.id));
+    assert!(!review_screen(&app).contains("(Current Change)"));
+    assert!(!review_screen(&app).contains("(Incoming Change)"));
     let raw_view = current_ref!(app.editor).0.id;
     press_keys(&mut app, "<C-w>v").await?;
     let split_view = current_ref!(app.editor).0.id;
@@ -1295,17 +1302,17 @@ async fn conflict_headings_stay_stable_during_navigation_and_follow_undo() -> an
     assert!(current_ref!(app.editor).1.raw_conflict_markers(raw_view));
     press_keys(&mut app, ":q<ret>").await?;
     press_keys(&mut app, ":vcs-conflict-toggle-markers<ret>").await?;
-    assert!(!review_screen(&app).contains("<<<<<<<"));
+    assert!(review_screen(&app).contains("<<<<<<<"));
     press_keys(&mut app, ":vcs-conflict-resolve incoming<ret>").await?;
     assert!(!current_ref!(app.editor).1.conflict_presentation().active());
-    assert!(!review_screen(&app).contains("Current: HEAD"));
+    assert!(!review_screen(&app).contains("<<<<<<< HEAD"));
     press_keys(&mut app, "u").await?;
     assert_eq!(current_ref!(app.editor).1.text().to_string(), original);
     assert!(current_ref!(app.editor).1.conflict_presentation().active());
     press_keys(&mut app, "gg").await?;
-    assert!(review_screen(&app).contains("Current: HEAD"));
+    assert!(review_screen(&app).contains("<<<<<<< HEAD"));
 
-    // Breaking a marker invalidates every heading; undo rebuilds the model.
+    // Breaking a marker invalidates the presentation; undo rebuilds the model.
     press_keys(&mut app, "]miX<esc>").await?;
     assert!(current_ref!(app.editor)
         .1
@@ -1320,7 +1327,7 @@ async fn conflict_headings_stay_stable_during_navigation_and_follow_undo() -> an
     assert!(requested_actions(&mut app).await?.is_empty());
     press_keys(&mut app, "ugg").await?;
     assert_eq!(current_ref!(app.editor).1.text().to_string(), original);
-    assert!(review_screen(&app).contains("Current: HEAD"));
+    assert!(review_screen(&app).contains("<<<<<<< HEAD"));
     assert_eq!(std::fs::read_to_string(&path)?, original);
     git(dir.path(), &["diff", "--cached", "--exit-code"]);
     assert!(app.close().await.is_empty());
@@ -1394,5 +1401,162 @@ async fn conflict_navigation_counts_wrap_and_resolution_macros_replay() -> anyho
     press_keys(&mut app, "uu").await?;
     assert_eq!(current_ref!(app.editor).1.text().to_string(), original);
     assert!(app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn conflict_line_numbers_share_a_start_and_advance_by_the_longest_side() -> anyhow::Result<()>
+{
+    let original = "préfix\n<<<<<<< HEAD\ncurrent one\ncurrent two\n||||||| base\nbase one\nbase two\nbase three\n=======\nincoming one\nincoming two\nincoming three\nincoming four\n>>>>>>> topic\nsuffix\n";
+    let (_dir, path) = committed_file()?;
+    std::fs::write(&path, original)?;
+    let mut config = test_config();
+    config.editor.gutters.layout = vec![editor_config::GutterType::LineNumbers];
+    config.editor.gutters.line_numbers.min_width = 1;
+    let mut app = AppBuilder::new()
+        .with_file(&path, None)
+        .with_config(config)
+        .build()?;
+    app.handle_editor_event(view::editor::EditorEvent::Redraw)
+        .await;
+    wait_for_review_screen(&mut app, "(Current Change)", "(Incoming Change)").await?;
+    let numbers = |app: &TestApplication| {
+        let (view, doc) = current_ref!(app.editor);
+        let area = view.inner_area(doc);
+        let backend = app.terminal_backend();
+        (0..15)
+            .map(|row| {
+                (view.area.x..area.x)
+                    .map(|x| backend.buffer()[(x, area.y + row)].symbol())
+                    .collect::<String>()
+                    .trim()
+                    .to_owned()
+            })
+            .collect::<Vec<_>>()
+    };
+    let expected = [
+        "1", "", "2", "3", "", "2", "3", "4", "", "2", "3", "4", "5", "", "6",
+    ];
+    let gutter_width = |app: &TestApplication| {
+        let (view, doc) = current_ref!(app.editor);
+        view.inner_area(doc).x - view.area.x
+    };
+    assert_eq!(gutter_width(&app), 1);
+    assert_eq!(numbers(&app), expected);
+    press_keys(&mut app, ":vcs-conflict-toggle-markers<ret>").await?;
+    assert_eq!(gutter_width(&app), 2);
+    assert_eq!(
+        numbers(&app),
+        (1..=15).map(|n| n.to_string()).collect::<Vec<_>>()
+    );
+    press_keys(&mut app, ":vcs-conflict-toggle-markers<ret>").await?;
+    assert_eq!(numbers(&app), expected);
+    press_keys(&mut app, "]m:vcs-conflict-resolve incoming<ret>").await?;
+    assert_eq!(&numbers(&app)[..6], ["1", "2", "3", "4", "5", "6"]);
+    press_keys(&mut app, "ugg").await?;
+    assert_eq!(numbers(&app), expected);
+    assert_eq!(gutter_width(&app), 1);
+    assert_eq!(current_ref!(app.editor).1.text().to_string(), original);
+    assert!(app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn conflict_relative_line_numbers_keep_room_for_motion_distances() -> anyhow::Result<()> {
+    let (_dir, path) = committed_file()?;
+    std::fs::write(
+        &path,
+        "prefix\n<<<<<<< HEAD\na\nb\n||||||| base\nc\nd\n=======\ne\nf\n>>>>>>> topic\nsuffix\n",
+    )?;
+    let mut config = test_config();
+    config.editor.line_number = editor_config::LineNumber::Relative;
+    config.editor.gutters.layout = vec![editor_config::GutterType::LineNumbers];
+    config.editor.gutters.line_numbers.min_width = 1;
+    let mut app = AppBuilder::new()
+        .with_file(&path, None)
+        .with_config(config)
+        .build()?;
+    app.handle_editor_event(view::editor::EditorEvent::Redraw)
+        .await;
+    wait_for_review_screen(&mut app, "(Current Change)", "(Incoming Change)").await?;
+    let (view, doc) = current_ref!(app.editor);
+    let area = view.inner_area(doc);
+    let backend = app.terminal_backend();
+    let number: String = (view.area.x..area.x)
+        .map(|x| backend.buffer()[(x, area.y + 11)].symbol())
+        .collect();
+    assert_eq!(area.x - view.area.x, 2);
+    assert_eq!(number.trim(), "11");
+    assert!(app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn conflict_marker_characters_support_horizontal_motion_and_manual_edits(
+) -> anyhow::Result<()> {
+    for newline in ["\n", "\r\n"] {
+        let original = [
+            "préfix",
+            "<<<<<<< HEAD",
+            "ours",
+            "||||||| base",
+            "old",
+            "=======",
+            "theirs",
+            ">>>>>>> tópico",
+            "suffix",
+            "",
+        ]
+        .join(newline);
+        let (_dir, path) = committed_file()?;
+        std::fs::write(&path, &original)?;
+        let mut app = AppBuilder::new().with_file(&path, None).build()?;
+        app.handle_editor_event(view::editor::EditorEvent::Redraw)
+            .await;
+        wait_for_review_screen(&mut app, "(Current Change)", "(Incoming Change)").await?;
+        for marker_line in [5, 1, 3, 7] {
+            press_keys(&mut app, &format!("gg{marker_line}j0")).await?;
+            let before = app.editor.cursor().0.unwrap();
+            press_keys(&mut app, "l").await?;
+            let after = app.editor.cursor().0.unwrap();
+            assert_eq!(after.row, before.row);
+            assert_eq!(after.col, before.col + 1, "marker on line {marker_line}");
+            let (view, doc) = current_ref!(app.editor);
+            let cursor = doc
+                .selection(view.id)
+                .primary()
+                .cursor(doc.text().slice(..));
+            assert_eq!(
+                view.pos_at_screen_coords(doc, after.row as u16, after.col as u16, true),
+                Some(cursor)
+            );
+            press_keys(&mut app, "5l").await?;
+            assert_eq!(app.editor.cursor().0.unwrap().col, before.col + 6);
+            press_keys(&mut app, "6h").await?;
+            assert_eq!(app.editor.cursor().0.unwrap(), before);
+            press_keys(&mut app, "$").await?;
+            let end = app.editor.cursor().0.unwrap();
+            press_keys(&mut app, ":vcs-conflict-toggle-markers<ret>").await?;
+            assert_eq!(app.editor.cursor().0.unwrap(), end);
+            press_keys(&mut app, ":vcs-conflict-toggle-markers<ret>").await?;
+            assert_eq!(app.editor.cursor().0.unwrap(), end);
+        }
+        press_keys(&mut app, "gg5j0liX<esc>").await?;
+        assert!(current_ref!(app.editor)
+            .1
+            .text()
+            .to_string()
+            .contains("=X======"));
+        assert!(current_ref!(app.editor)
+            .1
+            .conflict_presentation()
+            .error
+            .is_some());
+        press_keys(&mut app, "u").await?;
+        assert_eq!(current_ref!(app.editor).1.text().to_string(), original);
+        assert!(review_screen(&app).contains("(Current Change)"));
+        assert_eq!(std::fs::read_to_string(&path)?, original);
+        assert!(app.close().await.is_empty());
+    }
     Ok(())
 }

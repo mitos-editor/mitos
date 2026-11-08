@@ -1291,7 +1291,7 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
     TypableCommand {
         name: "vcs-conflict-toggle-markers",
         aliases: &[],
-        doc: "Show or hide raw conflict markers in the current view.",
+        doc: "Toggle conflict labels and shared line numbers in the current view.",
         action: CommandAction::Committed(super::conflicts::toggle_markers),
         args: CommandArgs::new(&[], &[]),
     },

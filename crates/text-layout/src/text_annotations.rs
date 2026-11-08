@@ -80,15 +80,6 @@ impl Overlay {
     }
 }
 
-/// A non-empty, single-line display label replacing a source range in characters.
-/// The source range must start and end at grapheme boundaries and exclude line endings.
-/// Positions inside the range map to the label's anchor; the underlying text is unchanged.
-#[derive(Debug, Clone)]
-pub struct LineReplacement {
-    pub range: Range<usize>,
-    pub text: Tendril,
-}
-
 /// A character range replaced by a single selectable ellipsis. Ranges must be
 /// nonempty, disjoint, sorted, and aligned to grapheme boundaries. Text after the
 /// range, including retained closing tokens and line endings, stays in the stream.
@@ -257,7 +248,6 @@ enum InlineHighlights<'a> {
 /// Also commonly called virtual text.
 #[derive(Default)]
 pub struct TextAnnotations<'a> {
-    replacements: Vec<(&'a LineReplacement, Option<Highlight>)>,
     inline_annotations: Vec<Layer<'a, InlineAnnotation, InlineHighlights<'a>>>,
     overlays: Vec<Layer<'a, Overlay, Option<Highlight>>>,
     conceals: &'a [Conceal],
@@ -362,57 +352,6 @@ impl<'a> TextAnnotations<'a> {
                 .filter_map(|(pos, highlight)| highlight.map(|highlight| (highlight, pos..pos + 1)))
                 .collect(),
         }
-    }
-
-    /// Add a single-line replacement. Ranges must be sorted and non-overlapping.
-    pub fn add_line_replacement(
-        &mut self,
-        replacement: &'a LineReplacement,
-        highlight: Option<Highlight>,
-    ) {
-        assert!(!replacement.range.is_empty() && !replacement.text.is_empty());
-        assert!(!replacement.text.contains(['\n', '\r']));
-        assert!(self
-            .replacements
-            .last()
-            .is_none_or(|(last, _)| last.range.end <= replacement.range.start));
-        self.replacements.push((replacement, highlight));
-    }
-
-    /// Source anchor used to draw a caret within a replacement label.
-    pub fn display_anchor(&self, char_idx: usize) -> usize {
-        let index = self
-            .replacements
-            .partition_point(|(replacement, _)| replacement.range.end <= char_idx);
-        self.replacements
-            .get(index)
-            .filter(|(replacement, _)| {
-                replacement.range.start <= char_idx
-                    && self.replacement_at(replacement.range.start).is_some()
-            })
-            .map_or(char_idx, |(replacement, _)| replacement.range.start)
-    }
-
-    pub(crate) fn replacement_at(
-        &self,
-        char_idx: usize,
-    ) -> Option<(&'a LineReplacement, Option<Highlight>)> {
-        let index = self
-            .replacements
-            .partition_point(|(replacement, _)| replacement.range.start < char_idx);
-        self.replacements
-            .get(index)
-            .copied()
-            .filter(|(replacement, _)| {
-                let next = self
-                    .conceals
-                    .partition_point(|conceal| conceal.range.end <= replacement.range.start);
-                replacement.range.start == char_idx
-                    && self
-                        .conceals
-                        .get(next)
-                        .is_none_or(|conceal| conceal.range.start >= replacement.range.end)
-            })
     }
 
     /// Add new inline annotations.

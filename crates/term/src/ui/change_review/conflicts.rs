@@ -127,7 +127,7 @@ mod tests {
     use std::sync::Arc;
 
     #[test]
-    fn preview_height_tracks_wrapped_headings_and_format_changes() {
+    fn preview_height_tracks_wrapped_labels_and_format_changes() {
         let settings: editor_config::Config =
             toml::from_str("[soft-wrap]\nenable = true\n").unwrap();
         let config = Arc::new(arc_swap::ArcSwap::from_pointee(settings));

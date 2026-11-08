@@ -441,7 +441,7 @@ impl PaneRenderer {
             // Only the rendered grapheme establishes a visible cursor this frame.
             decorations.add_decoration(text_decorations::Cursor {
                 position: &cursor,
-                primary_cursor: layout.annotations.display_anchor(primary_cursor),
+                primary_cursor,
             });
         }
         if is_focused
