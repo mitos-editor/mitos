@@ -297,6 +297,29 @@ mod tests {
     }
 
     #[test]
+    fn legacy_diagnostic_keybindings_deserialize_to_canonical_commands() {
+        let legacy: crate::keymap::KeyTrie = toml::from_str(
+            r#"
+            a = "goto_first_diag"
+            b = "goto_last_diag"
+            c = "goto_next_diag"
+            d = "goto_prev_diag"
+            "#,
+        )
+        .unwrap();
+        let canonical: crate::keymap::KeyTrie = toml::from_str(
+            r#"
+            a = "goto_first_diagnostic"
+            b = "goto_last_diagnostic"
+            c = "goto_next_diagnostic"
+            d = "goto_prev_diagnostic"
+            "#,
+        )
+        .unwrap();
+        assert_eq!(legacy, canonical);
+    }
+
+    #[test]
     fn legacy_typable_vcs_names_resolve_to_canonical_commands() {
         for (old, new) in [
             ("blame", "vcs-blame"),

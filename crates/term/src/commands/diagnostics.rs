@@ -132,17 +132,17 @@ fn goto_diagnostic(editor: &mut Editor, direction: Direction, boundary: bool) {
         .immediately_show_diagnostic(doc, view.id);
 }
 
-pub(super) fn goto_first_diag(cx: &mut Context) {
+pub(super) fn goto_first_diagnostic(cx: &mut Context) {
     goto_diagnostic(cx.editor, Direction::Forward, true);
 }
-pub(super) fn goto_last_diag(cx: &mut Context) {
+pub(super) fn goto_last_diagnostic(cx: &mut Context) {
     goto_diagnostic(cx.editor, Direction::Backward, true);
 }
-pub(super) fn goto_next_diag(cx: &mut Context) {
+pub(super) fn goto_next_diagnostic(cx: &mut Context) {
     cx.editor
         .apply_motion(|editor| goto_diagnostic(editor, Direction::Forward, false));
 }
-pub(super) fn goto_prev_diag(cx: &mut Context) {
+pub(super) fn goto_prev_diagnostic(cx: &mut Context) {
     cx.editor
         .apply_motion(|editor| goto_diagnostic(editor, Direction::Backward, false));
 }

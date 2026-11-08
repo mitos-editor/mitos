@@ -179,10 +179,10 @@
 
 | Key | Description | Command |
 | --- | --- | --- |
-| `` [d `` | Goto previous diagnostic | `` goto_prev_diag `` |
+| `` [d `` | Goto previous diagnostic | `` goto_prev_diagnostic `` |
 | `` [s `` | Goto previous spelling finding | `` goto_prev_spelling `` |
 | `` [q `` | Goto previous quicklist entry | `` goto_prev_quicklist `` |
-| `` [D `` | Goto first diagnostic | `` goto_first_diag `` |
+| `` [D `` | Goto first diagnostic | `` goto_first_diagnostic `` |
 | `` [g `` | Goto previous change | `` vcs_goto_prev_change `` |
 | `` [m `` | Go to the previous unresolved conflict | `` vcs_goto_previous_conflict `` |
 | `` [G `` | Goto first change | `` vcs_goto_first_change `` |
@@ -201,10 +201,10 @@
 
 | Key | Description | Command |
 | --- | --- | --- |
-| `` ]d `` | Goto next diagnostic | `` goto_next_diag `` |
+| `` ]d `` | Goto next diagnostic | `` goto_next_diagnostic `` |
 | `` ]s `` | Goto next spelling finding | `` goto_next_spelling `` |
 | `` ]q `` | Goto next quicklist entry | `` goto_next_quicklist `` |
-| `` ]D `` | Goto last diagnostic | `` goto_last_diag `` |
+| `` ]D `` | Goto last diagnostic | `` goto_last_diagnostic `` |
 | `` ]g `` | Goto next change | `` vcs_goto_next_change `` |
 | `` ]m `` | Go to the next unresolved conflict | `` vcs_goto_next_conflict `` |
 | `` ]G `` | Goto last change | `` vcs_goto_last_change `` |

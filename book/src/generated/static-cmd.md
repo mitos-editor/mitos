@@ -188,10 +188,10 @@
 | `goto_last_hint` | Goto last hint diagnostic |  |
 | `goto_next_hint` | Goto next hint diagnostic |  |
 | `goto_prev_hint` | Goto previous hint diagnostic |  |
-| `goto_first_diag` | Goto first diagnostic | normal: `` [D ``, select: `` [D `` |
-| `goto_last_diag` | Goto last diagnostic | normal: `` ]D ``, select: `` ]D `` |
-| `goto_next_diag` | Goto next diagnostic | normal: `` ]d ``, select: `` ]d `` |
-| `goto_prev_diag` | Goto previous diagnostic | normal: `` [d ``, select: `` [d `` |
+| `goto_first_diagnostic`, `goto_first_diag` | Goto first diagnostic | normal: `` [D ``, select: `` [D `` |
+| `goto_last_diagnostic`, `goto_last_diag` | Goto last diagnostic | normal: `` ]D ``, select: `` ]D `` |
+| `goto_next_diagnostic`, `goto_next_diag` | Goto next diagnostic | normal: `` ]d ``, select: `` ]d `` |
+| `goto_prev_diagnostic`, `goto_prev_diag` | Goto previous diagnostic | normal: `` [d ``, select: `` [d `` |
 | `goto_next_spelling` | Goto next spelling finding | normal: `` ]s ``, select: `` ]s `` |
 | `goto_prev_spelling` | Goto previous spelling finding | normal: `` [s ``, select: `` [s `` |
 | `goto_next_quicklist` | Goto next quicklist entry | normal: `` ]q ``, select: `` ]q `` |
