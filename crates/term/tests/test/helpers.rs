@@ -510,6 +510,18 @@ pub fn assert_status_not_error(editor: &Editor) {
     }
 }
 
+/// The completions a completer produced, running deferred work inline.
+pub fn completions(
+    result: term::ui::completers::CompletionResult,
+) -> Vec<term::ui::prompt::Completion> {
+    match result {
+        term::ui::completers::CompletionResult::Immediate(completions) => completions,
+        term::ui::completers::CompletionResult::Deferred(compute) => {
+            compute(&event::TaskController::new().restart())
+        }
+    }
+}
+
 pub fn reload_file(file: &mut NamedTempFile) -> anyhow::Result<()> {
     let path = file.path();
     let f = std::fs::OpenOptions::new()

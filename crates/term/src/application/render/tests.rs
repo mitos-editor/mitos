@@ -14,6 +14,7 @@ use crate::{
     args::Args,
     compositor::{Component, Context, Cursor},
     config::Config,
+    ui::completers::CompletionResult,
 };
 
 #[derive(Clone, Default)]
@@ -257,7 +258,7 @@ async fn focus_cleanup_stays_with_its_application_and_unregisters_on_drop() -> a
         app.compositor.push(Box::new(crate::ui::Prompt::new(
             ":".into(),
             None,
-            |_, _| Vec::new(),
+            |_, _| CompletionResult::Immediate(Vec::new()),
             |_, _, _| {},
         )));
     }
@@ -357,7 +358,14 @@ async fn background_job_failures_are_reported_to_the_application_that_started_th
 async fn queued_focus_cleanup_preserves_prompts_created_after_the_focus_change(
 ) -> anyhow::Result<()> {
     let (mut app, _) = application(Args::default())?;
-    let prompt = || crate::ui::Prompt::new(":".into(), None, |_, _| Vec::new(), |_, _, _| {});
+    let prompt = || {
+        crate::ui::Prompt::new(
+            ":".into(),
+            None,
+            |_, _| CompletionResult::Immediate(Vec::new()),
+            |_, _, _| {},
+        )
+    };
     app.compositor.push(Box::new(prompt()));
     let doc = doc!(app.editor).id();
     let view = app.editor.tree.focus();
@@ -457,7 +465,7 @@ async fn compositor_resolves_native_blocks_and_prompt_cursors() -> anyhow::Resul
     app.compositor.push(Box::new(crate::ui::Prompt::new(
         ":".into(),
         None,
-        |_, _| Vec::new(),
+        |_, _| CompletionResult::Immediate(Vec::new()),
         |_, _, _| {},
     )));
     assert!(matches!(

@@ -13,7 +13,7 @@ use view::{
 };
 use workspace::trust::{ImplicitTrustLevel, TrustQuery};
 
-use super::helpers::{lsp::Fixture, test_syntax_loader, AppBuilder};
+use super::helpers::{completions, lsp::Fixture, test_syntax_loader, AppBuilder};
 
 #[tokio::test(flavor = "multi_thread")]
 async fn shared_language_application_updates_scopes_documents_and_diagnostics() -> anyhow::Result<()>
@@ -277,7 +277,7 @@ async fn theme_completion_and_commands_use_each_editors_selected_resources() -> 
         Ok(())
     }
     fn names(editor: &view::Editor) -> Vec<String> {
-        let mut names: Vec<_> = term::ui::completers::theme(editor, "")
+        let mut names: Vec<_> = completions(term::ui::completers::theme(editor, ""))
             .into_iter()
             .map(|(_, span)| span.content.into_owned())
             .collect();
