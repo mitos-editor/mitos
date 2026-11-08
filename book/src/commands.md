@@ -4,6 +4,20 @@ The generated keybinding tables use `<space>` for Space, `<ret>` for Enter,
 and `<C-x>` for Ctrl-x. Adjacent keys form a sequence: `<space>f` means
 press Space, then f.
 
+Canonical static command names use underscores; typable (`:`) command names use
+hyphens. Directional names spell out `previous`. Debugger commands use the
+`debug_` or `debug-` prefix, snippet commands use `snippet_` or `snippet-`, and
+version-control commands use `vcs_` or `vcs-`.
+
+Explicit browsing commands use `_picker`, followed by any scope qualifier, such
+as `debug_session_picker` or `file_picker_in_current_buffer_directory`. Commands
+that perform an action, such as `goto_reference`, keep action names even when
+they offer a choice of targets.
+
+The command palette and default bindings use canonical names. Older spellings
+remain aliases for existing keybindings and command invocations; the reference
+lists them after the canonical name.
+
 ## Typable commands
 
 Press `:` to run these commands. Some accept arguments; see

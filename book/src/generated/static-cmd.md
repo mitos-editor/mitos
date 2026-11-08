@@ -14,33 +14,33 @@
 | `extend_visual_line_up` | Extend up | select: `` k ``, `` <up> `` |
 | `extend_visual_line_down` | Extend down | select: `` j ``, `` <down> `` |
 | `copy_selection_on_next_line` | Copy selection on next line | normal: `` C ``, select: `` C `` |
-| `copy_selection_on_prev_line` | Copy selection on previous line | normal: `` <A-C> ``, select: `` <A-C> `` |
+| `copy_selection_on_previous_line`, `copy_selection_on_prev_line` | Copy selection on previous line | normal: `` <A-C> ``, select: `` <A-C> `` |
 | `move_next_word_start` | Move to start of next word | normal: `` w `` |
-| `move_prev_word_start` | Move to start of previous word | normal: `` b `` |
+| `move_previous_word_start`, `move_prev_word_start` | Move to start of previous word | normal: `` b `` |
 | `move_next_word_end` | Move to end of next word | normal: `` e `` |
-| `move_prev_word_end` | Move to end of previous word |  |
+| `move_previous_word_end`, `move_prev_word_end` | Move to end of previous word |  |
 | `move_next_long_word_start` | Move to start of next long word | normal: `` W `` |
-| `move_prev_long_word_start` | Move to start of previous long word | normal: `` B `` |
+| `move_previous_long_word_start`, `move_prev_long_word_start` | Move to start of previous long word | normal: `` B `` |
 | `move_next_long_word_end` | Move to end of next long word | normal: `` E `` |
-| `move_prev_long_word_end` | Move to end of previous long word |  |
+| `move_previous_long_word_end`, `move_prev_long_word_end` | Move to end of previous long word |  |
 | `move_next_sub_word_start` | Move to start of next sub word |  |
-| `move_prev_sub_word_start` | Move to start of previous sub word |  |
+| `move_previous_sub_word_start`, `move_prev_sub_word_start` | Move to start of previous sub word |  |
 | `move_next_sub_word_end` | Move to end of next sub word |  |
-| `move_prev_sub_word_end` | Move to end of previous sub word |  |
+| `move_previous_sub_word_end`, `move_prev_sub_word_end` | Move to end of previous sub word |  |
 | `move_parent_node_end` | Move to end of the parent node | normal: `` <A-e> `` |
 | `move_parent_node_start` | Move to beginning of the parent node | normal: `` <A-b> `` |
 | `extend_next_word_start` | Extend to start of next word | select: `` w `` |
-| `extend_prev_word_start` | Extend to start of previous word | select: `` b `` |
+| `extend_previous_word_start`, `extend_prev_word_start` | Extend to start of previous word | select: `` b `` |
 | `extend_next_word_end` | Extend to end of next word | select: `` e `` |
-| `extend_prev_word_end` | Extend to end of previous word |  |
+| `extend_previous_word_end`, `extend_prev_word_end` | Extend to end of previous word |  |
 | `extend_next_long_word_start` | Extend to start of next long word | select: `` W `` |
-| `extend_prev_long_word_start` | Extend to start of previous long word | select: `` B `` |
+| `extend_previous_long_word_start`, `extend_prev_long_word_start` | Extend to start of previous long word | select: `` B `` |
 | `extend_next_long_word_end` | Extend to end of next long word | select: `` E `` |
-| `extend_prev_long_word_end` | Extend to end of prev long word |  |
+| `extend_previous_long_word_end`, `extend_prev_long_word_end` | Extend to end of prev long word |  |
 | `extend_next_sub_word_start` | Extend to start of next sub word |  |
-| `extend_prev_sub_word_start` | Extend to start of previous sub word |  |
+| `extend_previous_sub_word_start`, `extend_prev_sub_word_start` | Extend to start of previous sub word |  |
 | `extend_next_sub_word_end` | Extend to end of next sub word |  |
-| `extend_prev_sub_word_end` | Extend to end of prev sub word |  |
+| `extend_previous_sub_word_end`, `extend_prev_sub_word_end` | Extend to end of prev sub word |  |
 | `extend_parent_node_end` | Extend to end of the parent node | select: `` <A-e> `` |
 | `extend_parent_node_start` | Extend to beginning of the parent node | select: `` <A-b> `` |
 | `find_till_next_char`, `find_till_char` | Move till next occurrence of char | normal: `` t `` |
@@ -48,9 +48,9 @@
 | `extend_till_next_char`, `extend_till_char` | Extend till next occurrence of char | select: `` t `` |
 | `extend_next_char` | Extend to next occurrence of char | select: `` f `` |
 | `find_till_previous_char`, `till_prev_char` | Move till previous occurrence of char | normal: `` T `` |
-| `find_prev_char` | Move to previous occurrence of char | normal: `` F `` |
+| `find_previous_char`, `find_prev_char` | Move to previous occurrence of char | normal: `` F `` |
 | `extend_till_previous_char`, `extend_till_prev_char` | Extend till previous occurrence of char | select: `` T `` |
-| `extend_prev_char` | Extend to previous occurrence of char | select: `` F `` |
+| `extend_previous_char`, `extend_prev_char` | Extend to previous occurrence of char | select: `` F `` |
 | `repeat_last_motion` | Repeat last motion | normal: `` <A-.> ``, select: `` <A-.> `` |
 | `replace_char` | Replace each selected grapheme with a character | normal: `` r ``, select: `` r `` |
 | `replace` | Replace selections with entered text | normal: `` <A-r> ``, select: `` <A-r> `` |
@@ -74,9 +74,9 @@
 | `search_forward`, `search` | Search forward for regex pattern | normal: `` / ``, `` Z/ ``, `` z/ ``, select: `` / ``, `` Z/ ``, `` z/ `` |
 | `search_backward`, `rsearch` | Search backward for regex pattern | normal: `` ? ``, `` Z? ``, `` z? ``, select: `` ? ``, `` Z? ``, `` z? `` |
 | `search_next` | Select next search match | normal: `` n ``, `` Zn ``, `` zn ``, select: `` Zn ``, `` zn `` |
-| `search_prev` | Select previous search match | normal: `` N ``, `` ZN ``, `` zN ``, select: `` ZN ``, `` zN `` |
+| `search_previous`, `search_prev` | Select previous search match | normal: `` N ``, `` ZN ``, `` zN ``, select: `` ZN ``, `` zN `` |
 | `extend_search_next` | Add next search match to selection | select: `` n `` |
-| `extend_search_prev` | Add previous search match to selection | select: `` N `` |
+| `extend_search_previous`, `extend_search_prev` | Add previous search match to selection | select: `` N `` |
 | `search_selection` | Use current selection as search pattern | normal: `` <A-*> ``, select: `` <A-*> `` |
 | `search_selection_detect_word_boundaries` | Use current selection as the search pattern, automatically wrapping with `\b` on word boundaries | normal: `` * ``, select: `` * `` |
 | `make_search_word_bounded` | Modify current search to make it word bounded |  |
@@ -175,31 +175,31 @@
 | `goto_first_error` | Goto first error |  |
 | `goto_last_error` | Goto last error |  |
 | `goto_next_error` | Goto next error |  |
-| `goto_prev_error` | Goto previous error |  |
+| `goto_previous_error`, `goto_prev_error` | Goto previous error |  |
 | `goto_first_warning` | Goto first warning diagnostic |  |
 | `goto_last_warning` | Goto last warning diagnostic |  |
 | `goto_next_warning` | Goto next warning diagnostic |  |
-| `goto_prev_warning` | Goto previous warning diagnostic |  |
+| `goto_previous_warning`, `goto_prev_warning` | Goto previous warning diagnostic |  |
 | `goto_first_info` | Goto first info diagnostic |  |
 | `goto_last_info` | Goto last info diagnostic |  |
 | `goto_next_info` | Goto next info diagnostic |  |
-| `goto_prev_info` | Goto previous info diagnostic |  |
+| `goto_previous_info`, `goto_prev_info` | Goto previous info diagnostic |  |
 | `goto_first_hint` | Goto first hint diagnostic |  |
 | `goto_last_hint` | Goto last hint diagnostic |  |
 | `goto_next_hint` | Goto next hint diagnostic |  |
-| `goto_prev_hint` | Goto previous hint diagnostic |  |
+| `goto_previous_hint`, `goto_prev_hint` | Goto previous hint diagnostic |  |
 | `goto_first_diagnostic`, `goto_first_diag` | Goto first diagnostic | normal: `` [D ``, select: `` [D `` |
 | `goto_last_diagnostic`, `goto_last_diag` | Goto last diagnostic | normal: `` ]D ``, select: `` ]D `` |
 | `goto_next_diagnostic`, `goto_next_diag` | Goto next diagnostic | normal: `` ]d ``, select: `` ]d `` |
-| `goto_prev_diagnostic`, `goto_prev_diag` | Goto previous diagnostic | normal: `` [d ``, select: `` [d `` |
+| `goto_previous_diagnostic`, `goto_prev_diag`, `goto_prev_diagnostic` | Goto previous diagnostic | normal: `` [d ``, select: `` [d `` |
 | `goto_next_spelling` | Goto next spelling finding | normal: `` ]s ``, select: `` ]s `` |
-| `goto_prev_spelling` | Goto previous spelling finding | normal: `` [s ``, select: `` [s `` |
+| `goto_previous_spelling`, `goto_prev_spelling` | Goto previous spelling finding | normal: `` [s ``, select: `` [s `` |
 | `goto_next_quicklist` | Goto next quicklist entry | normal: `` ]q ``, select: `` ]q `` |
-| `goto_prev_quicklist` | Goto previous quicklist entry | normal: `` [q ``, select: `` [q `` |
+| `goto_previous_quicklist`, `goto_prev_quicklist` | Goto previous quicklist entry | normal: `` [q ``, select: `` [q `` |
 | `goto_next_file_quicklist` | Goto next quicklist entry in current file | normal: `` ]l ``, select: `` ]l `` |
-| `goto_prev_file_quicklist` | Goto previous quicklist entry in current file | normal: `` [l ``, select: `` [l `` |
+| `goto_previous_file_quicklist`, `goto_prev_file_quicklist` | Goto previous quicklist entry in current file | normal: `` [l ``, select: `` [l `` |
 | `vcs_goto_next_change`, `goto_next_change` | Goto next change | normal: `` ]g ``, select: `` ]g `` |
-| `vcs_goto_prev_change`, `goto_prev_change` | Goto previous change | normal: `` [g ``, select: `` [g `` |
+| `vcs_goto_previous_change`, `goto_prev_change`, `vcs_goto_prev_change` | Goto previous change | normal: `` [g ``, select: `` [g `` |
 | `vcs_goto_first_change`, `goto_first_change` | Goto first change | normal: `` [G ``, select: `` [G `` |
 | `vcs_goto_last_change`, `goto_last_change` | Goto last change | normal: `` ]G ``, select: `` ]G `` |
 | `goto_line_start` | Goto line start | normal: `` gh ``, `` <home> ``, select: `` gh ``, insert: `` <home> `` |
@@ -267,7 +267,7 @@
 | `inline_completion_accept` | Accept inline completion |  |
 | `inline_completion_dismiss` | Dismiss inline completion |  |
 | `inline_completion_next` | Cycle to next inline completion |  |
-| `inline_completion_prev` | Cycle to previous inline completion |  |
+| `inline_completion_previous`, `inline_completion_prev` | Cycle to previous inline completion |  |
 | `inline_completion_trigger` | Trigger inline completion |  |
 | `hover` | Show docs for item under cursor | normal: `` <space>k ``, select: `` <space>k `` |
 | `toggle_comments` | Comment/uncomment selections | normal: `` <C-c> ``, `` <space>c ``, select: `` <C-c> ``, `` <space>c `` |
@@ -281,7 +281,7 @@
 | `expand_selection` | Expand selection to parent syntax node | normal: `` <A-o> ``, `` <A-up> ``, select: `` <A-o> ``, `` <A-up> `` |
 | `shrink_selection` | Shrink selection to previously expanded syntax node | normal: `` <A-i> ``, `` <A-down> ``, select: `` <A-i> ``, `` <A-down> `` |
 | `select_next_sibling` | Select next sibling in the syntax tree | normal: `` <A-n> ``, `` <A-right> ``, select: `` <A-n> ``, `` <A-right> `` |
-| `select_prev_sibling` | Select previous sibling the in syntax tree | normal: `` <A-p> ``, `` <A-left> ``, select: `` <A-p> ``, `` <A-left> `` |
+| `select_previous_sibling`, `select_prev_sibling` | Select previous sibling the in syntax tree | normal: `` <A-p> ``, `` <A-left> ``, select: `` <A-p> ``, `` <A-left> `` |
 | `select_all_siblings` | Select all siblings of the current node | normal: `` <A-a> ``, select: `` <A-a> `` |
 | `select_all_children` | Select all children of the current node | normal: `` <A-I> ``, `` <S-A-down> ``, select: `` <A-I> ``, `` <S-A-down> `` |
 | `jump_forward` | Jump forward on jumplist | normal: `` <C-i> ``, `` <tab> ``, select: `` <C-i> ``, `` <tab> `` |
@@ -335,38 +335,38 @@
 | `select_all_textobjects_around` | Select all textobjects around selections | normal: `` mA ``, select: `` mA `` |
 | `select_all_textobjects_inner` | Select all textobjects inside selections | normal: `` mI ``, select: `` mI `` |
 | `goto_next_function` | Goto next function | normal: `` ]f ``, select: `` ]f `` |
-| `goto_prev_function` | Goto previous function | normal: `` [f ``, select: `` [f `` |
+| `goto_previous_function`, `goto_prev_function` | Goto previous function | normal: `` [f ``, select: `` [f `` |
 | `goto_next_class` | Goto next type definition | normal: `` ]t ``, select: `` ]t `` |
-| `goto_prev_class` | Goto previous type definition | normal: `` [t ``, select: `` [t `` |
+| `goto_previous_class`, `goto_prev_class` | Goto previous type definition | normal: `` [t ``, select: `` [t `` |
 | `goto_next_parameter` | Goto next parameter | normal: `` ]a ``, select: `` ]a `` |
-| `goto_prev_parameter` | Goto previous parameter | normal: `` [a ``, select: `` [a `` |
+| `goto_previous_parameter`, `goto_prev_parameter` | Goto previous parameter | normal: `` [a ``, select: `` [a `` |
 | `goto_next_comment` | Goto next comment | normal: `` ]c ``, select: `` ]c `` |
-| `goto_prev_comment` | Goto previous comment | normal: `` [c ``, select: `` [c `` |
+| `goto_previous_comment`, `goto_prev_comment` | Goto previous comment | normal: `` [c ``, select: `` [c `` |
 | `goto_next_test` | Goto next test | normal: `` ]T ``, select: `` ]T `` |
-| `goto_prev_test` | Goto previous test | normal: `` [T ``, select: `` [T `` |
+| `goto_previous_test`, `goto_prev_test` | Goto previous test | normal: `` [T ``, select: `` [T `` |
 | `goto_next_xml_element` | Goto next (X)HTML element | normal: `` ]x ``, select: `` ]x `` |
-| `goto_prev_xml_element` | Goto previous (X)HTML element | normal: `` [x ``, select: `` [x `` |
+| `goto_previous_xml_element`, `goto_prev_xml_element` | Goto previous (X)HTML element | normal: `` [x ``, select: `` [x `` |
 | `goto_next_entry` | Goto next pairing | normal: `` ]e ``, select: `` ]e `` |
-| `goto_prev_entry` | Goto previous pairing | normal: `` [e ``, select: `` [e `` |
+| `goto_previous_entry`, `goto_prev_entry` | Goto previous pairing | normal: `` [e ``, select: `` [e `` |
 | `goto_next_paragraph` | Goto next paragraph | normal: `` ]p ``, select: `` ]p `` |
-| `goto_prev_paragraph` | Goto previous paragraph | normal: `` [p ``, select: `` [p `` |
-| `dap_launch` | Launch debug target | normal: `` <space>Gl ``, select: `` <space>Gl `` |
-| `dap_restart` | Restart debugging session | normal: `` <space>Gr ``, select: `` <space>Gr `` |
-| `dap_toggle_breakpoints` | Toggle breakpoints | normal: `` <space>Gb ``, select: `` <space>Gb `` |
-| `dap_continue` | Continue program execution | normal: `` <space>Gc ``, select: `` <space>Gc `` |
-| `dap_pause` | Pause program execution | normal: `` <space>Gh ``, select: `` <space>Gh `` |
-| `dap_step_in` | Step in | normal: `` <space>Gi ``, select: `` <space>Gi `` |
-| `dap_step_out` | Step out | normal: `` <space>Go ``, select: `` <space>Go `` |
-| `dap_next` | Step to next | normal: `` <space>Gn ``, select: `` <space>Gn `` |
-| `dap_variables` | Browse variables | normal: `` <space>Gv ``, select: `` <space>Gv `` |
-| `dap_terminate` | End debug session | normal: `` <space>Gt ``, select: `` <space>Gt `` |
-| `dap_edit_condition` | Edit breakpoint condition on current line | normal: `` <space>G<C-c> ``, select: `` <space>G<C-c> `` |
-| `dap_edit_log` | Edit breakpoint log message on current line | normal: `` <space>G<C-l> ``, select: `` <space>G<C-l> `` |
-| `dap_switch_session` | Switch debugging session | normal: `` <space>Gss ``, select: `` <space>Gss `` |
-| `dap_switch_thread` | Switch current thread | normal: `` <space>Gst ``, select: `` <space>Gst `` |
-| `dap_switch_stack_frame` | Switch stack frame | normal: `` <space>Gsf ``, select: `` <space>Gsf `` |
-| `dap_enable_exceptions` | Enable exception breakpoints | normal: `` <space>Ge ``, select: `` <space>Ge `` |
-| `dap_disable_exceptions` | Disable exception breakpoints | normal: `` <space>GE ``, select: `` <space>GE `` |
+| `goto_previous_paragraph`, `goto_prev_paragraph` | Goto previous paragraph | normal: `` [p ``, select: `` [p `` |
+| `debug_launch_picker`, `dap_launch` | Choose a launch configuration and start debugging | normal: `` <space>Gl ``, select: `` <space>Gl `` |
+| `debug_restart`, `dap_restart` | Restart debugging session | normal: `` <space>Gr ``, select: `` <space>Gr `` |
+| `debug_toggle_breakpoints`, `dap_toggle_breakpoints` | Toggle breakpoints | normal: `` <space>Gb ``, select: `` <space>Gb `` |
+| `debug_continue`, `dap_continue` | Continue program execution | normal: `` <space>Gc ``, select: `` <space>Gc `` |
+| `debug_pause`, `dap_pause` | Pause program execution | normal: `` <space>Gh ``, select: `` <space>Gh `` |
+| `debug_step_in`, `dap_step_in` | Step in | normal: `` <space>Gi ``, select: `` <space>Gi `` |
+| `debug_step_out`, `dap_step_out` | Step out | normal: `` <space>Go ``, select: `` <space>Go `` |
+| `debug_step_over`, `dap_next` | Step over the current statement | normal: `` <space>Gn ``, select: `` <space>Gn `` |
+| `debug_variables`, `dap_variables` | Browse variables | normal: `` <space>Gv ``, select: `` <space>Gv `` |
+| `debug_terminate`, `dap_terminate` | End debug session | normal: `` <space>Gt ``, select: `` <space>Gt `` |
+| `debug_edit_breakpoint_condition`, `dap_edit_condition` | Edit breakpoint condition on current line | normal: `` <space>G<C-c> ``, select: `` <space>G<C-c> `` |
+| `debug_edit_breakpoint_log_message`, `dap_edit_log` | Edit breakpoint log message on current line | normal: `` <space>G<C-l> ``, select: `` <space>G<C-l> `` |
+| `debug_session_picker`, `dap_switch_session` | Open debug session picker | normal: `` <space>Gss ``, select: `` <space>Gss `` |
+| `debug_thread_picker`, `dap_switch_thread` | Choose the current debug thread | normal: `` <space>Gst ``, select: `` <space>Gst `` |
+| `debug_stack_frame_picker`, `dap_switch_stack_frame` | Open debug stack frame picker | normal: `` <space>Gsf ``, select: `` <space>Gsf `` |
+| `debug_enable_exception_breakpoints`, `dap_enable_exceptions` | Enable exception breakpoints | normal: `` <space>Ge ``, select: `` <space>Ge `` |
+| `debug_disable_exception_breakpoints`, `dap_disable_exceptions` | Disable exception breakpoints | normal: `` <space>GE ``, select: `` <space>GE `` |
 | `shell_pipe` | Pipe selections through shell command | normal: `` \| ``, select: `` \| `` |
 | `shell_pipe_to` | Pipe selections into shell command ignoring output | normal: `` <A-\|> ``, select: `` <A-\|> `` |
 | `shell_insert_output` | Insert shell command output before selections | normal: `` ! ``, select: `` ! `` |
@@ -382,9 +382,9 @@
 | `goto_word` | Jump to a two-character label | normal: `` gw `` |
 | `extend_to_word` | Extend to a two-character label | select: `` gw `` |
 | `snippet_picker` | Choose and insert a user-defined snippet |  |
-| `next_snippet_choice` | Choose the next snippet placeholder value |  |
-| `prev_snippet_choice` | Choose the previous snippet placeholder value |  |
-| `goto_next_tabstop` | Goto next snippet placeholder |  |
-| `goto_prev_tabstop` | Goto previous snippet placeholder |  |
+| `snippet_next_choice`, `next_snippet_choice` | Choose the next snippet placeholder value |  |
+| `snippet_previous_choice`, `prev_snippet_choice` | Choose the previous snippet placeholder value |  |
+| `snippet_next_tabstop`, `goto_next_tabstop` | Goto next snippet placeholder |  |
+| `snippet_previous_tabstop`, `goto_prev_tabstop` | Goto previous snippet placeholder |  |
 | `make_first_selection_primary`, `rotate_selections_first` | Make the first selection your primary one |  |
 | `make_last_selection_primary`, `rotate_selections_last` | Make the last selection your primary one |  |

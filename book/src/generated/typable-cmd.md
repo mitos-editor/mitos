@@ -66,7 +66,7 @@
 | `:tree-sitter-layers` | Display language names of tree-sitter injection layers under the cursor. |
 | `:debug-start`, `:dbg` | Start a debug session from a given template with given parameters. |
 | `:debug-remote`, `:dbg-tcp` | Connect to a debug adapter by TCP address and start a debugging session from a given template with given parameters. |
-| `:debug-eval` | Evaluate expression in current debug context. |
+| `:debug-evaluate`, `:debug-eval` | Evaluate expression in current debug context. |
 | `:split-vertical`, `:vsplit`, `:vs` | Open the file in a vertical split. |
 | `:split-vertical-new`, `:vsplit-new`, `:vnew` | Open a scratch buffer in a vertical split. |
 | `:split-horizontal`, `:hsplit`, `:hs`, `:sp` | Open the file in a horizontal split. |
@@ -82,9 +82,9 @@
 | `:reflow` | Hard-wrap the current selection of lines to a given width. |
 | `:tree-sitter-subtree`, `:ts-subtree` | Display the smallest tree-sitter subtree that spans the primary selection, primarily for debugging queries. |
 | `:snippet-insert` | Insert a named user-defined snippet at the selections. |
-| `:snippets-reload` | Reload global and trusted workspace snippet definitions. |
-| `:snippets-open` | Open the user snippet configuration or a named .toml file in snippets/. |
-| `:snippets-open-workspace` | Open the workspace snippet configuration or a named .toml file in .mitos/snippets/. |
+| `:snippet-reload`, `:snippets-reload` | Reload global and trusted workspace snippet definitions. |
+| `:snippet-open`, `:snippets-open` | Open the user snippet configuration or a named .toml file in snippets/. |
+| `:snippet-open-workspace`, `:snippets-open-workspace` | Open the workspace snippet configuration or a named .toml file in .mitos/snippets/. |
 | `:config-reload` | Refresh user config. |
 | `:config-open` | Open the user config.toml file. |
 | `:config-migrate` | Migrate legacy user settings after confirmation, creating a backup. |
