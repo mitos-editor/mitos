@@ -39,7 +39,7 @@ the same window menu. To show a different file after splitting, use `Space b`
 or `:open`. In a picker, `Ctrl-v` opens the selected file vertically and
 `Ctrl-s` opens it horizontally.
 
-You can also use `:vsplit <path>` or `:hsplit <path>`. To start with files in
+You can also use `:split-vertical <path>` or `:split-horizontal <path>`. To start with files in
 separate views, see [Starting Mitos](./invocation.md).
 
 Press `Ctrl-e` to switch between the editor and the

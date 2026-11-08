@@ -24,7 +24,7 @@ The following is a non-exhaustive list of which actions add a jump to the jumpli
 - Big in-file movements
   - `select_regex` (`s`)
   - `split_selection` (`S`)
-  - `search` (`/`)
+  - `search_forward` (`/`)
   - `keep_selections` and `remove_selections` (`K` and `<A-K>`)
   - `goto_file_start` (`gg`)
   - `goto_file_end`

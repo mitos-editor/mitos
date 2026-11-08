@@ -10,9 +10,9 @@
 | `` <up> `` | Move up | `` move_visual_line_up `` |
 | `` l `` | Move right | `` move_char_right `` |
 | `` <right> `` | Move right | `` move_char_right `` |
-| `` t `` | Move till next occurrence of char | `` find_till_char `` |
+| `` t `` | Move till next occurrence of char | `` find_till_next_char `` |
 | `` f `` | Move to next occurrence of char | `` find_next_char `` |
-| `` T `` | Move till previous occurrence of char | `` till_prev_char `` |
+| `` T `` | Move till previous occurrence of char | `` find_till_previous_char `` |
 | `` F `` | Move to previous occurrence of char | `` find_prev_char `` |
 | `` r `` | Replace each selected grapheme with a character | `` replace_char `` |
 | `` <A-r> `` | Replace selections with entered text | `` replace `` |
@@ -74,8 +74,8 @@
 | `` m `` | Match | Prefix |
 | `` [ `` | Left bracket | Prefix |
 | `` ] `` | Right bracket | Prefix |
-| `` / `` | Search for regex pattern | `` search `` |
-| `` ? `` | Reverse search for regex pattern | `` rsearch `` |
+| `` / `` | Search forward for regex pattern | `` search_forward `` |
+| `` ? `` | Search backward for regex pattern | `` search_backward `` |
 | `` n `` | Select next search match | `` search_next `` |
 | `` N `` | Select previous search match | `` search_prev `` |
 | `` * `` | Use current selection as the search pattern, automatically wrapping with `\b` on word boundaries | `` search_selection_detect_word_boundaries `` |
@@ -92,16 +92,16 @@
 | `` <gt> `` | Indent selection | `` indent `` |
 | `` <lt> `` | Unindent selection | `` unindent `` |
 | `` = `` | Format selection | `` format_selections `` |
-| `` J `` | Join lines inside selection | `` join_selections `` |
-| `` <A-J> `` | Join lines inside selection and select spaces | `` join_selections_space `` |
+| `` J `` | Join lines inside selection | `` join_lines `` |
+| `` <A-J> `` | Join lines inside selection and select spaces | `` join_lines_and_select_spaces `` |
 | `` K `` | Keep selections matching regex | `` keep_selections `` |
 | `` <A-K> `` | Remove selections matching regex | `` remove_selections `` |
 | `` , `` | Keep primary selection | `` keep_primary_selection `` |
 | `` <A-,> `` | Remove primary selection | `` remove_primary_selection `` |
 | `` & `` | Align selections in column | `` align_selections `` |
 | `` _ `` | Trim whitespace from selections | `` trim_selections `` |
-| `` ( `` | Rotate selections backward | `` rotate_selections_backward `` |
-| `` ) `` | Rotate selections forward | `` rotate_selections_forward `` |
+| `` ( `` | Make the previous selection primary | `` cycle_primary_selection_backward `` |
+| `` ) `` | Make the next selection primary | `` cycle_primary_selection_forward `` |
 | `` <A-(> `` | Rotate selections contents backward | `` rotate_selection_contents_backward `` |
 | `` <A-)> `` | Rotate selection contents forward | `` rotate_selection_contents_forward `` |
 | `` <A-:> `` | Ensure all selections face forward | `` ensure_selections_forward `` |
@@ -228,20 +228,20 @@
 | `` <C-w><C-w> `` | Goto next window | `` rotate_view `` |
 | `` <C-w>w `` | Goto next window | `` rotate_view `` |
 | `` <C-w>W `` | Goto previous window | `` rotate_view_reverse `` |
-| `` <C-w><C-s> `` | Horizontal bottom split | `` hsplit `` |
-| `` <C-w>s `` | Horizontal bottom split | `` hsplit `` |
-| `` <C-w><C-v> `` | Vertical right split | `` vsplit `` |
-| `` <C-w>v `` | Vertical right split | `` vsplit `` |
+| `` <C-w><C-s> `` | Horizontal bottom split | `` split_horizontal `` |
+| `` <C-w>s `` | Horizontal bottom split | `` split_horizontal `` |
+| `` <C-w><C-v> `` | Vertical right split | `` split_vertical `` |
+| `` <C-w>v `` | Vertical right split | `` split_vertical `` |
 | `` <C-w><C-t> `` | Transpose splits | `` transpose_view `` |
 | `` <C-w>t `` | Transpose splits | `` transpose_view `` |
 | `` <C-w>r `` | Resize splits (Enter to confirm, Escape to cancel) | `` resize_mode `` |
 | `` <C-w>= `` | Make all splits the same size | `` equalize_views `` |
-| `` <C-w>f `` | Goto files in selections (hsplit) | `` goto_file_hsplit `` |
-| `` <C-w>F `` | Goto files in selections (vsplit) | `` goto_file_vsplit `` |
-| `` <C-w><C-q> `` | Close window | `` wclose `` |
-| `` <C-w>q `` | Close window | `` wclose `` |
-| `` <C-w><C-o> `` | Close windows except current | `` wonly `` |
-| `` <C-w>o `` | Close windows except current | `` wonly `` |
+| `` <C-w>f `` | Open files in selections in a horizontal split | `` goto_file_in_horizontal_split `` |
+| `` <C-w>F `` | Open files in selections in a vertical split | `` goto_file_in_vertical_split `` |
+| `` <C-w><C-q> `` | Close current view | `` close_view `` |
+| `` <C-w>q `` | Close current view | `` close_view `` |
+| `` <C-w><C-o> `` | Close views except current | `` close_other_views `` |
+| `` <C-w>o `` | Close views except current | `` close_other_views `` |
 | `` <C-w><C-h> `` | Jump to left split | `` jump_view_left `` |
 | `` <C-w>h `` | Jump to left split | `` jump_view_left `` |
 | `` <C-w><left> `` | Jump to left split | `` jump_view_left `` |
@@ -268,10 +268,10 @@
 
 | Key | Description | Command |
 | --- | --- | --- |
-| `` <C-w>n<C-s> `` | Horizontal bottom split scratch buffer | `` hsplit_new `` |
-| `` <C-w>ns `` | Horizontal bottom split scratch buffer | `` hsplit_new `` |
-| `` <C-w>n<C-v> `` | Vertical right split scratch buffer | `` vsplit_new `` |
-| `` <C-w>nv `` | Vertical right split scratch buffer | `` vsplit_new `` |
+| `` <C-w>n<C-s> `` | Horizontal bottom split scratch buffer | `` split_horizontal_new `` |
+| `` <C-w>ns `` | Horizontal bottom split scratch buffer | `` split_horizontal_new `` |
+| `` <C-w>n<C-v> `` | Vertical right split scratch buffer | `` split_vertical_new `` |
+| `` <C-w>nv `` | Vertical right split scratch buffer | `` split_vertical_new `` |
 
 ### `` <space> `` — Space
 
@@ -295,11 +295,11 @@
 | `` <space>G `` | Debug (experimental) (sticky; Escape to exit) | Prefix |
 | `` <space>w `` | Window | Prefix |
 | `` <space>y `` | Yank selections to clipboard | `` yank_to_clipboard `` |
-| `` <space>Y `` | Yank main selection to clipboard | `` yank_main_selection_to_clipboard `` |
+| `` <space>Y `` | Yank primary selection to clipboard | `` yank_primary_selection_to_clipboard `` |
 | `` <space>p `` | Paste clipboard after selections | `` paste_clipboard_after `` |
 | `` <space>P `` | Paste clipboard before selections | `` paste_clipboard_before `` |
 | `` <space>R `` | Replace selections by clipboard content | `` replace_selections_with_clipboard `` |
-| `` <space>/ `` | Global search in workspace folder | `` global_search `` |
+| `` <space>/ `` | Open search picker rooted at the current working directory | `` search_picker_in_current_working_directory `` |
 | `` <space>k `` | Show docs for item under cursor | `` hover `` |
 | `` <space>r `` | Rename symbol | `` rename_symbol `` |
 | `` <space>h `` | Select symbol references | `` select_references_to_symbol_under_cursor `` |
@@ -360,20 +360,20 @@
 | `` <space>w<C-w> `` | Goto next window | `` rotate_view `` |
 | `` <space>ww `` | Goto next window | `` rotate_view `` |
 | `` <space>wW `` | Goto previous window | `` rotate_view_reverse `` |
-| `` <space>w<C-s> `` | Horizontal bottom split | `` hsplit `` |
-| `` <space>ws `` | Horizontal bottom split | `` hsplit `` |
-| `` <space>w<C-v> `` | Vertical right split | `` vsplit `` |
-| `` <space>wv `` | Vertical right split | `` vsplit `` |
+| `` <space>w<C-s> `` | Horizontal bottom split | `` split_horizontal `` |
+| `` <space>ws `` | Horizontal bottom split | `` split_horizontal `` |
+| `` <space>w<C-v> `` | Vertical right split | `` split_vertical `` |
+| `` <space>wv `` | Vertical right split | `` split_vertical `` |
 | `` <space>w<C-t> `` | Transpose splits | `` transpose_view `` |
 | `` <space>wt `` | Transpose splits | `` transpose_view `` |
 | `` <space>wr `` | Resize splits (Enter to confirm, Escape to cancel) | `` resize_mode `` |
 | `` <space>w= `` | Make all splits the same size | `` equalize_views `` |
-| `` <space>wf `` | Goto files in selections (hsplit) | `` goto_file_hsplit `` |
-| `` <space>wF `` | Goto files in selections (vsplit) | `` goto_file_vsplit `` |
-| `` <space>w<C-q> `` | Close window | `` wclose `` |
-| `` <space>wq `` | Close window | `` wclose `` |
-| `` <space>w<C-o> `` | Close windows except current | `` wonly `` |
-| `` <space>wo `` | Close windows except current | `` wonly `` |
+| `` <space>wf `` | Open files in selections in a horizontal split | `` goto_file_in_horizontal_split `` |
+| `` <space>wF `` | Open files in selections in a vertical split | `` goto_file_in_vertical_split `` |
+| `` <space>w<C-q> `` | Close current view | `` close_view `` |
+| `` <space>wq `` | Close current view | `` close_view `` |
+| `` <space>w<C-o> `` | Close views except current | `` close_other_views `` |
+| `` <space>wo `` | Close views except current | `` close_other_views `` |
 | `` <space>w<C-h> `` | Jump to left split | `` jump_view_left `` |
 | `` <space>wh `` | Jump to left split | `` jump_view_left `` |
 | `` <space>w<left> `` | Jump to left split | `` jump_view_left `` |
@@ -400,21 +400,21 @@
 
 | Key | Description | Command |
 | --- | --- | --- |
-| `` <space>wn<C-s> `` | Horizontal bottom split scratch buffer | `` hsplit_new `` |
-| `` <space>wns `` | Horizontal bottom split scratch buffer | `` hsplit_new `` |
-| `` <space>wn<C-v> `` | Vertical right split scratch buffer | `` vsplit_new `` |
-| `` <space>wnv `` | Vertical right split scratch buffer | `` vsplit_new `` |
+| `` <space>wn<C-s> `` | Horizontal bottom split scratch buffer | `` split_horizontal_new `` |
+| `` <space>wns `` | Horizontal bottom split scratch buffer | `` split_horizontal_new `` |
+| `` <space>wn<C-v> `` | Vertical right split scratch buffer | `` split_vertical_new `` |
+| `` <space>wnv `` | Vertical right split scratch buffer | `` split_vertical_new `` |
 
 ### `` z `` — View
 
 | Key | Description | Command |
 | --- | --- | --- |
 | `` zf `` | Folding | Prefix |
-| `` zz `` | Align view center | `` align_view_center `` |
-| `` zc `` | Align view center | `` align_view_center `` |
+| `` zz `` | Scroll vertically to center the primary cursor | `` center_view_vertically `` |
+| `` zc `` | Scroll vertically to center the primary cursor | `` center_view_vertically `` |
 | `` zt `` | Align view top | `` align_view_top `` |
 | `` zb `` | Align view bottom | `` align_view_bottom `` |
-| `` zm `` | Align view middle | `` align_view_middle `` |
+| `` zm `` | Scroll horizontally to center the primary cursor | `` center_view_horizontally `` |
 | `` zk `` | Scroll view up | `` scroll_up `` |
 | `` z<up> `` | Scroll view up | `` scroll_up `` |
 | `` zj `` | Scroll view down | `` scroll_down `` |
@@ -427,8 +427,8 @@
 | `` z<backspace> `` | Move page and cursor half up | `` page_cursor_half_up `` |
 | `` z<C-d> `` | Move page and cursor half down | `` page_cursor_half_down `` |
 | `` z<space> `` | Move page and cursor half down | `` page_cursor_half_down `` |
-| `` z/ `` | Search for regex pattern | `` search `` |
-| `` z? `` | Reverse search for regex pattern | `` rsearch `` |
+| `` z/ `` | Search forward for regex pattern | `` search_forward `` |
+| `` z? `` | Search backward for regex pattern | `` search_backward `` |
 | `` zn `` | Select next search match | `` search_next `` |
 | `` zN `` | Select previous search match | `` search_prev `` |
 
@@ -448,11 +448,11 @@
 | Key | Description | Command |
 | --- | --- | --- |
 | `` Zf `` | Folding | Prefix |
-| `` Zz `` | Align view center | `` align_view_center `` |
-| `` Zc `` | Align view center | `` align_view_center `` |
+| `` Zz `` | Scroll vertically to center the primary cursor | `` center_view_vertically `` |
+| `` Zc `` | Scroll vertically to center the primary cursor | `` center_view_vertically `` |
 | `` Zt `` | Align view top | `` align_view_top `` |
 | `` Zb `` | Align view bottom | `` align_view_bottom `` |
-| `` Zm `` | Align view middle | `` align_view_middle `` |
+| `` Zm `` | Scroll horizontally to center the primary cursor | `` center_view_horizontally `` |
 | `` Zk `` | Scroll view up | `` scroll_up `` |
 | `` Z<up> `` | Scroll view up | `` scroll_up `` |
 | `` Zj `` | Scroll view down | `` scroll_down `` |
@@ -465,8 +465,8 @@
 | `` Z<backspace> `` | Move page and cursor half up | `` page_cursor_half_up `` |
 | `` Z<C-d> `` | Move page and cursor half down | `` page_cursor_half_down `` |
 | `` Z<space> `` | Move page and cursor half down | `` page_cursor_half_down `` |
-| `` Z/ `` | Search for regex pattern | `` search `` |
-| `` Z? `` | Reverse search for regex pattern | `` rsearch `` |
+| `` Z/ `` | Search forward for regex pattern | `` search_forward `` |
+| `` Z? `` | Search backward for regex pattern | `` search_backward `` |
 | `` Zn `` | Select next search match | `` search_next `` |
 | `` ZN `` | Select previous search match | `` search_prev `` |
 

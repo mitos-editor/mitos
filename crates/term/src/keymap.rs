@@ -553,8 +553,8 @@ mod tests {
             Mode::Normal => keymap!({ "Normal mode"
                 "space" => { ""
                     "s" => { ""
-                        "v" => vsplit,
-                        "c" => hsplit,
+                        "v" => split_vertical,
+                        "c" => split_horizontal,
                     },
                 },
             })
@@ -566,7 +566,7 @@ mod tests {
         // Make sure mapping works
         assert_eq!(
             keymap.search(&[key!(' '), key!('s'), key!('v')]).unwrap(),
-            &KeyTrie::MappableCommand(MappableCommand::vsplit),
+            &KeyTrie::MappableCommand(MappableCommand::split_vertical),
             "Leaf should be present in merged subnode"
         );
         // Merged nodes were ordered at the end
