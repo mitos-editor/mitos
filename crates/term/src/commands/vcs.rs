@@ -267,6 +267,8 @@ fn changed_file_picker_for_scope(cx: &mut Context, scope: vcs::ChangedFileScope)
         workspace_root: std::path::PathBuf,
         display_root: Option<std::path::PathBuf>,
         icons: bool,
+        paths: super::picker::PathStyleConfig,
+        style_inactive: Style,
         style_untracked: Style,
         style_modified: Style,
         style_conflict: Style,
@@ -276,7 +278,7 @@ fn changed_file_picker_for_scope(cx: &mut Context, scope: vcs::ChangedFileScope)
 
     fn change_cell(change: Option<&FileChange>, data: &FileChangeData) -> Cell<'static> {
         let Some(change) = change else {
-            return Span::raw("—").into();
+            return Span::styled("—", data.style_inactive).into();
         };
         let (label, style) = match change {
             FileChange::Untracked { .. } => ("untracked", data.style_untracked),
@@ -328,8 +330,9 @@ fn changed_file_picker_for_scope(cx: &mut Context, scope: vcs::ChangedFileScope)
         change_prefix(entry.status.unstaged.as_ref(), data)
     }
 
-    fn path_column<'a>(entry: &'a ChangedFileEntry, _data: &FileChangeData) -> Cell<'a> {
-        entry.display_path.as_str().into()
+    fn path_column<'a>(entry: &'a ChangedFileEntry, data: &FileChangeData) -> Cell<'a> {
+        data.paths
+            .stylize(Some(Path::new(&entry.display_path)), None)
     }
 
     if !scope.path().exists() {
@@ -365,6 +368,8 @@ fn changed_file_picker_for_scope(cx: &mut Context, scope: vcs::ChangedFileScope)
             workspace_root: workspace_root.clone(),
             display_root: display_root.clone(),
             icons: cx.editor.config().icons,
+            paths: super::picker::PathStyleConfig::new(cx.editor),
+            style_inactive: cx.editor.theme.get("ui.text.inactive"),
             style_untracked: added,
             style_modified: modified,
             style_conflict: conflict,

@@ -21,6 +21,7 @@ struct Data {
     repo: GitRepository,
     buffer: Option<DocumentId>,
     theme: Arc<theme::Theme>,
+    paths: Arc<crate::commands::picker::PathStyleConfig>,
 }
 
 pub(super) fn file_history(editor: &Editor) -> Result<Box<dyn Component>> {
@@ -70,6 +71,7 @@ fn browser(
         repo: repo.clone(),
         buffer,
         theme: Arc::new(editor.theme.clone()),
+        paths: Arc::new(crate::commands::picker::PathStyleConfig::new(editor)),
     };
     let preview_repo = data.repo.clone();
     let accept = data.clone();
@@ -451,8 +453,8 @@ fn files_picker(
                 };
                 Span::styled(file.status.as_str(), data.data.theme.get(scope)).into()
             }),
-            PickerColumn::new("path", |file: &HistoryFile, _| {
-                file.path().to_string_lossy().into_owned().into()
+            PickerColumn::new("path", |file: &HistoryFile, data: &Files| {
+                data.data.paths.stylize(Some(file.path()), None)
             }),
         ],
         1,

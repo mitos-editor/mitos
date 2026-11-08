@@ -6,7 +6,11 @@ use crate::{
 };
 use anyhow::{ensure, Result};
 use command_line::Args;
-use std::path::{Path, PathBuf};
+use std::{
+    path::{Path, PathBuf},
+    sync::Arc,
+};
+use tui::text::Span;
 use vcs::operations::{
     repository::{Branch, Worktree},
     GitRepository, RepositoryOperation,
@@ -98,24 +102,50 @@ pub(super) fn execute(cx: &mut Context, args: Args, command: Command) -> Result<
     Ok(())
 }
 
+struct RepositoryData {
+    repo: GitRepository,
+    theme: Arc<theme::Theme>,
+}
+
+impl RepositoryData {
+    fn new(editor: &Editor, repo: GitRepository) -> Self {
+        Self {
+            repo,
+            theme: Arc::new(editor.theme.clone()),
+        }
+    }
+}
+
 fn branches(editor: &Editor, repo: GitRepository, workspace: PathBuf) -> Box<dyn Component> {
     let actions = repo.clone();
     let picker = Picker::new_with_callback_result(
         editor.redraw().clone(),
         [
-            PickerColumn::new("branch", |branch: &Branch, _: &GitRepository| {
-                branch.name.as_str().into()
+            PickerColumn::new("branch", |branch: &Branch, data: &RepositoryData| {
+                Span::styled(
+                    branch.name.as_str(),
+                    data.theme.get(if branch.current {
+                        "diff.plus"
+                    } else {
+                        "string.special.symbol"
+                    }),
+                )
+                .into()
             }),
-            PickerColumn::new("current", |branch: &Branch, _| {
-                if branch.current { "*" } else { "" }.into()
+            PickerColumn::new("current", |branch: &Branch, data| {
+                Span::styled(
+                    if branch.current { "*" } else { "" },
+                    data.theme.get("diff.plus"),
+                )
+                .into()
             }),
-            PickerColumn::new("upstream", |branch: &Branch, _| {
-                branch.upstream.as_str().into()
+            PickerColumn::new("upstream", |branch: &Branch, data| {
+                Span::styled(branch.upstream.as_str(), data.theme.get("string.special")).into()
             }),
         ],
         0,
         Vec::<Branch>::new(),
-        repo,
+        RepositoryData::new(editor, repo),
         move |_, branch, _| {
             let action = GitAction::Repository(
                 actions.clone(),
@@ -130,9 +160,11 @@ fn branches(editor: &Editor, repo: GitRepository, workspace: PathBuf) -> Box<dyn
         },
     )
     .with_title("Git branches · Enter switches branch")
-    .with_file_updates(editor, GitRepository::root, |_, _, repo, _| {
-        Box::pin(async move { repo.branches().await })
-    })
+    .with_file_updates(
+        editor,
+        |data| data.repo.root(),
+        |_, _, data, _| Box::pin(async move { data.repo.branches().await }),
+    )
     .with_refresh_generation(editor, super::actions::generation)
     .with_item_key(|branch| branch.name.clone())
     .refresh_on_vcs_changes()
@@ -145,28 +177,40 @@ fn worktrees(editor: &Editor, repo: GitRepository) -> Box<dyn Component> {
     let picker = Picker::new_with_callback_result(
         editor.redraw().clone(),
         [
-            PickerColumn::new("path", |tree: &Worktree, _: &GitRepository| {
-                tree.path.display().to_string().into()
-            }),
-            PickerColumn::new("branch", |tree: &Worktree, _| {
-                tree.branch.as_deref().unwrap_or("(detached)").into()
-            }),
-            PickerColumn::new("state", |tree: &Worktree, _| {
-                if tree.locked {
-                    "locked"
-                } else if tree.prunable {
-                    "unavailable"
-                } else if tree.main {
-                    "main"
-                } else {
-                    "linked"
-                }
+            PickerColumn::new("path", |tree: &Worktree, data: &RepositoryData| {
+                Span::styled(
+                    tree.path.display().to_string(),
+                    data.theme.get("ui.text.directory"),
+                )
                 .into()
+            }),
+            PickerColumn::new("branch", |tree: &Worktree, data| {
+                Span::styled(
+                    tree.branch.as_deref().unwrap_or("(detached)"),
+                    data.theme.get(if tree.branch.is_some() {
+                        "string.special.symbol"
+                    } else {
+                        "ui.text.inactive"
+                    }),
+                )
+                .into()
+            }),
+            PickerColumn::new("state", |tree: &Worktree, data| {
+                let (label, scope) = if tree.locked {
+                    ("locked", "warning")
+                } else if tree.prunable {
+                    ("unavailable", "error")
+                } else if tree.main {
+                    ("main", "diff.plus")
+                } else {
+                    ("linked", "ui.text.inactive")
+                };
+                Span::styled(label, data.theme.get(scope)).into()
             }),
         ],
         0,
         Vec::<Worktree>::new(),
-        repo,
+        RepositoryData::new(editor, repo),
         move |_, tree, _| {
             let path = tree.path.clone();
             let repo = open.clone();
@@ -176,9 +220,11 @@ fn worktrees(editor: &Editor, repo: GitRepository) -> Box<dyn Component> {
         },
     )
     .with_title("Git worktrees · Enter opens file picker")
-    .with_file_updates(editor, GitRepository::root, |_, _, repo, _| {
-        Box::pin(async move { repo.worktrees().await })
-    })
+    .with_file_updates(
+        editor,
+        |data| data.repo.root(),
+        |_, _, data, _| Box::pin(async move { data.repo.worktrees().await }),
+    )
     .with_refresh_generation(editor, super::actions::generation)
     .with_item_key(|tree| tree.path.display().to_string())
     .refresh_on_vcs_changes()
@@ -210,4 +256,79 @@ fn request_open_worktree(cx: &mut Context, repo: GitRepository, path: PathBuf) {
             }
         }))
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ui::picker::test::{application, frame, until};
+    use view::graphics::Color;
+
+    fn assert_colour(surface: &tui::buffer::Buffer, text: &str, colour: Color) {
+        // Skip the border, query, separator, and column headings.
+        for y in 4..surface.area.height {
+            let row: String = (0..surface.area.width)
+                .map(|x| surface[(x, y)].symbol())
+                .collect();
+            if let Some(offset) = row.find(text) {
+                let offset = row[..offset].chars().count();
+                for x in offset..offset + text.len() {
+                    assert_eq!(
+                        surface[(x as u16, y)].fg,
+                        colour,
+                        "{text}: row {y} column {x}: {row}"
+                    );
+                }
+                return;
+            }
+        }
+        panic!("Missing picker text: {text}");
+    }
+
+    #[tokio::test]
+    async fn repository_pickers_preserve_semantic_colours_on_selected_rows() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let output = std::process::Command::new("git")
+            .arg("init")
+            .arg("-b")
+            .arg("main")
+            .arg(dir.path())
+            .output()?;
+        ensure!(output.status.success(), "git init failed");
+        std::fs::write(
+            dir.path().join(".git/refs/heads/main"),
+            "1111111111111111111111111111111111111111\n",
+        )?;
+        let repo = GitRepository::discover(dir.path())?;
+        let mut app = application(false)?;
+        app.editor.theme = theme::Theme::from(toml::Value::Table(toml::toml! {
+            "ui.text" = "white"
+            "ui.text.directory" = "blue"
+            "ui.text.focus" = { modifiers = ["bold"] }
+            "diff.plus" = "green"
+            "string.special.symbol" = "cyan"
+            "ui.selection" = { bg = "black" }
+            "ui.highlight" = { bg = "black" }
+            "special" = { modifiers = ["bold"] }
+        }));
+        let mut branches = branches(&app.editor, repo.clone(), dir.path().into())
+            .as_boxed_any()
+            .downcast::<ui::overlay::Overlay<Picker<Branch, RepositoryData>>>()
+            .map_err(|_| anyhow::anyhow!("Expected branch picker"))?;
+        until(&mut branches.content, &mut app, |p| p.selection().is_some()).await?;
+        let surface = frame(&mut branches.content, &mut app);
+        assert_colour(&surface, "main", Color::Green);
+        assert_colour(&surface, "*", Color::Green);
+        let mut worktrees = worktrees(&app.editor, repo)
+            .as_boxed_any()
+            .downcast::<ui::overlay::Overlay<Picker<Worktree, RepositoryData>>>()
+            .map_err(|_| anyhow::anyhow!("Expected worktree picker"))?;
+        until(&mut worktrees.content, &mut app, |p| {
+            p.selection().is_some()
+        })
+        .await?;
+        let surface = frame(&mut worktrees.content, &mut app);
+        assert_colour(&surface, std::path::MAIN_SEPARATOR_STR, Color::Blue);
+        Ok(())
+    }
 }
