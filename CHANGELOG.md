@@ -6,6 +6,7 @@
 
 ### Highlights
 
+- New Mitos logo and app icons, with refreshed website and documentation styling. Linux desktop packages include the new app icon.
 - Keep a [file explorer sidebar](https://mitos.computer/docs/pickers.html#sidebar) beside your code. Press `Ctrl-e` to focus it, search collapsed folders, and create, rename, copy, or delete files. Expanded folders and your selection stay in place when you return.
 - Manage [Git branches and worktrees](https://mitos.computer/docs/version-control.html#branches-and-worktrees) without leaving Mitos. Create and switch branches, open worktrees, and fetch, pull, or push through your configured remotes. Branch and history pickers load results progressively and offer actions on the selected item.
 - Preview commits in [repository history](https://mitos.computer/docs/version-control.html#repository-history), restore individual hunks from the [change popup](https://mitos.computer/docs/version-control.html#inspecting-the-current-change), and keep editing merge conflict markers. Blame respects `.git-blame-ignore-revs`.
