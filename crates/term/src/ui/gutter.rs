@@ -250,6 +250,7 @@ fn line_numbers<'doc>(
     let view_id = view.id;
     let raw_conflict_markers = doc.raw_conflict_markers(view_id);
     let conflicts = doc.conflict_presentation();
+    let shared_line_numbers = !raw_conflict_markers && !conflicts.regions.is_empty();
     let line_number = editor.config().line_number;
     let folds = doc.folded_ranges(view.id);
     let wrap_indicator = editor
@@ -282,10 +283,10 @@ fn line_numbers<'doc>(
 
                 let display_num = if relative {
                     text_layout::movement::document_line_distance(text, current_line, line, folds)
-                } else if raw_conflict_markers {
-                    line + 1
-                } else {
+                } else if shared_line_numbers {
                     conflicts.line_number(line) + 1
+                } else {
+                    line + 1
                 };
 
                 let style = if selected && is_focused {

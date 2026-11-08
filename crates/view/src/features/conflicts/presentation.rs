@@ -296,11 +296,11 @@ impl Document {
         theme: Option<&theme::Theme>,
         annotations: &mut TextAnnotations<'a>,
     ) {
-        if self.raw_conflict_markers(view) {
+        let presentation = self.conflict_presentation();
+        if presentation.regions.is_empty() || self.raw_conflict_markers(view) {
             return;
         }
-        for (labels, side) in self
-            .conflict_presentation()
+        for (labels, side) in presentation
             .labels
             .iter()
             .zip([ConflictSide::Current, ConflictSide::End])

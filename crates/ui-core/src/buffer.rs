@@ -62,10 +62,12 @@ impl BufferExt for Buffer {
     fn set_grapheme(&mut self, x: u16, y: u16, grapheme: &str, width: usize, style: Style) {
         let index = self.index_of(x, y);
         self.content[index].set_symbol(grapheme).set_style(style);
-        let resolved = self.content[index].style();
-        for cell in &mut self.content[index + 1..index + width] {
-            cell.reset();
-            cell.set_style(resolved);
+        if width > 1 {
+            let resolved = self.content[index].style();
+            for cell in &mut self.content[index + 1..index + width] {
+                cell.reset();
+                cell.set_style(resolved);
+            }
         }
     }
 
