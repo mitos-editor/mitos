@@ -42,11 +42,22 @@ pub(crate) fn render_document_with_styles(
     surface: &mut Surface,
     doc: &Document,
     layout: &ViewLayout,
-    overlay_highlights: Vec<editor_core::highlight::OverlayHighlights>,
+    mut overlay_highlights: Vec<editor_core::highlight::OverlayHighlights>,
     theme: &Theme,
     decorations: DecorationManager,
     syntax_styles: impl Iterator<Item = (usize, theme::Style)>,
 ) {
+    if !doc.conflict_presentation().markers.is_empty() {
+        let visible = layout.visible_byte_range();
+        overlay_highlights.insert(
+            0,
+            doc.conflict_marker_highlights(
+                layout.text.byte_to_char_idx(visible.start)
+                    ..layout.text.byte_to_char_idx(visible.end),
+                theme,
+            ),
+        );
+    }
     let config = doc.config.load();
     let mut renderer = TextRenderer::new(
         surface,

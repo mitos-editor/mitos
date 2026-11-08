@@ -299,6 +299,18 @@ impl Theme {
         self.try_get(scope).unwrap_or_default()
     }
 
+    /// Mix one part foreground into seven parts of the editor background.
+    /// Missing or terminal-palette colors return `None`; callers choose a fallback.
+    pub fn tinted_background(&self, foreground: Option<Color>) -> Option<Color> {
+        match (self.get("ui.background").bg, foreground) {
+            (Some(Color::Rgb(r, g, b)), Some(Color::Rgb(fr, fg, fb))) => {
+                let mix = |base: u8, tint: u8| ((u16::from(base) * 7 + u16::from(tint)) / 8) as u8;
+                Some(Color::Rgb(mix(r, fr), mix(g, fg), mix(b, fb)))
+            }
+            _ => None,
+        }
+    }
+
     /// Get the style of a scope, falling back to dot separated broader
     /// scopes. For example if `ui.text.focus` is not defined in the theme,
     /// `ui.text` is tried and then `ui` is tried.
@@ -542,6 +554,32 @@ impl TryFrom<Value> for ThemePalette {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn background_tint_requires_rgb_colors() {
+        let theme = Theme::from(toml::Value::Table(toml::toml! {
+            "ui.background" = { bg = "#101010" }
+        }));
+        assert_eq!(
+            theme.tinted_background(Some(Color::Rgb(144, 208, 144))),
+            Some(Color::Rgb(32, 40, 32))
+        );
+        for foreground in [
+            None,
+            Some(Color::Green),
+            Some(Color::Indexed(42)),
+            Some(Color::Reset),
+        ] {
+            assert_eq!(theme.tinted_background(foreground), None);
+        }
+        for source in ["", "\"ui.background\" = { bg = \"black\" }"] {
+            let theme = Theme::from(toml::from_str::<toml::Value>(source).unwrap());
+            assert_eq!(
+                theme.tinted_background(Some(Color::Rgb(144, 208, 144))),
+                None
+            );
+        }
+    }
 
     #[test]
     fn named_grays_preserve_their_ansi_colors() {

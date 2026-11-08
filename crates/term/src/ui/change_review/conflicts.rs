@@ -41,8 +41,7 @@ impl ConflictView {
             return *height;
         }
         let mut annotations = TextAnnotations::default();
-        self.doc
-            .annotate_conflicts(view::ViewId::default(), Some(theme), &mut annotations);
+        self.doc.annotate_conflicts(Some(theme), &mut annotations);
         let height = visual_offset_from_block(
             self.doc.text().slice(..),
             0,
@@ -79,11 +78,7 @@ impl ConflictView {
         let doc = &self.doc;
         let format = doc.text_format(viewport.width, Some(&cx.editor.theme));
         let mut annotations = TextAnnotations::default();
-        doc.annotate_conflicts(
-            view::ViewId::default(),
-            Some(&cx.editor.theme),
-            &mut annotations,
-        );
+        doc.annotate_conflicts(Some(&cx.editor.theme), &mut annotations);
         let (anchor, _) = char_idx_at_visual_offset(
             doc.text().slice(..),
             0,
@@ -127,7 +122,7 @@ mod tests {
     use std::sync::Arc;
 
     #[test]
-    fn preview_height_tracks_wrapped_headings_and_format_changes() {
+    fn preview_height_tracks_wrapped_labels_and_format_changes() {
         let settings: editor_config::Config =
             toml::from_str("[soft-wrap]\nenable = true\n").unwrap();
         let config = Arc::new(arc_swap::ArcSwap::from_pointee(settings));

@@ -160,7 +160,7 @@ impl Document {
             return;
         }
 
-        self.conflicts.take();
+        self.invalidate_conflicts(old_doc, changes);
         self.modified_since_accessed = true;
         if let Some(selection) = self.pending_navigation.take() {
             self.pending_navigation = Some(

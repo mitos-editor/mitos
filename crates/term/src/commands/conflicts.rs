@@ -42,13 +42,6 @@ pub(super) fn resolve(cx: &mut compositor::Context, args: Args) -> Result<()> {
     Ok(())
 }
 
-pub(super) fn toggle_markers(cx: &mut compositor::Context, _: Args) -> Result<()> {
-    let (view, doc) = view::current!(cx.editor);
-    doc.toggle_conflict_markers(view.id);
-
-    Ok(())
-}
-
 pub(super) fn source(cx: &mut compositor::Context, args: Args) -> Result<()> {
     #[cfg(not(feature = "git"))]
     {

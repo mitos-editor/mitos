@@ -519,14 +519,10 @@ conflict or `[m` to move to the previous one.
 
 Place the cursor inside a conflict and press `Space a`. Choose **Accept current**,
 **Accept incoming**, or **Accept both (current then incoming)** to keep that text.
-The menu also includes other available code actions. You can edit the text directly.
+The menu also includes other available code actions.
 
 Press `u` to undo a choice. If you keep both sides, review and edit the combined
 text. When you have resolved every conflict, save the file and stage it.
-
-The editor labels each side of the conflict. To see or edit the marker lines,
-run `:vcs-conflict-toggle-markers`. Run it again to restore the headings. This
-affects only the current view.
 
 You can also resolve conflicts with commands:
 

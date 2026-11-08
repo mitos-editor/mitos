@@ -218,7 +218,6 @@ impl Component for ReviewView {
 /// Theme overrides use `diff.plus.line` / `diff.minus.line`. Existing RGB themes
 /// get a subtle tint; terminal palettes keep their own selection background.
 pub(crate) fn line_style(theme: &theme::Theme, kind: ReviewLineKind) -> view::graphics::Style {
-    use view::graphics::Color;
     let scope = match kind {
         ReviewLineKind::Added => "diff.plus",
         ReviewLineKind::Removed => "diff.minus",
@@ -229,22 +228,16 @@ pub(crate) fn line_style(theme: &theme::Theme, kind: ReviewLineKind) -> view::gr
         return style;
     }
     let mut style = theme.get("ui.text");
-    style.bg = match (theme.get("ui.background").bg, theme.get(scope).fg) {
-        (Some(Color::Rgb(r, g, b)), Some(Color::Rgb(dr, dg, db))) => {
-            let mix = |a: u8, b: u8| ((u16::from(a) * 7 + u16::from(b)) / 8) as u8;
-            Some(Color::Rgb(mix(r, dr), mix(g, dg), mix(b, db)))
-        }
-        _ => {
-            let selection = theme.get("ui.selection");
-            selection.bg.or_else(|| {
-                selection
-                    .add_modifier
-                    .contains(view::graphics::Modifier::REVERSED)
-                    .then_some(selection.fg)
-                    .flatten()
-            })
-        }
-    };
+    style.bg = theme.tinted_background(theme.get(scope).fg).or_else(|| {
+        let selection = theme.get("ui.selection");
+        selection.bg.or_else(|| {
+            selection
+                .add_modifier
+                .contains(view::graphics::Modifier::REVERSED)
+                .then_some(selection.fg)
+                .flatten()
+        })
+    });
     style
 }
 

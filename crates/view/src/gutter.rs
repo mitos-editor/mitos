@@ -30,6 +30,15 @@ fn line_numbers_width(view: &View, doc: &Document) -> usize {
     let last_line = text.len_lines(stdx::rope::LINE_TYPE).saturating_sub(1);
     let draw_last = text.line_to_byte_idx(last_line, stdx::rope::LINE_TYPE) < text.len();
     let last_drawn = if draw_last { last_line + 1 } else { last_line };
+    // Relative numbers still measure cursor motions through physical source lines.
+    let conflicts = doc.conflict_presentation();
+    let last_drawn = if conflicts.regions.is_empty()
+        || doc.config.load().line_number == editor_config::LineNumber::Relative
+    {
+        last_drawn
+    } else {
+        conflicts.line_count(last_drawn)
+    };
     let digits = count_digits(last_drawn);
     let n_min = view.gutters.line_numbers.min_width;
     digits.max(n_min)

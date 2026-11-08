@@ -62,8 +62,12 @@ impl BufferExt for Buffer {
     fn set_grapheme(&mut self, x: u16, y: u16, grapheme: &str, width: usize, style: Style) {
         let index = self.index_of(x, y);
         self.content[index].set_symbol(grapheme).set_style(style);
-        for cell in &mut self.content[index + 1..index + width] {
-            cell.reset();
+        if width > 1 {
+            let resolved = self.content[index].style();
+            for cell in &mut self.content[index + 1..index + width] {
+                cell.reset();
+                cell.set_style(resolved);
+            }
         }
     }
 
@@ -215,6 +219,20 @@ mod tests {
 
     fn symbols(buffer: &Buffer) -> String {
         buffer.content.iter().map(|cell| cell.symbol()).collect()
+    }
+
+    #[test]
+    fn wide_graphemes_keep_the_resolved_style_in_continuation_cells() {
+        use ratatui_core::style::Color;
+        let mut buffer = Buffer::with_lines(["abcd"]);
+        buffer.set_style(buffer.area, Style::default().bg(Color::Blue));
+        buffer.set_grapheme(1, 0, "界", 2, Style::default().fg(Color::Green));
+        assert_eq!(buffer[(1, 0)].symbol(), "界");
+        assert_eq!(buffer[(2, 0)].symbol(), " ");
+        assert_eq!(buffer[(2, 0)].style(), buffer[(1, 0)].style());
+        assert_eq!(buffer[(2, 0)].bg, Color::Blue);
+        assert_eq!(buffer[(0, 0)].symbol(), "a");
+        assert_eq!(buffer[(3, 0)].symbol(), "d");
     }
 
     #[test]
