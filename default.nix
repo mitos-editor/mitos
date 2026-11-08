@@ -65,7 +65,8 @@ rustPlatform.buildRustPackage (self: {
 
   buildType = "release";
 
-  name = with builtins; (fromTOML (readFile ./crates/term/Cargo.toml)).package.name;
+  pname = "mitos";
+  version = (lib.importTOML ./Cargo.toml).workspace.package.version;
   src = fs.toSource {
     root = ./.;
     fileset = src;
@@ -86,6 +87,8 @@ rustPlatform.buildRustPackage (self: {
     installShellCompletion ${./contrib/completion}/ms.{bash,fish,zsh}
     mkdir -p $out/share/applications
     cp ${./contrib/Mitos.desktop} $out/share/applications/Mitos.desktop
+    install -Dm644 ${./contrib/Mitos.appdata.xml} $out/share/metainfo/com.github.matoous.Mitos.metainfo.xml
+    install -Dm644 ${./book/theme/favicon.svg} $out/share/icons/hicolor/scalable/apps/Mitos.svg
   '';
 
   meta.mainProgram = "ms";

@@ -243,7 +243,13 @@ jobs:
               fi
           done
 
-          tar cJf "dist/mitos-$tag-source.tar.xz" -C "$source" .
+          # Include tracked sources and pinned grammar sources, without checkout
+          # credentials, Git metadata, or intermediate CI artifacts.
+          source_package="$(mktemp -d)"
+          git -C "$source" archive HEAD | tar xf - -C "$source_package"
+          mkdir -p "$source_package/runtime/grammars"
+          cp -a "$source/runtime/grammars/sources" "$source_package/runtime/grammars/"
+          tar cJf "dist/mitos-$tag-source.tar.xz" --exclude=.git -C "$source_package" .
           mv dist "$source/"
 
       - name: Generate release checksums

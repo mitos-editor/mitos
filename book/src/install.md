@@ -22,7 +22,7 @@ If that directory is missing from your `PATH`, it prints the command to add it.
 To install a specific version:
 
 ```sh
-curl -fsSL https://mitos.computer/install.sh | sh -s -- --version 0.1.0
+curl -fsSL https://mitos.computer/install.sh | sh -s -- --version 0.2.0
 ```
 
 Rerun the installer to upgrade. Previous versions stay installed, so running
@@ -38,10 +38,10 @@ Run in PowerShell 5.1 or newer:
 & ([scriptblock]::Create((Invoke-RestMethod https://mitos.computer/install.ps1)))
 ```
 
-To pin a version, add `-Version 0.1.0`:
+To pin a version, add `-Version 0.2.0`:
 
 ```powershell
-& ([scriptblock]::Create((Invoke-RestMethod https://mitos.computer/install.ps1))) -Version 0.1.0
+& ([scriptblock]::Create((Invoke-RestMethod https://mitos.computer/install.ps1))) -Version 0.2.0
 ```
 
 The installer verifies the ZIP's checksum, keeps each version and its runtime
@@ -71,7 +71,7 @@ Download the archive for your system from
 | macOS | `mitos-vVERSION-x86_64-macos.tar.xz` | `mitos-vVERSION-aarch64-macos.tar.xz` |
 | Windows | `mitos-vVERSION-x86_64-windows.zip` | `mitos-vVERSION-aarch64-windows.zip` |
 
-`VERSION` is the release number, such as `0.1.0`. Apple Silicon Macs use
+`VERSION` is the release number, such as `0.2.0`. Apple Silicon Macs use
 `aarch64-macos`; Intel Macs use `x86_64-macos`. Linux archives use glibc.
 
 Extract the archive and keep `runtime/` beside `ms` (`ms.exe` on Windows).
@@ -80,15 +80,15 @@ No Rust toolchain or grammar compilation is needed.
 
 ### Linux and macOS
 
-For example, install version `0.1.0` on an Apple Silicon Mac, using
+For example, install version `0.2.0` on an Apple Silicon Mac, using
 [GitHub CLI](https://cli.github.com/):
 
 ```sh
-gh release download v0.1.0 --repo mitos-editor/mitos \
-  --pattern 'mitos-v0.1.0-aarch64-macos.tar.xz'
+gh release download v0.2.0 --repo mitos-editor/mitos \
+  --pattern 'mitos-v0.2.0-aarch64-macos.tar.xz'
 mkdir -p "$HOME/.local/share/mitos" "$HOME/.local/bin"
-tar -xJf mitos-v0.1.0-aarch64-macos.tar.xz -C "$HOME/.local/share/mitos"
-ln -sfn "$HOME/.local/share/mitos/mitos-v0.1.0-aarch64-macos/ms" \
+tar -xJf mitos-v0.2.0-aarch64-macos.tar.xz -C "$HOME/.local/share/mitos"
+ln -sfn "$HOME/.local/share/mitos/mitos-v0.2.0-aarch64-macos/ms" \
   "$HOME/.local/bin/ms"
 ```
 
@@ -100,7 +100,7 @@ Mitos follows the executable's symlink to find the bundled runtime.
 ### Windows
 
 Extract the ZIP to a permanent directory, such as
-`$HOME\Apps\Mitos\mitos-v0.1.0-x86_64-windows`. Add that directory to your
+`$HOME\Apps\Mitos\mitos-v0.2.0-x86_64-windows`. Add that directory to your
 user `Path` through **Environment Variables**, then open a new terminal.
 Keep `ms.exe` and `runtime/` together.
 
@@ -134,7 +134,7 @@ On x86_64 Debian or Ubuntu, download the `.deb` asset from
 install it from the download directory:
 
 ```sh
-sudo apt install ./mitos_0.1.0-1_amd64.deb
+sudo apt install ./mitos_0.2.0-1_amd64.deb
 ```
 
 Use the downloaded package's filename if it differs. The package includes the

@@ -210,7 +210,9 @@ you can configure Mitos to show up in the application menu by copying the
 provided `.desktop` file:
 
 ```sh
+mkdir -p ~/.local/share/applications ~/.local/share/icons/hicolor/scalable/apps
 cp contrib/Mitos.desktop ~/.local/share/applications
+cp book/theme/favicon.svg ~/.local/share/icons/hicolor/scalable/apps/Mitos.svg
 ```
 It is recommended to convert the links in the `.desktop` file to absolute paths to avoid potential problems:
 
