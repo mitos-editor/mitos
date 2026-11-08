@@ -90,6 +90,34 @@ fn create_actions_work_without_a_selected_row() -> Result<()> {
         worktree_action(&repo, dir.path(), None, PickerItemAction::RemoveWorktree),
         PickerCallbackResult::KeepOpen
     ));
+    for action in [
+        PickerItemAction::LockWorktree,
+        PickerItemAction::UnlockWorktree,
+    ] {
+        assert!(matches!(
+            worktree_action(&repo, dir.path(), None, action),
+            PickerCallbackResult::KeepOpen
+        ));
+        let main = Worktree {
+            path: dir.path().into(),
+            branch: None,
+            main: true,
+            locked: false,
+            prunable: false,
+        };
+        assert!(matches!(
+            worktree_action(&repo, dir.path(), Some(&main), action),
+            PickerCallbackResult::KeepOpen
+        ));
+        let linked = Worktree {
+            main: false,
+            ..main
+        };
+        assert!(matches!(
+            worktree_action(&repo, dir.path(), Some(&linked), action),
+            PickerCallbackResult::KeepOpenWithCallback(_)
+        ));
+    }
     Ok(())
 }
 

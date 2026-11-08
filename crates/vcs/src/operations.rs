@@ -181,6 +181,14 @@ impl PreparedOperation {
                     self.remove_worktree(path)?;
                     return Ok(None);
                 }
+                Operation::Repository(RepositoryOperation::LockWorktree { path }) => {
+                    self.set_worktree_lock(path, true)?;
+                    return Ok(None);
+                }
+                Operation::Repository(RepositoryOperation::UnlockWorktree { path }) => {
+                    self.set_worktree_lock(path, false)?;
+                    return Ok(None);
+                }
                 _ => {}
             }
             Ok::<_, anyhow::Error>(Some(self))

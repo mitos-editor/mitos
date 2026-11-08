@@ -78,6 +78,8 @@ pub enum PickerItemAction {
     DeleteBranch,
     CreateWorktree,
     RemoveWorktree,
+    LockWorktree,
+    UnlockWorktree,
     CreatePath,
     MovePath,
     CopyPath,
@@ -155,6 +157,8 @@ impl PickerAction {
                 PickerItemAction::DeleteBranch => "Delete branch",
                 PickerItemAction::CreateWorktree => "Create worktree",
                 PickerItemAction::RemoveWorktree => "Remove worktree",
+                PickerItemAction::LockWorktree => "Lock worktree",
+                PickerItemAction::UnlockWorktree => "Unlock worktree",
             },
         }
     }
@@ -322,6 +326,8 @@ impl ComponentKeymaps {
         shared.merge(bindings(&[
             ("A-n", PickerAction::Item(PickerItemAction::CreateWorktree)),
             ("A-d", PickerAction::Item(PickerItemAction::RemoveWorktree)),
+            ("A-l", PickerAction::Item(PickerItemAction::LockWorktree)),
+            ("A-u", PickerAction::Item(PickerItemAction::UnlockWorktree)),
         ]));
         shared
     }

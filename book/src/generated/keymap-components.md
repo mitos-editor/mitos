@@ -153,6 +153,7 @@
 | `` <C-v> `` | `` accept_vertical_split `` |
 | `` <C-c> ``, `` <esc> `` | `` cancel `` |
 | `` <A-n> `` | `` create_worktree `` |
+| `` <A-l> `` | `` lock_worktree `` |
 | `` <C-n> ``, `` <tab> ``, `` <down> `` | `` move_down `` |
 | `` <end> `` | `` move_end `` |
 | `` <home> `` | `` move_start `` |
@@ -171,6 +172,7 @@
 | `` <C-l> `` | `` toggle_loading `` |
 | `` <C-t> `` | `` toggle_preview `` |
 | `` <A-r> `` | `` toggle_replacement `` |
+| `` <A-u> `` | `` unlock_worktree `` |
 
 ## Stash picker
 
