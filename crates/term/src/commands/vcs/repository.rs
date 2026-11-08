@@ -82,6 +82,7 @@ pub(super) fn execute(cx: &mut Context, args: Args, command: Command) -> Result<
             tokio::task::spawn_blocking(move || GitRepository::discover(&scope.path)).await??;
         Ok(Callback::ui(move |compositor, cx| match request {
             Request::Picker(command) => {
+                cx.editor.clear_status();
                 let picker = match command {
                     Command::Branches => {
                         Box::new(overlaid(branches(cx.editor, repo, scope.workspace)))
