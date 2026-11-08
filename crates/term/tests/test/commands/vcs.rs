@@ -488,7 +488,7 @@ async fn blame_popup_copies_the_full_id_and_message_from_both_command_surfaces(
         message.trim_end(),
         "initial\n\nFull message with **literal** Markdown.\n\nAnother paragraph."
     );
-    press_keys(&mut app, "<space>?blame_line<ret>").await?;
+    press_keys(&mut app, "<space>?vcs_blame_line<ret>").await?;
     press_keys(&mut app, "y<esc>").await?;
     assert_eq!(
         app.editor.get_status().unwrap().0.as_ref(),
@@ -570,7 +570,7 @@ async fn changed_file_pickers_include_staged_only_files() -> anyhow::Result<()> 
         ":vcs-changes<ret>",
         ":vcs-repository-changes<ret>",
         "<space>?vcs-changes<ret>",
-        "<space>?changed_file_picker_in_repository<ret>",
+        "<space>?vcs_changed_file_picker_in_repository<ret>",
     ] {
         press_keys(&mut app, keys).await?;
         let screen = tokio::time::timeout(Duration::from_secs(10), async {

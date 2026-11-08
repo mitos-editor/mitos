@@ -14,7 +14,7 @@ use std::{collections::HashMap, sync::LazyLock};
 macro_rules! static_commands {
     (@preserve keep_completion) => { true };
     (@preserve) => { false };
-    ( $($name:ident => $handler:path, $doc:literal $(; $preserve:ident)?,)* ) => {
+    ( $($name:ident $( [ $($alias:literal),* ] )? => $handler:path, $doc:literal $(; $preserve:ident)?,)* ) => {
         $(
             #[allow(non_upper_case_globals)]
             pub const $name: Self = Self::Static {
@@ -27,6 +27,11 @@ macro_rules! static_commands {
 
         pub const STATIC_COMMAND_LIST: &'static [Self] = &[
             $( Self::$name, )*
+        ];
+
+        /// Legacy names resolve to canonical commands without duplicate palette entries.
+        pub const STATIC_COMMAND_ALIASES: &'static [(&'static str, Self)] = &[
+            $( $( $( ($alias, Self::$name), )* )? )*
         ];
     }
 }
@@ -152,20 +157,20 @@ impl MappableCommand {
         symbol_picker => super::lsp::symbol_picker, "Open symbol picker",
         syntax_symbol_picker => super::syntax::syntax_symbol_picker, "Open symbol picker from syntax information",
         lsp_or_syntax_symbol_picker => super::symbols::lsp_or_syntax_symbol_picker, "Open symbol picker from LSP or syntax information",
-        show_change => super::vcs::show_change, "Show hunk diff",
-        goto_next_conflict => super::conflicts::next, "Go to the next unresolved conflict",
-        goto_previous_conflict => super::conflicts::previous, "Go to the previous unresolved conflict",
-        blame_line => super::vcs::blame_line, "Show line blame",
-        toggle_inline_blame => super::vcs::toggle_inline_blame, "Toggle inline blame",
-        git_history => super::vcs::git_history, "Browse commits",
-        git_file_history => super::vcs::git_file_history, "Browse file history",
-        git_stash_picker => super::vcs::git_stash_picker, "Browse stashes",
-        changed_file_picker => super::vcs::changed_file_picker, "Browse changed files",
-        diff => super::vcs::diff, "Show file diff",
-        diff_refresh => super::vcs::diff_refresh, "Retry loading the current diff review buffer",
-        diff_open_source => super::vcs::diff_open_source, "Jump from a diff review to its source location",
-        diff_open_file => super::vcs::diff_open_file, "Open the current file from a diff review",
-        changed_file_picker_in_repository => super::vcs::changed_file_picker_in_repository, "Open changed file picker in repository",
+        vcs_show_change ["show_change"] => super::vcs::show_change, "Show hunk diff",
+        vcs_goto_next_conflict ["goto_next_conflict"] => super::conflicts::next, "Go to the next unresolved conflict",
+        vcs_goto_previous_conflict ["goto_previous_conflict"] => super::conflicts::previous, "Go to the previous unresolved conflict",
+        vcs_blame_line ["blame_line"] => super::vcs::blame_line, "Show line blame",
+        vcs_toggle_inline_blame ["toggle_inline_blame"] => super::vcs::toggle_inline_blame, "Toggle inline blame",
+        vcs_history_picker ["git_history"] => super::vcs::git_history, "Browse commits",
+        vcs_file_history_picker ["git_file_history"] => super::vcs::git_file_history, "Browse file history",
+        vcs_stash_picker ["git_stash_picker"] => super::vcs::git_stash_picker, "Browse stashes",
+        vcs_changed_file_picker ["changed_file_picker"] => super::vcs::changed_file_picker, "Browse changed files",
+        vcs_diff ["diff"] => super::vcs::diff, "Show file diff",
+        vcs_diff_refresh ["diff_refresh"] => super::vcs::diff_refresh, "Retry loading the current diff review buffer",
+        vcs_diff_open_source ["diff_open_source"] => super::vcs::diff_open_source, "Jump from a diff review to its source location",
+        vcs_diff_open_file ["diff_open_file"] => super::vcs::diff_open_file, "Open the current file from a diff review",
+        vcs_changed_file_picker_in_repository ["changed_file_picker_in_repository"] => super::vcs::changed_file_picker_in_repository, "Open changed file picker in repository",
         select_references_to_symbol_under_cursor => super::lsp::select_references_to_symbol_under_cursor, "Select symbol references",
         workspace_symbol_picker => super::lsp::workspace_symbol_picker, "Open workspace symbol picker",
         syntax_workspace_symbol_picker => super::syntax::syntax_workspace_symbol_picker, "Open workspace symbol picker from syntax information",
@@ -232,10 +237,10 @@ impl MappableCommand {
         goto_prev_quicklist => super::quicklist::goto_prev_quicklist, "Goto previous quicklist entry",
         goto_next_file_quicklist => super::quicklist::goto_next_file_quicklist, "Goto next quicklist entry in current file",
         goto_prev_file_quicklist => super::quicklist::goto_prev_file_quicklist, "Goto previous quicklist entry in current file",
-        goto_next_change => super::vcs::goto_next_change, "Goto next change",
-        goto_prev_change => super::vcs::goto_prev_change, "Goto previous change",
-        goto_first_change => super::vcs::goto_first_change, "Goto first change",
-        goto_last_change => super::vcs::goto_last_change, "Goto last change",
+        vcs_goto_next_change ["goto_next_change"] => super::vcs::goto_next_change, "Goto next change",
+        vcs_goto_prev_change ["goto_prev_change"] => super::vcs::goto_prev_change, "Goto previous change",
+        vcs_goto_first_change ["goto_first_change"] => super::vcs::goto_first_change, "Goto first change",
+        vcs_goto_last_change ["goto_last_change"] => super::vcs::goto_last_change, "Goto last change",
         goto_line_start => super::movement::goto_line_start, "Goto line start",
         goto_line_end => super::movement::goto_line_end, "Goto line end",
         goto_column => super::navigation::goto_column, "Goto column",
@@ -1301,8 +1306,8 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
         args: CommandArgs::new(&[completers::none], &[]),
     },
     TypableCommand {
-        name: "blame",
-        aliases: &["vcs-blame"],
+        name: "vcs-blame",
+        aliases: &["blame"],
         doc: "Show commit details for the current line, with actions to copy the commit ID or message.",
         action: CommandAction::Committed(super::vcs::typed::blame),
         args: CommandArgs::new(&[], &[]),
@@ -1378,57 +1383,57 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
         args: CommandArgs::new(&[], &[completers::none]),
     },
     TypableCommand {
-        name: "show-change",
-        aliases: &["vcs-show-change"],
+        name: "vcs-show-change",
+        aliases: &["show-change"],
         doc: "Inspect the current change against HEAD, including deleted lines and unsaved edits.",
         action: CommandAction::Committed(super::vcs::typed::show_change),
         args: CommandArgs::new(&[], &[]),
     },
     TypableCommand {
-        name: "diff",
-        aliases: &["vcs-diff"],
+        name: "vcs-diff",
+        aliases: &["diff"],
         doc: "Review the current file. Choose head (all changes), staged (next commit), unstaged (saved changes), or buffer (unstaged and unsaved changes).",
         action: CommandAction::Committed(super::vcs::typed::diff),
         args: CommandArgs::new(&[], &[completers::diff_comparison]),
     },
     TypableCommand {
-        name: "git-history",
-        aliases: &["vcs-history"],
+        name: "vcs-history",
+        aliases: &["git-history"],
         doc: "Browse repository commits. Select a commit, then a file to review its changes.",
         action: CommandAction::Committed(super::vcs::typed::git_history),
         args: CommandArgs::new(&[], &[]),
     },
     TypableCommand {
-        name: "file-history",
-        aliases: &["git-file-history", "vcs-file-history"],
+        name: "vcs-file-history",
+        aliases: &["file-history", "git-file-history"],
         doc: "Browse commits that changed the current file, following renames. Enter reviews the selected change; Alt-a offers more comparisons.",
         action: CommandAction::Committed(super::vcs::typed::file_history),
         args: CommandArgs::new(&[], &[]),
     },
     TypableCommand {
-        name: "diff-refresh",
-        aliases: &["vcs-diff-refresh"],
+        name: "vcs-diff-refresh",
+        aliases: &["diff-refresh"],
         doc: "Reload the current diff. Reviews of past commits keep the versions originally chosen.",
         action: CommandAction::Committed(super::vcs::typed::diff_refresh),
         args: CommandArgs::new(&[], &[]),
     },
     TypableCommand {
-        name: "diff-open-source",
-        aliases: &["vcs-diff-open-source"],
+        name: "vcs-diff-open-source",
+        aliases: &["diff-open-source"],
         doc: "Open the source at the selected diff line.",
         action: CommandAction::Committed(super::vcs::typed::diff_open_source),
         args: CommandArgs::new(&[], &[]),
     },
     TypableCommand {
-        name: "diff-open-file",
-        aliases: &["vcs-diff-open-file"],
+        name: "vcs-diff-open-file",
+        aliases: &["diff-open-file"],
         doc: "Open the current file from a diff review.",
         action: CommandAction::Committed(super::vcs::typed::diff_open_file),
         args: CommandArgs::new(&[], &[]),
     },
     TypableCommand {
-        name: "restore-change",
-        aliases: &["vcs-restore-change"],
+        name: "vcs-restore-change",
+        aliases: &["restore-change"],
         doc: "Restore selected hunks from HEAD in the buffer. Use u to undo; saved files and staged changes stay unchanged.",
         action: CommandAction::Committed(super::vcs::typed::restore_change),
         args: CommandArgs::new(&[], &[]),
