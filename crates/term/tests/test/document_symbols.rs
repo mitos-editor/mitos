@@ -52,6 +52,28 @@ async fn syntax_workspace_symbol_picker_follows_edits() -> anyhow::Result<()> {
     syntax_picker_refreshes("<space>Ssample").await
 }
 
+async fn wait_for_symbol(
+    app: &mut term::application::TestApplication,
+    name: &str,
+) -> anyhow::Result<()> {
+    // LSP jobs can finish after the idle pump returns. Wait for their picker callback to render.
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        super::helpers::keys(app, "").await?;
+        let screen: String = app
+            .terminal_backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect();
+        if screen.contains(&format!("symbol:{name}")) {
+            return Ok(());
+        }
+        assert!(tokio::time::Instant::now() < deadline, "{screen}");
+    }
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn document_symbol_picker_refreshes_after_edits_and_when_reopened() -> anyhow::Result<()> {
     let dir = tempfile::tempdir()?;
@@ -77,6 +99,7 @@ async fn document_symbol_picker_refreshes_after_edits_and_when_reopened() -> any
     gate.release()?;
     lsp::initialize(&mut app, 1).await?;
     super::helpers::keys(&mut app, "<space>s").await?;
+    wait_for_symbol(&mut app, "abcd").await?;
     for (name, reopen) in [("updated", false), ("reopened", true)] {
         if reopen {
             super::helpers::keys(&mut app, "<esc>").await?;
@@ -89,23 +112,7 @@ async fn document_symbol_picker_refreshes_after_edits_and_when_reopened() -> any
         view::editing::apply(doc, &edit, view.id).unwrap();
         super::helpers::keys(&mut app, if reopen { "<space>'" } else { "" }).await?;
         super::helpers::keys(&mut app, "<home>").await?;
-        // The picker refresh runs outside the jobs awaited by the idle pump.
-        // Keep processing events until the server response reaches the screen.
-        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
-        loop {
-            super::helpers::keys(&mut app, "").await?;
-            let screen: String = app
-                .terminal_backend()
-                .buffer()
-                .content
-                .iter()
-                .map(|cell| cell.symbol())
-                .collect();
-            if screen.contains(&format!("symbol:{name}")) {
-                break;
-            }
-            assert!(tokio::time::Instant::now() < deadline, "{screen}");
-        }
+        wait_for_symbol(&mut app, name).await?;
     }
     super::helpers::keys(&mut app, "<esc>").await?;
     assert!(app.close().await.is_empty());
