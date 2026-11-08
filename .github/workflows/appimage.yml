@@ -7,6 +7,7 @@ on:
       - '.github/workflows/appimage.yml'
       - '.github/workflows/release.yml'
       - 'contrib/Mitos.desktop'
+      - 'contrib/Mitos.appdata.xml'
       - 'book/theme/favicon.svg'
   push:
     branches: [main]
@@ -15,6 +16,7 @@ on:
       - '.github/workflows/appimage.yml'
       - '.github/workflows/release.yml'
       - 'contrib/Mitos.desktop'
+      - 'contrib/Mitos.appdata.xml'
       - 'book/theme/favicon.svg'
   workflow_dispatch:
 

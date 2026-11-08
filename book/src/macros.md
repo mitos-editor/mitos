@@ -35,6 +35,9 @@ normally forms one undo step when you return to normal mode. Press `Ctrl-s`
 while inserting to start a new undo step without leaving insert mode.
 
 Mitos also keeps earlier edit branches after an undo followed by a new edit.
-Use `Alt-u` and `Alt-U` to move backward and forward through edit history.
+Use `g-` and `g+` to move backward and forward through edit history.
 The commands `:earlier 5` and `:later 5` move by a number of steps;
 `:earlier 1m` moves back by a time span.
+
+`Alt-u` and `Alt-Shift-u` undo and redo [selection changes](./usage.md#undo-selection-changes).
+They do not undo text edits.

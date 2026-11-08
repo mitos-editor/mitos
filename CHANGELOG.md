@@ -2,6 +2,46 @@
 
 ## [Unreleased]
 
+## [0.2.0](https://github.com/mitos-editor/mitos/compare/v0.1.3...v0.2.0) - 2026-11-08
+
+### Highlights
+
+- New Mitos logo and app icons, with refreshed website and documentation styling. Linux desktop packages include the new app icon.
+- Keep a [file explorer sidebar](https://mitos.computer/docs/pickers.html#sidebar) beside your code. Press `Ctrl-e` to focus it, search collapsed folders, and create, rename, copy, or delete files. Expanded folders and your selection stay in place when you return.
+- Manage [Git branches and worktrees](https://mitos.computer/docs/version-control.html#branches-and-worktrees) without leaving Mitos. Create and switch branches, open worktrees, and fetch, pull, or push through your configured remotes. Branch and history pickers load results progressively and offer actions on the selected item.
+- Preview commits in [repository history](https://mitos.computer/docs/version-control.html#repository-history), restore individual hunks from the [change popup](https://mitos.computer/docs/version-control.html#inspecting-the-current-change), and keep editing merge conflict markers. Blame respects `.git-blame-ignore-revs`.
+- [Undo and redo selection changes](https://mitos.computer/docs/usage.html#undo-selection-changes) with `Alt-u` and `Alt-Shift-u`. Recover selections after an accidental collapse or removal without undoing text edits.
+- Apply language-server code actions across multiple selections. Diagnostic pickers give messages more room, and inline messages retain their severity colors.
+- Command prompts keep drafts while you browse matching history, and completions run without blocking the editor. Interactive shell expansions now work on Windows.
+- [Paste every yanked value](https://mitos.computer/docs/registers.html) at each selection with `paste_after_all` or `paste_before_all`. New insert-mode subword deletion commands remove individual parts of compound words.
+- Folding queries cover 59 more language configurations. Injected languages can be identified by file extension, and more common tool configuration files are recognized.
+- Choose [border styles for individual popups](https://mitos.computer/docs/configuration.html#popup-borders) and a separate theme color for panel borders. Web links are clickable in terminals that support hyperlinks, and the status line shows your position among search matches by default.
+- Linux releases now include [AppImages](https://mitos.computer/docs/install.html#appimage) for x86_64 and ARM64, with the executable, runtime, and compiled grammars bundled together.
+
+### Breaking changes and upgrading
+
+- **Command names changed.** Update custom keybindings, custom commands, and scripts using the [command reference](https://mitos.computer/docs/commands.html). Old renamed spellings are no longer accepted. Examples: `move_prev_word_start` becomes `move_previous_word_start`, `:git-push` becomes `:vcs-push`, and `:diff` becomes `:vcs-diff`. Debugger commands use `debug_` or `debug-`, snippet commands use `snippet_` or `snippet-`, and explicit browsing commands use `_picker`. Common shorthands such as `:w`, `:q`, and `:cd` remain available. Configuration migration updates setting names; it does **not** rewrite command names in keybindings or custom commands.
+- **Selection history takes over `Alt-u` and `Alt-Shift-u`.** Use `g-` and `g+` to move backward and forward through text edit history, or `:earlier` and `:later`. The usual `u` and `U` text undo and redo bindings stay the same.
+- **File browsing bindings changed.** `Space f` opens files from the workspace; `Space F` starts in the current file's directory. `Space e` and `Space E` use the same directory choices for the file explorer.
+- **Source builds require explicit grammar preparation.** Use [`cargo xtask install`](https://mitos.computer/docs/building-from-source.html) to install the editor with its runtime. Manual builds must run `cargo run --locked --package grammar-build --bin grammar-fetch` and `cargo run --locked --package grammar-build --bin grammar-build` before building the editor. Ordinary Cargo builds and tests no longer fetch or compile grammars. Downloaded release packages already contain them.
+- Normal reload commands now protect unsaved edits. Use `:reload!` or `:reload-all!` only when you intend to discard those edits. See [files and buffers](https://mitos.computer/docs/files.html).
+- Upgrade the executable and runtime together, then run `ms --health`. Older grammars in a personal runtime directory can override the bundled grammars; see [runtime precedence](https://mitos.computer/docs/building-from-source.html#multiple-runtime-directories).
+
+### Fixes and performance
+
+- Fixed Unicode selection searches and bracket insertion, selections ending at end of file, adjacent selections when appending, snippet range handling, and completion of punctuation prefixes.
+- Selection transformations preserve direction and the primary selection. Reflow keeps saved positions, and indentation respects configured tabs and visual columns.
+- Picker previews scroll consistently, empty result headers stay aligned, and popup scrollbars match the visible content. The first requested split receives focus at startup.
+- More reliable language-server synchronization and fallback workspace roots. Managed debug adapters no longer share the terminal session.
+- Reduced copying in undo history, text edits, folds, and rendering. File pickers update membership incrementally, search reuses file metadata, and redraw work is coalesced.
+
+### Libraries and packaging
+
+- Updated [gitoxide (`gix`)](https://github.com/GitoxideLabs/gitoxide) from 0.85 to 0.90. More Git operations and grammar fetching run through the Rust library; grammar HTTP downloads use rustls. Git integration remains experimental, and some operations still use the Git executable.
+- Replaced vendored language-server protocol types with upstream [`lsp-types` 0.97](https://github.com/gluon-lang/lsp-types).
+- Added direct use of [`memchr` 2.8](https://github.com/BurntSushi/memchr) for line endings and search coordinates, enabled compact [`SmallVec`](https://github.com/servo/rust-smallvec) storage, and updated [`unicode-width` to 0.2.3](https://github.com/unicode-rs/unicode-width).
+- Updated grammar sources and synchronized the Nix grammar lock. Release archives include shell completions; Linux packages include desktop metadata. Downloads are covered by `SHA256SUMS` and release provenance attestations.
+
 ## [0.1.3](https://github.com/mitos-editor/mitos/compare/v0.1.2...v0.1.3) - 2026-10-30
 
 ### Highlights

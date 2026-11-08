@@ -3,7 +3,7 @@
 [release-plz](https://release-plz.dev/) opens and updates a release PR on pushes
 to `main`. Merging that PR creates a GitHub release and a version tag such as `v0.1.0`;
 the tag triggers `.github/workflows/release.yml` to build and upload the binary
-archives, Debian package, SHA-256 checksums, and provenance attestations.
+archives, Linux AppImages, Debian package, SHA-256 checksums, and provenance attestations.
 
 Releases use Git tags only; release-plz does not publish crates to crates.io.
 The `term` package owns the release and root changelog. Its version is inherited
@@ -35,13 +35,30 @@ build workflow. See the [release-plz token setup guide](https://release-plz.dev/
 
 ## Release checklist
 
-1. Review the release PR's version, `Cargo.lock`, and `CHANGELOG.md`. Curate the
-   notes, including runtime, grammar, and theme changes outside Rust packages.
-2. Add a release entry to `contrib/Mitos.appdata.xml` following the
+1. Review the release PR's version, `Cargo.lock`, and `CHANGELOG.md`. All workspace
+   packages must share `workspace.package.version`; keep external dependency
+   versions unchanged. For a minor release such as 0.2.0, set that version in
+   `Cargo.toml` and regenerate the lockfile with Cargo.
+2. Curate the changelog in plain English, including runtime, grammar, theme, and
+   packaging changes outside Rust packages. Link feature documentation and
+   upstream libraries, and explain breaking changes and how to upgrade.
+3. Add a release entry to `contrib/Mitos.appdata.xml` following the
    [AppStream release metadata specification](https://www.freedesktop.org/software/appstream/docs/sect-Metadata-Releases.html).
-3. Wait for CI and merge the release PR.
-4. Verify the Release-plz and Release workflows finish, and check the uploaded
-   archives, Debian package, and provenance attestations on the GitHub release.
+   This metadata and the desktop icon are included in Debian, AppImage, and Nix
+   packages. Nix reads its version from the workspace manifest.
+4. Run `python3 -m unittest discover -s tests/installers -v`, build the book,
+   and validate release workflow changes with `actionlint`. Check
+   `nix/grammar-sources.json` against `languages.toml`; regenerate changed pins
+   with `cargo xtask update-nix-grammar-sources` on a machine with Nix installed.
+5. Wait for CI and merge the release PR.
+6. Verify the Release-plz and Release workflows finish. Check all six platform
+   archives, both Linux AppImages, the x86_64 Debian package, source archive,
+   `SHA256SUMS`, and provenance attestations on the GitHub release. The source
+   archive includes pinned grammar sources and excludes Git metadata and CI
+   build artifacts. Test `ms --version` and `ms --health rust` from an extracted
+   archive outside the checkout, and test the hosted installers with the new
+   version. Actual artifact publication and installation can only be verified
+   after the tag build finishes.
 
 Manual dispatch of the Release workflow remains a preview build and uploads CI
 artifacts. Manual dispatch of Release-plz on `main` reruns release automation.

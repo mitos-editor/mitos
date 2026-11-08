@@ -35,6 +35,19 @@
   <url type="vcs-browser">https://github.com/mitos-editor/mitos</url>
   <url type="bugtracker">https://github.com/mitos-editor/mitos/issues</url>
 
+  <releases>
+    <release version="0.2.0" date="2026-11-08">
+      <url type="details">https://github.com/mitos-editor/mitos/releases/tag/v0.2.0</url>
+      <description>
+        <p>Explore files in a persistent sidebar, manage Git branches and worktrees,
+        preview commits, and undo selection changes. Linux downloads now include AppImages.</p>
+        <p>Custom keybindings and commands need the current command names.
+        Alt-u and Alt-Shift-u now undo and redo selections; g- and g+ navigate edit history.
+        Source builds require explicit grammar preparation.</p>
+      </description>
+    </release>
+  </releases>
+
   <content_rating type="oars-1.1" />
 
   <recommends>
