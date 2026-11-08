@@ -436,6 +436,7 @@ fn stash_files_picker(
         repo: repo.clone(),
         entry: entry.clone(),
         theme: Arc::new(editor.theme.clone()),
+        paths: crate::commands::picker::PathStyleConfig::new(editor),
     };
     Picker::new(
         editor.redraw().clone(),
@@ -448,8 +449,8 @@ fn stash_files_picker(
                 };
                 Span::styled(file.layer().label(), data.theme.get(scope)).into()
             }),
-            PickerColumn::new("path", |file: &StashFile, _| {
-                file.path().to_string_lossy().into_owned().into()
+            PickerColumn::new("path", |file: &StashFile, data: &StashFiles| {
+                data.paths.stylize(Some(file.path()), None)
             }),
         ],
         1,
@@ -484,6 +485,7 @@ struct StashFiles {
     repo: GitRepository,
     entry: StashEntry,
     theme: Arc<theme::Theme>,
+    paths: crate::commands::picker::PathStyleConfig,
 }
 
 #[cfg(test)]
