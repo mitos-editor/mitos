@@ -168,17 +168,7 @@ pub(crate) fn read_blob(
     if mode == EntryKind::Link {
         return Ok(object.data.to_vec());
     }
-    let (mut pipeline, _) = repo.filter_pipeline(None)?;
-    let relative = gix::path::into_bstr(path)?;
-    let mut outcome = pipeline.convert_to_worktree(
-        &object.data,
-        relative.as_ref(),
-        gix::filter::plumbing::pipeline::convert::to_worktree::Options {
-            can_delay: gix::filter::plumbing::driver::apply::Delay::Forbid,
-            ..Default::default()
-        },
-    )?;
-    bounded_read(&mut outcome)
+    crate::blob::to_worktree(repo, &object.data, path, Some(MAX_REVIEW_BYTES))
 }
 
 #[cfg(feature = "git")]
