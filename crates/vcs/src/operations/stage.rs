@@ -32,7 +32,7 @@ impl PreparedOperation {
                 )
             })
             .collect::<Result<Vec<_>>>()?;
-        // Leave case aliases, file-to-directory transitions, and hidden entries to Git.
+        // Leave case aliases and hidden entries to Git.
         for path in &selected {
             if path.split(|byte| *byte == b'/').any(|component| {
                 gix::validate::path::component(component.as_bstr(), None, Default::default())
@@ -42,11 +42,14 @@ impl PreparedOperation {
             }
             for entry in index.entries() {
                 let existing = entry.path(&index);
-                // Replacing a directory removes all its tracked descendants. Preserve
+                // A replacement removes tracked ancestors or descendants. Preserve
                 // submodule and hidden-entry semantics by falling back before filtering.
-                if existing
+                if (existing
                     .strip_prefix(path.as_slice())
                     .is_some_and(|rest| rest.starts_with(b"/"))
+                    || path
+                        .strip_prefix(existing.as_bytes())
+                        .is_some_and(|rest| rest.starts_with(b"/")))
                     && (entry.mode.is_submodule()
                         || entry.flags.intersects(
                             gix::index::entry::Flags::ASSUME_VALID
@@ -63,15 +66,12 @@ impl PreparedOperation {
                     {
                         return Ok(false);
                     }
-                } else if (ignore_case
+                } else if ignore_case
                     && existing
                         .split(|byte| *byte == b'/')
                         .zip(path.split(|byte| *byte == b'/'))
                         .take_while(|(left, right)| left.eq_ignore_ascii_case(right))
-                        .any(|(left, right)| left != right))
-                    || path
-                        .strip_prefix(existing.as_bytes())
-                        .is_some_and(|rest| rest.starts_with(b"/"))
+                        .any(|(left, right)| left != right)
                 {
                     return Ok(false);
                 }
@@ -157,11 +157,15 @@ impl PreparedOperation {
             replacements.push((path, entry));
         }
         index.remove_entries(|_, path, _| {
-            replacements.iter().any(|(selected, _)| {
+            replacements.iter().any(|(selected, replacement)| {
                 selected.as_bstr() == path
                     || path
                         .strip_prefix(selected.as_slice())
                         .is_some_and(|rest| rest.starts_with(b"/"))
+                    || (replacement.is_some()
+                        && selected
+                            .strip_prefix(path.as_bytes())
+                            .is_some_and(|rest| rest.starts_with(b"/")))
             })
         });
         for (path, entry) in replacements {

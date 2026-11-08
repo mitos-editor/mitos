@@ -705,3 +705,82 @@ fn native_stage_keeps_hidden_descendants_when_a_directory_becomes_a_file() -> Re
     );
     Ok(())
 }
+
+#[test]
+fn native_file_to_directory_stages_only_selected_descendants() -> Result<()> {
+    let dir = initial();
+    let root = dir.path();
+    std::fs::write(root.join(".gitignore"), "ignored.txt\n")?;
+    create_commit_with_message(root, true, "ignore");
+    std::fs::remove_file(root.join("file.txt"))?;
+    std::fs::create_dir(root.join("file.txt"))?;
+    std::fs::write(root.join("file.txt/selected.txt"), "selected\r\n")?;
+    std::fs::write(root.join("file.txt/peer.txt"), "peer\n")?;
+    std::fs::write(root.join("file.txt/ignored.txt"), "ignored\n")?;
+    std::fs::write(root.join("other.txt"), "unrelated staged\n")?;
+    exec_git_cmd(&["add", "other.txt"], root);
+    let repo = GitRepository::discover(root)?;
+    let git = repo.open_read(true)?;
+    let status = |path: &str| FileStatus {
+        staged: None,
+        unstaged: Some(FileChange::Added {
+            path: root.join(path),
+        }),
+    };
+    for (enable, disable) in [
+        ("--assume-unchanged", "--no-assume-unchanged"),
+        ("--skip-worktree", "--no-skip-worktree"),
+    ] {
+        exec_git_cmd(&["update-index", enable, "file.txt"], root);
+        let before = std::fs::read(git.index_path())?;
+        assert!(!repo
+            .prepare_file(&status("file.txt/selected.txt"), FileOperation::Stage, true)?
+            .stage()?);
+        assert_eq!(std::fs::read(git.index_path())?, before);
+        exec_git_cmd(&["update-index", disable, "file.txt"], root);
+    }
+    let before = std::fs::read(git.index_path())?;
+    assert!(repo
+        .prepare_file(&status("file.txt/ignored.txt"), FileOperation::Stage, true)?
+        .stage()
+        .is_err());
+    assert_eq!(std::fs::read(git.index_path())?, before);
+    assert!(repo
+        .prepare_file(&status("file.txt/selected.txt"), FileOperation::Stage, true)?
+        .stage()?);
+    let entries = || -> Result<Vec<_>> {
+        let index = git.open_index()?;
+        Ok(index
+            .entries()
+            .iter()
+            .map(|entry| (entry.path(&index).to_owned(), entry.id, entry.mode))
+            .collect())
+    };
+    let native = entries()?;
+    std::fs::write(git.index_path(), before)?;
+    exec_git_cmd(
+        &["add", "--all", "--", ":(literal)file.txt/selected.txt"],
+        root,
+    );
+    assert_eq!(entries()?, native);
+    let index = git.open_index()?;
+    assert!(index.entry_by_path("file.txt".into()).is_none());
+    assert!(index.entry_by_path("file.txt/peer.txt".into()).is_none());
+    assert!(index.entry_by_path("file.txt/ignored.txt".into()).is_none());
+    assert_eq!(
+        git.find_blob(
+            index
+                .entry_by_path("file.txt/selected.txt".into())
+                .unwrap()
+                .id
+        )?
+        .data,
+        b"selected\n"
+    );
+    assert_eq!(
+        git.find_blob(index.entry_by_path("other.txt".into()).unwrap().id)?
+            .data,
+        b"unrelated staged\n"
+    );
+    Ok(())
+}
