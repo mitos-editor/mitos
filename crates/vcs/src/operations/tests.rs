@@ -784,3 +784,33 @@ fn native_file_to_directory_stages_only_selected_descendants() -> Result<()> {
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn global_attribute_changes_invalidate_prepared_operations() -> Result<()> {
+    let repo = initial();
+    let external = tempfile::tempdir()?;
+    let attributes = external.path().join("global attributes");
+    exec_git_cmd(
+        &[
+            "config",
+            "core.attributesFile",
+            attributes.to_str().unwrap(),
+        ],
+        repo.path(),
+    );
+    let git = GitRepository::discover(repo.path())?;
+    std::fs::write(repo.path().join("file.txt"), "new\n")?;
+    for contents in ["*.txt text eol=lf\n", "*.txt -text\n"] {
+        let status = statuses(repo.path()).remove(0);
+        let plan = git.prepare_file(&status, FileOperation::Stage, true)?;
+        std::fs::write(&attributes, contents)?;
+        assert!(plan
+            .execute()
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("Git state changed"));
+        assert!(statuses(repo.path())[0].staged.is_none());
+    }
+    Ok(())
+}
