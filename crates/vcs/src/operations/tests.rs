@@ -521,33 +521,91 @@ async fn unstaging_works_without_git_and_preserves_other_staged_files() -> Resul
     Ok(())
 }
 
-#[tokio::test]
-async fn unstaging_a_file_that_replaced_a_directory_keeps_git_semantics() -> Result<()> {
+#[test]
+fn native_directory_file_transitions_match_git_and_keep_unrelated_staged_edits() -> Result<()> {
+    fn entries(
+        repo: &gix::Repository,
+    ) -> Result<Vec<(gix::bstr::BString, gix::ObjectId, gix::index::entry::Mode)>> {
+        let index = repo.open_index()?;
+        Ok(index
+            .entries()
+            .iter()
+            .map(|entry| (entry.path(&index).to_owned(), entry.id, entry.mode))
+            .collect())
+    }
     let dir = initial();
     let root = dir.path();
-    std::fs::create_dir(root.join("directory"))?;
-    std::fs::write(root.join("directory/old.txt"), "old\n")?;
+    std::fs::create_dir_all(root.join("directory/nested"))?;
+    std::fs::write(root.join("directory/nested/old.txt"), "old\n")?;
+    std::fs::write(root.join("directory/peer.txt"), "peer\n")?;
     create_commit_with_message(root, true, "directory");
     std::fs::remove_dir_all(root.join("directory"))?;
-    std::fs::write(root.join("directory"), "replacement\n")?;
-    exec_git_cmd(&["add", "."], root);
+    std::fs::write(root.join("directory"), "replacement\r\n")?;
+    std::fs::write(root.join("other.txt"), "unrelated staged edit\n")?;
+    exec_git_cmd(&["add", "other.txt"], root);
     let repo = GitRepository::discover(root)?;
+    let git = repo.open_read(true)?;
+    let original = std::fs::read(git.index_path())?;
+    let change = FileChange::Renamed {
+        from_path: root.join("directory/nested/old.txt"),
+        to_path: root.join("directory"),
+    };
     let status = FileStatus {
-        staged: Some(FileChange::Added {
-            path: root.join("directory"),
-        }),
+        staged: None,
+        unstaged: Some(change.clone()),
+    };
+    // Calling the native entry points prevents a Git fallback from hiding missing support.
+    assert!(repo
+        .prepare_file(&status, FileOperation::Stage, true)?
+        .stage()?);
+    let native = entries(&git)?;
+    std::fs::write(git.index_path(), original)?;
+    exec_git_cmd(
+        &[
+            "add",
+            "--all",
+            "--",
+            ":(literal)directory",
+            ":(literal)directory/nested/old.txt",
+        ],
+        root,
+    );
+    assert_eq!(entries(&git)?, native);
+    let staged = std::fs::read(git.index_path())?;
+    let status = FileStatus {
+        staged: Some(change),
         unstaged: None,
     };
-    repo.prepare_file(&status, FileOperation::Unstage, true)?
-        .execute()
-        .await?;
-    let git = repo.open_read(true)?;
-    let index = git.open_index()?;
-    assert!(index.entry_by_path("directory/old.txt".into()).is_some());
-    assert!(index.entry_by_path("directory".into()).is_none());
+    assert!(repo
+        .prepare_file(&status, FileOperation::Unstage, true)?
+        .unstage()?);
+    let native = entries(&git)?;
+    std::fs::write(git.index_path(), staged)?;
+    exec_git_cmd(
+        &[
+            "reset",
+            "--quiet",
+            "HEAD",
+            "--",
+            ":(literal)directory",
+            ":(literal)directory/nested/old.txt",
+        ],
+        root,
+    );
+    assert_eq!(entries(&git)?, native);
     assert_eq!(
         std::fs::read_to_string(root.join("directory"))?,
-        "replacement\n"
+        "replacement\r\n"
+    );
+    assert_eq!(
+        git.find_blob(
+            git.open_index()?
+                .entry_by_path("other.txt".into())
+                .unwrap()
+                .id
+        )?
+        .data,
+        b"unrelated staged edit\n"
     );
     Ok(())
 }
@@ -608,6 +666,42 @@ async fn staging_without_git_applies_attributes_and_keeps_other_entries() -> Res
         "{}\n{}",
         String::from_utf8_lossy(&child.stdout),
         String::from_utf8_lossy(&child.stderr)
+    );
+    Ok(())
+}
+
+#[test]
+fn native_stage_keeps_hidden_descendants_when_a_directory_becomes_a_file() -> Result<()> {
+    let dir = initial();
+    let root = dir.path();
+    std::fs::create_dir(root.join("directory"))?;
+    std::fs::write(root.join("directory/hidden.txt"), "hidden\n")?;
+    create_commit_with_message(root, true, "directory");
+    std::fs::remove_dir_all(root.join("directory"))?;
+    std::fs::write(root.join("directory"), "replacement\n")?;
+    let repo = GitRepository::discover(root)?;
+    let git = repo.open_read(true)?;
+    let status = FileStatus {
+        staged: None,
+        unstaged: Some(FileChange::Added {
+            path: root.join("directory"),
+        }),
+    };
+    for (enable, disable) in [
+        ("--assume-unchanged", "--no-assume-unchanged"),
+        ("--skip-worktree", "--no-skip-worktree"),
+    ] {
+        exec_git_cmd(&["update-index", enable, "directory/hidden.txt"], root);
+        let before = std::fs::read(git.index_path())?;
+        assert!(!repo
+            .prepare_file(&status, FileOperation::Stage, true)?
+            .stage()?);
+        assert_eq!(std::fs::read(git.index_path())?, before);
+        exec_git_cmd(&["update-index", disable, "directory/hidden.txt"], root);
+    }
+    assert_eq!(
+        std::fs::read_to_string(root.join("directory"))?,
+        "replacement\n"
     );
     Ok(())
 }
