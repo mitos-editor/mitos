@@ -36,10 +36,10 @@ cp "$repo/book/theme/favicon.svg" "$appdir/Mitos.svg"
 cp "$repo/LICENSE" "$appdir/LICENSE"
 
 # Pin both the tool and runtime: appimagetool otherwise downloads the latest runtime.
-curl --fail --location --retry 3 \
+curl --fail --location --retry 8 --retry-delay 5 --retry-max-time 120 \
     "https://github.com/AppImage/appimagetool/releases/download/1.9.1/appimagetool-$ARCH.AppImage" \
     -o "$work/appimagetool"
-curl --fail --location --retry 3 \
+curl --fail --location --retry 8 --retry-delay 5 --retry-max-time 120 \
     "https://github.com/AppImage/type2-runtime/releases/download/20251108/runtime-$ARCH" \
     -o "$work/runtime"
 printf '%s  %s\n' "$tool_sha" "$work/appimagetool" "$runtime_sha" "$work/runtime" | sha256sum -c -
