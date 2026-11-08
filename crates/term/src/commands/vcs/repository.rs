@@ -76,13 +76,11 @@ pub(super) fn execute(cx: &mut Context, args: Args, command: Command) -> Result<
             remote: args.first().map(str::to_owned),
         }),
     };
-    cx.editor.set_status("Reading Git repository…");
     cx.jobs.callback(async move {
         let repo =
             tokio::task::spawn_blocking(move || GitRepository::discover(&scope.path)).await??;
         Ok(Callback::ui(move |compositor, cx| match request {
             Request::Picker(command) => {
-                cx.editor.clear_status();
                 let picker = match command {
                     Command::Branches => {
                         Box::new(overlaid(branches(cx.editor, repo, scope.workspace)))
