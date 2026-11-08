@@ -37,6 +37,19 @@
 
   <content_rating type="oars-1.1" />
 
+  <releases>
+    <release version="0.2.0" date="2026-11-08">
+      <description>
+        <ul>
+          <li>Browse and manage files in a persistent explorer sidebar.</li>
+          <li>Manage Git branches, worktrees, and remotes from the editor.</li>
+          <li>Apply code actions across selections and customize popup borders.</li>
+          <li>Linux AppImages bundle the editor with its runtime.</li>
+        </ul>
+      </description>
+    </release>
+  </releases>
+
   <recommends>
     <control>keyboard</control>
   </recommends>
