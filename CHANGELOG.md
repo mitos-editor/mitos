@@ -2,6 +2,146 @@
 
 ## [Unreleased]
 
+## [0.1.4](https://github.com/mitos-editor/mitos/compare/v0.1.3...v0.1.4) - 2026-11-08
+
+### Added
+
+- *(history)* preview commits in the repository picker ([#979](https://github.com/mitos-editor/mitos/pull/979))
+- Don't block the UI on prompt completions ([#1005](https://github.com/mitos-editor/mitos/pull/1005))
+- *(statusline)* show search position by default ([#1003](https://github.com/mitos-editor/mitos/pull/1003))
+- *(selection)* undo and redo selection changes ([#918](https://github.com/mitos-editor/mitos/pull/918)) ([#922](https://github.com/mitos-editor/mitos/pull/922))
+- *(vcs)* add native branch and worktree picker actions ([#980](https://github.com/mitos-editor/mitos/pull/980))
+- *(vcs)* load branch picker progressively with gix ([#975](https://github.com/mitos-editor/mitos/pull/975))
+- *(vcs)* apply theme colours consistently across pickers ([#976](https://github.com/mitos-editor/mitos/pull/976))
+- *(tui)* make detected web links clickable ([#962](https://github.com/mitos-editor/mitos/pull/962))
+- *(ui)* add persistent file explorer sidebar ([#942](https://github.com/mitos-editor/mitos/pull/942))
+- *(theme)* add optional panel border scope ([#938](https://github.com/mitos-editor/mitos/pull/938))
+- *(files)* allow Git ignores outside repositories ([#728](https://github.com/mitos-editor/mitos/pull/728))
+- *(diagnostics)* prioritize messages in picker columns ([#732](https://github.com/mitos-editor/mitos/pull/732))
+- *(lsp)* apply code actions across selections ([#933](https://github.com/mitos-editor/mitos/pull/933))
+- *(files)* protect unsaved buffers and add force reload commands ([#757](https://github.com/mitos-editor/mitos/pull/757))
+- *(registers)* paste every yanked value at each selection ([#919](https://github.com/mitos-editor/mitos/pull/919)) ([#930](https://github.com/mitos-editor/mitos/pull/930))
+- *(editing)* add insert-mode subword deletion commands ([#721](https://github.com/mitos-editor/mitos/pull/721))
+- *(vcs)* manage branches worktrees and remote operations ([#827](https://github.com/mitos-editor/mitos/pull/827))
+- *(prompt)* preserve drafts and improve history navigation ([#685](https://github.com/mitos-editor/mitos/pull/685))
+- *(explorer)* create, move, copy, delete and yank paths ([#512](https://github.com/mitos-editor/mitos/pull/512)) ([#879](https://github.com/mitos-editor/mitos/pull/879))
+- *(vcs)* add theme colours to history and stash pickers ([#850](https://github.com/mitos-editor/mitos/pull/850))
+- *(vcs)* restore inspected hunks from the change popup ([#822](https://github.com/mitos-editor/mitos/pull/822))
+- *(commands)* support interactive shell expansions on Windows ([#846](https://github.com/mitos-editor/mitos/pull/846))
+- *(ui)* allow per-feature popup border styles ([#848](https://github.com/mitos-editor/mitos/pull/848))
+- scroll picker previews consistently ([#847](https://github.com/mitos-editor/mitos/pull/847))
+- add folding queries for 59 language configurations ([#931](https://github.com/mitos-editor/mitos/pull/931))
+- *(vcs)* fetch custom branch refspecs with gix
+- *(vcs)* stage directory replacements with gix
+- *(whitespace)* configure the final tab cell glyph ([#719](https://github.com/mitos-editor/mitos/pull/719))
+
+### Fixed
+
+- *(vcs)* preserve editable conflict markers and shared line numbers ([#987](https://github.com/mitos-editor/mitos/pull/987))
+- *(ui)* frame confirmation options and mark the selection ([#985](https://github.com/mitos-editor/mitos/pull/985))
+- *(vcs)* remove redundant repository discovery status ([#983](https://github.com/mitos-editor/mitos/pull/983))
+- *(syntax)* resolve injected language tags by file extension ([#978](https://github.com/mitos-editor/mitos/pull/978))
+- *(ui)* show key hints in the file explorer sidebar ([#972](https://github.com/mitos-editor/mitos/pull/972))
+- *(commands)* standardize directions and subsystem names
+- *(commands)* clarify operation names and search scope
+- *(commands)* spell out diagnostic navigation names
+- *(commands)* standardize VCS command names with compatibility aliases
+- *(keymap)* align file picker and explorer directory bindings ([#965](https://github.com/mitos-editor/mitos/pull/965))
+- *(git)* browse history incrementally with gix
+- *(textobjects)* share closest-pair boundaries for inside and around ([#730](https://github.com/mitos-editor/mitos/pull/730))
+- *(xtask)* use rustls for grammar update transport ([#939](https://github.com/mitos-editor/mitos/pull/939))
+- *(append)* retain adjacent selections ([#705](https://github.com/mitos-editor/mitos/pull/705))
+- *(diagnostics)* preserve severity styles in overlay messages ([#935](https://github.com/mitos-editor/mitos/pull/935))
+- *(selection)* preserve primary context and direction through regex transforms ([#723](https://github.com/mitos-editor/mitos/pull/723))
+- *(prompt)* preserve valid scroll and completion state ([#666](https://github.com/mitos-editor/mitos/pull/666))
+- custom commands in keybindings ([#929](https://github.com/mitos-editor/mitos/pull/929))
+- *(auto-pairs)* preserve Unicode cursors and avoid bracket padding ([#669](https://github.com/mitos-editor/mitos/pull/669))
+- *(reflow)* retain saved positions with granular text edits ([#758](https://github.com/mitos-editor/mitos/pull/758))
+- *(startup)* focus the first requested split ([#716](https://github.com/mitos-editor/mitos/pull/716))
+- *(vcs)* respect ignored revisions in Git blame ([#873](https://github.com/mitos-editor/mitos/pull/873))
+- *(picker)* invalidate ignore cache when repository markers change
+- *(ui)* keep picker header aligned when there are no results ([#852](https://github.com/mitos-editor/mitos/pull/852))
+- handle Unicode in selection search word boundaries ([#841](https://github.com/mitos-editor/mitos/pull/841))
+- *(ui)* align popup scrollbars with visible content ([#842](https://github.com/mitos-editor/mitos/pull/842))
+- *(dap)* detach managed adapters from the terminal session ([#741](https://github.com/mitos-editor/mitos/pull/741))
+- *(surround)* accept selections ending at EOF ([#678](https://github.com/mitos-editor/mitos/pull/678))
+- *(indent)* align using configured tabs and visual columns ([#693](https://github.com/mitos-editor/mitos/pull/693))
+- *(loader)* keep runtime discovery tolerant of executable paths ([#737](https://github.com/mitos-editor/mitos/pull/737))
+- *(snippets)* handle selections outside active snippet ranges ([#724](https://github.com/mitos-editor/mitos/pull/724))
+- *(completion)* replace typed punctuation prefixes ([#743](https://github.com/mitos-editor/mitos/pull/743))
+- *(lsp)* provide a URI for fallback workspace roots ([#686](https://github.com/mitos-editor/mitos/pull/686))
+
+### Other
+
+- *(vcs)* assert stable picker state and report toggle context
+- wait for the initial document symbol picker before editing
+- Treat Linux PTY shutdown as end of stream in shell tests
+- *(commands)* remove renamed command compatibility aliases
+- Own LSP readiness and document synchronization
+- Track watcher demand by document and server registration
+- Route configuration requests through the application queue ([#911](https://github.com/mitos-editor/mitos/pull/911))
+- *(deps)* bump the rust-dependencies group with 8 updates ([#927](https://github.com/mitos-editor/mitos/pull/927))
+- Move terminal continuations and cursor output to frontend owners ([#913](https://github.com/mitos-editor/mitos/pull/913))
+- prepare grammars explicitly outside editor builds ([#894](https://github.com/mitos-editor/mitos/pull/894))
+- prepare components before drawing through one frame scheduler ([#910](https://github.com/mitos-editor/mitos/pull/910))
+- construct native and injected frontends through one application loop ([#904](https://github.com/mitos-editor/mitos/pull/904))
+- Centralize presentation state and simplify callback delivery ([#899](https://github.com/mitos-editor/mitos/pull/899))
+- Share virtual annotation geometry and fix diagnostic row overlap ([#902](https://github.com/mitos-editor/mitos/pull/902))
+- Share cached grammars and inspect language query sources
+- Simplify language configuration, themes, parsers, and VCS dispatch
+- Declare command arguments once and simplify committed actions ([#895](https://github.com/mitos-editor/mitos/pull/895))
+- Make configuration sources and workspace context explicit ([#893](https://github.com/mitos-editor/mitos/pull/893))
+- isolate native terminal adapters from shared UI types ([#890](https://github.com/mitos-editor/mitos/pull/890))
+- Own event hubs per editor and retire runtime-local registries ([#892](https://github.com/mitos-editor/mitos/pull/892))
+- *(lsp)* replace vendored protocol types with upstream ([#790](https://github.com/mitos-editor/mitos/pull/790))
+- simplify document feature state and request handling ([#888](https://github.com/mitos-editor/mitos/pull/888))
+- Simplify terminal command and component plumbing ([#885](https://github.com/mitos-editor/mitos/pull/885))
+- Simplify core editing, layout and rendering primitives ([#883](https://github.com/mitos-editor/mitos/pull/883))
+- *(grammar)* bump upstream grammars ([#875](https://github.com/mitos-editor/mitos/pull/875))
+- *(render)* cache viewport syntax style prefixes across frames ([#871](https://github.com/mitos-editor/mitos/pull/871))
+- *(ui)* coalesce highlight scheduling and consume redraw requests ([#870](https://github.com/mitos-editor/mitos/pull/870))
+- *(picker)* update file membership incrementally with safe rescans
+- *(search)* reuse cached directory-entry file types
+- simplify Git menu descriptions ([#849](https://github.com/mitos-editor/mitos/pull/849))
+- Share operation inversion while retaining specialized insertion storage ([#908](https://github.com/mitos-editor/mitos/pull/908))
+- Simplify buffer replay and pane child state ([#891](https://github.com/mitos-editor/mitos/pull/891))
+- *(buffer)* share large deleted ranges in undo history ([#855](https://github.com/mitos-editor/mitos/pull/855))
+- Simplify shared IO, configuration and filesystem helpers ([#884](https://github.com/mitos-editor/mitos/pull/884))
+- *(core)* scan line endings with memchr ([#959](https://github.com/mitos-editor/mitos/pull/959))
+- *(core)* reuse byte positions while applying replacements ([#854](https://github.com/mitos-editor/mitos/pull/854))
+- *(diagnostics)* retain positions and lines before edits ([#865](https://github.com/mitos-editor/mitos/pull/865))
+- *(protocol)* reuse Sonic JSON output buffers ([#858](https://github.com/mitos-editor/mitos/pull/858))
+- *(grammar)* fetch and check out sources with gix ([#953](https://github.com/mitos-editor/mitos/pull/953))
+- Simplify grammar build and contributor tooling ([#886](https://github.com/mitos-editor/mitos/pull/886))
+- *(tests)* read indentation fixtures with gix ([#956](https://github.com/mitos-editor/mitos/pull/956))
+- *(loader)* read build revision with gix ([#952](https://github.com/mitos-editor/mitos/pull/952))
+- *(search)* use memchr for match coordinates ([#958](https://github.com/mitos-editor/mitos/pull/958))
+- *(search)* filter selected replacements before position conversion ([#863](https://github.com/mitos-editor/mitos/pull/863))
+- *(spelling)* match ignore rules with a regex set ([#960](https://github.com/mitos-editor/mitos/pull/960))
+- Share terminal modifier transitions across native backends ([#896](https://github.com/mitos-editor/mitos/pull/896))
+- *(vcs)* centralize repository access
+- Track global attribute symlink targets and metadata retargeting
+- Watch effective global Git attribute files
+- Keep fetch prefix filtering when remote HEAD already exists
+- Record advertised remote default HEAD during native fetch
+- Stage selected file-to-directory replacements with Gix
+- Share worktree blob conversion between diff readers ([#992](https://github.com/mitos-editor/mitos/pull/992))
+- *(vcs)* fetch ordinary remotes with gix ([#955](https://github.com/mitos-editor/mitos/pull/955))
+- *(vcs)* create local branches with gix ([#948](https://github.com/mitos-editor/mitos/pull/948))
+- *(vcs)* check worktree removal safety with gix ([#951](https://github.com/mitos-editor/mitos/pull/951))
+- *(vcs)* stage ordinary files with gix ([#954](https://github.com/mitos-editor/mitos/pull/954))
+- *(vcs)* unstage files with gix
+- *(vcs)* resolve fetched commits with gix
+- *(vcs)* browse stashes with gix
+- *(vcs)* list branches and worktrees with gix
+- Restore ordered VCS provider dispatch
+- Share repository discovery across document and watch inspections
+- simplify debugger request cancellation ownership ([#912](https://github.com/mitos-editor/mitos/pull/912))
+- keep annotation traversal state in each formatter ([#898](https://github.com/mitos-editor/mitos/pull/898))
+- *(view)* avoid cloning edit text for each closed fold ([#862](https://github.com/mitos-editor/mitos/pull/862))
+- *(layout)* store colored inline annotations in one layer ([#864](https://github.com/mitos-editor/mitos/pull/864))
+- *(word-index)* compare snapshot windows by rope chunks ([#853](https://github.com/mitos-editor/mitos/pull/853))
+
 ## [0.1.3](https://github.com/mitos-editor/mitos/compare/v0.1.2...v0.1.3) - 2026-10-30
 
 ### Highlights
