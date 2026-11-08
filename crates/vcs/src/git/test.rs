@@ -573,3 +573,40 @@ fn watched_paths_include_missing_and_existing_external_attributes() {
         .unwrap()
         .contains(&attributes));
 }
+
+#[cfg(unix)]
+#[test]
+fn global_attribute_targets_resolve_symlinked_parents_before_relative_components() {
+    let repo = empty_git_repo();
+    let external = tempfile::tempdir().unwrap();
+    let root = external.path().canonicalize().unwrap();
+    let real_directory = root.join("store/config/git");
+    std::fs::create_dir_all(&real_directory).unwrap();
+    std::os::unix::fs::symlink(root.join("store/config"), root.join("config")).unwrap();
+    std::os::unix::fs::symlink(
+        "../../../source-attributes",
+        real_directory.join("attributes"),
+    )
+    .unwrap();
+    let configured = root.join("config/git/attributes");
+    let target = root.join("source-attributes");
+    exec_git_cmd(
+        &[
+            "config",
+            "core.attributesFile",
+            configured.to_str().unwrap(),
+        ],
+        repo.path(),
+    );
+    for exists in [false, true] {
+        if exists {
+            std::fs::write(&target, "*.txt -text\n").unwrap();
+        }
+        let paths = watched_paths(repo.path(), true).unwrap();
+        assert!(paths.contains(&configured));
+        assert!(paths.contains(&target));
+        // Lexically normalizing the configured spelling would escape the fixture.
+        assert!(!paths.contains(&root.parent().unwrap().join("source-attributes")));
+        assert!(!paths.contains(&std::path::PathBuf::from("/")));
+    }
+}

@@ -127,7 +127,14 @@ pub(super) fn repository_watched_paths(repo: &Repository) -> Result<Vec<PathBuf>
     }
     // Missing global files remain watch inputs so their creation refreshes filtered content.
     // A malformed attribute setting must not disable the other repository watches.
-    paths.extend(repo.attribute_global_paths().unwrap_or_default());
+    for path in repo.attribute_global_paths().unwrap_or_default() {
+        // Stamps must see target edits as well as replacement of a configured symlink.
+        // Resolve a dangling link explicitly so creation of its target invalidates a plan too.
+        if let Ok(target) = gix::path::realpath(&path) {
+            paths.push(target);
+        }
+        paths.push(path);
+    }
     // Invalid blame configuration must not disable the other repository watches.
     paths.extend(crate::blame::watched_paths(repo).unwrap_or_default());
     Ok(paths)
