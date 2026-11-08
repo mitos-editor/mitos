@@ -32,12 +32,13 @@ glass effects and blending the background gradient over white at 7% opacity.
 
 ## Change the artwork
 
-Edit `mitos-icon.svg` at the repository root, then run:
+Edit the SVGs in `Mitos.icon/Assets`: `01-background-gradient.svg` defines the
+colours and `02-logo-white.svg` defines the shape. Then run:
 
 ```sh
 python3 assets/icon-composer/generate.py
 ```
 
-This requires librsvg's `rsvg-convert`. It updates the three image files inside
-`Mitos.icon/Assets`. Reopen the document in Composer, check each appearance,
+This requires librsvg's `rsvg-convert`. It rebuilds `03-logo-gradient.png` from
+those SVGs. Reopen the document in Composer, check each appearance,
 save, and export again. Update `book/brand.css` if the palette changes.
