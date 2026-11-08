@@ -22,6 +22,12 @@ pub enum RepositoryOperation {
     RemoveWorktree {
         path: PathBuf,
     },
+    LockWorktree {
+        path: PathBuf,
+    },
+    UnlockWorktree {
+        path: PathBuf,
+    },
     Fetch {
         remote: Option<String>,
     },
@@ -41,6 +47,8 @@ impl RepositoryOperation {
             Self::SwitchBranch { .. } => "Switch branch",
             Self::CreateWorktree { .. } => "Create linked worktree",
             Self::RemoveWorktree { .. } => "Remove linked worktree",
+            Self::LockWorktree { .. } => "Lock linked worktree",
+            Self::UnlockWorktree { .. } => "Unlock linked worktree",
             Self::Fetch { .. } => "Fetch remote",
             Self::Pull { .. } => "Pull (fast-forward only)",
             Self::Push { .. } => "Push current branch",
@@ -70,7 +78,9 @@ impl RepositoryOperation {
             Self::DeleteBranch { .. } => unreachable!("branch deletion runs in the native worker"),
             Self::SwitchBranch { .. }
             | Self::CreateWorktree { .. }
-            | Self::RemoveWorktree { .. } => {
+            | Self::RemoveWorktree { .. }
+            | Self::LockWorktree { .. }
+            | Self::UnlockWorktree { .. } => {
                 unreachable!("branch and worktree mutations run in the native worker")
             }
             Self::Fetch { remote } => {
@@ -301,6 +311,8 @@ impl GitRepository {
                 | RepositoryOperation::SwitchBranch { .. }
                 | RepositoryOperation::CreateWorktree { .. }
                 | RepositoryOperation::RemoveWorktree { .. }
+                | RepositoryOperation::LockWorktree { .. }
+                | RepositoryOperation::UnlockWorktree { .. }
         ) {
             self.open_read(true)
         } else {
@@ -348,6 +360,29 @@ impl GitRepository {
                 *path = stdx::path::canonicalize_existing(path);
                 ensure!(*path != self.root, "Cannot remove the current worktree");
                 watched.push(path.clone());
+            }
+            RepositoryOperation::LockWorktree { path }
+            | RepositoryOperation::UnlockWorktree { path } => {
+                *path = stdx::path::canonicalize_existing(path);
+                let main = repo.main_repo()?;
+                ensure!(
+                    main.workdir()
+                        .is_none_or(|root| stdx::path::canonicalize_existing(root) != *path),
+                    "The main worktree cannot be locked or unlocked"
+                );
+                let target = repo
+                    .worktrees()?
+                    .into_iter()
+                    .find(|tree| {
+                        tree.base()
+                            .is_ok_and(|base| stdx::path::canonicalize_existing(&base) == *path)
+                    })
+                    .context("Choose a registered linked worktree")?;
+                watched.extend([
+                    target.git_dir().join("locked"),
+                    target.git_dir().join("gitdir"),
+                    target.git_dir().join("commondir"),
+                ]);
             }
             RepositoryOperation::Fetch { remote }
             | RepositoryOperation::Pull { remote }
@@ -628,6 +663,32 @@ impl PreparedOperation {
         ensure_clean_worktree(path, &self.repository)?;
         self.ensure_current()?;
         target.remove(gix::worktree::remove::Force::Never, gix::progress::Discard)?;
+        Ok(())
+    }
+
+    pub(super) fn set_worktree_lock(&self, path: &Path, locked: bool) -> Result<()> {
+        let repo = self.repository.open_read(true)?;
+        let target = repo
+            .worktrees()?
+            .into_iter()
+            .find(|tree| {
+                tree.base()
+                    .is_ok_and(|base| stdx::path::canonicalize_existing(&base) == path)
+            })
+            .context("Selected path is no longer a registered linked worktree")?;
+        // Serialize native changes to the lock and reason, including from another editor.
+        let _lock = gix::lock::File::acquire_to_update_resource(
+            target.git_dir().join("locked"),
+            gix::lock::acquire::Fail::Immediately,
+            None,
+            0,
+        )?;
+        self.ensure_current()?;
+        // Re-locking preserves a reason supplied by Git or another tool.
+        if locked && target.is_locked() {
+            return Ok(());
+        }
+        target.set_lock(locked.then_some("".as_bytes().as_bstr()))?;
         Ok(())
     }
 }

@@ -248,6 +248,11 @@ fn worktrees(
             &maps.worktree_picker,
             &[
                 (PickerAction::Accept, "open"),
+                (PickerAction::Item(PickerItemAction::LockWorktree), "lock"),
+                (
+                    PickerAction::Item(PickerItemAction::UnlockWorktree),
+                    "unlock",
+                ),
                 (
                     PickerAction::Item(PickerItemAction::CreateWorktree),
                     "create",
@@ -333,6 +338,22 @@ fn worktree_action(
 ) -> PickerCallbackResult<Worktree, RepositoryData> {
     match action {
         PickerItemAction::CreateWorktree => create_prompt(repo, workspace, true),
+        PickerItemAction::LockWorktree | PickerItemAction::UnlockWorktree => {
+            let Some(tree) = tree.filter(|tree| !tree.main) else {
+                return PickerCallbackResult::KeepOpen;
+            };
+            let repo = repo.clone();
+            let workspace = workspace.to_owned();
+            let path = tree.path.clone();
+            let operation = if action == PickerItemAction::LockWorktree {
+                RepositoryOperation::LockWorktree { path }
+            } else {
+                RepositoryOperation::UnlockWorktree { path }
+            };
+            PickerCallbackResult::KeepOpenWithCallback(Box::new(move |_, cx| {
+                super::actions::start(cx, workspace, GitAction::Repository(repo, operation));
+            }))
+        }
         PickerItemAction::RemoveWorktree => {
             let Some(tree) = tree else {
                 return PickerCallbackResult::KeepOpen;

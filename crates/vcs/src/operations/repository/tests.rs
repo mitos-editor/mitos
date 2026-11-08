@@ -1565,3 +1565,84 @@ async fn linked_worktrees_can_be_created_without_a_configured_identity() -> Resu
     }
     Ok(())
 }
+
+#[tokio::test]
+async fn native_worktree_locks_preserve_reasons_and_reject_stale_or_untrusted_actions() -> Result<()>
+{
+    let dir = initial()?;
+    let parent = tempfile::tempdir()?;
+    let path = parent.path().join("linked");
+    let repo = GitRepository::discover(dir.path())?;
+    execute(
+        &repo,
+        RepositoryOperation::CreateWorktree {
+            path: path.clone(),
+            branch: None,
+        },
+    )
+    .await?;
+    let lock = || RepositoryOperation::LockWorktree { path: path.clone() };
+    let unlock = || RepositoryOperation::UnlockWorktree { path: path.clone() };
+    assert!(repo.prepare_repository(lock(), false).is_err());
+    for main in [
+        RepositoryOperation::LockWorktree {
+            path: dir.path().into(),
+        },
+        RepositoryOperation::UnlockWorktree {
+            path: dir.path().into(),
+        },
+    ] {
+        assert!(repo.prepare_repository(main, true).is_err());
+    }
+    let prepared = repo.prepare_repository(lock(), true)?;
+    assert!(!prepared.changes_worktree());
+    assert!(prepared.affected_paths().is_empty());
+    prepared.execute().await?;
+    assert!(repo
+        .worktrees()
+        .await?
+        .iter()
+        .any(|tree| !tree.main && tree.locked));
+    // Git observes native locks and cannot remove the protected checkout.
+    assert!(!std::process::Command::new("git")
+        .args(["worktree", "remove"])
+        .arg(&path)
+        .current_dir(dir.path())
+        .output()?
+        .status
+        .success());
+    execute(&repo, unlock()).await?;
+    exec_git_cmd(
+        &[
+            "worktree",
+            "lock",
+            "--reason",
+            "portable drive",
+            path.to_str().unwrap(),
+        ],
+        dir.path(),
+    );
+    execute(&repo, lock()).await?;
+    let git = repo.open_read(true)?;
+    let target = git.worktrees()?.remove(0);
+    assert_eq!(
+        target.lock_reason().unwrap().as_bstr(),
+        "portable drive".as_bytes().as_bstr()
+    );
+    let stale = repo.prepare_repository(unlock(), true)?;
+    std::fs::write(target.git_dir().join("locked"), "a different reason\n")?;
+    assert!(stale.execute().await.is_err());
+    assert_eq!(
+        target.lock_reason().unwrap().as_bstr(),
+        "a different reason".as_bytes().as_bstr()
+    );
+    execute(&repo, unlock()).await?;
+    assert!(!target.is_locked());
+    // Registration-based locking also works while a removable checkout is unavailable.
+    std::fs::remove_dir_all(&path)?;
+    execute(&repo, lock()).await?;
+    assert!(target.is_locked());
+    execute(&repo, unlock()).await?;
+    assert!(!target.is_locked());
+    Ok(())
+}
