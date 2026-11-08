@@ -60,6 +60,8 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
             "k" => move_line_up,
             "j" => move_line_down,
             "." => goto_last_modification,
+            "-" => earlier,
+            "+" => later,
             "w" => goto_word,
         },
         ":" => command_mode,
@@ -161,8 +163,8 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
 
         "u" => undo,
         "U" => redo,
-        "A-u" => earlier,
-        "A-U" => later,
+        "A-u" => undo_selection,
+        "A-U" => redo_selection,
 
         "y" => yank,
         // yank_all

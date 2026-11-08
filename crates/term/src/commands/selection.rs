@@ -184,6 +184,22 @@ pub(super) fn flip_selections(cx: &mut Context) {
     doc.set_selection(view.id, selection);
 }
 
+pub(super) fn undo_selection(cx: &mut Context) {
+    let count = cx.count();
+    let (view, doc) = current!(cx.editor);
+    if !doc.undo_selection(view.id, count) {
+        cx.editor.set_status("Already at oldest selection");
+    }
+}
+
+pub(super) fn redo_selection(cx: &mut Context) {
+    let count = cx.count();
+    let (view, doc) = current!(cx.editor);
+    if !doc.redo_selection(view.id, count) {
+        cx.editor.set_status("Already at newest selection");
+    }
+}
+
 pub(super) fn ensure_selections_forward(cx: &mut Context) {
     let (view, doc) = current!(cx.editor);
 

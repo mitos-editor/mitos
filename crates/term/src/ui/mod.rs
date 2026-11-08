@@ -126,6 +126,7 @@ pub fn search_prompt(
     let doc_id = view.document_id();
     let view_id = view.id;
     let snapshot = doc.selection(view.id).clone();
+    doc.begin_selection_preview(view.id);
     let offset_snapshot = doc.view_offset(view.id);
     let config = cx.editor.config();
 
@@ -140,10 +141,16 @@ pub fn search_prompt(
                     let view = view_mut!(cx.editor, view_id);
                     doc.set_selection(view.id, snapshot.clone());
                     doc.set_view_offset(view.id, offset_snapshot);
+                    doc.finish_selection_preview(view.id);
                 }
                 PromptEvent::Update | PromptEvent::Validate => {
-                    // skip empty input
                     if input.is_empty() {
+                        let doc = doc_mut!(cx.editor, &doc_id);
+                        doc.set_selection(view_id, snapshot.clone());
+                        doc.set_view_offset(view_id, offset_snapshot);
+                        if event == PromptEvent::Validate {
+                            doc.finish_selection_preview(view_id);
+                        }
                         return;
                     }
 
@@ -201,6 +208,9 @@ pub fn search_prompt(
                                 cx.jobs.callback(callback);
                             }
                         }
+                    }
+                    if event == PromptEvent::Validate {
+                        doc_mut!(cx.editor, &doc_id).finish_selection_preview(view_id);
                     }
                 }
             }
