@@ -1,13 +1,13 @@
 //! A document-owned interpretation shared by conflict commands and presentation.
 
-use std::ops::Range;
+use std::{ops::Range, sync::LazyLock};
 
 use crate::{Document, ViewId};
 use editor_core::{
     highlight::{Highlight, OverlayHighlights},
-    Rope,
+    ChangeSet, Rope, RopeSlice,
 };
-use stdx::rope::RopeExt as _;
+use stdx::rope::{Regex, RopeExt as _, RopeSliceExt as _};
 use text_layout::text_annotations::{InlineAnnotation, TextAnnotations};
 use vcs::conflict::{self, Conflict};
 
@@ -65,23 +65,20 @@ pub struct ConflictPresentation {
     labels: [Vec<InlineAnnotation>; 2],
 }
 
+// The parser validates line boundaries and suffixes. This deliberately broad
+// prefilter also works on short edit windows and across rope chunk boundaries.
+fn contains_marker_candidate(text: RopeSlice<'_>) -> bool {
+    static MARKERS: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r"(?m)^(?:<{7}(?:<|[ \r\n]|$)|>{7}(?:>|[ \r\n]|$))").unwrap());
+    MARKERS.is_match(text.regex_input())
+}
+
 impl ConflictPresentation {
     pub fn new(text: &Rope) -> Self {
         if text.len() > vcs::MAX_REVIEW_BYTES {
             return Self::default();
         }
-        // Inspect only line prefixes before allocating contiguous text. Most
-        // documents contain no markers, and this runs after each text change.
-        if !text.slice(..).lines(stdx::rope::LINE_TYPE).any(|line| {
-            let mut chars = line.chars();
-            let Some(marker @ ('<' | '>')) = chars.next() else {
-                return false;
-            };
-            (0..6).all(|_| chars.next() == Some(marker))
-                && chars
-                    .next()
-                    .is_none_or(|ch| ch == marker || matches!(ch, ' ' | '\r' | '\n'))
-        }) {
+        if !contains_marker_candidate(text.slice(..)) {
             return Self::default();
         }
         let source = text.to_string();
@@ -233,6 +230,22 @@ impl ConflictPresentation {
 }
 
 impl Document {
+    pub(crate) fn invalidate_conflicts(&mut self, before: &Rope, changes: &ChangeSet) {
+        // An empty presentation has no positions to remap. Only edits that can
+        // introduce markers need another full scan; padding covers joined runs.
+        let keep_empty = self.conflicts.get().is_some_and(|model| {
+            !model.active()
+                && before.len() <= vcs::MAX_REVIEW_BYTES
+                && self.text().len() <= vcs::MAX_REVIEW_BYTES
+                && !changes
+                    .changed_ranges(7)
+                    .any(|(_, range)| contains_marker_candidate(self.text().slice_chars(range)))
+        });
+        if !keep_empty {
+            self.conflicts.take();
+        }
+    }
+
     pub fn conflict_presentation(&self) -> &ConflictPresentation {
         self.conflicts.get_or_init(|| {
             std::sync::Arc::new({
@@ -314,6 +327,76 @@ impl Document {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn document(source: &str) -> Document {
+        use std::sync::Arc;
+        Document::from(
+            Rope::from(source),
+            None,
+            Arc::new(arc_swap::ArcSwap::from_pointee(
+                editor_config::Config::default(),
+            )),
+            Arc::new(language::syntax::Loader::default()),
+        )
+    }
+
+    fn edit(
+        doc: &mut Document,
+        changes: impl Iterator<Item = (usize, usize, Option<editor_core::Tendril>)>,
+    ) {
+        let view = ViewId::default();
+        doc.ensure_view_init(view);
+        let transaction = editor_core::Transaction::change(doc.text(), changes);
+        crate::editing::apply(doc, &transaction, view).unwrap();
+    }
+
+    #[test]
+    fn plain_edits_keep_empty_cache_but_new_markers_invalidate_it() {
+        let mut doc = document("préfix\nordinary text\n");
+        assert!(!doc.conflict_presentation().active());
+        edit(&mut doc, [(7, 8, Some("x".into()))].into_iter());
+        assert!(doc.conflicts.get().is_some());
+        assert!(!doc.conflict_presentation().active());
+
+        for (source, start, end, replacement) in [
+            ("préfix\n<<<<<< HEAD\n", 7, 7, "<"),
+            ("préfix\n<<<x<<<< HEAD\n", 10, 11, ""),
+            ("préfix >>>>>>> topic\n", 7, 7, "\n"),
+            (
+                "préfix\nordinary\n",
+                7,
+                7,
+                "<<<<<<< HEAD\nours\n=======\ntheirs\n>>>>>>> topic\n",
+            ),
+        ] {
+            let mut doc = document(source);
+            assert!(!doc.conflict_presentation().active(), "{source}");
+            edit(
+                &mut doc,
+                [(start, end, Some(replacement.into()))].into_iter(),
+            );
+            assert!(doc.conflicts.get().is_none(), "{source}");
+            assert!(doc.conflict_presentation().active(), "{source}");
+        }
+
+        let mut doc = document("préfix\n<<<<<< HEAD\n");
+        assert!(!doc.conflict_presentation().active());
+        edit(
+            &mut doc,
+            [(0, 1, Some("界".into())), (7, 7, Some("<".into()))].into_iter(),
+        );
+        assert!(doc.conflict_presentation().active());
+    }
+
+    #[test]
+    fn shrinking_below_review_limit_rechecks_previously_hidden_conflicts() {
+        let conflict = "<<<<<<< HEAD\nours\n=======\ntheirs\n>>>>>>> topic\n";
+        let mut doc = document(&format!("{conflict}{}", "x".repeat(vcs::MAX_REVIEW_BYTES)));
+        assert!(!doc.conflict_presentation().active());
+        let end = doc.text().len_chars();
+        edit(&mut doc, [(conflict.len(), end, None)].into_iter());
+        assert_eq!(doc.conflict_presentation().regions.len(), 1);
+    }
 
     #[test]
     fn line_numbers_overlap_sections_and_accumulate_across_conflicts() {
@@ -497,8 +580,12 @@ mod tests {
             assert!(model.error.is_some());
             assert!(model.markers.is_empty());
         }
-        assert!(
-            !ConflictPresentation::new(&Rope::from("Title\n=======\nordinary text\n")).active()
-        );
+        for source in [
+            "Title\n=======\nordinary text\n",
+            "inline <<<<<<< HEAD\nTitle\n=======\n",
+            "<<<<<<<word\nTitle\n=======\n",
+        ] {
+            assert!(!ConflictPresentation::new(&Rope::from(source)).active());
+        }
     }
 }
