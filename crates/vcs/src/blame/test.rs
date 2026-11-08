@@ -26,6 +26,53 @@ mod git {
     }
 
     #[test]
+    fn ignored_revision_blame_streams_fragmented_output_above_the_display_limit() {
+        let repo = empty_git_repo();
+        let file = repo.path().join("fragmented.txt");
+        let contents = |changed: bool| {
+            (0..30_000)
+                .map(|line| {
+                    format!(
+                        "line {line} {}\n",
+                        if changed && line % 2 == 1 {
+                            "changed"
+                        } else {
+                            "original"
+                        }
+                    )
+                })
+                .collect::<String>()
+        };
+        std::fs::write(&file, contents(false)).unwrap();
+        create_commit_with_message(repo.path(), true, "initial");
+        let git = gix::open(repo.path()).unwrap();
+        let initial = git.head_commit().unwrap().id.to_string();
+        std::fs::write(&file, contents(true)).unwrap();
+        create_commit_with_message(repo.path(), true, "alternate lines");
+        let changed = git.head_commit().unwrap().id.to_string();
+        // An empty configured file still selects Git's ignored-revision fallback.
+        std::fs::write(repo.path().join(".git-blame-ignore-revs"), "").unwrap();
+        let oracle = std::process::Command::new("git")
+            .current_dir(repo.path())
+            .args(["blame", "--incremental", "HEAD", "--", "fragmented.txt"])
+            .output()
+            .unwrap();
+        assert!(oracle.status.success());
+        assert!(oracle.stdout.len() > 1024 * 1024);
+        let blame = FileBlame::try_new(file, true).unwrap();
+        for line in 0..30_000 {
+            assert_eq!(
+                blame.blame_for_line(line).unwrap().commit_id,
+                if line % 2 == 0 {
+                    initial.as_str()
+                } else {
+                    changed.as_str()
+                }
+            );
+        }
+    }
+
+    #[test]
     fn configured_ignore_revs_file_reassigns_commits() {
         let (repo, file, initial, ignored) = ignored_history();
         std::fs::write(

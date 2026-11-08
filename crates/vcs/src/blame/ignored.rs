@@ -1,7 +1,7 @@
 use std::{
+    io::{BufRead, BufReader, Read},
     ops::Range,
     path::{Path, PathBuf},
-    process::{Command, Stdio},
 };
 
 use anyhow::{ensure, Context, Result};
@@ -97,38 +97,16 @@ impl IgnoredRevisions {
     ) -> Result<Vec<gix::blame::BlameEntry>> {
         // gitoxide cannot ignore revisions. Use Git's incremental format to retain
         // compact ranges and keep loading commit metadata through gitoxide.
-        let mut command = Command::new("git");
-        command
-            .current_dir(dunce::simplified(workdir))
-            .arg("--no-pager")
-            .arg("--git-dir")
-            .arg(dunce::simplified(repo.git_dir()))
-            .arg("--work-tree")
-            .arg(dunce::simplified(workdir))
-            .args([
-                "-c",
-                "core.fsmonitor=false",
-                "-c",
-                "blame.ignoreRevsFile=",
-                "blame",
-                "--incremental",
-                "--no-textconv",
-                "--no-ext-diff",
-            ])
-            .env("GIT_TERMINAL_PROMPT", "0")
-            .env("GIT_OPTIONAL_LOCKS", "0")
-            .env("GIT_NO_LAZY_FETCH", "1")
-            .stdin(Stdio::null());
-        // Pin the discovered repository even when launched from another Git process.
-        for name in [
-            "GIT_DIR",
-            "GIT_WORK_TREE",
-            "GIT_COMMON_DIR",
-            "GIT_INDEX_FILE",
-            "GIT_PREFIX",
-        ] {
-            command.env_remove(name);
-        }
+        let mut command =
+            crate::command::repository(workdir, repo.git_dir(), crate::command::Access::ReadOnly);
+        command.args([
+            "-c",
+            "blame.ignoreRevsFile=",
+            "blame",
+            "--incremental",
+            "--no-textconv",
+            "--no-ext-diff",
+        ]);
         for (file, _) in &self.files {
             command
                 .arg("--ignore-revs-file")
@@ -137,47 +115,65 @@ impl IgnoredRevisions {
         for revision in &self.revisions {
             command.arg("--ignore-rev").arg(revision.to_string());
         }
-        let output = command
+        command
             .arg(head.to_string())
             .arg("--")
-            .arg(gix::path::from_bstr(path)?.as_os_str())
-            .output()
-            .context("Run git blame with ignored revisions")?;
-        ensure!(
-            output.status.success(),
-            "git blame failed: {}",
-            String::from_utf8_lossy(&output.stderr).trim()
-        );
-        parse_entries(&output.stdout)
+            .arg(gix::path::from_bstr(path)?.as_os_str());
+        crate::command::read_sync(command, parse_entries)
+            .context("Run git blame with ignored revisions")
     }
 }
 
 fn git_installation_prefix() -> Result<PathBuf> {
     // gitoxide's install_dir() refers to the running Mitos binary, not Git.
-    let output = Command::new("git")
-        .args([
-            "-c",
-            "mitos.blamePrefix=%(prefix)/",
-            "config",
-            "--path",
-            "--get",
-            "mitos.blamePrefix",
-        ])
-        .stdin(Stdio::null())
-        .output()
+    let mut command = crate::command::system(crate::command::Access::ReadOnly);
+    command.args([
+        "-c",
+        "mitos.blamePrefix=%(prefix)/",
+        "config",
+        "--path",
+        "--get",
+        "mitos.blamePrefix",
+    ]);
+    let output = crate::command::run_sync(command, crate::command::Output::Display)
         .context("Resolve Git installation prefix")?;
-    ensure!(
-        output.status.success(),
-        "Could not resolve Git installation prefix"
-    );
-    Ok(gix::path::from_byte_slice(output.stdout.trim_end())?.to_owned())
+    Ok(gix::path::from_byte_slice(output.trim_end())?.to_owned())
 }
 
-fn parse_entries(output: &[u8]) -> Result<Vec<gix::blame::BlameEntry>> {
-    let mut lines = output.lines();
+// Headers contain only an object ID and three numbers. Metadata (including a
+// potentially huge commit summary) needs only a prefix to find the filename marker.
+const PROTOCOL_LINE_PREFIX: usize = 1024;
+
+fn read_protocol_line(reader: &mut dyn BufRead, line: &mut Vec<u8>) -> Result<bool> {
+    line.clear();
+    if (&mut *reader)
+        .take((PROTOCOL_LINE_PREFIX + 1) as u64)
+        .read_until(b'\n', line)?
+        == 0
+    {
+        return Ok(false);
+    }
+    if line.ends_with(b"\n") {
+        line.pop();
+        if line.ends_with(b"\r") {
+            line.pop();
+        }
+    } else if line.len() > PROTOCOL_LINE_PREFIX {
+        reader.skip_until(b'\n')?;
+    }
+    Ok(true)
+}
+
+fn parse_entries(output: &mut dyn Read) -> Result<Vec<gix::blame::BlameEntry>> {
+    let mut reader = BufReader::new(output);
+    let mut line = Vec::new();
     let mut entries = Vec::new();
-    while let Some(header) = lines.next() {
-        let mut fields = header.split(|byte| *byte == b' ');
+    while read_protocol_line(&mut reader, &mut line)? {
+        ensure!(
+            line.len() <= PROTOCOL_LINE_PREFIX,
+            "Blame header exceeds the protocol limit"
+        );
+        let mut fields = line.split(|byte| *byte == b' ');
         let commit = ObjectId::from_hex(fields.next().context("Missing blame commit")?)?;
         let mut number = || -> Result<u32> {
             Ok(
@@ -203,10 +199,32 @@ fn parse_entries(output: &[u8]) -> Result<Vec<gix::blame::BlameEntry>> {
             None,
         ));
         // Metadata may contain arbitrary bytes. Only the filename terminator matters.
-        ensure!(
-            lines.by_ref().any(|line| line.starts_with(b"filename ")),
-            "Incomplete blame entry"
-        );
+        loop {
+            ensure!(
+                read_protocol_line(&mut reader, &mut line)?,
+                "Incomplete blame entry"
+            );
+            if line.starts_with(b"filename ") {
+                break;
+            }
+        }
     }
     Ok(entries)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn streaming_parser_skips_large_metadata_with_a_bounded_line_prefix() -> Result<()> {
+        let id = "a".repeat(40);
+        let mut output = std::io::Cursor::new(format!("{id} 1 1 1\nsummary "))
+            .chain(std::io::repeat(b'x').take(2 * 1024 * 1024))
+            .chain(std::io::Cursor::new(format!(
+                "\nfilename file\n{id} 2 2 1\nfilename file\n"
+            )));
+        assert_eq!(parse_entries(&mut output)?.len(), 2);
+        Ok(())
+    }
 }
