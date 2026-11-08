@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+## [0.2.1](https://github.com/mitos-editor/mitos/compare/v0.2.0...v0.2.1) - 2026-11-08
+
+### Added
+
+- *(vcs)* fast-forward pulls with gix
+
+### Other
+
+- *(vcs)* make native fallback outcomes explicit
+
 ## [0.2.0](https://github.com/mitos-editor/mitos/compare/v0.1.3...v0.2.0) - 2026-11-08
 
 ### Highlights
