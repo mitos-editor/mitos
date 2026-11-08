@@ -132,6 +132,29 @@ impl GitRepository {
         })
     }
 
+    /// Load the selected commit's full message without retaining bodies in history pages.
+    pub async fn commit_message(&self, revision: &RevisionId) -> Result<String> {
+        let repository = self.clone();
+        let revision = revision.clone();
+        tokio::time::timeout(
+            std::time::Duration::from_secs(15),
+            tokio::task::spawn_blocking(move || {
+                let repo = repository.open_read(false)?;
+                let commit =
+                    repo.find_commit(gix::ObjectId::from_hex(revision.as_str().as_bytes())?)?;
+                let message = commit.message_raw()?;
+                ensure!(
+                    message.len() <= 1024 * 1024,
+                    "Commit message exceeds the 1 MiB display limit"
+                );
+                Ok(String::from_utf8_lossy(message.as_ref()).into_owned())
+            }),
+        )
+        .await
+        .context("Git commit-message query timed out")?
+        .context("History commit-message worker stopped")?
+    }
+
     /// Compare a chosen parent with the commit, explicitly handling roots and merges.
     pub async fn commit_files(
         &self,

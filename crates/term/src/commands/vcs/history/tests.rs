@@ -221,3 +221,44 @@ async fn history_limit_remains_visibly_incomplete() -> Result<()> {
     assert!(pager.pending.is_none());
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn repository_history_renders_commit_preview_on_the_right() -> Result<()> {
+    let (_dir, repo) = repository(1);
+    let mut app = application(false)?;
+    let mut picker = browser(&app.editor, repo, None, None)?;
+    until(&mut picker, &mut app, |p| all_items(p).count() == 1).await?;
+    let config = crate::config::Config::default();
+    let updates = tokio::sync::mpsc::unbounded_channel().0;
+    let mut jobs = crate::job::Jobs::new();
+    let mut cx = Context {
+        config: crate::config::Context {
+            current: &config,
+            updates: &updates,
+        },
+        editor: &mut app.editor,
+        interaction: &mut app.interaction,
+        jobs: &mut jobs,
+        scroll: None,
+        image_picker: None,
+        is_cursor_owner: true,
+    };
+    let area = view::graphics::Rect::new(0, 0, 140, 30);
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        loop {
+            let mut surface = tui::buffer::Buffer::empty(area);
+            picker.update_and_render(area, &mut surface, &mut cx);
+            let right: String = (0..area.height)
+                .flat_map(|y| (area.width / 2..area.width).map(move |x| (x, y)))
+                .map(|position| surface[position].symbol())
+                .collect();
+            if right.contains("No changed files") {
+                assert!(right.contains("oldest-needle"));
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        }
+    })
+    .await?;
+    Ok(())
+}

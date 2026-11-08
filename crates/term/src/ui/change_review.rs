@@ -21,6 +21,10 @@ use crate::{
 };
 
 #[cfg(feature = "git")]
+mod commit;
+#[cfg(feature = "git")]
+pub use commit::CommitReviewPreview;
+#[cfg(feature = "git")]
 mod historical;
 #[cfg(feature = "git")]
 pub use historical::HistoricalReviewPreview;

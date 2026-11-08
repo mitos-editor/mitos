@@ -426,7 +426,11 @@ including commits from merged branches. It uses the current file's repository,
 or the current directory when no file is open. Run the command again after
 switching branches to browse the new branch.
 
-Select a commit, then a changed file to preview and review its diff. Merges
+The preview shows the full commit message followed by all changed files in one
+scrollable patch. `Alt-o` opens the combined preview in a read-only buffer.
+`Alt-k` / `Alt-j` scroll through the message and changes;
+`Ctrl-t` hides or shows the preview.
+Press `Enter` to browse the commit’s changed files. Merges
 compare with their first parent by default; use `Alt-a` to choose another parent.
 `Alt-a` also offers historical versions and comparisons with an open buffer for
 that file.
