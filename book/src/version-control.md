@@ -517,23 +517,16 @@ Available placeholders are:
 Press `Space g s` and open a conflicted file. Use `]m` to move to the next
 conflict or `[m` to move to the previous one.
 
+Mitos labels the two sides `(Current Change)` and `(Incoming Change)` and
+highlights them using your theme. You can edit the text and Git's marker lines
+directly. To change the colors, see [Themes](themes.md#interface).
+
 Place the cursor inside a conflict and press `Space a`. Choose **Accept current**,
 **Accept incoming**, or **Accept both (current then incoming)** to keep that text.
-The menu also includes other available code actions. You can edit the text directly.
+The menu also includes other available code actions.
 
 Press `u` to undo a choice. If you keep both sides, review and edit the combined
 text. When you have resolved every conflict, save the file and stage it.
-
-Git's marker lines stay visible and editable. Mitos adds virtual
-`(Current Change)` and `(Incoming Change)` labels to the opening and closing
-markers and tints the blocks using your theme. In three-way conflicts, the
-`|||||||` and `=======` separator lines keep their normal colors.
-
-You can customize the block colors with the [conflict theme scopes](themes.md#interface).
-
-Each section starts at the same line number. Numbering after a conflict advances
-by its longest section; marker lines have no number. Relative numbers still count
-cursor movements through the file.
 
 You can also resolve conflicts with commands:
 

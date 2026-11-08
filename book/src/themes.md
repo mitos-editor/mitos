@@ -384,9 +384,9 @@ These scopes are used for theming the editor interface:
 | `ui.virtual.inlay-hint`           | Default style for inlay hints of all kinds                                                     |
 | `ui.virtual.inlay-hint.parameter` | Style for inlay hints of kind `parameter` (language servers are not required to set a kind)    |
 | `ui.virtual.inlay-hint.type`      | Style for inlay hints of kind `type` (language servers are not required to set a kind)         |
-| `ui.virtual.conflict.current`     | Current conflict block and opening marker; falls back to `diff.plus` |
-| `ui.virtual.conflict.incoming`    | Incoming conflict block and closing marker; falls back to `info` |
-| `ui.virtual.conflict.base`        | Base conflict block; falls back to `ui.text.inactive` |
+| `ui.virtual.conflict.current`     | Current changes, opening marker, and label                                                     |
+| `ui.virtual.conflict.incoming`    | Incoming changes, closing marker, and label                                                    |
+| `ui.virtual.conflict.base`        | Original version in a three-way conflict                                                       |
 | `ui.virtual.fold`                 | Ellipsis representing folded text |
 | `ui.virtual.wrap`                 | Soft-wrap indicator (see the [`editor.soft-wrap` config][editor-section])                      |
 | `ui.virtual.jump-label`           | Style for virtual jump labels                                                                  |
