@@ -22,6 +22,14 @@ previous buffers; `ga` switches to the last accessed buffer.
 Use `:new` to create an unnamed scratch buffer. Save it with
 `:write notes.txt` when you want to keep it.
 
+## Follow links
+
+Press `gf` to follow a link or open a path in your selection.
+
+Web links detected by your language server can also open in your browser with
+your terminal's link-opening gesture, usually Ctrl-click or Cmd-click. This
+requires a terminal that supports clickable links.
+
 ## Work in splits
 
 | Keys | Action |

@@ -1019,6 +1019,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         // -- Render the frame:
         // clear area
         let background = cx.editor.theme.get("ui.background");
+        cx.hyperlinks.borrow_mut().clear(area);
         surface.clear_with(area, background);
 
         let mut block = self.frame(&cx.editor.theme, cx.editor.config().border_style);
@@ -1285,6 +1286,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
 
     fn render_preview(&mut self, area: Rect, surface: &mut Surface, cx: &mut DrawContext) {
         let background = cx.editor.theme.get("ui.background");
+        cx.hyperlinks.borrow_mut().clear(area);
         surface.clear_with(area, background);
 
         let block = panel::horizontally_padded(&cx.editor.theme, cx.editor.config().border_style);

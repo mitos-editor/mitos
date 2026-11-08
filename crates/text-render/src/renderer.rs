@@ -264,6 +264,31 @@ struct GraphemeStyle {
 }
 
 impl<'a> TextRenderer<'a> {
+    /// Visible cells occupied by a document grapheme. Wide glyphs clipped at an
+    /// edge are not painted; tabs consist of independently clipped cells.
+    pub fn grapheme_area(&self, grapheme: &FormattedGrapheme) -> Option<Rect> {
+        let position = grapheme.visual_pos;
+        let row = position.row.checked_sub(self.offset.row)?;
+        if row >= self.viewport.height as usize {
+            return None;
+        }
+        let width = grapheme.width();
+        let start = position.col.max(self.offset.col);
+        let end = (position.col + width).min(self.offset.col + self.viewport.width as usize);
+        if start >= end
+            || (!matches!(grapheme.raw, Grapheme::Tab { .. })
+                && !self.column_in_bounds(position.col, width))
+        {
+            return None;
+        }
+        Some(Rect::new(
+            self.viewport.x + (start - self.offset.col) as u16,
+            self.viewport.y + row as u16,
+            (end - start) as u16,
+            1,
+        ))
+    }
+
     pub fn new(
         surface: &'a mut Surface,
         settings: RenderSettings<'_>,

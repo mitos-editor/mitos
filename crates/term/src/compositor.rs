@@ -46,6 +46,7 @@ pub struct Context<'a> {
 
 /// Drawing reads editor state; background work belongs to Component::update.
 pub struct DrawContext<'a> {
+    pub hyperlinks: std::cell::RefCell<ui_core::hyperlinks::HyperlinkBuffer>,
     pub config: &'a crate::config::Config,
     pub editor: &'a Editor,
     pub interaction: &'a InteractionState,
@@ -58,6 +59,7 @@ pub struct DrawContext<'a> {
 impl Context<'_> {
     pub fn draw_context(&self) -> DrawContext<'_> {
         DrawContext {
+            hyperlinks: Default::default(),
             config: self.config.current,
             editor: self.editor,
             interaction: self.interaction,
@@ -290,6 +292,7 @@ impl Compositor {
     }
 
     pub fn render(&mut self, area: Rect, surface: &mut Surface, cx: &mut DrawContext) -> Cursor {
+        *cx.hyperlinks.get_mut() = ui_core::hyperlinks::HyperlinkBuffer::new(area);
         let owner = self.layers.iter().rposition(|layer| layer.owns_cursor());
         for (index, layer) in self.layers.iter_mut().enumerate() {
             cx.is_cursor_owner = owner == Some(index);

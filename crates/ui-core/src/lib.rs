@@ -6,6 +6,7 @@
 
 pub mod buffer;
 pub mod graphics;
+pub mod hyperlinks;
 pub mod input;
 pub mod keyboard;
 pub mod keymap;

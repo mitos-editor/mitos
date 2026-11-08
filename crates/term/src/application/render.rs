@@ -96,6 +96,7 @@ where
 
         let config = self.config.load();
         let mut draw = compositor::DrawContext {
+            hyperlinks: Default::default(),
             config: &config,
             editor: &self.editor,
             interaction: &self.interaction,
@@ -104,8 +105,9 @@ where
             is_cursor_owner: false,
         };
 
-        tui::terminal::draw_with_cursor(&mut self.terminal, |buffer| {
-            self.compositor.render(buffer.area, buffer, &mut draw)
+        tui::terminal::draw_with_hyperlinks(&mut self.terminal, |buffer| {
+            let cursor = self.compositor.render(buffer.area, buffer, &mut draw);
+            (cursor, draw.hyperlinks.into_inner())
         })
         .unwrap();
 

@@ -85,6 +85,7 @@ impl PaneRenderer {
         layout: ApplicationLayout,
         surface: &mut Surface,
         options: PaneOptions,
+        hyperlinks: &mut ui_core::hyperlinks::HyperlinkBuffer,
     ) -> Option<DisplayPosition> {
         self.spinners
             .synchronize(editor.progressing_language_servers());
@@ -116,6 +117,7 @@ impl PaneRenderer {
                 options.area,
                 surface,
                 is_focused,
+                hyperlinks,
             );
             if is_focused {
                 cursor = position;
@@ -312,6 +314,7 @@ impl PaneRenderer {
         viewport: Rect,
         surface: &mut Surface,
         is_focused: bool,
+        hyperlinks: &mut ui_core::hyperlinks::HyperlinkBuffer,
     ) -> Option<DisplayPosition> {
         if doc.is_binary() || doc.review().is_some() {
             *syntax_cache = syntax_cache::ViewportSyntaxCache::default();
@@ -331,6 +334,9 @@ impl PaneRenderer {
 
         let mut decorations = DecorationManager::default();
         decorations.add_decoration(text_decorations::conflicts::line_backgrounds(doc, theme));
+        decorations.add_decoration(text_decorations::links::DocumentLinks::new(
+            doc, view.id, hyperlinks,
+        ));
         if doc.review().is_some() {
             decorations.add_decoration(crate::ui::change_review::document::line_backgrounds(
                 doc, theme,
