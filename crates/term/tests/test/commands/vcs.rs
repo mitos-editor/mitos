@@ -299,10 +299,17 @@ async fn space_b_restores_the_configured_inline_blame_mode() -> anyhow::Result<(
             press_keys(&mut app, keys).await?;
             assert_eq!(
                 app.editor.config().inline_blame.show,
-                InlineBlameShow::Never
+                InlineBlameShow::Never,
+                "binding={keys:?}, initial mode={show:?}, editor status={:?}",
+                app.editor.get_status()
             );
             press_keys(&mut app, keys).await?;
-            assert_eq!(app.editor.config().inline_blame.show, show);
+            assert_eq!(
+                app.editor.config().inline_blame.show,
+                show,
+                "restoring binding={keys:?}, initial mode={show:?}, editor status={:?}",
+                app.editor.get_status()
+            );
         }
 
         // A runtime configuration change replaces the mode restored by the toggle.
