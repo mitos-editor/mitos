@@ -396,6 +396,46 @@ mod tests {
     }
 
     #[test]
+    fn two_way_sections_share_numbers_and_label_only_outer_markers() {
+        for newline in ["\n", "\r\n"] {
+            for (current, incoming) in [(2, 1), (1, 3), (0, 2), (2, 0), (0, 0)] {
+                let source = format!(
+                    "prefix{newline}<<<<<<< HEAD{newline}{}======={newline}{}>>>>>>> topic{newline}suffix",
+                    format!("ours{newline}").repeat(current),
+                    format!("界{newline}").repeat(incoming),
+                );
+                let text = Rope::from(source);
+                let model = ConflictPresentation::new(&text);
+                assert!(model.error.is_none());
+                assert_eq!(model.regions.len(), 1);
+                assert!(model.regions[0].base.is_none());
+                assert_eq!(model.markers.len(), 3);
+                for (start, length) in [(2, current), (3 + current, incoming)] {
+                    for offset in 0..length {
+                        assert_eq!(model.line_number(start + offset), 1 + offset);
+                    }
+                }
+                assert_eq!(
+                    model.line_number(4 + current + incoming),
+                    1 + current.max(incoming)
+                );
+                assert_eq!(
+                    model.line_count(text.len_lines(stdx::rope::LINE_TYPE)),
+                    2 + current.max(incoming)
+                );
+                for (labels, marker, expected) in [
+                    (&model.labels[0], &model.markers[0], " (Current Change)"),
+                    (&model.labels[1], &model.markers[2], " (Incoming Change)"),
+                ] {
+                    assert_eq!(labels.len(), 1);
+                    assert_eq!(labels[0].char_idx, marker.range.end);
+                    assert_eq!(labels[0].text.as_str(), expected);
+                }
+            }
+        }
+    }
+
+    #[test]
     fn marker_spans_preserve_unicode_crlf_custom_width_and_empty_sides() {
         let text = Rope::from("préfix\r\n<<<<<<<< HEAD\r\n|||||||| original\r\nbase\r\n========\r\n界\r\n>>>>>>>> incoming");
         let model = ConflictPresentation::new(&text);
