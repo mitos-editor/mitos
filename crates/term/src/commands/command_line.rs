@@ -17,7 +17,8 @@ use super::{
 };
 use crate::{
     compositor,
-    ui::{self, Prompt, PromptEvent},
+    ui::completers::CompletionResult,
+    ui::{Prompt, PromptEvent},
 };
 
 #[allow(clippy::unnecessary_unwrap)]
@@ -147,7 +148,7 @@ fn command_line_doc_with_custom<'a>(
     command_line_doc(input)
 }
 
-fn complete_command_line(editor: &Editor, input: &str) -> Vec<ui::prompt::Completion> {
+fn complete_command_line(editor: &Editor, input: &str) -> CompletionResult {
     let (command, rest, complete_command) = command_line::split(input);
     let config = editor.config();
     let (escaped, command) = command
@@ -183,7 +184,7 @@ fn complete_command_line(editor: &Editor, input: &str) -> Vec<ui::prompt::Comple
     } else if escaped {
         TYPABLE_COMMAND_MAP
             .get(command)
-            .map_or_else(Vec::new, |cmd| {
+            .map_or(CompletionResult::Immediate(Vec::new()), |cmd| {
                 let args_offset = command.len() + 2;
                 complete_command_args(editor, &cmd.args, rest, args_offset)
             })
@@ -193,12 +194,13 @@ fn complete_command_line(editor: &Editor, input: &str) -> Vec<ui::prompt::Comple
             .get(command)
             .and_then(|custom| custom.completer.as_deref())
             .unwrap_or(command);
-        TYPABLE_COMMAND_MAP
-            .get(completer_command)
-            .map_or_else(Vec::new, |cmd| {
+        TYPABLE_COMMAND_MAP.get(completer_command).map_or(
+            CompletionResult::Immediate(Vec::new()),
+            |cmd| {
                 let args_offset = command.len() + 1;
                 complete_command_args(editor, &cmd.args, rest, args_offset)
-            })
+            },
+        )
     }
 }
 
@@ -207,7 +209,7 @@ pub fn complete_command_args(
     declaration: &CommandArgs,
     input: &str,
     offset: usize,
-) -> Vec<ui::prompt::Completion> {
+) -> CompletionResult {
     use command_line::{CompletionState, ExpansionKind, Tokenizer};
     let signature = declaration.signature();
 
@@ -248,7 +250,7 @@ pub fn complete_command_args(
 
     // Don't complete on closed tokens, for example after writing a closing double quote.
     if token.is_terminated {
-        return Vec::new();
+        return CompletionResult::Immediate(Vec::new());
     }
 
     match token.kind {
@@ -261,11 +263,15 @@ pub fn complete_command_args(
                         .len()
                         .checked_sub(1)
                         .expect("completion state to be positional");
-                    declaration
-                        .complete(editor, n, &token.content)
-                        .into_iter()
-                        .map(|(range, span)| quote_completion(&token, range, span, offset))
-                        .collect()
+                    declaration.complete(editor, n, &token.content).map({
+                        let token = token.clone().into_owned();
+                        move |completions| {
+                            completions
+                                .into_iter()
+                                .map(|(range, span)| quote_completion(&token, range, span, offset))
+                                .collect()
+                        }
+                    })
                 }
                 CompletionState::Flag(_) => fuzzy_match(
                     token.content.trim_start_matches('-'),
@@ -302,11 +308,11 @@ pub fn complete_command_args(
         TokenKind::Expansion(ExpansionKind::Variable) => {
             complete_variable_expansion(&token.content, offset + token.content_start)
         }
-        TokenKind::Expansion(ExpansionKind::Unicode) => Vec::new(),
+        TokenKind::Expansion(ExpansionKind::Unicode) => CompletionResult::Immediate(Vec::new()),
         TokenKind::Expansion(ExpansionKind::Register) => {
             complete_register_expansion(editor, &token.content, offset + token.content_start)
         }
-        TokenKind::Expansion(ExpansionKind::Arg) => Vec::new(),
+        TokenKind::Expansion(ExpansionKind::Arg) => CompletionResult::Immediate(Vec::new()),
         TokenKind::ExpansionKind => {
             complete_expansion_kind(&token.content, offset + token.content_start)
         }
@@ -366,7 +372,7 @@ fn complete_expand(
     token: &Token,
     completer: Option<(&CommandArgs, usize)>,
     offset: usize,
-) -> Vec<ui::prompt::Completion> {
+) -> CompletionResult {
     use command_line::{ExpansionKind, Tokenizer};
 
     let mut start = 0;
@@ -411,16 +417,22 @@ fn complete_expand(
 
     match completer {
         // If no expansions were found and an argument is being completed,
-        Some((declaration, n)) if start == 0 => declaration
-            .complete(editor, n, &token.content)
-            .into_iter()
-            .map(|(range, span)| quote_completion(token, range, span, offset))
-            .collect(),
-        _ => Vec::new(),
+        Some((declaration, n)) if start == 0 => {
+            declaration.complete(editor, n, &token.content).map({
+                let token = token.clone().into_owned();
+                move |completions| {
+                    completions
+                        .into_iter()
+                        .map(|(range, span)| quote_completion(&token, range, span, offset))
+                        .collect()
+                }
+            })
+        }
+        _ => CompletionResult::Immediate(Vec::new()),
     }
 }
 
-fn complete_variable_expansion(content: &str, offset: usize) -> Vec<ui::prompt::Completion> {
+fn complete_variable_expansion(content: &str, offset: usize) -> CompletionResult {
     use expansion::Variable;
 
     fuzzy_match(
@@ -433,11 +445,7 @@ fn complete_variable_expansion(content: &str, offset: usize) -> Vec<ui::prompt::
     .collect()
 }
 
-fn complete_register_expansion(
-    editor: &Editor,
-    content: &str,
-    offset: usize,
-) -> Vec<ui::prompt::Completion> {
+fn complete_register_expansion(editor: &Editor, content: &str, offset: usize) -> CompletionResult {
     let register_names: Vec<String> = editor
         .registers
         .iter_preview()
@@ -449,7 +457,7 @@ fn complete_register_expansion(
         .collect()
 }
 
-fn complete_expansion_kind(content: &str, offset: usize) -> Vec<ui::prompt::Completion> {
+fn complete_expansion_kind(content: &str, offset: usize) -> CompletionResult {
     use command_line::ExpansionKind;
 
     fuzzy_match(

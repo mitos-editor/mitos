@@ -5,6 +5,7 @@ use term::{
     compositor::{Component, Context, EventResult},
     config::{Config, ConfigLoadError},
     job::Jobs,
+    ui::completers::CompletionResult,
     ui::{
         lsp::signature_help::{Signature, SignatureHelp},
         menu::Item,
@@ -102,7 +103,7 @@ async fn prompt_actions_preserve_unicode_typing_paste_and_callback_order() -> an
     let mut prompt = Prompt::new(
         "".into(),
         None,
-        |_, _| vec![],
+        |_, _| CompletionResult::Immediate(vec![]),
         move |_, line, event| {
             recorded.borrow_mut().push((line.to_owned(), event));
         },
@@ -354,7 +355,12 @@ async fn prompt_register_selection_reads_literal_keys_and_cancels_on_escape() ->
         .editor
         .registers
         .write('a', vec!["saved text".into()])?;
-    let mut prompt = Prompt::new("".into(), None, |_, _| vec![], |_, _, _| {});
+    let mut prompt = Prompt::new(
+        "".into(),
+        None,
+        |_, _| CompletionResult::Immediate(vec![]),
+        |_, _, _| {},
+    );
     consumed(fixture.key(&mut prompt, "C-r"));
     consumed(fixture.key(&mut prompt, "a"));
     assert_eq!(prompt.line(), "saved text");

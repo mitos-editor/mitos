@@ -4,7 +4,7 @@ use super::mappable::MappableCommand;
 use crate::{
     compositor,
     ui::{
-        completers::{self, Completer},
+        completers::{self, Completer, CompletionResult},
         PromptEvent,
     },
 };
@@ -502,7 +502,7 @@ impl CommandArgs {
         editor: &view::Editor,
         n: usize,
         input: &str,
-    ) -> Vec<crate::ui::prompt::Completion> {
+    ) -> CompletionResult {
         let complete = *self.for_argument_number(n);
         if self.raw_words && self.raw_after.is_some_and(|count| n >= usize::from(count)) {
             completers::last_word(editor, input, complete)

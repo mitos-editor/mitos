@@ -54,6 +54,7 @@ mod test {
     mod navigation;
     mod paste_all;
     mod picker_layout;
+    mod prompt_completion;
     mod pull_diagnostics;
     mod quicklist;
     mod rename;

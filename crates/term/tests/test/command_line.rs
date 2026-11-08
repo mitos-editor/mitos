@@ -68,9 +68,11 @@ async fn terminal_options_remain_available_through_commands() -> anyhow::Result<
         "terminal.undercurl",
         "terminal.keyboard.kitty-protocol",
     ] {
-        assert!(term::ui::completers::setting(&app.editor, name)
-            .iter()
-            .any(|(_, span)| span.content == name));
+        assert!(
+            completions(term::ui::completers::setting(&app.editor, name))
+                .iter()
+                .any(|(_, span)| span.content == name)
+        );
     }
 
     // An editor-only update must preserve frontend state and custom commands.
@@ -374,7 +376,10 @@ async fn custom_macro_runs_after_the_prompt_closes() -> anyhow::Result<()> {
 #[tokio::test(flavor = "multi_thread")]
 async fn feature_commands_use_canonical_paths_and_accept_legacy_aliases() -> anyhow::Result<()> {
     let mut app = AppBuilder::new().build()?;
-    let names = term::ui::completers::setting(&app.editor, "lsp.inlay-hints");
+    let names = completions(term::ui::completers::setting(
+        &app.editor,
+        "lsp.inlay-hints",
+    ));
     assert!(names
         .iter()
         .any(|(_, span)| span.content == "lsp.inlay-hints.enable"));
@@ -701,9 +706,11 @@ async fn popup_border_commands_set_get_and_restore_inheritance() -> anyhow::Resu
         "search",
     ] {
         let path = format!("{name}.border-style");
-        assert!(term::ui::completers::setting(&app.editor, name)
-            .iter()
-            .any(|(_, span)| span.content == path));
+        assert!(
+            completions(term::ui::completers::setting(&app.editor, name))
+                .iter()
+                .any(|(_, span)| span.content == path)
+        );
     }
     test_key_sequences(
         &mut app,
