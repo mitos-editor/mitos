@@ -798,16 +798,9 @@ fn native_fetch_custom_branch_refspecs_match_git() -> Result<()> {
             fetch::execute(&repo, "origin", None)?.is_some(),
             "{specs:?}"
         );
-        // Compare branch mappings and FETCH_HEAD; updating the remote's symbolic
-        // default branch is not implemented by the existing native fetch path.
+        // Compare tracking refs, default HEAD and FETCH_HEAD with Git.
         exec_git_cmd(
-            &[
-                "-c",
-                "remote.origin.followRemoteHEAD=never",
-                "fetch",
-                "--no-recurse-submodules",
-                "origin",
-            ],
+            &["fetch", "--no-recurse-submodules", "origin"],
             oracle.path(),
         );
         let git = repo.open_read(true)?;
@@ -1680,6 +1673,146 @@ async fn linked_worktrees_can_be_created_without_a_configured_identity() -> Resu
             log.contains("no name configured <noEmailAvailable@example.com>"),
             "{log}"
         );
+    }
+    Ok(())
+}
+
+#[test]
+fn native_fetch_records_default_head_like_git() -> Result<()> {
+    for protocol in ["1", "2"] {
+        for case in [
+            "missing", "create", "never", "symbolic", "direct", "custom", "excluded", "detached",
+            "unborn",
+        ] {
+            let source = initial()?;
+            exec_git_cmd(&["branch", "other"], source.path());
+            match case {
+                "detached" => exec_git_cmd(&["checkout", "--detach"], source.path()),
+                "unborn" => exec_git_cmd(
+                    &["symbolic-ref", "HEAD", "refs/heads/missing"],
+                    source.path(),
+                ),
+                _ => {}
+            }
+            let native = empty_git_repo();
+            let oracle = empty_git_repo();
+            for root in [native.path(), oracle.path()] {
+                exec_git_cmd(
+                    &["remote", "add", "origin", source.path().to_str().unwrap()],
+                    root,
+                );
+                exec_git_cmd(&["config", "protocol.version", protocol], root);
+                for key in [
+                    "fetch.prune",
+                    "fetch.pruneTags",
+                    "fetch.writeCommitGraph",
+                    "fetch.fsckObjects",
+                    "transfer.fsckObjects",
+                ] {
+                    exec_git_cmd(&["config", key, "false"], root);
+                }
+                match case {
+                    "create" | "never" => {
+                        exec_git_cmd(&["config", "remote.origin.followRemoteHEAD", case], root)
+                    }
+                    "symbolic" => exec_git_cmd(
+                        &[
+                            "symbolic-ref",
+                            "refs/remotes/origin/HEAD",
+                            "refs/remotes/origin/other",
+                        ],
+                        root,
+                    ),
+                    "direct" => {
+                        exec_git_cmd(&["fetch", "origin"], root);
+                        let id = gix::open(source.path())?.head_id()?.to_string();
+                        exec_git_cmd(
+                            &["update-ref", "--no-deref", "refs/remotes/origin/HEAD", &id],
+                            root,
+                        );
+                    }
+                    "custom" => exec_git_cmd(
+                        &[
+                            "config",
+                            "remote.origin.fetch",
+                            "+refs/heads/*:refs/remotes/origin/branches/*",
+                        ],
+                        root,
+                    ),
+                    "excluded" => exec_git_cmd(
+                        &["config", "--add", "remote.origin.fetch", "^refs/heads/main"],
+                        root,
+                    ),
+                    _ => {}
+                }
+            }
+            let repository = GitRepository::discover(native.path())?;
+            assert!(
+                fetch::execute(&repository, "origin", None)?.is_some(),
+                "{case} protocol {protocol}"
+            );
+            exec_git_cmd(
+                &["fetch", "--no-recurse-submodules", "origin"],
+                oracle.path(),
+            );
+            let head = |root: &Path| -> Result<_> {
+                let repo = gix::open(root)?;
+                Ok(repo
+                    .try_find_reference("refs/remotes/origin/HEAD")?
+                    .map(|reference| reference.target().into_owned()))
+            };
+            assert_eq!(
+                head(native.path())?,
+                head(oracle.path())?,
+                "{case} protocol {protocol}"
+            );
+            // The advertised HEAD is inspection metadata and never an extra fetched entry.
+            assert!(
+                !std::fs::read_to_string(repository.git_dir.join("FETCH_HEAD"))?
+                    .contains("ref 'HEAD'")
+            );
+            if matches!(case, "missing" | "create") {
+                let git = repository.open_read(true)?;
+                let remote = git.find_remote("origin")?;
+                assert_eq!(
+                    remote.default_branch()?.unwrap().as_bstr(),
+                    b"refs/heads/main".as_bstr()
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn native_fetch_defers_unsupported_remote_head_policies_before_network() -> Result<()> {
+    let dir = initial()?;
+    exec_git_cmd(
+        &[
+            "remote",
+            "add",
+            "origin",
+            "unavailable-protocol://example.invalid/repo",
+        ],
+        dir.path(),
+    );
+    for key in [
+        "fetch.prune",
+        "fetch.pruneTags",
+        "fetch.writeCommitGraph",
+        "fetch.fsckObjects",
+        "transfer.fsckObjects",
+    ] {
+        exec_git_cmd(&["config", key, "false"], dir.path());
+    }
+    let repository = GitRepository::discover(dir.path())?;
+    for policy in ["always", "warn", "warn-if-not-main", "invalid"] {
+        exec_git_cmd(
+            &["config", "remote.origin.followRemoteHEAD", policy],
+            dir.path(),
+        );
+        assert!(fetch::execute(&repository, "origin", None)?.is_none());
+        assert!(!repository.git_dir.join("FETCH_HEAD").exists());
     }
     Ok(())
 }

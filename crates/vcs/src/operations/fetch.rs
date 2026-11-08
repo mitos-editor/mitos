@@ -62,13 +62,24 @@ fn execute_inner(
         "extensions.partialClone".to_owned(),
         format!("remote.{name}.partialCloneFilter"),
         format!("remote.{name}.uploadpack"),
-        format!("remote.{name}.followRemoteHEAD"),
     ]
     .iter()
     .any(|key| config.string(key.as_str()).is_some())
     {
         return Ok(None);
     }
+    let follow_head = config.string(format!("remote.{name}.followRemoteHEAD").as_str());
+    // Git's default `create` preserves an existing HEAD. Modes which
+    // replace it or emit transition warnings remain with Git before any writes.
+    if follow_head.as_ref().is_some_and(|value| {
+        !value.eq_ignore_ascii_case(b"create") && !value.eq_ignore_ascii_case(b"never")
+    }) {
+        return Ok(None);
+    }
+    let update_head = branch.is_none()
+        && !follow_head
+            .as_ref()
+            .is_some_and(|value| value.eq_ignore_ascii_case(b"never"));
     let mut upstream = repo.find_remote(name.as_bytes().as_bstr())?;
     let mut url = upstream
         .url(gix::remote::Direction::Fetch)
@@ -197,7 +208,15 @@ fn execute_inner(
     #[cfg(not(windows))]
     let connection = upstream.connect(gix::remote::Direction::Fetch)?;
     let outcome = connection
-        .prepare_fetch(gix::progress::Discard, Default::default())?
+        .prepare_fetch(
+            gix::progress::Discard,
+            gix::remote::ref_map::Options {
+                // HEAD is outside the branch-derived prefix. Read its advertised
+                // symref without adding a fetch mapping or a FETCH_HEAD entry for it.
+                prefix_from_spec_as_filter_on_remote: !update_head,
+                ..Default::default()
+            },
+        )?
         .receive(gix::progress::Discard, &AtomicBool::new(false))?;
     use gix::remote::fetch::{refs::update::Mode, Status};
     let updates = match &outcome.status {
@@ -262,5 +281,63 @@ fn execute_inner(
         fetch_head.write_all(entry.as_bytes())?;
     }
     fetch_head.commit()?;
+    if update_head {
+        record_default_head(&repo, name, &outcome.ref_map)?;
+    }
     Ok(Some(Outcome { target }))
+}
+
+/// Follow Git's default `create` policy. A remote HEAD is metadata, and must not
+/// be guessed from commit equality or created when the advertised branch wasn't
+/// mapped to the conventional tracking name by this fetch.
+fn record_default_head(
+    repo: &gix::Repository,
+    name: &str,
+    refs: &gix::remote::fetch::RefMap,
+) -> Result<()> {
+    use gix::protocol::handshake::Ref;
+    use gix::refs::transaction::{PreviousValue, RefEdit};
+    let head_name: gix::refs::FullName = format!("refs/remotes/{name}/HEAD").try_into()?;
+    if repo.try_find_reference(head_name.as_bstr())?.is_some() {
+        return Ok(());
+    }
+    let Some(target) = refs
+        .remote_refs
+        .iter()
+        .find_map(|reference| match reference {
+            Ref::Symbolic {
+                full_ref_name,
+                target,
+                ..
+            } if full_ref_name == "HEAD" => Some(target),
+            _ => None,
+        })
+    else {
+        return Ok(());
+    };
+    let Some(branch) = target.strip_prefix(b"refs/heads/") else {
+        return Ok(());
+    };
+    let mut tracking = BString::from(format!("refs/remotes/{name}/"));
+    tracking.extend_from_slice(branch);
+    let tracking: gix::refs::FullName = tracking.try_into()?;
+    if tracking == head_name
+        || !refs.mappings.iter().any(|mapping| {
+            mapping.remote.as_name() == Some(target.as_bstr())
+                && mapping.local.as_ref().map(|name| name.as_bstr()) == Some(tracking.as_bstr())
+        })
+        || repo.try_find_reference(tracking.as_bstr())?.is_none()
+    {
+        return Ok(());
+    }
+    repo.edit_reference(
+        RefEdit::update(
+            head_name,
+            gix::refs::Target::Symbolic(tracking),
+            PreviousValue::MustNotExist,
+            "fetch: recording remote HEAD",
+        )
+        .with_deref(false),
+    )?;
+    Ok(())
 }
