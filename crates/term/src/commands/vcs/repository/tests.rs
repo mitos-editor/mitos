@@ -1,12 +1,253 @@
 use super::*;
 use crate::{
     application::TestApplication,
-    compositor::{Context, Event},
-    ui::picker::test::{all_items, application, draw, frame, until},
+    compositor::{self, Event},
+    job::Jobs,
+    ui::picker::test::{application, frame, until},
 };
-use vcs::operations::repository::BRANCH_PAGE_SIZE;
-use view::graphics::Color;
+fn git(root: &Path, args: &[&str]) {
+    let output = std::process::Command::new("git")
+        .arg("-C")
+        .arg(root)
+        .args(["-c", "commit.gpgsign=false"])
+        .args(args)
+        .env_remove("GIT_DIR")
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+fn key(
+    app: &mut TestApplication,
+    compositor: &mut compositor::Compositor,
+    jobs: &mut Jobs,
+    key: &str,
+) {
+    let config = crate::config::Config::default();
+    let updates = tokio::sync::mpsc::unbounded_channel().0;
+    let mut cx = Context {
+        config: crate::config::Context {
+            current: &config,
+            updates: &updates,
+        },
+        editor: &mut app.editor,
+        interaction: &mut app.interaction,
+        jobs,
+        scroll: None,
+        image_picker: None,
+        is_cursor_owner: true,
+    };
+    assert!(compositor.handle_event(&Event::Key(key.parse().unwrap()), &mut cx));
+}
+async fn finish(
+    app: &mut TestApplication,
+    compositor: &mut compositor::Compositor,
+    jobs: &mut Jobs,
+) -> Result<()> {
+    use futures_util::StreamExt;
+    while let Some(callback) = jobs.wait_futures.next().await {
+        jobs.try_handle_callback(
+            crate::config::Context {
+                current: &crate::config::Config::default(),
+                updates: &tokio::sync::mpsc::unbounded_channel().0,
+            },
+            &mut app.editor,
+            &mut app.interaction,
+            compositor,
+            callback,
+        )?;
+    }
+    Ok(())
+}
 
+#[test]
+fn create_actions_work_without_a_selected_row() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    std::process::Command::new("git")
+        .args(["init", "--quiet"])
+        .arg(dir.path())
+        .status()?;
+    let repo = GitRepository::discover(dir.path())?;
+    assert!(matches!(
+        branch_action(&repo, dir.path(), None, PickerItemAction::CreateBranch),
+        PickerCallbackResult::KeepOpenWithCallback(_)
+    ));
+    assert!(matches!(
+        worktree_action(&repo, dir.path(), None, PickerItemAction::CreateWorktree),
+        PickerCallbackResult::KeepOpenWithCallback(_)
+    ));
+    assert!(matches!(
+        branch_action(&repo, dir.path(), None, PickerItemAction::DeleteBranch),
+        PickerCallbackResult::KeepOpen
+    ));
+    assert!(matches!(
+        worktree_action(&repo, dir.path(), None, PickerItemAction::RemoveWorktree),
+        PickerCallbackResult::KeepOpen
+    ));
+    Ok(())
+}
+
+#[test]
+fn footer_hints_follow_remapped_and_unbound_actions() {
+    let config = crate::config::Config::load(
+        Ok(
+            &"[keys.branch-picker]\nA-n = 'unbound'\nC-t = 'create_branch'\nA-d = 'unbound'"
+                .to_owned(),
+        ),
+        Ok(String::new()),
+    )
+    .unwrap();
+    let hints = super::super::actions::action_hints(
+        &config.component_keys.branch_picker,
+        &[
+            (PickerAction::Item(PickerItemAction::CreateBranch), "create"),
+            (PickerAction::Item(PickerItemAction::DeleteBranch), "delete"),
+        ],
+    );
+    assert_eq!(hints, ["<C-t> create"]);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn branch_picker_creates_confirms_deletion_and_refreshes() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    git(dir.path(), &["init", "-b", "main"]);
+    git(dir.path(), &["config", "user.name", "test"]);
+    git(dir.path(), &["config", "user.email", "test@example.com"]);
+    git(dir.path(), &["commit", "--allow-empty", "-m", "initial"]);
+    let repo = GitRepository::discover(dir.path())?;
+    let mut app = application(false)?;
+    let mut compositor = compositor::Compositor::new(view::graphics::Rect::new(0, 0, 80, 24));
+    let mut jobs = Jobs::new();
+    let mut picker = branches(&app.editor, repo.clone(), dir.path().into());
+    until(&mut picker, &mut app, |picker| picker.selection().is_some()).await?;
+    compositor.push(Box::new(overlaid(picker)));
+    key(&mut app, &mut compositor, &mut jobs, "A-n");
+    assert!(compositor.find::<ui::Prompt>().is_some());
+    for letter in ["t", "o", "p", "i", "c", "ret"] {
+        key(&mut app, &mut compositor, &mut jobs, letter);
+    }
+    finish(&mut app, &mut compositor, &mut jobs).await?;
+    assert!(repo
+        .branches()
+        .await?
+        .iter()
+        .any(|branch| branch.name == "topic"));
+    let picker = &mut compositor
+        .find::<ui::overlay::Overlay<Picker<Branch, RepositoryData>>>()
+        .unwrap()
+        .content;
+    until(picker, &mut app, |picker| {
+        crate::ui::picker::test::items(picker).count() == 2
+    })
+    .await?;
+    picker.to_end();
+    assert_eq!(picker.selection().unwrap().name, "topic");
+    key(&mut app, &mut compositor, &mut jobs, "A-d");
+    key(&mut app, &mut compositor, &mut jobs, "ret"); // Cancel by default.
+    assert!(!app.editor.handlers().git_operations.busy());
+    assert!(repo
+        .branches()
+        .await?
+        .iter()
+        .any(|branch| branch.name == "topic"));
+    key(&mut app, &mut compositor, &mut jobs, "A-d");
+    key(&mut app, &mut compositor, &mut jobs, "down");
+    key(&mut app, &mut compositor, &mut jobs, "ret");
+    finish(&mut app, &mut compositor, &mut jobs).await?;
+    assert!(!repo
+        .branches()
+        .await?
+        .iter()
+        .any(|branch| branch.name == "topic"));
+    let picker = &mut compositor
+        .find::<ui::overlay::Overlay<Picker<Branch, RepositoryData>>>()
+        .unwrap()
+        .content;
+    until(picker, &mut app, |picker| {
+        picker
+            .selection()
+            .is_some_and(|branch| branch.name == "main")
+    })
+    .await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn worktree_picker_creates_on_a_branch_and_confirms_removal() -> Result<()> {
+    let parent = tempfile::tempdir()?;
+    let root = parent.path().join("repo");
+    std::fs::create_dir(&root)?;
+    git(&root, &["init", "-b", "main"]);
+    git(&root, &["config", "user.name", "test"]);
+    git(&root, &["config", "user.email", "test@example.com"]);
+    git(&root, &["commit", "--allow-empty", "-m", "initial"]);
+    git(&root, &["branch", "topic"]);
+    let repo = GitRepository::discover(&root)?;
+    let mut app = application(false)?;
+    let mut compositor = compositor::Compositor::new(view::graphics::Rect::new(0, 0, 80, 24));
+    let mut jobs = Jobs::new();
+    let mut picker = worktrees(&app.editor, repo.clone(), root);
+    until(&mut picker, &mut app, |picker| picker.selection().is_some()).await?;
+    compositor.push(Box::new(overlaid(picker)));
+    key(&mut app, &mut compositor, &mut jobs, "A-n");
+    for ch in "../linked".chars() {
+        key(&mut app, &mut compositor, &mut jobs, &ch.to_string());
+    }
+    key(&mut app, &mut compositor, &mut jobs, "ret");
+    assert!(compositor.find::<ui::Prompt>().is_some());
+    assert!(!app.editor.handlers().git_operations.busy());
+    for ch in "topic".chars() {
+        key(&mut app, &mut compositor, &mut jobs, &ch.to_string());
+    }
+    key(&mut app, &mut compositor, &mut jobs, "ret");
+    finish(&mut app, &mut compositor, &mut jobs).await?;
+    let linked = stdx::path::canonicalize_existing(&parent.path().join("linked"));
+    assert!(repo
+        .worktrees()
+        .await?
+        .iter()
+        .any(|tree| tree.path == linked && tree.branch.as_deref() == Some("topic")));
+    let picker = &mut compositor
+        .find::<ui::overlay::Overlay<Picker<Worktree, RepositoryData>>>()
+        .unwrap()
+        .content;
+    until(picker, &mut app, |picker| {
+        crate::ui::picker::test::items(picker).count() == 2
+    })
+    .await?;
+    picker.to_end();
+    assert_eq!(picker.selection().unwrap().path, linked);
+    key(&mut app, &mut compositor, &mut jobs, "A-d");
+    key(&mut app, &mut compositor, &mut jobs, "ret");
+    assert!(linked.exists());
+    assert!(!app.editor.handlers().git_operations.busy());
+    key(&mut app, &mut compositor, &mut jobs, "A-d");
+    key(&mut app, &mut compositor, &mut jobs, "down");
+    key(&mut app, &mut compositor, &mut jobs, "ret");
+    finish(&mut app, &mut compositor, &mut jobs).await?;
+    assert!(!linked.exists());
+    assert!(repo
+        .branches()
+        .await?
+        .iter()
+        .any(|branch| branch.name == "topic"));
+    let picker = &mut compositor
+        .find::<ui::overlay::Overlay<Picker<Worktree, RepositoryData>>>()
+        .unwrap()
+        .content;
+    until(picker, &mut app, |picker| {
+        crate::ui::picker::test::items(picker).count() == 1
+    })
+    .await?;
+    Ok(())
+}
+
+use view::graphics::Color;
+use vcs::operations::repository::BRANCH_PAGE_SIZE;
+use crate::ui::picker::test::{all_items, draw};
 fn repository() -> Result<(tempfile::TempDir, GitRepository)> {
     let dir = tempfile::tempdir()?;
     let output = std::process::Command::new("git")
@@ -58,7 +299,7 @@ fn screen(picker: &mut Picker<Branch, RepositoryData>, app: &mut TestApplication
 async fn branches_load_on_scroll_and_search_beyond_the_first_page() -> Result<()> {
     let (_dir, repo) = repository()?;
     let mut app = application(false)?;
-    let mut picker = branch_picker(&app.editor, repo.clone(), repo.root().to_owned());
+    let mut picker = branches(&app.editor, repo.clone(), repo.root().to_owned());
     until(&mut picker, &mut app, |p| {
         all_items(p).count() == BRANCH_PAGE_SIZE
     })
@@ -99,7 +340,7 @@ async fn branches_load_on_scroll_and_search_beyond_the_first_page() -> Result<()
 async fn branch_refresh_replaces_old_pages_after_repository_changes() -> Result<()> {
     let (dir, repo) = repository()?;
     let mut app = application(true)?;
-    let mut picker = branch_picker(&app.editor, repo.clone(), repo.root().to_owned());
+    let mut picker = branches(&app.editor, repo.clone(), repo.root().to_owned());
     until(&mut picker, &mut app, |p| all_items(p).count() == 100).await?;
     for index in 0..205 {
         std::fs::remove_file(dir.path().join(format!(".git/refs/heads/topic-{index:03}")))?;
@@ -123,7 +364,7 @@ async fn branch_refresh_replaces_old_pages_after_repository_changes() -> Result<
 async fn branch_polling_preserves_the_loaded_prefix_and_selection() -> Result<()> {
     let (dir, repo) = repository()?;
     let mut app = application(true)?;
-    let mut picker = branch_picker(&app.editor, repo.clone(), repo.root().to_owned());
+    let mut picker = branches(&app.editor, repo.clone(), repo.root().to_owned());
     until(&mut picker, &mut app, |p| all_items(p).count() == 100).await?;
     for _ in 0..120 {
         press(&mut picker, &mut app, "down");
@@ -152,6 +393,8 @@ async fn branch_polling_preserves_the_loaded_prefix_and_selection() -> Result<()
     .await?;
     Ok(())
 }
+
+
 
 fn assert_colour(surface: &tui::buffer::Buffer, text: &str, colour: Color) {
     // Skip the border, query, separator, and column headings.
@@ -200,23 +443,14 @@ async fn repository_pickers_preserve_semantic_colours_on_selected_rows() -> Resu
         "ui.highlight" = { bg = "black" }
         "special" = { modifiers = ["bold"] }
     }));
-    let mut branches = branches(&app.editor, repo.clone(), dir.path().into())
-        .as_boxed_any()
-        .downcast::<ui::overlay::Overlay<Picker<Branch, RepositoryData>>>()
-        .map_err(|_| anyhow::anyhow!("Expected branch picker"))?;
-    until(&mut branches.content, &mut app, |p| p.selection().is_some()).await?;
-    let surface = frame(&mut branches.content, &mut app);
+    let mut branches = branches(&app.editor, repo.clone(), dir.path().into());
+    until(&mut branches, &mut app, |p| p.selection().is_some()).await?;
+    let surface = frame(&mut branches, &mut app);
     assert_colour(&surface, "main", Color::Green);
     assert_colour(&surface, "*", Color::Green);
-    let mut worktrees = worktrees(&app.editor, repo)
-        .as_boxed_any()
-        .downcast::<ui::overlay::Overlay<Picker<Worktree, RepositoryData>>>()
-        .map_err(|_| anyhow::anyhow!("Expected worktree picker"))?;
-    until(&mut worktrees.content, &mut app, |p| {
-        p.selection().is_some()
-    })
-    .await?;
-    let surface = frame(&mut worktrees.content, &mut app);
+    let mut worktrees = worktrees(&app.editor, repo, dir.path().into());
+    until(&mut worktrees, &mut app, |p| p.selection().is_some()).await?;
+    let surface = frame(&mut worktrees, &mut app);
     assert_colour(&surface, std::path::MAIN_SEPARATOR_STR, Color::Blue);
     Ok(())
 }

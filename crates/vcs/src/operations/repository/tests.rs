@@ -878,3 +878,116 @@ async fn branch_pages_report_initialization_errors_and_empty_repositories() -> R
     assert!(error.contains("discover git repo"), "{error}");
     Ok(())
 }
+
+#[tokio::test]
+async fn branch_deletion_keeps_unmerged_and_checked_out_branches() -> Result<()> {
+    let dir = initial()?;
+    let repo = GitRepository::discover(dir.path())?;
+    execute(
+        &repo,
+        RepositoryOperation::CreateBranch {
+            name: "merged".into(),
+        },
+    )
+    .await?;
+    execute(
+        &repo,
+        RepositoryOperation::DeleteBranch {
+            name: "merged".into(),
+        },
+    )
+    .await?;
+    assert!(!repo
+        .branches()
+        .await?
+        .iter()
+        .any(|branch| branch.name == "merged"));
+    assert!(execute(
+        &repo,
+        RepositoryOperation::DeleteBranch {
+            name: "main".into()
+        }
+    )
+    .await
+    .is_err());
+    execute(
+        &repo,
+        RepositoryOperation::CreateBranch {
+            name: "unmerged".into(),
+        },
+    )
+    .await?;
+    execute(
+        &repo,
+        RepositoryOperation::SwitchBranch {
+            name: "unmerged".into(),
+        },
+    )
+    .await?;
+    std::fs::write(dir.path().join("file.txt"), "unmerged\n")?;
+    create_commit_with_message(dir.path(), true, "unmerged");
+    execute(
+        &repo,
+        RepositoryOperation::SwitchBranch {
+            name: "main".into(),
+        },
+    )
+    .await?;
+    assert!(execute(
+        &repo,
+        RepositoryOperation::DeleteBranch {
+            name: "unmerged".into()
+        }
+    )
+    .await
+    .is_err());
+    execute(
+        &repo,
+        RepositoryOperation::CreateBranch {
+            name: "linked".into(),
+        },
+    )
+    .await?;
+    let parent = tempfile::tempdir()?;
+    let linked = parent.path().join("linked");
+    execute(
+        &repo,
+        RepositoryOperation::CreateWorktree {
+            path: linked,
+            branch: Some("linked".into()),
+        },
+    )
+    .await?;
+    assert!(execute(
+        &repo,
+        RepositoryOperation::DeleteBranch {
+            name: "linked".into()
+        }
+    )
+    .await
+    .is_err());
+    for name in ["main", "unmerged", "linked"] {
+        assert!(repo
+            .branches()
+            .await?
+            .iter()
+            .any(|branch| branch.name == name));
+    }
+    assert!(repo
+        .prepare_repository(
+            RepositoryOperation::DeleteBranch {
+                name: "--force".into()
+            },
+            true
+        )
+        .is_err());
+    assert!(repo
+        .prepare_repository(
+            RepositoryOperation::DeleteBranch {
+                name: "unmerged".into()
+            },
+            false
+        )
+        .is_err());
+    Ok(())
+}

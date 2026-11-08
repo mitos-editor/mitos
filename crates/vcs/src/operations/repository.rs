@@ -9,6 +9,9 @@ pub enum RepositoryOperation {
     CreateBranch {
         name: String,
     },
+    DeleteBranch {
+        name: String,
+    },
     SwitchBranch {
         name: String,
     },
@@ -34,6 +37,7 @@ impl RepositoryOperation {
     pub fn label(&self) -> &'static str {
         match self {
             Self::CreateBranch { .. } => "Create branch",
+            Self::DeleteBranch { .. } => "Delete merged branch",
             Self::SwitchBranch { .. } => "Switch branch",
             Self::CreateWorktree { .. } => "Create linked worktree",
             Self::RemoveWorktree { .. } => "Remove linked worktree",
@@ -63,6 +67,9 @@ impl RepositoryOperation {
         let mut command = repo.command();
         match self {
             Self::CreateBranch { .. } => unreachable!("branch creation runs in the native worker"),
+            Self::DeleteBranch { name } => {
+                command.args(["branch", "--delete", "--", name]);
+            }
             Self::SwitchBranch { name } => {
                 command.args(["switch", "--no-guess", "--no-overwrite-ignore", "--", name]);
             }
@@ -334,6 +341,7 @@ impl GitRepository {
         let mut watched = crate::git::repository_watched_paths(&repo)?;
         match &mut operation {
             RepositoryOperation::CreateBranch { name }
+            | RepositoryOperation::DeleteBranch { name }
             | RepositoryOperation::SwitchBranch { name } => {
                 validate_branch(name)?;
                 watched.push(self.common_dir.join("refs/heads").join(name));

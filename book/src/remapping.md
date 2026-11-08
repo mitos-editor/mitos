@@ -141,6 +141,8 @@ belong in `keys.normal`, `keys.insert`, and `keys.select`.
 | `keys.buffer-picker` | All `keys.picker` actions, plus `close_buffer` |
 | `keys.quicklist-picker` | All `keys.picker` actions, plus `remove_entry` |
 | `keys.git-picker` | All `keys.picker` actions, plus `stage`, `unstage`, `stash`, `actions`, `stashes` |
+| `keys.branch-picker` | All `keys.picker` actions, plus `create_branch`, `delete_branch` |
+| `keys.worktree-picker` | All `keys.picker` actions, plus `create_worktree`, `remove_worktree` |
 | `keys.stash-picker` | All `keys.picker` actions, plus `apply_stash`, `apply_stash_with_index`, `actions` |
 | `keys.history-picker` | All `keys.picker` actions, plus `actions`, `back` |
 | `keys.file-explorer` | All `keys.picker` actions, plus `create_path`, `move_path`, `copy_path`, `delete_path`, `yank_path` |
@@ -155,7 +157,8 @@ All component tables also accept `no_op` and `unbound`. Popup scrolling and menu
 paging move by half a page. Picker paging moves by a full page.
 
 `keys.buffer-picker`, `keys.quicklist-picker`, `keys.git-picker`,
-`keys.stash-picker`, `keys.history-picker`, and `keys.file-explorer` inherit
+`keys.branch-picker`, `keys.worktree-picker`, `keys.stash-picker`,
+`keys.history-picker`, and `keys.file-explorer` inherit
 `keys.picker`.
 Picker-specific bindings take priority over shared picker bindings, including
 ones from project configuration. The quicklist picker also binds `Ctrl-x` to

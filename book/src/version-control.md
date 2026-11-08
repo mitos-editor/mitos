@@ -294,6 +294,11 @@ See [Component keys](./remapping.md#component-keys).
 Run `:vcs-branches` to browse local branches. Select a branch and press `Enter`
 to switch to it. Save edited files in that repository first.
 
+Press `Alt-n` to create a branch at `HEAD` without switching. Press `Alt-d`
+to confirm deletion of the selected branch. Git keeps unmerged branches and
+branches checked out in any worktree. The picker stays open and refreshes after
+the action. Remap these shortcuts under `[keys.branch-picker]`.
+
 These commands use the current file's repository, or the original repository
 when viewing a review or an older file version. In an unnamed buffer, they use
 the current directory. Actions that change the repository require
@@ -313,6 +318,13 @@ branch for the first time, use Git in your terminal.
 A worktree is a separate folder where you can work on another branch of the same
 repository. Run `:vcs-worktrees` to browse worktrees, then press `Enter` to open
 one in the file picker. Your open buffers and unsaved edits are kept.
+
+Press `Alt-n` to enter a new worktree path, relative to this picker's
+repository root, then an existing branch name (leave it empty for detached HEAD).
+Press `Alt-d` to confirm removal of the selected worktree.
+Remap these shortcuts under `[keys.worktree-picker]`. Branch and worktree
+pickers show the active shortcuts along their bottom border when
+`picker.show-keybindings` is enabled.
 
 | Command | Action |
 | --- | --- |

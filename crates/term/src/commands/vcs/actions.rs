@@ -108,6 +108,17 @@ fn menu(message: String, choices: Vec<Choice>, workspace: PathBuf) -> Box<dyn Co
     Box::new(ActionMenu::new(message, choices, workspace))
 }
 
+pub(super) fn confirm_branch_deletion(
+    repository: GitRepository,
+    name: String,
+    workspace: PathBuf,
+) -> Box<dyn Component> {
+    menu(format!("Delete branch {name}?\nUnmerged branches and branches checked out in any worktree are kept."), vec![
+        Choice::new("Cancel", Command::Cancel),
+        Choice::new("Delete merged branch", Command::Confirmed(GitAction::Repository(repository, vcs::operations::RepositoryOperation::DeleteBranch { name }))),
+    ], workspace)
+}
+
 pub(super) fn confirm_worktree_removal(
     repository: GitRepository,
     path: PathBuf,
@@ -308,7 +319,7 @@ fn stash_help(
     )
 }
 
-fn action_hints(
+pub(super) fn action_hints(
     keys: &ui_core::keymap::Keymap<crate::keymap::component::PickerAction>,
     actions: &[(crate::keymap::component::PickerAction, &str)],
 ) -> Vec<String> {

@@ -73,6 +73,10 @@ pub enum PickerItemAction {
     ApplyStashWithIndex,
     #[serde(rename = "back")]
     HistoryBack,
+    CreateBranch,
+    DeleteBranch,
+    CreateWorktree,
+    RemoveWorktree,
     CreatePath,
     MovePath,
     CopyPath,
@@ -199,6 +203,8 @@ pub struct ComponentKeymaps {
     pub buffer_picker: Keymap<PickerAction>,
     pub quicklist_picker: Keymap<PickerAction>,
     pub git_picker: Keymap<PickerAction>,
+    pub branch_picker: Keymap<PickerAction>,
+    pub worktree_picker: Keymap<PickerAction>,
     pub stash_picker: Keymap<PickerAction>,
     pub history_picker: Keymap<PickerAction>,
     pub file_explorer: Keymap<PickerAction>,
@@ -298,6 +304,22 @@ impl ComponentKeymaps {
         shared
     }
 
+    pub fn branch_picker(mut shared: Keymap<PickerAction>) -> Keymap<PickerAction> {
+        shared.merge(bindings(&[
+            ("A-n", PickerAction::Item(PickerItemAction::CreateBranch)),
+            ("A-d", PickerAction::Item(PickerItemAction::DeleteBranch)),
+        ]));
+        shared
+    }
+
+    pub fn worktree_picker(mut shared: Keymap<PickerAction>) -> Keymap<PickerAction> {
+        shared.merge(bindings(&[
+            ("A-n", PickerAction::Item(PickerItemAction::CreateWorktree)),
+            ("A-d", PickerAction::Item(PickerItemAction::RemoveWorktree)),
+        ]));
+        shared
+    }
+
     pub fn stash_picker(mut shared: Keymap<PickerAction>) -> Keymap<PickerAction> {
         use PickerItemAction as I;
         shared.merge(bindings(&[
@@ -392,6 +414,8 @@ impl Default for ComponentKeymaps {
             buffer_picker: picker.clone(),
             quicklist_picker: quicklist_picker_keymap(&picker),
             git_picker: Self::git_picker(picker.clone()),
+            branch_picker: Self::branch_picker(picker.clone()),
+            worktree_picker: Self::worktree_picker(picker.clone()),
             stash_picker: Self::stash_picker(picker.clone()),
             history_picker: Self::history_picker(picker.clone()),
             file_explorer: Self::file_explorer(picker.clone()),

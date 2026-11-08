@@ -358,7 +358,7 @@ fn picker_keys_inherit_shared_bindings_with_context_specific_overrides() {
     use crate::keymap::component::{PickerAction as P, PickerItemAction as I};
     use ui_core::keymap::{Keymap, KeymapState, Lookup};
     type Map = fn(&ComponentKeymaps) -> &Keymap<P>;
-    let contexts: [(&str, Map, I); 5] = [
+    let contexts: [(&str, Map, I); 7] = [
         ("buffer-picker", |maps| &maps.buffer_picker, I::CloseBuffer),
         (
             "quicklist-picker",
@@ -372,6 +372,12 @@ fn picker_keys_inherit_shared_bindings_with_context_specific_overrides() {
             I::ApplyStashWithIndex,
         ),
         ("history-picker", |maps| &maps.history_picker, I::Actions),
+        ("branch-picker", |maps| &maps.branch_picker, I::CreateBranch),
+        (
+            "worktree-picker",
+            |maps| &maps.worktree_picker,
+            I::CreateWorktree,
+        ),
     ];
     for (context, map, action) in contexts {
         let action_name = serde_json::to_value(P::Item(action)).unwrap();
