@@ -125,6 +125,9 @@ pub(super) fn repository_watched_paths(repo: &Repository) -> Result<Vec<PathBuf>
     if let Some(head) = repo.head_name()? {
         paths.push(common_dir.join(head.as_bstr().to_str()?));
     }
+    // Missing global files remain watch inputs so their creation refreshes filtered content.
+    // A malformed attribute setting must not disable the other repository watches.
+    paths.extend(repo.attribute_global_paths().unwrap_or_default());
     // Invalid blame configuration must not disable the other repository watches.
     paths.extend(crate::blame::watched_paths(repo).unwrap_or_default());
     Ok(paths)

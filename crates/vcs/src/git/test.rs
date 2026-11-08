@@ -547,3 +547,29 @@ fn inspection_keeps_head_for_untracked_files_and_refreshes_linked_worktrees() {
     let main = providers.inspect_file(&tracked, false, false);
     assert_eq!(&**main.head_name.unwrap().load_full(), "main");
 }
+
+#[test]
+fn watched_paths_include_missing_and_existing_external_attributes() {
+    let repo = empty_git_repo();
+    let external = tempfile::tempdir().unwrap();
+    let attributes = external.path().join("global attributes");
+    exec_git_cmd(
+        &[
+            "config",
+            "core.attributesFile",
+            attributes.to_str().unwrap(),
+        ],
+        repo.path(),
+    );
+    // Reduced trust ignores this repository-local sensitive configuration.
+    assert!(!watched_paths(repo.path(), false)
+        .unwrap()
+        .contains(&attributes));
+    assert!(watched_paths(repo.path(), true)
+        .unwrap()
+        .contains(&attributes));
+    std::fs::write(&attributes, "*.txt text eol=crlf\n").unwrap();
+    assert!(watched_paths(repo.path(), true)
+        .unwrap()
+        .contains(&attributes));
+}
