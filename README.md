@@ -23,10 +23,6 @@ Helix built a strong foundation. Mitos is a chance to build on it at a faster pa
 - Incremental syntax highlighting and code editing via tree-sitter
 - A terminal UI built with Ratatui
 
-### Conflict highlighting performance
-
-Five alternating benchmark rounds on macOS ARM64 found no significant slowdown in conflict-free buffers: pane rendering was 3–7% faster than before these changes. The largest median edit-and-render increase was 1.8% (36 µs) on 50,000 Unicode lines, within run-to-run variation. These measurements used optimized builds and exclude syntax parsing, language servers, and terminal I/O.
-
 ## Installation
 
 On Linux and macOS:

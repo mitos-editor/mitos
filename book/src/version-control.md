@@ -529,10 +529,7 @@ Git's marker lines stay visible and editable. Mitos adds virtual
 markers and tints the blocks using your theme. In three-way conflicts, the
 `|||||||` and `=======` separator lines keep their normal colors.
 
-The [conflict theme scopes](themes.md#interface) can set an explicit block
-background. Otherwise, RGB themes derive a subtle tint from the side's foreground
-color and `ui.background`. Themes with transparent or terminal-palette backgrounds
-need explicit conflict backgrounds to show a tint.
+You can customize the block colors with the [conflict theme scopes](themes.md#interface).
 
 Each section starts at the same line number. Numbering after a conflict advances
 by its longest section; marker lines have no number. Relative numbers still count
