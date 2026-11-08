@@ -269,6 +269,10 @@ async fn history_reads_work_without_git_executable() -> Result<()> {
             .read_revision_file(&current, false)?
             .ends_with(b"edited\n"));
         let repeated = repo.history_page(cursor).await?;
+        assert!(std::sync::Arc::ptr_eq(
+            &first.commits[0],
+            &repeated.commits[0]
+        ));
         assert_eq!(
             first.commits, repeated.commits,
             "cursor retries must be stable"

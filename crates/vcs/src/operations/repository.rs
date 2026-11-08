@@ -251,7 +251,7 @@ impl GitRepository {
         let mut branches = Vec::new();
         while let Some(current) = cursor {
             let page = current.next_page().await?;
-            branches.extend(page.branches);
+            branches.extend(page.branches.into_iter().map(|branch| (*branch).clone()));
             cursor = page.next;
         }
         branches.sort_by(|a, b| a.name.cmp(&b.name));

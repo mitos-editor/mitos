@@ -89,7 +89,7 @@ pub struct HistoryCursor {
 }
 
 pub struct HistoryPage {
-    pub commits: Vec<CommitEntry>,
+    pub commits: Vec<std::sync::Arc<CommitEntry>>,
     pub next: Option<HistoryCursor>,
 }
 

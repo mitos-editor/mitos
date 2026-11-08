@@ -183,6 +183,31 @@ to unignore a path:
 !.gitattributes
 ```
 
+## Loading large collections
+
+Git history and branch pickers load more results as you scroll toward the end.
+Typing a query filters loaded rows immediately and continues loading older or
+remaining entries in the background. Clear the query to stop this extra loading;
+an already requested page can still finish. Scrolling can then load more results.
+
+Press `Ctrl-l` to pause loading. Press it again to continue, or to retry after a
+loading failure. These controls keep your query and loaded results. Remap the
+`toggle_loading` action under `[keys.picker]` or the specific picker table.
+The active shortcut also appears along the bottom border when picker hints are
+enabled.
+
+Automatic loading pauses after an estimated 32 MiB of retained rows and matching
+text. Continuing permits another 32 MiB for that picker session. This is a soft
+budget: a page can cross it, and traversal state, previews, and other editor
+memory are separate. Restoring a cached picker keeps its loaded results
+and allowance; opening a new picker starts a fresh session.
+
+The source status distinguishes more results available, loading, complete,
+paused, and failed. A `?` in the result count means results are incomplete.
+An empty result list can still gain matches while loading continues. Streaming
+searches and symbol queries also remain incomplete if their source fails or
+stops before reporting completion.
+
 ## Refreshing results
 
 File, explorer, global-search, and changed-file results update as files change,

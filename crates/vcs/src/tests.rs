@@ -34,7 +34,7 @@ fn watch_inputs_include_every_available_provider() {
 
 async fn statuses(providers: DiffProviderRegistry) -> Vec<Result<FileStatus>> {
     let (sender, mut responses) = tokio::sync::mpsc::unbounded_channel();
-    providers.for_each_file_status(
+    drop(providers.for_each_file_status(
         ChangedFileScope::Repository("repo".into()),
         false,
         move |root, result| {
@@ -42,7 +42,7 @@ async fn statuses(providers: DiffProviderRegistry) -> Vec<Result<FileStatus>> {
             sender.send(result).unwrap();
             true
         },
-    );
+    ));
     tokio::time::timeout(std::time::Duration::from_secs(5), async {
         let mut results = Vec::new();
         while let Some(result) = responses.recv().await {

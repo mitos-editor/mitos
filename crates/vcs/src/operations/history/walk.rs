@@ -4,7 +4,7 @@ use super::*;
 use std::sync::Mutex;
 use tokio::sync::{mpsc, oneshot};
 
-type Batch = (Vec<CommitEntry>, bool);
+type Batch = (Vec<std::sync::Arc<CommitEntry>>, bool);
 const MAX_PAGE_BYTES: usize = 1024 * 1024;
 
 fn metadata_size(row: &CommitEntry) -> usize {
@@ -151,7 +151,7 @@ struct Walk<'a> {
     repo: &'a gix::Repository,
     walk: gix::revision::Walk<'a>,
     path: Option<PathBuf>,
-    rows: Vec<CommitEntry>,
+    rows: Vec<std::sync::Arc<CommitEntry>>,
     exhausted: bool,
     pending: Option<gix::ObjectId>,
 }
@@ -163,7 +163,7 @@ impl Walk<'_> {
             .get(offset..self.rows.len().min(target))
             .unwrap_or(&[])
             .iter()
-            .map(metadata_size)
+            .map(|row| metadata_size(row))
             .sum();
         while !self.exhausted && self.rows.len() < target {
             if canceled() {
@@ -241,7 +241,7 @@ impl Walk<'_> {
                 "History page exceeds the 1 MiB display limit"
             );
             self.pending = None;
-            self.rows.push(row);
+            self.rows.push(std::sync::Arc::new(row));
         }
         let end = self.rows.len().min(offset + HISTORY_PAGE_SIZE);
         ensure!(offset <= end, "Invalid history continuation");

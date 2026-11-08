@@ -136,9 +136,11 @@ impl DiffProviderRegistry {
         trust_full: bool,
         f: impl Fn(&Path, Result<FileChange>) -> bool + Send + 'static,
     ) {
-        self.for_each_file_status(scope, trust_full, move |root, status| {
-            f(root, status.map(|status| status.change().clone()))
-        });
+        drop(
+            self.for_each_file_status(scope, trust_full, move |root, status| {
+                f(root, status.map(|status| status.change().clone()))
+            }),
+        );
     }
 
     /// Enumerate with the first successful provider, reporting one terminal error if none succeeds.
@@ -147,7 +149,7 @@ impl DiffProviderRegistry {
         scope: ChangedFileScope,
         trust_full: bool,
         f: impl Fn(&Path, Result<FileStatus>) -> bool + Send + 'static,
-    ) {
+    ) -> tokio::task::JoinHandle<()> {
         tokio::task::spawn_blocking(move || {
             if self
                 .query(|provider| provider.for_each_file_status(&scope, trust_full, &f))
@@ -158,7 +160,7 @@ impl DiffProviderRegistry {
                     Err(anyhow!("no diff provider returns success")),
                 );
             }
-        });
+        })
     }
 
     /// Read bounded comparison inputs on the caller's blocking worker.

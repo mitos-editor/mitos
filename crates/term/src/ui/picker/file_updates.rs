@@ -184,7 +184,8 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                     // Keep dirty set so another scan follows without starving results.
                     match result {
                         Ok(options) => {
-                            self.results.matcher.tick(0);
+                            self.results.source.set(super::source::State::Complete);
+                            self.results.tick(0);
                             let snapshot = self.results.matcher.snapshot();
                             let same = snapshot.item_count() as usize == options.len()
                                 && options.iter().enumerate().all(|(index, item)| {
@@ -196,7 +197,10 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                                 self.refresh_options(options, self.results.editor_data.clone());
                             }
                         }
-                        Err(error) => editor.status_sender().report_blocking(error),
+                        Err(error) => {
+                            self.results.source.set(super::source::State::Failed);
+                            editor.status_sender().report_blocking(error);
+                        }
                     }
                 }
                 Err(ResultError::Closed) => updates.pending = None,

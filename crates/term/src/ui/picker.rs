@@ -6,6 +6,8 @@ mod handlers;
 mod help;
 #[cfg(test)]
 mod matching_tests;
+#[cfg(any(feature = "git", test))]
+pub(crate) mod paged;
 #[cfg(test)]
 mod paging_tests;
 mod preview;
@@ -15,6 +17,7 @@ mod results;
 pub(crate) mod scroll;
 #[cfg(test)]
 mod scroll_tests;
+mod source;
 #[cfg(test)]
 mod status_tests;
 #[cfg(test)]
@@ -67,6 +70,8 @@ pub use self::preview::{
     CachedPreview, FileLocation, ImagePreview, PathOrId, Preview, MAX_FILE_SIZE_FOR_PREVIEW,
 };
 pub(crate) use replacement::{ReplacementStep, ReplacementTask};
+#[cfg(feature = "git")]
+pub(crate) use updates::Update;
 pub(crate) use updates::UpdateContext;
 
 type FileCallback<T> = Box<dyn for<'a> Fn(&'a Editor, &'a T) -> Option<FileLocation<'a>>>;
@@ -143,6 +148,7 @@ fn inject_nucleo_item<T, D>(
 
 pub struct Injector<T, D> {
     dst: nucleo::Injector<T>,
+    source: source::Progress,
     columns: Arc<[Column<T, D>]>,
     editor_data: Arc<D>,
     version: usize,
@@ -160,6 +166,7 @@ impl<I, D> Clone for Injector<I, D> {
     fn clone(&self) -> Self {
         Injector {
             dst: self.dst.clone(),
+            source: self.source.clone(),
             columns: self.columns.clone(),
             editor_data: self.editor_data.clone(),
             version: self.version,
@@ -178,6 +185,25 @@ impl<T, D> Injector<T, D> {
     /// Whether a newer query or a closed picker has invalidated this injector.
     pub(crate) fn is_shutdown(&self) -> bool {
         self.version != self.picker_version.load(atomic::Ordering::Relaxed)
+    }
+
+    /// Producers explicitly report exhaustion; dropping a handle may mean cancellation.
+    pub(crate) fn complete(&self) {
+        self.report(source::State::Complete);
+    }
+    pub(crate) fn fail(&self) {
+        self.report(source::State::Failed);
+    }
+    pub(crate) fn pause(&self) {
+        self.report(source::State::Paused);
+    }
+    fn report(&self, state: source::State) {
+        if self
+            .source
+            .report(state, self.version, &self.picker_version)
+        {
+            self.redraw.request();
+        }
     }
 
     pub fn push(&self, item: T) -> Result<(), InjectorShutdown> {
@@ -458,7 +484,9 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
     }
 
     pub fn injector(&self) -> Injector<T, D> {
+        self.results.source.set(source::State::Loading);
         Injector {
+            source: self.results.source.clone(),
             dst: self.results.matcher.injector(),
             columns: self.columns.clone(),
             editor_data: self.results.editor_data.clone(),
@@ -1082,10 +1110,13 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                 ""
             },
             snapshot.matched_item_count(),
-            if self
-                .editor_updates
-                .as_ref()
-                .is_some_and(|updates| updates.incomplete || self.results.is_refreshing())
+            if self.dynamic_query_pending
+                || self.results.source.get() != source::State::Complete
+                || self.results.is_refreshing()
+                || self
+                    .editor_updates
+                    .as_ref()
+                    .is_some_and(|updates| updates.incomplete)
             {
                 "?".to_owned()
             } else {
@@ -1123,11 +1154,19 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         if let Some(status) = self
             .editor_updates
             .as_ref()
-            .and_then(|updates| updates.status.as_ref())
+            .and_then(|updates| updates.status.as_deref())
+            .or_else(|| match self.results.source.get() {
+                source::State::Failed => Some("Results incomplete; source failed"),
+                source::State::Paused => Some("Results incomplete; loading stopped"),
+                source::State::Loading if self.results.matcher.active_injectors() == 0 => {
+                    Some("Results incomplete; source did not finish")
+                }
+                _ => None,
+            })
         {
             // Source status uses the existing separator so it cannot shrink the query
             // or consume result rows, including when a preview narrows the picker.
-            Paragraph::new(status.as_str())
+            Paragraph::new(status)
                 .style(cx.editor.theme.get("ui.text.inactive"))
                 .render(
                     input_areas.search_separator.clip_left(1).clip_right(1),
@@ -1401,7 +1440,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         // A restored picker can receive input before its first redraw.
         self.refresh_from_editor(ctx.editor);
         if self.query_options.is_some() {
-            self.results.matcher.tick(10);
+            self.results.tick(10);
         }
         if self.on_close.is_some() {
             if let Some(pending) = &mut self.results.pending_options {
@@ -1500,6 +1539,14 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                 }
                 PickerAction::MoveEnd => {
                     self.to_end();
+                }
+                PickerAction::ToggleLoading => {
+                    if let Some(updates) = &mut self.editor_updates
+                        && updates.paged
+                    {
+                        updates.toggle_loading = true;
+                        self.redraw.request();
+                    }
                 }
                 PickerAction::Cancel => {
                     if self.replacement_pending() {
@@ -1728,7 +1775,7 @@ impl<I: 'static + Send + Sync, D: 'static + Send + Sync> Component for Picker<I,
         self.refresh_from_editor(cx.editor);
 
         self.publish_options();
-        let status = self.results.matcher.tick(10);
+        let status = self.results.tick(10);
         let snapshot = self.results.matcher.snapshot();
         if status.changed {
             self.results.cursor = self

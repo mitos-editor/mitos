@@ -82,7 +82,8 @@ async fn repository_commands_target_the_current_buffer_and_protect_unsaved_edits
         .any(|branch| branch.name == "main" && branch.current));
     let cursor = repo.history_cursor(Some(&path))?.unwrap();
     let commit = repo.history_page(cursor).await?.commits.remove(0);
-    let endpoint = vcs::operations::history::RevisionFile::new(commit.id, "file.txt".into())?;
+    let endpoint =
+        vcs::operations::history::RevisionFile::new(commit.id.clone(), "file.txt".into())?;
     let request = view::features::change_review::HistoricalReviewRequest::revisions(
         &app.editor,
         repo.clone(),

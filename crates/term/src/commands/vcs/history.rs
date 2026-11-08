@@ -8,7 +8,7 @@ use anyhow::Result;
 use std::{cell::RefCell, path::PathBuf, rc::Rc, sync::Arc};
 use tui::text::Span;
 use vcs::operations::{
-    history::{CommitEntry, HistoryCursor, HistoryFile, HistoryPage, RevisionFile},
+    history::{CommitEntry, HistoryFile, RevisionFile},
     GitRepository,
 };
 use view::{features::change_review::HistoricalReviewRequest, DocumentId, Editor};
@@ -60,7 +60,7 @@ fn browser(
     repo: GitRepository,
     path: Option<PathBuf>,
     buffer: Option<DocumentId>,
-) -> Result<Picker<CommitEntry, Data>> {
+) -> Result<Picker<Arc<CommitEntry>, Data>> {
     let cursor = repo.history_cursor(path.as_deref())?;
     let title = if path.is_some() {
         "File history · first parent · Enter review"
@@ -76,31 +76,42 @@ fn browser(
     let preview_repo = data.repo.clone();
     let accept = data.clone();
     let actions = data.clone();
-    let mut pager = Pager {
-        repo: repo.clone(),
+    let mut pager = crate::ui::picker::paged::Paged::new(
         cursor,
-        pending: None,
-        rows: Vec::new(),
-        failed: false,
-        capped: false,
-    };
+        [
+            "More history available",
+            "Loading history…",
+            "Complete history",
+        ],
+        history_row_bytes,
+        move |cursor, _cancel| {
+            let repo = repo.clone();
+            Box::pin(async move {
+                let page = repo.history_page(cursor).await?;
+                Ok(crate::ui::picker::paged::Page {
+                    rows: page.commits,
+                    next: page.next,
+                })
+            })
+        },
+    );
     let picker = Picker::new_with_callback_result(
         editor.redraw().clone(),
         [
-            PickerColumn::new("commit", |c: &CommitEntry, data: &Data| {
+            PickerColumn::new("commit", |c: &Arc<CommitEntry>, data: &Data| {
                 Span::styled(c.id.short(), data.theme.get("constant")).into()
             }),
-            PickerColumn::new("committed", |c: &CommitEntry, data: &Data| {
+            PickerColumn::new("committed", |c: &Arc<CommitEntry>, data: &Data| {
                 Span::styled(
                     c.date.get(..10).unwrap_or(&c.date),
                     data.theme.get("ui.text.inactive"),
                 )
                 .into()
             }),
-            PickerColumn::new("author", |c: &CommitEntry, data: &Data| {
+            PickerColumn::new("author", |c: &Arc<CommitEntry>, data: &Data| {
                 Span::styled(c.author.as_str(), data.theme.get("string.special")).into()
             }),
-            PickerColumn::new("subject", |c: &CommitEntry, _: &Data| {
+            PickerColumn::new("subject", |c: &Arc<CommitEntry>, _: &Data| {
                 c.subject.as_str().into()
             }),
         ],
@@ -134,7 +145,7 @@ fn browser(
     .with_title(title)
     .with_help(|maps| super::actions::help(&maps.history_picker))
     .with_item_key(|c| c.id.as_str().to_owned())
-    .with_editor_updates(move |cx| pager.update(cx))
+    .with_paged_updates(move |cx| pager.update(cx))
     .with_item_actions(
         |maps| &maps.history_picker,
         move |_, row, action| {
@@ -155,7 +166,7 @@ fn browser(
     );
     let picker = if path.is_some() {
         picker.with_custom_preview(crate::ui::change_review::HistoricalReviewPreview::new(
-            |commit: &CommitEntry| commit.file.as_ref().map(|_| commit.id.clone()),
+            |commit: &Arc<CommitEntry>| commit.file.as_ref().map(|_| commit.id.clone()),
             move |editor, commit| {
                 review_request(
                     editor,
@@ -174,89 +185,26 @@ fn browser(
     Ok(picker)
 }
 
-const HISTORY_DISPLAY_LIMIT: usize = 5000;
-
-struct Pager {
-    repo: GitRepository,
-    cursor: Option<HistoryCursor>,
-    pending: Option<tokio::sync::oneshot::Receiver<Result<HistoryPage>>>,
-    rows: Vec<CommitEntry>,
-    failed: bool,
-    capped: bool,
-}
-impl Pager {
-    fn update(
-        &mut self,
-        cx: crate::ui::picker::UpdateContext<'_, CommitEntry>,
-    ) -> Option<Vec<CommitEntry>> {
-        if cx.resumed {
-            self.pending = None;
-            self.failed = false;
-        }
-        let mut changed = false;
-        if let Some(pending) = &mut self.pending {
-            match pending.try_recv() {
-                Ok(result) => {
-                    self.pending = None;
-                    match result {
-                        Ok(page) => {
-                            self.rows.extend(page.commits);
-                            self.cursor = page.next;
-                            self.capped =
-                                self.rows.len() >= HISTORY_DISPLAY_LIMIT && self.cursor.is_some();
-                            if self.capped {
-                                self.cursor = None;
-                            }
-                            changed = true;
-                        }
-                        Err(error) => {
-                            self.failed = true;
-                            cx.editor.set_error(|| error.to_string());
-                        }
-                    }
-                }
-                Err(tokio::sync::oneshot::error::TryRecvError::Closed) => {
-                    self.pending = None;
-                    self.failed = true;
-                }
-                Err(tokio::sync::oneshot::error::TryRecvError::Empty) => {}
-            }
-        }
-        // Wait for the published page to be matched before consulting its viewport.
-        if !changed
-            && self.pending.is_none()
-            && !self.failed
-            && (self.rows.is_empty() || !cx.query.trim().is_empty() || cx.near_end)
-            && let Some(cursor) = self.cursor.clone()
-        {
-            let repo = self.repo.clone();
-            let cancel = cx.task.restart();
-            let redraw = cx.editor.redraw().clone();
-            let (tx, rx) = tokio::sync::oneshot::channel();
-            self.pending = Some(rx);
-            tokio::spawn(async move {
-                if let Some(result) =
-                    event::cancelable_future(repo.history_page(cursor), cancel).await
-                {
-                    let _ = tx.send(result);
-                    redraw.request();
-                }
-            });
-        }
-        *cx.incomplete = self.cursor.is_some() || self.capped || self.failed;
-        *cx.status = Some(if self.failed {
-            "History incomplete; reopen to retry".into()
-        } else if self.capped {
-            "5000 loaded; history limit reached".into()
-        } else if self.pending.is_some() {
-            "Loading history…".into()
-        } else if self.cursor.is_some() {
-            "More history available".into()
-        } else {
-            "Complete history".into()
+/// Conservative retained metadata and matching-text estimate, excluding Git's
+/// traversal state and object cache. Shared replay rows count only once.
+fn history_row_bytes(row: &Arc<CommitEntry>) -> usize {
+    let text = row.id.as_str().len()
+        + row.author.len()
+        + row.date.len()
+        + row.subject.len()
+        + row
+            .parents
+            .iter()
+            .map(|id| id.as_str().len())
+            .sum::<usize>()
+        + row.file.as_ref().map_or(0, |file| {
+            file.before
+                .iter()
+                .chain(&file.after)
+                .map(|path| path.as_os_str().as_encoded_bytes().len())
+                .sum::<usize>()
         });
-        changed.then(|| self.rows.clone())
-    }
+    std::mem::size_of::<CommitEntry>() + 128 + text * 5
 }
 
 fn review_request(
@@ -284,7 +232,7 @@ struct Choice {
 fn action_picker(
     editor: &Editor,
     data: Data,
-    commit: CommitEntry,
+    commit: Arc<CommitEntry>,
     baseline: usize,
 ) -> Picker<Choice, ()> {
     let title = format!("{} · {}", commit.id.short(), commit.subject);
@@ -412,14 +360,14 @@ fn action_picker(
 #[derive(Clone)]
 struct Files {
     data: Data,
-    commit: CommitEntry,
+    commit: Arc<CommitEntry>,
     parent: usize,
     path: Option<PathBuf>,
 }
 fn files_picker(
     editor: &Editor,
     data: Data,
-    commit: CommitEntry,
+    commit: Arc<CommitEntry>,
     parent: usize,
     path: Option<PathBuf>,
     browser: Option<Box<dyn Component>>,
@@ -522,7 +470,7 @@ fn files_picker(
             };
             let data = menu_data.clone();
             let mut commit = menu_commit.clone();
-            commit.file = Some(file.clone());
+            Arc::make_mut(&mut commit).file = Some(file.clone());
             PickerCallbackResult::KeepOpenWithCallback(Box::new(move |compositor, cx| {
                 let mut data = data;
                 if data.buffer.is_none() {
