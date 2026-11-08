@@ -295,8 +295,8 @@ Run `:vcs-branches` to browse local branches. Select a branch and press `Enter`
 to switch to it. Save edited files in that repository first.
 
 Press `Alt-n` to create a branch at `HEAD` without switching. Press `Alt-d`
-to confirm deletion of the selected branch. Unmerged branches and branches
-checked out in any worktree are kept. The picker stays open and refreshes after
+to confirm deletion of the selected branch. Deletion fails if the branch is
+unmerged or checked out in any worktree. The picker stays open and refreshes after
 the action. Remap these shortcuts under `[keys.branch-picker]`.
 
 These commands use the current file's repository, or the original repository

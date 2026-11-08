@@ -368,3 +368,102 @@ async fn action_choosers_keep_long_option_names_visible() -> anyhow::Result<()> 
     }
     Ok(())
 }
+
+#[tokio::test]
+async fn branch_confirmation_frames_options_with_current_border_preference() -> anyhow::Result<()> {
+    use editor_config::BorderStyle;
+
+    let dir = repo()?;
+    let repository = GitRepository::discover(dir.path())?;
+    let mut app = application(false)?;
+    let mut jobs = crate::job::Jobs::new();
+    let config = crate::config::Config::default();
+    let mut menu = confirm_branch_deletion(repository, "topic".into(), dir.path().into());
+
+    for (border, left, right) in [
+        (BorderStyle::Rounded, "│", "│"),
+        (BorderStyle::Double, "║", "║"),
+        (BorderStyle::Plain, "│", "│"),
+        (BorderStyle::Thick, "┃", "┃"),
+        (BorderStyle::None, " ", " "),
+    ] {
+        let mut editor_config = (*app.editor.config()).clone();
+        editor_config.border_style = border;
+        app.apply_config_update(crate::config::ConfigEvent::UpdateEditor(Box::new(
+            editor_config,
+        )));
+        for width in [40, 80] {
+            let rows = frame(
+                menu.as_mut(),
+                &mut app,
+                &mut jobs,
+                &config,
+                view::graphics::Rect::new(0, 0, width, 20),
+            );
+            let screen = rows.join("\n");
+            assert!(screen.contains("Delete branch topic?"), "{screen}");
+            assert!(!screen.contains("are kept"), "{screen}");
+            assert!(!screen.contains("Delete merged branch"), "{screen}");
+            for label in ["Cancel", "Delete branch"] {
+                let row = rows
+                    .iter()
+                    .find(|row| row.contains(label) && !row.contains("topic"))
+                    .unwrap();
+                let trimmed = row.trim();
+                if border == BorderStyle::None {
+                    assert_eq!(trimmed.trim_start_matches("> "), label, "{screen}");
+                    assert!(
+                        !screen.contains('│') && !screen.contains('╭') && !screen.contains('║'),
+                        "{screen}"
+                    );
+                } else {
+                    assert!(
+                        trimmed.starts_with(left) && trimmed.ends_with(right),
+                        "{screen}"
+                    );
+                }
+            }
+        }
+        for (width, height) in [(1, 1), (8, 4)] {
+            frame(
+                menu.as_mut(),
+                &mut app,
+                &mut jobs,
+                &config,
+                view::graphics::Rect::new(0, 0, width, height),
+            );
+        }
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn branch_confirmation_arrow_follows_selection() -> anyhow::Result<()> {
+    let dir = repo()?;
+    let repository = GitRepository::discover(dir.path())?;
+    let mut app = application(false)?;
+    let mut jobs = crate::job::Jobs::new();
+    let config = crate::config::Config::default();
+    let area = view::graphics::Rect::new(0, 0, 40, 12);
+    let mut compositor = compositor::Compositor::new(area);
+    compositor.push(confirm_branch_deletion(
+        repository,
+        "topic".into(),
+        dir.path().into(),
+    ));
+
+    for label in ["Cancel", "Delete branch", "Cancel"] {
+        let screen = frame(
+            compositor.find::<ActionMenu>().unwrap(),
+            &mut app,
+            &mut jobs,
+            &config,
+            area,
+        )
+        .join("\n");
+        assert!(screen.contains(&format!("> {label}")), "{screen}");
+        assert_eq!(screen.matches('>').count(), 1, "{screen}");
+        key(&mut app, &mut compositor, &mut jobs, "down");
+    }
+    Ok(())
+}

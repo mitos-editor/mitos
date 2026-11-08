@@ -113,10 +113,20 @@ pub(super) fn confirm_branch_deletion(
     name: String,
     workspace: PathBuf,
 ) -> Box<dyn Component> {
-    menu(format!("Delete branch {name}?\nUnmerged branches and branches checked out in any worktree are kept."), vec![
-        Choice::new("Cancel", Command::Cancel),
-        Choice::new("Delete merged branch", Command::Confirmed(GitAction::Repository(repository, vcs::operations::RepositoryOperation::DeleteBranch { name }))),
-    ], workspace)
+    menu(
+        format!("Delete branch {name}?"),
+        vec![
+            Choice::new("Cancel", Command::Cancel),
+            Choice::new(
+                "Delete branch",
+                Command::Confirmed(GitAction::Repository(
+                    repository,
+                    vcs::operations::RepositoryOperation::DeleteBranch { name },
+                )),
+            ),
+        ],
+        workspace,
+    )
 }
 
 pub(super) fn confirm_worktree_removal(

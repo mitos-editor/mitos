@@ -52,6 +52,7 @@ pub struct Menu<T: Item> {
     viewport: (u16, u16),
     recalculate: bool,
     auto_close: bool,
+    show_selection_marker: bool,
 }
 
 impl<T: Item> Menu<T> {
@@ -78,6 +79,7 @@ impl<T: Item> Menu<T> {
             viewport: (0, 0),
             recalculate: true,
             auto_close: false,
+            show_selection_marker: false,
         }
     }
 
@@ -165,6 +167,13 @@ impl<T: Item> Menu<T> {
         self
     }
 
+    /// Show a selection arrow in addition to the row highlight.
+    pub fn with_selection_marker(mut self) -> Self {
+        self.show_selection_marker = true;
+        self.recalculate = true;
+        self
+    }
+
     fn recalculate_size(&mut self, viewport: (u16, u16)) {
         let n = self
             .options
@@ -194,7 +203,11 @@ impl<T: Item> Menu<T> {
             len += 1; // +1: reserve some space for scrollbar
         }
 
-        len += Self::LEFT_PADDING;
+        len += if self.show_selection_marker {
+            2 // "> " replaces the usual one-cell left padding.
+        } else {
+            Self::LEFT_PADDING
+        };
         let width = len.min(viewport.0 as usize);
 
         self.widths = max_lens
@@ -344,6 +357,8 @@ impl<T: Item + 'static> Component for Menu<T> {
         let table = Table::new(rows, &self.widths)
             .style(style)
             .row_highlight_style(selected)
+            .highlight_symbol(if self.show_selection_marker { "> " } else { "" })
+            .highlight_spacing(tui::widgets::HighlightSpacing::Always)
             .column_spacing(1)
             .flex(tui::layout::Flex::Legacy);
 
@@ -355,7 +370,12 @@ impl<T: Item + 'static> Component for Menu<T> {
 
         StatefulWidget::render(
             table,
-            area.clip_left(Self::LEFT_PADDING as u16).clip_right(1),
+            area.clip_left(if self.show_selection_marker {
+                0
+            } else {
+                Self::LEFT_PADDING as u16
+            })
+            .clip_right(1),
             surface,
             &mut table_state,
         );
