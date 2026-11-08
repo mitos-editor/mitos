@@ -19,6 +19,7 @@ pub mod history;
 pub mod repository;
 pub use repository::RepositoryOperation;
 mod branch;
+mod checkout;
 mod fetch;
 mod index;
 mod stage;
@@ -145,11 +146,28 @@ impl PreparedOperation {
             {
                 return Ok(None);
             }
-            if let Operation::Repository(RepositoryOperation::CreateBranch { name }) =
-                &self.operation
-            {
-                self.create_branch(name)?;
-                return Ok(None);
+            match &self.operation {
+                Operation::Repository(RepositoryOperation::CreateBranch { name }) => {
+                    self.create_branch(name)?;
+                    return Ok(None);
+                }
+                Operation::Repository(RepositoryOperation::DeleteBranch { name }) => {
+                    self.delete_branch(name)?;
+                    return Ok(None);
+                }
+                Operation::Repository(RepositoryOperation::SwitchBranch { name }) => {
+                    self.switch_branch(name)?;
+                    return Ok(None);
+                }
+                Operation::Repository(RepositoryOperation::CreateWorktree { path, branch }) => {
+                    self.create_worktree(path, branch.as_deref())?;
+                    return Ok(None);
+                }
+                Operation::Repository(RepositoryOperation::RemoveWorktree { path }) => {
+                    self.remove_worktree(path)?;
+                    return Ok(None);
+                }
+                _ => {}
             }
             Ok::<_, anyhow::Error>(Some(self))
         })
@@ -268,7 +286,7 @@ impl GitRepository {
         ensure!(!paths.is_empty(), "No file changes selected");
         let index = repo.index_or_empty()?;
         for path in &paths {
-            let bytes = gix::path::try_into_bstr(path)?;
+            let bytes = gix::path::into_bstr(path)?;
             if let Some(entry) = index
                 .entry_by_path_and_stage(bytes.as_ref(), gix::index::entry::Stage::Unconflicted)
             {

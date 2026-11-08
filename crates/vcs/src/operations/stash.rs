@@ -192,7 +192,7 @@ fn changed_paths(
         options.track_path().track_rewrites(None);
     });
     let mut bytes = 0;
-    diff.for_each_to_obtain_tree(after, |change| -> Result<_> {
+    diff.for_each_to_obtain_tree(after, |change| -> gix::Result<_> {
         let location = match change {
             Change::Addition {
                 location,
@@ -211,18 +211,18 @@ fn changed_paths(
             } if !entry_mode.is_tree() => location,
             _ => return Ok(ControlFlow::Continue(())),
         };
-        let path = gix::path::from_bstr(location).into_owned();
-        ensure!(
+        let path = gix::path::from_bstr(location)?.into_owned();
+        gix::error::ensure!(
             path.components()
                 .all(|part| matches!(part, std::path::Component::Normal(_))),
             "Invalid stash file path"
         );
         bytes += location.len();
-        ensure!(
+        gix::error::ensure!(
             bytes <= 1024 * 1024,
             "Stash file listing exceeds the 1 MiB display limit"
         );
-        ensure!(
+        gix::error::ensure!(
             files.len() < 20_000,
             "Stash contains too many files to display (limit 20000)"
         );

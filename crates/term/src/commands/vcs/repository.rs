@@ -2,6 +2,7 @@
 use crate::{
     compositor::{Component, Context},
     job::Callback,
+    keymap::component::{PickerAction, PickerItemAction},
     ui::{self, overlay::overlaid, picker::PickerCallbackResult, Picker, PickerColumn},
 };
 use anyhow::{ensure, Result};
@@ -82,8 +83,13 @@ pub(super) fn execute(cx: &mut Context, args: Args, command: Command) -> Result<
         Ok(Callback::ui(move |compositor, cx| match request {
             Request::Picker(command) => {
                 let picker = match command {
-                    Command::Branches => branches(cx.editor, repo, scope.workspace),
-                    Command::Worktrees => worktrees(cx.editor, repo),
+                    Command::Branches => {
+                        Box::new(overlaid(branches(cx.editor, repo, scope.workspace)))
+                            as Box<dyn Component>
+                    }
+                    Command::Worktrees => {
+                        Box::new(overlaid(worktrees(cx.editor, repo, scope.workspace)))
+                    }
                     _ => unreachable!("only browse commands create a picker"),
                 };
                 compositor.push(picker);
@@ -116,17 +122,15 @@ impl RepositoryData {
     }
 }
 
-fn branches(editor: &Editor, repo: GitRepository, workspace: PathBuf) -> Box<dyn Component> {
-    Box::new(overlaid(branch_picker(editor, repo, workspace)))
-}
-
-fn branch_picker(
+fn branches(
     editor: &Editor,
     repo: GitRepository,
     workspace: PathBuf,
 ) -> Picker<Branch, RepositoryData> {
     let actions = repo.clone();
     let mut pager = BranchPager::new(editor, repo.clone());
+    let action_repo = repo.clone();
+    let action_workspace = workspace.clone();
     Picker::new_with_callback_result(
         editor.redraw().clone(),
         [
@@ -168,14 +172,33 @@ fn branch_picker(
             }))
         },
     )
-    .with_title("Git branches · Enter switches branch")
+    .with_title("Git branches")
+    .with_help(|maps| {
+        super::actions::action_hints(
+            &maps.branch_picker,
+            &[
+                (PickerAction::Accept, "switch"),
+                (PickerAction::Item(PickerItemAction::CreateBranch), "create"),
+                (PickerAction::Item(PickerItemAction::DeleteBranch), "delete"),
+            ],
+        )
+    })
+    .with_item_actions(
+        |maps| &maps.branch_picker,
+        move |_, branch, action| branch_action(&action_repo, &action_workspace, branch, action),
+    )
     .with_editor_updates(move |cx| pager.update(cx))
     .with_item_key(|branch| branch.name.clone())
 }
 
-fn worktrees(editor: &Editor, repo: GitRepository) -> Box<dyn Component> {
+fn worktrees(
+    editor: &Editor,
+    repo: GitRepository,
+    workspace: PathBuf,
+) -> Picker<Worktree, RepositoryData> {
     let open = repo.clone();
-    let picker = Picker::new_with_callback_result(
+    let action_repo = repo.clone();
+    Picker::new_with_callback_result(
         editor.redraw().clone(),
         [
             PickerColumn::new("path", |tree: &Worktree, data: &RepositoryData| {
@@ -220,7 +243,27 @@ fn worktrees(editor: &Editor, repo: GitRepository) -> Box<dyn Component> {
             }))
         },
     )
-    .with_title("Git worktrees · Enter opens file picker")
+    .with_title("Git worktrees")
+    .with_help(|maps| {
+        super::actions::action_hints(
+            &maps.worktree_picker,
+            &[
+                (PickerAction::Accept, "open"),
+                (
+                    PickerAction::Item(PickerItemAction::CreateWorktree),
+                    "create",
+                ),
+                (
+                    PickerAction::Item(PickerItemAction::RemoveWorktree),
+                    "remove",
+                ),
+            ],
+        )
+    })
+    .with_item_actions(
+        |maps| &maps.worktree_picker,
+        move |_, tree, action| worktree_action(&action_repo, &workspace, tree, action),
+    )
     .with_file_updates(
         editor,
         |data| data.repo.root(),
@@ -229,8 +272,7 @@ fn worktrees(editor: &Editor, repo: GitRepository) -> Box<dyn Component> {
     .with_refresh_generation(editor, super::actions::generation)
     .with_item_key(|tree| tree.path.display().to_string())
     .refresh_on_vcs_changes()
-    .refresh_on_open();
-    Box::new(overlaid(picker))
+    .refresh_on_open()
 }
 
 fn request_open_worktree(cx: &mut Context, repo: GitRepository, path: PathBuf) {
@@ -257,6 +299,120 @@ fn request_open_worktree(cx: &mut Context, repo: GitRepository, path: PathBuf) {
             }
         }))
     });
+}
+
+fn branch_action(
+    repo: &GitRepository,
+    workspace: &Path,
+    branch: Option<&Branch>,
+    action: PickerItemAction,
+) -> PickerCallbackResult<Branch, RepositoryData> {
+    match action {
+        PickerItemAction::CreateBranch => create_prompt(repo, workspace, false),
+        PickerItemAction::DeleteBranch => {
+            let Some(branch) = branch else {
+                return PickerCallbackResult::KeepOpen;
+            };
+            let repo = repo.clone();
+            let workspace = workspace.to_owned();
+            let name = branch.name.clone();
+            PickerCallbackResult::KeepOpenWithCallback(Box::new(move |compositor, _| {
+                compositor.push(super::actions::confirm_branch_deletion(
+                    repo, name, workspace,
+                ));
+            }))
+        }
+        _ => PickerCallbackResult::KeepOpen,
+    }
+}
+
+fn worktree_action(
+    repo: &GitRepository,
+    workspace: &Path,
+    tree: Option<&Worktree>,
+    action: PickerItemAction,
+) -> PickerCallbackResult<Worktree, RepositoryData> {
+    match action {
+        PickerItemAction::CreateWorktree => create_prompt(repo, workspace, true),
+        PickerItemAction::RemoveWorktree => {
+            let Some(tree) = tree else {
+                return PickerCallbackResult::KeepOpen;
+            };
+            let repo = repo.clone();
+            let workspace = workspace.to_owned();
+            let path = tree.path.clone();
+            PickerCallbackResult::KeepOpenWithCallback(Box::new(move |compositor, _| {
+                compositor.push(super::actions::confirm_worktree_removal(
+                    repo, path, workspace,
+                ));
+            }))
+        }
+        _ => PickerCallbackResult::KeepOpen,
+    }
+}
+
+fn create_prompt<T: 'static>(
+    repo: &GitRepository,
+    workspace: &Path,
+    worktree: bool,
+) -> PickerCallbackResult<T, RepositoryData> {
+    let repo = repo.clone();
+    let workspace = workspace.to_owned();
+    PickerCallbackResult::KeepOpenWithCallback(Box::new(move |compositor, _| {
+        compositor.push(Box::new(ui::Prompt::new_with_callback(
+            if worktree {
+                "New worktree path: "
+            } else {
+                "New branch from HEAD: "
+            }
+            .into(),
+            None,
+            ui::completers::none,
+            move |cx, input, event| {
+                if event != ui::PromptEvent::Validate || input.trim().is_empty() {
+                    return None;
+                }
+                if worktree {
+                    let path = stdx::path::expand_tilde(Path::new(input));
+                    let path = stdx::path::canonicalize_existing(&repo.root().join(path));
+                    let repo = repo.clone();
+                    let workspace = workspace.clone();
+                    return Some(Box::new(move |compositor, _| {
+                        compositor.push(Box::new(ui::Prompt::new(
+                            "Existing branch (empty for detached HEAD): ".into(),
+                            None,
+                            ui::completers::none,
+                            move |cx, input, event| {
+                                if event == ui::PromptEvent::Validate {
+                                    super::actions::start(
+                                        cx,
+                                        workspace.clone(),
+                                        GitAction::Repository(
+                                            repo.clone(),
+                                            RepositoryOperation::CreateWorktree {
+                                                path: path.clone(),
+                                                branch: (!input.is_empty())
+                                                    .then(|| input.to_owned()),
+                                            },
+                                        ),
+                                    );
+                                }
+                            },
+                        )));
+                    }));
+                }
+                let operation = RepositoryOperation::CreateBranch {
+                    name: input.to_owned(),
+                };
+                super::actions::start(
+                    cx,
+                    workspace.clone(),
+                    GitAction::Repository(repo.clone(), operation),
+                );
+                None
+            },
+        )));
+    }))
 }
 
 struct BranchPager {

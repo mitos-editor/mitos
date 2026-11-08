@@ -19,15 +19,16 @@ tokio = { workspace = true, features = ["rt", "rt-multi-thread", "time", "sync",
 parking_lot.workspace = true
 arc-swap.workspace = true
 
-gix = { workspace = true, features = ["attributes", "status", "blame", "revision", "parallel", "max-performance", "sha1", "blocking-http-transport-reqwest-rust-tls"], optional = true }
+gix = { workspace = true, features = ["worktree-mutation", "attributes", "status", "blame", "revision", "parallel", "max-performance", "sha1", "blocking-http-transport-reqwest-rust-tls"], optional = true }
 dunce = { workspace = true, optional = true }
+tempfile = { workspace = true, optional = true }
 text-diff.workspace = true
 anyhow.workspace = true
 
 log.workspace = true
 
 [features]
-git = ["gix", "dep:dunce"]
+git = ["gix", "dep:dunce", "dep:tempfile"]
 
 [dev-dependencies]
 tempfile.workspace = true

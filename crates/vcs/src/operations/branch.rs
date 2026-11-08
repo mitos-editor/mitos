@@ -1,4 +1,4 @@
-//! Create local branches and their tracking settings without changing HEAD.
+//! Create and safely delete local branches and their tracking settings.
 use super::*;
 use gix::bstr::{BString, ByteSlice};
 
@@ -12,7 +12,10 @@ impl Tracking {
     fn read(repo: &gix::Repository) -> Result<Option<Self>> {
         let config = repo.config_snapshot();
         let rebase = config.string("branch.autoSetupRebase");
-        let rebase = rebase.as_deref().unwrap_or("never".into());
+        let rebase = rebase
+            .as_ref()
+            .map(|value| value.as_bstr())
+            .unwrap_or("never".into());
         ensure!(
             matches!(
                 rebase.as_bytes(),
@@ -21,16 +24,16 @@ impl Tracking {
             "Invalid branch.autoSetupRebase setting"
         );
         let mode = config.string("branch.autoSetupMerge");
-        let mode = mode.as_deref().unwrap_or("true".into());
+        let mode = mode
+            .as_ref()
+            .map(|value| value.as_bstr())
+            .unwrap_or("true".into());
         let (always, inherit) = match mode.as_bytes() {
             b"always" => (true, false),
             b"inherit" => (false, true),
             b"simple" => (false, false),
             _ => {
-                config
-                    .plumbing()
-                    .boolean("branch.autoSetupMerge")
-                    .transpose()?;
+                config.plumbing().boolean("branch.autoSetupMerge")?;
                 (false, false)
             }
         };
@@ -50,10 +53,7 @@ impl Tracking {
             let Some(merges) = raw.strings_by("branch", Some(source.shorten()), "merge") else {
                 return Ok(None);
             };
-            (
-                remote.into_owned(),
-                merges.into_iter().map(|value| value.into_owned()).collect(),
-            )
+            (remote, merges.into_iter().collect())
         } else {
             return Ok(None);
         };
@@ -85,6 +85,7 @@ impl PreparedOperation {
                 &path,
                 gix::lock::acquire::Fail::Immediately,
                 None,
+                0,
             )?;
             self.ensure_current()?;
             let contents = std::fs::read(&path)?;
@@ -96,12 +97,12 @@ impl PreparedOperation {
                 }
             }
             let mut section = config.new_section("branch", Some(subsection.into()))?;
-            section.push("remote".try_into()?, Some(tracking.remote.as_bstr()));
+            section.push("remote", Some(tracking.remote.as_bstr()))?;
             for merge in &tracking.merges {
-                section.push("merge".try_into()?, Some(merge.as_bstr()));
+                section.push("merge", Some(merge.as_bstr()))?;
             }
             if tracking.rebase {
-                section.set("rebase".try_into()?, "true".into());
+                section.set("rebase", "true")?;
             }
             let mut out = std::io::BufWriter::new(lock);
             config.write_to(&mut out)?;
@@ -126,4 +127,89 @@ impl PreparedOperation {
         }
         Ok(())
     }
+}
+
+impl PreparedOperation {
+    pub(super) fn delete_branch(&self, name: &str) -> Result<()> {
+        let mut repo = self.repository.open_read(true)?;
+        let refname = format!("refs/heads/{name}");
+        let reference = repo.find_reference(refname.as_str())?;
+        // Keep the original target: deletion must fail if another process moves the ref.
+        let tip = reference
+            .try_id()
+            .context("Choose a direct local branch")?
+            .detach();
+        repo.find_commit(tip)?;
+        let upstream = repository::upstream_reference(&repo, reference.name())?
+            .map(|name| repo.try_find_reference(name.as_ref()))
+            .transpose()?
+            .flatten();
+        let base = match upstream {
+            Some(mut upstream) => upstream.peel_to_commit()?.id,
+            None => repo.head_commit()?.id,
+        };
+        ensure!(
+            repo.merge_base(tip, base)?
+                .is_some_and(|base| base.detach() == tip),
+            "Branch is not fully merged into its upstream or HEAD"
+        );
+        ensure_branch_unused(&repo, reference.name())?;
+        let name = reference.name().to_owned();
+        let target: gix::refs::Target = reference.target().into();
+        self.ensure_current()?;
+        repo.delete_local_branches_if_unchanged([(name, target)])?;
+        Ok(())
+    }
+}
+
+pub(super) fn ensure_branch_unused(
+    repo: &gix::Repository,
+    reference: &gix::refs::FullNameRef,
+) -> Result<()> {
+    ensure_worktree_not_using_branch(&repo.main_repo()?, reference)?;
+    for worktree in repo.worktrees()? {
+        ensure_worktree_not_using_branch(
+            &worktree.into_repo_with_possibly_inaccessible_worktree()?,
+            reference,
+        )?;
+    }
+    Ok(())
+}
+
+fn ensure_worktree_not_using_branch(
+    repo: &gix::Repository,
+    reference: &gix::refs::FullNameRef,
+) -> Result<()> {
+    if repo.is_bare() {
+        return Ok(());
+    }
+    ensure!(
+        repo.head_name()?
+            .as_ref()
+            .is_none_or(|head| head.as_ref() != reference),
+        "Cannot delete a branch checked out in a worktree"
+    );
+    // Rebase and bisect detach HEAD but still reserve branches. Rebase --update-refs
+    // also reserves additional branches listed in its state file.
+    for file in [
+        "rebase-merge/head-name",
+        "rebase-apply/head-name",
+        "BISECT_START",
+        "rebase-merge/update-refs",
+    ] {
+        let contents = match std::fs::read(repo.git_dir().join(file)) {
+            Ok(contents) => contents,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(error.into()),
+        };
+        ensure!(
+            !contents.lines().any(|line| {
+                let line = line.trim();
+                line == reference.as_bstr()
+                    || (file == "BISECT_START" && line == reference.shorten())
+            }),
+            "Cannot delete a branch used by a rebase or bisect in a worktree"
+        );
+    }
+    Ok(())
 }

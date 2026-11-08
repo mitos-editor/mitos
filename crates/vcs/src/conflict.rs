@@ -61,7 +61,7 @@ pub fn read_source(path: &std::path::Path, side: &str, trusted: bool) -> Result<
             .ok_or_else(|| anyhow::anyhow!("File has no name"))?,
     );
     let relative = path.strip_prefix(&root)?;
-    let bytes = gix::path::to_unix_separators_on_windows(gix::path::try_into_bstr(relative)?);
+    let bytes = gix::path::to_unix_separators_on_windows(gix::path::into_bstr(relative)?);
     let index = repo.index()?;
     ensure!(
         index

@@ -27,8 +27,10 @@ fn main() {
         watch(repo.common_dir().join("packed-refs"));
         // A commit can create a loose ref for a previously packed branch.
         watch(repo.common_dir().join("refs/heads"));
-        if let Ok(Some(head)) = repo.head_name() {
-            watch(repo.common_dir().join(gix::path::from_bstr(head.as_bstr())));
+        if let Ok(Some(head)) = repo.head_name()
+            && let Ok(path) = gix::path::from_bstr(head.as_bstr())
+        {
+            watch(repo.common_dir().join(path));
         }
     }
     let revision = repo

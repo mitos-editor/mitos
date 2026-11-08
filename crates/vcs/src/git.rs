@@ -1,6 +1,5 @@
 use anyhow::{bail, Context, Result};
 use arc_swap::ArcSwap;
-use gix::filter::plumbing::driver::apply::Delay;
 use std::collections::BTreeMap;
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -63,10 +62,16 @@ fn diff_base(repo: &Repository, file: &Path) -> Result<Vec<u8>> {
     // external programs are not executed unless the workspace was explicitly trusted.
     if let Some(work_dir) = repo.workdir() {
         let rela_path = file.strip_prefix(work_dir)?;
-        let rela_path = gix::path::try_into_bstr(rela_path)?;
+        let rela_path = gix::path::into_bstr(rela_path)?;
         let (mut pipeline, _) = repo.filter_pipeline(None)?;
-        let mut worktree_outcome =
-            pipeline.convert_to_worktree(&data, rela_path.as_ref(), Delay::Forbid)?;
+        let mut worktree_outcome = pipeline.convert_to_worktree(
+            &data,
+            rela_path.as_ref(),
+            gix::filter::plumbing::pipeline::convert::to_worktree::Options {
+                can_delay: gix::filter::plumbing::driver::apply::Delay::Forbid,
+                ..Default::default()
+            },
+        )?;
         let mut buf = Vec::with_capacity(data.len());
         worktree_outcome.read_to_end(&mut buf)?;
         Ok(buf)
@@ -379,7 +384,7 @@ fn status_patterns(work_dir: &Path, scope: &ChangedFileScope) -> Result<Vec<BStr
             if relative.as_os_str().is_empty() {
                 Ok(Vec::new())
             } else {
-                let relative = gix::path::try_into_bstr(relative)?;
+                let relative = gix::path::into_bstr(relative)?;
                 let relative = gix::path::to_unix_separators_on_windows(relative);
                 // gix otherwise resolves this repository-relative path from the process CWD,
                 // which may already be inside `directory` and would prefix the scope twice.

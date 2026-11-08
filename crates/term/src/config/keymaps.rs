@@ -44,6 +44,10 @@ struct GitPickerAction(PickerAction);
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct StashPickerAction(PickerAction);
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct BranchPickerAction(PickerAction);
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct WorktreePickerAction(PickerAction);
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct HistoryPickerAction(PickerAction);
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct FileExplorerAction(PickerAction);
@@ -83,6 +87,8 @@ macro_rules! picker_actions {
     };
 }
 picker_actions!(GitPickerAction, { "stage" => Stage, "unstage" => Unstage, "stash" => Stash, "actions" => Actions, "stashes" => Stashes });
+picker_actions!(BranchPickerAction, {"create_branch" => CreateBranch, "delete_branch" => DeleteBranch});
+picker_actions!(WorktreePickerAction, {"create_worktree" => CreateWorktree, "remove_worktree" => RemoveWorktree});
 picker_actions!(HistoryPickerAction, {"actions" => Actions, "back" => HistoryBack});
 picker_actions!(FileExplorerAction, { "create_path" => CreatePath, "move_path" => MovePath, "copy_path" => CopyPath, "delete_path" => DeletePath, "yank_path" => YankPath });
 picker_actions!(StashPickerAction, { "apply_stash" => ApplyStash, "apply_stash_with_index" => ApplyStashWithIndex, "actions" => Actions });
@@ -99,6 +105,8 @@ pub struct Keys {
     buffer_picker: Keymap<BufferPickerAction>,
     quicklist_picker: Keymap<QuicklistPickerAction>,
     git_picker: Keymap<GitPickerAction>,
+    branch_picker: Keymap<BranchPickerAction>,
+    worktree_picker: Keymap<WorktreePickerAction>,
     stash_picker: Keymap<StashPickerAction>,
     history_picker: Keymap<HistoryPickerAction>,
     file_explorer: Keymap<FileExplorerAction>,
@@ -168,7 +176,7 @@ impl Keys {
         self,
         editor: &mut HashMap<Mode, KeyTrie>,
         components: &mut ComponentKeymaps,
-    ) -> ([Keymap<PickerAction>; 6], [Keymap<SidebarAction>; 2]) {
+    ) -> ([Keymap<PickerAction>; 8], [Keymap<SidebarAction>; 2]) {
         for (mode, keys) in [
             (Mode::Normal, self.normal),
             (Mode::Insert, self.insert),
@@ -199,6 +207,8 @@ impl Keys {
                 self.stash_picker.map_actions(|action| action.0),
                 self.history_picker.map_actions(|action| action.0),
                 self.file_explorer.map_actions(|action| action.0),
+                self.branch_picker.map_actions(|action| action.0),
+                self.worktree_picker.map_actions(|action| action.0),
             ],
             [
                 self.sidebar.map_actions(|action| action.0),
@@ -213,13 +223,15 @@ pub(super) fn resolve_keymaps(
 ) -> (HashMap<Mode, KeyTrie>, ComponentKeymaps) {
     let mut editor = keymap::default();
     let mut components = ComponentKeymaps::default();
-    let [mut buffer_overrides, mut quicklist_overrides, mut git_overrides, mut stash_overrides, mut history_overrides, mut explorer_overrides] =
+    let [mut buffer_overrides, mut quicklist_overrides, mut git_overrides, mut stash_overrides, mut history_overrides, mut explorer_overrides, mut branch_overrides, mut worktree_overrides] =
         std::array::from_fn(|_| Keymap::default());
     let mut sidebar_overrides = Keymap::default();
     let mut sidebar_filter_overrides = Keymap::default();
     for keys in configured {
-        let ([buffer, quicklist, git, stash, history, explorer], [sidebar, filter]) =
-            keys.apply(&mut editor, &mut components);
+        let (
+            [buffer, quicklist, git, stash, history, explorer, branch, worktree],
+            [sidebar, filter],
+        ) = keys.apply(&mut editor, &mut components);
         sidebar_overrides.merge(sidebar);
         sidebar_filter_overrides.merge(filter);
         buffer_overrides.merge(buffer);
@@ -228,6 +240,8 @@ pub(super) fn resolve_keymaps(
         stash_overrides.merge(stash);
         history_overrides.merge(history);
         explorer_overrides.merge(explorer);
+        branch_overrides.merge(branch);
+        worktree_overrides.merge(worktree);
     }
     // Resolve inheritance after both configuration layers: picker-specific
     // bindings take priority even over workspace changes to shared bindings.
@@ -237,6 +251,10 @@ pub(super) fn resolve_keymaps(
     components.quicklist_picker.merge(quicklist_overrides);
     components.git_picker = ComponentKeymaps::git_picker(components.picker.clone());
     components.git_picker.merge(git_overrides);
+    components.branch_picker = ComponentKeymaps::branch_picker(components.picker.clone());
+    components.branch_picker.merge(branch_overrides);
+    components.worktree_picker = ComponentKeymaps::worktree_picker(components.picker.clone());
+    components.worktree_picker.merge(worktree_overrides);
     components.stash_picker = ComponentKeymaps::stash_picker(components.picker.clone());
     components.stash_picker.merge(stash_overrides);
     components.history_picker = ComponentKeymaps::history_picker(components.picker.clone());

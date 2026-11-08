@@ -54,12 +54,7 @@ fn execute_inner(
         format!("remote.{name}.mirror"),
         format!("remote.{name}.promisor"),
     ] {
-        if config
-            .plumbing()
-            .boolean(key.as_str())
-            .transpose()?
-            .unwrap_or(false)
-        {
+        if config.plumbing().boolean(key.as_str())?.unwrap_or(false) {
             return Ok(None);
         }
     }
@@ -81,7 +76,7 @@ fn execute_inner(
         .clone();
     // gix's SSH transport forwards helper stderr directly. Keep private remote
     // output and configured askpass behavior with Git until these are controllable.
-    if matches!(url.scheme, gix::url::Scheme::Ext(_) | gix::url::Scheme::Ssh)
+    if matches!(url.scheme, gix::url::Scheme::Ext | gix::url::Scheme::Ssh)
         || config.string("core.askPass").is_some()
         || std::env::var_os("GIT_ASKPASS").is_some()
         || std::env::var_os("SSH_ASKPASS").is_some()
@@ -89,9 +84,9 @@ fn execute_inner(
         return Ok(None);
     }
     if url.scheme == gix::url::Scheme::File {
-        let path = gix::path::from_bstr(&url.path);
+        let path = gix::path::from_bstr(&url.path)?;
         if !path.is_absolute() {
-            url.path = gix::path::into_bstr(repository.root.join(path)).into_owned();
+            url.path = gix::path::into_bstr(repository.root.join(path))?.into_owned();
             upstream = upstream.with_url_without_url_rewrite(url)?;
         }
     }
@@ -106,7 +101,8 @@ fn execute_inner(
         let key = format!("branch.{}", head.shorten());
         if config
             .string(format!("{key}.remote").as_str())
-            .as_deref()
+            .as_ref()
+            .map(|value| value.as_bstr())
             .is_some_and(|remote| remote == name)
         {
             config
@@ -114,7 +110,6 @@ fn execute_inner(
                 .strings(format!("{key}.merge").as_str())
                 .unwrap_or_default()
                 .into_iter()
-                .map(|value| value.into_owned())
                 .collect()
         } else {
             Vec::new()
@@ -137,6 +132,7 @@ fn execute_inner(
         repo.git_dir().join("FETCH_HEAD"),
         gix::lock::acquire::Fail::Immediately,
         None,
+        0,
     )?;
     #[cfg(windows)]
     let connection = if upstream
@@ -148,7 +144,7 @@ fn execute_inner(
         let (mut url, version) =
             upstream.sanitized_url_and_version(gix::remote::Direction::Fetch)?;
         url.path =
-            gix::path::into_bstr(dunce::simplified(&gix::path::from_bstr(&url.path)).to_owned())
+            gix::path::into_bstr(dunce::simplified(&gix::path::from_bstr(&url.path)?).to_owned())?
                 .into_owned();
         let transport = gix::protocol::transport::client::blocking_io::connect::connect(
             url,
