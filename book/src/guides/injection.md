@@ -9,10 +9,6 @@ uses the injected language's own indentation, textobjects, and comment tokens â€
 so, for example, editing JavaScript inside an HTML `<script>` indents and
 comments as JavaScript.
 
-Markdown `php` fences can contain snippets without `<?php`. These use the PHP
-snippet grammar (`php-only`). Fences containing a PHP opening tag use the PHP
-document grammar, which also supports mixed HTML and PHP.
-
 An example of a simple query that would highlight all strings as bash in Nix:
 ```scm
 ((string_expression (string_fragment) @injection.content)
@@ -28,11 +24,7 @@ Another example is this query, which highlights links in comments and keywords l
 
 - `@injection.language` (standard):
 The captured node may contain the language name used to highlight the node captured by
-`@injection.content`. Language tags resolve first by exact language name,
-then by a configured file extension, then by the longest `injection-regex` match.
-For example, Markdown fences tagged `rust` or `rs` use Rust, and `c++` uses C++.
-This also applies to user-defined languages and other grammars that capture language tags.
-The selected language needs an installed grammar for syntax highlighting.
+`@injection.content`.
 
 - `@injection.content` (standard):
 Marks the content to be highlighted as the language captured with `@injection.language` _et al_.

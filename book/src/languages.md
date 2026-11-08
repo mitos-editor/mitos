@@ -34,6 +34,12 @@ auto-format = false
 Use the names in the [language support table](./lang-support.md).
 For example, JavaScript, JSX, TypeScript, and TSX have separate entries.
 
+## Markdown code blocks
+
+Add a language name after the opening code fence, such as `php` or `rust`,
+to highlight the code in that language. PHP blocks work with or without
+`<?php` and can include HTML.
+
 ## Project and LSP root selection
 
 Mitos usually finds the project folder automatically. A language's `roots`
