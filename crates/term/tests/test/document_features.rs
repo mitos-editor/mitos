@@ -226,6 +226,103 @@ impl Fixture {
     }
 }
 
+#[tokio::test(flavor = "multi_thread")]
+async fn terminal_links_use_resolved_server_targets_and_clear_when_a_server_detaches(
+) -> anyhow::Result<()> {
+    use term::{
+        compositor::{Compositor, DrawContext},
+        keymap::Keymaps,
+        ui::EditorView,
+    };
+    use tui::buffer::Buffer;
+
+    fn paint(fixture: &Fixture, cover: bool) -> Vec<(String, String)> {
+        let area = fixture.app.terminal_backend().buffer().area;
+        let mut compositor = Compositor::new(area);
+        compositor.push(Box::new(EditorView::new(Keymaps::new(Box::new(
+            arc_swap::access::Constant(term::keymap::default()),
+        )))));
+        let mut buffer = Buffer::empty(area);
+        let config = test_config();
+        let mut cx = DrawContext {
+            hyperlinks: Default::default(),
+            config: &config,
+            editor: &fixture.app.editor,
+            interaction: &fixture.app.interaction,
+            editor_cursor: None,
+            scroll: None,
+            is_cursor_owner: false,
+        };
+        compositor.render(area, &mut buffer, &mut cx);
+        if cover {
+            use term::compositor::Component;
+            // A real popup overlaps the first document row, including its link.
+            cx.editor_cursor = Some(text_layout::DisplayPosition::new(2, 0));
+            let mut popup = term::ui::Popup::new(
+                "link-cover",
+                term::ui::Text::new("opaque popup covering the link\nsecond row".into()),
+            )
+            .position(Some(text_layout::DisplayPosition::new(2, 0)));
+            popup.render(
+                tui::layout::Rect::new(0, 0, area.width, 3),
+                &mut buffer,
+                &mut cx,
+            );
+        }
+        let links = cx.hyperlinks.into_inner();
+        let mut linked = Vec::new();
+        for y in buffer.area.y..buffer.area.bottom() {
+            for x in buffer.area.x..buffer.area.right() {
+                if let Some(link) = links.get(x, y) {
+                    linked.push((buffer[(x, y)].symbol().to_owned(), link.uri().to_owned()));
+                }
+            }
+        }
+        linked
+    }
+
+    let dir = tempfile::tempdir()?;
+    let mut fixture = Fixture::new(&dir.path().join("links.feature-test"), "😀 label\n")?;
+    let responses = fixture.initialize().await?;
+    fixture.apply(responses);
+    let linked = paint(&fixture, false);
+    assert_eq!(
+        linked
+            .iter()
+            .map(|(glyph, _)| glyph.as_str())
+            .collect::<String>(),
+        "label"
+    );
+    assert!(linked
+        .iter()
+        .all(|(_, target)| target == "https://example.test/target"));
+    assert!(
+        paint(&fixture, true).is_empty(),
+        "popup text must not inherit covered links"
+    );
+    let (_, doc) = current!(fixture.app.editor);
+    doc.remove_language_server_by_name("document-feature-test")
+        .unwrap();
+    assert!(paint(&fixture, false).is_empty());
+    assert!(fixture.app.close().await.is_empty());
+
+    let mut unresolved = Fixture::with_options(
+        &dir.path().join("unresolved.feature-test"),
+        "😀 label\n",
+        &["document-feature-test"],
+        true,
+    )?;
+    let responses = unresolved.initialize().await?;
+    unresolved.apply(responses);
+    assert!(!current_ref!(unresolved.app.editor)
+        .1
+        .document_links()
+        .is_empty());
+    assert!(paint(&unresolved, false).is_empty());
+    assert!(unresolved.app.close().await.is_empty());
+    Ok(())
+}
+
 const ALL: &[Feature] = &[
     Feature::Lenses,
     Feature::Colors,

@@ -30,6 +30,15 @@ pub use ratatui::backend::Backend;
 
 /// Terminal-session operations which are intentionally outside Ratatui's rendering backend.
 pub trait BackendExt {
+    /// Supplies the final hyperlink layer for the next cell diff. Backends that
+    /// do not emit terminal escapes may ignore it.
+    fn set_hyperlinks(
+        &mut self,
+        _links: ui_core::hyperlinks::HyperlinkBuffer,
+        _buffer: &ratatui::buffer::Buffer,
+    ) {
+    }
+
     /// Claims the terminal for TUI use.
     fn claim(&mut self) -> Result<(), io::Error>;
     /// Updates terminal configuration while the backend owns the terminal.

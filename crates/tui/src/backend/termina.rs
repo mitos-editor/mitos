@@ -95,6 +95,7 @@ enum KittyKeyboardSupport {
 
 #[derive(Debug)]
 pub struct TerminaBackend {
+    hyperlinks: super::output::HyperlinkState,
     terminal: PlatformTerminal,
     config: Config,
     capabilities: Capabilities,
@@ -263,6 +264,7 @@ impl TerminaBackend {
         });
 
         Ok(Self {
+            hyperlinks: Default::default(),
             terminal,
             config,
             capabilities,
@@ -415,6 +417,7 @@ impl TerminaBackend {
 
 impl TerminaBackend {
     fn claim(&mut self) -> io::Result<()> {
+        self.hyperlinks = Default::default();
         self.terminal.enter_raw_mode()?;
         self.claimed = true;
 
@@ -463,6 +466,7 @@ impl TerminaBackend {
         if !self.claimed {
             return Ok(());
         }
+        self.terminal.write_all(b"\x1b]8;;\x1b\\")?;
         self.disable_extensions()?;
         self.disable_mouse_capture()?;
         write!(
@@ -492,6 +496,9 @@ impl TerminaBackend {
         let mut underline_color = RatatuiColor::Reset;
         let mut underline_style = UnderlineStyle::Reset;
         let mut modifier = Modifier::empty();
+        let extra = std::mem::take(&mut self.hyperlinks.updates);
+        let content = super::output::merge_updates(content, &extra);
+        let mut hyperlink = super::output::HyperlinkWriter::default();
         let mut last_pos: Option<(u16, u16)> = None;
         for (x, y, cell) in content {
             // Move the cursor if the previous location was not (x - 1, y)
@@ -562,9 +569,11 @@ impl TerminaBackend {
                 )?;
             }
 
+            hyperlink.set(&mut self.terminal, self.hyperlinks.links.get(x, y))?;
             write!(self.terminal, "{}", cell.symbol())?;
         }
 
+        hyperlink.set(&mut self.terminal, None)?;
         write!(self.terminal, "{}", Csi::Sgr(csi::Sgr::Reset))?;
 
         Ok(())
@@ -749,6 +758,14 @@ impl Backend for TerminaBackend {
 }
 
 impl BackendExt for TerminaBackend {
+    fn set_hyperlinks(
+        &mut self,
+        links: ui_core::hyperlinks::HyperlinkBuffer,
+        buffer: &ratatui::buffer::Buffer,
+    ) {
+        self.hyperlinks.prepare(links, buffer);
+    }
+
     fn claim(&mut self) -> io::Result<()> {
         TerminaBackend::claim(self)
     }

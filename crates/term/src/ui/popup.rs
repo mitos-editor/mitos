@@ -377,6 +377,7 @@ impl<T: Component> Component for Popup<T> {
         } else {
             cx.editor.theme.get("ui.popup")
         };
+        cx.hyperlinks.borrow_mut().clear(area);
         surface.clear_with(area, background);
 
         let mut inner = area;

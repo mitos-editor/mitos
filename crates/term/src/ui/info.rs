@@ -26,6 +26,7 @@ pub(super) fn render(info: &Info, viewport: Rect, surface: &mut Surface, cx: &Dr
         Layout::horizontal([Constraint::Min(0), Constraint::Length(width)]).areas(viewport);
     let [_top, area] =
         Layout::vertical([Constraint::Min(0), Constraint::Length(height)]).areas(area);
+    cx.hyperlinks.borrow_mut().clear(area);
     surface.clear_with(area, popup_style);
 
     let block = panel::horizontally_padded(

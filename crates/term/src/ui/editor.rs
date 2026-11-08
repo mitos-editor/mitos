@@ -850,6 +850,7 @@ impl Component for EditorView {
                 true_color: cx.config.terminal.true_color || crate::true_color(),
                 selected_register: cx.interaction.selected_register,
             },
+            &mut cx.hyperlinks.borrow_mut(),
         );
 
         if let Some(sidebar_area) = sidebar_area {
@@ -915,6 +916,7 @@ impl Component for EditorView {
         // A message replaces the whole statusline; transient indicators replace only
         // their own cells so an idle command line leaves the statusline visible.
         if overlay && cx.editor.status_msg.is_some() {
+            cx.hyperlinks.borrow_mut().clear(layout.commandline);
             surface.clear_with(layout.commandline, background);
         }
 
@@ -951,6 +953,7 @@ impl Component for EditorView {
                 .unwrap_or(&disp);
             if !overlay || !disp.is_empty() {
                 if overlay {
+                    cx.hyperlinks.borrow_mut().clear(pending_area);
                     surface.clear_with(pending_area, background);
                 }
                 Paragraph::new(disp)
@@ -961,6 +964,7 @@ impl Component for EditorView {
 
             if restricted {
                 if overlay {
+                    cx.hyperlinks.borrow_mut().clear(trust_area);
                     surface.clear_with(trust_area, background);
                 }
                 let style = style
@@ -972,6 +976,7 @@ impl Component for EditorView {
             }
             if let Some((reg, _)) = cx.interaction.macro_recording {
                 if overlay {
+                    cx.hyperlinks.borrow_mut().clear(macro_area);
                     surface.clear_with(macro_area, background);
                 }
                 let disp = format!("[{}]", reg);

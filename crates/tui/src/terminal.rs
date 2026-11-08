@@ -37,9 +37,22 @@ where
     B: crate::backend::Backend + crate::backend::BackendExt,
     B::Error: std::error::Error + Send + Sync + 'static,
 {
+    draw_with_hyperlinks(terminal, |buffer| (render(buffer), Default::default()))
+}
+
+/// Apply the final hyperlink layer as part of the same incremental frame.
+/// Metadata changes repaint cells even when their glyph and style are unchanged.
+pub fn draw_with_hyperlinks<B>(
+    terminal: &mut ratatui::Terminal<B>,
+    render: impl FnOnce(&mut ratatui::buffer::Buffer) -> (Cursor, ui_core::hyperlinks::HyperlinkBuffer),
+) -> std::io::Result<()>
+where
+    B: crate::backend::Backend + crate::backend::BackendExt,
+    B::Error: std::error::Error + Send + Sync + 'static,
+{
     terminal.autoresize().map_err(std::io::Error::other)?;
     let buffer = terminal.current_buffer_mut();
-    let mut cursor = render(buffer);
+    let (mut cursor, links) = render(buffer);
     let position = match cursor {
         Cursor::Hidden => None,
         Cursor::Software(pos) | Cursor::Native(pos, _) => Some(pos),
@@ -47,6 +60,11 @@ where
     if position.is_some_and(|pos| !buffer.area.contains(pos)) {
         cursor = Cursor::Hidden;
     }
+    // Temporarily move the buffer out to borrow the backend independently. No
+    // cells are copied; the buffer is restored before Ratatui computes its diff.
+    let buffer = std::mem::take(terminal.current_buffer_mut());
+    terminal.backend_mut().set_hyperlinks(links, &buffer);
+    *terminal.current_buffer_mut() = buffer;
     let native_position = if let Cursor::Native(pos, kind) = cursor {
         terminal.backend_mut().set_cursor_kind(kind)?;
         Some(pos)

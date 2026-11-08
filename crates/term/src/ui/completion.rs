@@ -454,6 +454,7 @@ impl Component for Completion {
 
         // clear area
         let background = cx.editor.theme.get("ui.popup");
+        cx.hyperlinks.borrow_mut().clear(doc_area);
         surface.clear_with(doc_area, background);
 
         use tui::widgets::Widget;

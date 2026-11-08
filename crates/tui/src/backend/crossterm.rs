@@ -105,6 +105,7 @@ impl Capabilities {
 
 /// Terminal backend supporting a wide variety of terminals
 pub struct CrosstermBackend<W: Write> {
+    hyperlinks: super::output::HyperlinkState,
     buffer: W,
     config: Config,
     capabilities: Capabilities,
@@ -123,6 +124,7 @@ where
         // this behaviour.
         crossterm::style::force_color_output(true);
         CrosstermBackend {
+            hyperlinks: Default::default(),
             buffer,
             capabilities: Capabilities::from_env_or_default(&config),
             config,
@@ -168,6 +170,7 @@ where
     W: Write,
 {
     fn claim(&mut self) -> io::Result<()> {
+        self.hyperlinks = Default::default();
         terminal::enable_raw_mode()?;
         execute!(
             self.buffer,
@@ -214,6 +217,7 @@ where
     }
 
     fn restore(&mut self) -> io::Result<()> {
+        self.buffer.write_all(b"\x1b]8;;\x1b\\")?;
         // reset cursor shape
         self.buffer
             .write_all(self.capabilities.reset_cursor_command.as_bytes())?;
@@ -243,6 +247,9 @@ where
         let mut underline_color = Color::Reset;
         let mut underline_style = UnderlineStyle::Reset;
         let mut modifier = Modifier::empty();
+        let extra = std::mem::take(&mut self.hyperlinks.updates);
+        let content = super::output::merge_updates(content, &extra);
+        let mut hyperlink = super::output::HyperlinkWriter::default();
         let mut last_pos: Option<(u16, u16)> = None;
         for (x, y, cell) in content {
             // Move the cursor if the previous location was not (x - 1, y)
@@ -291,9 +298,11 @@ where
                 underline_style = new_underline_style;
             }
 
+            hyperlink.set(&mut self.buffer, self.hyperlinks.links.get(x, y))?;
             queue!(self.buffer, Print(cell.symbol()))?;
         }
 
+        hyperlink.set(&mut self.buffer, None)?;
         queue!(
             self.buffer,
             SetUnderlineColor(CColor::Reset),
@@ -422,6 +431,14 @@ impl<W> BackendExt for CrosstermBackend<W>
 where
     W: Write,
 {
+    fn set_hyperlinks(
+        &mut self,
+        links: ui_core::hyperlinks::HyperlinkBuffer,
+        buffer: &ratatui::buffer::Buffer,
+    ) {
+        self.hyperlinks.prepare(links, buffer);
+    }
+
     fn claim(&mut self) -> io::Result<()> {
         CrosstermBackend::claim(self)
     }

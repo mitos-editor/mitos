@@ -103,6 +103,7 @@ impl<T: Item> Component for Select<T> {
         // Message
         let background = cx.editor.theme.get("ui.background");
         let text = cx.editor.theme.get("ui.text");
+        cx.hyperlinks.borrow_mut().clear(message_box);
         surface.clear_with(message_box, background.patch(text));
         let block = panel::horizontally_padded(&cx.editor.theme, cx.editor.config().border_style);
         let message_area = block.inner(message_box);
