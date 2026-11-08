@@ -278,7 +278,7 @@
 | Key | Description | Command |
 | --- | --- | --- |
 | `` <space>f `` | Open file picker | `` file_picker `` |
-| `` <space>F `` | Open file picker at current working directory | `` file_picker_in_current_directory `` |
+| `` <space>F `` | Open file picker at current buffer's directory | `` file_picker_in_current_buffer_directory `` |
 | `` <space>e `` | Open file explorer in workspace root | `` file_explorer `` |
 | `` <space>E `` | Open file explorer at current buffer's directory | `` file_explorer_in_current_buffer_directory `` |
 | `` <space>b `` | Open buffer picker | `` buffer_picker `` |
