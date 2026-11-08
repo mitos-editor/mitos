@@ -844,6 +844,7 @@ impl Default for StatusLineConfig {
                 E::Diagnostics,
                 E::Selections,
                 E::Register,
+                E::SearchPosition,
                 E::Position,
                 E::FileEncoding,
             ],
@@ -2025,6 +2026,6 @@ mod tests {
         for value in ["-1", "'unlimited'", "true", "1.5"] {
             assert!(toml::from_str::<Config>(&format!("[search]\nmax-matches = {value}")).is_err());
         }
-        assert!(!Config::default().statusline.shows_search_position());
+        assert!(Config::default().statusline.shows_search_position());
     }
 }

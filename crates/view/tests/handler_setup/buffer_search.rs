@@ -60,6 +60,7 @@ fn search(fixture: &mut Fixture, pattern: &str, count: usize) -> anyhow::Result<
 async fn statistics_are_optional_and_reused_across_recompiled_queries_and_counted_navigation(
 ) -> anyhow::Result<()> {
     let mut disabled = Fixture::new("one one one\n")?;
+    disabled.configure(|config| config.statusline.right.clear());
     search(&mut disabled, "one", 1)?;
     assert_eq!(position(&disabled), None);
 
