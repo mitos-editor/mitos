@@ -9,10 +9,13 @@ default-theme = "light"
 preferred-dark-theme = "colibri"
 git-repository-url = "https://github.com/mitos-editor/mitos"
 edit-url-template = "https://github.com/mitos-editor/mitos/edit/main/book/{path}"
-additional-css = ["custom.css"]
+additional-css = ["brand.css", "custom.css"]
 additional-js = ["ts-query.js", "page-toc.js"]
 no-section-label = true
 sidebar-header-nav = false
+
+[output.html.print]
+enable = false
 
 [output.html.search]
 use-boolean-and = true

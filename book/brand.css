@@ -1,0 +1,13 @@
+/* Mitos icon palette, shared by the homepage and documentation. */
+:root {
+  --brand-cyan: #8dfafa;
+  --brand-aqua: #76e5f5;
+  --brand-blue: #65b9f7;
+  --brand-indigo: #7475fa;
+  --brand-violet: #9642f3;
+  --brand-purple: #bc22ee;
+
+  /* Deepen the icon's blue for readable accents on light surfaces. */
+  --brand-accent-light: color-mix(in srgb, var(--brand-blue) 60%, #000);
+  --brand-accent-dark: var(--brand-blue);
+}

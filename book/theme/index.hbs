@@ -19,11 +19,11 @@
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <meta name="theme-color" content="#ffffff">
 
-        {{#if favicon_svg}}
-        <link rel="icon" href="{{ resource "favicon.svg" }}">
-        {{/if}}
         {{#if favicon_png}}
-        <link rel="shortcut icon" href="{{ resource "favicon.png" }}">
+        <link rel="icon" href="{{ resource "favicon.png" }}" type="image/png" sizes="64x64">
+        {{/if}}
+        {{#if favicon_svg}}
+        <link rel="icon" href="{{ resource "favicon.svg" }}" type="image/svg+xml" sizes="any">
         {{/if}}
         <link rel="stylesheet" href="{{ resource "css/variables.css" }}">
         <link rel="stylesheet" href="{{ resource "css/general.css" }}">
@@ -149,14 +149,9 @@
                 </button>
                 <ul id="mdbook-theme-list" class="theme-popup" aria-label="Themes" role="menu">
                     <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-default_theme">Auto</button></li>
-                    <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-light">Modus Operandi (light)</button></li>
-                    <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-colibri">Modus Vivendi (dark)</button></li>
+                    <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-light">Light</button></li>
+                    <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-colibri">Dark</button></li>
                 </ul>
-                {{#if print_enable}}
-                <a href="{{ path_to_root }}print.html" title="Print this book" aria-label="Print this book">
-                    {{fa "solid" "print" "print-button"}}
-                </a>
-                {{/if}}
                 {{#if git_repository_url}}
                 <a href="{{git_repository_url}}" title="Git repository" aria-label="Git repository">
                     {{fa git_repository_icon_class git_repository_icon}}

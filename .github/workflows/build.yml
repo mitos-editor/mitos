@@ -6,7 +6,8 @@ on:
       - 'docs/**'
       - 'website/**'
       - '*.md'
-      - 'screenshot.png'
+      - 'assets/**'
+      - 'Mitos.icon/**'
   push:
     branches:
       - main

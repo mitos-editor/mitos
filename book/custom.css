@@ -20,11 +20,17 @@ html:not(.js) {
   --surface-hover: #e0e0e0;
   --muted: #595959;
   --border: #c4c4c4;
-  --links: #3548cf;
+  --links: var(--brand-accent-light);
   --success: #006800;
   --warning-color: #6f5500;
   --danger: #a60000;
   --shadow: rgb(0 0 0 / 16%);
+  --inline-code-bg: rgb(0 0 0 / 5%);
+  --panel-bg: var(--bg);
+  --panel-edge-top: rgb(0 0 0 / 5%);
+  --panel-edge-bottom: rgb(0 0 0 / 14%);
+  --panel-shadow: 0 1px 1px rgb(0 0 0 / 3%),
+    0 2px 2px -1px rgb(0 0 0 / 3%), 0 4px 6px -3px rgb(0 0 0 / 5%);
 }
 
 .colibri {
@@ -35,11 +41,17 @@ html:not(.js) {
   --surface-hover: #303030;
   --muted: #989898;
   --border: #535353;
-  --links: #79a8ff;
+  --links: var(--brand-accent-dark);
   --success: #44bc44;
   --warning-color: #d0bc00;
   --danger: #ff5f59;
   --shadow: rgb(0 0 0 / 55%);
+  --inline-code-bg: rgb(255 255 255 / 7%);
+  --panel-bg: var(--surface);
+  --panel-edge-top: rgb(255 255 255 / 18%);
+  --panel-edge-bottom: rgb(255 255 255 / 6%);
+  --panel-shadow: 0 1px 1px rgb(0 0 0 / 20%),
+    0 2px 2px -1px rgb(0 0 0 / 20%), 0 4px 6px -3px rgb(0 0 0 / 24%);
 }
 
 /* Map mdBook and component colors to the same palette in both themes. */
@@ -49,24 +61,24 @@ html:not(.js) {
   --full-contrast: var(--fg);
   --title-color: var(--fg);
   --border-light: var(--surface-hover);
-  --border-hover: var(--muted);
+  --border-hover: var(--links);
   --border-footer: var(--border-light);
 
   --media-bg: var(--surface);
-  --chrome-bg: var(--surface);
-  --sidebar-bg: var(--surface);
+  --chrome-bg: var(--bg);
+  --sidebar-bg: var(--bg);
   --sidebar-fg: var(--fg);
   --sidebar-non-existant: var(--muted);
   --sidebar-non-existent: var(--muted);
-  --sidebar-active: var(--fg);
-  --sidebar-item-hover-bg: var(--surface-hover);
-  --sidebar-active-bg: var(--surface-hover);
+  --sidebar-active: var(--links);
+  --sidebar-item-hover-bg: color-mix(in srgb, var(--links) 6%, var(--bg));
+  --sidebar-active-bg: color-mix(in srgb, var(--links) 10%, var(--bg));
   --sidebar-spacer: var(--border-light);
   --sidebar-mobile-shadow: 0 16px 32px var(--shadow);
 
   --scrollbar: var(--border);
   --icons: var(--muted);
-  --icons-hover: var(--fg);
+  --icons-hover: var(--links);
   --icon-btn-bg-hover: var(--surface-hover);
 
   --link-line-decoration: color-mix(in srgb, var(--links) 40%, transparent);
@@ -90,9 +102,9 @@ html:not(.js) {
   --warning-border: var(--warning-color);
 
   --table-border-color: var(--border);
-  --table-header-bg: var(--surface);
-  --table-alternate-bg: var(--bg);
-  --table-border-line: var(--border-light);
+  --table-header-bg: var(--panel-bg);
+  --table-alternate-bg: transparent;
+  --table-border-line: color-mix(in srgb, var(--fg) 8%, transparent);
 
   --searchbar-border-color: var(--border);
   --searchbar-bg: var(--bg);
@@ -122,7 +134,7 @@ html {
 }
 
 code {
-  font-family: inherit !important;
+  font-family: var(--mono-font) !important;
 }
 
 strong {
@@ -161,7 +173,7 @@ input:focus-visible {
   padding: 0 16px;
   box-sizing: border-box;
   background-color: var(--chrome-bg);
-  border-bottom: 1px solid var(--border-light);
+  border: 0;
 }
 
 #mdbook-menu-bar .left-buttons,
@@ -225,11 +237,8 @@ input:focus-visible {
   align-items: center;
   gap: 8px;
   width: 100%;
-  height: 30px;
-  padding: 0 6px 0 10px;
-  border: 1px solid var(--table-border-color);
-  border-radius: 4px;
-  background: var(--code-bg);
+  height: 34px;
+  padding: 0 8px 0 12px;
   color: var(--icons);
   font: inherit;
   font-size: 1.3rem;
@@ -238,7 +247,6 @@ input:focus-visible {
 
 .search-button:hover {
   border-color: var(--border-hover);
-  background: var(--theme-hover);
   color: var(--icons-hover);
 }
 
@@ -250,6 +258,10 @@ input:focus-visible {
 
 .search-button kbd {
   padding: 2px 5px 3px;
+  border: 0;
+  background-color: var(--inline-code-bg);
+  box-shadow: none;
+  font-family: var(--mono-font);
   font-size: 1.1rem;
   line-height: 1;
 }
@@ -266,7 +278,7 @@ input:focus-visible {
   top: var(--menu-bar-height);
   width: var(--sidebar-width);
   background-color: transparent;
-  border-right: 0;
+  border: 0;
 }
 
 .sidebar .sidebar-scrollbox {
@@ -521,10 +533,21 @@ input:focus-visible {
   padding-left: 14px;
 }
 
+/* Soft panel edges and depth, following the Rex documentation's treatment. */
+.table-wrapper,
+pre,
+.search-button,
+.mobile-nav-chapters,
+#mdbook-searchbar {
+  border: 1px solid transparent;
+  border-radius: 12px;
+  background: linear-gradient(var(--panel-bg), var(--panel-bg)) padding-box,
+    linear-gradient(to bottom, var(--panel-edge-top), var(--panel-edge-bottom)) border-box;
+  box-shadow: var(--panel-shadow);
+}
+
 .table-wrapper {
   margin: 1.8rem 0 2.2rem;
-  border: 1px solid var(--table-border-color);
-  border-radius: 6px;
 }
 
 table {
@@ -543,20 +566,21 @@ table thead tr {
   border: 0;
 }
 
-table th,
+table thead th,
 table td {
-  padding: 6px 12px;
+  padding: 9px 16px;
   border: 0;
   text-align: left;
   vertical-align: top;
 }
 
-table th {
-  color: var(--fg);
-  font-weight: 600;
+table thead th {
+  border-bottom: 1px solid color-mix(in srgb, var(--fg) 14%, transparent);
+  color: var(--muted);
+  font-weight: 500;
 }
 
-table tbody tr {
+table tbody tr+tr {
   border-top: 1px solid var(--table-border-line);
 }
 
@@ -585,18 +609,17 @@ kbd {
   font-family: inherit;
 }
 
-:not(pre)>.hljs {
-  padding: .12em .35em;
-  border-radius: 3px;
+.content :not(pre)>code {
+  padding: .1em .35em;
+  border-radius: 4px;
   color: var(--inline-code-color);
-  background-color: var(--code-bg);
+  background-color: var(--inline-code-bg);
+  letter-spacing: 0;
+  overflow-wrap: break-word;
 }
 
 pre {
   margin: 1.8rem 0 2.2rem;
-  border: 1px solid var(--pre-border);
-  border-radius: 4px;
-  background-color: var(--pre-bg);
 }
 
 pre,
@@ -604,16 +627,46 @@ pre code {
   font-family: var(--mono-font) !important;
 }
 
-pre code.hljs {
+pre>code {
   display: block;
   overflow-x: auto;
-  padding: 1.2rem;
+  padding: 1rem 4.6rem 1rem 1.6rem;
+  border-radius: inherit;
   background: transparent;
+  font-size: 1.3rem;
+  line-height: 1.6;
+}
+
+pre>.buttons {
+  top: .6rem;
+  right: .6rem;
+  padding: 0;
+  visibility: visible;
+  opacity: 1;
 }
 
 pre>.buttons button {
-  border-color: var(--border);
-  background-color: var(--popover-bg);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background-color: var(--panel-bg);
+  color: var(--muted);
+  font-size: 1.4rem;
+}
+
+pre>.buttons button.clip-button {
+  padding: 0;
+}
+
+pre>.buttons button:hover {
+  color: var(--fg);
+  background-color: var(--surface-hover);
 }
 
 #mdbook-search-wrapper:not(.hidden) {
@@ -640,7 +693,18 @@ pre>.buttons button {
 
 #mdbook-searchbar {
   margin: 0;
-  border-radius: 4px;
+  font: inherit;
+  font-size: 1.4rem;
+}
+
+#mdbook-searchbar:focus,
+#mdbook-searchbar.active {
+  box-shadow: var(--panel-shadow);
+}
+
+#mdbook-searchbar:focus-visible {
+  outline: 2px solid var(--links);
+  outline-offset: 2px;
 }
 
 #mdbook-searchresults-outer {
@@ -671,9 +735,6 @@ pre>.buttons button {
   width: auto;
   padding: 0 12px;
   box-sizing: border-box;
-  border: 1px solid var(--table-border-color);
-  border-radius: 5px;
-  background-color: var(--table-alternate-bg);
   color: var(--links);
   font-size: 1.3rem;
   text-decoration: none;
@@ -681,7 +742,6 @@ pre>.buttons button {
 
 .mobile-nav-chapters:hover {
   border-color: var(--border-hover);
-  background-color: var(--theme-hover);
 }
 
 .mobile-nav-chapters.next {
