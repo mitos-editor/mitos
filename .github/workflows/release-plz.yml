@@ -34,7 +34,7 @@ jobs:
         uses: release-plz/action@f67a7e724bdad4a0f6875f186060a0ca2770d76c # v0.5.147
         with:
           command: release-pr
-          version: '0.3.169'
+          version: '0.4.3'
         env:
           GITHUB_TOKEN: ${{ secrets.RELEASE_PAT }}
 
@@ -42,6 +42,6 @@ jobs:
         uses: release-plz/action@f67a7e724bdad4a0f6875f186060a0ca2770d76c # v0.5.147
         with:
           command: release
-          version: '0.3.169'
+          version: '0.4.3'
         env:
           GITHUB_TOKEN: ${{ secrets.RELEASE_PAT }}
