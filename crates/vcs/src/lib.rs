@@ -95,6 +95,22 @@ pub struct RepositoryWatches {
     pub files: Vec<PathBuf>,
 }
 
+fn collect_repository_watches<'a>(
+    paths: impl IntoIterator<Item = (&'a Path, bool)>,
+    mut inspect: impl FnMut(&Path, bool) -> RepositoryWatches,
+) -> RepositoryWatches {
+    let mut seen = std::collections::BTreeSet::new();
+    let mut watches = RepositoryWatches::default();
+    for (path, trusted) in paths {
+        if seen.insert((path, trusted)) {
+            let inputs = inspect(path, trusted);
+            watches.paths.extend(inputs.paths);
+            watches.files.extend(inputs.files);
+        }
+    }
+    watches
+}
+
 impl DiffProviderRegistry {
     /// Read one provider's independent decorations with one discovery and current trust/configuration.
     /// Binary documents skip blob reads and worktree filters.
@@ -122,6 +138,17 @@ impl DiffProviderRegistry {
             }
         }
         watches
+    }
+
+    /// Combine watch inputs for one refresh, inspecting each directory and trust pair once.
+    /// Entries never survive this call, so configuration and trust changes are read afresh.
+    pub fn repository_watches_for_paths<'a>(
+        &self,
+        paths: impl IntoIterator<Item = (&'a Path, bool)>,
+    ) -> RepositoryWatches {
+        collect_repository_watches(paths, |path, trusted| {
+            self.repository_watches(path, trusted)
+        })
     }
 
     /// Enumerate changed files on a blocking worker. Returning false stops iteration.

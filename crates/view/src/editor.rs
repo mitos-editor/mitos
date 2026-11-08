@@ -806,16 +806,14 @@ impl Editor {
     pub fn refresh_vcs_watches(&mut self) {
         use crate::file_watcher::Demand;
         let watch_vcs = self.config().files.watch.watch_vcs;
-        let mut workspace = Demand::default();
+        let mut repositories = Vec::new();
         if watch_vcs {
             let root = self.workspace.root();
             let trusted = self
                 .workspace_trust
                 .query(root, workspace::trust::TrustQuery::Git)
                 .is_trusted();
-            let watches = self.diff_providers.repository_watches(root, trusted);
-            workspace.metadata = watches.paths;
-            workspace.files = watches.files;
+            repositories.push((root.to_owned(), trusted));
         }
         let documents = self
             .documents
@@ -839,14 +837,22 @@ impl Editor {
                         .workspace_trust
                         .query(root, workspace::trust::TrustQuery::Git)
                         .is_trusted();
-                    let watches = self.diff_providers.repository_watches(path, trusted);
-                    workspace.metadata.extend(watches.paths);
-                    workspace.files.extend(watches.files);
+                    repositories.push((path.to_owned(), trusted));
                 }
                 (doc.id(), demand)
             })
             .filter(|(_, demand)| !demand.is_empty())
             .collect();
+        let watches = self.diff_providers.repository_watches_for_paths(
+            repositories
+                .iter()
+                .map(|(path, trusted)| (path.as_path(), *trusted)),
+        );
+        let workspace = Demand {
+            metadata: watches.paths,
+            files: watches.files,
+            ..Demand::default()
+        };
         self.file_watcher.set_document_demands(workspace, documents);
     }
 
