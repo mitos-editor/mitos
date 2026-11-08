@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 512 512">
+  <defs>
+    <radialGradient id="m" cx="1" cy="0" r="1.41421356" gradientUnits="objectBoundingBox">
+      <stop offset="0" stop-color="#8dfafa" />
+      <stop offset="0.2" stop-color="#76e5f5" />
+      <stop offset="0.4" stop-color="#65b9f7" />
+      <stop offset="0.6" stop-color="#7475fa" />
+      <stop offset="0.8" stop-color="#9642f3" />
+      <stop offset="1" stop-color="#bc22ee" />
+    </radialGradient>
+  </defs>
+  <rect width="512" height="512" fill="url(#m)" />
+</svg>

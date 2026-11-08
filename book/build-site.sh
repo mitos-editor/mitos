@@ -13,6 +13,7 @@ rm -rf "$site_dir/.build"
 
 cp "$book_dir/homepage/index.html" "$site_dir/index.html"
 cp "$book_dir/homepage/landing.css" "$site_dir/landing.css"
+cp "$book_dir/brand.css" "$site_dir/brand.css"
 cp "$book_dir/homepage/404.html" "$site_dir/404.html"
 cp "$book_dir/theme/favicon.svg" "$site_dir/favicon.svg"
 cp "$book_dir/theme/favicon.png" "$site_dir/favicon.png"

@@ -16,7 +16,8 @@ let
     fs.unions [
       ./.envrc
       ./rustfmt.toml
-      ./screenshot.png
+      ./Mitos.icon
+      ./assets
       ./book
       ./docs
       ./runtime

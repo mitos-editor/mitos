@@ -5,7 +5,7 @@
   --foreground: #111;
   --muted: #626262;
   --border: #d8d8d8;
-  --accent: #5057c8;
+  --accent: var(--brand-accent-light);
   --accent-foreground: #fff;
   font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   text-rendering: geometricPrecision;
@@ -19,7 +19,7 @@
     --foreground: #f5f5f5;
     --muted: #aaa;
     --border: #292929;
-    --accent: #a7adff;
+    --accent: var(--brand-accent-dark);
     --accent-foreground: #10111a;
   }
 }
@@ -82,7 +82,7 @@ footer a {
 
 .site-header nav a:hover,
 footer a:hover {
-  color: var(--foreground);
+  color: var(--accent);
 }
 
 .hero {
@@ -176,6 +176,7 @@ h1 {
 
 .feature-row:hover h3,
 .feature-row:focus-visible h3 {
+  color: var(--accent);
   text-decoration: underline;
   text-underline-offset: 0.2em;
 }
@@ -225,7 +226,7 @@ footer span {
 }
 
 a:focus-visible {
-  outline: 3px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  outline: 3px solid var(--accent);
   outline-offset: 3px;
 }
 
