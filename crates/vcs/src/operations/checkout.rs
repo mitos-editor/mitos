@@ -22,19 +22,135 @@ fn entries(index: &gix::index::File) -> Entries {
 
 impl PreparedOperation {
     pub(super) fn switch_branch(&self, name: &str) -> Result<()> {
+        self.checkout(name, None).map(|_| ())
+    }
+
+    /// Return false before mutation when Git must handle an unsupported index or submodule.
+    pub(super) fn fast_forward(
+        &self,
+        name: &str,
+        expected: Option<gix::ObjectId>,
+        target: gix::ObjectId,
+    ) -> Result<bool> {
+        self.checkout(name, Some((expected, target)))
+    }
+
+    fn checkout(
+        &self,
+        name: &str,
+        fast_forward: Option<(Option<gix::ObjectId>, gix::ObjectId)>,
+    ) -> Result<bool> {
         let mut repo = self.repository.open_read(true)?;
         repo.committer_or_set_generic_fallback()?;
         let refname: gix::refs::FullName = format!("refs/heads/{name}").try_into()?;
         let head: gix::refs::Target = repo.find_reference("HEAD")?.target().into();
-        if head == gix::refs::Target::Symbolic(refname.clone()) {
-            return Ok(());
-        }
-        branch::ensure_branch_unused(&repo, refname.as_ref())?;
-        let mut branch = repo.find_reference(refname.as_ref())?;
-        let target_ref: gix::refs::Target = branch.target().into();
-        let target_tree = branch.peel_to_commit()?.tree_id()?.detach();
+        let (target_tree, edits) = if let Some((expected, target)) = fast_forward {
+            ensure!(
+                head == gix::refs::Target::Symbolic(refname.clone())
+                    && repository::current_head(&repo)? == expected
+                    && repo.state().is_none(),
+                "Git branch or HEAD changed during fetch; retry pull"
+            );
+            // Preserve Git's hook execution and signature verification until the native
+            // checkout can provide those semantics as well.
+            let config = repo.config_snapshot();
+            if config.string("core.hooksPath").is_some()
+                || config.boolean("merge.verifySignatures").unwrap_or(false)
+                || ["post-merge", "reference-transaction"]
+                    .iter()
+                    .any(|name| repo.common_dir().join("hooks").join(name).exists())
+            {
+                return Ok(false);
+            }
+            if let Some(current) = expected {
+                let base = repo.merge_base(current, target)?.map(|id| id.detach());
+                if base == Some(target) {
+                    let index = repo.index_or_empty()?;
+                    if !index::can_write(&repo, &index) {
+                        return Ok(false);
+                    }
+                    self.ensure_current()?;
+                    // Git records an undo point even when already up to date. Lock
+                    // unchanged HEAD and its branch too, so a concurrent switch or
+                    // ref update cannot publish an undo point for a different branch.
+                    repo.edit_references([
+                        RefEdit::update(
+                            "HEAD".try_into()?,
+                            head.clone(),
+                            PreviousValue::MustExistAndMatch(head),
+                            "",
+                        ),
+                        RefEdit::update(
+                            refname,
+                            current,
+                            PreviousValue::MustExistAndMatch(current.into()),
+                            "",
+                        ),
+                        RefEdit::update(
+                            "ORIG_HEAD".try_into()?,
+                            current,
+                            PreviousValue::Any,
+                            "pull: already up to date",
+                        ),
+                    ])?;
+                    return Ok(true);
+                }
+                ensure!(
+                    base == Some(current),
+                    "Pull requires a fast-forward; branches have diverged"
+                );
+            }
+            let message = "pull: fast-forward";
+            // Dereferencing HEAD locks both HEAD and the branch, and writes both reflogs.
+            let mut edits = vec![RefEdit::update(
+                "HEAD".try_into()?,
+                target,
+                expected.map_or(PreviousValue::MustNotExist, |id| {
+                    PreviousValue::MustExistAndMatch(id.into())
+                }),
+                message,
+            )
+            .with_deref(true)];
+            if let Some(previous) = expected {
+                edits.push(RefEdit::update(
+                    "ORIG_HEAD".try_into()?,
+                    previous,
+                    PreviousValue::Any,
+                    message,
+                ));
+            }
+            (repo.find_commit(target)?.tree_id()?.detach(), edits)
+        } else {
+            if head == gix::refs::Target::Symbolic(refname.clone()) {
+                return Ok(true);
+            }
+            branch::ensure_branch_unused(&repo, refname.as_ref())?;
+            let mut branch = repo.find_reference(refname.as_ref())?;
+            let target_ref: gix::refs::Target = branch.target().into();
+            let tree = branch.peel_to_commit()?.tree_id()?.detach();
+            let edits = vec![
+                RefEdit::update(
+                    "HEAD".try_into()?,
+                    gix::refs::Target::Symbolic(refname.clone()),
+                    PreviousValue::MustExistAndMatch(head),
+                    format!("checkout: moving to {name}"),
+                )
+                .with_deref(false),
+                RefEdit::update(
+                    refname.clone(),
+                    target_ref.clone(),
+                    PreviousValue::MustExistAndMatch(target_ref),
+                    "",
+                )
+                .with_deref(false),
+            ];
+            (tree, edits)
+        };
         let mut target = repo.index_from_tree(&target_tree)?;
         let original = repo.index_or_empty()?;
+        if fast_forward.is_some() && !index::can_write(&repo, &original) {
+            return Ok(false);
+        }
         ensure!(
             index::can_write(&repo, &original),
             "Resolve index conflicts or disable sparse checkout before switching branches"
@@ -53,10 +169,20 @@ impl PreparedOperation {
             }
             ensure!(
                 staged.get(path) == before.get(path),
-                "Switch would overwrite staged changes at {path}"
+                "Checkout would overwrite staged changes at {path}"
             );
             for index in [&*original, &target] {
                 if let Some(entry) = index.entry_by_path(path.as_bstr()) {
+                    if fast_forward.is_some()
+                        && (entry.mode.is_submodule()
+                            || entry.flags.intersects(
+                                gix::index::entry::Flags::ASSUME_VALID
+                                    | gix::index::entry::Flags::SKIP_WORKTREE
+                                    | gix::index::entry::Flags::INTENT_TO_ADD,
+                            ))
+                    {
+                        return Ok(false);
+                    }
                     ensure!(
                         !entry.mode.is_submodule(),
                         "Switching a changed submodule requires a terminal checkout"
@@ -67,7 +193,7 @@ impl PreparedOperation {
                                 | gix::index::entry::Flags::SKIP_WORKTREE
                                 | gix::index::entry::Flags::INTENT_TO_ADD
                         ),
-                        "Switch would affect an index entry with hidden changes at {path}"
+                        "Checkout would affect an index entry with hidden changes at {path}"
                     );
                 }
             }
@@ -90,7 +216,7 @@ impl PreparedOperation {
                     !changed
                         .iter()
                         .any(|path| overlaps(item.location(), path.as_bstr())),
-                    "Switch would overwrite working-tree changes at {}",
+                    "Checkout would overwrite working-tree changes at {}",
                     item.location()
                 );
             }
@@ -128,25 +254,16 @@ impl PreparedOperation {
         )?;
         self.ensure_current()?;
         let fail = gix::lock::acquire::Fail::Immediately;
-        let edits = [
-            RefEdit::update(
-                "HEAD".try_into()?,
-                gix::refs::Target::Symbolic(refname.clone()),
-                PreviousValue::MustExistAndMatch(head),
-                format!("checkout: moving to {name}"),
-            )
-            .with_deref(false),
-            // Also lock the destination branch so the commit cannot move during checkout.
-            RefEdit::update(
-                refname.clone(),
-                target_ref.clone(),
-                PreviousValue::MustExistAndMatch(target_ref),
-                "",
-            )
-            .with_deref(false),
-        ];
         let transaction = repo.refs.transaction().prepare(edits, fail, fail)?;
-        branch::ensure_branch_unused(&repo, refname.as_ref())?;
+        if fast_forward.is_some() {
+            // HEAD may have switched to another branch at the same commit before locking.
+            ensure!(
+                repo.head_name()?.as_ref() == Some(&refname),
+                "Git branch changed during pull; retry pull"
+            );
+        } else {
+            branch::ensure_branch_unused(&repo, refname.as_ref())?;
+        }
         let scratch = tempfile::Builder::new()
             .prefix(".mitos-checkout-")
             .tempdir_in(&self.repository.root)?;
@@ -173,7 +290,7 @@ impl PreparedOperation {
         )?;
         ensure!(
             outcome.errors.is_empty() && outcome.collisions.is_empty(),
-            "Branch checkout reported errors or path collisions"
+            "Checkout reported errors or path collisions"
         );
         for (path, expected) in &snapshots {
             ensure!(
@@ -259,11 +376,11 @@ impl PreparedOperation {
         if let Err(error) = result {
             let recovery = scratch.keep();
             bail!(
-                "Branch switch could not finish: {error}. Original files and index are saved at {}",
+                "Checkout could not finish: {error}. Original files and index are saved at {}",
                 recovery.display()
             );
         }
-        Ok(())
+        Ok(true)
     }
 }
 
@@ -288,7 +405,7 @@ fn validate_destination(root: &Path, relative: &Path, removed: &BTreeSet<BString
                 let key = gix::path::to_unix_separators_on_windows(gix::path::into_bstr(ancestor)?);
                 ensure!(
                     removed.contains(key.as_ref()),
-                    "Switch would overwrite an untracked or ignored path: {}",
+                    "Checkout would overwrite an untracked or ignored path: {}",
                     path.display()
                 );
             }
@@ -319,7 +436,7 @@ fn validate_directory_contents(
             .into_owned();
             ensure!(
                 removed.contains(&key),
-                "Switch would overwrite an untracked or ignored path: {}",
+                "Checkout would overwrite an untracked or ignored path: {}",
                 entry.path().display()
             );
         }

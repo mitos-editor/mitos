@@ -123,8 +123,7 @@ impl RepositoryOperation {
     }
 }
 
-/// Git pull cannot disable overwriting ignored files. Fetch first, then use
-/// merge's guarded checkout against an immutable fetched commit.
+/// Fetch first, then fast-forward to an immutable commit without overwriting local files.
 async fn pull(repo: &GitRepository, remote: &str) -> Result<()> {
     let capture = repo.clone();
     let selected = remote.to_owned();
@@ -157,6 +156,7 @@ async fn pull(repo: &GitRepository, remote: &str) -> Result<()> {
     };
 
     let validate = repo.clone();
+    let remote_name = remote.to_owned();
     let target = tokio::task::spawn_blocking(move || {
         let git = validate
             .open_read(true)
@@ -170,9 +170,25 @@ async fn pull(repo: &GitRepository, remote: &str) -> Result<()> {
                 && git.state().is_none(),
             "Git branch or HEAD changed during fetch; retry pull"
         );
-        target.map_or_else(|| fetched_commit(&git), Ok)
+        let target = target.map_or_else(|| fetched_commit(&git), Ok)?;
+        let prepared = validate.prepare_repository(
+            RepositoryOperation::Pull {
+                remote: Some(remote_name),
+            },
+            true,
+        )?;
+        let done = prepared.fast_forward(
+            &branch,
+            head,
+            gix::ObjectId::from_hex(target.as_str().as_bytes())?,
+        )?;
+        Ok::<_, anyhow::Error>((target, done))
     })
     .await??;
+    let (target, done) = target;
+    if done {
+        return Ok(());
+    }
 
     let mut merge = repo.command();
     merge.args([
@@ -200,7 +216,7 @@ fn fetched_commit(repo: &gix::Repository) -> Result<history::RevisionId> {
     history::RevisionId::parse(&id.to_string())
 }
 
-fn current_head(repo: &gix::Repository) -> Result<Option<gix::ObjectId>> {
+pub(super) fn current_head(repo: &gix::Repository) -> Result<Option<gix::ObjectId>> {
     Ok(if repo.head()?.is_unborn() {
         None
     } else {

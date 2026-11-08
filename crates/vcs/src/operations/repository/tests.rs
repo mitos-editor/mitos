@@ -1816,3 +1816,193 @@ fn native_fetch_defers_unsupported_remote_head_policies_before_network() -> Resu
     }
     Ok(())
 }
+
+#[tokio::test]
+async fn fast_forward_checkout_preserves_local_edits_without_git() -> Result<()> {
+    const FIXTURE: &str = "MITOS_NATIVE_PULL_FIXTURE";
+    if let Some(root) = std::env::var_os(FIXTURE) {
+        let repo = GitRepository::discover(Path::new(&root))?;
+        let git = repo.open_read(true)?;
+        let before = git.head_id()?.detach();
+        let target = git.find_reference("refs/heads/upstream")?.id().detach();
+        let staged = git
+            .open_index()?
+            .entry_by_path("local.txt".into())
+            .unwrap()
+            .id;
+        std::fs::write(repo.root.join("local.txt"), "unstaged local edit\n")?;
+        let prepared = repo.prepare_repository(RepositoryOperation::Pull { remote: None }, true)?;
+        assert!(prepared.fast_forward("main", Some(before), target)?);
+        assert_eq!(git.head_id()?.detach(), target);
+        assert_eq!(git.head_name()?.unwrap().as_bstr(), "refs/heads/main");
+        assert_eq!(
+            std::fs::read_to_string(repo.root.join("file.txt"))?,
+            "upstream\n"
+        );
+        assert_eq!(
+            std::fs::read_to_string(repo.root.join("local.txt"))?,
+            "unstaged local edit\n"
+        );
+        assert_eq!(
+            git.open_index()?
+                .entry_by_path("local.txt".into())
+                .unwrap()
+                .id,
+            staged
+        );
+        assert_eq!(git.rev_parse_single("ORIG_HEAD")?.detach(), before);
+        for path in ["logs/HEAD", "logs/refs/heads/main"] {
+            let log = std::fs::read_to_string(git.git_dir().join(path))?;
+            let last = log.lines().last().unwrap();
+            assert!(last.starts_with(&format!("{before} {target} ")), "{last}");
+            assert!(last.ends_with("pull: fast-forward"), "{last}");
+        }
+        // A no-op pull still records the current HEAD as Git's undo point, without
+        // moving backwards or adding an unchanged HEAD/branch reflog entry.
+        let head_log = std::fs::read(git.git_dir().join("logs/HEAD"))?;
+        let branch_log = std::fs::read(git.git_dir().join("logs/refs/heads/main"))?;
+        for fetched in [before, target] {
+            git.reference(
+                "ORIG_HEAD",
+                before,
+                gix::refs::transaction::PreviousValue::Any,
+                "fixture",
+            )?;
+            let prepared =
+                repo.prepare_repository(RepositoryOperation::Pull { remote: None }, true)?;
+            assert!(prepared.fast_forward("main", Some(target), fetched)?);
+            assert_eq!(git.head_id()?.detach(), target);
+            assert_eq!(git.rev_parse_single("ORIG_HEAD")?.detach(), target);
+            assert_eq!(std::fs::read(git.git_dir().join("logs/HEAD"))?, head_log);
+            assert_eq!(
+                std::fs::read(git.git_dir().join("logs/refs/heads/main"))?,
+                branch_log
+            );
+        }
+        let prepared = repo.prepare_repository(RepositoryOperation::Pull { remote: None }, true)?;
+        assert!(prepared.fast_forward("main", Some(before), target).is_err());
+        return Ok(());
+    }
+    let dir = initial()?;
+    std::fs::write(dir.path().join("local.txt"), "base\n")?;
+    create_commit_with_message(dir.path(), true, "local file");
+    exec_git_cmd(&["switch", "-c", "upstream"], dir.path());
+    std::fs::write(dir.path().join("file.txt"), "upstream\n")?;
+    create_commit_with_message(dir.path(), true, "upstream");
+    exec_git_cmd(&["switch", "main"], dir.path());
+    exec_git_cmd(&["remote", "add", "origin", "."], dir.path());
+    std::fs::write(dir.path().join("local.txt"), "staged local edit\n")?;
+    exec_git_cmd(&["add", "local.txt"], dir.path());
+    let no_programs = tempfile::tempdir()?;
+    let child = std::process::Command::new(std::env::current_exe()?)
+        .args(["--exact", "operations::repository::tests::fast_forward_checkout_preserves_local_edits_without_git", "--nocapture"])
+        .env(FIXTURE, dir.path()).env("PATH", no_programs.path()).env("GIT_EXEC_PATH", no_programs.path()).output()?;
+    ensure!(
+        child.status.success(),
+        "{}\n{}",
+        String::from_utf8_lossy(&child.stdout),
+        String::from_utf8_lossy(&child.stderr)
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn native_pull_initializes_an_unborn_branch_and_updates_linked_worktrees() -> Result<()> {
+    let upstream = initial()?;
+    let unborn = empty_git_repo();
+    exec_git_cmd(
+        &["remote", "add", "origin", upstream.path().to_str().unwrap()],
+        unborn.path(),
+    );
+    let repo = GitRepository::discover(unborn.path())?;
+    execute(&repo, RepositoryOperation::Pull { remote: None }).await?;
+    let git = repo.open_read(true)?;
+    assert_eq!(
+        git.head_id()?.detach(),
+        gix::open(upstream.path())?.head_id()?.detach()
+    );
+    assert_eq!(git.head_name()?.unwrap().as_bstr(), "refs/heads/main");
+    assert_eq!(
+        std::fs::read_to_string(unborn.path().join("file.txt"))?,
+        "initial\n"
+    );
+    let parent = tempfile::tempdir()?;
+    let linked = parent.path().join("linked");
+    exec_git_cmd(
+        &["worktree", "add", "-b", "linked", linked.to_str().unwrap()],
+        unborn.path(),
+    );
+    exec_git_cmd(&["config", "branch.linked.remote", "origin"], &linked);
+    exec_git_cmd(
+        &["config", "branch.linked.merge", "refs/heads/main"],
+        &linked,
+    );
+    let old_index = std::fs::read(git.index_path())?;
+    let old_head = git.head_id()?.detach();
+    std::fs::write(upstream.path().join("file.txt"), "new upstream\n")?;
+    create_commit_with_message(upstream.path(), true, "advance upstream");
+    let linked_repo = GitRepository::discover(&linked)?;
+    execute(&linked_repo, RepositoryOperation::Pull { remote: None }).await?;
+    assert_eq!(
+        std::fs::read_to_string(linked.join("file.txt"))?,
+        "new upstream\n"
+    );
+    assert_eq!(std::fs::read(git.index_path())?, old_index);
+    assert_eq!(git.head_id()?.detach(), old_head);
+    assert_eq!(
+        std::fs::read_to_string(unborn.path().join("file.txt"))?,
+        "initial\n"
+    );
+    assert_eq!(
+        linked_repo
+            .open_read(true)?
+            .rev_parse_single("ORIG_HEAD")?
+            .detach(),
+        old_head
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn native_pull_defers_unsupported_settings_without_mutation() -> Result<()> {
+    let dir = initial()?;
+    let before = gix::open(dir.path())?.head_id()?.detach();
+    exec_git_cmd(&["branch", "previous"], dir.path());
+    std::fs::write(dir.path().join("file.txt"), "upstream\n")?;
+    create_commit_with_message(dir.path(), true, "upstream");
+    let target = gix::open(dir.path())?.head_id()?.detach();
+    exec_git_cmd(
+        &["reset", "--hard", before.to_string().as_str()],
+        dir.path(),
+    );
+    exec_git_cmd(&["remote", "add", "origin", "."], dir.path());
+    let repo = GitRepository::discover(dir.path())?;
+    let git = repo.open_read(true)?;
+    let index = std::fs::read(git.index_path())?;
+    for (key, value) in [
+        ("core.sparseCheckout", "true"),
+        ("core.hooksPath", "custom-hooks"),
+        ("merge.verifySignatures", "true"),
+    ] {
+        exec_git_cmd(&["config", key, value], dir.path());
+        for fetched in [target, before] {
+            let prepared =
+                repo.prepare_repository(RepositoryOperation::Pull { remote: None }, true)?;
+            assert!(
+                !prepared.fast_forward("main", Some(before), fetched)?,
+                "{key}"
+            );
+        }
+        exec_git_cmd(&["config", "--unset", key], dir.path());
+    }
+    std::fs::write(git.common_dir().join("hooks/post-merge"), "hook")?;
+    let prepared = repo.prepare_repository(RepositoryOperation::Pull { remote: None }, true)?;
+    assert!(!prepared.fast_forward("main", Some(before), target)?);
+    assert_eq!(git.head_id()?.detach(), before);
+    assert_eq!(std::fs::read(git.index_path())?, index);
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("file.txt"))?,
+        "initial\n"
+    );
+    Ok(())
+}
