@@ -594,9 +594,9 @@ async fn key_sequence_stops_after_closing_last_view() -> anyhow::Result<()> {
         let mut config = test_config();
         let source = r#"
             [keys.normal]
-            C-q = ["wclose", "normal_mode"]
+            C-q = ["close_view", "normal_mode"]
             [keys.insert]
-            C-q = ["wclose", "normal_mode"]
+            C-q = ["close_view", "normal_mode"]
         "#
         .to_owned();
         config.keys = Config::load(Ok(&source), Err(term::config::ConfigLoadError::default()))

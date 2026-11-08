@@ -14,9 +14,9 @@ as `debug_session_picker` or `file_picker_in_current_buffer_directory`. Commands
 that perform an action, such as `goto_reference`, keep action names even when
 they offer a choice of targets.
 
-The command palette and default bindings use canonical names. Older spellings
-remain aliases for existing keybindings and command invocations; the reference
-lists them after the canonical name.
+Use canonical names in keybindings and command invocations. Renamed commands do
+not retain their previous spellings. Conventional command-mode shorthands such as
+`:w`, `:q`, and `:cd` remain available and are listed in the reference.
 
 ## Typable commands
 

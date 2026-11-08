@@ -9,8 +9,8 @@ fn definitions() -> Catalog {
 async fn named_snippets_and_choice_commands_work_through_terminal_keymaps() -> anyhow::Result<()> {
     let source = r#"
         [keys.insert]
-        A-j = "next_snippet_choice"
-        A-k = "prev_snippet_choice"
+        A-j = "snippet_next_choice"
+        A-k = "snippet_previous_choice"
     "#;
     let source = source.to_owned();
     let mut config = test_config();
@@ -100,7 +100,7 @@ async fn snippet_open_accepts_collection_paths_and_keeps_the_primary_file_defaul
         &mut app,
         vec![
             (
-                Some(":snippets-open team/rust.toml<ret>"),
+                Some(":snippet-open team/rust.toml<ret>"),
                 Some(&|app| {
                     assert!(view::doc!(app.editor)
                         .path()
@@ -109,7 +109,7 @@ async fn snippet_open_accepts_collection_paths_and_keeps_the_primary_file_defaul
                 }),
             ),
             (
-                Some(":snippets-open<ret>"),
+                Some(":snippet-open<ret>"),
                 Some(&|app| {
                     assert!(view::doc!(app.editor)
                         .path()

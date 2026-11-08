@@ -64,8 +64,8 @@ fn labeled_editor_bindings_preserve_commands_and_descriptions() {
             s = { label = "Save", command = ":w" }
             c = { command = ":open ~/.config/mitos/config.toml", label = "Edit Config" }
             m = { label = "Delete word", command = "@wd" }
-            h = { label = "Split left", command = ["vsplit", "normal_mode", "swap_view_left"] }
-            j = ["hsplit", "normal_mode", "swap_view_down"]
+            h = { label = "Split left", command = ["split_vertical", "normal_mode", "swap_view_left"] }
+            j = ["split_horizontal", "normal_mode", "swap_view_down"]
             k = { command = "move_char_left" }
             n = { label = "One command", command = ["move_char_left"] }
             e = { label = "Empty", command = [] }

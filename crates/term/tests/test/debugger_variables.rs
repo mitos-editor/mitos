@@ -121,7 +121,7 @@ async fn variable_browser_expands_nested_values_and_preserves_parent_navigation(
     assert!(!screen(&app).contains("Load more"));
     keys(&mut app, "<esc><esc>").await?;
 
-    keys(&mut app, ":debug-eval object<ret>").await?;
+    keys(&mut app, ":debug-evaluate object<ret>").await?;
     wait_for_text(&mut app, "Object").await?;
     keys(&mut app, "<ret>").await?;
     wait_for_text(&mut app, "Load more").await?;

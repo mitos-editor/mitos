@@ -207,12 +207,6 @@ impl std::str::FromStr for MappableCommand {
                 .iter()
                 .find(|cmd| cmd.name() == s)
                 .cloned()
-                .or_else(|| {
-                    Self::STATIC_COMMAND_ALIASES
-                        .iter()
-                        .find(|(alias, _)| *alias == s)
-                        .map(|(_, command)| command.clone())
-                })
                 .ok_or_else(|| anyhow!("No command named '{}'", s))
         }
     }
@@ -262,139 +256,68 @@ mod tests {
     use std::collections::HashSet;
 
     #[test]
-    fn static_aliases_resolve_to_canonical_commands() {
-        let mut names: HashSet<_> = MappableCommand::STATIC_COMMAND_LIST
-            .iter()
-            .map(MappableCommand::name)
-            .collect();
-        for (alias, command) in MappableCommand::STATIC_COMMAND_ALIASES {
-            assert!(names.insert(alias), "Duplicate command name: {alias}");
-            assert_eq!(alias.parse::<MappableCommand>().unwrap(), *command);
-            assert_eq!(command.name().parse::<MappableCommand>().unwrap(), *command);
-            assert!(MappableCommand::STATIC_COMMAND_LIST.contains(command));
-        }
-    }
-
-    #[test]
-    fn legacy_vcs_keybindings_deserialize_to_canonical_commands() {
-        let legacy: crate::keymap::KeyTrie = toml::from_str(
-            r#"
-            h = "git_history"
-            d = "diff"
-            c = ["changed_file_picker", "diff_refresh"]
-            "#,
-        )
-        .unwrap();
-        let canonical: crate::keymap::KeyTrie = toml::from_str(
-            r#"
-            h = "vcs_history_picker"
-            d = "vcs_diff"
-            c = ["vcs_changed_file_picker", "vcs_diff_refresh"]
-            "#,
-        )
-        .unwrap();
-        assert_eq!(legacy, canonical);
-    }
-
-    #[test]
-    fn legacy_diagnostic_keybindings_deserialize_to_canonical_commands() {
-        let legacy: crate::keymap::KeyTrie = toml::from_str(
-            r#"
-            a = "goto_first_diag"
-            b = "goto_last_diag"
-            c = "goto_next_diag"
-            d = "goto_prev_diag"
-            "#,
-        )
-        .unwrap();
-        let canonical: crate::keymap::KeyTrie = toml::from_str(
-            r#"
-            a = "goto_first_diagnostic"
-            b = "goto_last_diagnostic"
-            c = "goto_next_diagnostic"
-            d = "goto_prev_diagnostic"
-            "#,
-        )
-        .unwrap();
-        assert_eq!(legacy, canonical);
-    }
-
-    #[test]
-    fn descriptive_command_names_preserve_legacy_keybindings() {
-        let legacy: crate::keymap::KeyTrie = toml::from_str(
-            r#"
-            a = ["join_selections", "rotate_selections_forward", "align_view_middle"]
-            b = ["yank_main_selection_to_clipboard", "rsearch", "global_search"]
-            c = ["hsplit", "wclose", "till_prev_char"]
-            "#,
-        )
-        .unwrap();
-        let canonical: crate::keymap::KeyTrie = toml::from_str(
-            r#"
-            a = ["join_lines", "cycle_primary_selection_forward", "center_view_horizontally"]
-            b = ["yank_primary_selection_to_clipboard", "search_backward", "search_picker_in_current_working_directory"]
-            c = ["split_horizontal", "close_view", "find_till_previous_char"]
-            "#,
-        )
-        .unwrap();
-        assert_eq!(legacy, canonical);
-    }
-
-    #[test]
-    fn descriptive_typable_names_preserve_aliases_and_arguments() {
-        for (old, new) in [
-            ("hsplit notes.txt", "split-horizontal notes.txt"),
-            ("sp notes.txt", "split-horizontal notes.txt"),
-            ("vsplit notes.txt", "split-vertical notes.txt"),
-            ("vs notes.txt", "split-vertical notes.txt"),
-            ("hsplit-new", "split-horizontal-new"),
-            ("vsplit-new", "split-vertical-new"),
-            ("cd src", "change-current-working-directory src"),
-            (
-                "change-current-directory src",
-                "change-current-working-directory src",
-            ),
-            ("pwd", "show-current-working-directory"),
-            ("show-directory", "show-current-working-directory"),
-        ] {
-            assert_eq!(
-                format!(":{old}").parse::<MappableCommand>().unwrap(),
-                format!(":{new}").parse::<MappableCommand>().unwrap(),
+    fn static_command_names_are_unique_and_parse() {
+        let mut names = HashSet::new();
+        for command in MappableCommand::STATIC_COMMAND_LIST {
+            assert!(
+                names.insert(command.name()),
+                "Duplicate command name: {}",
+                command.name()
             );
+            assert_eq!(command.name().parse::<MappableCommand>().unwrap(), *command);
         }
     }
 
     #[test]
-    fn naming_conventions_preserve_original_and_intermediate_aliases() {
-        for (legacy, canonical) in [
-            ("goto_prev_diag", "goto_previous_diagnostic"),
-            ("goto_prev_diagnostic", "goto_previous_diagnostic"),
-            ("goto_prev_change", "vcs_goto_previous_change"),
-            ("vcs_goto_prev_change", "vcs_goto_previous_change"),
-            ("prev_snippet_choice", "snippet_previous_choice"),
-            ("goto_next_tabstop", "snippet_next_tabstop"),
-            ("dap_launch", "debug_launch_picker"),
-            ("dap_next", "debug_step_over"),
-            ("dap_switch_session", "debug_session_picker"),
-            ("dap_switch_thread", "debug_thread_picker"),
-            ("dap_switch_stack_frame", "debug_stack_frame_picker"),
+    fn renamed_commands_require_canonical_names() {
+        for name in [
+            "git_history",
+            "goto_prev_diag",
+            "goto_prev_diagnostic",
+            "rsearch",
+            "join_selections",
+            "dap_next",
         ] {
-            let command = legacy.parse::<MappableCommand>().unwrap();
-            assert_eq!(command.name(), canonical);
-            assert_eq!(command, canonical.parse::<MappableCommand>().unwrap());
+            assert!(name.parse::<MappableCommand>().is_err(), "{name}");
         }
-        for (legacy, canonical) in [
-            ("debug-eval value", "debug-evaluate value"),
-            ("snippets-reload", "snippet-reload"),
-            ("snippets-open name", "snippet-open name"),
-            (
-                "snippets-open-workspace name",
-                "snippet-open-workspace name",
-            ),
+        for name in [
+            ":git-history",
+            ":diff head",
+            ":file-history",
+            ":snippets-open",
+            ":debug-eval value",
+            ":hsplit",
+        ] {
+            assert!(name.parse::<MappableCommand>().is_err(), "{name}");
+        }
+        for name in [
+            "vcs_history_picker",
+            "goto_previous_diagnostic",
+            "search_backward",
+            "join_lines",
+            "debug_step_over",
+            ":vcs-diff head",
+            ":snippet-open",
+            ":debug-evaluate value",
+            ":split-horizontal",
+        ] {
+            assert!(name.parse::<MappableCommand>().is_ok(), "{name}");
+        }
+    }
+
+    #[test]
+    fn conventional_shorthands_preserve_arguments() {
+        for (short, full) in [
+            (":q", ":quit"),
+            (":w notes.txt", ":write notes.txt"),
+            (":cd src", ":change-current-working-directory src"),
+            (":pwd", ":show-current-working-directory"),
+            (":sp notes.txt", ":split-horizontal notes.txt"),
+            (":vs notes.txt", ":split-vertical notes.txt"),
         ] {
             assert_eq!(
-                format!(":{legacy}").parse::<MappableCommand>().unwrap(),
-                format!(":{canonical}").parse::<MappableCommand>().unwrap(),
+                short.parse::<MappableCommand>().unwrap(),
+                full.parse::<MappableCommand>().unwrap()
             );
         }
     }
@@ -408,27 +331,6 @@ mod tests {
             if name.contains("snippet") || name.contains("tabstop") {
                 assert!(name.starts_with("snippet_"), "{name}");
             }
-        }
-    }
-
-    #[test]
-    fn legacy_typable_vcs_names_resolve_to_canonical_commands() {
-        for (old, new) in [
-            ("blame", "vcs-blame"),
-            ("show-change", "vcs-show-change"),
-            ("diff head", "vcs-diff head"),
-            ("git-history", "vcs-history"),
-            ("file-history", "vcs-file-history"),
-            ("git-file-history", "vcs-file-history"),
-            ("diff-refresh", "vcs-diff-refresh"),
-            ("diff-open-source", "vcs-diff-open-source"),
-            ("diff-open-file", "vcs-diff-open-file"),
-            ("restore-change", "vcs-restore-change"),
-        ] {
-            assert_eq!(
-                format!(":{old}").parse::<MappableCommand>().unwrap(),
-                format!(":{new}").parse::<MappableCommand>().unwrap(),
-            );
         }
     }
 }
