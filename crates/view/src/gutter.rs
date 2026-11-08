@@ -33,7 +33,6 @@ fn line_numbers_width(view: &View, doc: &Document) -> usize {
     // Relative numbers still measure cursor motions through physical source lines.
     let conflicts = doc.conflict_presentation();
     let last_drawn = if conflicts.regions.is_empty()
-        || doc.raw_conflict_markers(view.id)
         || doc.config.load().line_number == editor_config::LineNumber::Relative
     {
         last_drawn

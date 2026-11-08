@@ -266,9 +266,6 @@ impl Document {
     }
 
     pub fn conflict_marker_line_number_hidden(&self, view: ViewId, line: usize) -> bool {
-        if self.raw_conflict_markers(view) {
-            return false;
-        }
         let markers = &self.conflict_presentation().markers;
         let index = markers.partition_point(|marker| marker.line < line);
         let Some(marker) = markers.get(index).filter(|marker| marker.line == line) else {
@@ -312,12 +309,11 @@ impl Document {
 
     pub fn annotate_conflicts<'a>(
         &'a self,
-        view: ViewId,
         theme: Option<&theme::Theme>,
         annotations: &mut TextAnnotations<'a>,
     ) {
         let presentation = self.conflict_presentation();
-        if presentation.regions.is_empty() || self.raw_conflict_markers(view) {
+        if presentation.regions.is_empty() {
             return;
         }
         for (labels, side) in presentation

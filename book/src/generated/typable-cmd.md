@@ -98,7 +98,6 @@
 | `:run-shell-command`, `:sh`, `:!` | Run a shell command |
 | `:vcs-conflict-next` | Move to the next conflict; pass previous to move backwards. |
 | `:vcs-conflict-resolve` | Keep the current side, incoming side, or both sides of the conflict at the cursor. |
-| `:vcs-conflict-toggle-markers` | Toggle conflict labels and shared line numbers in the current view. |
 | `:vcs-conflict-source` | Open the base, current, or incoming version of a conflicted file in a read-only split. |
 | `:vcs-blame` | Show commit details for the current line, with actions to copy the commit ID or message. |
 | `:vcs-branches` | Browse local branches. Press Enter to switch to the selected branch. |

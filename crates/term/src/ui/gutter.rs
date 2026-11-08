@@ -248,9 +248,8 @@ fn line_numbers<'doc>(
     let current_line = layout.block_line_at_pos(doc.selection(view.id).primary().cursor(text));
 
     let view_id = view.id;
-    let raw_conflict_markers = doc.raw_conflict_markers(view_id);
     let conflicts = doc.conflict_presentation();
-    let shared_line_numbers = !raw_conflict_markers && !conflicts.regions.is_empty();
+    let shared_line_numbers = !conflicts.regions.is_empty();
     let line_number = editor.config().line_number;
     let folds = doc.folded_ranges(view.id);
     let wrap_indicator = editor

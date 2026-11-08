@@ -11,7 +11,6 @@ pub(crate) struct DocumentViewState {
     pub position: ViewPosition,
     pub jump_labels: Vec<Overlay>,
     pub restore_append_cursor: bool,
-    pub raw_conflicts: bool,
     pub expansion_history: Vec<Selection>,
     pub(super) selection_undo: super::selection_undo::SelectionUndo,
     /// False while `selection` is a placeholder from `Document::view_state_mut`,
@@ -32,7 +31,6 @@ impl Clone for DocumentViewState {
             position: self.position,
             jump_labels: self.jump_labels.clone(),
             restore_append_cursor: self.restore_append_cursor,
-            raw_conflicts: self.raw_conflicts,
             expansion_history: self.expansion_history.clone(),
             // Selection history belongs to the view that made the changes.
             selection_undo: Default::default(),
@@ -54,7 +52,6 @@ impl DocumentViewState {
             position: ViewPosition::default(),
             jump_labels: Vec::new(),
             restore_append_cursor: false,
-            raw_conflicts: false,
             expansion_history: Vec::new(),
             selection_undo: Default::default(),
             selection_shown: true,
@@ -130,19 +127,6 @@ impl super::Document {
         self.update_selection(view, selection);
         self.view_state_mut(view).expansion_history = history;
         self.selection_did_change(view);
-    }
-}
-
-impl super::Document {
-    pub fn raw_conflict_markers(&self, view: crate::ViewId) -> bool {
-        self.view_states
-            .get(&view)
-            .is_some_and(|state| state.raw_conflicts)
-    }
-
-    pub fn toggle_conflict_markers(&mut self, view: crate::ViewId) {
-        let state = self.view_state_mut(view);
-        state.raw_conflicts = !state.raw_conflicts;
     }
 }
 

@@ -535,10 +535,6 @@ Each section starts at the same line number. Numbering after a conflict advances
 by its longest section; marker lines have no number. Relative numbers still count
 cursor movements through the file.
 
-Run `:vcs-conflict-toggle-markers` to hide the virtual labels and show physical
-file line numbers. Run it again to restore the conflict presentation. This affects
-only the current view.
-
 You can also resolve conflicts with commands:
 
 | Command | Action |

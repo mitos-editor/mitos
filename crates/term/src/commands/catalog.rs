@@ -1289,13 +1289,6 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
         args: CommandArgs::new(&[completers::none], &[]),
     },
     TypableCommand {
-        name: "vcs-conflict-toggle-markers",
-        aliases: &[],
-        doc: "Toggle conflict labels and shared line numbers in the current view.",
-        action: CommandAction::Committed(super::conflicts::toggle_markers),
-        args: CommandArgs::new(&[], &[]),
-    },
-    TypableCommand {
         name: "vcs-conflict-source",
         aliases: &[],
         doc: "Open the base, current, or incoming version of a conflicted file in a read-only split.",

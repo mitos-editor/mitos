@@ -41,8 +41,7 @@ impl ConflictView {
             return *height;
         }
         let mut annotations = TextAnnotations::default();
-        self.doc
-            .annotate_conflicts(view::ViewId::default(), Some(theme), &mut annotations);
+        self.doc.annotate_conflicts(Some(theme), &mut annotations);
         let height = visual_offset_from_block(
             self.doc.text().slice(..),
             0,
@@ -79,11 +78,7 @@ impl ConflictView {
         let doc = &self.doc;
         let format = doc.text_format(viewport.width, Some(&cx.editor.theme));
         let mut annotations = TextAnnotations::default();
-        doc.annotate_conflicts(
-            view::ViewId::default(),
-            Some(&cx.editor.theme),
-            &mut annotations,
-        );
+        doc.annotate_conflicts(Some(&cx.editor.theme), &mut annotations);
         let (anchor, _) = char_idx_at_visual_offset(
             doc.text().slice(..),
             0,

@@ -1,5 +1,6 @@
 use editor_config::InlineBlameShow;
 use std::{path::Path, process::Command, sync::Arc, time::Duration};
+use stdx::rope::RopeExt as _;
 use view::{current, current_ref};
 
 use term::application::TestApplication;
@@ -1277,7 +1278,7 @@ async fn conflict_markers_stay_literal_during_navigation_and_follow_undo() -> an
     assert!(!screen.contains("▍"));
     assert_eq!(current_ref!(app.editor).1.text().to_string(), original);
 
-    // Navigating and toggling decorations must preserve literal markers and the caret.
+    // Navigation must preserve literal markers and the caret.
     press_keys(&mut app, "]mlll").await?;
     assert!(review_screen(&app).contains("<<<<<<< HEAD"));
     assert!(app.editor.cursor().0.is_some());
@@ -1286,23 +1287,12 @@ async fn conflict_markers_stay_literal_during_navigation_and_follow_undo() -> an
     assert!(review_screen(&app).contains(">>>>>>> topic"));
     assert!(app.editor.cursor().0.is_some());
     press_keys(&mut app, "]mj").await?;
-    press_keys(&mut app, ":vcs-conflict-toggle-markers<ret>").await?;
-    assert!(review_screen(&app).contains("<<<<<<< HEAD"));
-    assert!(review_screen(&app).contains("======="));
-    assert!(current_ref!(app.editor)
-        .1
-        .raw_conflict_markers(current_ref!(app.editor).0.id));
-    assert!(!review_screen(&app).contains("(Current Change)"));
-    assert!(!review_screen(&app).contains("(Incoming Change)"));
-    let raw_view = current_ref!(app.editor).0.id;
+    assert!(review_screen(&app).contains("(Current Change)"));
+    assert!(review_screen(&app).contains("(Incoming Change)"));
     press_keys(&mut app, "<C-w>v").await?;
-    let split_view = current_ref!(app.editor).0.id;
-    assert_ne!(raw_view, split_view);
-    assert!(!current_ref!(app.editor).1.raw_conflict_markers(split_view));
-    assert!(current_ref!(app.editor).1.raw_conflict_markers(raw_view));
+    assert!(review_screen(&app).contains("(Current Change)"));
+    assert!(review_screen(&app).contains("(Incoming Change)"));
     press_keys(&mut app, ":q<ret>").await?;
-    press_keys(&mut app, ":vcs-conflict-toggle-markers<ret>").await?;
-    assert!(review_screen(&app).contains("<<<<<<<"));
     press_keys(&mut app, ":vcs-conflict-resolve incoming<ret>").await?;
     assert!(!current_ref!(app.editor).1.conflict_presentation().active());
     assert!(!review_screen(&app).contains("<<<<<<< HEAD"));
@@ -1452,16 +1442,6 @@ async fn conflict_line_numbers_share_a_start_and_advance_by_the_longest_side() -
         };
         assert_eq!(gutter_width(&app), 1);
         assert_eq!(numbers(&app), expected);
-        press_keys(&mut app, ":vcs-conflict-toggle-markers<ret>").await?;
-        assert_eq!(gutter_width(&app), 2);
-        assert_eq!(
-            numbers(&app),
-            (1..=expected.len())
-                .map(|n| n.to_string())
-                .collect::<Vec<_>>()
-        );
-        press_keys(&mut app, ":vcs-conflict-toggle-markers<ret>").await?;
-        assert_eq!(numbers(&app), expected);
         press_keys(&mut app, "]m:vcs-conflict-resolve incoming<ret>").await?;
         assert_eq!(&numbers(&app)[..6], ["1", "2", "3", "4", "5", "6"]);
         press_keys(&mut app, "ugg").await?;
@@ -1553,16 +1533,14 @@ async fn conflict_marker_characters_support_horizontal_motion_and_manual_edits(
                 press_keys(&mut app, "6h").await?;
                 assert_eq!(app.editor.cursor().0.unwrap(), before);
                 press_keys(&mut app, "gl").await?;
-                let end = app.editor.cursor().0.unwrap();
-                press_keys(&mut app, ":vcs-conflict-toggle-markers<ret>").await?;
-                assert_eq!(app.editor.cursor().0.unwrap(), end);
-                press_keys(&mut app, ":vcs-conflict-toggle-markers<ret>").await?;
-                assert_eq!(app.editor.cursor().0.unwrap(), end);
-                assert!(
-                    !current_ref!(app.editor)
-                        .1
-                        .raw_conflict_markers(current_ref!(app.editor).0.id),
-                    "after marker {marker_line}"
+                let (view, doc) = current_ref!(app.editor);
+                let source_end =
+                    doc.text().line_to_char_idx(marker_line + 1) - newline.chars().count() - 1;
+                assert_eq!(
+                    doc.selection(view.id)
+                        .primary()
+                        .cursor(doc.text().slice(..)),
+                    source_end
                 );
             }
             press_keys(&mut app, &format!("gg{separator}j0liX<esc>")).await?;
