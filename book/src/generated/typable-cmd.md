@@ -100,7 +100,7 @@
 | `:vcs-conflict-resolve` | Keep the current side, incoming side, or both sides of the conflict at the cursor. |
 | `:vcs-conflict-toggle-markers` | Show or hide raw conflict markers in the current view. |
 | `:vcs-conflict-source` | Open the base, current, or incoming version of a conflicted file in a read-only split. |
-| `:blame`, `:vcs-blame` | Show commit details for the current line, with actions to copy the commit ID or message. |
+| `:vcs-blame`, `:blame` | Show commit details for the current line, with actions to copy the commit ID or message. |
 | `:vcs-branches`, `:git-branches` | Browse local branches. Press Enter to switch to the selected branch. |
 | `:vcs-branch-create`, `:git-branch-create` | Create a local branch at the current commit without switching to it. |
 | `:vcs-branch-switch`, `:git-branch-switch` | Switch to an existing local branch. Save edited files first; Git refuses to overwrite changes. |
@@ -111,14 +111,14 @@
 | `:vcs-fetch`, `:git-fetch` | Download remote commits without changing your files. Give a remote name when several are configured. |
 | `:vcs-pull`, `:git-pull` | Download changes and move the current branch forward without creating a merge commit. Optionally give a remote name. |
 | `:vcs-push`, `:git-push` | Upload commits from the current branch. Optionally give a remote name. |
-| `:show-change`, `:vcs-show-change` | Inspect the current change against HEAD, including deleted lines and unsaved edits. |
-| `:diff`, `:vcs-diff` | Review the current file. Choose head (all changes), staged (next commit), unstaged (saved changes), or buffer (unstaged and unsaved changes). |
-| `:git-history`, `:vcs-history` | Browse repository commits. Select a commit, then a file to review its changes. |
-| `:file-history`, `:git-file-history`, `:vcs-file-history` | Browse commits that changed the current file, following renames. Enter reviews the selected change; Alt-a offers more comparisons. |
-| `:diff-refresh`, `:vcs-diff-refresh` | Reload the current diff. Reviews of past commits keep the versions originally chosen. |
-| `:diff-open-source`, `:vcs-diff-open-source` | Open the source at the selected diff line. |
-| `:diff-open-file`, `:vcs-diff-open-file` | Open the current file from a diff review. |
-| `:restore-change`, `:vcs-restore-change` | Restore selected hunks from HEAD in the buffer. Use u to undo; saved files and staged changes stay unchanged. |
+| `:vcs-show-change`, `:show-change` | Inspect the current change against HEAD, including deleted lines and unsaved edits. |
+| `:vcs-diff`, `:diff` | Review the current file. Choose head (all changes), staged (next commit), unstaged (saved changes), or buffer (unstaged and unsaved changes). |
+| `:vcs-history`, `:git-history` | Browse repository commits. Select a commit, then a file to review its changes. |
+| `:vcs-file-history`, `:file-history`, `:git-file-history` | Browse commits that changed the current file, following renames. Enter reviews the selected change; Alt-a offers more comparisons. |
+| `:vcs-diff-refresh`, `:diff-refresh` | Reload the current diff. Reviews of past commits keep the versions originally chosen. |
+| `:vcs-diff-open-source`, `:diff-open-source` | Open the source at the selected diff line. |
+| `:vcs-diff-open-file`, `:diff-open-file` | Open the current file from a diff review. |
+| `:vcs-restore-change`, `:restore-change` | Restore selected hunks from HEAD in the buffer. Use u to undo; saved files and staged changes stay unchanged. |
 | `:vcs-changes`, `:git-changes` | Browse changed files in the workspace. |
 | `:vcs-repository-changes`, `:git-repository-changes` | Browse changed files throughout the current repository. |
 | `:vcs-stashes`, `:git-stashes` | Browse Git stashes in the current repository. |

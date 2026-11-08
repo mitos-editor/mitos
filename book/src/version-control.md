@@ -1,6 +1,10 @@
 # Version control
 
-Press `Space g` to choose a Git action.
+Press `Space g` to choose a version-control action.
+
+Version-control commands use the `vcs_` prefix in keybindings and `vcs-` in command mode.
+Commands that open pickers use the `_picker` suffix in keybindings. Older command
+names remain available as aliases. Git is currently the only supported provider.
 
 | Key or command | Action |
 | --- | --- |
@@ -15,21 +19,21 @@ Press `Space g` to choose a Git action.
 
 `s` means status, `S` stashes, `f` file history, and `l` log.
 
-Find other Git commands by searching for `vcs-` in the command palette (`Space ?`).
+Find other version-control commands by searching for `vcs-` in the command palette (`Space ?`).
 
 Existing commands such as `:diff`, `:file-history`, and `:git-history` still work.
 `Space i` also inspects a change, and `Space B` toggles inline blame.
 
 Previously, `Space g` opened changed files directly; that action is now
 `Space g s`. To open changed files directly again, replace the
-Git menu with this binding in `config.toml`:
+version-control menu with this binding in `config.toml`:
 
 ```toml
 [keys.normal.space]
-g = "changed_file_picker"
+g = "vcs_changed_file_picker"
 
 [keys.select.space]
-g = "changed_file_picker"
+g = "vcs_changed_file_picker"
 ```
 
 Staging changes and saving or applying stashes require the `git` executable on
@@ -88,20 +92,20 @@ See [Component keys](./remapping.md#component-keys).
 
 ### Review buffers
 
-Run `:diff` to compare the current file with `HEAD`, including unsaved edits.
+Run `:vcs-diff` to compare the current file with `HEAD`, including unsaved edits.
 Choose another comparison with:
 
 | Command | Comparison |
 | --- | --- |
-| `:diff`, `:diff head` | `HEAD` against the current buffer |
-| `:diff staged` | `HEAD` against the staged version |
-| `:diff unstaged` | Staged version against the file on disk |
-| `:diff buffer` | Staged version against the current buffer |
+| `:vcs-diff`, `:vcs-diff head` | `HEAD` against the current buffer |
+| `:vcs-diff staged` | `HEAD` against the staged version |
+| `:vcs-diff unstaged` | Staged version against the file on disk |
+| `:vcs-diff buffer` | Staged version against the current buffer |
 
 These comparisons also work before the repository's first commit. For deleted
 files, open the review from the changed-file picker.
 
-For conflicted files, use `:diff` to compare with `HEAD`. Save and stage the
+For conflicted files, use `:vcs-diff` to compare with `HEAD`. Save and stage the
 resolved file before choosing another comparison.
 
 Reviews are read-only buffers. Use normal movement, search, selection, yank,
@@ -121,13 +125,13 @@ method, and whether the review is loading.
 
 | Command | Action |
 | --- | --- |
-| `Enter`, `:diff-open-source` | Jump to the selected source location |
-| `:diff-open-file` | Open the current file without jumping to a diff line |
-| `:diff-refresh` | Retry loading the current review |
+| `Enter`, `:vcs-diff-open-source` | Jump to the selected source location |
+| `:vcs-diff-open-file` | Open the current file without jumping to a diff line |
+| `:vcs-diff-refresh` | Retry loading the current review |
 
 `Enter` can jump into the current file only when it matches the updated version
 in the comparison. Removed lines jump to their deletion location in that file.
-If the file differs from the version being reviewed, use `:diff-open-file`
+If the file differs from the version being reviewed, use `:vcs-diff-open-file`
 without a line jump.
 
 Current-file reviews update automatically as you edit, stage changes, or change
@@ -136,7 +140,7 @@ comparisons use the file on disk if you close its source buffer, and follow the
 buffer again when you reopen it.
 
 External updates follow your [file watching and polling settings](./configuration.md#editorfileswatch).
-Use `:diff-refresh` to retry a failed read or update a review when watching and
+Use `:vcs-diff-refresh` to retry a failed read or update a review when watching and
 polling are disabled. [Historical comparisons](#older-versions-and-comparisons)
 keep the chosen commits and the buffer text shown when you opened them, even
 after a refresh.
@@ -155,7 +159,7 @@ large files may be rejected, or their diffs shortened with a notice.
 
 ### Inspecting the current change
 
-Press `Space i` or run `:show-change` to inspect the change at the cursor in a
+Press `Space i` or run `:vcs-show-change` to inspect the change at the cursor in a
 popup. It compares `HEAD` with the current buffer, including unsaved edits, and
 shows added and removed lines with context and line numbers.
 
@@ -227,7 +231,7 @@ unsaved edits. Use a count such as `3]g` to jump forward three changes.
 | --- | --- |
 | `[g` / `]g` | Select the previous / next change |
 | `[G` / `]G` | Select the first / last change |
-| `:restore-change` | Restore each hunk touched by the selections from `HEAD` |
+| `:vcs-restore-change` | Restore each hunk touched by the selections from `HEAD` |
 
 Restoring replaces each selected hunk in the current buffer. Use `u` to
 undo it. The command does not save the file or change Git's staging area.
@@ -266,7 +270,7 @@ on disk.
 
 ### Stashes
 
-Press `Alt-l` in the changed-file picker or choose `git_stash_picker` from the
+Press `Alt-l` in the changed-file picker or choose `vcs_stash_picker` from the
 command palette to browse the newest 500 stashes. Press `Enter` to browse a
 stash's saved staged version, working tree, and untracked files, then `Enter` on
 a file to review its saved changes. `Alt-Enter` keeps the picker open.
@@ -369,7 +373,7 @@ connection failure, run the matching Git command in your terminal.
 
 Use history to review older changes or compare a past version with your current
 buffer. Browsing history does not check out revisions or change files or staged
-changes. Choose `git_file_history` or `git_history` from the command palette
+changes. Choose `vcs_file_history_picker` or `vcs_history_picker` from the command palette
 (`Space ?`), or use the commands below. The **committed** column shows committer
 dates in UTC.
 
@@ -384,7 +388,7 @@ excluded.
 
 ### File history
 
-Run `:file-history` to browse commits that changed the current file, following
+Run `:vcs-file-history` to browse commits that changed the current file, following
 detected renames. The preview shows the selected commit's diff against
 its first parent. `Ctrl-t` hides or shows the preview; `Alt-k` / `Alt-j` or
 `Alt-Up` / `Alt-Down` scroll it.
@@ -403,7 +407,7 @@ from merged branches.
 
 ### Repository history
 
-Run `:git-history` (alias `:vcs-history`) to browse commits leading to `HEAD`,
+Run `:vcs-history` (alias `:git-history`) to browse commits leading to `HEAD`,
 including commits from merged branches. It uses the current file's repository,
 or the current directory when no file is open. Run the command again after
 switching branches to browse the new branch.
@@ -421,7 +425,7 @@ and selection. `Space '` restores the last picker after opening a review.
 Historical versions open in read-only buffers with syntax highlighting. In a
 historical diff, `Enter` on a removed line opens the original version; on an added
 or unchanged line it opens the updated version. When comparing with unsaved
-edits, it opens the text shown when you started the review. Use `:diff-open-file`
+edits, it opens the text shown when you started the review. Use `:vcs-diff-open-file`
 to open the current file instead.
 
 Refreshing a historical comparison keeps the same revisions and any buffer text
@@ -432,7 +436,7 @@ bindings. See [Component keys](./remapping.md#component-keys).
 
 ## Blame details
 
-Run `:blame` or choose `blame_line` from the command palette to inspect the commit
+Run `:vcs-blame` or choose `vcs_blame_line` from the command palette to inspect the commit
 that last changed the current line. The popup shows the full commit ID, author
 name and email, date, and commit message. Lines with uncommitted changes report
 "Not committed yet".
@@ -480,7 +484,7 @@ format = "{author}: {title}"
 Use `show = "all-lines"` for all visible lines, or `"never"` to hide them.
 Turning annotations back on restores the previous mode, defaulting to
 `"cursor-line"`. Blank lines and uncommitted changes have no inline annotation.
-The `:blame` popup works whether annotations are shown or hidden.
+The `:vcs-blame` popup works whether annotations are shown or hidden.
 
 ### Format
 

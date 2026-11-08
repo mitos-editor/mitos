@@ -118,20 +118,20 @@
 | `symbol_picker` | Open symbol picker |  |
 | `syntax_symbol_picker` | Open symbol picker from syntax information |  |
 | `lsp_or_syntax_symbol_picker` | Open symbol picker from LSP or syntax information | normal: `` <space>s ``, select: `` <space>s `` |
-| `show_change` | Show hunk diff | normal: `` <space>i ``, `` <space>gi ``, select: `` <space>i ``, `` <space>gi `` |
-| `goto_next_conflict` | Go to the next unresolved conflict | normal: `` ]m ``, select: `` ]m `` |
-| `goto_previous_conflict` | Go to the previous unresolved conflict | normal: `` [m ``, select: `` [m `` |
-| `blame_line` | Show line blame | normal: `` <space>gb ``, select: `` <space>gb `` |
-| `toggle_inline_blame` | Toggle inline blame | normal: `` <space>B ``, `` <space>gt ``, select: `` <space>B ``, `` <space>gt `` |
-| `git_history` | Browse commits | normal: `` <space>gl ``, select: `` <space>gl `` |
-| `git_file_history` | Browse file history | normal: `` <space>gf ``, select: `` <space>gf `` |
-| `git_stash_picker` | Browse stashes | normal: `` <space>gS ``, select: `` <space>gS `` |
-| `changed_file_picker` | Browse changed files | normal: `` <space>gs ``, select: `` <space>gs `` |
-| `diff` | Show file diff | normal: `` <space>gd ``, select: `` <space>gd `` |
-| `diff_refresh` | Retry loading the current diff review buffer |  |
-| `diff_open_source` | Jump from a diff review to its source location | normal: `` <ret> ``, select: `` <ret> `` |
-| `diff_open_file` | Open the current file from a diff review |  |
-| `changed_file_picker_in_repository` | Open changed file picker in repository |  |
+| `vcs_show_change`, `show_change` | Show hunk diff | normal: `` <space>i ``, `` <space>gi ``, select: `` <space>i ``, `` <space>gi `` |
+| `vcs_goto_next_conflict`, `goto_next_conflict` | Go to the next unresolved conflict | normal: `` ]m ``, select: `` ]m `` |
+| `vcs_goto_previous_conflict`, `goto_previous_conflict` | Go to the previous unresolved conflict | normal: `` [m ``, select: `` [m `` |
+| `vcs_blame_line`, `blame_line` | Show line blame | normal: `` <space>gb ``, select: `` <space>gb `` |
+| `vcs_toggle_inline_blame`, `toggle_inline_blame` | Toggle inline blame | normal: `` <space>B ``, `` <space>gt ``, select: `` <space>B ``, `` <space>gt `` |
+| `vcs_history_picker`, `git_history` | Browse commits | normal: `` <space>gl ``, select: `` <space>gl `` |
+| `vcs_file_history_picker`, `git_file_history` | Browse file history | normal: `` <space>gf ``, select: `` <space>gf `` |
+| `vcs_stash_picker`, `git_stash_picker` | Browse stashes | normal: `` <space>gS ``, select: `` <space>gS `` |
+| `vcs_changed_file_picker`, `changed_file_picker` | Browse changed files | normal: `` <space>gs ``, select: `` <space>gs `` |
+| `vcs_diff`, `diff` | Show file diff | normal: `` <space>gd ``, select: `` <space>gd `` |
+| `vcs_diff_refresh`, `diff_refresh` | Retry loading the current diff review buffer |  |
+| `vcs_diff_open_source`, `diff_open_source` | Jump from a diff review to its source location | normal: `` <ret> ``, select: `` <ret> `` |
+| `vcs_diff_open_file`, `diff_open_file` | Open the current file from a diff review |  |
+| `vcs_changed_file_picker_in_repository`, `changed_file_picker_in_repository` | Open changed file picker in repository |  |
 | `select_references_to_symbol_under_cursor` | Select symbol references | normal: `` <space>h ``, select: `` <space>h `` |
 | `workspace_symbol_picker` | Open workspace symbol picker |  |
 | `syntax_workspace_symbol_picker` | Open workspace symbol picker from syntax information |  |
@@ -198,10 +198,10 @@
 | `goto_prev_quicklist` | Goto previous quicklist entry | normal: `` [q ``, select: `` [q `` |
 | `goto_next_file_quicklist` | Goto next quicklist entry in current file | normal: `` ]l ``, select: `` ]l `` |
 | `goto_prev_file_quicklist` | Goto previous quicklist entry in current file | normal: `` [l ``, select: `` [l `` |
-| `goto_next_change` | Goto next change | normal: `` ]g ``, select: `` ]g `` |
-| `goto_prev_change` | Goto previous change | normal: `` [g ``, select: `` [g `` |
-| `goto_first_change` | Goto first change | normal: `` [G ``, select: `` [G `` |
-| `goto_last_change` | Goto last change | normal: `` ]G ``, select: `` ]G `` |
+| `vcs_goto_next_change`, `goto_next_change` | Goto next change | normal: `` ]g ``, select: `` ]g `` |
+| `vcs_goto_prev_change`, `goto_prev_change` | Goto previous change | normal: `` [g ``, select: `` [g `` |
+| `vcs_goto_first_change`, `goto_first_change` | Goto first change | normal: `` [G ``, select: `` [G `` |
+| `vcs_goto_last_change`, `goto_last_change` | Goto last change | normal: `` ]G ``, select: `` ]G `` |
 | `goto_line_start` | Goto line start | normal: `` gh ``, `` <home> ``, select: `` gh ``, insert: `` <home> `` |
 | `goto_line_end` | Goto line end | normal: `` gl ``, `` <end> ``, select: `` gl `` |
 | `goto_column` | Goto column | normal: `` g\| `` |

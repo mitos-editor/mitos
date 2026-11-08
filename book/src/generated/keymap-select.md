@@ -42,7 +42,7 @@
 | `` O `` | Open new line above selection | `` open_above `` |
 | `` d `` | Delete selection | `` delete_selection `` |
 | `` <A-d> `` | Delete selection without yanking | `` delete_selection_noyank `` |
-| `` <ret> `` | Jump from a diff review to its source location | `` diff_open_source `` |
+| `` <ret> `` | Jump from a diff review to its source location | `` vcs_diff_open_source `` |
 | `` c `` | Change selection | `` change_selection `` |
 | `` <A-c> `` | Change selection without yanking | `` change_selection_noyank `` |
 | `` C `` | Copy selection on next line | `` copy_selection_on_next_line `` |
@@ -183,9 +183,9 @@
 | `` [s `` | Goto previous spelling finding | `` goto_prev_spelling `` |
 | `` [q `` | Goto previous quicklist entry | `` goto_prev_quicklist `` |
 | `` [D `` | Goto first diagnostic | `` goto_first_diag `` |
-| `` [g `` | Goto previous change | `` goto_prev_change `` |
-| `` [m `` | Go to the previous unresolved conflict | `` goto_previous_conflict `` |
-| `` [G `` | Goto first change | `` goto_first_change `` |
+| `` [g `` | Goto previous change | `` vcs_goto_prev_change `` |
+| `` [m `` | Go to the previous unresolved conflict | `` vcs_goto_previous_conflict `` |
+| `` [G `` | Goto first change | `` vcs_goto_first_change `` |
 | `` [l `` | Goto previous quicklist entry in current file | `` goto_prev_file_quicklist `` |
 | `` [f `` | Goto previous function | `` goto_prev_function `` |
 | `` [t `` | Goto previous type definition | `` goto_prev_class `` |
@@ -205,9 +205,9 @@
 | `` ]s `` | Goto next spelling finding | `` goto_next_spelling `` |
 | `` ]q `` | Goto next quicklist entry | `` goto_next_quicklist `` |
 | `` ]D `` | Goto last diagnostic | `` goto_last_diag `` |
-| `` ]g `` | Goto next change | `` goto_next_change `` |
-| `` ]m `` | Go to the next unresolved conflict | `` goto_next_conflict `` |
-| `` ]G `` | Goto last change | `` goto_last_change `` |
+| `` ]g `` | Goto next change | `` vcs_goto_next_change `` |
+| `` ]m `` | Go to the next unresolved conflict | `` vcs_goto_next_conflict `` |
+| `` ]G `` | Goto last change | `` vcs_goto_last_change `` |
 | `` ]l `` | Goto next quicklist entry in current file | `` goto_next_file_quicklist `` |
 | `` ]f `` | Goto next function | `` goto_next_function `` |
 | `` ]t `` | Goto next type definition | `` goto_next_class `` |
@@ -288,7 +288,7 @@
 | `` <space>S `` | Open workspace symbol picker from LSP or syntax information | `` lsp_or_syntax_workspace_symbol_picker `` |
 | `` <space>d `` | Open diagnostic picker | `` diagnostics_picker `` |
 | `` <space>D `` | Open workspace diagnostic picker | `` workspace_diagnostics_picker `` |
-| `` <space>g `` | Git | Prefix |
+| `` <space>g `` | Version control | Prefix |
 | `` <space>a `` | Perform code action | `` code_action `` |
 | `` <space>l `` | Show code lenses under cursor | `` show_code_lenses_under_cursor `` |
 | `` <space>' `` | Open last picker | `` last_picker `` |
@@ -307,21 +307,21 @@
 | `` <space>C `` | Block comment/uncomment selections | `` toggle_block_comments `` |
 | `` <space><A-c> `` | Line comment/uncomment selections | `` toggle_line_comments `` |
 | `` <space>? `` | Open command palette | `` command_palette `` |
-| `` <space>B `` | Toggle inline blame | `` toggle_inline_blame `` |
-| `` <space>i `` | Show hunk diff | `` show_change `` |
+| `` <space>B `` | Toggle inline blame | `` vcs_toggle_inline_blame `` |
+| `` <space>i `` | Show hunk diff | `` vcs_show_change `` |
 
-#### `` <space>g `` — Git
+#### `` <space>g `` — Version control
 
 | Key | Description | Command |
 | --- | --- | --- |
-| `` <space>gs `` | Browse changed files | `` changed_file_picker `` |
-| `` <space>gd `` | Show file diff | `` diff `` |
-| `` <space>gf `` | Browse file history | `` git_file_history `` |
-| `` <space>gl `` | Browse commits | `` git_history `` |
-| `` <space>gb `` | Show line blame | `` blame_line `` |
-| `` <space>gi `` | Show hunk diff | `` show_change `` |
-| `` <space>gt `` | Toggle inline blame | `` toggle_inline_blame `` |
-| `` <space>gS `` | Browse stashes | `` git_stash_picker `` |
+| `` <space>gs `` | Browse changed files | `` vcs_changed_file_picker `` |
+| `` <space>gd `` | Show file diff | `` vcs_diff `` |
+| `` <space>gf `` | Browse file history | `` vcs_file_history_picker `` |
+| `` <space>gl `` | Browse commits | `` vcs_history_picker `` |
+| `` <space>gb `` | Show line blame | `` vcs_blame_line `` |
+| `` <space>gi `` | Show hunk diff | `` vcs_show_change `` |
+| `` <space>gt `` | Toggle inline blame | `` vcs_toggle_inline_blame `` |
+| `` <space>gS `` | Browse stashes | `` vcs_stash_picker `` |
 
 #### `` <space>G `` — Debug (experimental)
 

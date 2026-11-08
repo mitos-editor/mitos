@@ -207,6 +207,12 @@ impl std::str::FromStr for MappableCommand {
                 .iter()
                 .find(|cmd| cmd.name() == s)
                 .cloned()
+                .or_else(|| {
+                    Self::STATIC_COMMAND_ALIASES
+                        .iter()
+                        .find(|(alias, _)| *alias == s)
+                        .map(|(_, command)| command.clone())
+                })
                 .ok_or_else(|| anyhow!("No command named '{}'", s))
         }
     }
@@ -246,6 +252,68 @@ impl PartialEq for MappableCommand {
                 },
             ) => first_name == second_name,
             _ => false,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::MappableCommand;
+    use std::collections::HashSet;
+
+    #[test]
+    fn static_aliases_resolve_to_canonical_commands() {
+        let mut names: HashSet<_> = MappableCommand::STATIC_COMMAND_LIST
+            .iter()
+            .map(MappableCommand::name)
+            .collect();
+        for (alias, command) in MappableCommand::STATIC_COMMAND_ALIASES {
+            assert!(names.insert(alias), "Duplicate command name: {alias}");
+            assert_eq!(alias.parse::<MappableCommand>().unwrap(), *command);
+            assert_eq!(command.name().parse::<MappableCommand>().unwrap(), *command);
+            assert!(MappableCommand::STATIC_COMMAND_LIST.contains(command));
+        }
+    }
+
+    #[test]
+    fn legacy_vcs_keybindings_deserialize_to_canonical_commands() {
+        let legacy: crate::keymap::KeyTrie = toml::from_str(
+            r#"
+            h = "git_history"
+            d = "diff"
+            c = ["changed_file_picker", "diff_refresh"]
+            "#,
+        )
+        .unwrap();
+        let canonical: crate::keymap::KeyTrie = toml::from_str(
+            r#"
+            h = "vcs_history_picker"
+            d = "vcs_diff"
+            c = ["vcs_changed_file_picker", "vcs_diff_refresh"]
+            "#,
+        )
+        .unwrap();
+        assert_eq!(legacy, canonical);
+    }
+
+    #[test]
+    fn legacy_typable_vcs_names_resolve_to_canonical_commands() {
+        for (old, new) in [
+            ("blame", "vcs-blame"),
+            ("show-change", "vcs-show-change"),
+            ("diff head", "vcs-diff head"),
+            ("git-history", "vcs-history"),
+            ("file-history", "vcs-file-history"),
+            ("git-file-history", "vcs-file-history"),
+            ("diff-refresh", "vcs-diff-refresh"),
+            ("diff-open-source", "vcs-diff-open-source"),
+            ("diff-open-file", "vcs-diff-open-file"),
+            ("restore-change", "vcs-restore-change"),
+        ] {
+            assert_eq!(
+                format!(":{old}").parse::<MappableCommand>().unwrap(),
+                format!(":{new}").parse::<MappableCommand>().unwrap(),
+            );
         }
     }
 }
