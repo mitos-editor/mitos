@@ -2,7 +2,7 @@
 
 Mitos runs on Linux, macOS, and Windows. The executable is called `ms`.
 Use the [installer](#installer), download a [release archive](#release-archives),
-or install the [Debian package](#debian-and-ubuntu).
+or use a Linux [AppImage](#appimage) or [Debian package](#debian-and-ubuntu).
 You can also [build from source](./building-from-source.md).
 
 ## Installer
@@ -103,6 +103,29 @@ Extract the ZIP to a permanent directory, such as
 `$HOME\Apps\Mitos\mitos-v0.1.0-x86_64-windows`. Add that directory to your
 user `Path` through **Environment Variables**, then open a new terminal.
 Keep `ms.exe` and `runtime/` together.
+
+## AppImage
+
+Linux releases include `mitos-vVERSION-x86_64.AppImage` and
+`mitos-vVERSION-aarch64.AppImage`. Download the file for your architecture from
+[GitHub Releases](https://github.com/mitos-editor/mitos/releases/latest), make it
+executable, and run it from a terminal:
+
+```sh
+chmod +x mitos-vVERSION-x86_64.AppImage
+./mitos-vVERSION-x86_64.AppImage path/to/file
+```
+
+Replace `VERSION` with the release number and use `aarch64` on ARM64 Linux.
+The AppImage bundles the executable and runtime, including compiled grammars.
+It uses the same glibc baseline as the Linux release archives; it requires
+glibc 2.35 or newer. Language servers are installed separately.
+
+If FUSE is unavailable, run with extraction enabled:
+
+```sh
+APPIMAGE_EXTRACT_AND_RUN=1 ./mitos-vVERSION-x86_64.AppImage path/to/file
+```
 
 ## Debian and Ubuntu
 

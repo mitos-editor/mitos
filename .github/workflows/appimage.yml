@@ -1,0 +1,58 @@
+name: AppImage
+
+on:
+  pull_request:
+    paths:
+      - '.github/scripts/*appimage.sh'
+      - '.github/workflows/appimage.yml'
+      - '.github/workflows/release.yml'
+      - 'contrib/Mitos.desktop'
+      - 'book/theme/favicon.svg'
+  push:
+    branches: [main]
+    paths:
+      - '.github/scripts/*appimage.sh'
+      - '.github/workflows/appimage.yml'
+      - '.github/workflows/release.yml'
+      - 'contrib/Mitos.desktop'
+      - 'book/theme/favicon.svg'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    name: Package (${{ matrix.arch }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            os: ubuntu-22.04
+          - arch: aarch64
+            os: ubuntu-22.04-arm
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # Exercise packaging with real binaries and grammars without rebuilding Rust.
+      - name: Download release fixture
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          archive="mitos-v0.1.3-$ARCH-linux.tar.xz"
+          gh release download v0.1.3 --repo mitos-editor/mitos \
+            --pattern "$archive" --pattern SHA256SUMS
+          grep "  $archive$" SHA256SUMS | sha256sum -c -
+          mkdir fixture
+          tar xJf "$archive" -C fixture --strip-components=1
+
+      - name: Build AppImage
+        env:
+          ARCH: ${{ matrix.arch }}
+          VERSION: test
+        run: bash .github/scripts/build-appimage.sh "$ARCH" fixture/ms fixture/runtime mitos.AppImage
+
+      - name: Test bundled binary and runtime without FUSE
+        run: bash .github/scripts/test-appimage.sh mitos.AppImage

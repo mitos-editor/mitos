@@ -159,6 +159,25 @@ jobs:
           fi
           cp -r runtime dist
 
+      - name: Build AppImage
+        if: runner.os == 'Linux'
+        shell: bash
+        env:
+          BUILD: ${{ matrix.build }}
+        run: |
+          version=dev
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            version="$GITHUB_REF_NAME"
+          fi
+          export VERSION="$version"
+          bash .github/scripts/build-appimage.sh "${BUILD%-linux}" \
+            dist/ms dist/runtime "dist/mitos-$version-${BUILD%-linux}.AppImage"
+
+      - name: Smoke test AppImage
+        if: runner.os == 'Linux'
+        shell: bash
+        run: bash .github/scripts/test-appimage.sh dist/*.AppImage
+
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: bins-${{ matrix.build }}
@@ -207,6 +226,11 @@ jobs:
               mv "bins-$platform/runtime" "$pkgname/"
               mv "bins-$platform/ms$exe" "$pkgname"
               chmod +x "$pkgname/ms$exe"
+
+              if [[ "$platform" = *-linux ]]; then
+                  mv "bins-$platform"/*.AppImage dist/
+                  chmod +x dist/*.AppImage
+              fi
 
               if [[ "$platform" = "x86_64-linux" ]]; then
                   mv "bins-$platform"/*.deb dist/
