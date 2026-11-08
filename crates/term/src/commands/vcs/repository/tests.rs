@@ -356,7 +356,9 @@ async fn branch_refresh_replaces_old_pages_after_repository_changes() -> Result<
         rows.len() == 1 && rows[0].name == "replacement"
     })
     .await?;
-    assert!(screen(&mut picker, &mut app).contains("Complete branch list"));
+    // Polling may already have started another refresh. Assert the published
+    // selection rather than a transient loading status from another frame.
+    assert_eq!(picker.selection().unwrap().name, "replacement");
     Ok(())
 }
 
