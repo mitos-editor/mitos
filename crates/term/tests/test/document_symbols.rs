@@ -89,14 +89,23 @@ async fn document_symbol_picker_refreshes_after_edits_and_when_reopened() -> any
         view::editing::apply(doc, &edit, view.id).unwrap();
         super::helpers::keys(&mut app, if reopen { "<space>'" } else { "" }).await?;
         super::helpers::keys(&mut app, "<home>").await?;
-        let screen: String = app
-            .terminal_backend()
-            .buffer()
-            .content
-            .iter()
-            .map(|cell| cell.symbol())
-            .collect();
-        assert!(screen.contains(&format!("symbol:{name}")), "{screen}");
+        // The picker refresh runs outside the jobs awaited by the idle pump.
+        // Keep processing events until the server response reaches the screen.
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
+        loop {
+            super::helpers::keys(&mut app, "").await?;
+            let screen: String = app
+                .terminal_backend()
+                .buffer()
+                .content
+                .iter()
+                .map(|cell| cell.symbol())
+                .collect();
+            if screen.contains(&format!("symbol:{name}")) {
+                break;
+            }
+            assert!(tokio::time::Instant::now() < deadline, "{screen}");
+        }
     }
     super::helpers::keys(&mut app, "<esc>").await?;
     assert!(app.close().await.is_empty());
