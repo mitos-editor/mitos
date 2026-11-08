@@ -400,7 +400,7 @@ single statusline at the bottom of the editor for the focused view.
 | --- | --- | --- |
 | `global` | boolean | `false` |
 | `left` | array of element names | `["mode", "spinner", "debug-session", "branch", "file-name", "read-only-indicator", "file-modification-indicator"]` |
-| `right` | array of element names | `["diagnostics", "selections", "register", "position", "file-encoding"]` |
+| `right` | array of element names | `["diagnostics", "selections", "register", "search-position", "position", "file-encoding"]` |
 | `separator` | string | `"│"` |
 | `mode.color` | boolean | `false` |
 | `mode.normal` | string | `"NOR"` |

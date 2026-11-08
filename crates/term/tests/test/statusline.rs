@@ -29,8 +29,6 @@ async fn search_position_renders_cached_exact_capped_and_noncanonical_counts() -
     ] {
         let (sender, mut updates) = callbacks::channel();
         let mut config = test_config();
-        config.editor.statusline.left.clear();
-        config.editor.statusline.right = vec![StatusLineElement::SearchPosition];
         config.editor.search.max_matches = limit.map_or(OptionToml::None, OptionToml::Some);
         let mut app = AppBuilder::new()
             .with_config(config)
@@ -80,7 +78,9 @@ async fn search_position_renders_cached_exact_capped_and_noncanonical_counts() -
         keys(&mut app, "h").await?;
         let (view, doc) = current_ref!(app.editor);
         assert_eq!(doc.search_position(view.id), None);
-        assert!(!row(app.terminal_backend().buffer(), view.statusline_area(doc)).contains('['));
+        assert!(
+            !row(app.terminal_backend().buffer(), view.statusline_area(doc)).contains(expected)
+        );
     }
     Ok(())
 }
