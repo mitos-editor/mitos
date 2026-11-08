@@ -248,33 +248,15 @@ pub struct Worktree {
 
 impl GitRepository {
     pub async fn branches(&self) -> Result<Vec<Branch>> {
-        let repository = self.clone();
-        tokio::task::spawn_blocking(move || {
-            let repo = repository.open_read(false)?;
-            let head = repo.head_name()?;
-            let mut branches = Vec::new();
-            let mut bytes = 0;
-            for reference in repo.references()?.local_branches()? {
-                let reference = reference.map_err(anyhow::Error::from_boxed)?;
-                let upstream = upstream_name(&repo, reference.name())?;
-                let name = reference.name().shorten().to_str()?.to_owned();
-                bytes += name.len() + upstream.len();
-                ensure!(
-                    bytes <= 1024 * 1024,
-                    "Branch listing exceeds the 1 MiB display limit"
-                );
-                branches.push(Branch {
-                    current: head
-                        .as_ref()
-                        .is_some_and(|head| head.as_ref() == reference.name()),
-                    name,
-                    upstream,
-                });
-            }
-            branches.sort_by(|a, b| a.name.cmp(&b.name));
-            Ok(branches)
-        })
-        .await?
+        let mut cursor = Some(self.branch_cursor());
+        let mut branches = Vec::new();
+        while let Some(current) = cursor {
+            let page = current.next_page().await?;
+            branches.extend(page.branches);
+            cursor = page.next;
+        }
+        branches.sort_by(|a, b| a.name.cmp(&b.name));
+        Ok(branches)
     }
 
     pub async fn worktrees(&self) -> Result<Vec<Worktree>> {
@@ -593,3 +575,6 @@ async fn run_private(mut command: Command, label: &'static str) -> Result<Vec<u8
 
 #[cfg(test)]
 mod tests;
+
+mod branches;
+pub use branches::{BranchCursor, BranchPage, BRANCH_PAGE_SIZE};

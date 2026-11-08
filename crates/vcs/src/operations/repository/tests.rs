@@ -786,3 +786,95 @@ async fn native_fetch_updates_tracking_refs_and_fetch_head_without_checkout() ->
     assert!(fetch::execute(&repository, "origin", None)?.is_none());
     Ok(())
 }
+
+#[tokio::test]
+async fn branch_pages_replay_and_continue_across_packed_and_loose_refs() -> Result<()> {
+    let dir = initial()?;
+    let repo = GitRepository::discover(dir.path())?;
+    let git = repo.open(false)?;
+    let id = git.head_id()?.detach();
+    for index in 0..205 {
+        git.reference(
+            format!("refs/heads/topic-{index:03}"),
+            id,
+            gix::refs::transaction::PreviousValue::Any,
+            "test",
+        )?;
+    }
+    exec_git_cmd(&["pack-refs", "--all"], dir.path());
+    git.reference(
+        "refs/heads/topic-100",
+        id,
+        gix::refs::transaction::PreviousValue::Any,
+        "loose override",
+    )?;
+    let cursor = repo.branch_cursor();
+    let first = cursor.next_page().await?;
+    assert_eq!(first.branches.len(), BRANCH_PAGE_SIZE);
+    assert_eq!(cursor.next_page().await?.branches, first.branches);
+    let second = first.next.unwrap().next_page().await?;
+    assert_eq!(second.branches.len(), BRANCH_PAGE_SIZE);
+    let third = second.next.unwrap().next_page().await?;
+    assert_eq!(third.branches.len(), 6);
+    assert!(third.next.is_none());
+    let mut names: Vec<_> = first
+        .branches
+        .into_iter()
+        .chain(second.branches)
+        .chain(third.branches)
+        .map(|branch| branch.name)
+        .collect();
+    names.sort();
+    names.dedup();
+    assert_eq!(names.len(), 206);
+    assert_eq!(
+        names,
+        repo.branches()
+            .await?
+            .into_iter()
+            .map(|branch| branch.name)
+            .collect::<Vec<_>>()
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn branch_pages_publish_before_a_later_ref_error() -> Result<()> {
+    let dir = initial()?;
+    let repo = GitRepository::discover(dir.path())?;
+    let git = repo.open(false)?;
+    let id = git.head_id()?.detach();
+    for index in 0..205 {
+        git.reference(
+            format!("refs/heads/topic-{index:03}"),
+            id,
+            gix::refs::transaction::PreviousValue::Any,
+            "test",
+        )?;
+    }
+    exec_git_cmd(&["config", "branch.topic-204.remote", "."], dir.path());
+    exec_git_cmd(
+        &["config", "branch.topic-204.merge", "invalid ref name"],
+        dir.path(),
+    );
+    let first = repo.branch_cursor().next_page().await?;
+    assert_eq!(first.branches.len(), BRANCH_PAGE_SIZE);
+    let second = first.next.unwrap().next_page().await?;
+    assert_eq!(second.branches.len(), BRANCH_PAGE_SIZE);
+    assert!(second.next.unwrap().next_page().await.is_err());
+    Ok(())
+}
+
+#[tokio::test]
+async fn branch_pages_report_initialization_errors_and_empty_repositories() -> Result<()> {
+    let dir = empty_git_repo();
+    let repo = GitRepository::discover(dir.path())?;
+    let page = repo.branch_cursor().next_page().await?;
+    assert!(page.branches.is_empty());
+    assert!(page.next.is_none());
+    let cursor = repo.branch_cursor();
+    std::fs::rename(dir.path().join(".git"), dir.path().join("old.git"))?;
+    let error = cursor.next_page().await.err().unwrap().to_string();
+    assert!(error.contains("discover git repo"), "{error}");
+    Ok(())
+}

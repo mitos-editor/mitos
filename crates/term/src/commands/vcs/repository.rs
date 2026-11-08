@@ -12,7 +12,7 @@ use std::{
 };
 use tui::text::Span;
 use vcs::operations::{
-    repository::{Branch, Worktree},
+    repository::{Branch, BranchCursor, BranchPage, Worktree},
     GitRepository, RepositoryOperation,
 };
 use view::{features::git_operations::GitAction, Editor};
@@ -117,8 +117,17 @@ impl RepositoryData {
 }
 
 fn branches(editor: &Editor, repo: GitRepository, workspace: PathBuf) -> Box<dyn Component> {
+    Box::new(overlaid(branch_picker(editor, repo, workspace)))
+}
+
+fn branch_picker(
+    editor: &Editor,
+    repo: GitRepository,
+    workspace: PathBuf,
+) -> Picker<Branch, RepositoryData> {
     let actions = repo.clone();
-    let picker = Picker::new_with_callback_result(
+    let mut pager = BranchPager::new(editor, repo.clone());
+    Picker::new_with_callback_result(
         editor.redraw().clone(),
         [
             PickerColumn::new("branch", |branch: &Branch, data: &RepositoryData| {
@@ -160,16 +169,8 @@ fn branches(editor: &Editor, repo: GitRepository, workspace: PathBuf) -> Box<dyn
         },
     )
     .with_title("Git branches · Enter switches branch")
-    .with_file_updates(
-        editor,
-        |data| data.repo.root(),
-        |_, _, data, _| Box::pin(async move { data.repo.branches().await }),
-    )
-    .with_refresh_generation(editor, super::actions::generation)
+    .with_editor_updates(move |cx| pager.update(cx))
     .with_item_key(|branch| branch.name.clone())
-    .refresh_on_vcs_changes()
-    .refresh_on_open();
-    Box::new(overlaid(picker))
 }
 
 fn worktrees(editor: &Editor, repo: GitRepository) -> Box<dyn Component> {
@@ -258,77 +259,137 @@ fn request_open_worktree(cx: &mut Context, repo: GitRepository, path: PathBuf) {
     });
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::ui::picker::test::{application, frame, until};
-    use view::graphics::Color;
+struct BranchPager {
+    repo: GitRepository,
+    cursor: Option<BranchCursor>,
+    pending: Option<tokio::sync::oneshot::Receiver<Result<BranchPage>>>,
+    rows: Vec<Branch>,
+    failed: bool,
+    replacing: bool,
+    replacement: Vec<Branch>,
+    dirty: bool,
+    changes: view::features::workspace_changes::WorkspaceChanges,
+    generation: u64,
+}
 
-    fn assert_colour(surface: &tui::buffer::Buffer, text: &str, colour: Color) {
-        // Skip the border, query, separator, and column headings.
-        for y in 4..surface.area.height {
-            let row: String = (0..surface.area.width)
-                .map(|x| surface[(x, y)].symbol())
-                .collect();
-            if let Some(offset) = row.find(text) {
-                let offset = row[..offset].chars().count();
-                for x in offset..offset + text.len() {
-                    assert_eq!(
-                        surface[(x as u16, y)].fg,
-                        colour,
-                        "{text}: row {y} column {x}: {row}"
-                    );
+impl BranchPager {
+    fn new(editor: &Editor, repo: GitRepository) -> Self {
+        use view::features::workspace_changes::{Policy, WorkspaceChanges};
+        Self {
+            cursor: Some(repo.branch_cursor()),
+            changes: WorkspaceChanges::new(
+                editor,
+                repo.root(),
+                Policy {
+                    vcs: true,
+                    ignore_files: true,
+                    ..Policy::default()
+                },
+            ),
+            generation: super::actions::generation(editor),
+            repo,
+            pending: None,
+            rows: Vec::new(),
+            failed: false,
+            replacing: true,
+            replacement: Vec::new(),
+            dirty: false,
+        }
+    }
+
+    fn update(&mut self, cx: crate::ui::picker::UpdateContext<'_, Branch>) -> Option<Vec<Branch>> {
+        let generation = super::actions::generation(cx.editor);
+        self.dirty |= self.changes.changed(cx.editor, self.repo.root());
+        // Let an in-flight page publish before starting a queued filesystem refresh.
+        if cx.resumed
+            || generation != self.generation
+            || (self.pending.is_none() && (self.dirty || self.changes.poll_due(cx.editor)))
+        {
+            cx.task.cancel();
+            self.pending = None;
+            self.cursor = Some(self.repo.branch_cursor());
+            self.failed = false;
+            self.replacing = true;
+            self.replacement.clear();
+            self.dirty = false;
+            self.generation = generation;
+            self.changes.mark_refreshed();
+        }
+        let mut changed = false;
+        if let Some(pending) = &mut self.pending {
+            match pending.try_recv() {
+                Ok(result) => {
+                    self.pending = None;
+                    match result {
+                        Ok(page) => {
+                            self.cursor = page.next;
+                            self.changes.mark_refreshed();
+                            if self.replacing {
+                                self.replacement.extend(page.branches);
+                                // Refresh the previously visible prefix together so polling
+                                // cannot remove the selected row merely by restarting at page one.
+                                if self.replacement.len() >= self.rows.len()
+                                    || self.cursor.is_none()
+                                {
+                                    self.rows = std::mem::take(&mut self.replacement);
+                                    self.replacing = false;
+                                    changed = true;
+                                }
+                            } else {
+                                self.rows.extend(page.branches);
+                                changed = true;
+                            }
+                            self.rows.sort_by(|a, b| a.name.cmp(&b.name));
+                        }
+                        Err(error) => {
+                            self.failed = true;
+                            cx.editor.set_error(|| error.to_string());
+                        }
+                    }
                 }
-                return;
+                Err(tokio::sync::oneshot::error::TryRecvError::Closed) => {
+                    self.pending = None;
+                    self.failed = true;
+                }
+                Err(tokio::sync::oneshot::error::TryRecvError::Empty) => {}
             }
         }
-        panic!("Missing picker text: {text}");
-    }
-
-    #[tokio::test]
-    async fn repository_pickers_preserve_semantic_colours_on_selected_rows() -> Result<()> {
-        let dir = tempfile::tempdir()?;
-        let output = std::process::Command::new("git")
-            .arg("init")
-            .arg("-b")
-            .arg("main")
-            .arg(dir.path())
-            .output()?;
-        ensure!(output.status.success(), "git init failed");
-        std::fs::write(
-            dir.path().join(".git/refs/heads/main"),
-            "1111111111111111111111111111111111111111\n",
-        )?;
-        let repo = GitRepository::discover(dir.path())?;
-        let mut app = application(false)?;
-        app.editor.theme = theme::Theme::from(toml::Value::Table(toml::toml! {
-            "ui.text" = "white"
-            "ui.text.directory" = "blue"
-            "ui.text.focus" = { modifiers = ["bold"] }
-            "diff.plus" = "green"
-            "string.special.symbol" = "cyan"
-            "ui.selection" = { bg = "black" }
-            "ui.highlight" = { bg = "black" }
-            "special" = { modifiers = ["bold"] }
-        }));
-        let mut branches = branches(&app.editor, repo.clone(), dir.path().into())
-            .as_boxed_any()
-            .downcast::<ui::overlay::Overlay<Picker<Branch, RepositoryData>>>()
-            .map_err(|_| anyhow::anyhow!("Expected branch picker"))?;
-        until(&mut branches.content, &mut app, |p| p.selection().is_some()).await?;
-        let surface = frame(&mut branches.content, &mut app);
-        assert_colour(&surface, "main", Color::Green);
-        assert_colour(&surface, "*", Color::Green);
-        let mut worktrees = worktrees(&app.editor, repo)
-            .as_boxed_any()
-            .downcast::<ui::overlay::Overlay<Picker<Worktree, RepositoryData>>>()
-            .map_err(|_| anyhow::anyhow!("Expected worktree picker"))?;
-        until(&mut worktrees.content, &mut app, |p| {
-            p.selection().is_some()
-        })
-        .await?;
-        let surface = frame(&mut worktrees.content, &mut app);
-        assert_colour(&surface, std::path::MAIN_SEPARATOR_STR, Color::Blue);
-        Ok(())
+        if !changed
+            && self.pending.is_none()
+            && !self.failed
+            && (self.replacing
+                || self.rows.is_empty()
+                || !cx.query.trim().is_empty()
+                || cx.near_end)
+            && let Some(cursor) = self.cursor.clone()
+        {
+            let cancel = cx.task.restart();
+            let redraw = cx.editor.redraw().clone();
+            let (tx, rx) = tokio::sync::oneshot::channel();
+            self.pending = Some(rx);
+            tokio::spawn(async move {
+                if let Some(result) = event::cancelable_future(cursor.next_page(), cancel).await {
+                    let _ = tx.send(result);
+                    redraw.request();
+                }
+            });
+        }
+        *cx.incomplete = self.cursor.is_some() || self.failed;
+        *cx.status = Some(
+            if self.failed {
+                "Branches incomplete; reopen to retry"
+            } else if self.pending.is_some() {
+                "Loading branches…"
+            } else if self.cursor.is_some() {
+                "More branches available"
+            } else {
+                "Complete branch list"
+            }
+            .into(),
+        );
+        changed.then(|| self.rows.clone())
     }
 }
+
+#[cfg(test)]
+mod tests;
