@@ -3,8 +3,8 @@
 Press `Space g` to choose a version-control action.
 
 Version-control commands use the `vcs_` prefix in keybindings and `vcs-` in command mode.
-Commands that open pickers use the `_picker` suffix in keybindings. Older command
-names remain available as aliases. Git is currently the only supported provider.
+Commands that open pickers use the `_picker` suffix in keybindings. Git is
+currently the only supported provider.
 
 | Key or command | Action |
 | --- | --- |
@@ -21,7 +21,6 @@ names remain available as aliases. Git is currently the only supported provider.
 
 Find other version-control commands by searching for `vcs-` in the command palette (`Space ?`).
 
-Existing commands such as `:diff`, `:file-history`, and `:git-history` still work.
 `Space i` also inspects a change, and `Space B` toggles inline blame.
 
 Previously, `Space g` opened changed files directly; that action is now
@@ -407,7 +406,7 @@ from merged branches.
 
 ### Repository history
 
-Run `:vcs-history` (alias `:git-history`) to browse commits leading to `HEAD`,
+Run `:vcs-history` to browse commits leading to `HEAD`,
 including commits from merged branches. It uses the current file's repository,
 or the current directory when no file is open. Run the command again after
 switching branches to browse the new branch.

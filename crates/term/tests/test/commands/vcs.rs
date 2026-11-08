@@ -452,7 +452,7 @@ async fn blame_popup_copies_the_full_id_and_message_from_both_command_surfaces(
     app.editor
         .registers
         .set_clipboard_backend(Box::<TestClipboard>::default());
-    press_keys(&mut app, ":blame<ret>").await?;
+    press_keys(&mut app, ":vcs-blame<ret>").await?;
     tokio::time::timeout(Duration::from_secs(10), async {
         while !app
             .editor
@@ -524,7 +524,7 @@ async fn restore_change_restores_only_the_buffer_and_is_undoable() -> anyhow::Re
         }
     })
     .await?;
-    press_keys(&mut app, ":restore-change<ret>").await?;
+    press_keys(&mut app, ":vcs-restore-change<ret>").await?;
     assert_eq!(current_ref!(app.editor).1.text().to_string(), "committed\n");
     press_keys(&mut app, "u").await?;
     assert_eq!(
@@ -676,12 +676,7 @@ async fn show_change_displays_deleted_and_unsaved_text_without_writing() -> anyh
     let (dir, path) = committed_file()?;
     let mut app = AppBuilder::new().with_file(&path, None).build()?;
     press_keys(&mut app, "Iunsaved-<esc>").await?;
-    for keys in [
-        ":show-change<ret>",
-        ":vcs-show-change<ret>",
-        "<space>i",
-        "<space>gi",
-    ] {
+    for keys in [":vcs-show-change<ret>", "<space>i", "<space>gi"] {
         press_keys(&mut app, keys).await?;
         wait_for_review_screen(&mut app, "Current change", "− committed").await?;
         let screen = review_screen(&app);
@@ -761,7 +756,7 @@ async fn syntax_hunk_reviews_follow_configuration_and_keep_captured_snapshots() 
         .with_config(config)
         .with_file(&path, None)
         .build()?;
-    press_keys(&mut app, ":show-change<ret>").await?;
+    press_keys(&mut app, ":vcs-show-change<ret>").await?;
     wait_for_review_screen(&mut app, "syntax · Current change", "\"value\": 2").await?;
     let (view, doc) = current_ref!(app.editor);
     let selection = doc.selection(view.id).clone();

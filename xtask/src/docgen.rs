@@ -108,15 +108,7 @@ pub fn static_commands() -> String {
             .join(", ");
 
         md.push_str(&md_table_row(&[
-            std::iter::once(cmd.name())
-                .chain(
-                    MappableCommand::STATIC_COMMAND_ALIASES
-                        .iter()
-                        .filter_map(|(alias, canonical)| (canonical == cmd).then_some(*alias)),
-                )
-                .map(md_mono)
-                .collect::<Vec<_>>()
-                .join(", "),
+            md_mono(cmd.name()),
             cmd.doc().to_owned(),
             keymap_string,
         ]));

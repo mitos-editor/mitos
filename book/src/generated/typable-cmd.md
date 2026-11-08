@@ -46,11 +46,11 @@
 | `:primary-clipboard-paste-before` | Paste primary clipboard before selections. |
 | `:primary-clipboard-paste-replace` | Replace selections with content of system primary clipboard. |
 | `:show-clipboard-provider` | Show clipboard provider name in status bar. |
-| `:change-current-working-directory`, `:change-current-directory`, `:cd` | Change the current working directory. |
+| `:change-current-working-directory`, `:cd` | Change the current working directory. |
 | `:show-directory-stack` | Show the directory stack as a space-delimited string. |
 | `:push-directory`, `:pushd` | Save and then change the current directory. |
 | `:pop-directory`, `:popd` | Remove the top entry from the directory stack, and cd to the new top directory.. |
-| `:show-current-working-directory`, `:show-directory`, `:pwd` | Show the current working directory. |
+| `:show-current-working-directory`, `:pwd` | Show the current working directory. |
 | `:encoding` | Set encoding. Based on `https://encoding.spec.whatwg.org`. |
 | `:character-info`, `:char` | Get info about the character under the primary cursor. |
 | `:reload!`, `:rl!` | Discard changes and reload from the source file. |
@@ -66,11 +66,11 @@
 | `:tree-sitter-layers` | Display language names of tree-sitter injection layers under the cursor. |
 | `:debug-start`, `:dbg` | Start a debug session from a given template with given parameters. |
 | `:debug-remote`, `:dbg-tcp` | Connect to a debug adapter by TCP address and start a debugging session from a given template with given parameters. |
-| `:debug-evaluate`, `:debug-eval` | Evaluate expression in current debug context. |
-| `:split-vertical`, `:vsplit`, `:vs` | Open the file in a vertical split. |
-| `:split-vertical-new`, `:vsplit-new`, `:vnew` | Open a scratch buffer in a vertical split. |
-| `:split-horizontal`, `:hsplit`, `:hs`, `:sp` | Open the file in a horizontal split. |
-| `:split-horizontal-new`, `:hsplit-new`, `:hnew` | Open a scratch buffer in a horizontal split. |
+| `:debug-evaluate` | Evaluate expression in current debug context. |
+| `:split-vertical`, `:vs` | Open the file in a vertical split. |
+| `:split-vertical-new`, `:vnew` | Open a scratch buffer in a vertical split. |
+| `:split-horizontal`, `:hs`, `:sp` | Open the file in a horizontal split. |
+| `:split-horizontal-new`, `:hnew` | Open a scratch buffer in a horizontal split. |
 | `:tutor` | Open the tutorial. |
 | `:goto`, `:g` | Goto line number. |
 | `:set-language`, `:lang` | Set the language of current buffer (show current language if no value specified). |
@@ -82,9 +82,9 @@
 | `:reflow` | Hard-wrap the current selection of lines to a given width. |
 | `:tree-sitter-subtree`, `:ts-subtree` | Display the smallest tree-sitter subtree that spans the primary selection, primarily for debugging queries. |
 | `:snippet-insert` | Insert a named user-defined snippet at the selections. |
-| `:snippet-reload`, `:snippets-reload` | Reload global and trusted workspace snippet definitions. |
-| `:snippet-open`, `:snippets-open` | Open the user snippet configuration or a named .toml file in snippets/. |
-| `:snippet-open-workspace`, `:snippets-open-workspace` | Open the workspace snippet configuration or a named .toml file in .mitos/snippets/. |
+| `:snippet-reload` | Reload global and trusted workspace snippet definitions. |
+| `:snippet-open` | Open the user snippet configuration or a named .toml file in snippets/. |
+| `:snippet-open-workspace` | Open the workspace snippet configuration or a named .toml file in .mitos/snippets/. |
 | `:config-reload` | Refresh user config. |
 | `:config-open` | Open the user config.toml file. |
 | `:config-migrate` | Migrate legacy user settings after confirmation, creating a backup. |
@@ -100,29 +100,29 @@
 | `:vcs-conflict-resolve` | Keep the current side, incoming side, or both sides of the conflict at the cursor. |
 | `:vcs-conflict-toggle-markers` | Show or hide raw conflict markers in the current view. |
 | `:vcs-conflict-source` | Open the base, current, or incoming version of a conflicted file in a read-only split. |
-| `:vcs-blame`, `:blame` | Show commit details for the current line, with actions to copy the commit ID or message. |
-| `:vcs-branches`, `:git-branches` | Browse local branches. Press Enter to switch to the selected branch. |
-| `:vcs-branch-create`, `:git-branch-create` | Create a local branch at the current commit without switching to it. |
-| `:vcs-branch-switch`, `:git-branch-switch` | Switch to an existing local branch. Save edited files first; Git refuses to overwrite changes. |
-| `:vcs-worktrees`, `:git-worktrees` | Browse worktrees. Enter opens the selected worktree's file picker. |
-| `:vcs-worktree-create`, `:git-worktree-create` | Create a worktree in a new folder. Give an existing branch name, or omit it to use the current commit without a branch. |
-| `:vcs-worktree-open`, `:git-worktree-open` | Change directory to a worktree and open its file picker, keeping your open files. |
-| `:vcs-worktree-remove`, `:git-worktree-remove` | Confirm removal of a clean worktree, keeping its branch. |
-| `:vcs-fetch`, `:git-fetch` | Download remote commits without changing your files. Give a remote name when several are configured. |
-| `:vcs-pull`, `:git-pull` | Download changes and move the current branch forward without creating a merge commit. Optionally give a remote name. |
-| `:vcs-push`, `:git-push` | Upload commits from the current branch. Optionally give a remote name. |
-| `:vcs-show-change`, `:show-change` | Inspect the current change against HEAD, including deleted lines and unsaved edits. |
-| `:vcs-diff`, `:diff` | Review the current file. Choose head (all changes), staged (next commit), unstaged (saved changes), or buffer (unstaged and unsaved changes). |
-| `:vcs-history`, `:git-history` | Browse repository commits. Select a commit, then a file to review its changes. |
-| `:vcs-file-history`, `:file-history`, `:git-file-history` | Browse commits that changed the current file, following renames. Enter reviews the selected change; Alt-a offers more comparisons. |
-| `:vcs-diff-refresh`, `:diff-refresh` | Reload the current diff. Reviews of past commits keep the versions originally chosen. |
-| `:vcs-diff-open-source`, `:diff-open-source` | Open the source at the selected diff line. |
-| `:vcs-diff-open-file`, `:diff-open-file` | Open the current file from a diff review. |
-| `:vcs-restore-change`, `:restore-change` | Restore selected hunks from HEAD in the buffer. Use u to undo; saved files and staged changes stay unchanged. |
-| `:vcs-changes`, `:git-changes` | Browse changed files in the workspace. |
-| `:vcs-repository-changes`, `:git-repository-changes` | Browse changed files throughout the current repository. |
-| `:vcs-stashes`, `:git-stashes` | Browse Git stashes in the current repository. |
-| `:vcs-toggle-inline-blame`, `:git-toggle-inline-blame` | Show or hide inline Git blame. |
+| `:vcs-blame` | Show commit details for the current line, with actions to copy the commit ID or message. |
+| `:vcs-branches` | Browse local branches. Press Enter to switch to the selected branch. |
+| `:vcs-branch-create` | Create a local branch at the current commit without switching to it. |
+| `:vcs-branch-switch` | Switch to an existing local branch. Save edited files first; Git refuses to overwrite changes. |
+| `:vcs-worktrees` | Browse worktrees. Enter opens the selected worktree's file picker. |
+| `:vcs-worktree-create` | Create a worktree in a new folder. Give an existing branch name, or omit it to use the current commit without a branch. |
+| `:vcs-worktree-open` | Change directory to a worktree and open its file picker, keeping your open files. |
+| `:vcs-worktree-remove` | Confirm removal of a clean worktree, keeping its branch. |
+| `:vcs-fetch` | Download remote commits without changing your files. Give a remote name when several are configured. |
+| `:vcs-pull` | Download changes and move the current branch forward without creating a merge commit. Optionally give a remote name. |
+| `:vcs-push` | Upload commits from the current branch. Optionally give a remote name. |
+| `:vcs-show-change` | Inspect the current change against HEAD, including deleted lines and unsaved edits. |
+| `:vcs-diff` | Review the current file. Choose head (all changes), staged (next commit), unstaged (saved changes), or buffer (unstaged and unsaved changes). |
+| `:vcs-history` | Browse repository commits. Select a commit, then a file to review its changes. |
+| `:vcs-file-history` | Browse commits that changed the current file, following renames. Enter reviews the selected change; Alt-a offers more comparisons. |
+| `:vcs-diff-refresh` | Reload the current diff. Reviews of past commits keep the versions originally chosen. |
+| `:vcs-diff-open-source` | Open the source at the selected diff line. |
+| `:vcs-diff-open-file` | Open the current file from a diff review. |
+| `:vcs-restore-change` | Restore selected hunks from HEAD in the buffer. Use u to undo; saved files and staged changes stay unchanged. |
+| `:vcs-changes` | Browse changed files in the workspace. |
+| `:vcs-repository-changes` | Browse changed files throughout the current repository. |
+| `:vcs-stashes` | Browse Git stashes in the current repository. |
+| `:vcs-toggle-inline-blame` | Show or hide inline Git blame. |
 | `:clear-register` | Clear given register. If no argument is provided, clear all registers. |
 | `:set-register` | Set contents of the given register. |
 | `:redraw` | Clear and re-render the whole UI |

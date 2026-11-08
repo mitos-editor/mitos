@@ -178,7 +178,7 @@ async fn diff_command_creates_a_review_buffer_and_native_history_returns_to_sour
     std::fs::write(&path, "original\n")?;
     let mut app = AppBuilder::new().with_file(&path, None).build()?;
     let source = current_ref!(app.editor).1.id();
-    keys(&mut app, ":diff<ret>").await?;
+    keys(&mut app, ":vcs-diff<ret>").await?;
     ready(&mut app).await?;
     let review = current_ref!(app.editor).1.id();
     assert_ne!(review, source);
@@ -249,7 +249,7 @@ async fn native_review_renderer_keeps_unicode_token_styles_and_wrapped_row_backg
         "diff.minus.line" = { bg = "#301010" }
     "##,
         )?))?;
-    keys(&mut app, ":diff<ret>").await?;
+    keys(&mut app, ":vcs-diff<ret>").await?;
     ready(&mut app).await?;
     // Reset the idle timer and bound settling, even if the callback completed
     // during the preceding idle pass.
@@ -383,7 +383,7 @@ async fn review_syntax_uses_each_source_context_in_both_engines_and_follows_them
             )?))
         };
         app.editor.set_theme(theme("blue", "magenta")?)?;
-        keys(&mut app, ":diff<ret>").await?;
+        keys(&mut app, ":vcs-diff<ret>").await?;
         ready(&mut app).await?;
         keys(&mut app, "").await?;
         let assert_colors = |app: &TestApplication, comment: Color, keyword: Color| {
@@ -462,7 +462,7 @@ async fn review_names_stay_short_in_tabs_and_picker_with_live_details_in_statusl
         .with_lang_loader(language::Loader::default())
         .with_file(&path, None)
         .build()?;
-    keys(&mut app, ":diff<ret>").await?;
+    keys(&mut app, ":vcs-diff<ret>").await?;
     ready(&mut app).await?;
     keys(&mut app, "").await?;
     let first = current_ref!(app.editor).1.id();
@@ -481,13 +481,17 @@ async fn review_names_stay_short_in_tabs_and_picker_with_live_details_in_statusl
     let status = row(&app, view.statusline_area(doc).y);
     assert!(status.contains("note.txt") && status.contains("DIFF HEAD"));
     assert!(status.contains("+1") && status.contains("−1") && status.contains("line"));
-    keys(&mut app, ":set diff.engine syntax<ret>:diff-refresh<ret>").await?;
+    keys(
+        &mut app,
+        ":set diff.engine syntax<ret>:vcs-diff-refresh<ret>",
+    )
+    .await?;
     ready(&mut app).await?;
     assert_eq!(current_ref!(app.editor).1.display_name(), name);
-    keys(&mut app, ":diff-refresh<ret>").await?;
+    keys(&mut app, ":vcs-diff-refresh<ret>").await?;
     ready(&mut app).await?;
     assert_eq!(current_ref!(app.editor).1.display_name(), name);
-    keys(&mut app, ":diff<ret>").await?;
+    keys(&mut app, ":vcs-diff<ret>").await?;
     ready(&mut app).await?;
     let second = current_ref!(app.editor).1.id();
     assert!(current_ref!(app.editor)
@@ -524,7 +528,7 @@ async fn file_history_restores_query_opens_splits_and_historical_syntax() -> any
     git(&workspace, &["add", "."]);
     git(&workspace, &["commit", "-m", "changed history"]);
     let mut app = AppBuilder::new().with_file(&path, None).build()?;
-    keys(&mut app, ":file-history<ret>changed history").await?;
+    keys(&mut app, ":vcs-file-history<ret>changed history").await?;
     preview_contains(&mut app, "old_version").await?;
     assert!(
         current_ref!(app.editor).1.review().is_none(),
@@ -621,7 +625,7 @@ async fn repository_history_selects_merge_parents_and_retains_nested_browsers() 
     let head = String::from_utf8(head.stdout)?;
     let index = std::fs::read(workspace.join(".git/index"))?;
     let mut app = AppBuilder::new().with_file(&path, None).build()?;
-    keys(&mut app, ":git-history<ret>merge review").await?;
+    keys(&mut app, ":vcs-history<ret>merge review").await?;
     assert!(
         app.editor.autoinfo.is_none(),
         "picker query keys must not start an editor key sequence"
@@ -720,7 +724,7 @@ async fn review_highlighting_follows_visible_rows_after_a_large_fold() -> anyhow
         "diff.minus.line" = { bg = "black" }
         "#,
         )?))?;
-    keys(&mut app, ":diff<ret>").await?;
+    keys(&mut app, ":vcs-diff<ret>").await?;
     ready(&mut app).await?;
     let (view, doc) = current_ref!(app.editor);
     let text = doc.text();
@@ -795,7 +799,7 @@ async fn changed_file_and_history_previews_share_scroll_keys_and_scrollbars() ->
         if historical {
             git(&workspace, &["add", "."]);
             git(&workspace, &["commit", "-m", "scrolling change"]);
-            keys(&mut app, ":file-history<ret>scrolling change").await?;
+            keys(&mut app, ":vcs-file-history<ret>scrolling change").await?;
         } else {
             keys(&mut app, "<space>gsscroll.txt").await?;
         }

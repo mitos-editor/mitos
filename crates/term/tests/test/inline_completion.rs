@@ -41,7 +41,7 @@ C-y = "inline_completion_accept"
 C-e = "inline_completion_dismiss"
 C-g = "inline_completion_trigger"
 A-n = "inline_completion_next"
-A-p = "inline_completion_prev"
+A-p = "inline_completion_previous"
 "#,
         )?;
         config.editor.inline_completion.auto_trigger = true;
