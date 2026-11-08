@@ -696,7 +696,7 @@ pub mod completers {
             .max_depth(Some(1))
             .build()
             // Stop walking early if these completions are no longer needed. Partial results
-            // are fine: the canceling task has already invalidated the receiving end.
+            // are discarded by the prompt when this request becomes obsolete.
             .take_while(|_| !handle.is_canceled())
             .filter_map(|file| {
                 file.ok().and_then(|entry| {

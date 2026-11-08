@@ -19,7 +19,7 @@ use term::{
 };
 use tui::text::Span;
 
-use super::helpers::{test_config, AppBuilder};
+use super::helpers::{keys, run_event_loop_until_idle, test_config, AppBuilder};
 
 struct Fixture {
     app: term::application::TestApplication,
@@ -55,8 +55,7 @@ impl Fixture {
     }
 }
 
-/// Keeps a deferred computation running until the test releases it, which is how a test
-/// reaches the state where the prompt has already given up waiting for it.
+/// Holds a worker pending while the prompt handles other input.
 #[derive(Clone, Default)]
 struct Gate(Arc<AtomicBool>);
 
@@ -107,9 +106,7 @@ fn selected(prompt: &mut Prompt) -> String {
 fn wait_for_completion(prompt: &mut Prompt, fixture: &mut Fixture, expected: &str) {
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
-        let mut cx = fixture.context();
-        prompt.update(view::graphics::Rect::default(), &mut cx);
-        drop(cx);
+        prompt.update(view::graphics::Rect::default(), &mut fixture.context());
         let selection = selected(prompt);
         if selection == expected {
             return;
@@ -174,5 +171,235 @@ async fn prompt_computes_one_deferred_completion_at_a_time() -> anyhow::Result<(
     wait_for_completion(&mut prompt, &mut fixture, "completion for third");
     assert_eq!(running.load(Ordering::SeqCst), 0);
 
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn immediate_completion_is_not_blocked_by_obsolete_io() -> anyhow::Result<()> {
+    let mut fixture = Fixture::new()?;
+    let gate = Gate::default();
+    let task_gate = gate.clone();
+    let mut prompt = Prompt::new(
+        ":".into(),
+        None,
+        move |_, input| {
+            if input == "slow" {
+                let gate = task_gate.clone();
+                CompletionResult::Deferred(Box::new(move |_| {
+                    gate.wait();
+                    vec![(0.., Span::raw("obsolete result"))]
+                }))
+            } else {
+                CompletionResult::Immediate(vec![(0.., Span::raw("immediate result"))])
+            }
+        },
+        |_, _, _| {},
+    );
+    prompt.set_line("slow".into(), &fixture.app.editor);
+    prompt.set_line("immediate".into(), &fixture.app.editor);
+    let actual = selected(&mut prompt);
+    let pending = prompt.has_pending_render();
+    fixture.app.editor.redraw().start_frame();
+    gate.release();
+    assert!(!pending, "obsolete I/O must not prevent idle");
+    assert_eq!(actual, "immediate result");
+    tokio::time::timeout(
+        Duration::from_secs(10),
+        fixture.app.editor.redraw().requested(),
+    )
+    .await?;
+    prompt.update(view::graphics::Rect::default(), &mut fixture.context());
+    assert_eq!(selected(&mut prompt), "immediate result");
+    Ok(())
+}
+
+/// Exercise the application event pump, including worker redraws and queued input callbacks.
+#[tokio::test(flavor = "multi_thread")]
+async fn macro_input_resumes_after_deferred_tab_completion() -> anyhow::Result<()> {
+    use term::{compositor::Event, ui::PromptEvent};
+    let mut app = AppBuilder::new().build()?;
+    app.job_sender()
+        .send(|compositor, cx| {
+            let gate = Gate::default();
+            let worker_gate = gate.clone();
+            let prompt = Prompt::new(
+                ":".into(),
+                None,
+                move |_, input| {
+                    let input = input.to_owned();
+                    let gate = worker_gate.clone();
+                    CompletionResult::Deferred(Box::new(move |_| {
+                        gate.wait();
+                        vec![(0.., Span::raw(format!("completed-{input}")))]
+                    }))
+                },
+                |cx, line, event| {
+                    if event == PromptEvent::Validate {
+                        cx.editor.registers.write('b', vec![line.into()]).unwrap();
+                    }
+                },
+            );
+            compositor.push(Box::new(prompt));
+            // Replay dispatches all keys synchronously, before the next component update.
+            cx.interaction.macro_replaying.push('a');
+            cx.interaction.macro_recording = Some(('q', Vec::new()));
+            for key in ui_core::input::parse_macro("abc<tab><ret>iX<esc>").unwrap() {
+                compositor.handle_event(&Event::Key(key), cx);
+            }
+            cx.interaction.macro_replaying.pop();
+            gate.release();
+        })
+        .await;
+    tokio::time::timeout(Duration::from_secs(10), run_event_loop_until_idle(&mut app)).await?;
+    assert_eq!(
+        app.editor.read_register('b').unwrap().collect::<Vec<_>>(),
+        ["completed-abc"]
+    );
+    assert_eq!(view::doc!(app.editor).text().to_string().trim(), "X");
+    assert!(app
+        .interaction
+        .macro_recording
+        .as_ref()
+        .unwrap()
+        .1
+        .is_empty());
+    assert!(app.interaction.macro_replaying.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn worker_redraw_delivers_completions_without_input() -> anyhow::Result<()> {
+    use term::ui::PromptEvent;
+    let mut app = AppBuilder::new().build()?;
+    app.job_sender()
+        .send(|compositor, cx| {
+            let mut prompt = Prompt::new(
+                ":".into(),
+                None,
+                |_, _| {
+                    CompletionResult::Deferred(Box::new(|_| {
+                        std::thread::sleep(Duration::from_millis(80));
+                        vec![(0.., Span::raw("delivered"))]
+                    }))
+                },
+                |cx, line, event| {
+                    if event == PromptEvent::Validate {
+                        cx.editor.registers.write('b', vec![line.into()]).unwrap();
+                    }
+                },
+            );
+            prompt.set_line("typed".into(), cx.editor);
+            compositor.push(Box::new(prompt));
+        })
+        .await;
+    tokio::time::timeout(Duration::from_secs(10), run_event_loop_until_idle(&mut app)).await?;
+    keys(&mut app, "<tab><ret>").await?;
+    assert_eq!(
+        app.editor.read_register('b').unwrap().collect::<Vec<_>>(),
+        ["delivered"]
+    );
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn cancel_remains_available_while_tab_waits_for_io() -> anyhow::Result<()> {
+    let mut app = AppBuilder::new().build()?;
+    let gate = Gate::default();
+    let worker_gate = gate.clone();
+    app.job_sender()
+        .send(move |compositor, _| {
+            let prompt = Prompt::new(
+                ":".into(),
+                None,
+                move |_, _| {
+                    let gate = worker_gate.clone();
+                    CompletionResult::Deferred(Box::new(move |_| {
+                        gate.wait();
+                        Vec::new()
+                    }))
+                },
+                |_, _, _| {},
+            );
+            compositor.push(Box::new(prompt));
+        })
+        .await;
+    // Escape must close the prompt before the worker is released.
+    let result = keys(&mut app, "a<tab><esc>iX<esc>").await;
+    gate.release();
+    result?;
+    assert_eq!(view::doc!(app.editor).text().to_string().trim(), "X");
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn dropping_prompt_cancels_its_worker() -> anyhow::Result<()> {
+    let fixture = Fixture::new()?;
+    let (finished, canceled) = mpsc::channel();
+    let mut prompt = Prompt::new(
+        ":".into(),
+        None,
+        move |_, _| {
+            let finished = finished.clone();
+            CompletionResult::Deferred(Box::new(move |handle| {
+                let deadline = Instant::now() + Duration::from_secs(10);
+                while !handle.is_canceled() && Instant::now() < deadline {
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+                let _ = finished.send(handle.is_canceled());
+                Vec::new()
+            }))
+        },
+        |_, _, _| {},
+    );
+    prompt.set_line("typed".into(), &fixture.app.editor);
+    drop(prompt);
+    assert!(canceled.recv_timeout(Duration::from_secs(10))?);
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn deferred_input_is_recorded_once_at_its_eventual_target() -> anyhow::Result<()> {
+    use term::{compositor::Event, ui::PromptEvent};
+    let mut app = AppBuilder::new().build()?;
+    app.job_sender()
+        .send(|compositor, cx| {
+            let gate = Gate::default();
+            let worker_gate = gate.clone();
+            let prompt = Prompt::new(
+                ":".into(),
+                None,
+                move |_, _| {
+                    let gate = worker_gate.clone();
+                    CompletionResult::Deferred(Box::new(move |_| {
+                        gate.wait();
+                        vec![(0.., Span::raw("completed"))]
+                    }))
+                },
+                |cx, line, event| {
+                    if event == PromptEvent::Validate {
+                        cx.editor.registers.write('b', vec![line.into()]).unwrap();
+                    }
+                },
+            );
+            compositor.push(Box::new(prompt));
+            cx.interaction.macro_recording = Some(('a', Vec::new()));
+            for key in ui_core::input::parse_macro("abc<tab><ret>").unwrap() {
+                compositor.handle_event(&Event::Key(key), cx);
+            }
+            gate.release();
+        })
+        .await;
+    tokio::time::timeout(Duration::from_secs(10), run_event_loop_until_idle(&mut app)).await?;
+    keys(&mut app, "iX<esc>Q").await?;
+    let recorded = app.editor.registers.read('a').unwrap().next().unwrap();
+    assert_eq!(
+        ui_core::input::parse_macro(&recorded)?,
+        ui_core::input::parse_macro("abc<tab><ret>iX<esc>")?
+    );
+    assert_eq!(
+        app.editor.read_register('b').unwrap().collect::<Vec<_>>(),
+        ["completed"]
+    );
+    assert_eq!(view::doc!(app.editor).text().to_string().trim(), "X");
     Ok(())
 }

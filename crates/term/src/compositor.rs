@@ -308,6 +308,15 @@ impl Compositor {
             .any(|component| component.as_any().is::<T>())
     }
 
+    pub(crate) fn find_prompt(&mut self, session: &PromptSession) -> Option<&mut Prompt> {
+        self.layers.iter_mut().find_map(|layer| {
+            layer
+                .as_any_mut()
+                .downcast_mut::<Prompt>()
+                .filter(|prompt| prompt.session().same(session))
+        })
+    }
+
     pub fn find<T: 'static>(&mut self) -> Option<&mut T> {
         self.layers
             .iter_mut()

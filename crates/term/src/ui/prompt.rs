@@ -1,13 +1,15 @@
 use crate::compositor::DrawContext;
 use crate::compositor::{Component, Compositor, Context, Cursor, Event, EventResult};
 use crate::keymap::component::PromptAction;
-use crate::ui::{self, completers::CompletionResult};
+use crate::ui::{
+    self,
+    completers::{CompletionResult, DeferredCompletion},
+};
 use arc_swap::ArcSwap;
 use event::TaskController;
 use language::syntax;
 use std::sync::mpsc::{Receiver, TryRecvError};
 use std::sync::Arc;
-use std::time::Duration;
 use std::{borrow::Cow, ops::RangeFrom};
 use stdx::rope::RopeExt as _;
 use tui::buffer::Buffer as Surface;
@@ -33,12 +35,10 @@ type CallbackFn =
     Box<dyn FnMut(&mut Context, &str, PromptEvent) -> Option<crate::compositor::Callback>>;
 pub type DocFn = Box<dyn Fn(&str) -> Option<Cow<str>>>;
 
-/// How long to wait for deferred completions before falling back to asynchronous delivery.
-///
-/// Deferred completions which finish within this window behave exactly like immediate ones,
-/// so the completion menu does not flicker on fast filesystems. The prompt never blocks
-/// longer than this.
-const DEFERRED_COMPLETION_TIMEOUT: Duration = Duration::from_millis(50);
+struct CompletionTask {
+    results: Receiver<Vec<Completion>>,
+    obsolete: bool,
+}
 
 /// Identity of one prompt instance, independent of its text and component type.
 #[derive(Clone, Default)]
@@ -73,16 +73,15 @@ pub struct Prompt {
     completion_fn: CompletionFn,
     /// Cancels background work computing deferred completions when they are no longer needed.
     task_controller: TaskController,
-    /// The receiving end of the deferred completion in flight, if any.
-    ///
-    /// It is created together with the task that fills it and only cleared once that task has
-    /// reported, so holding one is exactly the signal that a task runs. Cancellation cannot
-    /// interrupt a task stuck in a blocking syscall, so at most one is ever in flight and
-    /// further recalculations only set [Self::pending_recalculation].
-    deferred_completion: Option<Receiver<Vec<Completion>>>,
-    /// Whether the line changed while a deferred completion task was in flight, requiring
-    /// a new recalculation once it finishes.
-    pending_recalculation: bool,
+    /// Retained until the worker reports, even after cancellation: a blocked syscall
+    /// cannot be interrupted, and must not spawn another worker on every keystroke.
+    deferred_completion: Option<CompletionTask>,
+    /// Only the latest deferred request waits for the occupied worker slot.
+    pending_completion: Option<DeferredCompletion>,
+    /// A completion selection and the input following it resume together once ready.
+    pending_actions: Option<(Vec<PromptAction>, Vec<char>)>,
+    pending_input: Vec<(Event, Vec<char>)>,
+    action_scheduled: bool,
     callback_fn: CallbackFn,
     pub doc_fn: DocFn,
     next_char_handler: Option<PromptCharHandler>,
@@ -178,7 +177,10 @@ impl Prompt {
             completion_fn: Box::new(completion_fn),
             task_controller: TaskController::new(),
             deferred_completion: None,
-            pending_recalculation: false,
+            pending_completion: None,
+            pending_actions: None,
+            pending_input: Vec::new(),
+            action_scheduled: false,
             callback_fn: Box::new(callback_fn),
             doc_fn: Box::new(|_| None),
             next_char_handler: None,
@@ -195,6 +197,8 @@ impl Prompt {
         self.keys.clear();
         self.next_char_handler = None;
         self.completion.clear();
+        self.pending_actions = None;
+        self.pending_input.clear();
     }
 
     /// Gets the byte index in the input representing the current cursor location.
@@ -262,73 +266,104 @@ impl Prompt {
         self.clamp_view();
         self.exit_selection();
 
-        // The completion this is about to compute replaces the previous one, so whatever
-        // background work is going for it is already stale. Canceling stops directory walks
-        // between entries rather than after all of them.
         self.task_controller.cancel();
-
-        // Only one deferred task runs per prompt. Canceling does not interrupt a task stuck
-        // in a blocking syscall, and it keeps holding its results until that call returns, so
-        // a recalculation arriving meanwhile just asks to be replayed once the task reports
-        // rather than stacking up a thread per keystroke.
-        if self.deferred_completion.is_some() {
-            self.pending_recalculation = true;
-            self.completion.clear();
-            return;
+        if let Some(task) = &mut self.deferred_completion {
+            task.obsolete = true;
         }
-        self.pending_recalculation = false;
+        self.pending_completion = None;
+        self.completion_line.clone_from(&self.line);
 
         match (self.completion_fn)(editor, &self.line) {
             CompletionResult::Immediate(completion) => self.completion = completion,
             CompletionResult::Deferred(compute) => {
-                let handle = self.task_controller.restart();
-                let (tx, rx) = std::sync::mpsc::sync_channel(1);
-                // Results are collected in `Component::update`, which this wakes up once the
-                // task is done.
-                let redraw = editor.redraw().clone();
-                tokio::task::spawn_blocking(move || {
-                    // The task always reports back, even when its results were canceled: the
-                    // prompt needs to know the task is over to take its slot back.
-                    let _ = tx.send(compute(&handle));
-                    redraw.request();
-                });
-                // Give fast completions a chance to finish synchronously so the completion
-                // menu doesn't flicker. If the deadline is missed the results are delivered
-                // on the next redraw instead.
-                match rx.recv_timeout(DEFERRED_COMPLETION_TIMEOUT) {
-                    Ok(completion) => self.completion = completion,
-                    Err(_) => {
-                        self.completion.clear();
-                        self.deferred_completion = Some(rx);
-                    }
+                self.completion.clear();
+                if self.deferred_completion.is_some() {
+                    self.pending_completion = Some(compute);
+                } else {
+                    self.start_completion(editor, compute);
                 }
             }
         }
-        // Whatever comes back, immediate or deferred, was computed against this line.
-        self.completion_line.clone_from(&self.line);
     }
 
-    /// Collect the deferred completion in flight, once it has reported.
+    fn start_completion(&mut self, editor: &Editor, compute: DeferredCompletion) {
+        let handle = self.task_controller.restart();
+        let (tx, results) = std::sync::mpsc::sync_channel(1);
+        // Also wake the application if a worker panics and disconnects the receiver.
+        let redraw = editor.redraw().on_drop();
+        tokio::task::spawn_blocking(move || {
+            let _redraw = redraw;
+            // Drop the sender before waking the UI, including during unwinding.
+            let sender = tx;
+            let _ = sender.send(compute(&handle));
+        });
+        self.deferred_completion = Some(CompletionTask {
+            results,
+            obsolete: false,
+        });
+    }
+
+    fn completion_pending(&self) -> bool {
+        self.pending_completion.is_some()
+            || self
+                .deferred_completion
+                .as_ref()
+                .is_some_and(|task| !task.obsolete)
+    }
+
+    /// Collect the worker's report before reusing its slot. Obsolete results never
+    /// replace current suggestions, including immediate results shown in the meantime.
     fn handle_deferred_completion(&mut self, editor: &Editor) {
-        let Some(rx) = &self.deferred_completion else {
+        let Some(task) = &self.deferred_completion else {
             return;
         };
-        let completion = match rx.try_recv() {
-            Ok(completion) => Some(completion),
-            // The task is still running: the redraw it requests will call us again.
+        match task.results.try_recv() {
+            Ok(completion) if !task.obsolete => self.completion = completion,
+            Ok(_) | Err(TryRecvError::Disconnected) => {}
             Err(TryRecvError::Empty) => return,
-            // The task finished without results to deliver.
-            Err(TryRecvError::Disconnected) => None,
-        };
-        // The task is over either way, so its slot is free again.
-        self.deferred_completion = None;
-
-        if self.pending_recalculation {
-            // The input changed while the task ran: complete what is typed now instead.
-            self.recalculate_completion(editor);
-        } else if let Some(completion) = completion {
-            self.completion = completion;
         }
+        self.deferred_completion = None;
+        if let Some(compute) = self.pending_completion.take() {
+            self.start_completion(editor, compute);
+        }
+    }
+
+    fn resume_pending_input(&mut self, cx: &mut Context) {
+        if self.completion_pending() || self.pending_actions.is_none() || self.action_scheduled {
+            return;
+        }
+        self.action_scheduled = true;
+        let session = self.session.clone();
+        cx.jobs
+            .sender()
+            .enqueue(crate::job::Callback::ui(move |compositor, cx| {
+                let Some(prompt) = compositor.find_prompt(&session) else {
+                    return;
+                };
+                prompt.action_scheduled = false;
+                let Some((actions, playback)) = prompt.pending_actions.take() else {
+                    return;
+                };
+                let input = std::mem::take(&mut prompt.pending_input);
+                let previous = std::mem::replace(&mut cx.interaction.macro_replaying, playback);
+                let result = prompt.execute_actions(&actions, cx);
+                if let EventResult::Consumed(Some(callback)) = result {
+                    callback(compositor, cx);
+                }
+                cx.interaction.macro_replaying = previous;
+                for (event, playback) in input {
+                    if cx.editor.should_close() {
+                        break;
+                    }
+                    let previous = std::mem::replace(&mut cx.interaction.macro_replaying, playback);
+                    if cx.interaction.macro_replaying.is_empty() {
+                        compositor.handle_event(&event, cx);
+                    } else {
+                        compositor.replay_event(&event, cx);
+                    }
+                    cx.interaction.macro_replaying = previous;
+                }
+            }));
     }
 
     fn clamp_view(&mut self) {
@@ -824,7 +859,19 @@ impl Prompt {
             })))
         };
 
-        for &action in actions {
+        for (index, &action) in actions.iter().enumerate() {
+            if self.completion_pending()
+                && matches!(
+                    action,
+                    PromptAction::CompleteNext | PromptAction::CompletePrevious
+                )
+            {
+                self.pending_actions = Some((
+                    actions[index..].to_vec(),
+                    cx.interaction.macro_replaying.clone(),
+                ));
+                return EventResult::Consumed(None);
+            }
             match action {
                 PromptAction::Cancel => {
                     (self.callback_fn)(cx, &self.line, PromptEvent::Abort);
@@ -978,24 +1025,46 @@ impl Component for Prompt {
     /// the redraw this update runs in.
     fn update(&mut self, _area: Rect, cx: &mut Context) {
         self.handle_deferred_completion(cx.editor);
+        self.resume_pending_input(cx);
     }
 
     fn has_pending_keys(&self) -> bool {
-        self.keys.is_pending() || self.next_char_handler.is_some()
+        self.keys.is_pending() || self.next_char_handler.is_some() || self.pending_actions.is_some()
     }
 
     /// Completions computed on a background thread change the menu once they arrive.
     fn has_pending_render(&self) -> bool {
-        self.deferred_completion.is_some()
+        self.completion_pending() || self.pending_actions.is_some()
     }
 
     fn handle_event(&mut self, event: &Event, cx: &mut Context) -> EventResult {
+        if self.pending_actions.is_some() {
+            // Cancellation must remain available even when a filesystem call is stuck.
+            if cx.interaction.macro_replaying.is_empty()
+                && let Event::Key(key) = event
+                && let Lookup::Actions([PromptAction::Cancel]) =
+                    KeymapState::default().lookup(&cx.config.current.component_keys.prompt, *key)
+            {
+                self.pending_actions = None;
+                self.pending_input.clear();
+                return self.execute_actions(&[PromptAction::Cancel], cx);
+            }
+            // Record deferred keys when they reach their eventual input target.
+            if cx.interaction.macro_replaying.is_empty()
+                && matches!(event, Event::Key(_))
+                && let Some((_, keys)) = &mut cx.interaction.macro_recording
+            {
+                keys.pop();
+            }
+            self.pending_input
+                .push((event.clone(), cx.interaction.macro_replaying.clone()));
+            return EventResult::Consumed(None);
+        }
         let event = match event {
             Event::Paste(data) => {
                 self.keys.clear();
                 self.next_char_handler = None;
                 self.insert_str(data, cx.editor);
-                self.recalculate_completion(cx.editor);
                 return EventResult::Consumed(None);
             }
             Event::Key(event) => *event,
