@@ -1,6 +1,8 @@
 use std::{cell::LazyCell, ops::Range, path::PathBuf, sync::Arc};
 
 #[cfg(feature = "git")]
+use gix::bstr::ByteSlice;
+#[cfg(feature = "git")]
 use std::collections::HashMap;
 
 use anyhow::Result;
@@ -47,7 +49,7 @@ pub(super) fn watched_paths(repo: &gix::Repository) -> Result<Vec<PathBuf>> {
         .next()
         .unwrap_or_default()
     {
-        if let Ok(spec) = repo.rev_parse(revision.as_ref())
+        if let Ok(spec) = repo.rev_parse(revision.as_bstr())
             && let Some(reference) = spec.first_reference()
         {
             let name = reference.name.as_bstr();
@@ -56,7 +58,7 @@ pub(super) fn watched_paths(repo: &gix::Repository) -> Result<Vec<PathBuf>> {
             } else {
                 repo.git_dir()
             };
-            paths.push(directory.join(&*gix::path::try_from_bstr(name)?));
+            paths.push(directory.join(&*gix::path::from_bstr(name)?));
         }
     }
     Ok(paths)
@@ -128,7 +130,7 @@ impl FileBlame {
             return Ok(cached);
         }
         // Use the working tree root, including linked worktrees and subdirectories.
-        let path = gix::path::to_unix_separators_on_windows(gix::path::try_into_bstr(
+        let path = gix::path::to_unix_separators_on_windows(gix::path::into_bstr(
             file.strip_prefix(&workdir)?,
         )?);
         let entries = if source.ignored.is_empty() {

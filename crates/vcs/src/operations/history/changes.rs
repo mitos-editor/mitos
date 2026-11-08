@@ -15,13 +15,14 @@ pub(super) fn between(
             .track_path()
             .track_rewrites(Some(gix::diff::Rewrites::default()));
     });
-    changes.for_each_to_obtain_tree(after, |change| -> Result<_> {
+    changes.for_each_to_obtain_tree(after, |change| -> gix::Result<_> {
         if canceled() {
             return Ok(ControlFlow::Break(()));
         }
-        let path = |location: &gix::bstr::BStr| -> Result<PathBuf> {
-            let path = gix::path::from_bstr(location).into_owned();
-            validate_path(&path)?;
+        let path = |location: &gix::bstr::BStr| -> gix::Result<PathBuf> {
+            let path = gix::path::from_bstr(location)?.into_owned();
+            validate_path(&path)
+                .map_err(|error| gix::Error::from_boxed(error.into_boxed_dyn_error()))?;
             Ok(path)
         };
         let file = match change {
@@ -81,7 +82,7 @@ pub(super) fn between(
             _ => return Ok(ControlFlow::Continue(())),
         };
         files.push(file);
-        ensure!(
+        gix::error::ensure!(
             files.len() <= 20_000,
             "Commit contains too many files to display (limit 20000)"
         );

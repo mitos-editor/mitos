@@ -192,7 +192,7 @@ which = "8.0"
 windows-sys = "0.61"
 
 # Version control
-gix = { version = "0.85.0", default-features = false }
+gix = { version = "0.90.0", default-features = false }
 
 # Grammar build tooling
 cc = "1.7"

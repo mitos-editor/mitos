@@ -110,7 +110,7 @@ fn run(repository: GitRepository, mut requests: mpsc::Receiver<Request>) {
                         exhausted = true;
                         break;
                     };
-                    let reference = reference.map_err(anyhow::Error::from_boxed)?;
+                    let reference = reference?;
                     let upstream = upstream_name(&repo, reference.name())?;
                     let name = reference.name().shorten().to_str()?.to_owned();
                     bytes += name.len() + upstream.len();

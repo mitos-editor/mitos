@@ -49,7 +49,7 @@ pub(crate) fn read_git_comparison(
     let repo = open_repo(directory, trust_full)?.to_thread_local();
     let root = repo.workdir().context("repository has no worktree")?;
     let relative = |path: &Path| -> Result<_> {
-        Ok(gix::path::try_into_bstr(path.strip_prefix(root)?)?.into_owned())
+        Ok(gix::path::into_bstr(path.strip_prefix(root)?)?.into_owned())
     };
     let read_object = |id, mode, path: &Path| read_blob(&repo, id, mode, path.strip_prefix(root)?);
     let read_head = |path: &Path| -> Result<Vec<u8>> {
@@ -99,7 +99,7 @@ pub(crate) fn read_git_comparison(
     let read_worktree = || -> Result<Vec<u8>> {
         Ok(match std::fs::symlink_metadata(path) {
             Ok(metadata) if metadata.file_type().is_symlink() => {
-                gix::path::try_into_bstr(std::fs::read_link(path)?)?
+                gix::path::into_bstr(std::fs::read_link(path)?)?
                     .into_owned()
                     .into()
             }
@@ -169,11 +169,14 @@ pub(crate) fn read_blob(
         return Ok(object.data.to_vec());
     }
     let (mut pipeline, _) = repo.filter_pipeline(None)?;
-    let relative = gix::path::try_into_bstr(path)?;
+    let relative = gix::path::into_bstr(path)?;
     let mut outcome = pipeline.convert_to_worktree(
         &object.data,
         relative.as_ref(),
-        gix::filter::plumbing::driver::apply::Delay::Forbid,
+        gix::filter::plumbing::pipeline::convert::to_worktree::Options {
+            can_delay: gix::filter::plumbing::driver::apply::Delay::Forbid,
+            ..Default::default()
+        },
     )?;
     bounded_read(&mut outcome)
 }

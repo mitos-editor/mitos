@@ -68,37 +68,10 @@ impl RepositoryOperation {
         match self {
             Self::CreateBranch { .. } => unreachable!("branch creation runs in the native worker"),
             Self::DeleteBranch { .. } => unreachable!("branch deletion runs in the native worker"),
-            Self::SwitchBranch { name } => {
-                command.args(["switch", "--no-guess", "--no-overwrite-ignore", "--", name]);
-            }
-            Self::CreateWorktree { path, branch } => {
-                ensure!(
-                    std::fs::symlink_metadata(path).is_err(),
-                    "The new worktree path already exists"
-                );
-                command.args(["worktree", "add"]);
-                if branch.is_none() {
-                    command.arg("--detach");
-                }
-                command
-                    .arg("--")
-                    .arg(dunce::simplified(path))
-                    .arg(branch.as_deref().unwrap_or("HEAD"));
-            }
-            Self::RemoveWorktree { path } => {
-                let worktrees = repo.worktrees().await?;
-                let worktree = worktrees
-                    .iter()
-                    .find(|tree| tree.path == *path)
-                    .context("Selected worktree is no longer registered")?;
-                ensure!(
-                    !worktree.main && !worktree.locked && *path != repo.root,
-                    "Cannot remove the main, current, or locked worktree"
-                );
-                ensure_clean_worktree(path, repo).await?;
-                command
-                    .args(["worktree", "remove", "--"])
-                    .arg(dunce::simplified(path));
+            Self::SwitchBranch { .. }
+            | Self::CreateWorktree { .. }
+            | Self::RemoveWorktree { .. } => {
+                unreachable!("branch and worktree mutations run in the native worker")
             }
             Self::Fetch { remote } => {
                 let remote = remote.as_deref().context("Choose a remote first")?;
@@ -323,7 +296,11 @@ impl GitRepository {
         );
         let repo = if matches!(
             operation,
-            RepositoryOperation::CreateBranch { .. } | RepositoryOperation::DeleteBranch { .. }
+            RepositoryOperation::CreateBranch { .. }
+                | RepositoryOperation::DeleteBranch { .. }
+                | RepositoryOperation::SwitchBranch { .. }
+                | RepositoryOperation::CreateWorktree { .. }
+                | RepositoryOperation::RemoveWorktree { .. }
         ) {
             self.open_read(true)
         } else {
@@ -428,8 +405,8 @@ pub(super) fn upstream_reference(
     let Some(merge) = config.string_by("branch", Some(short), "merge") else {
         return Ok(None);
     };
-    let merge = gix::refs::FullName::try_from(merge.into_owned())?;
-    if *remote == "." {
+    let merge = gix::refs::FullName::try_from(merge)?;
+    if remote == "." {
         return Ok(Some(merge));
     }
     let Some(specs) = config.strings_by("remote", Some(remote.as_ref()), "fetch") else {
@@ -523,7 +500,8 @@ fn current_branch(repo: &gix::Repository, remote: &str) -> Result<(String, Strin
     let upstream_remote = config.string(&format!("branch.{branch}.remote"));
     let merge = config.string(&format!("branch.{branch}.merge"));
     let destination = if upstream_remote
-        .as_deref()
+        .as_ref()
+        .map(|value| value.as_bstr())
         .is_some_and(|value| value == remote)
     {
         merge
@@ -540,34 +518,37 @@ fn current_branch(repo: &gix::Repository, remote: &str) -> Result<(String, Strin
     Ok((branch, destination))
 }
 
-async fn ensure_clean_worktree(path: &Path, owner: &GitRepository) -> Result<()> {
+fn ensure_clean_worktree(path: &Path, owner: &GitRepository) -> Result<()> {
     let path = path.to_owned();
     let common_dir = owner.common_dir.clone();
-    tokio::task::spawn_blocking(move || {
-        let repository = GitRepository::discover(&path)?;
-        ensure!(repository.root == path && repository.common_dir == common_dir,
-            "Selected path is no longer a linked worktree of this repository");
-        // Status needs Git for Windows' installed filter/line-ending defaults too.
-        let repo = repository.open(false)?;
-        let index = repo.index_or_empty()?;
-        let hidden = gix::index::entry::Flags::ASSUME_VALID | gix::index::entry::Flags::SKIP_WORKTREE;
-        ensure!(!index.entries().iter().any(|entry| entry.flags.intersects(hidden)),
+    let repository = GitRepository::discover(&path)?;
+    ensure!(
+        repository.root == path && repository.common_dir == common_dir,
+        "Selected path is no longer a linked worktree of this repository"
+    );
+    // Status needs Git for Windows' installed filter/line-ending defaults too.
+    let repo = repository.open_read(false)?;
+    let index = repo.index_or_empty()?;
+    let hidden = gix::index::entry::Flags::ASSUME_VALID | gix::index::entry::Flags::SKIP_WORKTREE;
+    ensure!(!index.entries().iter().any(|entry| entry.flags.intersects(hidden)),
             "Worktree has assume-unchanged or skip-worktree index entries; inspect these files in Git before removing it");
-        let mut status = repo.status(gix::progress::Discard)?
-            .untracked_files(gix::status::UntrackedFiles::Files)
-            .dirwalk_options(|options| options.emit_ignored(Some(gix::dir::walk::EmissionMode::Matching)))
-            .index_worktree_submodules(gix::status::Submodule::Given {
-                ignore: gix::submodule::config::Ignore::None,
-                check_dirty: true,
-            })
-            .tree_index_track_renames(gix::status::tree_index::TrackRenames::Disabled)
-            .into_iter(std::iter::empty::<gix::bstr::BString>())?;
-        if let Some(change) = status.next() {
-            change?;
-            bail!("Worktree contains modified, untracked, or ignored files; clean it before removal");
-        }
-        Ok(())
-    }).await?
+    let mut status = repo
+        .status(gix::progress::Discard)?
+        .untracked_files(gix::status::UntrackedFiles::Files)
+        .dirwalk_options(|options| {
+            options.emit_ignored(Some(gix::dir::walk::EmissionMode::Matching))
+        })
+        .index_worktree_submodules(gix::status::Submodule::Given {
+            ignore: gix::submodule::config::Ignore::None,
+            check_dirty: true,
+        })
+        .tree_index_track_renames(gix::status::tree_index::TrackRenames::Disabled)
+        .into_iter(std::iter::empty::<gix::bstr::BString>())?;
+    if let Some(change) = status.next() {
+        change?;
+        bail!("Worktree contains modified, untracked, or ignored files; clean it before removal");
+    }
+    Ok(())
 }
 
 /// Discard error output from Git, credential helpers, and hooks. It can contain remote URLs.
@@ -591,3 +572,62 @@ mod tests;
 
 mod branches;
 pub use branches::{BranchCursor, BranchPage, BRANCH_PAGE_SIZE};
+
+impl PreparedOperation {
+    pub(super) fn create_worktree(&self, path: &Path, branch: Option<&str>) -> Result<()> {
+        let repo = self.repository.open_read(true)?;
+        // add_worktree reopens the linked repository before writing its HEAD reflog.
+        // Open-option fallbacks survive that reopen without changing a configured identity.
+        let options = repo.open_options().clone().config_overrides([
+            "gitoxide.committer.nameFallback=no name configured",
+            "gitoxide.committer.emailFallback=noEmailAvailable@example.com",
+        ]);
+        let repo = self
+            .repository
+            .verify_repository(gix::ThreadSafeRepository::open_opts(
+                repo.git_dir(),
+                options,
+            )?)?;
+        ensure!(
+            std::fs::symlink_metadata(path).is_err(),
+            "The new worktree path already exists"
+        );
+        let head = match branch {
+            Some(name) => {
+                let name: gix::refs::FullName = format!("refs/heads/{name}").try_into()?;
+                super::branch::ensure_branch_unused(&repo, name.as_ref())?;
+                gix::worktree::add::Head::Attached(name)
+            }
+            None => gix::worktree::add::Head::Detached(repo.head_commit()?.id),
+        };
+        self.ensure_current()?;
+        let (_, outcome) = repo.add_worktree(
+            path,
+            head,
+            gix::progress::Discard,
+            &std::sync::atomic::AtomicBool::new(false),
+        )?;
+        ensure!(
+            outcome.errors.is_empty() && outcome.collisions.is_empty(),
+            "Worktree checkout reported errors or path collisions"
+        );
+        Ok(())
+    }
+
+    pub(super) fn remove_worktree(&self, path: &Path) -> Result<()> {
+        let repo = self.repository.open_read(true)?;
+        ensure!(
+            stdx::path::canonicalize_existing(path) != self.repository.root,
+            "Cannot remove the current worktree"
+        );
+        let target = repo.prepare_remove_worktree(path)?;
+        ensure!(
+            stdx::path::canonicalize_existing(target.base()) == path,
+            "Selected path is no longer a registered worktree"
+        );
+        ensure_clean_worktree(path, &self.repository)?;
+        self.ensure_current()?;
+        target.remove(gix::worktree::remove::Force::Never, gix::progress::Discard)?;
+        Ok(())
+    }
+}

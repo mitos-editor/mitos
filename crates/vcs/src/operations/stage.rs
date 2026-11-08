@@ -12,6 +12,7 @@ impl PreparedOperation {
             repo.index_path(),
             gix::lock::acquire::Fail::Immediately,
             None,
+            0,
         )?;
         self.ensure_current()?;
         let mut index = (*repo.index_or_empty()?).clone();
@@ -26,7 +27,7 @@ impl PreparedOperation {
             .iter()
             .map(|path| {
                 Ok(
-                    gix::path::to_unix_separators_on_windows(gix::path::try_into_bstr(path)?)
+                    gix::path::to_unix_separators_on_windows(gix::path::into_bstr(path)?)
                         .into_owned(),
                 )
             })
@@ -66,7 +67,7 @@ impl PreparedOperation {
                 }
             }
             let metadata = match std::fs::symlink_metadata(
-                self.repository.root.join(gix::path::from_bstr(path)),
+                self.repository.root.join(gix::path::from_bstr(path)?),
             ) {
                 Ok(metadata) => Some(metadata),
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,

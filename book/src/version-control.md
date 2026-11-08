@@ -295,8 +295,8 @@ Run `:vcs-branches` to browse local branches. Select a branch and press `Enter`
 to switch to it. Save edited files in that repository first.
 
 Press `Alt-n` to create a branch at `HEAD` without switching. Press `Alt-d`
-to confirm deletion of the selected branch. Git keeps unmerged branches and
-branches checked out in any worktree. The picker stays open and refreshes after
+to confirm deletion of the selected branch. Unmerged branches and branches
+checked out in any worktree are kept. The picker stays open and refreshes after
 the action. Remap these shortcuts under `[keys.branch-picker]`.
 
 These commands use the current file's repository, or the original repository
@@ -310,8 +310,11 @@ the current directory. Actions that change the repository require
 | `:vcs-branch-create <name>` | Create a branch at the current commit without switching |
 | `:vcs-branch-switch <name>` | Switch to an existing local branch |
 
-Git refuses to switch if it would overwrite your changes. To check out a remote
-branch for the first time, use Git in your terminal.
+Branch and worktree actions do not require a Git executable. Switching keeps
+unrelated staged and unstaged edits and refuses to overwrite modified,
+untracked, or ignored files. Save edited buffers first. Conflicted or sparse
+indexes and switches that change submodules require a terminal checkout.
+To check out a remote branch for the first time, use Git in your terminal.
 
 ### Worktrees
 

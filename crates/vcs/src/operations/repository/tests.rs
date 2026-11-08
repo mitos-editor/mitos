@@ -584,12 +584,12 @@ async fn worktree_safety_checks_do_not_need_git() -> Result<()> {
         let root = PathBuf::from(root);
         let owner = GitRepository::discover(&root)?;
         let linked = stdx::path::canonicalize_existing(&root.parent().unwrap().join("linked"));
-        ensure_clean_worktree(&linked, &owner).await?;
+        ensure_clean_worktree(&linked, &owner)?;
         std::fs::write(linked.join("ignored.txt"), "keep\n")?;
-        assert!(ensure_clean_worktree(&linked, &owner).await.is_err());
+        assert!(ensure_clean_worktree(&linked, &owner).is_err());
         std::fs::remove_file(linked.join("ignored.txt"))?;
         std::fs::write(linked.join("untracked.txt"), "keep\n")?;
-        assert!(ensure_clean_worktree(&linked, &owner).await.is_err());
+        assert!(ensure_clean_worktree(&linked, &owner).is_err());
         return Ok(());
     }
     let parent = tempfile::tempdir()?;
@@ -645,11 +645,17 @@ async fn branch_creation_and_tracking_work_without_git_executable() -> Result<()
         );
         let config = git.config_snapshot();
         assert_eq!(
-            config.string("branch.topic/native.remote").as_deref(),
+            config
+                .string("branch.topic/native.remote")
+                .as_ref()
+                .map(|value| value.as_bstr()),
             Some(".".into())
         );
         assert_eq!(
-            config.string("branch.topic/native.merge").as_deref(),
+            config
+                .string("branch.topic/native.merge")
+                .as_ref()
+                .map(|value| value.as_bstr()),
             Some("refs/heads/main".into())
         );
         assert_eq!(config.boolean("branch.topic/native.rebase"), Some(true));
@@ -718,7 +724,10 @@ async fn branch_creation_inherits_tracking_like_git() -> Result<()> {
         );
     }
     assert_eq!(
-        config.string("branch.native.remote").as_deref(),
+        config
+            .string("branch.native.remote")
+            .as_ref()
+            .map(|value| value.as_bstr()),
         Some("origin".into())
     );
     Ok(())
@@ -1174,9 +1183,15 @@ async fn native_branch_deletion_keeps_branches_reserved_by_detached_worktrees() 
         let path = git.join(file);
         std::fs::create_dir_all(path.parent().unwrap())?;
         std::fs::write(&path, contents)?;
+        if file == "BISECT_START" { std::fs::write(git.join("BISECT_LOG"), "bisect started\n")?; }
         assert!(execute(&repo, RepositoryOperation::DeleteBranch { name: "keep".into() }).await.is_err(), "{file}");
+        assert!(execute(&repo, RepositoryOperation::SwitchBranch { name: "keep".into() }).await.is_err(), "{file}");
+        let destination = parent.path().join("reserved");
+        assert!(execute(&repo, RepositoryOperation::CreateWorktree { path: destination.clone(), branch: Some("keep".into()) }).await.is_err(), "{file}");
+        assert!(!destination.exists());
         assert!(repo.open_read(true)?.try_find_reference("refs/heads/keep")?.is_some());
         std::fs::remove_file(&path)?;
+        if file == "BISECT_START" { std::fs::remove_file(git.join("BISECT_LOG"))?; }
     }
     execute(
         &repo,
@@ -1185,5 +1200,368 @@ async fn native_branch_deletion_keeps_branches_reserved_by_detached_worktrees() 
         },
     )
     .await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn branch_and_worktree_actions_work_without_git_executable() -> Result<()> {
+    const FIXTURE: &str = "MITOS_NATIVE_LIFECYCLE_FIXTURE";
+    if let Some(root) = std::env::var_os(FIXTURE) {
+        let repo = GitRepository::discover(Path::new(&root))?;
+        std::fs::write(repo.root.join("file.txt"), "local work\n")?;
+        execute(
+            &repo,
+            RepositoryOperation::SwitchBranch {
+                name: "target".into(),
+            },
+        )
+        .await?;
+        assert_eq!(
+            std::fs::read_to_string(repo.root.join("branch.txt"))?,
+            "target\n"
+        );
+        assert_eq!(
+            std::fs::read_to_string(repo.root.join("file.txt"))?,
+            "local work\n"
+        );
+        execute(
+            &repo,
+            RepositoryOperation::SwitchBranch {
+                name: "main".into(),
+            },
+        )
+        .await?;
+        assert!(!repo.root.join("branch.txt").exists());
+        execute(
+            &repo,
+            RepositoryOperation::CreateBranch {
+                name: "native".into(),
+            },
+        )
+        .await?;
+        let linked = repo.root.parent().unwrap().join("native-worktree");
+        execute(
+            &repo,
+            RepositoryOperation::CreateWorktree {
+                path: linked.clone(),
+                branch: Some("native".into()),
+            },
+        )
+        .await?;
+        let linked_repo = GitRepository::discover(&linked)?;
+        assert_eq!(
+            linked_repo.open_read(true)?.head_name()?.unwrap().shorten(),
+            "native"
+        );
+        std::fs::write(linked.join("untracked.txt"), "keep\n")?;
+        assert!(execute(
+            &repo,
+            RepositoryOperation::RemoveWorktree {
+                path: linked.clone()
+            }
+        )
+        .await
+        .is_err());
+        std::fs::remove_file(linked.join("untracked.txt"))?;
+        execute(&repo, RepositoryOperation::RemoveWorktree { path: linked }).await?;
+        execute(
+            &repo,
+            RepositoryOperation::DeleteBranch {
+                name: "native".into(),
+            },
+        )
+        .await?;
+        assert_eq!(
+            std::fs::read_to_string(repo.root.join("file.txt"))?,
+            "local work\n"
+        );
+        return Ok(());
+    }
+    let parent = tempfile::tempdir()?;
+    let root = parent.path().join("repo");
+    let initial = initial()?;
+    std::fs::rename(initial.path(), &root)?;
+    exec_git_cmd(&["switch", "-c", "target"], &root);
+    std::fs::write(root.join("branch.txt"), "target\n")?;
+    create_commit_with_message(&root, true, "target");
+    exec_git_cmd(&["switch", "main"], &root);
+    let no_programs = tempfile::tempdir()?;
+    let child = std::process::Command::new(std::env::current_exe()?)
+        .args(["--exact", "operations::repository::tests::branch_and_worktree_actions_work_without_git_executable", "--nocapture"])
+        .env(FIXTURE, root).env("PATH", no_programs.path()).env("GIT_EXEC_PATH", no_programs.path()).output()?;
+    ensure!(
+        child.status.success(),
+        "{}\n{}",
+        String::from_utf8_lossy(&child.stdout),
+        String::from_utf8_lossy(&child.stderr)
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn native_switch_preserves_unrelated_staged_edits_and_rejects_overwrites_before_writing(
+) -> Result<()> {
+    let dir = initial()?;
+    std::fs::write(dir.path().join("local.txt"), "base\n")?;
+    std::fs::write(dir.path().join("obsolete.txt"), "obsolete\n")?;
+    create_commit_with_message(dir.path(), true, "base");
+    exec_git_cmd(&["switch", "-c", "target"], dir.path());
+    std::fs::write(dir.path().join("file.txt"), "target\n")?;
+    std::fs::remove_file(dir.path().join("obsolete.txt"))?;
+    std::fs::write(dir.path().join("new.txt"), "new\n")?;
+    create_commit_with_message(dir.path(), true, "target");
+    exec_git_cmd(&["switch", "main"], dir.path());
+    let repo = GitRepository::discover(dir.path())?;
+    std::fs::write(dir.path().join("file.txt"), "precious\n")?;
+    let original_index = std::fs::read(repo.git_dir.join("index"))?;
+    assert!(execute(
+        &repo,
+        RepositoryOperation::SwitchBranch {
+            name: "target".into()
+        }
+    )
+    .await
+    .is_err());
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("file.txt"))?,
+        "precious\n"
+    );
+    assert_eq!(std::fs::read(repo.git_dir.join("index"))?, original_index);
+    assert!(!dir.path().join("new.txt").exists());
+    std::fs::write(dir.path().join("file.txt"), "initial\n")?;
+    std::fs::write(dir.path().join("local.txt"), "staged\n")?;
+    exec_git_cmd(&["add", "local.txt"], dir.path());
+    let staged_id = repo
+        .open_read(true)?
+        .index()?
+        .entry_by_path("local.txt".into())
+        .unwrap()
+        .id;
+    std::fs::write(dir.path().join("local.txt"), "unstaged\n")?;
+    execute(
+        &repo,
+        RepositoryOperation::SwitchBranch {
+            name: "target".into(),
+        },
+    )
+    .await?;
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("file.txt"))?,
+        "target\n"
+    );
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("local.txt"))?,
+        "unstaged\n"
+    );
+    assert_eq!(
+        repo.open_read(true)?
+            .index()?
+            .entry_by_path("local.txt".into())
+            .unwrap()
+            .id,
+        staged_id
+    );
+    assert!(!dir.path().join("obsolete.txt").exists());
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("new.txt"))?,
+        "new\n"
+    );
+    execute(
+        &repo,
+        RepositoryOperation::SwitchBranch {
+            name: "main".into(),
+        },
+    )
+    .await?;
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("file.txt"))?,
+        "initial\n"
+    );
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("obsolete.txt"))?,
+        "obsolete\n"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn native_switch_handles_file_directory_transitions_without_removing_untracked_files(
+) -> Result<()> {
+    let dir = initial()?;
+    std::fs::write(dir.path().join("node"), "file\n")?;
+    create_commit_with_message(dir.path(), true, "file");
+    exec_git_cmd(&["switch", "-c", "directory"], dir.path());
+    std::fs::remove_file(dir.path().join("node"))?;
+    std::fs::create_dir(dir.path().join("node"))?;
+    std::fs::write(dir.path().join("node/leaf"), "leaf\n")?;
+    create_commit_with_message(dir.path(), true, "directory");
+    exec_git_cmd(&["switch", "main"], dir.path());
+    let repo = GitRepository::discover(dir.path())?;
+    execute(
+        &repo,
+        RepositoryOperation::SwitchBranch {
+            name: "directory".into(),
+        },
+    )
+    .await?;
+    std::fs::write(dir.path().join("node/untracked"), "precious\n")?;
+    assert!(execute(
+        &repo,
+        RepositoryOperation::SwitchBranch {
+            name: "main".into()
+        }
+    )
+    .await
+    .is_err());
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("node/untracked"))?,
+        "precious\n"
+    );
+    std::fs::remove_file(dir.path().join("node/untracked"))?;
+    execute(
+        &repo,
+        RepositoryOperation::SwitchBranch {
+            name: "main".into(),
+        },
+    )
+    .await?;
+    assert_eq!(std::fs::read_to_string(dir.path().join("node"))?, "file\n");
+    Ok(())
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn native_switch_prepares_required_filters_before_changing_files_or_head() -> Result<()> {
+    let dir = initial()?;
+    exec_git_cmd(&["switch", "-c", "filtered"], dir.path());
+    std::fs::write(dir.path().join(".gitattributes"), "*.txt filter=reject\n")?;
+    std::fs::write(dir.path().join("file.txt"), "filtered\n")?;
+    std::fs::write(dir.path().join("new.txt"), "new\n")?;
+    create_commit_with_message(dir.path(), true, "filtered");
+    exec_git_cmd(&["switch", "main"], dir.path());
+    exec_git_cmd(&["config", "filter.reject.smudge", "exit 1"], dir.path());
+    exec_git_cmd(&["config", "filter.reject.required", "true"], dir.path());
+    let repo = GitRepository::discover(dir.path())?;
+    let head = repo.open_read(true)?.head_id()?.detach();
+    let index = std::fs::read(repo.git_dir.join("index"))?;
+    assert!(execute(
+        &repo,
+        RepositoryOperation::SwitchBranch {
+            name: "filtered".into()
+        }
+    )
+    .await
+    .is_err());
+    assert_eq!(repo.open_read(true)?.head_id()?.detach(), head);
+    assert_eq!(std::fs::read(repo.git_dir.join("index"))?, index);
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("file.txt"))?,
+        "initial\n"
+    );
+    let smudge = format!(
+        "printf raced > '{}'; cat",
+        dir.path().join("file.txt").display()
+    );
+    exec_git_cmd(&["config", "filter.reject.smudge", &smudge], dir.path());
+    assert!(execute(
+        &repo,
+        RepositoryOperation::SwitchBranch {
+            name: "filtered".into()
+        }
+    )
+    .await
+    .is_err());
+    assert_eq!(repo.open_read(true)?.head_id()?.detach(), head);
+    assert_eq!(std::fs::read(repo.git_dir.join("index"))?, index);
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("file.txt"))?,
+        "raced"
+    );
+    std::fs::write(dir.path().join("file.txt"), "initial\n")?;
+    let smudge = format!(
+        "printf external > '{}'; cat",
+        dir.path().join("new.txt").display()
+    );
+    exec_git_cmd(&["config", "filter.reject.smudge", &smudge], dir.path());
+    assert!(execute(
+        &repo,
+        RepositoryOperation::SwitchBranch {
+            name: "filtered".into()
+        }
+    )
+    .await
+    .is_err());
+    assert_eq!(repo.open_read(true)?.head_id()?.detach(), head);
+    assert_eq!(std::fs::read(repo.git_dir.join("index"))?, index);
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("file.txt"))?,
+        "initial\n"
+    );
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("new.txt"))?,
+        "external"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn linked_worktrees_can_be_created_without_a_configured_identity() -> Result<()> {
+    const CHILD: &str = "MITOS_TEST_WORKTREE_WITHOUT_IDENTITY";
+    if std::env::var_os(CHILD).is_none() {
+        let home = tempfile::tempdir()?;
+        let output = std::process::Command::new(std::env::current_exe()?)
+            .args([
+                "--exact",
+                "operations::repository::tests::linked_worktrees_can_be_created_without_a_configured_identity",
+                "--nocapture",
+            ])
+            .env(CHILD, "1")
+            .env("HOME", home.path())
+            .env("USERPROFILE", home.path())
+            .env("XDG_CONFIG_HOME", home.path())
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("GIT_CONFIG_GLOBAL", home.path().join(".gitconfig"))
+            .env_remove("GIT_COMMITTER_NAME")
+            .env_remove("GIT_COMMITTER_EMAIL")
+            .env_remove("EMAIL")
+            .output()?;
+        ensure!(
+            output.status.success(),
+            "{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        return Ok(());
+    }
+    let dir = initial()?;
+    exec_git_cmd(&["config", "--unset", "user.name"], dir.path());
+    exec_git_cmd(&["config", "--unset", "user.email"], dir.path());
+    let repo = GitRepository::discover(dir.path())?;
+    assert!(repo.open_read(true)?.committer().is_none());
+    let parent = tempfile::tempdir()?;
+    for (name, branch) in [("detached", None), ("attached", Some("main".into()))] {
+        if branch.is_some() {
+            exec_git_cmd(&["checkout", "--detach"], dir.path());
+        }
+        let linked = parent.path().join(name);
+        execute(
+            &repo,
+            RepositoryOperation::CreateWorktree {
+                path: linked.clone(),
+                branch,
+            },
+        )
+        .await?;
+        assert_eq!(
+            std::fs::read_to_string(linked.join("file.txt"))?,
+            "initial\n"
+        );
+        let linked_repo = GitRepository::discover(&linked)?;
+        let log = std::fs::read_to_string(linked_repo.git_dir.join("logs/HEAD"))?;
+        assert!(
+            log.contains("no name configured <noEmailAvailable@example.com>"),
+            "{log}"
+        );
+    }
     Ok(())
 }

@@ -13,7 +13,7 @@ use std::{
 };
 use tui::text::Span;
 use vcs::operations::{
-    repository::{Branch, Worktree},
+    repository::{Branch, BranchCursor, BranchPage, Worktree},
     GitRepository, RepositoryOperation,
 };
 use view::{features::git_operations::GitAction, Editor};
@@ -189,7 +189,6 @@ fn branches(
     )
     .with_editor_updates(move |cx| pager.update(cx))
     .with_item_key(|branch| branch.name.clone())
-
 }
 
 fn worktrees(

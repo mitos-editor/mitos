@@ -13,6 +13,7 @@ impl PreparedOperation {
             repo.index_path(),
             gix::lock::acquire::Fail::Immediately,
             None,
+            0,
         )?;
         self.ensure_current()?;
         let mut index = repo.open_index()?;
@@ -26,8 +27,8 @@ impl PreparedOperation {
         };
         let mut replacements = Vec::new();
         for path in paths {
-            let bytes = gix::path::to_unix_separators_on_windows(gix::path::try_into_bstr(path)?)
-                .into_owned();
+            let bytes =
+                gix::path::to_unix_separators_on_windows(gix::path::into_bstr(path)?).into_owned();
             let entry = tree
                 .as_ref()
                 .map(|tree| tree.lookup_entry_by_path(path))

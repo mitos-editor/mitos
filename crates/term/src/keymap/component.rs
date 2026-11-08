@@ -149,6 +149,10 @@ impl PickerAction {
                 PickerItemAction::CopyPath => "Copy file or directory",
                 PickerItemAction::DeletePath => "Delete file or directory",
                 PickerItemAction::YankPath => "Yank path",
+                PickerItemAction::CreateBranch => "Create branch",
+                PickerItemAction::DeleteBranch => "Delete branch",
+                PickerItemAction::CreateWorktree => "Create worktree",
+                PickerItemAction::RemoveWorktree => "Remove worktree",
             },
         }
     }

@@ -3,8 +3,11 @@ use crate::{
     application::TestApplication,
     compositor::{self, Event},
     job::Jobs,
-    ui::picker::test::{application, frame, until},
+    ui::picker::test::{all_items, application, draw, frame, until},
 };
+use vcs::operations::repository::BRANCH_PAGE_SIZE;
+use view::graphics::Color;
+
 fn git(root: &Path, args: &[&str]) {
     let output = std::process::Command::new("git")
         .arg("-C")
@@ -245,9 +248,6 @@ async fn worktree_picker_creates_on_a_branch_and_confirms_removal() -> Result<()
     Ok(())
 }
 
-use view::graphics::Color;
-use vcs::operations::repository::BRANCH_PAGE_SIZE;
-use crate::ui::picker::test::{all_items, draw};
 fn repository() -> Result<(tempfile::TempDir, GitRepository)> {
     let dir = tempfile::tempdir()?;
     let output = std::process::Command::new("git")
@@ -393,8 +393,6 @@ async fn branch_polling_preserves_the_loaded_prefix_and_selection() -> Result<()
     .await?;
     Ok(())
 }
-
-
 
 fn assert_colour(surface: &tui::buffer::Buffer, text: &str, colour: Color) {
     // Skip the border, query, separator, and column headings.

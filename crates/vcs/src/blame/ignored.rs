@@ -44,7 +44,7 @@ impl IgnoredRevisions {
         {
             // Cache the resolved commit, so moving an ignored tag cannot reuse stale blame.
             revisions.push(
-                repo.rev_parse_single(value.as_ref())?
+                repo.rev_parse_single(value.as_bstr())?
                     .object()?
                     .peel_to_commit()?
                     .id,
@@ -140,7 +140,7 @@ impl IgnoredRevisions {
         let output = command
             .arg(head.to_string())
             .arg("--")
-            .arg(gix::path::try_from_bstr(path)?.as_os_str())
+            .arg(gix::path::from_bstr(path)?.as_os_str())
             .output()
             .context("Run git blame with ignored revisions")?;
         ensure!(
@@ -170,7 +170,7 @@ fn git_installation_prefix() -> Result<PathBuf> {
         output.status.success(),
         "Could not resolve Git installation prefix"
     );
-    Ok(gix::path::try_from_byte_slice(output.stdout.trim_end())?.to_owned())
+    Ok(gix::path::from_byte_slice(output.stdout.trim_end())?.to_owned())
 }
 
 fn parse_entries(output: &[u8]) -> Result<Vec<gix::blame::BlameEntry>> {

@@ -238,9 +238,9 @@ impl VendoredGrammar {
             .context("Grammar remote has no URL")?
             .clone();
         if url.scheme == gix::url::Scheme::File {
-            let path = gix::path::from_bstr(&url.path);
+            let path = gix::path::from_bstr(&url.path)?;
             if !path.is_absolute() {
-                url.path = gix::path::into_bstr(self.dir.join(path)).into_owned();
+                url.path = gix::path::into_bstr(self.dir.join(path))?.into_owned();
                 upstream = upstream.with_url_without_url_rewrite(url)?;
             }
         }

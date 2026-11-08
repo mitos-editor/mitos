@@ -12,7 +12,10 @@ impl Tracking {
     fn read(repo: &gix::Repository) -> Result<Option<Self>> {
         let config = repo.config_snapshot();
         let rebase = config.string("branch.autoSetupRebase");
-        let rebase = rebase.as_deref().unwrap_or("never".into());
+        let rebase = rebase
+            .as_ref()
+            .map(|value| value.as_bstr())
+            .unwrap_or("never".into());
         ensure!(
             matches!(
                 rebase.as_bytes(),
@@ -21,16 +24,16 @@ impl Tracking {
             "Invalid branch.autoSetupRebase setting"
         );
         let mode = config.string("branch.autoSetupMerge");
-        let mode = mode.as_deref().unwrap_or("true".into());
+        let mode = mode
+            .as_ref()
+            .map(|value| value.as_bstr())
+            .unwrap_or("true".into());
         let (always, inherit) = match mode.as_bytes() {
             b"always" => (true, false),
             b"inherit" => (false, true),
             b"simple" => (false, false),
             _ => {
-                config
-                    .plumbing()
-                    .boolean("branch.autoSetupMerge")
-                    .transpose()?;
+                config.plumbing().boolean("branch.autoSetupMerge")?;
                 (false, false)
             }
         };
@@ -50,10 +53,7 @@ impl Tracking {
             let Some(merges) = raw.strings_by("branch", Some(source.shorten()), "merge") else {
                 return Ok(None);
             };
-            (
-                remote.into_owned(),
-                merges.into_iter().map(|value| value.into_owned()).collect(),
-            )
+            (remote, merges.into_iter().collect())
         } else {
             return Ok(None);
         };
@@ -85,6 +85,7 @@ impl PreparedOperation {
                 &path,
                 gix::lock::acquire::Fail::Immediately,
                 None,
+                0,
             )?;
             self.ensure_current()?;
             let contents = std::fs::read(&path)?;
@@ -96,12 +97,12 @@ impl PreparedOperation {
                 }
             }
             let mut section = config.new_section("branch", Some(subsection.into()))?;
-            section.push("remote".try_into()?, Some(tracking.remote.as_bstr()));
+            section.push("remote", Some(tracking.remote.as_bstr()))?;
             for merge in &tracking.merges {
-                section.push("merge".try_into()?, Some(merge.as_bstr()));
+                section.push("merge", Some(merge.as_bstr()))?;
             }
             if tracking.rebase {
-                section.set("rebase".try_into()?, "true".into());
+                section.set("rebase", "true")?;
             }
             let mut out = std::io::BufWriter::new(lock);
             config.write_to(&mut out)?;
@@ -130,7 +131,7 @@ impl PreparedOperation {
 
 impl PreparedOperation {
     pub(super) fn delete_branch(&self, name: &str) -> Result<()> {
-        let repo = self.repository.open_read(true)?;
+        let mut repo = self.repository.open_read(true)?;
         let refname = format!("refs/heads/{name}");
         let reference = repo.find_reference(refname.as_str())?;
         // Keep the original target: deletion must fail if another process moves the ref.
@@ -148,38 +149,23 @@ impl PreparedOperation {
             None => repo.head_commit()?.id,
         };
         ensure!(
-            repo.merge_base(tip, base)?.detach() == tip,
+            repo.merge_base(tip, base)?
+                .is_some_and(|base| base.detach() == tip),
             "Branch is not fully merged into its upstream or HEAD"
         );
         ensure_branch_unused(&repo, reference.name())?;
-
-        // Lock configuration before deleting the ref so concurrent writers cannot lose settings.
-        let path = repo.common_dir().join("config");
-        let lock = gix::lock::File::acquire_to_update_resource(
-            &path,
-            gix::lock::acquire::Fail::Immediately,
-            None,
-        )?;
+        let name = reference.name().to_owned();
+        let target: gix::refs::Target = reference.target().into();
         self.ensure_current()?;
-        let contents = std::fs::read(&path)?;
-        let mut config = gix::config::File::try_from(contents.as_bstr())?;
-        while config
-            .remove_section("branch", Some(name.as_bytes().as_bstr()))
-            .is_some()
-        {}
-        let mut out = std::io::BufWriter::new(lock);
-        config.write_to(&mut out)?;
-        let lock = out.into_inner().map_err(|error| error.into_error())?;
-        self.ensure_current()?;
-        ensure_branch_unused(&repo, reference.name())?;
-        reference.delete()?;
-        lock.commit()
-            .context("Branch deleted, but its tracking settings could not be removed")?;
+        repo.delete_local_branches_if_unchanged([(name, target)])?;
         Ok(())
     }
 }
 
-fn ensure_branch_unused(repo: &gix::Repository, reference: &gix::refs::FullNameRef) -> Result<()> {
+pub(super) fn ensure_branch_unused(
+    repo: &gix::Repository,
+    reference: &gix::refs::FullNameRef,
+) -> Result<()> {
     ensure_worktree_not_using_branch(&repo.main_repo()?, reference)?;
     for worktree in repo.worktrees()? {
         ensure_worktree_not_using_branch(
