@@ -18,6 +18,34 @@ async fn sidebar() -> anyhow::Result<(TestApplication, tempfile::TempDir, PathBu
     sidebar_with_config(test_config()).await
 }
 
+#[tokio::test(flavor = "multi_thread")]
+async fn selection_follows_files_opened_outside_the_sidebar() -> anyhow::Result<()> {
+    if super::helpers::isolation::workspace(
+        "test::sidebar::selection_follows_files_opened_outside_the_sidebar",
+    )?
+    .is_none()
+    {
+        return Ok(());
+    }
+    let (mut app, _dir, root) = sidebar().await?;
+    keys(&mut app, "/b.txt<ret><ret>").await?;
+    let name = root.file_name().unwrap().to_str().unwrap();
+    let relative = PathBuf::from(name).join("sub").join("deep").join("d.txt");
+    keys(&mut app, &format!("<space>f{}<ret>", relative.display())).await?;
+    let nested = root.join("sub").join("deep").join("d.txt");
+    assert_eq!(current_ref!(app.editor).1.path(), Some(nested.as_path()));
+    for expected in [nested, root.join("b.txt")] {
+        keys(&mut app, "<C-w>e<A-y><C-e>").await?;
+        let selected: Vec<_> = app.editor.registers.read('"').unwrap().collect();
+        assert_eq!(
+            selected,
+            [stdx::path::get_relative_path(&expected).to_string_lossy()]
+        );
+        keys(&mut app, ":buffer-previous<ret>").await?;
+    }
+    Ok(())
+}
+
 async fn sidebar_with_config(
     config: term::config::Config,
 ) -> anyhow::Result<(TestApplication, tempfile::TempDir, PathBuf)> {

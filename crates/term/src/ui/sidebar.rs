@@ -1,6 +1,9 @@
 //! A retained file browser beside, and independent of, document splits.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    path::PathBuf,
+};
 
 use view::{graphics::Rect, info::Info, Editor};
 
@@ -23,6 +26,7 @@ enum State {
 pub(super) struct Sidebar {
     pub picker: FileExplorer,
     state: State,
+    active_path: Option<PathBuf>,
     keys: KeymapState,
     search: event::TaskController,
     search_pending: bool,
@@ -45,6 +49,7 @@ impl Sidebar {
         Ok(Self {
             picker,
             state: State::Navigating,
+            active_path: None,
             keys: KeymapState::default(),
             search: event::TaskController::new(),
             search_pending: false,
@@ -219,6 +224,20 @@ impl Sidebar {
     }
 
     pub fn update(&mut self, area: Rect, cx: &mut Context) {
+        let path = view::current_ref!(cx.editor).1.path();
+        if self.state != State::Filtering && path != self.active_path.as_deref() {
+            self.active_path = path.map(PathBuf::from);
+            if let Some(path) = path
+                && path.starts_with(&self.picker.editor_data().root)
+                && !self
+                    .picker
+                    .selection()
+                    .is_some_and(|(selected, _)| selected == path)
+            {
+                self.picker
+                    .reveal_query_item(cx.editor, &(path.to_owned(), false));
+            }
+        }
         self.picker.update(area, cx);
         if self.search_pending
             || self.picker.has_pending_render()
