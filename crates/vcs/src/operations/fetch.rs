@@ -92,8 +92,31 @@ fn execute_inner(
     }
     let expected = format!("+refs/heads/*:refs/remotes/{name}/*");
     let specs = upstream.refspecs(gix::remote::Direction::Fetch);
-    if specs.len() != 1 || specs[0].to_ref().to_bstring() != expected.as_bytes() {
-        return Ok(None);
+    if branch.is_some() {
+        // Pull replaces these specs with one explicit branch request below. Keep
+        // custom mappings and exclusions with Git rather than silently overriding them.
+        if specs.len() != 1 || specs[0].to_ref().to_bstring() != expected.as_bytes() {
+            return Ok(None);
+        }
+    } else {
+        use gix::refspec::{instruction::Fetch, Instruction};
+        let destination = format!("refs/remotes/{name}/");
+        let mut has_mapping = false;
+        for spec in specs {
+            match spec.to_ref().instruction() {
+                Instruction::Fetch(Fetch::AndUpdate { src, dst, .. })
+                    if src.starts_with(b"refs/heads/")
+                        && dst.starts_with(destination.as_bytes()) =>
+                {
+                    has_mapping = true;
+                }
+                Instruction::Fetch(Fetch::Exclude { src }) if src.starts_with(b"refs/heads/") => {}
+                _ => return Ok(None),
+            }
+        }
+        if !has_mapping {
+            return Ok(None);
+        }
     }
     let merge: Vec<BString> = if let Some(branch) = branch {
         vec![format!("refs/heads/{branch}").into()]
@@ -123,6 +146,20 @@ fn execute_inner(
     let upstream = if let Some(branch) = branch {
         let spec = format!("+refs/heads/{branch}:refs/remotes/{name}/{branch}");
         upstream.with_refspecs([spec.as_str()], gix::remote::Direction::Fetch)?
+    } else if !merge.is_empty() {
+        // Git also fetches the configured upstream into FETCH_HEAD when no mapping
+        // covers it. Keep these source-only requests in the same group so negative
+        // refspecs still apply, without inventing a tracking-reference destination.
+        let specs: Vec<_> = upstream
+            .refspecs(gix::remote::Direction::Fetch)
+            .iter()
+            .map(|spec| spec.to_ref().to_bstring())
+            .chain(merge.iter().cloned())
+            .collect();
+        upstream.with_refspecs(
+            specs.iter().map(|spec| spec.as_bstr()),
+            gix::remote::Direction::Fetch,
+        )?
     } else {
         upstream
     };

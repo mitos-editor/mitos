@@ -733,6 +733,124 @@ async fn branch_creation_inherits_tracking_like_git() -> Result<()> {
     Ok(())
 }
 
+#[test]
+fn native_fetch_custom_branch_refspecs_match_git() -> Result<()> {
+    type Refs = Vec<(gix::bstr::BString, gix::ObjectId)>;
+    fn state(repo: &gix::Repository) -> Result<(Refs, Vec<String>)> {
+        let mut refs = Vec::new();
+        for reference in repo.references()?.all()? {
+            let mut reference = reference?;
+            if reference.name().as_bstr().starts_with(b"refs/remotes/") {
+                let name = reference.name().as_bstr().to_owned();
+                refs.push((name, reference.peel_to_id()?.detach()));
+            }
+        }
+        refs.sort();
+        let mut fetch_head: Vec<_> = std::fs::read_to_string(repo.git_dir().join("FETCH_HEAD"))?
+            .lines()
+            .map(|line| line.split_once(" of ").unwrap().0.to_owned())
+            .collect();
+        fetch_head.sort();
+        Ok((refs, fetch_head))
+    }
+    let source = initial()?;
+    for name in ["other", "release/v1", "private/secret"] {
+        exec_git_cmd(&["branch", name], source.path());
+    }
+    for specs in [
+        vec!["refs/heads/main:refs/remotes/origin/trunk"],
+        vec!["+refs/heads/release/*:refs/remotes/origin/releases/*"],
+        vec!["+refs/heads/*:refs/remotes/origin/*", "^refs/heads/main"],
+        vec![
+            "+refs/heads/main:refs/remotes/origin/trunk",
+            "+refs/heads/release/*:refs/remotes/origin/releases/*",
+        ],
+        vec![
+            "+refs/heads/*:refs/remotes/origin/*",
+            "^refs/heads/private/*",
+        ],
+    ] {
+        let native = empty_git_repo();
+        let oracle = empty_git_repo();
+        for root in [native.path(), oracle.path()] {
+            exec_git_cmd(
+                &["remote", "add", "origin", source.path().to_str().unwrap()],
+                root,
+            );
+            exec_git_cmd(&["config", "--unset-all", "remote.origin.fetch"], root);
+            for spec in &specs {
+                exec_git_cmd(&["config", "--add", "remote.origin.fetch", spec], root);
+            }
+            exec_git_cmd(&["config", "branch.main.remote", "origin"], root);
+            exec_git_cmd(&["config", "branch.main.merge", "refs/heads/main"], root);
+            for key in [
+                "fetch.prune",
+                "fetch.pruneTags",
+                "fetch.writeCommitGraph",
+                "fetch.fsckObjects",
+                "transfer.fsckObjects",
+            ] {
+                exec_git_cmd(&["config", key, "false"], root);
+            }
+        }
+        let repo = GitRepository::discover(native.path())?;
+        assert!(
+            fetch::execute(&repo, "origin", None)?.is_some(),
+            "{specs:?}"
+        );
+        // Compare branch mappings and FETCH_HEAD; updating the remote's symbolic
+        // default branch is not implemented by the existing native fetch path.
+        exec_git_cmd(
+            &[
+                "-c",
+                "remote.origin.followRemoteHEAD=never",
+                "fetch",
+                "--no-recurse-submodules",
+                "origin",
+            ],
+            oracle.path(),
+        );
+        let git = repo.open_read(true)?;
+        assert_eq!(
+            state(&git)?,
+            state(&gix::open(oracle.path())?)?,
+            "{specs:?}"
+        );
+        assert!(git.head()?.is_unborn());
+        assert!(!native.path().join("file.txt").exists());
+        // Pull must preserve the custom refspec policy through its existing fallback.
+        assert!(fetch::execute(&repo, "origin", Some("main"))?.is_none());
+    }
+    Ok(())
+}
+
+#[test]
+fn native_fetch_defers_refspecs_outside_the_selected_remotes_branches() -> Result<()> {
+    let dir = initial()?;
+    exec_git_cmd(
+        &[
+            "remote",
+            "add",
+            "origin",
+            "unavailable-protocol://example.invalid/repo",
+        ],
+        dir.path(),
+    );
+    let repo = GitRepository::discover(dir.path())?;
+    for spec in [
+        "+refs/heads/*:refs/heads/*",
+        "+refs/heads/*:refs/remotes/other/*",
+        "+refs/tags/*:refs/tags/*",
+        "refs/heads/main",
+        "^refs/heads/private/*",
+    ] {
+        exec_git_cmd(&["config", "remote.origin.fetch", spec], dir.path());
+        assert!(fetch::execute(&repo, "origin", None)?.is_none(), "{spec}");
+        assert!(!repo.git_dir.join("FETCH_HEAD").exists());
+    }
+    Ok(())
+}
+
 #[tokio::test]
 async fn native_fetch_updates_tracking_refs_and_fetch_head_without_checkout() -> Result<()> {
     let source = initial()?;
