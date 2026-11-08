@@ -33,7 +33,8 @@ impl<T: Item> Select<T> {
             let option = &option.unwrap();
             callback(editor, option, event)
         })
-        .auto_close(true);
+        .auto_close(true)
+        .with_selection_marker();
         // Select the first option by default.
         menu.move_down();
 
@@ -60,12 +61,19 @@ impl<T: Item> Component for Select<T> {
 
     fn required_size(&mut self, viewport: (u16, u16)) -> Option<(u16, u16)> {
         let (message_width, message_height) = self.message.required_size(viewport).unwrap();
-        let (menu_width, menu_height) = self.options.required_size(viewport).unwrap();
+        let (menu_width, menu_height) = self
+            .options
+            .required_size((viewport.0.saturating_sub(2), viewport.1.saturating_sub(4)))
+            .unwrap();
         Some((
             menu_width
+                .saturating_add(2)
                 .max(message_width.saturating_add(4))
                 .min(viewport.0),
-            message_height + menu_height + 2,
+            message_height
+                .saturating_add(menu_height)
+                .saturating_add(4)
+                .min(viewport.1),
         ))
     }
 
@@ -73,7 +81,8 @@ impl<T: Item> Component for Select<T> {
         // +---------------------+
         // | message             |
         // +---------------------+
-        //   options menu
+        // | options menu        |
+        // +---------------------+
         //
         //
 
@@ -86,17 +95,18 @@ impl<T: Item> Component for Select<T> {
             .unwrap();
         let (menu_width, menu_height) = self
             .options
-            .required_size((max_width, area.height))
+            .required_size((max_width, area.height.saturating_sub(4)))
             .unwrap();
         // + 2 for borders and another + 2 for horizontal padding
         let width = menu_width
+            .saturating_add(2)
             .max(message_width.saturating_add(4))
             .min(area.width);
-        let height = message_height + 2 + menu_height;
+        let height = message_height.saturating_add(menu_height).saturating_add(4);
         let area = area.centered(Constraint::Length(width), Constraint::Length(height));
         let [message_box, menu_area] = Layout::vertical([
             Constraint::Length(message_height + 2),
-            Constraint::Length(menu_height),
+            Constraint::Length(menu_height.saturating_add(2)),
         ])
         .areas(area);
 
@@ -111,7 +121,12 @@ impl<T: Item> Component for Select<T> {
         self.message.render(message_area, surface, cx);
 
         // Options menu
-        self.options.render(menu_area, surface, cx);
+        cx.hyperlinks.borrow_mut().clear(menu_area);
+        surface.clear_with(menu_area, background.patch(text));
+        let block = panel::bordered(&cx.editor.theme, cx.editor.config().border_style);
+        let options_area = block.inner(menu_area);
+        block.render(menu_area, surface);
+        self.options.render(options_area, surface, cx);
     }
 }
 use tui::buffer::BufferExt as _;
