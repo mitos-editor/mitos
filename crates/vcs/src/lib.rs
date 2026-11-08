@@ -21,6 +21,9 @@ use std::{
 #[cfg(feature = "git")]
 mod git;
 
+#[cfg(feature = "git")]
+mod blob;
+
 mod blame;
 pub mod conflict;
 pub use blame::{FileBlame, LineBlame};
