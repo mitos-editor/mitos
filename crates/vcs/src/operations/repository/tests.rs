@@ -1131,10 +1131,6 @@ fn native_fetch_custom_branch_refspecs_match_git() -> Result<()> {
         );
         assert!(git.head()?.is_unborn());
         assert!(!native.path().join("file.txt").exists());
-        // Pull must preserve the custom refspec policy through its existing fallback.
-        assert!(fetch::execute(&repo, "origin", Some("main"))?
-            .into_applied()
-            .is_none());
     }
     Ok(())
 }
@@ -2641,5 +2637,216 @@ async fn removing_missing_worktrees_rejects_locks_and_reappearing_checkouts() ->
     std::fs::remove_dir_all(&path)?;
     execute(&repo, remove()).await?;
     assert_eq!(repo.worktrees().await?.len(), 1);
+    Ok(())
+}
+
+#[test]
+fn native_fetch_for_pull_respects_custom_tracking_mappings() -> Result<()> {
+    let source = initial()?;
+    exec_git_cmd(&["branch", "other"], source.path());
+    for specs in [
+        vec!["+refs/heads/main:refs/remotes/origin/trunk"],
+        vec![
+            "+refs/heads/*:refs/remotes/origin/branches/*",
+            "+refs/heads/main:refs/remotes/origin/trunk",
+        ],
+        vec!["+refs/heads/*:refs/remotes/origin/*", "^refs/heads/other"],
+        vec!["+refs/heads/other:refs/remotes/origin/other"],
+    ] {
+        let native = empty_git_repo();
+        let oracle = empty_git_repo();
+        for root in [native.path(), oracle.path()] {
+            exec_git_cmd(
+                &["remote", "add", "origin", source.path().to_str().unwrap()],
+                root,
+            );
+            for key in [
+                "fetch.prune",
+                "fetch.pruneTags",
+                "fetch.writeCommitGraph",
+                "fetch.fsckObjects",
+                "transfer.fsckObjects",
+            ] {
+                exec_git_cmd(&["config", key, "false"], root);
+            }
+            exec_git_cmd(&["config", "--unset-all", "remote.origin.fetch"], root);
+            for spec in &specs {
+                exec_git_cmd(&["config", "--add", "remote.origin.fetch", spec], root);
+            }
+        }
+        let repository = GitRepository::discover(native.path())?;
+        let outcome = fetch::execute(&repository, "origin", Some("main"))?
+            .into_applied()
+            .unwrap();
+        let expected = gix::open(source.path())?.head_id()?.to_string();
+        assert_eq!(
+            outcome.target.unwrap(),
+            history::RevisionId::parse(&expected)?
+        );
+        exec_git_cmd(
+            &[
+                "fetch",
+                "--no-recurse-submodules",
+                "origin",
+                "refs/heads/main",
+            ],
+            oracle.path(),
+        );
+        let refs = |root: &Path| -> Result<Vec<_>> {
+            let repo = gix::open(root)?;
+            let mut refs = Vec::new();
+            for reference in repo.references()?.all()? {
+                let mut reference = reference?;
+                if reference.name().as_bstr().starts_with(b"refs/remotes/") {
+                    refs.push((
+                        reference.name().as_bstr().to_owned(),
+                        reference.peel_to_id()?.detach(),
+                    ));
+                }
+            }
+            refs.sort();
+            Ok(refs)
+        };
+        assert_eq!(refs(native.path())?, refs(oracle.path())?, "{specs:?}");
+        let fetch_head = |root: &Path| -> Result<Vec<String>> {
+            Ok(std::fs::read_to_string(root.join(".git/FETCH_HEAD"))?
+                .lines()
+                .map(|line| line.split_once(" of ").unwrap().0.to_owned())
+                .collect())
+        };
+        assert_eq!(
+            fetch_head(native.path())?,
+            fetch_head(oracle.path())?,
+            "{specs:?}"
+        );
+        assert!(repository.open_read(true)?.head()?.is_unborn());
+        assert!(!native.path().join("file.txt").exists());
+    }
+    Ok(())
+}
+
+#[test]
+fn native_fetch_for_pull_defers_excluded_upstreams_before_network() -> Result<()> {
+    let dir = initial()?;
+    exec_git_cmd(
+        &[
+            "remote",
+            "add",
+            "origin",
+            "unavailable-protocol://example.invalid/repo",
+        ],
+        dir.path(),
+    );
+    exec_git_cmd(
+        &["config", "--add", "remote.origin.fetch", "^refs/heads/main"],
+        dir.path(),
+    );
+    for key in [
+        "fetch.prune",
+        "fetch.pruneTags",
+        "fetch.writeCommitGraph",
+        "fetch.fsckObjects",
+        "transfer.fsckObjects",
+    ] {
+        exec_git_cmd(&["config", key, "false"], dir.path());
+    }
+    let repository = GitRepository::discover(dir.path())?;
+    assert!(fetch::execute(&repository, "origin", Some("main"))?
+        .into_applied()
+        .is_none());
+    assert!(!repository.git_dir.join("FETCH_HEAD").exists());
+    Ok(())
+}
+
+#[tokio::test]
+async fn pull_with_excluded_upstream_preserves_explicit_git_fetch_behavior() -> Result<()> {
+    let source = initial()?;
+    let directory = tempfile::tempdir()?;
+    let root = directory.path().join("checkout");
+    exec_git_cmd(
+        &[
+            "clone",
+            source.path().to_str().unwrap(),
+            root.to_str().unwrap(),
+        ],
+        directory.path(),
+    );
+    exec_git_cmd(
+        &["config", "--add", "remote.origin.fetch", "^refs/heads/main"],
+        &root,
+    );
+    for key in [
+        "fetch.prune",
+        "fetch.pruneTags",
+        "fetch.writeCommitGraph",
+        "fetch.fsckObjects",
+        "transfer.fsckObjects",
+    ] {
+        exec_git_cmd(&["config", key, "false"], &root);
+    }
+    std::fs::write(source.path().join("file.txt"), "remote update\n")?;
+    create_commit_with_message(source.path(), true, "remote update");
+    let repo = GitRepository::discover(&root)?;
+    assert!(fetch::execute(&repo, "origin", Some("main"))?
+        .into_applied()
+        .is_none());
+    execute(&repo, RepositoryOperation::Pull { remote: None }).await?;
+    assert_eq!(
+        repo.open_read(true)?.head_id()?.detach(),
+        gix::open(source.path())?.head_id()?.detach()
+    );
+    assert_eq!(
+        std::fs::read_to_string(root.join("file.txt"))?,
+        "remote update\n"
+    );
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn native_fetch_for_pull_preserves_non_utf8_tracking_names() -> Result<()> {
+    use std::io::Write;
+    let source = initial()?;
+    let native = empty_git_repo();
+    let oracle = empty_git_repo();
+    for root in [native.path(), oracle.path()] {
+        exec_git_cmd(
+            &["remote", "add", "origin", source.path().to_str().unwrap()],
+            root,
+        );
+        exec_git_cmd(&["config", "--unset-all", "remote.origin.fetch"], root);
+        for key in [
+            "fetch.prune",
+            "fetch.pruneTags",
+            "fetch.writeCommitGraph",
+            "fetch.fsckObjects",
+            "transfer.fsckObjects",
+        ] {
+            exec_git_cmd(&["config", key, "false"], root);
+        }
+        std::fs::OpenOptions::new().append(true).open(root.join(".git/config"))?
+            .write_all(b"\n[remote \"origin\"]\nfetch = +refs/heads/main:refs/remotes/origin/non-utf8-\xff\n")?;
+    }
+    let repository = GitRepository::discover(native.path())?;
+    assert!(fetch::execute(&repository, "origin", Some("main"))?
+        .into_applied()
+        .is_some());
+    exec_git_cmd(&["fetch", "origin", "refs/heads/main"], oracle.path());
+    let refs = |root: &Path| -> Result<Vec<_>> {
+        let repo = gix::open(root)?;
+        let mut refs = Vec::new();
+        for reference in repo.references()?.all()? {
+            let mut reference = reference?;
+            if reference.name().as_bstr().starts_with(b"refs/remotes/") {
+                refs.push((
+                    reference.name().as_bstr().to_owned(),
+                    reference.peel_to_id()?.detach(),
+                ));
+            }
+        }
+        refs.sort();
+        Ok(refs)
+    };
+    assert_eq!(refs(native.path())?, refs(oracle.path())?);
     Ok(())
 }
