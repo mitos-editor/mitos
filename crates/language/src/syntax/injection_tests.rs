@@ -159,3 +159,83 @@ fn compiling_several_languages_fills_each_cache_once() {
     }
     loader.compile_syntax_configs(&[]);
 }
+
+#[test]
+fn document_markers_prefer_names_then_extensions_then_injection_regexes() {
+    let config = toml::from_str(
+        r#"
+        [[language]]
+        name = "first"
+        scope = "source.first"
+        file-types = ["second", { glob = "*.glob-only" }]
+
+        [[language]]
+        name = "second"
+        scope = "source.second"
+        file-types = ["ext"]
+
+        [[language]]
+        name = "regex"
+        scope = "source.regex"
+        file-types = []
+        injection-regex = "ext|alias"
+
+        [[language]]
+        name = "longer-regex"
+        scope = "source.longer"
+        file-types = []
+        injection-regex = "long-alias"
+        "#,
+    )
+    .unwrap();
+    let loader = Loader::new(config, Resources::default()).unwrap();
+    for (marker, expected) in [
+        ("first", Some("first")),
+        ("second", Some("second")),
+        ("ext", Some("second")),
+        ("alias", Some("regex")),
+        ("long-alias", Some("longer-regex")),
+        ("glob-only", None),
+        ("unknown", None),
+    ] {
+        let text = Rope::from_str(marker);
+        let resolved = loader.language_for_marker(InjectionLanguageMarker::Match(text.slice(..)));
+        assert_eq!(
+            resolved.map(|language| loader.language(language).config().language_id.as_str()),
+            expected,
+            "{marker}"
+        );
+    }
+}
+
+#[test]
+fn markdown_fences_resolve_names_aliases_and_extensions() {
+    let (loader, _) = rust_loader();
+    let markdown = loader.language_for_name("markdown").unwrap();
+    for (marker, language) in [
+        ("rust", "rust"),
+        ("rs", "rust"),
+        ("c++", "cpp"),
+        ("cs", "c-sharp"),
+        ("rb", "ruby"),
+        ("py", "python"),
+    ] {
+        let text = Rope::from_str(&format!("```{marker}\nvalue\n```\n"));
+        let syntax = Syntax::new(text.slice(..), markdown, &loader).unwrap();
+        let layers = layer_languages(&syntax, &loader, &text);
+        assert_eq!(
+            layers[marker.len() + 4],
+            names(
+                &loader,
+                &[markdown, loader.language_for_name(language).unwrap()]
+            ),
+            "{marker}"
+        );
+        assert_eq!(layers[0], ["markdown"]);
+    }
+    let text = Rope::from_str("```unknown-language\nvalue\n```\n");
+    let syntax = Syntax::new(text.slice(..), markdown, &loader).unwrap();
+    assert!(layer_languages(&syntax, &loader, &text)
+        .iter()
+        .all(|layers| layers == &["markdown"]));
+}
