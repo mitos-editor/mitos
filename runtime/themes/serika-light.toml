@@ -32,6 +32,7 @@
 "module" = "blue"
 "special" = "orange"
 
+"ui.link" = { modifiers = ["underlined"] }
 "ui.background" = { bg = "bg0" }
 "ui.background.separator" = { fg = "bg5" }
 "ui.bufferline" = { fg = "grey1" }

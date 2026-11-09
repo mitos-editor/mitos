@@ -3,6 +3,7 @@
 # Credit goes to the original creator: https://monokai.pro
 # License: MIT (see licenses/monokai_pro.license)
 
+"ui.link" = { modifiers = ["underlined"] }
 "ui.linenr.selected" = { bg = "base3" }
 "ui.text.focus" = { fg = "yellow", modifiers= ["bold"] }
 "ui.menu" = { fg = "base8", bg = "base3" }

@@ -2,6 +2,7 @@
 # Author: Soc Virnyl Estela <socvirnyl.estela@gmail.com>
 # License: MIT (see licenses/papercolor.license)
 
+"ui.link" = { modifiers = ["underlined"] }
 "ui.linenr.selected" = { fg = "cursorlinenr_fg", modifiers = ["bold"] }
 "ui.linenr" = { fg = "linenumber_fg" }
 "ui.background" = { bg = "background" }

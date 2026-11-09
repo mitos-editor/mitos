@@ -92,6 +92,7 @@
 "type.builtin"                    = { fg = "cyan"                                                           }
 "type.enum.variant"               = { fg = "foreground",         modifiers = ["italic"]                     }
 
+"ui.link" = { modifiers = ["underlined"] }
 "ui.background"                   = { fg    = "foreground",      bg = "background"                          }
 "ui.cursor"                       = { fg    = "background",      bg = "purple",        modifiers = ["dim"]  }
 "ui.cursor.insert"                = { fg    = "background",      bg = "green",         modifiers = ["dim"]  }	

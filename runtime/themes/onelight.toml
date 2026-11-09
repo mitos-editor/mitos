@@ -102,6 +102,7 @@
 "diff.delta.moved" = { fg = "cyan" }
 "diff.delta.conflict" = {fg = "blue"}
 
+"ui.link" = { modifiers = ["underlined"] }
 "ui.background" = { bg = "white" }
 "ui.background.separator" = { bg = "white" }
 

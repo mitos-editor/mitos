@@ -371,6 +371,7 @@ These scopes are used for theming the editor interface:
 | `ui.picker.header.column.active`  | The column name in pickers with multiple columns where the cursor is entering into.            |
 | `ui.window`                       | Borderlines separating splits                                                                  |
 | `ui.help`                         | Description box for commands                                                                   |
+| `ui.link` | Navigable links in the document. |
 | `ui.text`                         | Default text style, command prompts, panel titles, popup text, and fallback for panel borders    |
 | `ui.text.focus`                   | The currently selected line in the picker                                                      |
 | `ui.text.inactive`                | Same as `ui.text` but when the text is inactive (e.g. suggestions)                             |

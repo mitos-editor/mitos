@@ -1,5 +1,6 @@
 # Author: dgkf
 
+"ui.link" = { modifiers = ["underlined"] }
 "ui.background" = { }
 "ui.background.separator" = { fg = "red" }
 "ui.cursor" = { fg = "light-gray", modifiers = ["reversed"] }

@@ -98,6 +98,7 @@
 # "diff.delta.conflict"
 "diff.delta.gutter" = "zb-normal-fg"
 
+"ui.link" = { modifiers = ["underlined"] }
 "ui.background" = { bg = "zb-normal-bg" }
 # "ui.background.separator"
 "ui.cursor" = { fg = "zb-cursor-fg", bg = "zb-cursor-bg", modifiers = ["bold"] }

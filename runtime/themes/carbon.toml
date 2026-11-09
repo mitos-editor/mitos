@@ -86,6 +86,7 @@
 "diff.delta.moved" = "purple40"
 
 # UI Elements
+"ui.link" = { modifiers = ["underlined"] }
 "ui.background" = { fg = "gray70", bg = "gray10" }
 "ui.background.separator" = { fg = "gray30" }
 

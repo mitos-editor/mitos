@@ -51,6 +51,7 @@
 "info" = { fg = "theme_blue" }
 "hint" = { fg = "bg2" }
 
+"ui.link" = { modifiers = ["underlined"] }
 "ui.background" = { bg = "bg0" }
 "ui.linenr" = { fg = "bg3" }
 "ui.linenr.selected" = { fg = "theme_yellow" }

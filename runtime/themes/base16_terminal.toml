@@ -1,6 +1,7 @@
 # Author: NNB <nnbnh@protonmail.com>
 # License: MIT (see licenses/base16.license)
 
+"ui.link" = { modifiers = ["underlined"] }
 "ui.menu" = { fg = "light-gray", bg = "gray" }
 "ui.menu.selected" = { modifiers = ["reversed"] }
 "ui.linenr" = { fg = "light-gray", bg = "black" }

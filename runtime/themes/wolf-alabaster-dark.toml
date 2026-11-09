@@ -30,6 +30,7 @@ hint = { fg = "punctuation" }
 diagnostic = { underline = { style = "curl" } }
 
 # UI - Interface elements
+"ui.link" = { modifiers = ["underlined"] }
 "ui.background" = { bg = "bg" }
 "ui.text" = { fg = "fg" }
 "ui.text.focus" = { fg = "active", modifiers = ["bold"] }

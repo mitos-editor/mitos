@@ -60,6 +60,7 @@ punctuation = "fg-dim"
 # User Interface
 # --------------
 
+"ui.link" = { modifiers = ["underlined"] }
 "ui.background" = { bg = "bg-main" }
 "ui.background.separator" = { fg = "fg-dim" }
 

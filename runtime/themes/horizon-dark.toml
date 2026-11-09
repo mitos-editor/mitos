@@ -21,6 +21,7 @@ namespace = "orange"
 tag = "red"
 
 # User Interface
+"ui.link" = { modifiers = ["underlined"] }
 "ui.background" = { bg = "bg", fg = "gray" }
 "ui.background.separator" = "light-gray"
 "ui.linenr" = { fg = "light-gray" }

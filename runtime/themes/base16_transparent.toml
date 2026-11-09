@@ -2,6 +2,7 @@
 # This theme is base on base16_theme(Author: NNB <nnbnh@protonmail.com>)
 # License: MIT (see licenses/base16.license)
 
+"ui.link" = { modifiers = ["underlined"] }
 "ui.background" = { fg = "white"}
 "ui.background.separator" = { fg = "gray" }
 "ui.text" = { fg = "light-gray" }

@@ -1,6 +1,7 @@
 # Based on Flexoki: https://stephango.com/flexoki
 # License: MIT (see licenses/flexoki.license)
 
+"ui.link" = { modifiers = ["underlined"] }
 "ui.background" = { bg = "bg" }
 "ui.cursor" = { fg = "tx", bg = "tx-3" }
 "ui.cursor.primary" = { fg = "bg", bg = "tx" }

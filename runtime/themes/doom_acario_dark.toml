@@ -46,6 +46,7 @@
 'diff.minus' = { fg = 'red' }
 'diff.delta' = { fg = 'blue' }
 
+"ui.link" = { modifiers = ["underlined"] }
 'ui.background'= { bg = 'bg' }
 'ui.cursor' = { bg = 'orange', fg = 'bg-alt' }
 'ui.cursor.match' = { fg = 'red', modifiers = ['bold'] }

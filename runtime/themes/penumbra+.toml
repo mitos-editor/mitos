@@ -51,6 +51,7 @@ error = "red"
 "diagnostic.unnecessary" = { modifiers = ["dim"] }
 "diagnostic.deprecated" = { modifiers = ["crossed_out"] }
 
+"ui.link" = { modifiers = ["underlined"] }
 "ui.background" = { bg = "shade" }
 "ui.background.separator" = "sky"
 

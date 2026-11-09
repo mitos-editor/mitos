@@ -52,6 +52,7 @@
 "markup.raw"           = "orange"
 
 # UI
+"ui.link" = { modifiers = ["underlined"] }
 "ui.background"              = { fg = "light_gray", bg = "dark_gray2" }
 "ui.window"                  = { bg = "widget" }
 "ui.popup"                   = { fg = "text", bg = "widget" }

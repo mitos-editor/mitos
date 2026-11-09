@@ -582,6 +582,56 @@ mod tests {
     }
 
     #[test]
+    fn bundled_themes_define_link_decoration_without_a_foreground() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../runtime");
+        let loader = Loader::new(Resources::new(vec![root.clone()]));
+        let mut names = vec!["default".to_owned(), "base16_default".to_owned()];
+        for entry in std::fs::read_dir(root.join("themes")).unwrap() {
+            let path = entry.unwrap().path();
+            if path
+                .extension()
+                .is_some_and(|extension| extension == "toml")
+            {
+                names.push(path.file_stem().unwrap().to_str().unwrap().to_owned());
+            }
+        }
+        for name in names {
+            let theme = loader.load(&name).unwrap();
+            let highlight = theme
+                .find_highlight_exact("ui.link")
+                .unwrap_or_else(|| panic!("{name} must define or inherit ui.link"));
+            assert_eq!(
+                theme.highlight(highlight),
+                Style::default().underline_style(UnderlineStyle::Line),
+                "{name} must preserve syntax colors for links"
+            );
+        }
+    }
+
+    #[test]
+    fn themes_without_link_decoration_do_not_inherit_markup_styles() {
+        let theme = Theme::from(Value::Table(toml::toml! {
+            "markup.link" = "blue"
+            "markup.link.url" = "red"
+        }));
+        assert!(theme.find_highlight_exact("ui.link").is_none());
+    }
+
+    #[test]
+    fn document_link_style_can_be_overridden_or_disabled() {
+        for (style, expected) in [
+            (toml::toml! { fg = "red" }, Style::default().fg(Color::Red)),
+            (toml::Table::new(), Style::default()),
+        ] {
+            let mut values = toml::Table::new();
+            values.insert("ui.link".into(), Value::Table(style));
+            let theme = Theme::from(Value::Table(values));
+            let highlight = theme.find_highlight_exact("ui.link").unwrap();
+            assert_eq!(theme.highlight(highlight), expected);
+        }
+    }
+
+    #[test]
     fn named_grays_preserve_their_ansi_colors() {
         let theme = Theme::from(toml::Value::Table(toml::toml! {
             "ui.text" = "gray"

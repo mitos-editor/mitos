@@ -65,6 +65,7 @@
 "diff.minus" = "bright_red"
 "diff.delta" = "bright_cyan"
 
+"ui.link" = { modifiers = ["underlined"] }
 "ui.background" = { bg = "bg" }
 "ui.background.separator" = { fg = "fg" }
 

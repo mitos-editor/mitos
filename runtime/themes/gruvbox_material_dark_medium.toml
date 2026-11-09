@@ -70,6 +70,7 @@ hint = "green"
 info = "blue"
 warning = "yellow"
 
+"ui.link" = { modifiers = ["underlined"] }
 "ui.background" = { fg = "fg0", bg = "bg0" }
 "ui.bufferline" = { fg = "fg1", bg = "bg4" }
 "ui.bufferline.active" = { fg = "bg0", bg = "grey2" }

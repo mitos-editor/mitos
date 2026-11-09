@@ -70,6 +70,7 @@ hint = { fg = "hint" }
 "diagnostic.unnecessary" = { modifiers = ["dim"] }
 "diagnostic.deprecated" = { modifiers = ["crossed_out"] }
 
+"ui.link" = { modifiers = ["underlined"] }
 "ui.background" = { bg = "bg", fg = "fg" }
 "ui.cursor" = { fg = "bg", bg = "gray" }
 "ui.cursor.primary" = { fg = "bg", bg = "fg" }

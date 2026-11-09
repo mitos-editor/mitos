@@ -69,6 +69,7 @@
 "diff.delta.gutter" = "gutter_blue"
 
 # ui specific
+"ui.link" = { modifiers = ["underlined"] }
 "ui.background" = { bg = "shade00" }
 "ui.cursor" = { bg = "shade02" }
 "ui.cursor.primary" = { bg = "cursor_blue" }

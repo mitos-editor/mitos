@@ -63,6 +63,7 @@
 "diff.delta" = "orange_3"
 "diff.delta.moved" = "orange_2"
 
+"ui.link" = { modifiers = ["underlined"] }
 "ui.background" = { fg = "light_4", bg = "libadwaita_dark" }
 "ui.background.separator" = { fg = "split_and_borders", bg = "libadwaita_dark" }
 "ui.cursor" = { fg = "libadwaita_dark", bg = "light_7" }

@@ -62,6 +62,7 @@
 "tag.attribute" = { fg = "purple" }
 "text" = { fg = "background_fg" }
 "type" = { fg = "blue" }
+"ui.link" = { modifiers = ["underlined"] }
 "ui.background" = { fg = "background_fg", bg = "background_bg" }
 "ui.background.separator" = { fg = "comment_fg" }
 "ui.bufferline.active" = { fg = "pale" }

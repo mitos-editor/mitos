@@ -117,6 +117,7 @@
 
 # --- UI ---
 
+"ui.link" = { modifiers = ["underlined"] }
 "ui.background" = { fg = "chrome-border", bg = "bg" }
 "ui.background.separator" = { fg = "chrome-border" }
 

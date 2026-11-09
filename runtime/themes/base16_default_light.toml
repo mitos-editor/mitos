@@ -1,6 +1,7 @@
 # Author: NNB <nnbnh@protonmail.com>
 # License: MIT (see licenses/base16.license)
 
+"ui.link" = { modifiers = ["underlined"] }
 "ui.background" = { bg = "base00" }
 "ui.menu" = { fg = "base05", bg = "base01" }
 "ui.menu.selected" = { fg = "base01", bg = "base04" }

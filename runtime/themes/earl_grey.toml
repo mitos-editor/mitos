@@ -17,6 +17,7 @@
 "info" = "grey"
 "keyword" = "earl"
 "type" = "maple"
+"ui.link" = { modifiers = ["underlined"] }
 "ui.background" = { bg = "chaotica" }
 "ui.background.separator" = { fg = "snow" }
 "ui.cursor" = { fg = "black", bg = "earl" }

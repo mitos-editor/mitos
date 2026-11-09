@@ -59,6 +59,7 @@
 
 # User Interface
 
+"ui.link" = { modifiers = ["underlined"] }
 "ui.background" = { bg = "bg", fg = "text" }
 "ui.text" = { fg = "text" }
 "ui.text.directory" = { fg = "blue" }
