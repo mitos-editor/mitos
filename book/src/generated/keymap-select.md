@@ -236,7 +236,7 @@
 | `` <C-w>v `` | Vertical right split | `` split_vertical `` |
 | `` <C-w><C-t> `` | Transpose splits | `` transpose_view `` |
 | `` <C-w>t `` | Transpose splits | `` transpose_view `` |
-| `` <C-w>r `` | Resize splits (Enter to confirm, Escape to cancel) | `` resize_mode `` |
+| `` <C-w>r `` | Resize windows (Enter to confirm, Escape to cancel) | `` resize_mode `` |
 | `` <C-w>= `` | Make all splits the same size | `` equalize_views `` |
 | `` <C-w>f `` | Open files in selections in a horizontal split | `` goto_file_in_horizontal_split `` |
 | `` <C-w>F `` | Open files in selections in a vertical split | `` goto_file_in_vertical_split `` |
@@ -368,7 +368,7 @@
 | `` <space>wv `` | Vertical right split | `` split_vertical `` |
 | `` <space>w<C-t> `` | Transpose splits | `` transpose_view `` |
 | `` <space>wt `` | Transpose splits | `` transpose_view `` |
-| `` <space>wr `` | Resize splits (Enter to confirm, Escape to cancel) | `` resize_mode `` |
+| `` <space>wr `` | Resize windows (Enter to confirm, Escape to cancel) | `` resize_mode `` |
 | `` <space>w= `` | Make all splits the same size | `` equalize_views `` |
 | `` <space>wf `` | Open files in selections in a horizontal split | `` goto_file_in_horizontal_split `` |
 | `` <space>wF `` | Open files in selections in a vertical split | `` goto_file_in_vertical_split `` |

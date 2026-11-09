@@ -32,9 +32,7 @@ pub(super) struct Sidebar {
     search_pending: bool,
     pending_action: Option<PickerAction>,
     action_scheduled: bool,
-    width: Option<u16>,
-    area: Rect,
-    resizing: Option<(Option<u16>, u16)>,
+    pub(super) width: Option<u16>,
     pending_input: Vec<(Event, Vec<char>)>,
 }
 
@@ -59,8 +57,6 @@ impl Sidebar {
             pending_action: None,
             action_scheduled: false,
             width: None,
-            area: Rect::default(),
-            resizing: None,
             pending_input: Vec::new(),
         })
     }
@@ -95,9 +91,6 @@ impl Sidebar {
     }
 
     fn reset_input(&mut self) {
-        if let Some((original, _)) = self.resizing.take() {
-            self.width = original;
-        }
         self.keys.clear();
         self.picker.cancel_input();
         self.picker.set_title("File Explorer");
@@ -138,6 +131,15 @@ impl Sidebar {
         Some(area)
     }
 
+    pub(super) fn resize_width(&mut self, total: u16, delta: isize) {
+        let max = total.saturating_sub(24).max(20);
+        let width = self
+            .width
+            .unwrap_or_else(|| (total / 3).clamp(20, 36))
+            .clamp(20, max);
+        self.width = Some(((width as isize).saturating_add(delta)).clamp(20, max as isize) as u16);
+    }
+
     fn keymap<'a>(&self, maps: &'a ComponentKeymaps) -> &'a Keymap<SidebarAction> {
         if self.state == State::Filtering {
             &maps.sidebar_filter
@@ -147,18 +149,6 @@ impl Sidebar {
     }
 
     pub fn infobox(&self, maps: &ComponentKeymaps) -> Option<Info> {
-        if self.resizing.is_some() {
-            return Some(Info::new(
-                "Resize file explorer",
-                &[
-                    ("h, left", "Shrink width"),
-                    ("l, right", "Grow width"),
-                    ("=", "Reset width"),
-                    ("ret", "Confirm resizing"),
-                    ("esc", "Cancel resizing"),
-                ],
-            ));
-        }
         let keys = self.keys.pending_map(self.keymap(maps))?;
         let mut body = BTreeMap::<String, BTreeSet<_>>::new();
         for (&key, binding) in &keys.0 {
@@ -184,7 +174,7 @@ impl Sidebar {
     }
 
     pub fn has_pending_keys(&self) -> bool {
-        self.resizing.is_some() || self.keys.is_pending() || self.picker.has_pending_keys()
+        self.keys.is_pending() || self.picker.has_pending_keys()
     }
 
     pub fn has_pending_render(&self) -> bool {
@@ -247,7 +237,6 @@ impl Sidebar {
     }
 
     pub fn update(&mut self, area: Rect, cx: &mut Context) {
-        self.area = area;
         let path = view::current_ref!(cx.editor).1.path();
         if self.state != State::Filtering && path != self.active_path.as_deref() {
             self.active_path = path.map(PathBuf::from);
@@ -314,59 +303,7 @@ impl Sidebar {
         result
     }
 
-    fn resize_key(&mut self, key: ui_core::input::KeyEvent, editor: &Editor) {
-        use crate::key;
-        let (original, count) = self.resizing.unwrap();
-        match key {
-            key!(Enter) => self.resizing = None,
-            key!(Esc) => {
-                self.width = original;
-                self.resizing = None;
-            }
-            key!(digit @ '0'..='9') => {
-                self.resizing = Some((
-                    original,
-                    count
-                        .saturating_mul(10)
-                        .saturating_add(digit.to_digit(10).unwrap() as u16),
-                ));
-            }
-            key!('=') => {
-                self.width = None;
-                self.resizing = Some((original, 0));
-            }
-            key!('h') | key!(Left) | key!('l') | key!(Right) => {
-                let total = editor.tree.area().width.saturating_add(self.area.width);
-                let width = self
-                    .width
-                    .unwrap_or_else(|| (total / 3).clamp(20, 36))
-                    .clamp(20, total.saturating_sub(24).max(20));
-                let amount = if count == 0 { 5 } else { count };
-                let next = if matches!(key, key!('h') | key!(Left)) {
-                    width.saturating_sub(amount)
-                } else {
-                    width.saturating_add(amount)
-                };
-                self.width = Some(next.clamp(20, total.saturating_sub(24).max(20)));
-                self.resizing = Some((original, 0));
-            }
-            _ => {}
-        }
-    }
-
     pub fn handle_event(&mut self, event: &Event, cx: &mut Context) -> EventResult {
-        if self.resizing.is_some() {
-            if let Event::Key(key) = event {
-                cx.editor.reset_idle_timer();
-                cx.editor.status_msg = None;
-                self.resize_key(*key, cx.editor);
-                return EventResult::Consumed(None);
-            }
-            if !matches!(event, Event::Mouse(mouse) if mouse.kind == ui_core::input::MouseEventKind::Moved)
-            {
-                self.width = self.resizing.take().unwrap().0;
-            }
-        }
         if self.pending_action.is_some()
             || !self.pending_input.is_empty()
             || (self.state == State::Navigating && self.picker.has_pending_render())
@@ -409,7 +346,11 @@ impl Sidebar {
         for action in actions {
             match action {
                 SidebarAction::Resize => {
-                    self.resizing = Some((self.width, 0));
+                    return EventResult::Consumed(Some(Box::new(|compositor, cx| {
+                        if let Some(view) = compositor.find::<EditorView>() {
+                            view.start_resize(cx.editor, None);
+                        }
+                    })));
                 }
                 SidebarAction::Filter => {
                     self.picker.clear_filter(cx.editor);
@@ -523,9 +464,8 @@ mod tests {
         assert_eq!(cx.editor.tree.area().x, 36);
         // Hiding in a tiny terminal cancels an in-progress resize, while
         // preserving the previously confirmed width for a larger terminal.
-        let sidebar = view.sidebar.as_mut().unwrap();
-        sidebar.resizing = Some((Some(50), 0));
-        sidebar.width = Some(60);
+        view.start_resize(cx.editor, None);
+        view.sidebar.as_mut().unwrap().width = Some(60);
         for (width, height) in [(20, 24), (80, 3), (0, 0)] {
             let area = Rect::new(0, 0, width, height);
             view.update_and_render(area, &mut tui::buffer::Buffer::empty(area), &mut cx);
@@ -536,7 +476,7 @@ mod tests {
         }
         view.update(Rect::new(0, 0, 80, 24), &mut cx);
         assert_eq!(cx.editor.tree.area().x, 50);
-        assert!(view.sidebar.as_ref().unwrap().resizing.is_none());
+        assert!(!view.has_pending_keys());
         assert!(!view.sidebar.as_ref().unwrap().focused());
         Ok(())
     }

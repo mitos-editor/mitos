@@ -293,6 +293,7 @@
 | `` <A-k> ``, `` <A-up> `` | `` preview_scroll_up `` |
 | `` <C-w>W `` | `` previous_view `` |
 | `` <C-ret> ``, `` <Meta-ret> `` | `` replace_all `` |
+| `` <C-w>r `` | `` resize `` |
 | `` <C-l> `` | `` toggle_loading `` |
 | `` <C-t> `` | `` toggle_preview `` |
 | `` <A-r> `` | `` toggle_replacement `` |

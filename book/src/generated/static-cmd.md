@@ -301,11 +301,11 @@
 | `swap_view_up` | Swap with split above | normal: `` <C-w>K ``, `` <space>wK ``, `` <C-w><S-up> ``, `` <space>w<S-up> ``, select: `` <C-w>K ``, `` <space>wK ``, `` <C-w><S-up> ``, `` <space>w<S-up> `` |
 | `swap_view_down` | Swap with split below | normal: `` <C-w>J ``, `` <space>wJ ``, `` <C-w><S-down> ``, `` <space>w<S-down> ``, select: `` <C-w>J ``, `` <space>wJ ``, `` <C-w><S-down> ``, `` <space>w<S-down> `` |
 | `transpose_view` | Transpose splits | normal: `` <C-w>t ``, `` <space>wt ``, `` <C-w><C-t> ``, `` <space>w<C-t> ``, select: `` <C-w>t ``, `` <space>wt ``, `` <C-w><C-t> ``, `` <space>w<C-t> `` |
-| `resize_mode` | Resize splits (Enter to confirm, Escape to cancel) | normal: `` <C-w>r ``, `` <space>wr ``, select: `` <C-w>r ``, `` <space>wr `` |
-| `resize_view_left` | Resize split left |  |
-| `resize_view_right` | Resize split right |  |
-| `resize_view_up` | Resize split up |  |
-| `resize_view_down` | Resize split down |  |
+| `resize_mode` | Resize windows (Enter to confirm, Escape to cancel) | normal: `` <C-w>r ``, `` <space>wr ``, select: `` <C-w>r ``, `` <space>wr `` |
+| `resize_view_left` | Resize window left |  |
+| `resize_view_right` | Resize window right |  |
+| `resize_view_up` | Resize window up |  |
+| `resize_view_down` | Resize window down |  |
 | `grow_view_width` | Grow split width |  |
 | `shrink_view_width` | Shrink split width |  |
 | `grow_view_height` | Grow split height |  |

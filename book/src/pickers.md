@@ -140,11 +140,10 @@ directories and your selection.
 | `q` while navigating | Hide the sidebar |
 | `Ctrl-w r` while navigating | Resize the sidebar |
 
-In resize mode, `h` / `Left` shrinks the sidebar and `l` / `Right` grows it by
-five columns. A count changes the step, such as `10 l`. Press `Enter` to keep
-the width, `Esc` to restore it, or `=` to return to the default width. The chosen
-width is kept when hiding and reopening the sidebar. Narrow terminals constrain
-it to leave at least 24 columns for documents.
+To change the width, press `Ctrl-w r`, then `h` / `Left` to shrink it or
+`l` / `Right` to grow it. Press `Enter` to keep the width or `Esc` to cancel.
+The sidebar remembers its width when hidden and reopened. See
+[Resize windows](./files.md#resize-windows) for counts and resetting sizes.
 
 Search uses fuzzy matching and includes collapsed directories, excluding Git
 and other version control metadata. Results show matching names with their

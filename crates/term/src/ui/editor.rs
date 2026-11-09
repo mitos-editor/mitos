@@ -1,5 +1,6 @@
 use crate::compositor::DrawContext;
 mod render;
+mod resize;
 use super::highlights::primary_native_cursor_kind;
 use crate::repeat::InsertEvent;
 use crate::{
@@ -36,6 +37,7 @@ use tui::{
 pub struct EditorView {
     pub(super) sidebar: Option<super::sidebar::Sidebar>,
     sidebar_area: Option<Rect>,
+    resizing: Option<resize::Resize>,
     pub keymaps: Keymaps,
     on_next_key: Option<OnKeyCallback>,
     pseudo_pending: Vec<KeyEvent>,
@@ -51,6 +53,7 @@ impl EditorView {
         Self {
             sidebar: None,
             sidebar_area: None,
+            resizing: None,
             keymaps,
             on_next_key: None,
             pseudo_pending: Vec::new(),
@@ -606,6 +609,9 @@ impl Component for EditorView {
         event: &Event,
         context: &mut crate::compositor::Context,
     ) -> EventResult {
+        if self.handle_resize_event(event, context) {
+            return EventResult::Consumed(None);
+        }
         if let Event::Mouse(mouse) = event {
             let in_sidebar = self.sidebar_area.is_some_and(|area| {
                 mouse.column >= area.x
@@ -816,6 +822,10 @@ impl Component for EditorView {
 
     fn update(&mut self, area: Rect, cx: &mut Context) {
         let (layout, sidebar_area) = self.layout(cx.editor, area);
+        if sidebar_area.is_none() && self.resizing.as_ref().is_some_and(|resize| resize.sidebar) {
+            self.finish_resize(cx.editor, true);
+            cx.interaction.count = None;
+        }
         self.sidebar_area = sidebar_area;
         cx.interaction.sidebar_visible = sidebar_area.is_some();
         if let Some(sidebar) = &mut self.sidebar {
@@ -869,7 +879,7 @@ impl Component for EditorView {
             .as_ref()
             .filter(|sidebar| sidebar.focused())
             .and_then(|sidebar| sidebar.infobox(&cx.config.component_keys));
-        let info = if sidebar_focused {
+        let info = if sidebar_focused && self.resizing.is_none() {
             sidebar_info.as_ref()
         } else {
             cx.editor.autoinfo.as_ref()
@@ -1009,6 +1019,9 @@ impl Component for EditorView {
     }
 
     fn has_pending_keys(&self) -> bool {
+        if self.resizing.is_some() {
+            return true;
+        }
         if self.sidebar_focused() {
             self.sidebar.as_ref().unwrap().has_pending_keys()
         } else {
