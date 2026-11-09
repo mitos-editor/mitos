@@ -1,7 +1,6 @@
 """Check the grammar archive shared by all release platforms."""
 
 from pathlib import Path
-import re
 import subprocess
 import tarfile
 import tempfile
@@ -33,12 +32,11 @@ class GrammarBundleTests(unittest.TestCase):
             metadata.write_text("fixture metadata must not be shipped\n")
             # Also cover submodule/worktree metadata stored as a file.
             (source / "rpmspec/rpmspec/.git").write_text("gitdir: fixture\n")
-            (root / ".github").mkdir()
-            (root / ".github/scripts").symlink_to(ROOT / ".github/scripts", target_is_directory=True)
-
-            workflow = (ROOT / ".github/workflows/release.yml").read_text()
-            command = re.search(r"- name: Bundle grammars\n\s+run: (.+)", workflow).group(1)
-            subprocess.run(["bash", "-euo", "pipefail", "-c", command], cwd=root, check=True)
+            subprocess.run(
+                ["bash", str(ROOT / ".github/scripts/bundle-grammars.sh"),
+                 str(source), str(root / "grammars.tar.xz")],
+                check=True,
+            )
             with tarfile.open(root / "grammars.tar.xz") as archive:
                 members = archive.getmembers()
                 self.assertFalse([m.name for m in members if m.issym() or m.islnk()])
