@@ -55,23 +55,21 @@ Press `Ctrl-e` to switch between the editor and the
 left edge also focuses the visible sidebar. In sidebar navigation, `Ctrl-w l`
 returns to the last focused editor split; `Ctrl-w q` hides the sidebar.
 
-### Resize splits
+### Resize windows
 
-Press `Ctrl-w r` (or `Space w r`) to enter resize mode. `h` / `j` / `k` / `l`
-and the arrow keys grow the focused split toward the left / down / up / right.
-At the outer edge of the layout, they shrink from the opposite side instead.
-For example, `h` grows a right-hand pane to the left; `l` shrinks it from the
-left. A boundary stops when either subtree reaches its minimum size.
+Press `Ctrl-w r` to resize a split or the file explorer sidebar. In the editor,
+you can also use `Space w r`.
 
-Each press moves the boundary by 5 columns or 2 rows. An explicit count replaces
-that default with an exact number of cells: `Ctrl-w r 1 h` moves one column,
-and `Ctrl-w r 10 h` moves ten. Press `Enter` to keep the new sizes and leave
-resize mode, or `Escape` to restore the sizes from before you entered resize mode.
-Press `=` in resize mode, or `Ctrl-w =`, to equalize the splits.
+Use `h` / `j` / `k` / `l` or the arrow keys to move a border left / down / up /
+right. Each press moves it 5 columns or 2 rows. Type a number before a direction
+to choose the distance: `Ctrl-w r 10 h` moves a border 10 columns left.
 
-The `grow_view_width`, `shrink_view_width`, `grow_view_height`, and
-`shrink_view_height` commands remain available for custom keybindings. They
-always grow or shrink the focused split, using one cell or an explicit count.
+Press `Enter` to keep the new sizes or `Esc` to cancel. Press `=` in resize mode
+to make the splits equally sized and reset the sidebar width. `Ctrl-w =` makes
+the splits equally sized without changing the sidebar.
+
+The sidebar only changes width. You can resize it while it is focused or from
+the buffer beside it.
 
 ## Save and close
 

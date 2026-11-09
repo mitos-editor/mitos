@@ -974,6 +974,7 @@ fn sidebar_specific_bindings_override_inherited_workspace_bindings() {
     let global = r#"
         [keys.sidebar]
         F2 = "create_path"
+        F5 = "resize"
         [keys.sidebar-filter]
         F3 = "focus_editor"
     "#
@@ -993,6 +994,10 @@ fn sidebar_specific_bindings_override_inherited_workspace_bindings() {
         Lookup::Actions(&[S::Picker(P::Item(I::CreatePath))])
     );
     assert_eq!(
+        state.lookup(&maps.sidebar, "F5".parse().unwrap()),
+        Lookup::Actions(&[S::Resize])
+    );
+    assert_eq!(
         state.lookup(&maps.sidebar_filter, "F3".parse().unwrap()),
         Lookup::Actions(&[S::FocusEditor])
     );
@@ -1010,5 +1015,9 @@ fn sidebar_specific_bindings_override_inherited_workspace_bindings() {
     assert_eq!(
         state.lookup(&maps.sidebar, "C-w".parse().unwrap()),
         Lookup::Pending
+    );
+    assert_eq!(
+        state.lookup(&maps.sidebar, "r".parse().unwrap()),
+        Lookup::Actions(&[S::Resize])
     );
 }

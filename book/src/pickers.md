@@ -138,6 +138,12 @@ directories and your selection.
 | `Esc` with a search | Clear the search and keep the sidebar focused |
 | `Esc` without a search | Return to the editor |
 | `q` while navigating | Hide the sidebar |
+| `Ctrl-w r` while navigating | Resize the sidebar |
+
+To change the width, press `Ctrl-w r`, then `h` / `Left` to shrink it or
+`l` / `Right` to grow it. Press `Enter` to keep the width or `Esc` to cancel.
+The sidebar remembers its width when hidden and reopened. See
+[Resize windows](./files.md#resize-windows) for counts and resetting sizes.
 
 Search uses fuzzy matching and includes collapsed directories, excluding Git
 and other version control metadata. Results show matching names with their

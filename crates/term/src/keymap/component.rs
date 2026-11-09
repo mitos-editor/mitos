@@ -93,6 +93,7 @@ pub enum SidebarAction {
     Hide,
     NextView,
     PreviousView,
+    Resize,
     #[serde(untagged)]
     Picker(PickerAction),
 }
@@ -105,6 +106,7 @@ impl SidebarAction {
             Self::Hide => "Hide file explorer",
             Self::NextView => "Focus next window",
             Self::PreviousView => "Focus previous window",
+            Self::Resize => "Resize file explorer",
             Self::Picker(action) => action.description(),
         }
     }
@@ -272,6 +274,7 @@ impl ComponentKeymaps {
             ("q", S::Hide),
             ("C-q", S::Hide),
             ("b", S::Hide),
+            ("r", S::Resize),
         ]);
         keys.0
             .insert("C-w".parse().unwrap(), Binding::Keys(windows));

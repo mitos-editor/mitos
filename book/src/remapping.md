@@ -146,7 +146,7 @@ belong in `keys.normal`, `keys.insert`, and `keys.select`.
 | `keys.stash-picker` | All `keys.picker` actions, plus `apply_stash`, `apply_stash_with_index`, `actions` |
 | `keys.history-picker` | All `keys.picker` actions, plus `actions`, `back` |
 | `keys.file-explorer` | All `keys.picker` actions, plus `create_path`, `move_path`, `copy_path`, `delete_path`, `yank_path` |
-| `keys.sidebar`, `keys.sidebar-filter` | All `keys.file-explorer` actions, plus `filter`, `focus_editor`, `hide`, `next_view`, `previous_view` |
+| `keys.sidebar`, `keys.sidebar-filter` | All `keys.file-explorer` actions, plus `filter`, `focus_editor`, `hide`, `next_view`, `previous_view`, `resize` |
 | `keys.menu` | `accept`, `cancel`, `move_up`, `move_down`, `page_up`, `page_down` |
 | `keys.popup` | `cancel`, `scroll_up`, `scroll_down` |
 | `keys.hover`, `keys.signature-help` | `previous`, `next` |

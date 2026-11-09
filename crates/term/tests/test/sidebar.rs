@@ -753,3 +753,159 @@ async fn sidebar_hints_follow_remapped_and_nested_prefixes() -> anyhow::Result<(
     assert!(!screen(&app).contains("Focus document window"));
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn resize_mode_changes_width_and_can_cancel_or_reset() -> anyhow::Result<()> {
+    if super::helpers::isolation::workspace(
+        "test::sidebar::resize_mode_changes_width_and_can_cancel_or_reset",
+    )?
+    .is_none()
+    {
+        return Ok(());
+    }
+    let (mut app, _dir, _root) = sidebar().await?;
+    let original = app.editor.tree.area();
+    keys(&mut app, "<C-w>r5ll<ret>").await?;
+    assert_eq!(app.editor.tree.area().x, original.x + 10);
+    assert_eq!(app.editor.tree.area().right(), original.right());
+    keys(&mut app, "<C-w>r1h<esc>").await?;
+    assert_eq!(app.editor.tree.area().x, original.x + 10);
+    keys(&mut app, "q<C-w>e").await?;
+    assert_eq!(app.editor.tree.area().x, original.x + 10);
+    keys(&mut app, "<C-w>r9999l<ret>").await?;
+    assert_eq!(app.editor.tree.area().width, 24);
+    keys(&mut app, "<C-w>r9999h<ret>").await?;
+    assert_eq!(app.editor.tree.area().x, 20);
+    keys(&mut app, "<C-w>r=<ret>").await?;
+    assert_eq!(app.editor.tree.area(), original);
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn resize_keys_and_counts_match_for_sidebar_and_document() -> anyhow::Result<()> {
+    if super::helpers::isolation::workspace(
+        "test::sidebar::resize_keys_and_counts_match_for_sidebar_and_document",
+    )?
+    .is_none()
+    {
+        return Ok(());
+    }
+    let (mut app, _dir, _root) = sidebar().await?;
+    for focus_document in [false, true] {
+        if focus_document {
+            keys(&mut app, "<C-e>").await?;
+        }
+        let original = app.editor.tree.area();
+        keys(&mut app, "<C-w>r1000000009").await?;
+        assert_eq!(
+            app.interaction.count.map(std::num::NonZeroUsize::get),
+            Some(100_000_000)
+        );
+        keys(&mut app, "z0").await?;
+        assert_eq!(app.interaction.count, None);
+        keys(&mut app, "2j").await?;
+        assert_eq!(app.interaction.count, None);
+        assert_eq!(app.editor.tree.area(), original);
+        keys(&mut app, "<esc>").await?;
+        // Leading zero is ignored; unsupported keys and vertical moves consume
+        // their count, so the following horizontal move uses the default.
+        keys(&mut app, "<C-w>r03l2zl2jl<ret>").await?;
+        assert_eq!(app.editor.tree.area().x, original.x + 13);
+        assert_eq!(app.interaction.count, None);
+        keys(&mut app, "<C-w>r10h99<esc>").await?;
+        assert_eq!(app.editor.tree.area().x, original.x + 13);
+        assert_eq!(app.interaction.count, None);
+        assert!(app.editor.autoinfo.is_none());
+        keys(&mut app, "<C-w>r=<ret>").await?;
+        assert_eq!(app.editor.tree.area(), original);
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn document_resize_uses_sidebar_neighbor_and_preserves_split_boundaries() -> anyhow::Result<()>
+{
+    if super::helpers::isolation::workspace(
+        "test::sidebar::document_resize_uses_sidebar_neighbor_and_preserves_split_boundaries",
+    )?
+    .is_none()
+    {
+        return Ok(());
+    }
+    let mut config = test_config();
+    let configured = term::config::Config::load(
+        Ok(&"[keys.normal]\nF6 = 'resize_view_right'".to_owned()),
+        Err(Default::default()),
+    )
+    .unwrap();
+    config.keys = configured.keys;
+    let (mut app, _dir, _root) = sidebar_with_config(config).await?;
+    keys(&mut app, "<C-e>").await?;
+    let original = app.editor.tree.area();
+    keys(&mut app, "<C-w>r1h<ret>").await?;
+    assert_eq!(app.editor.tree.area().x, original.x - 1);
+    keys(&mut app, "<C-w>r1l<esc>").await?;
+    assert_eq!(app.editor.tree.area().x, original.x - 1);
+    // Direct directional commands use the same boundary dispatch.
+    keys(&mut app, "1<F6>").await?;
+    assert_eq!(app.editor.tree.area(), original);
+    app.editor.new_file(Action::VerticalSplit);
+    let sidebar_edge = app.editor.tree.area().x;
+    // A regular split boundary stays authoritative, even when constrained.
+    keys(&mut app, "<C-w>r99999l<ret>").await?;
+    assert_eq!(app.editor.tree.area().x, sidebar_edge);
+    keys(&mut app, "<C-w>r99999l<ret>").await?;
+    assert_eq!(app.editor.tree.area().x, sidebar_edge);
+    // Restore room on both sides, then change the internal split and the
+    // sidebar in one interaction. Escape restores both entry snapshots.
+    keys(&mut app, "<C-w>r=<ret>").await?;
+    let root_before = app.editor.tree.area();
+    let left = app
+        .editor
+        .tree
+        .views()
+        .min_by_key(|(view, _)| view.area.x)
+        .unwrap()
+        .0
+        .id;
+    app.editor.focus(left);
+    let panes = |app: &TestApplication| {
+        app.editor
+            .tree
+            .views()
+            .map(|(view, _)| view.area)
+            .collect::<Vec<_>>()
+    };
+    let panes_before = panes(&app);
+    assert_eq!(current_ref!(app.editor).0.area.x, root_before.x);
+    keys(&mut app, "<C-w>r1l").await?;
+    assert_eq!(app.editor.tree.area(), root_before);
+    assert_ne!(panes(&app), panes_before);
+    keys(&mut app, "1h").await?;
+    assert_eq!(app.editor.tree.area().x, root_before.x - 1);
+    keys(&mut app, "<esc>").await?;
+    assert_eq!(app.editor.tree.area(), root_before);
+    assert_eq!(panes(&app), panes_before);
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn shared_resize_records_and_replays_macros() -> anyhow::Result<()> {
+    if super::helpers::isolation::workspace(
+        "test::sidebar::shared_resize_records_and_replays_macros",
+    )?
+    .is_none()
+    {
+        return Ok(());
+    }
+    let (mut app, _dir, _root) = sidebar().await?;
+    keys(&mut app, "<C-e>").await?;
+    let original = app.editor.tree.area().x;
+    keys(&mut app, "\"aQ<C-e><C-w>r1l<ret><C-e><C-w>r1l<ret>Q").await?;
+    assert_eq!(app.editor.tree.area().x, original + 2);
+    keys(&mut app, "\"aq").await?;
+    assert_eq!(app.editor.tree.area().x, original + 4);
+    assert_eq!(app.interaction.count, None);
+    assert!(app.editor.autoinfo.is_none());
+    Ok(())
+}

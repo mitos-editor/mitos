@@ -32,6 +32,7 @@ pub(super) struct Sidebar {
     search_pending: bool,
     pending_action: Option<PickerAction>,
     action_scheduled: bool,
+    pub(super) width: Option<u16>,
     pending_input: Vec<(Event, Vec<char>)>,
 }
 
@@ -55,6 +56,7 @@ impl Sidebar {
             search_pending: false,
             pending_action: None,
             action_scheduled: false,
+            width: None,
             pending_input: Vec::new(),
         })
     }
@@ -108,14 +110,16 @@ impl Sidebar {
         if !self.visible() {
             return None;
         }
-        Self::reserve_space(layout)
+        Self::reserve_space(layout, self.width)
     }
 
-    fn reserve_space(layout: &mut ApplicationLayout) -> Option<Rect> {
+    fn reserve_space(layout: &mut ApplicationLayout, width: Option<u16>) -> Option<Rect> {
         if layout.editor.width < 45 || layout.editor.height < 4 {
             return None;
         }
-        let width = (layout.editor.width / 3).clamp(20, 36);
+        let width = width
+            .unwrap_or_else(|| (layout.editor.width / 3).clamp(20, 36))
+            .clamp(20, layout.editor.width - 24);
         let top = layout.bufferline.map_or(layout.editor.y, |rect| rect.y);
         let area = Rect::new(layout.editor.x, top, width, layout.editor.bottom() - top);
         layout.editor.x += width;
@@ -125,6 +129,15 @@ impl Sidebar {
             bufferline.width -= width;
         }
         Some(area)
+    }
+
+    pub(super) fn resize_width(&mut self, total: u16, delta: isize) {
+        let max = total.saturating_sub(24).max(20);
+        let width = self
+            .width
+            .unwrap_or_else(|| (total / 3).clamp(20, 36))
+            .clamp(20, max);
+        self.width = Some(((width as isize).saturating_add(delta)).clamp(20, max as isize) as u16);
     }
 
     fn keymap<'a>(&self, maps: &'a ComponentKeymaps) -> &'a Keymap<SidebarAction> {
@@ -332,6 +345,13 @@ impl Sidebar {
         };
         for action in actions {
             match action {
+                SidebarAction::Resize => {
+                    return EventResult::Consumed(Some(Box::new(|compositor, cx| {
+                        if let Some(view) = compositor.find::<EditorView>() {
+                            view.start_resize(cx.editor, None);
+                        }
+                    })));
+                }
                 SidebarAction::Filter => {
                     self.picker.clear_filter(cx.editor);
                     self.state = State::Filtering;
@@ -437,6 +457,15 @@ mod tests {
         view.update(Rect::new(0, 0, 80, 24), &mut cx);
         assert!(view.sidebar.as_ref().unwrap().focused());
         assert!(cx.editor.tree.area().x > 0);
+        view.sidebar.as_mut().unwrap().width = Some(50);
+        view.update(Rect::new(0, 0, 120, 24), &mut cx);
+        assert_eq!(cx.editor.tree.area().x, 50);
+        view.update(Rect::new(0, 0, 60, 24), &mut cx);
+        assert_eq!(cx.editor.tree.area().x, 36);
+        // Hiding in a tiny terminal cancels an in-progress resize, while
+        // preserving the previously confirmed width for a larger terminal.
+        view.start_resize(cx.editor, None);
+        view.sidebar.as_mut().unwrap().width = Some(60);
         for (width, height) in [(20, 24), (80, 3), (0, 0)] {
             let area = Rect::new(0, 0, width, height);
             view.update_and_render(area, &mut tui::buffer::Buffer::empty(area), &mut cx);
@@ -446,7 +475,8 @@ mod tests {
             assert!(!view.has_pending_render());
         }
         view.update(Rect::new(0, 0, 80, 24), &mut cx);
-        assert!(cx.editor.tree.area().x > 0);
+        assert_eq!(cx.editor.tree.area().x, 50);
+        assert!(!view.has_pending_keys());
         assert!(!view.sidebar.as_ref().unwrap().focused());
         Ok(())
     }
@@ -462,7 +492,7 @@ mod tests {
                     Default::default(),
                 );
                 let original = layout;
-                let sidebar = Sidebar::reserve_space(&mut layout).unwrap();
+                let sidebar = Sidebar::reserve_space(&mut layout, None).unwrap();
                 assert_eq!(sidebar, Rect::new(3, 5, 36, original.editor.bottom() - 5));
                 assert_eq!(sidebar.right(), layout.editor.x);
                 assert_eq!(layout.editor.right(), original.editor.right());
@@ -477,6 +507,17 @@ mod tests {
     }
 
     #[test]
+    fn custom_width_is_constrained_without_losing_the_requested_size() {
+        for width in [45, 60, 120] {
+            let mut layout =
+                ApplicationLayout::new(Rect::new(3, 5, width, 30), false, true, Default::default());
+            let sidebar = Sidebar::reserve_space(&mut layout, Some(80)).unwrap();
+            assert_eq!(sidebar.width, 80.min(width - 24));
+            assert_eq!(layout.editor.width, width - sidebar.width);
+        }
+    }
+
+    #[test]
     fn tiny_terminals_keep_all_available_space_for_documents() {
         for width in [0, 1, 20, 44, 45, 80] {
             for height in [0, 1, 3, 4, 24] {
@@ -487,7 +528,7 @@ mod tests {
                     Default::default(),
                 );
                 let original = layout;
-                match Sidebar::reserve_space(&mut layout) {
+                match Sidebar::reserve_space(&mut layout, None) {
                     Some(sidebar) => {
                         assert!(layout.editor.width >= 24);
                         assert_eq!(sidebar.width + layout.editor.width, width);
