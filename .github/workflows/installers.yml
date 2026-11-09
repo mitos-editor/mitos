@@ -5,13 +5,21 @@ on:
     paths:
       - 'book/install/**'
       - 'tests/installers/**'
-      - '.github/workflows/installers.yml'
+      - '.github/workflows/**'
+      - '.github/scripts/nightly.py'
+      - '.github/scripts/update-stable.sh'
+      - '.github/scripts/test-release.py'
+      - 'tests/releases/**'
   push:
     branches: [main]
     paths:
       - 'book/install/**'
       - 'tests/installers/**'
-      - '.github/workflows/installers.yml'
+      - '.github/workflows/**'
+      - '.github/scripts/nightly.py'
+      - '.github/scripts/update-stable.sh'
+      - '.github/scripts/test-release.py'
+      - 'tests/releases/**'
 
 permissions:
   contents: read
@@ -27,3 +35,18 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Test installers with local release fixtures
         run: python -m unittest discover -s tests/installers -v
+
+  releases:
+    name: Release workflow checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Test release selection and publication
+        run: python -m unittest discover -s tests/releases -v
+      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+        with:
+          tool: actionlint@1.7.12
+      - name: Check workflows
+        run: actionlint

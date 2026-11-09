@@ -67,7 +67,7 @@ build workflow. See the [release-plz token setup guide](https://release-plz.dev/
 8. Test the hosted installers with the newly published version. Public download
    URLs and the latest-release installer do not expose draft releases; the
    previous published release stays available while the new draft builds.
-9. Check that the Stable branch workflow moved `stable` to the release commit.
+9. Check that the Stable branch workflow moved `stable` to the latest release commit.
 
 If a build fails, the release stays in draft. Retry the failed jobs before
 publishing; do not move the version tag. Uploads and reruns never publish the
@@ -77,17 +77,61 @@ rather than changing the published release.
 Manual dispatch of the Release workflow remains a preview build and uploads CI
 artifacts. Manual dispatch of Release-plz on `main` reruns release automation.
 
-## Stable branch
+## Branches and channels
 
-The `stable` branch points to the latest published release, so it is a fixed Git
-ref for the newest version tag. A draft release does not move the branch, because
-`.github/workflows/stable-branch.yml` runs when a release is published, and it
-skips prereleases.
+Use `main` for development and `stable` to follow the latest published stable
+release. Version tags never move. Keep `stable` free of direct commits.
+There is no separate `develop` branch.
 
-The workflow pushes the release commit without force, so the branch can only move
-forward. If the release commit is not a descendant of `stable`, for example when
-an older release is published after a newer one, the job fails and the branch
-does not change.
+The Stable branch workflow resolves GitHub's **Latest** release, skips drafts
+and prereleases, and pushes its commit without force. Delayed events therefore
+follow the current release. Updates run one at a time. If the target is not a
+descendant of `stable`, the workflow fails without moving the branch. Resolve
+that deliberately if releases ever come from separate maintenance branches.
+
+After merging these workflows, run **Stable branch → Run workflow** on `main`
+to create `stable`. The same action repairs a missed update. Create the branch
+before announcing the stable Nix input. Restrict direct pushes and deletion
+with a repository ruleset that allows this workflow to update it.
+
+For a release that needs stabilization, create a temporary `release/0.x` branch
+and merge its fixes back into `main`.
+
+## Nightly builds
+
+The Nightly workflow runs daily at 03:17 UTC and can be started manually on
+`main`. It builds the run's exact commit only when that commit is still the tip
+of `main` and its push-triggered Build workflow passed. Commits with an existing
+published nightly are skipped.
+
+Stable releases and nightlies use `package-release.yml`, with Rust 1.97.1,
+the same six platforms, bundled runtimes, AppImages, Debian package, checksums,
+and provenance. Each platform extracts its archive and checks the binary and runtime outside
+the checkout.
+Nightly Debian versions sort below the corresponding stable version.
+
+Nightlies use dated tags such as `nightly-2026-11-09-abcdef123456`. All builds and
+uploads must succeed before publication. Failed uploads leave a draft that a
+rerun can resume. Published assets are never replaced. A failed run leaves the
+previous nightly available. After publication, cleanup keeps the last 14 nightly
+releases and removes their older tags; stable releases and other prereleases
+are untouched. Download a build if you need to keep it longer.
+
+Installers default to stable. Use `--channel nightly` or `-Channel nightly` to
+try a nightly, or pass a dated tag as the version. See the
+[installation guide](../book/src/install.md#nightly-builds).
+
+Stable publication is manual. If you automate it later with `GITHUB_TOKEN`,
+call the stable update explicitly: its release event will not start another
+workflow. Publishing with a GitHub App token or PAT also permits that trigger.
+
+Validate release automation without publishing anything:
+
+```sh
+python3 -m unittest discover -s tests/releases -v
+python3 -m unittest discover -s tests/installers -v
+actionlint
+```
 
 ## Hosted installers
 

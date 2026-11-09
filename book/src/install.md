@@ -52,6 +52,27 @@ Use `-InstallDir` for another location, or `-NoModifyPath` to manage `Path`
 yourself. Rerun to upgrade or select another version.
 View the [PowerShell installer source](https://github.com/mitos-editor/mitos/blob/main/book/install/install.ps1).
 
+### Nightly builds
+
+Nightlies contain recent changes from `main` and may have bugs. The installer
+uses stable releases by default. To try the latest successful nightly:
+
+```sh
+curl -fsSL https://mitos.computer/install.sh | sh -s -- --channel nightly
+```
+
+Selecting a nightly on Linux or macOS requires Python 3. On Windows:
+
+```powershell
+& ([scriptblock]::Create((Invoke-RestMethod https://mitos.computer/install.ps1))) -Channel nightly
+```
+
+Run the installer without a channel option to return to stable. To select a
+particular build, pass its full tag, such as `nightly-2026-11-09-abcdef123456`,
+as `--version` or `-Version`. An explicit version overrides the channel.
+The last 14 nightly builds remain available on GitHub. Previously installed
+versions remain on your machine.
+
 ### Uninstall
 
 On Linux/macOS, remove the installer-created `~/.local/bin/ms` symlink and

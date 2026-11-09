@@ -4,8 +4,10 @@ on:
   pull_request:
     paths:
       - '.github/scripts/*appimage.sh'
+      - '.github/scripts/test-release.py'
       - '.github/workflows/appimage.yml'
       - '.github/workflows/release.yml'
+      - '.github/workflows/package-release.yml'
       - 'contrib/Mitos.desktop'
       - 'contrib/Mitos.appdata.xml'
       - 'book/theme/favicon.svg'
@@ -13,8 +15,10 @@ on:
     branches: [main]
     paths:
       - '.github/scripts/*appimage.sh'
+      - '.github/scripts/test-release.py'
       - '.github/workflows/appimage.yml'
       - '.github/workflows/release.yml'
+      - '.github/workflows/package-release.yml'
       - 'contrib/Mitos.desktop'
       - 'contrib/Mitos.appdata.xml'
       - 'book/theme/favicon.svg'
@@ -49,6 +53,9 @@ jobs:
           grep "  $archive$" SHA256SUMS | sha256sum -c -
           mkdir fixture
           tar xJf "$archive" -C fixture --strip-components=1
+
+      - name: Check bundled executable and runtime
+        run: python .github/scripts/test-release.py fixture
 
       - name: Build AppImage
         env:

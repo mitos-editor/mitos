@@ -19,6 +19,10 @@ if url.endswith('/latest'):
     print(f'https://github.com/mitos-editor/mitos/releases/tag/{tag}', end='')
     sys.exit(0)
 
+if '/releases?per_page=' in url:
+    shutil.copyfile(Path(os.environ['FIXTURE_DIR']) / 'releases.json', args[args.index('--output') + 1])
+    sys.exit(0)
+
 name = url.rsplit('/', 1)[1]
 if name == 'SHA256SUMS':
     name = url.split('/')[-2] + '.txt'
