@@ -164,6 +164,7 @@ jobs:
         shell: bash
         env:
           BUILD: ${{ matrix.build }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           version=dev
           if [[ "$GITHUB_REF" == refs/tags/* ]]; then
