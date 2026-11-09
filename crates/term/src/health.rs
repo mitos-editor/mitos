@@ -82,6 +82,33 @@ fn runtime_warnings(
             writeln!(stdout, "{}", msg.yellow())?;
         }
     }
+    let has_grammars = rt_dirs.iter().any(|directory| {
+        directory
+            .join("grammars")
+            .read_dir()
+            .into_iter()
+            .flatten()
+            .filter_map(Result::ok)
+            .any(|entry| {
+                let path = entry.path();
+                path.extension()
+                    .is_some_and(|extension| extension == loader::grammar::DYLIB_EXTENSION)
+                    && path.is_file()
+            })
+    });
+    if !has_grammars {
+        writeln!(
+            stdout,
+            "{}",
+            "No compiled tree-sitter grammars found. Syntax highlighting requires compiled grammars."
+                .yellow()
+        )?;
+        writeln!(
+            stdout,
+            "For source builds, fetch and compile grammars before installing the runtime: \
+             https://mitos.computer/docs/building-from-source.html"
+        )?;
+    }
     Ok(())
 }
 
@@ -550,6 +577,70 @@ language-servers = [{{ alternatives = ["missing", "inapplicable", "preferred", "
 
 #[cfg(test)]
 mod runtime_warning_tests {
+    #[test]
+    fn query_files_and_grammar_sources_do_not_hide_missing_compiled_grammars() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(root.path().join("queries/bash")).unwrap();
+        std::fs::write(root.path().join("queries/bash/highlights.scm"), "").unwrap();
+        std::fs::create_dir_all(root.path().join("grammars/sources")).unwrap();
+        // A directory with a library extension is not a compiled grammar either.
+        std::fs::create_dir(root.path().join(format!(
+            "grammars/bash.{}",
+            loader::grammar::DYLIB_EXTENSION
+        )))
+        .unwrap();
+        let mut output = Vec::new();
+        super::runtime_warnings(&mut output, &[root.path().to_owned()]).unwrap();
+        let output = String::from_utf8(output).unwrap();
+        assert!(output.contains("No compiled tree-sitter grammars found"));
+        assert!(output.contains("fetch and compile grammars before installing the runtime"));
+    }
+
+    #[test]
+    fn compiled_grammar_in_lower_priority_runtime_suppresses_warning() {
+        let root = tempfile::tempdir().unwrap();
+        let high = root.path().join("high");
+        let low = root.path().join("low");
+        std::fs::create_dir(&high).unwrap();
+        std::fs::create_dir_all(low.join("grammars")).unwrap();
+        std::fs::write(
+            low.join(format!(
+                "grammars/bash.{}",
+                loader::grammar::DYLIB_EXTENSION
+            )),
+            "library",
+        )
+        .unwrap();
+        let mut output = Vec::new();
+        super::runtime_warnings(&mut output, &[high, low]).unwrap();
+        assert!(!String::from_utf8(output)
+            .unwrap()
+            .contains("No compiled tree-sitter grammars found"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn compiled_grammars_are_found_through_runtime_symlinks() {
+        let root = tempfile::tempdir().unwrap();
+        let runtime = root.path().join("system-runtime");
+        std::fs::create_dir_all(runtime.join("grammars")).unwrap();
+        std::fs::write(
+            runtime.join(format!(
+                "grammars/bash.{}",
+                loader::grammar::DYLIB_EXTENSION
+            )),
+            "library",
+        )
+        .unwrap();
+        let linked = root.path().join("user-runtime");
+        std::os::unix::fs::symlink(&runtime, &linked).unwrap();
+        let mut output = Vec::new();
+        super::runtime_warnings(&mut output, &[linked]).unwrap();
+        let output = String::from_utf8(output).unwrap();
+        assert!(output.contains("is symlinked to"));
+        assert!(!output.contains("No compiled tree-sitter grammars found"));
+    }
+
     #[test]
     fn missing_and_empty_runtime_directories_are_explained() {
         let root = tempfile::tempdir().unwrap();
