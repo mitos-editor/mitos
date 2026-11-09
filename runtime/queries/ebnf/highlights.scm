@@ -8,7 +8,7 @@
 (comment) @comment.block
 
 ;; Identifiers
-(identifier) @identifier
+(identifier) @variable
 
 ;; Punctuation
 [

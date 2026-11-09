@@ -21,7 +21,7 @@
     "PUBLIC"
 ] @constant
 
-(element_name) @module
+(element_name) @tag
 
 
 (attribute_name) @attribute

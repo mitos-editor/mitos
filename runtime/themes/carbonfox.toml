@@ -7,13 +7,15 @@
 # Neovim theme.
 # https://github.com/EdenEast/nightfox.nvim/blob/d3e8b1acc095baf57af81bb5e89fe7c4359eb619/lua/nightfox/lib/color.lua#L236-L247
 
+# Source annotations and picker matches can be styled independently.
+"comment.warning" = { fg = "magenta", bg = "#2f2939" }
+"comment.hint" = { fg = "orange", bg = "#1c3433" }
+
 inherits = 'nightfox'
 
 # DIAGNOSTICS
 # For brevity: All blends here are a blend between bg1 and the fg value with factor of 0.15
 "warning"  = { fg = "magenta", bg = "#2f2939" }
-"error.bg" = "#361f29"
-"info.bg"  = "#252c39"
 "hint"     = { fg = "orange", bg = "#1c3433" }
 
 [palette]

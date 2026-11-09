@@ -2,10 +2,10 @@
 
 ; Methods
 
-(method_declaration
-  name: (identifier) @function.method)
+(method_declaration name: (identifier) @function.method.declaration)
+(method_declaration name: (identifier) @function.method.definition body: (block))
 (method_invocation
-  name: (identifier) @function.method)
+  name: (identifier) @function.method.call)
 (super) @variable.builtin
 
 ; Annotations
@@ -18,13 +18,13 @@
 ; Types
 
 (interface_declaration
-  name: (identifier) @type)
+  name: (identifier) @type.interface.definition)
 (class_declaration
-  name: (identifier) @type)
+  name: (identifier) @type.class.definition)
 (record_declaration
-  name: (identifier) @type)
+  name: (identifier) @type.struct.definition)
 (enum_declaration
-  name: (identifier) @type)
+  name: (identifier) @type.enum.definition)
 
 ((field_access
   object: (identifier) @type)
@@ -34,9 +34,9 @@
  (#match? @type "^[A-Z]"))
 
 (constructor_declaration
-  name: (identifier) @type)
+  name: (identifier) @constructor.definition)
 (compact_constructor_declaration
-  name: (identifier) @type)
+  name: (identifier) @constructor.definition)
 
 (type_identifier) @type
 

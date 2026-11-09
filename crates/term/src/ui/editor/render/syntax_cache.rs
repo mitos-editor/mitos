@@ -14,6 +14,7 @@ const MAX_EVENTS: usize = 65_536;
 struct Key {
     document: DocumentId,
     syntax: Option<u64>,
+    semantic: u64,
     loader: u64,
     theme: u64,
     ranges: Vec<Range<usize>>,
@@ -45,6 +46,7 @@ impl ViewportSyntaxCache {
         let key = Key {
             document: doc.id(),
             syntax: doc.syntax().map(|s| s.revision()),
+            semantic: doc.semantic_tokens_revision(),
             loader: doc.syntax_loader().highlight_revision(),
             theme,
             ranges: layout.visible_byte_ranges(),

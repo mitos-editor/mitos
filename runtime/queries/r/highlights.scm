@@ -72,8 +72,8 @@
 
 ; Calls
 
-(call function: (identifier) @function)
-(call function: (namespace_operator rhs: (identifier) @function))
+(call function: (identifier) @function.call)
+(call function: (namespace_operator rhs: (identifier) @function.call))
 
 ; Parameters
 
@@ -109,4 +109,4 @@
 "function" @keyword.function
 
 
-(call function: (extract_operator rhs: (identifier) @function.method))
+(call function: (extract_operator rhs: (identifier) @function.method.call))

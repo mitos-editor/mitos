@@ -2,6 +2,19 @@
 # License: MIT (see licenses/vscode.license)
 
 # Interface
+# Source annotations and picker matches can be styled independently.
+# Interface and readonly symbol styles.
+"ui.welcome.heading" = "orange"                           # file picker fuzzy match
+"ui.welcome.command" = "aqua"
+"variable.readonly" = "aqua"
+"variable.other.member.readonly" = "aqua"
+
+"ui.picker.match" = "orange"                           # file picker fuzzy match
+"comment.error" = "red"
+"comment.warning" = "orange"
+"comment.info" = "white"
+"comment.hint" = "yellow"
+
 "ui.link" = { modifiers = ["underlined"] }
 "ui.background" = { bg = "black" }
 "ui.window" = { fg = "aqua" }
@@ -34,7 +47,6 @@
 "ui.cursor.select" = { fg = "black", bg = "white" }
 "ui.cursor.match" = { modifiers = ["reversed"] }
 "ui.cursor.primary" = { fg = "black", bg = "white", modifiers = ["slow_blink"] }
-"ui.cursor.secondary" = "white"
 "ui.cursorline.primary" = { bg = "deep_blue", underline = { color = "orange", style = "double_line" } }
 "ui.cursorline.secondary" = { bg = "dark_blue", underline = { color = "white", style = "line" } }
 "ui.selection" = { fg = "dark_blue", bg = "white" }
@@ -65,7 +77,6 @@
 "hint" = "yellow"
 "warning" = "orange"
 "error" = "red"
-"debug" = "red"
 
 "diff.plus" = "green"
 "diff.delta" = "blue"
@@ -73,14 +84,13 @@
 
 # Syntax high light
 "type" = "emerald_green"
-"type.buildin" = "emerald_green"
+"type.builtin" = "emerald_green"
 "comment" = "white"
 "operator" = "white"
 "variable" = "aqua"
 "variable.other.member" = "brown"
 "constant" = "aqua"
 "constant.numeric" = "emerald_green"
-"attributes" = "blue"
 "namespace" = "blue"
 "string" = "brown"
 "string.special.url" = "brown"

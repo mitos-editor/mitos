@@ -1,4 +1,16 @@
+"ui.picker.match" = { fg = "magenta" }
+
+# Interface and readonly symbol styles.
+"ui.welcome.heading" = { fg = "magenta" }
+"ui.welcome.command" = { fg = "purple" }
+"variable.readonly" = { fg = "purple" }
+"variable.other.member.readonly" = { fg = "purple" }
+
 # Author : Timothy DeHerrera <tim@nrdxp.dev>
+# Source annotations and picker matches can be styled independently.
+"comment.error" = { fg = "red" }
+"comment.warning" = { fg = "cyan" }
+
 "comment".fg = "comment"
 # License: MIT (see licenses/snazzy.license)
 
@@ -36,7 +48,6 @@
 "type.builtin".fg      = "yellow"
 "type.enum.variant".fg = "sand"
 "type".fg              = "opal"
-"type.variant".fg      = "sand"
 
 "variable.builtin".fg      = "olive"
 "variable".fg              = "cyan"

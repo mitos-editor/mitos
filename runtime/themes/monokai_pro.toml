@@ -3,6 +3,19 @@
 # Credit goes to the original creator: https://monokai.pro
 # License: MIT (see licenses/monokai_pro.license)
 
+# Source annotations and picker matches can be styled independently.
+# Interface and readonly symbol styles.
+"ui.welcome.heading" = "#f59762"
+"ui.welcome.command" = "orange"
+"variable.readonly" = "orange"
+"variable.other.member.readonly" = "orange"
+
+"ui.picker.match" = "#f59762"
+"comment.error" = "red"
+"comment.warning" = "orange"
+"comment.info" = "base8"
+"comment.hint" = "base8"
+
 "ui.link" = { modifiers = ["underlined"] }
 "ui.linenr.selected" = { bg = "base3" }
 "ui.text.focus" = { fg = "yellow", modifiers= ["bold"] }
@@ -80,7 +93,6 @@
 
 # annotations, decorators
 "special" = "#f59762"
-"module" = "#f59762"
 
 # warnings, escape characters, regex
 "warning" = "orange"

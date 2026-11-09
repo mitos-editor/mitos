@@ -129,11 +129,11 @@
 
 (call_expression
   scope: (identifier)? @namespace
-  name: (identifier) @function)
+  name: (identifier) @function.call)
 
 (call_expression
-  name: (identifier) @function.builtin
-  (#any-of? @function.builtin
+  name: (identifier) @function.builtin.call
+  (#any-of? @function.builtin.call
     ; Functions - https://keats.github.io/tera/docs/#built-in-functions
     "range"
     "now"

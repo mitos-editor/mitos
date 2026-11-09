@@ -21,7 +21,7 @@
 (entity) @string.special.symbol
 
 ; Text content
-(text) @text
+(text) @string
 
 ; Raw text in script/style
 (raw_text) @none
@@ -55,7 +55,7 @@
 ; Directives (on:click, bind:value, etc.)
 (attribute_directive) @keyword
 (attribute_name ":" @punctuation.delimiter)
-(attribute_identifier) @property
+(attribute_identifier) @attribute
 (attribute_modifier) @attribute
 (attribute_modifiers "|" @punctuation.delimiter)
 

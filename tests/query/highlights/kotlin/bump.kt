@@ -2,7 +2,7 @@
 //^ @attribute
 fun greet(name: String) = name.trim()
 //        ^ @variable.parameter
-//                             ^ @function.method
+//                             ^ @function.method.call
 
 val action = { value: Int -> value }
 //             ^ @variable.parameter

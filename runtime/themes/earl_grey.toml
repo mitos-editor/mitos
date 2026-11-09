@@ -3,6 +3,12 @@
 # Migraine-friendly, minimal color scheme focused only on structural elements
 # like types, functions, and keywords.
 
+# Source annotations and picker matches can be styled independently.
+"comment.error" = "blush"
+"comment.warning" = "maple"
+"comment.info" = "grey"
+"comment.hint" = "sky"
+
 "comment" = { modifiers = ["dim"] }
 "diagnostic.error" = { underline = { color = "blush", style = "curl" } }
 "diagnostic.hint" = { underline = { color = "sky", style = "curl" } }

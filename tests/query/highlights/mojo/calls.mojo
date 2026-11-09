@@ -1,5 +1,5 @@
 def main():
     helper(1)
-#   ^ @function
+#   ^ @function.call
     obj.doThing()
-#       ^ @function.method
+#       ^ @function.method.call

@@ -1,10 +1,22 @@
 # Author: Shafkath Shuhan <shafkathshuhannyc@gmail.com>
 # License: MIT (see licenses/vscode.license)
 
+# Source annotations and picker matches can be styled independently.
+# Interface and readonly symbol styles.
+"ui.welcome.heading" = { fg = "keyword" }
+"ui.welcome.command" = { fg = "variable" }
+"variable.readonly" = { fg = "variable" }
+"variable.other.member.readonly" = { fg = "variable" }
+
+"ui.picker.match" = { fg = "keyword" }
+"comment.error" = { fg = "#f48771" }
+"comment.warning" = { fg = "#cca700" }
+"comment.info" = { fg = "#75beff" }
+"comment.hint" = { fg = "#eeeeb3" }
+
 "tag" = { fg = "tag" }
 
 "namespace" = { fg = "type" }
-"module" = { fg = "type" }
 
 "type" = { fg = "type" }
 "type.builtin" = { fg = "#66D9EF" }

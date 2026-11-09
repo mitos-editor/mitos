@@ -114,12 +114,12 @@
   .
   [
     (long_identifier_or_op [
-      (long_identifier (identifier)* (identifier) @function)
-      (identifier) @function
+      (long_identifier (identifier)* (identifier) @function.call)
+      (identifier) @function.call
     ])
-    (typed_expression . (long_identifier_or_op (long_identifier (identifier)* . (identifier) @function)))
-    (dot_expression base: (_) @variable.other.member field: (_) @function)
-  ] @function)
+    (typed_expression . (long_identifier_or_op (long_identifier (identifier)* . (identifier) @function.call)))
+    (dot_expression base: (_) @variable.other.member field: (_) @function.call)
+  ] @function.call)
 
 ((infix_expression
   .

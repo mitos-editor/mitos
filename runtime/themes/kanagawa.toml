@@ -8,6 +8,19 @@
 # because of some theming differences, it's not an exact copy of the original.
 
 ## User interface
+# Source annotations and picker matches can be styled independently.
+# Interface and readonly symbol styles.
+"ui.welcome.heading" = "peachRed"
+"ui.welcome.command" = "surimiOrange"
+"variable.readonly" = "surimiOrange"
+"variable.other.member.readonly" = "surimiOrange"
+
+"ui.picker.match" = "peachRed"
+"comment.error" = "samuraiRed"
+"comment.warning" = "roninYellow"
+"comment.info" = "dragonBlue"
+"comment.hint" = "waveAqua1"
+
 "ui.link" = { modifiers = ["underlined"] }
 "ui.selection" = { bg = "waveBlue2" }
 "ui.selection.primary" = { bg = "waveBlue2" }

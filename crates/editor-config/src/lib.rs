@@ -630,6 +630,8 @@ pub struct LspConfig {
     pub document_highlight: LspDocumentHighlightConfig,
     pub color_swatches: LspColorSwatchesConfig,
     pub code_lenses: LspCodeLensesConfig,
+    /// Refine syntax highlighting with language-server symbol information.
+    pub semantic_tokens: LspSemanticTokensConfig,
     pub completion: LspCompletionConfig,
     pub references: LspReferencesConfig,
 }
@@ -648,9 +650,22 @@ impl Default for LspConfig {
             document_highlight: LspDocumentHighlightConfig::default(),
             color_swatches: LspColorSwatchesConfig::default(),
             code_lenses: LspCodeLensesConfig::default(),
+            semantic_tokens: LspSemanticTokensConfig::default(),
             completion: LspCompletionConfig::default(),
             references: LspReferencesConfig::default(),
         }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
+pub struct LspSemanticTokensConfig {
+    pub enable: bool,
+}
+
+impl Default for LspSemanticTokensConfig {
+    fn default() -> Self {
+        Self { enable: true }
     }
 }
 

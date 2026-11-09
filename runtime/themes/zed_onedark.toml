@@ -2,6 +2,19 @@
 # Author : EricHenry
 # License: MIT (see licenses/zed_one.license)
 
+# Source annotations and picker matches can be styled independently.
+# Interface and readonly symbol styles.
+"ui.welcome.heading" = { fg = "ui-text" }
+"ui.welcome.command" = { fg = "yellow" }
+"variable.readonly" = { fg = "yellow" }
+"variable.other.member.readonly" = { fg = "yellow" }
+
+"ui.picker.match" = { fg = "ui-text" }
+"comment.error" = { fg = "red", modifiers = ["bold"] }
+"comment.warning" = { fg = "yellow", modifiers = ["bold"] }
+"comment.info" = { fg = "blue", modifiers = ["bold"] }
+"comment.hint" = { fg = "green", modifiers = ["bold"] }
+
 "attribute" = { fg = "yellow" }
 "comment" = { fg = "light-gray", modifiers = ["italic"] }
 "constant" = { fg = "yellow" }
@@ -18,7 +31,7 @@
 "label" = { fg = "ui-text" }
 "namespace" = { fg = "ui-text" }
 "operator" = { fg = "ui-text" }
-"puncuation" = { fg = "ui-text" }
+"punctuation" = { fg = "ui-text" }
 "special" = { fg = "ui-text" }
 "string" = { fg = "green" }
 "type" = { fg = "cyan" }

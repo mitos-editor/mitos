@@ -1,6 +1,17 @@
 # Author: Mofiqul Islam <mofi0islam@gmail.com>
 # License: LGPL-2.1-or-later (see licenses/adwaita.license)
 
+# Source annotations and picker matches can be styled independently.
+# Interface and readonly symbol styles.
+"ui.welcome.command" = "violet_2"
+"variable.readonly" = "violet_2"
+"variable.other.member.readonly" = "violet_2"
+
+"comment.error" = "red_4"
+"comment.warning" = "yellow_2"
+"comment.info" = "purple_2"
+"comment.hint" = "blue_2"
+
 "attribute" = "orange_4"
 
 "type" = "teal_2"

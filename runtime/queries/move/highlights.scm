@@ -52,7 +52,7 @@
 
 (call_expression
   (name_expression access: (module_access
-    member: (identifier) @function)))
+    member: (identifier) @function.call)))
 
 (macro_call_expression
   access: (macro_module_access

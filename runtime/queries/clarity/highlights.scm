@@ -58,7 +58,7 @@
 (int_lit "-" @constant.numeric.integer)
 
 ; Functions
-(function_signature (identifier) @function)
+(function_signature (identifier) @function.definition)
 (function_signature_for_trait (identifier) @function)
 (contract_function_call operator: (identifier) @function)
 

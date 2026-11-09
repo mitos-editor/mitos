@@ -38,10 +38,10 @@
 (receiver
  name: (identifier) @variable.parameter)
 (function_declaration
- name: (identifier) @function)
+ name: (identifier) @function.definition)
 (function_declaration
  receiver: (receiver)
- name: (identifier) @function.method)
+ name: (identifier) @function.method.definition)
 (interface_method_definition
  name: (identifier) @function.method)
 
@@ -54,10 +54,10 @@
 
 (call_expression
  name: (selector_expression
-  field: (reference_expression) @function.method))
+  field: (reference_expression) @function.method.call))
 
 (call_expression
- name: (reference_expression) @function)
+ name: (reference_expression) @function.call)
 
 (struct_declaration
  name: (identifier) @type)

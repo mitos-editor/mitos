@@ -51,11 +51,11 @@
 (sub_declaration
   name: (identifier) @function)
 (function_declaration
-  name: (identifier) @function)
+  name: (identifier) @function.definition)
 
 ; Function calls
 (call_expression
-  function: (identifier) @function)
+  function: (identifier) @function.call)
 
 ; Built-in functions
 ((identifier) @function.builtin

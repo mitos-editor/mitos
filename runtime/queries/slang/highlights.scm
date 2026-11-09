@@ -23,7 +23,7 @@
   (field_identifier) @variable.other.member)
 
 (function_declarator
-  declarator: (field_identifier) @function.method)
+  declarator: (field_identifier) @function.method.declaration)
 
 (concept_definition
   name: (identifier) @type)
@@ -57,22 +57,22 @@
 ; functions
 (function_declarator
   (qualified_identifier
-    (identifier) @function))
+    (identifier) @function.declaration))
 
 (function_declarator
   (qualified_identifier
     (qualified_identifier
-      (identifier) @function)))
+      (identifier) @function.declaration)))
 
 (function_declarator
   (qualified_identifier
     (qualified_identifier
       (qualified_identifier
-        (identifier) @function))))
+        (identifier) @function.declaration))))
 
 (function_declarator
   (template_function
-    (identifier) @function))
+    (identifier) @function.call))
 
 (operator_name) @function
 
@@ -83,70 +83,70 @@
 
 (call_expression
   (qualified_identifier
-    (identifier) @function))
+    (identifier) @function.call))
 
 
 (call_expression
   (qualified_identifier
     (qualified_identifier
-      (identifier) @function)))
+      (identifier) @function.call)))
 
 (call_expression
   (qualified_identifier
     (qualified_identifier
       (qualified_identifier
-        (identifier) @function))))
+        (identifier) @function.call))))
 
 (call_expression
   (template_function
-    (identifier) @function))
+    (identifier) @function.call))
 
 (call_expression
   (qualified_identifier
     (template_function
-      (identifier) @function)))
+      (identifier) @function.call)))
 
 (call_expression
   (qualified_identifier
     (qualified_identifier
       (template_function
-        (identifier) @function))))
+        (identifier) @function.call))))
 
 (call_expression
   (qualified_identifier
     (qualified_identifier
       (qualified_identifier
         (template_function
-          (identifier) @function)))))
+          (identifier) @function.call)))))
 
 ; methods
 (function_declarator
   (template_method
-    (field_identifier) @function.method))
+    (field_identifier) @function.method.call))
 
 (call_expression
   (field_expression
-    (field_identifier) @function.method))
+    (field_identifier) @function.method.call))
 
 ; constructors
 ((function_declarator
   (qualified_identifier
-    (identifier) @constructor))
-  (#match? @constructor "^[A-Z]"))
+    (identifier) @constructor.declaration))
+  (#match? @constructor.declaration "^[A-Z]"))
 
 ((call_expression
-  function: (identifier) @constructor)
-  (#match? @constructor "^[A-Z]"))
+  function: (identifier) @constructor.call)
+  (#match? @constructor.call "^[A-Z]"))
 
 ((call_expression
   function: (qualified_identifier
-    name: (identifier) @constructor))
-  (#match? @constructor "^[A-Z]"))
+    name: (identifier) @constructor.call))
+  (#match? @constructor.call "^[A-Z]"))
 
 ((call_expression
   function: (field_expression
-    field: (field_identifier) @constructor))
-  (#match? @constructor "^[A-Z]"))
+    field: (field_identifier) @constructor.call))
+  (#match? @constructor.call "^[A-Z]"))
 
 ; constructing a type in an initializer list: Constructor ():  **SuperType (1)**
 ((field_initializer
@@ -302,8 +302,8 @@
 
 
 ((call_expression
-  function: (identifier) @function.builtin)
-  (#any-of? @function.builtin
+  function: (identifier) @function.builtin.call)
+  (#any-of? @function.builtin.call
 		"frac" "abs" "acos" "acosh" "asin" "asinh" "atan" "atanh" "cos" "cosh" "exp" "exp2" "floor" "log" "log10" "log2" "round" "rsqrt" "sin" "sincos" "sinh" "sqrt" "tan" "tanh" "trunc"
 		"AllMemoryBarrier" "AllMemoryBarrierWithGroupSync" "DeviceMemoryBarrier" "DeviceMemoryBarrierWithGroupSync" "GroupMemoryBarrier" "GroupMemoryBarrierWithGroupSync"
 		"abort" "clip" "errorf" "printf"
@@ -368,3 +368,11 @@
   (identifier) @variable.other.member)
 
 (lambda_specifier) @keyword.storage.modifier
+
+(function_definition declarator: (function_declarator declarator: (qualified_identifier name: (identifier) @function.definition)))
+
+(function_definition declarator: (function_declarator declarator: (qualified_identifier name: (qualified_identifier name: (identifier) @function.definition))))
+
+(function_definition declarator: (function_declarator declarator: (qualified_identifier name: (qualified_identifier name: (qualified_identifier name: (identifier) @function.definition)))))
+
+(function_definition declarator: (function_declarator declarator: (qualified_identifier name: (qualified_identifier name: (qualified_identifier name: (qualified_identifier name: (identifier) @function.definition))))))

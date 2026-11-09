@@ -1,6 +1,19 @@
 # Ported by Yevgnen.
 # License: GPL-3.0-or-later (see licenses/emacs.license)
 
+# Source annotations and picker matches can be styled independently.
+# Interface and readonly symbol styles.
+"ui.welcome.heading" = { fg = "blue1" }
+"ui.welcome.command" = { fg = "dark_cyan" }
+"variable.readonly" = { fg = "dark_cyan" }
+"variable.other.member.readonly" = { fg = "dark_cyan" }
+
+"ui.picker.match" = { fg = "blue1" }
+"comment.error" = { fg = "red1" }
+"comment.warning" = { fg = "dark_orange" }
+"comment.info" = { fg = "forest_green" }
+"comment.hint" = { fg = "dark_cyan" }
+
 "comment" = { fg = "firebrick" }
 "constant" = { fg = "dark_cyan" }
 "constant.builtin" = { fg = "dark_slate_blue" }
@@ -24,7 +37,6 @@
 "label" = { fg = "dark_slate_blue" }
 "attribute" = { fg = "dark_slate_blue" }
 "namespace" = { fg = "dark_cyan" }
-"module" = { fg = "dark_cyan" }
 "special" = { fg = "blue1" }
 
 "markup.heading" = { fg = "gold", modifiers = ["bold"] }

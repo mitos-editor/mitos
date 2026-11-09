@@ -34,3 +34,6 @@
 (formal_parameters
   (assignment_pattern
     left: (identifier) @variable.parameter))
+
+(class_declaration name: (identifier) @type.class.definition)
+(class name: (identifier) @type.class.definition)

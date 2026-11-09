@@ -218,12 +218,12 @@
   "=" @operator)
 
 (function_call
-  function: (identifier) @function)
+  function: (identifier) @function.call)
 
 (function_call
   function:
     (dotted_identifier
-      (identifier) @function .))
+      (identifier) @function.call .))
 
 (function_call
   (argument_list
@@ -244,10 +244,10 @@
       key: (identifier) @variable.parameter)))
 
 (function_definition
-  function: (identifier) @function)
+  function: (identifier) @function.definition)
 
 (function_declaration
-  function: (identifier) @function)
+  function: (identifier) @function.definition)
 
 (annotation) @function.macro
 

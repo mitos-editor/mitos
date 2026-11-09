@@ -237,27 +237,27 @@
 
 (call_expression
   function: [
-    ((identifier) @function)
+    ((identifier) @function.call)
     (scoped_identifier
-      name: (identifier) @function)
+      name: (identifier) @function.call)
     (field_expression
-      field: (field_identifier) @function.method)
+      field: (field_identifier) @function.method.call)
   ])
 (generic_function
   function: [
-    ((identifier) @function)
+    ((identifier) @function.reference)
     (scoped_identifier
-      name: (identifier) @function)
+      name: (identifier) @function.reference)
     (field_expression
-      field: (field_identifier) @function.method)
+      field: (field_identifier) @function.method.reference)
   ])
 (function_item
   (function
-    name: (identifier) @function))
+    name: (identifier) @function.definition))
 
 (function_signature_item
   (function
-    name: (identifier) @function))
+    name: (identifier) @function.declaration))
 
 (external_function_item
   (function
@@ -287,11 +287,11 @@
 
 (macro_invocation
   macro: [
-    ((identifier) @function.macro)
+    ((identifier) @function.macro.call)
     (scoped_identifier
-      name: (identifier) @function.macro)
+      name: (identifier) @function.macro.call)
   ]
-  "!" @function.macro)
+  "!" @function.macro.call)
 
 
 ; -------
@@ -357,7 +357,7 @@
 
 "?" @special
 
-(macro_declaration name: (identifier) @function.macro)
+(macro_declaration name: (identifier) @function.macro.definition)
 "macro" @keyword.function
 
 (call_expression
@@ -368,3 +368,9 @@
       name: ((identifier) @constructor
         (#match? @constructor "^[A-Z]")))
   ])
+
+(call_expression function: (generic_function function: [
+  (identifier) @function.call
+  (scoped_identifier name: (identifier) @function.call)
+  (field_expression field: (field_identifier) @function.method.call)
+]))

@@ -1,7 +1,7 @@
 const m = obj.method;
 //            ^ @variable.other.member
 const s = `${obj.compute()}`;
-//               ^ @function.method
+//               ^ @function.method.call
 obj.first().second();
-//  ^ @function.method
-//           ^ @function.method
+//  ^ @function.method.call
+//           ^ @function.method.call

@@ -16,7 +16,7 @@
 
 (scope_access field: (_) @variable.other.member)
 
-(call target: (_) @function)
+(call target: (_) @function.call)
 
 [ "if" "else" ] @keyword.control.conditional
 

@@ -1,6 +1,6 @@
 def f() {
   obj.doThing()
-//    ^ @function
+//    ^ @function.call
   helper()
-//^ @function
+//^ @function.call
 }

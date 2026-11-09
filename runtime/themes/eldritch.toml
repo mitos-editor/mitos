@@ -2,8 +2,19 @@
 # Author : neonvoidx
 # Eldritch - a theme for the Ancient Ones
 # License: MIT (see licenses/eldritch.license)
+# Source annotations and picker matches can be styled independently.
+# Interface and readonly symbol styles.
+"ui.welcome.heading" = { fg = "pink"                                                           }
+"ui.welcome.command" = { fg = "purple"                                                         }
+"variable.readonly" = { fg = "purple"                                                         }
+"variable.other.member.readonly" = { fg = "purple"                                                         }
 
-"annotation"                      = { fg = "foreground"                                                     }
+"ui.picker.match" = { fg = "pink"                                                           }
+"comment.error" = { fg = "red",                bg = "darker"                              }
+"comment.warning" = { fg = "yellow",             bg = "darker"                              }
+"comment.info" = { fg = "cyan",               bg = "darker"                              }
+"comment.hint" = { fg = "purple",             bg = "darker"                              }
+
 "attribute"                       = { fg = "green",              modifiers = ["italic"]                     }
 "comment"                         = { fg = "comment"                                                        }
 "comment.block.documentation"     = { fg = "comment"                                                        }
@@ -26,7 +37,7 @@
 "keyword"                         = { fg = "pink"                                                           }
 "keyword.operator"                = { fg = "pink"                                                           }
 "keyword.function"                = { fg = "pink"                                                           }
-"keyword.return"                  = { fg = "pink"                                                           }
+"keyword.control.return"                  = { fg = "pink"                                                           }
 "keyword.control.import"          = { fg = "pink"                                                           }
 "keyword.directive"               = { fg = "green"                                                          }
 "keyword.control.repeat"          = { fg = "pink"                                                           }
@@ -36,7 +47,6 @@
 "keyword.storage.type"            = { fg = "cyan",               modifiers = ["italic"]                     }
 "keyword.storage.modifier"        = { fg = "pink"                                                           }
 "tag"                             = { fg = "pink"                                                           }
-"tag.attribute"                   = { fg = "purple"                                                         }
 "tag.delimiter"                   = { fg = "foreground"                                                     }
 "label"                           = { fg = "cyan"                                                           }
 "punctuation"                     = { fg = "foreground"                                                     }
@@ -46,7 +56,7 @@
 "special"                         = { fg = "pink"                                                           }
 "string"                          = { fg = "yellow"                                                         }
 "string.special"                  = { fg = "orange"                                                         }
-"string.symbol"                   = { fg = "yellow"                                                         }
+"string.special.symbol"                   = { fg = "yellow"                                                         }
 "string.regexp"                   = { fg = "red"                                                            }
 "type.builtin"                    = { fg = "cyan"                                                           }
 "type"                            = { fg = "cyan",               modifiers = ["italic"]                     }
@@ -117,7 +127,7 @@
 "diagnostic.warning"              = { underline = { color = "yellow", style = "curl" } }
 "diagnostic.error"                = { underline = { color = "red",    style = "curl" } }
 "diagnostic.info"                 = { underline = { color = "cyan",   style = "curl" } }
-"definition"                      = { underline = { color = "cyan"                   } }
+"*.definition"                      = { underline = { color = "cyan"                   } }
 
 [palette]
 background      = "#323449"

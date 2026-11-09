@@ -1,12 +1,12 @@
 class Box {
-//    ^ @type
+//    ^ @type.class.definition
     boolean method(int count) {
 //  ^ @type.builtin
-//          ^ @function.method
+//          ^ @function.method.definition
         String s = "a\tb";
 //      ^ @type
 //                   ^ @constant.character.escape
         return helper(count);
-//             ^ @function.method
+//             ^ @function.method.call
     }
 }

@@ -1,5 +1,5 @@
 /dts-v1/;
 / {
   // TODO: update compatible
-//   ^ @info
+//   ^ @comment.info
 };

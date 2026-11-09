@@ -6,7 +6,7 @@
 (comment) @comment
 (string) @string
 (number) @constant.numeric
-(identifier) @identifier
+(identifier) @variable
 
 (include) @keyword.control.import
 (let) @keyword.storage
@@ -59,4 +59,3 @@
 (map "map" @operator)
 (match "match" @operator)
 (split "split" @operator)
-

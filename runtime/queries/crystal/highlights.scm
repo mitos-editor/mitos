@@ -137,7 +137,7 @@
 [
   (heredoc_start)
   (heredoc_end)
-] @string.symbol
+] @string.special.symbol
 
 (integer) @constant.numeric.integer
 (float) @constant.numeric.float
@@ -234,10 +234,10 @@
 (param name: (identifier) @variable.parameter)
 
 (method_def
-  name: (identifier) @function.method)
+  name: (identifier) @function.method.definition)
 
 (macro_def
-  name: (identifier) @function.method)
+  name: (identifier) @function.method.definition)
 
 (abstract_method_def
   name: (identifier) @function.method)
@@ -269,10 +269,10 @@
     arguments: (argument_list
       [
         (type_declaration
-          var: (_) @function.method)
+          var: (_) @function.method.call)
         (assign
-          lhs: (_) @function.method)
-        (_) @function.method
+          lhs: (_) @function.method.call)
+        (_) @function.method.call
       ])
     (#match? @keyword "^(class_)?(getter|setter|property)[?!]?$"))
 
@@ -281,7 +281,7 @@
     (#match? @keyword "^(record|is_a\\?|as|as\\?|responds_to\\?|nil\\?|\\!)$"))
 
 (call
-  method: (_) @function.method)
+  method: (_) @function.method.call)
 
 (implicit_object_call
   method: (_) @function.method)

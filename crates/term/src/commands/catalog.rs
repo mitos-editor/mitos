@@ -1005,10 +1005,10 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
         args: CommandArgs::new(&[], &[]),
     },
     TypableCommand {
-        name: "tree-sitter-highlight-name",
+        name: "highlight-inspect",
         aliases: &[],
-        doc: "Display name of tree-sitter highlight scope under the cursor.",
-        action: CommandAction::Committed(super::syntax::typed::tree_sitter_highlight_name),
+        doc: "Inspect syntax captures, semantic classification, matching theme selectors and styles under the cursor.",
+        action: CommandAction::Committed(super::syntax::typed::highlight_inspect),
         args: CommandArgs::new(&[], &[]),
     },
     TypableCommand {

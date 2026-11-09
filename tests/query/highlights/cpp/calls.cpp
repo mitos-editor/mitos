@@ -1,4 +1,4 @@
 int main() {
     invokeit();
-//  ^ @function
+//  ^ @function.call
 }

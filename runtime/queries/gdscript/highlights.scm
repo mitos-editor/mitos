@@ -80,7 +80,7 @@
 
 ;; ================ DECLARATIONS ================
 
-(function_definition (name) @function)
+(function_definition (name) @function.definition)
 (constructor_definition) @constructor
 
 (class_definition (name) @type)
@@ -102,7 +102,7 @@
 
 ;; ================ FUNCTION CALLS ================
 
-(call (identifier) @function.method)
+(call (identifier) @function.method.call)
 (attribute_call (identifier) @function.method)
 (attribute_call) @function.method
 

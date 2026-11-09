@@ -90,7 +90,7 @@
 (identifier) @variable
 
 (function_declaration
-  (identifier) @function)
+  (identifier) @function.definition)
 
 (parameter
   (variable_identifier_declaration

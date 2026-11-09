@@ -38,7 +38,7 @@
 
 (python_function_definition (python_identifier) @function)
 (anonymous_python_function (identifier) @function)
-(function_definition (identifier) @function)
+(function_definition (identifier) @function.definition)
 (export_functions_statement (identifier) @function)
 (addtask_statement (identifier) @function)
 (deltask_statement (identifier) @function)

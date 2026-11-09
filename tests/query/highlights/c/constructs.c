@@ -2,8 +2,8 @@ struct Point { int x; };
 //     ^ @type
 //                 ^ @variable.other.member
 int add(int a) {
-//  ^ @function
+//  ^ @function.definition
 //          ^ @variable.parameter
     return helper(a);
-//         ^ @function
+//         ^ @function.call
 }

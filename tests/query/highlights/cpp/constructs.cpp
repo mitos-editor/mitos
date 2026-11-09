@@ -3,9 +3,9 @@ class Widget {
     int field;
 //      ^ @variable.other.member
     bool method(int count) {
-//       ^ @function.method
+//       ^ @function.method.definition
 //                  ^ @variable.parameter
         return helper(count);
-//             ^ @function
+//             ^ @function.call
     }
 };

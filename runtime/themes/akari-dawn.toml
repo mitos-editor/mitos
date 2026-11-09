@@ -3,6 +3,19 @@
 # Akari Dawn — A light palette inspired by Japanese alleys lit by round lanterns.
 
 # UI elements
+# Source annotations and picker matches can be styled independently.
+# Interface and readonly symbol styles.
+"ui.welcome.heading" = { fg = "decorator" }
+"ui.welcome.command" = { fg = "constant" }
+"variable.readonly" = { fg = "constant" }
+"variable.other.member.readonly" = { fg = "constant" }
+
+"ui.picker.match" = { fg = "decorator" }
+"comment.error" = { fg = "error", modifiers = ["bold"] }
+"comment.warning" = { fg = "warning" }
+"comment.info" = { fg = "info" }
+"comment.hint" = { fg = "hint" }
+
 "ui.link" = { modifiers = ["underlined"] }
 "ui.background" = { bg = "background" }
 "ui.text" = "foreground"
@@ -207,8 +220,6 @@
 "namespace" = { fg = "namespace" }
 
 "special" = { fg = "decorator" }
-
-"module" = { fg = "namespace" }
 
 # Palette definition (MUST be at the end of the file)
 [palette]

@@ -3,6 +3,6 @@ static class Extensions {
 //  ^ @keyword.storage.type
 //                   ^ @variable.parameter
         public int Count() => text.Length;
-//                 ^ @function.method
+//                 ^ @function.method.definition
     }
 }

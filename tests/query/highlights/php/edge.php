@@ -1,3 +1,3 @@
 <?php
 $x = "{$obj->compute()}";
-//           ^ @function.method
+//           ^ @function.method.call

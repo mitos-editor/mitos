@@ -44,7 +44,7 @@
 ;; Functions
 (function_statement
   "function" @keyword.function
-  . name: (identifier) @function)
+  . name: (identifier) @function.definition)
 (anon_function
   "function" @keyword.function)
 (function_body "end" @keyword.function)
@@ -63,11 +63,11 @@
   . ">" @punctuation.bracket)
 
 (function_call
-  (identifier) @function . (arguments))
+  (identifier) @function.call . (arguments))
 (function_call
-  (index (_) key: (identifier) @function) . (arguments))
+  (index (_) key: (identifier) @function.call) . (arguments))
 (function_call
-  (method_index (_) key: (identifier) @function) . (arguments))
+  (method_index (_) key: (identifier) @function.call) . (arguments))
 
 ;; Types
 

@@ -11,6 +11,19 @@
 
 # Syntax highlighting
 # -------------------
+# Source annotations and picker matches can be styled independently.
+# Interface and readonly symbol styles.
+"ui.welcome.heading" = "orange_smolder" # fuzzy highlight
+"ui.welcome.command" = "orange_blaze"
+"variable.readonly" = "orange_blaze"
+"variable.other.member.readonly" = "orange_blaze"
+
+"ui.picker.match" = "orange_smolder" # fuzzy highlight
+"comment.error" = { fg = "red_flame", bg = "g_10" }
+"comment.warning" = { fg = "orange_golden", bg = "g_10" }
+"comment.info" = { fg = "g_2", bg = "g_10" }
+"comment.hint" = { fg = "g_4", bg = "g_10" }
+
 "attribute" = "g_4"
 
 "type" = "blue"
@@ -99,7 +112,7 @@
 ] }
 
 "ui.popup" = { fg = "text", bg = "g_10" }
-"ui.info" = { fg = "orange_blaze", bg = "g_10" }
+"ui.text.info" = { fg = "orange_blaze", bg = "g_10" }
 "ui.window" = { fg = "g_7" }
 "ui.help" = { fg = "text", bg = "g_10", modifiers = ["bold"] }
 

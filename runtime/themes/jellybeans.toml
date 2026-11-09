@@ -14,6 +14,19 @@
 # Contributors:
 # @cemalokten
 
+# Source annotations and picker matches can be styled independently.
+# Interface and readonly symbol styles.
+"ui.welcome.heading" = "green"
+"ui.welcome.command" = "dark_orange"
+"variable.readonly" = "dark_orange"
+"variable.other.member.readonly" = "dark_orange"
+
+"ui.picker.match" = "green"
+"comment.error" = "red_error"
+"comment.warning" = "orange_accent"
+"comment.info" = "yellow_accent"
+"comment.hint" = "blue"
+
 "attribute" = "green"
 "type" = "light_blue"
 "type.enum.variant" = "purple"

@@ -1,6 +1,6 @@
 IDEA: improve this
-//^ @hint
+//^ @comment.hint
 CAUTION: fragile assumption
-//^ @warning
+//^ @comment.warning
 PROOF: check the invariant
-//^ @error
+//^ @comment.error

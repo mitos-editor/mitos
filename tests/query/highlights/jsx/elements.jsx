@@ -2,7 +2,7 @@ function App() {
 //       ^ @constructor
   const name = greet("x");
 //      ^ @variable
-//             ^ @function
+//             ^ @function.call
   return <div className="box"><Widget count={name} /></div>;
 //        ^ @tag
 //            ^ @attribute

@@ -159,8 +159,8 @@
 (field_access base: (this) field: (identifier) @variable.other.member)
 
 ;; method calls
-(call callee: (field_access field: (identifier) @function.method))
-(call callee: (identifier) @function)
+(call callee: (field_access field: (identifier) @function.method.call))
+(call callee: (identifier) @function.call)
 (ffi_call name: (_) @function)
 (partial_application function: (identifier) @function.method)
 (chain function: (identifier) @function.method)
@@ -173,4 +173,3 @@
 
 ;; annotations
 (annotations (identifier) @attribute)
-

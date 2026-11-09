@@ -2,12 +2,24 @@
 # Ported from: https://github.com/drcmda/poimandres-theme
 # License: MIT (see licenses/poimandres.LICENSE)
 
+# Source annotations and picker matches can be styled independently.
+# Interface and readonly symbol styles.
+"ui.welcome.heading" = "desaturatedBlue"
+"ui.welcome.command" = "brightMint"
+"variable.readonly" = "brightMint"
+"variable.other.member.readonly" = "brightMint"
+
+"ui.picker.match" = "desaturatedBlue"
+"comment.error" = "hotRed"
+"comment.warning" = "brightYellow"
+"comment.info" = "lightBlue"
+"comment.hint" = "lowerMint"
+
 attribute = { fg = "desaturatedBlue", modifiers = ["italic"] }
 keyword = "brightMint"
 "keyword.directive" = "gray"
 "keyword.storage.type" = "desaturatedBlue"
 "keyword.storage.modifier" = "lowerMint"
-"keyword.other" = "brightMint"
 "keyword.operator" = "desaturatedBlue"
 namespace = "lightBlue"
 punctuation = "gray"

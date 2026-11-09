@@ -333,7 +333,7 @@
     [
       (ident)
       (at_ident)
-    ] @function))
+    ] @function.call))
 
 (call_expr
   function: (trailing_generic_expr
@@ -341,7 +341,7 @@
       [
         (ident)
         (at_ident)
-      ] @function)))
+      ] @function.call)))
 
 ; Method call
 (call_expr
@@ -350,7 +350,7 @@
       [
         (ident)
         (at_ident)
-      ] @function.method)))
+      ] @function.method.call)))
 
 ; Method on type
 (call_expr
@@ -359,11 +359,11 @@
       [
         (ident)
         (at_ident)
-      ] @function.method)))
+      ] @function.method.call)))
 
 ; Builtin call
 (call_expr
-  function: (builtin) @function.builtin)
+  function: (builtin) @function.builtin.call)
 
 ; Asm
 (asm_instr

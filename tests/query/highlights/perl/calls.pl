@@ -1,6 +1,6 @@
 sub f {
   $obj->doThing();
-#       ^ @function.method
+#       ^ @function.method.call
   helper();
-# ^ @function
+# ^ @function.call
 }

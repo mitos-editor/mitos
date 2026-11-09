@@ -1,5 +1,18 @@
 # License: Vim (see licenses/vim.license)
 
+# Source annotations and picker matches can be styled independently.
+# Interface and readonly symbol styles.
+"ui.welcome.heading" = "cyan"
+"ui.welcome.command" = "red"
+"variable.readonly" = "red"
+"variable.other.member.readonly" = "red"
+
+"ui.picker.match" = "cyan"
+"comment.error" = { fg = "red", bg = "dark-red" }
+"comment.warning" = { fg = "yellow", bg = "dark-yellow" }
+"comment.info" = { fg = "default", bg = "dark-white" }
+"comment.hint" = { fg = "cyan", bg = "dark-cyan" }
+
 "ui.link" = { modifiers = ["underlined"] }
 "ui.background" = { bg = "black" }
 "ui.bufferline" = { bg = "black" }

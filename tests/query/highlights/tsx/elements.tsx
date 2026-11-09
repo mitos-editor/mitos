@@ -1,5 +1,5 @@
 function add(a: number): number {
-//       ^ @function
+//       ^ @function.definition
 //           ^ @variable.parameter
 //              ^ @type.builtin
   return a + 1;
@@ -7,5 +7,5 @@ function add(a: number): number {
 const el = <Foo bar={add(2)}>hi</Foo>;
 //          ^ @constructor
 //              ^ @attribute
-//                   ^ @function
+//                   ^ @function.call
 //                               ^ @constructor

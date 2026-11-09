@@ -1,5 +1,5 @@
 let g = foo(2)
-//      ^ @function
+//      ^ @function.call
 let h = obj.field
 //      ^ @variable
 //          ^ @variable.other.member

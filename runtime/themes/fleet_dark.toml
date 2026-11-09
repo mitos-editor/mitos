@@ -6,10 +6,22 @@
 # @matoous
 # @kirawi
 
+# Source annotations and picker matches can be styled independently.
+# Interface and readonly symbol styles.
+"ui.welcome.heading" = "Lime"
+"ui.welcome.command" = "Violet"
+"variable.readonly" = "Violet"
+"variable.other.member.readonly" = "Violet"
+
+"ui.picker.match" = "Lime"
+"comment.error" = "#FF5269"
+"comment.warning" = "#FACb66"
+"comment.info" = "#A366C4"
+"comment.hint" = "Gray 80"
+
 "attribute" = "Lime"
 
 "type" = "Blue"
-"type.return" = "Blue Light"
 "type.parameter" = "Blue Light"
 "constructor" = "Yellow"
 

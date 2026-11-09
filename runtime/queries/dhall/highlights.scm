@@ -43,8 +43,8 @@
 ] (#match? @type "^[A-Z]"))
 ((primitive_expression
   (identifier (label) @type)
-  (selector (label) @type)?) @whole_identifier
-  (#match? @whole_identifier "(?:^|\\.)[A-Z][^.]*$"))
+  (selector (label) @type)?) @_whole_identifier
+  (#match? @_whole_identifier "(?:^|\\.)[A-Z][^.]*$"))
 
 ;; Keywords
 [

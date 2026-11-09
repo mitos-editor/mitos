@@ -286,6 +286,7 @@ pub enum LanguageServerFeature {
     InlineCompletion,
     CallHierarchy,
     CodeLens,
+    SemanticTokens,
 }
 
 impl Display for LanguageServerFeature {
@@ -316,6 +317,7 @@ impl Display for LanguageServerFeature {
             InlineCompletion => "inline-completion",
             CallHierarchy => "call-hierarchy",
             CodeLens => "code-lens",
+            SemanticTokens => "semantic-tokens",
         };
         write!(f, "{feature}",)
     }

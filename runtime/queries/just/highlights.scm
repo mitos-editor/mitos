@@ -49,7 +49,7 @@
   name: (identifier) @function)
 
 (function_call
-  name: (identifier) @function.builtin)
+  name: (identifier) @function.builtin.call)
 
 ; Parameters
 

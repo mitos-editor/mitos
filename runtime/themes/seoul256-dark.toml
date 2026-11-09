@@ -4,6 +4,19 @@
 # License: MIT (see licenses/seoul256.license)
 
 # Syntax highlighting configuration
+# Source annotations and picker matches can be styled independently.
+# Interface and readonly symbol styles.
+"ui.welcome.heading" = { fg = "yellow2" }
+"ui.welcome.command" = { fg = "blue5" }
+"variable.readonly" = { fg = "blue5" }
+"variable.other.member.readonly" = { fg = "blue5" }
+
+"ui.picker.match" = { fg = "yellow2" }
+"comment.error" = { fg = "red", modifiers = ["bold"] }
+"comment.warning" = { fg = "yellow", modifiers = ["bold"] }
+"comment.info" = { fg = "blue2", modifiers = ["bold"] }
+"comment.hint" = { fg = "blue3", modifiers = ["bold"] }
+
 "attribute" = { fg = "yellow" }
 "comment" = { fg = "green1" }
 "constant" = { fg = "blue5" }

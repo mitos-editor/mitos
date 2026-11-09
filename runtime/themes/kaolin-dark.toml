@@ -4,6 +4,19 @@
 # Original author: kaolin-dark by Ogden Webb: github.com/ogdenwebb/emacs-kaolin-themes
 # Kaolin Dark Theme - A dark jade theme inspired by Sierra.vim : github.com/AlessandroYorba/Sierra
 
+# Source annotations and picker matches can be styled independently.
+# Interface and readonly symbol styles.
+"ui.welcome.heading" = "constant"
+"ui.welcome.command" = { fg = "constant" }
+"variable.readonly" = { fg = "constant" }
+"variable.other.member.readonly" = { fg = "constant" }
+
+"ui.picker.match" = "constant"
+"comment.error" = "error"
+"comment.warning" = "warn"
+"comment.info" = "info"
+"comment.hint" = "hint"
+
 "attribute" = "constant"
 "keyword" = { fg = "hint" }
 "keyword.directive" = "info"
@@ -30,7 +43,6 @@
 "constant.numeric" = "info"
 "constant.character.escape" = { fg = "hint", modifiers = ["bold"] }
 "label" = "constant"
-"module" = "info"
 
 "diff.plus" = "green0"
 "diff.delta" = "warn"

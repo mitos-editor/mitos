@@ -12,10 +12,10 @@
  (#match? @variable.builtin "^(Bool|Class|Fiber|Fn|List|Map|Null|Num|Object|Range|Sequence|String|System)$"))
 
 (call_expression
-  (name) @function)
+  (name) @function.call)
 
 (method_definition
-  (name) @function.method)
+  (name) @function.method.definition)
 
 ((parameter) @variable.parameter)
 

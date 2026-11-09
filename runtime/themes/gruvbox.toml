@@ -2,7 +2,18 @@
 # The theme uses the gruvbox dark palette with standard contrast: github.com/morhetz/gruvbox
 # License: MIT (see licenses/gruvbox.license)
 
-"annotation" = { fg = "fg1" }
+# Source annotations and picker matches can be styled independently.
+# Interface and readonly symbol styles.
+"ui.welcome.heading" = { fg = "purple0" }
+"ui.welcome.command" = { fg = "purple1" }
+"variable.readonly" = { fg = "purple1" }
+"variable.other.member.readonly" = { fg = "purple1" }
+
+"ui.picker.match" = { fg = "purple0" }
+"comment.error" = { fg = "red1" }
+"comment.warning" = { fg = "yellow1" }
+"comment.info" = { fg = "aqua1" }
+"comment.hint" = { fg = "blue1" }
 
 "attribute" = { fg = "aqua1", modifiers = ["italic"] }
 
@@ -14,7 +25,7 @@
 "constant.macro" = { fg = "aqua1" }
 "constructor" = { fg = "purple1" }
 
-"definition" = { underline = { color = "aqua1" } }
+"*.definition" = { underline = { color = "aqua1" } }
 
 "diagnostic" = { underline = { color = "orange1", style = "curl" } }
 "diagnostic.deprecated" = { modifiers = ["crossed_out"] }
@@ -50,8 +61,6 @@
 "markup.raw" = "red1"
 "markup.strikethrough" = { modifiers = ["crossed_out"] }
 
-"module" = { fg = "aqua1" }
-
 "namespace" = { fg = "fg1" }
 
 "operator" = { fg = "purple1" }
@@ -63,7 +72,7 @@
 "string" = { fg = "green1" }
 "string.regexp" = { fg = "orange1" }
 "string.special" = { fg = "orange1" }
-"string.symbol" = { fg = "yellow1" }
+"string.special.symbol" = { fg = "yellow1" }
 
 "tag" = { fg = "aqua1" }
 

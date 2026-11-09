@@ -29,17 +29,17 @@
   name: (identifier) @function)
 
 (function_declaration
-  name: (identifier) @function)
+  name: (identifier) @function.definition)
 
 (method_definition
-  name: (property_name) @function.method)
+  name: (property_name) @function.method.definition)
 
 (call_expression
-  function: (identifier) @function)
+  function: (identifier) @function.call)
 
 (call_expression
   function: (member_expression
-    property: (identifier) @function.method))
+    property: (identifier) @function.method.call))
 
 ; Parameters
 (required_parameter

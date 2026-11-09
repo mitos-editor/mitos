@@ -50,13 +50,13 @@
 ; Functions
 
 (function_declaration
-  "function" . (identifier) @function)
+  "function" . (identifier) @function.definition)
 
 (function_call
-  (identifier) @function "(")
+  (identifier) @function.call "(")
 
 (function_call
-  (field_expression "." (identifier) @function.method) "(")
+  (field_expression "." (identifier) @function.method.call) "(")
 
 (defined_resource_type
   "define" . (identifier) @function)
@@ -64,10 +64,10 @@
 ; Methods
 
 (function_declaration
-  "function" . (class_identifier (identifier) @function.method .))
+  "function" . (class_identifier (identifier) @function.method.definition .))
 
 (function_call
-  (class_identifier (identifier) @function.method .))
+  (class_identifier (identifier) @function.method.call .))
 
 (defined_resource_type
   "define" . (class_identifier (identifier) @function.method .))

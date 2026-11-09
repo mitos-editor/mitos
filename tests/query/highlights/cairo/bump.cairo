@@ -1,8 +1,8 @@
 fn main() {
     module::execute();
-//          ^ @function
+//          ^ @function.call
     object.render();
-//         ^ @function.method
+//         ^ @function.method.call
     let value = Option::Some(1);
 //                      ^ @constructor
 }

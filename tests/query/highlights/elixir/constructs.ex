@@ -1,7 +1,7 @@
 defmodule App do
 #         ^ @namespace
   def greet(name) do
-#     ^ @function
+#     ^ @function.call
     s = :ok
 #       ^ @string.special.symbol
     re = ~r/foo/

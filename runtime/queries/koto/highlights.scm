@@ -108,7 +108,7 @@
   (lookup (identifier) @variable.other.member))
 
 (call
-  function: (identifier) @function)
+  function: (identifier) @function.call)
 (call_indented
   function: (identifier) @function)
 

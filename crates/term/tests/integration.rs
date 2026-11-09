@@ -60,6 +60,7 @@ mod test {
     mod rename;
     mod rulers;
     mod selection_undo;
+    mod semantic_tokens;
     mod signature_help;
     mod spelling;
     mod splits;

@@ -31,13 +31,13 @@
       (identifier) @variable.parameter)))
 
 (function_call
-  name: (_) @function)
+  name: (_) @function.call)
 
 (builtin_function) @function.builtin
 
 ;; Function definitions
 (function_definition
-  name: (identifier) @function)
+  name: (identifier) @function.definition)
 
 (function_definition
   (parameter_list

@@ -10,11 +10,11 @@
 ; Function calls
 
 (function_call
-  function: (identifier) @function)
+  function: (identifier) @function.call)
 
 (method_call
   method: (selector_expression
-    field: (field_identifier) @function.method))
+    field: (field_identifier) @function.method.call))
 
 ; Operators
 

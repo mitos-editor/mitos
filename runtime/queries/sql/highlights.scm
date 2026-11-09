@@ -4,7 +4,7 @@
 
 (invocation
   (object_reference
-    name: (identifier) @function.method))
+    name: (identifier) @function.method.call))
 
 [
   (keyword_gist)

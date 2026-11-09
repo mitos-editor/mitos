@@ -108,7 +108,7 @@
  name: (simple_identifier) @function)
 (function_prototype
  (data_type_or_void)
- name: (simple_identifier) @function)
+ name: (simple_identifier) @function.declaration)
 (task_prototype
  name: (simple_identifier) @function)
 (class_scope ; Definition of extern defined methods

@@ -5,6 +5,17 @@
 # Author: Dalton Menezes
 # License: MIT (see licenses/aura.LICENSE)
 
+# Source annotations and picker matches can be styled independently.
+# Interface and readonly symbol styles.
+"ui.welcome.command" = "green"
+"variable.readonly" = "green"
+"variable.other.member.readonly" = "green"
+
+"comment.error" = "red"
+"comment.warning" = "orange"
+"comment.info" = "blue"
+"comment.hint" = "blue"
+
 "ui.link" = { modifiers = ["underlined"] }
 "ui.background" = { fg = "white", bg = "black"}
 
@@ -14,7 +25,6 @@
 "ui.statusline" = { fg = "accent10", bg = "accent24"}
 
 "ui.selection" = { bg = "purple_selection"}
-"ui.selection.background" = { fg = "purple_selection"}
 
 "ui.cursor" = { fg = "black", bg = "pink" }
 "ui.cursor.match" = { fg = "purple", modifiers = ["bold"] }
@@ -50,7 +60,7 @@ warning = "orange"
 info = "blue" 
 hint = "blue" 
 
-attributes = "purple"
+"attribute" = "purple"
 type = "blue" 
 
 constructor = "blue" 
@@ -64,7 +74,7 @@ variable = "white" # should be dimmed
 "variable.builtin" = "purple"
 "variable.other" = "pink" 
 
-"punctuation.delimeter" = "pink" 
+"punctuation.delimiter" = "pink"
 "punctuation.special" = "white"
 
 keyword = "purple"
@@ -142,4 +152,3 @@ accent33 = "#2e2b38"
 
 # https://github.com/daltonmenezes/aura-theme/tree/c607be79c8eeaa5a5d7ac66421f8b5c51d936fe8/src/core/colors/schemes
 accent24 = "#1f1a27" # soft dark
-

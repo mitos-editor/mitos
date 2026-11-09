@@ -7,8 +7,8 @@
 
 (block) @markup.raw.block
 (list) @markup.list.unnumbered
-(directive) @markup.label
-(property_drawer) @markup.label
+(directive) @markup.link.label
+(property_drawer) @markup.link.label
  
 
 ((expr) @markup.bold
@@ -21,4 +21,3 @@
 
 ((expr) @markup.quote
  (#match? @markup.quote "=.*="))
-

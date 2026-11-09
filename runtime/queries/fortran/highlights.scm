@@ -176,7 +176,7 @@
   (module_name) (name) @namespace)
 
 (function_statement
-  (name) @function)
+  (name) @function.definition)
 
 (subroutine_statement
   (name) @function)
@@ -212,4 +212,4 @@
   (type_member) @variable.other.member)
 
 (call_expression
-  (identifier) @function)
+  (identifier) @function.call)

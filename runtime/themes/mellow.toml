@@ -2,6 +2,19 @@
 # Theme: Mellow
 # License: MIT (see licenses/mellow.license)
 
+# Source annotations and picker matches can be styled independently.
+# Interface and readonly symbol styles.
+"ui.welcome.heading" = "yellow"
+"ui.welcome.command" = "cyan"
+"variable.readonly" = "cyan"
+"variable.other.member.readonly" = "cyan"
+
+"ui.picker.match" = "yellow"
+"comment.error" = "bright_red"
+"comment.warning" = "bright_yellow"
+"comment.info" = "bright_blue"
+"comment.hint" = "bright_cyan"
+
 "attribute" = { fg = "blue", modifiers = ["italic"] }
 
 "keyword" = "blue"

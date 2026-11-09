@@ -25,7 +25,7 @@
  (developer_comment)
 ] @comment
 
-(call_expression . (identifier) @function.builtin)
+(call_expression . (identifier) @function.builtin.call)
 (attribute (identifier) @attribute)
 (block_attribute_declaration (identifier) @attribute)
 (attribute (call_expression . (identifier) @attribute))

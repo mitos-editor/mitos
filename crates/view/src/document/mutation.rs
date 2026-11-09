@@ -119,6 +119,7 @@ impl Document {
         self.document_colors.apply_changes(changes);
         self.document_links.apply_changes(changes);
         self.code_lenses.apply_changes(changes);
+        self.semantic_tokens.invalidate();
         self.inline_completions.clear();
         self.map_snippet(changes);
 

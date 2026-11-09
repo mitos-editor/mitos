@@ -1,5 +1,18 @@
 # Author : Wojciech Kępka <wojciech@wkepka.dev>
 
+# Source annotations and picker matches can be styled independently.
+# Interface and readonly symbol styles.
+"ui.welcome.heading" = "bogster-lgreen"
+"ui.welcome.command" = "bogster-teal"
+"variable.readonly" = "bogster-teal"
+"variable.other.member.readonly" = "bogster-teal"
+
+"ui.picker.match" = "bogster-lgreen"
+"comment.error" = "bogster-lred"
+"comment.warning" = "bogster-orange"
+"comment.info" = "bogster-teal"
+"comment.hint" = "bogster-blue"
+
 "attribute" = "bogster-orange"
 "keyword" = { fg = "bogster-yellow", modifiers = ["bold"] }
 "keyword.directive" = "bogster-yellow"
@@ -25,7 +38,6 @@
 "constant.numeric" = "bogster-blue"
 "constant.character.escape" = { fg = "bogster-lgreen", modifiers = ["bold"] }
 "label" = "bogster-blue"
-"module" = "bogster-red"
 
 "markup.heading" = "bogster-blue"
 "markup.list" = "bogster-red"
@@ -101,4 +113,3 @@ bogster-base1 = "#c7c7ba"
 bogster-base2 = "#aaaa97" 
 bogster-base3 = "#415367" 
 bogster-base5 = "#627d9d"
-

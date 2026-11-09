@@ -1,6 +1,17 @@
 # Author: IwantHappiness <IwantHappiness95@gmail.com>
 # License: MIT (see licenses/vesper.LICENSE)
 
+# Source annotations and picker matches can be styled independently.
+# Interface and readonly symbol styles.
+"ui.welcome.command" = { fg = "beige" }
+"variable.readonly" = { fg = "beige" }
+"variable.other.member.readonly" = { fg = "beige" }
+
+"comment.error" = { fg = "red" }
+"comment.warning" = { fg = "beige" }
+"comment.info" = { fg = "white" }
+"comment.hint" = { fg = "gray" }
+
 tag = { fg = "beige" }
 type = { fg = "beige" }
 
@@ -28,9 +39,9 @@ variable = { fg = "white" }
 "variable.builtin" = { fg = "gray" }
 "variable.parameter" = { modifiers = ["italic"] }
 
-"murkup.raw" = { bg = "white" }
-"murkup.normal" = { bg = "white" }
-"murkup.heading" = { bg = "white" }
+"markup.raw" = { bg = "white" }
+"markup.normal" = { bg = "white" }
+"markup.heading" = { bg = "white" }
 
 "diff.delta" = { fg = "beige" }
 "diff.minus" = { fg = "#FF8080" }
@@ -73,7 +84,7 @@ warning = { fg = "beige" }
 
 "ui.link" = { modifiers = ["underlined"] }
 "ui.popup" = { bg = "dark-gray" }
- 
+
 "ui.selection" = { bg = "bg-selection" }
 
 "ui.help" = { bg = "dark-gray", fg = "beige" }

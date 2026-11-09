@@ -20,7 +20,7 @@
 
 ; Functions
 (call_expression
-  function: (identifier) @function)
+  function: (identifier) @function.call)
 
 (user_defined_function
   name: (identifier) @function)
@@ -42,7 +42,7 @@
 
 (call_expression
   function: (member_expression
-    property: (property_identifier) @function.method))
+    property: (property_identifier) @function.method.call))
 
 ; Attributes
 (decorator

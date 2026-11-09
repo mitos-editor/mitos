@@ -297,23 +297,23 @@
 
 (call_expression
   function: [
-    ((identifier) @function)
+    ((identifier) @function.call)
     (scoped_identifier
-      name: (identifier) @function)
+      name: (identifier) @function.call)
     (field_expression
-      field: (field_identifier) @function.method)
+      field: (field_identifier) @function.method.call)
   ])
 (generic_function
   function: [
-    ((identifier) @function)
+    ((identifier) @function.call)
     (scoped_identifier
-      name: (identifier) @function)
+      name: (identifier) @function.call)
     (field_expression
-      field: (field_identifier) @function.method)
+      field: (field_identifier) @function.method.call)
   ])
 
 (function_item
-  name: (identifier) @function)
+  name: (identifier) @function.definition)
 
 (function_signature_item
-  name: (identifier) @function)
+  name: (identifier) @function.declaration)

@@ -113,7 +113,7 @@
 
 ; Function definitions
 
-(function_definition (function_identifier (lowercase_identifier) @function))
+(function_definition (function_identifier (lowercase_identifier) @function.definition))
 (struct_constructor_declaration (lowercase_identifier) @function)
 (function_alias_targets (lowercase_identifier) @function)
 (function_alias_targets (dot_lowercase_identifier) @function)
@@ -123,7 +123,7 @@
 
 ; Method definitions
 
-(function_definition (function_identifier (type_name (qualified_type_identifier)) (lowercase_identifier) @function.method))
+(function_definition (function_identifier (type_name (qualified_type_identifier)) (lowercase_identifier) @function.method.definition))
 
 ; Labels
 

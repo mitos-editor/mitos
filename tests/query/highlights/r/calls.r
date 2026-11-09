@@ -1,6 +1,6 @@
 f <- function() {
   helper(1)
-# ^ @function
+# ^ @function.call
   pkg::func(2)
-#      ^ @function
+#      ^ @function.call
 }

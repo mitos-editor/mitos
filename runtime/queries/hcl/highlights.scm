@@ -74,7 +74,7 @@
 (object_elem key: (expression (variable_expr (identifier) @variable.other.member)))
 
 (attribute (identifier) @variable.other.member)
-(function_call (identifier) @function.method)
+(function_call (identifier) @function.method.call)
 (block (identifier) @type.builtin)
 
 (comment) @comment

@@ -1,4 +1,4 @@
 sub f()
   foo()
-' ^ @function
+' ^ @function.call
 end sub

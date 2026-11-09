@@ -1,6 +1,19 @@
 # License: MIT (see licenses/andromeda.license)
 
 # Interface colors
+# Source annotations and picker matches can be styled independently.
+# Interface and readonly symbol styles.
+"ui.welcome.heading" = { fg = "hot_pink" }
+"ui.welcome.command" = { fg = "red" }
+"variable.readonly" = { fg = "red" }
+"variable.other.member.readonly" = { fg = "red" }
+
+"ui.picker.match" = { fg = "hot_pink" }
+"comment.error" = { fg = "error" }
+"comment.warning" = { fg = "warning" }
+"comment.info" = { fg = "info" }
+"comment.hint" = { fg = "hint" }
+
 "ui.link" = { modifiers = ["underlined"] }
 "ui.background" = { bg = "background" }
 "ui.background.separator" = { fg = "muted" }
@@ -114,14 +127,12 @@
 "tag" = { fg = "hot_pink" }
 "attribute" = { fg = "orange" }
 "namespace" = { fg = "yellow" }
-"module" = { fg = "yellow" }
 "special" = { fg = "hot_pink" }
 
 # Markup
 "markup.heading" = { fg = "hot_pink", modifiers = ["bold"] }
 "markup.heading.marker" = { fg = "hot_pink" }
 "markup.list" = { fg = "yellow" }
-"markup.list.marker" = { fg = "hot_pink" }
 "markup.bold" = { fg = "orange", modifiers = ["bold"] }
 "markup.italic" = { fg = "purple", modifiers = ["italic"] }
 "markup.strikethrough" = { modifiers = ["crossed_out"] }

@@ -9,6 +9,7 @@ mod grammar_sources;
 mod grammar_updates;
 mod install;
 mod path;
+mod scopes;
 
 use std::{env, error::Error};
 
@@ -21,6 +22,7 @@ pub mod tasks {
 
     pub fn docgen() -> Result<(), DynError> {
         use crate::docgen::*;
+        write("theme-scopes.md", &crate::scopes::generate()?);
         write(TYPABLE_COMMANDS_MD_OUTPUT, &typable_commands());
         write(STATIC_COMMANDS_MD_OUTPUT, &static_commands());
         write(LANG_SUPPORT_MD_OUTPUT, &lang_features());
@@ -33,7 +35,9 @@ pub mod tasks {
 
     pub fn querycheck(languages: impl Iterator<Item = String>) -> Result<(), DynError> {
         let languages_to_check: HashSet<_> = languages.collect();
-        let loader = language::loader::default_lang_loader(loader::syntax::Resources::default());
+        let loader = language::loader::default_lang_loader(loader::syntax::Resources::new(vec![
+            crate::path::runtime(),
+        ]));
         for (language, lang_data) in loader.languages() {
             if !languages_to_check.is_empty()
                 && !languages_to_check.contains(&lang_data.config().language_id)
@@ -58,7 +62,9 @@ pub mod tasks {
         use stdx::rope::RopeSliceExt;
 
         let filter: HashSet<String> = languages.collect();
-        let loader = language::loader::default_lang_loader(loader::syntax::Resources::default());
+        let loader = language::loader::default_lang_loader(loader::syntax::Resources::new(vec![
+            crate::path::runtime(),
+        ]));
         let corpus = crate::path::tests_indent();
         let tab_width = 4;
         let mut errors = 0usize;
@@ -286,55 +292,6 @@ pub mod tasks {
         use language::Language;
         use ropey::Rope;
 
-        // The highlighter yields a `Highlight` index into the loader's scope
-        // list. Feed it the capture names actually used across the bundled
-        // queries, so every capture maps to itself and we read back the exact
-        // `@capture` that won — no hand-maintained scope list. (Inheritance is
-        // irrelevant here: scanning every language's queries unions all names.)
-        fn capture_scopes() -> Vec<String> {
-            let mut set = std::collections::BTreeSet::new();
-            let Ok(langs) = std::fs::read_dir(crate::path::ts_queries()) else {
-                return Vec::new();
-            };
-            for lang in langs.filter_map(Result::ok) {
-                for q in ["highlights.scm", "locals.scm"] {
-                    let Ok(text) = std::fs::read_to_string(lang.path().join(q)) else {
-                        continue;
-                    };
-                    let b = text.as_bytes();
-                    let mut i = 0;
-                    while i < b.len() {
-                        if b[i] != b'@' {
-                            i += 1;
-                            continue;
-                        }
-                        let s = i + 1;
-                        let mut j = s;
-                        while j < b.len()
-                            && (b[j].is_ascii_alphanumeric() || matches!(b[j], b'.' | b'_' | b'-'))
-                        {
-                            j += 1;
-                        }
-                        let name = &text[s..j];
-                        i = j;
-                        if name.is_empty() || name.starts_with('_') {
-                            continue;
-                        }
-                        // Locals: the highlight applied to a resolved reference is
-                        // the class after `local.definition.`; the rest are structural.
-                        if let Some(class) = name.strip_prefix("local.definition.") {
-                            if !class.is_empty() {
-                                set.insert(class.to_string());
-                            }
-                        } else if !name.starts_with("local.") && name != "local" {
-                            set.insert(name.to_string());
-                        }
-                    }
-                }
-            }
-            set.into_iter().collect()
-        }
-
         // Winning (top-of-stack) capture per byte range, via the real highlighter.
         fn spans(
             loader: &Loader,
@@ -373,8 +330,10 @@ pub mod tasks {
             Some(out)
         }
 
-        let scopes = capture_scopes();
-        let loader = language::loader::default_lang_loader(loader::syntax::Resources::default());
+        let scopes: Vec<_> = crate::scopes::inventory()?.into_iter().collect();
+        let loader = language::loader::default_lang_loader(loader::syntax::Resources::new(vec![
+            crate::path::runtime(),
+        ]));
         loader.set_scopes(scopes.clone());
 
         let args: Vec<String> = args.collect();
@@ -559,6 +518,7 @@ Usage: Run with `cargo xtask <task>`, eg. `cargo xtask docgen`.
                                    above), for the given languages, or all if none are specified.
                                    `highlight-check --dump <language> <file>` instead prints the
                                    winning capture per span for an arbitrary input file.
+        scope-check               Check public query and theme vocabulary and generated inventory.
         theme-check [themes]       Check that the theme files in runtime/themes/ are valid for the
                                    given themes, or all themes if none are specified.
         update-nix-grammar-sources [--jobs <count>]
@@ -590,6 +550,7 @@ fn main() -> Result<(), DynError> {
         Some("query-check") => tasks::querycheck(args)?,
         Some("indent-check") => tasks::indentcheck(args)?,
         Some("highlight-check") => tasks::highlightcheck(args)?,
+        Some("scope-check") => scopes::check()?,
         Some("theme-check") => tasks::themecheck(args)?,
         Some("update-nix-grammar-sources") => grammar_sources::update(args)?,
         Some("update-grammars") => grammar_updates::update(args)?,

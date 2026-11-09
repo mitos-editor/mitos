@@ -1,3 +1,15 @@
+"ui.picker.match" = { fg = "greyE" }
+"comment.error" = { fg = "red", modifiers = ["dim"] }
+"comment.warning" = { fg = "peach", modifiers = ["dim"] }
+"comment.info" = { fg = "blue", modifiers = ["dim"] }
+"comment.hint" = { fg = "paleblue", modifiers = ["dim"] }
+
+# Interface and readonly symbol styles.
+"ui.welcome.heading" = { fg = "greyE" }
+"ui.welcome.command" = { fg = "foreground" }
+"variable.readonly" = { fg = "foreground" }
+"variable.other.member.readonly" = { fg = "foreground" }
+
 # Author : Joe Mckay joemckay3006@gmail.com
 # Palette from https://github.com/haishanh/night-owl.vim
 # License: MIT (see licenses/night_owl.license)
@@ -70,7 +82,6 @@
 'tag' = { fg = 'blue' }
 'namespace' = { fg = 'peach' }
 'special' = { fg = 'greyE' }
-'module' = { fg = 'greyE' }
 'attribute' = { fg = 'paleblue' }
 
 # MARKUP

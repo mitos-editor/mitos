@@ -1,12 +1,12 @@
 interface Shape { size: number; }
-//        ^ @type
+//        ^ @type.interface.definition
 //                ^ @variable.other.member
 //                      ^ @type.builtin
 class Box {
-//    ^ @type
+//    ^ @type.class.definition
   method(count: number): void {
-//^ @function.method
+//^ @function.method.definition
     obj.doThing();
-//      ^ @function.method
+//      ^ @function.method.call
   }
 }

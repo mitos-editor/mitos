@@ -76,7 +76,7 @@
   (#eq? @operator "|>"))
 
 (application_expression
-  function: (value_path (value_name) @function))
+  function: (value_path (value_name) @function.call))
 
 (
   (value_name) @function.builtin

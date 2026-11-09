@@ -1,13 +1,25 @@
 # Author: dgkf
 # Modified from base16_terminal, Author: NNB <nnbnh@protonmail.com>
 
+# Source annotations and picker matches can be styled independently.
+# Interface and readonly symbol styles.
+"ui.welcome.heading" = "red"
+"ui.welcome.command" = { fg = "yellow", modifiers = ["bold"] }
+"variable.readonly" = { fg = "yellow", modifiers = ["bold"] }
+"variable.other.member.readonly" = { fg = "yellow", modifiers = ["bold"] }
+
+"ui.picker.match" = "red"
+"comment.error" = "red"
+"comment.warning" = "yellow"
+"comment.info" = "blue"
+"comment.hint" = "cyan"
+
 inherits = "term16_dark"
 
 "ui.background.separator" = "light-gray"
 "ui.cursor" = { fg = "gray", modifiers = ["reversed"] }
 "ui.cursor.match" = { fg = "yellow", modifiers = ["reversed"] }
 "ui.cursor.primary" = { fg = "black", modifiers = ["reversed"] }
-"ui.cursor.secondary" = { fg = "gray", modifiers = ["reversed"] }
 "ui.cursorline.primary" = { bg = "white" }
 "ui.cursorline.secondary" = { bg = "white" }
 "ui.cursorcolumn.primary" = { bg = "white" }
@@ -80,6 +92,5 @@ inherits = "term16_dark"
 
 "hint" = "cyan"
 "info" = "blue"
-"debug" = "light-yellow"
 "warning" = "yellow"
 "error" = "red"

@@ -42,8 +42,9 @@
   (fast_math)
 ] @keyword.control
 
-(_ callee: (value (var [(local_var) (global_var)] @function)))
-(function_header name: _ @function)
+(_ callee: (value (var [(local_var) (global_var)] @function.call)))
+(declare (function_header name: _ @function.declaration))
+(fn_define (function_header name: _ @function.definition))
 
 [
   "declare"

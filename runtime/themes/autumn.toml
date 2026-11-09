@@ -8,13 +8,25 @@
 # Author: Jens Getreu <getreu at web.de>
 # License: CC-BY-SA-3.0 (see licenses/autumn.license)
 
+# Source annotations and picker matches can be styled independently.
+# Interface and readonly symbol styles.
+"ui.welcome.heading" = "my_yellow1"
+"ui.welcome.command" = "my_white3"
+"variable.readonly" = "my_white3"
+"variable.other.member.readonly" = "my_white3"
+
+"ui.picker.match" = "my_yellow1"
+"comment.error" = "my_red"
+"comment.warning" = "my_yellow2"
+"comment.info" = "my_yellow2"
+"comment.hint" = "my_gray6"
+
 "attribute" = "my_turquoise1"
 "comment" = { fg = "my_gray5" }
 "constant.character.escape" = "my_turquoise1"
 "constant" = "my_white3"
 "constant.numeric" = "my_turquoise1"
 "constructor" = "my_yellow1"
-"debug" = "my_yellow2"
 "diagnostic.error" = { underline = { style = "curl", color = "my_red" } }
 "diagnostic.hint" = { underline = { style = "line", color = "my_gray5" }, bg = "my_black"}
 "diagnostic.info" = { underline = { style = "line" } }

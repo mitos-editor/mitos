@@ -5,9 +5,9 @@ enum Color { Red }
 fn f(self) {
 //   ^ @variable.builtin
     println!("ok");
-//  ^ @function.macro
+//  ^ @function.macro.call
     self.helper();
-//       ^ @function.method
+//       ^ @function.method.call
     let p = Point {};
 //          ^ @constructor
 }

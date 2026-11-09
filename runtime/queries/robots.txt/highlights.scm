@@ -2,7 +2,7 @@
 
 (directive) @attribute
 
-(rule (unknownDirective) @attribute) @diagnostic.error
+(rule (unknownDirective) @attribute) @error
 
 (userAgent) @namespace
 
@@ -11,8 +11,8 @@
 ((value) @string.special.path
   (#match? @string.special.path "^/"))
 
-((value) @ui.text.directory
-  (#match? @ui.text.directory "^/.+/$"))
+((value) @string.special.path
+  (#match? @string.special.path "^/.+/$"))
 
 ((value) @operator
   (#match? @operator "\\*"))

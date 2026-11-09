@@ -107,12 +107,12 @@
 
 ; * local function call
 (call
-  target: (identifier) @function)
+  target: (identifier) @function.call)
 
 ; * remote function call
 (call
   target: (dot
-    right: (identifier) @function))
+    right: (identifier) @function.call))
 
 ; * field without parentheses or block
 (call
@@ -127,7 +127,7 @@
       (alias)
       (atom)
     ]
-    right: (identifier) @function)
+    right: (identifier) @function.call)
   .)
 
 ; * definition keyword
@@ -145,9 +145,9 @@
   target: (identifier) @keyword
   (arguments
     [
-      (identifier) @function
+      (identifier) @function.call
       (binary_operator
-        left: (identifier) @function
+        left: (identifier) @function.call
         operator: "when")
     ])
   (#any-of? @keyword "def" "defdelegate" "defguard" "defguardp" "defmacro" "defmacrop" "defn" "defnp" "defp"))
@@ -171,7 +171,7 @@
   operator: "|>"
   right: (call
     target: (dot
-      right: (identifier) @function)))
+      right: (identifier) @function.call)))
 
 ; Operators
 
@@ -182,8 +182,8 @@
     (integer) @operator
     (binary_operator
       left: [
-        (call target: (dot left: (_) right: (identifier) @function))
-        (identifier) @function
+        (call target: (dot left: (_) right: (identifier) @function.call))
+        (identifier) @function.call
       ] operator: "/" right: (integer) @operator)
   ])
 
@@ -216,7 +216,7 @@
 (unary_operator
   operator: "@" @comment.block.documentation
   operand: (call
-    target: (identifier) @comment.block.documentation.__attribute__
+    target: (identifier) @_attribute @comment.block.documentation
     (arguments
       [
         (string) @comment.block.documentation
@@ -226,7 +226,7 @@
           quoted_end: _ @comment.block.documentation) @comment.block.documentation
         (boolean) @comment.block.documentation
       ]))
-  (#any-of? @comment.block.documentation.__attribute__ "moduledoc" "typedoc" "doc"))
+  (#any-of? @_attribute "moduledoc" "typedoc" "doc"))
 
 ; Module
 

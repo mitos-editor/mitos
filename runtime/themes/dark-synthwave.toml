@@ -5,6 +5,17 @@
 # License: MIT (see licenses/dark-synthwave.license)
 
 # UI Colors
+# Source annotations and picker matches can be styled independently.
+# Interface and readonly symbol styles.
+"ui.welcome.command" = "salmon"
+"variable.readonly" = "salmon"
+"variable.other.member.readonly" = "salmon"
+
+"comment.error" = "error"
+"comment.warning" = "warning"
+"comment.info" = "info"
+"comment.hint" = "info"
+
 "ui.link" = { modifiers = ["underlined"] }
 "ui.background" = { bg = "black", fg = "blood-red" }
 "ui.cursor" = { fg = "white", modifiers = ["reversed"] }

@@ -8,7 +8,7 @@ extends Node
 #                  ^ @type.builtin
 #                          ^ @constant.numeric.float
 func move(delta: float) -> void:
-#    ^ @function
+#    ^ @function.definition
 #         ^ @variable.parameter
 #                          ^ @type.builtin
     print(Vector2.ZERO)

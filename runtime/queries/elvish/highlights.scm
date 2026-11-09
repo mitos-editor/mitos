@@ -38,7 +38,7 @@
 
 (function_definition
   "fn" @keyword.function
-  (identifier) @function)
+  (identifier) @function.definition)
 
 (parameter_list parameter: (identifier) @variable.parameter)
 (parameter_list "|" @punctuation.bracket)

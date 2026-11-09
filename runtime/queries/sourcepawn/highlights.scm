@@ -6,9 +6,9 @@
 
 ; Function definitions/declarations
 (function_definition
-  name: (identifier) @function)
+  name: (identifier) @function.definition)
 (function_declaration
-  name: (identifier) @function)
+  name: (identifier) @function.declaration)
 (parameter_declaration
   name: (identifier) @variable.parameter)
 
@@ -18,10 +18,10 @@
 
 ; Function calls
 (call_expression
-  function: (identifier) @function)
+  function: (identifier) @function.call)
 (call_expression
   function: (field_access
-    field: (identifier) @function.method))
+    field: (identifier) @function.method.call))
 
 ; Types
 (builtin_type) @type.builtin

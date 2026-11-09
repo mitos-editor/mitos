@@ -99,6 +99,27 @@ pub(crate) fn supports_feature(
                     | CallHierarchyServerCapability::Options(_)
             )
         ),
+        LanguageServerFeature::SemanticTokens => capabilities
+            .semantic_tokens_provider
+            .as_ref()
+            .is_some_and(|provider| {
+                let options = match provider {
+                    lsp::SemanticTokensServerCapabilities::SemanticTokensOptions(options) => {
+                        options
+                    }
+                    lsp::SemanticTokensServerCapabilities::SemanticTokensRegistrationOptions(
+                        options,
+                    ) => &options.semantic_tokens_options,
+                };
+                options.range == Some(true)
+                    || matches!(
+                        options.full,
+                        Some(
+                            lsp::SemanticTokensFullOptions::Bool(true)
+                                | lsp::SemanticTokensFullOptions::Delta { .. }
+                        )
+                    )
+            }),
         LanguageServerFeature::CodeLens => capabilities.code_lens_provider.is_some(),
         LanguageServerFeature::InlineValues => capabilities.inline_value_provider.is_some(),
     }

@@ -1,6 +1,6 @@
 class C {
     void M() {
         Invokeit();
-//      ^ @function
+//      ^ @function.call
     }
 }

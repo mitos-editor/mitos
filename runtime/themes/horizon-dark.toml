@@ -1,6 +1,19 @@
 # License: MIT (see licenses/horizon.license)
 
 # Syntax
+# Source annotations and picker matches can be styled independently.
+# Interface and readonly symbol styles.
+"ui.welcome.heading" = "purple"
+"ui.welcome.command" = "purple"
+"variable.readonly" = "purple"
+"variable.other.member.readonly" = "purple"
+
+"ui.picker.match" = "purple"
+"comment.error" = { fg = "red", modifiers = ["bold"] }
+"comment.warning" = { fg = "orange", modifiers = ["bold"] }
+"comment.info" = { fg = "blue", modifiers = ["bold"] }
+"comment.hint" = { fg = "green", modifiers = ["bold"] }
+
 string = "orange"
 constant = "purple"
 "constant.numeric" = "orange"
@@ -57,8 +70,8 @@ tag = "red"
 "diagnostic" = { underline = { style = "curl" } }
 "diagnostic.hint" = { underline = { color = "green", style = "curl" } }
 "diagnostic.info" = { underline = { color = "blue", style = "curl" } }
-"diagnostics.error" = { underline = { color = "red", style = "curl" } }
-"diagnostics.warning" = { underline = { color = "orange", style = "curl" } }
+"diagnostic.error" = { underline = { color = "red", style = "curl" } }
+"diagnostic.warning" = { underline = { color = "orange", style = "curl" } }
 "diagnostic.unnecessary" = { modifiers = ["dim"] }
 "diagnostic.deprecated" = { modifiers = ["crossed_out"] }
 

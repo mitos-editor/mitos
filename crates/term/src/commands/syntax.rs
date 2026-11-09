@@ -357,14 +357,11 @@ pub(super) mod typed {
     }
 
     #[cold]
-    pub(in crate::commands) fn tree_sitter_highlight_name(
+    pub(in crate::commands) fn highlight_inspect(
         cx: &mut compositor::Context,
         _args: Args,
     ) -> anyhow::Result<()> {
         let (view, doc) = current_ref!(cx.editor);
-        let Some(syntax) = doc.syntax() else {
-            return Ok(());
-        };
         let text = doc.text().slice(..);
         let cursor = doc.selection(view.id).primary().cursor(text);
         let byte = text.char_to_byte_idx(cursor) as u32;
@@ -383,26 +380,42 @@ pub(super) mod typed {
         };
 
         let loader = cx.editor.syn_loader.load();
-        let mut highlighter = syntax.highlighter(text, &loader, range);
         let mut highlights = Vec::new();
-
-        while highlighter.next_event_offset() <= byte {
-            let (event, new_highlights) = highlighter.advance();
-            if event == editor_core::highlight::HighlightEvent::Refresh {
-                highlights.clear();
+        if let Some(syntax) = doc.syntax() {
+            let mut highlighter = syntax.highlighter(text, &loader, range);
+            while highlighter.next_event_offset() <= byte {
+                let (event, new_highlights) = highlighter.advance();
+                if event == editor_core::highlight::HighlightEvent::Refresh {
+                    highlights.clear();
+                }
+                highlights.extend(new_highlights);
             }
-            highlights.extend(new_highlights);
         }
 
-        let content = highlights
-            .into_iter()
-            .fold(String::new(), |mut acc, highlight| {
-                if !acc.is_empty() {
-                    acc.push_str(", ");
-                }
-                acc.push_str(cx.editor.theme.scope(highlight));
-                acc
+        let mut content = String::from("### Syntax highlighting\n\n");
+        let syntax_scope = highlights.last().map(|id| cx.editor.theme.scope(*id));
+        let syntax_style = highlights
+            .iter()
+            .fold(cx.editor.theme.get("ui.text"), |style, id| {
+                style.patch(cx.editor.theme.highlight(*id))
             });
+        for highlight in &highlights {
+            let scope = cx.editor.theme.scope(*highlight);
+            let selectors = cx.editor.theme.matching_selectors(scope);
+            content.push_str(&format!(
+                "- Capture: `{scope}`\n- Theme selectors: `{}`\n- Style: `{:?}`\n\n",
+                selectors.join("`, `"),
+                cx.editor.theme.highlight(*highlight)
+            ));
+        }
+        if let Some(token) = doc
+            .semantic_tokens()
+            .iter()
+            .find(|token| token.range.contains(&cursor))
+        {
+            let effective = theme::scopes::refine(syntax_scope, &token.scope);
+            content.push_str(&format!("### Semantic refinement\n\n- Server classification: `{}`\n- Effective classification: `{effective}`\n- Theme selectors: `{}`\n- Style: `{:?}`\n", token.scope, cx.editor.theme.matching_selectors(&effective).join("`, `"), syntax_style.patch(cx.editor.theme.get(&effective))));
+        }
 
         let callback = async move {
             let call: job::Callback = Callback::ui(move |compositor, cx| {

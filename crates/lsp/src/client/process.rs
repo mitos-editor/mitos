@@ -183,12 +183,70 @@ impl Client {
                     diagnostic: Some(lsp::DiagnosticWorkspaceClientCapabilities {
                         refresh_support: Some(true),
                     }),
+                    semantic_tokens: Some(lsp::SemanticTokensWorkspaceClientCapabilities {
+                        refresh_support: Some(true),
+                    }),
                     code_lens: Some(lsp::CodeLensWorkspaceClientCapabilities {
                         refresh_support: Some(true),
                     }),
-                    ..Default::default()
                 }),
                 text_document: Some(lsp::TextDocumentClientCapabilities {
+                    semantic_tokens: Some(lsp::SemanticTokensClientCapabilities {
+                        dynamic_registration: Some(false),
+                        requests: lsp::SemanticTokensClientCapabilitiesRequests {
+                            range: Some(true),
+                            full: Some(lsp::SemanticTokensFullOptions::Bool(true)),
+                        },
+                        token_types: [
+                            "namespace",
+                            "type",
+                            "class",
+                            "enum",
+                            "interface",
+                            "struct",
+                            "typeParameter",
+                            "parameter",
+                            "variable",
+                            "property",
+                            "enumMember",
+                            "event",
+                            "function",
+                            "method",
+                            "macro",
+                            "keyword",
+                            "modifier",
+                            "comment",
+                            "string",
+                            "number",
+                            "regexp",
+                            "operator",
+                            "decorator",
+                            "label",
+                        ]
+                        .into_iter()
+                        .map(lsp::SemanticTokenType::new)
+                        .collect(),
+                        token_modifiers: [
+                            "declaration",
+                            "definition",
+                            "readonly",
+                            "static",
+                            "deprecated",
+                            "abstract",
+                            "async",
+                            "modification",
+                            "documentation",
+                            "defaultLibrary",
+                        ]
+                        .into_iter()
+                        .map(lsp::SemanticTokenModifier::new)
+                        .collect(),
+                        formats: vec![lsp::TokenFormat::RELATIVE],
+                        overlapping_token_support: Some(false),
+                        multiline_token_support: Some(false),
+                        server_cancel_support: Some(false),
+                        augments_syntax_tokens: Some(true),
+                    }),
                     completion: Some(lsp::CompletionClientCapabilities {
                         completion_item: Some(lsp::CompletionItemCapability {
                             snippet_support: Some(enable_snippets),

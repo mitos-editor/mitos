@@ -1,7 +1,7 @@
 export fn main() void = {
-//        ^ @function
+//        ^ @function.definition
     io::print("hello");
-//      ^ @function
+//      ^ @function.call
     let enabled = true;
 //                ^ @constant.builtin.boolean
 };

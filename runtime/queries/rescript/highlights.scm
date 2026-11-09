@@ -200,7 +200,7 @@
 
 ; A call's callee is a function (before the raise special-case below).
 (call_expression
-  function: (value_identifier) @function)
+  function: (value_identifier) @function.call)
 
 (call_expression
   function: (value_identifier) @keyword.control.exception

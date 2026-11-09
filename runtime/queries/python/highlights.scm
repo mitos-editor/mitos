@@ -195,7 +195,7 @@
         (_ [(identifier) (none)]? @type)))))
 
 ; Classes
-(class_definition name: (identifier) @type)
+(class_definition name: (identifier) @type.class.definition)
 (class_definition superclasses: (argument_list (identifier) @type))
 
 ; -------
@@ -203,26 +203,25 @@
 ; -------
 
 (function_definition
-  name: (identifier) @function)
+  name: (identifier) @function.definition)
 
 (call
-  function: (identifier) @function)
-
-; Decorators
-(decorator (identifier) @function)
-(decorator (attribute attribute: (identifier) @function))
-(decorator (call
-  function: (attribute attribute: (identifier) @function)))
+  function: (identifier) @function.call)
 
 ; Methods
 (call
-  function: (attribute attribute: (identifier) @function.method))
+  function: (attribute attribute: (identifier) @function.method.call))
+
+(class_definition body: (block
+  (function_definition name: (identifier) @function.method.definition)))
+(class_definition body: (block (decorated_definition
+  definition: (function_definition name: (identifier) @function.method.definition))))
 
 ; Builtin functions
 ((call
-  function: (identifier) @function.builtin)
+  function: (identifier) @function.builtin.call)
  (#any-of?
-   @function.builtin
+   @function.builtin.call
    "abs" "all" "any" "ascii" "bin" "breakpoint" "bytearray" "callable" "chr"
    "classmethod" "compile" "complex" "delattr" "dir" "divmod" "enumerate"
    "eval" "exec" "filter" "format" "getattr" "globals" "hasattr" "hash" "help"
@@ -233,27 +232,27 @@
 
 ; Constructors
 (call
-  function: (attribute attribute: (identifier) @constructor)
+  function: (attribute attribute: (identifier) @constructor.call)
   (#any-of?
-    @constructor
+    @constructor.call
     "__new__" "__init__"))
 
 ((call
-  function: (identifier) @constructor)
+  function: (identifier) @constructor.call)
  (#any-of?
-   @constructor
+   @constructor.call
    "__new__" "__init__"))
 
 (function_definition
-  name: (identifier) @constructor
- (#any-of? @constructor "__new__" "__init__"))
+  name: (identifier) @constructor.definition
+ (#any-of? @constructor.definition "__new__" "__init__"))
 
 (call
-  function: (attribute attribute: (identifier) @constructor)
- (#match? @constructor "^[A-Z]"))
+  function: (attribute attribute: (identifier) @constructor.call)
+ (#match? @constructor.call "^[A-Z]"))
 (call
-  function: (identifier) @constructor
- (#match? @constructor "^[A-Z]"))
+  function: (identifier) @constructor.call
+ (#match? @constructor.call "^[A-Z]"))
 
 ; Builtin types
 ((identifier) @type.builtin ; Has to be after functions due to broad matching
@@ -327,3 +326,9 @@
   left: (identifier) @type.definition
   type: (type (identifier) @_ann))
  (#eq? @_ann "TypeAlias"))
+
+; Decorator names are attributes, even when the decorator is a call expression.
+(decorator (identifier) @attribute)
+(decorator (attribute attribute: (identifier) @attribute))
+(decorator (call function: (identifier) @attribute))
+(decorator (call function: (attribute attribute: (identifier) @attribute)))

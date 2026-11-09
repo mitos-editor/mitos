@@ -491,6 +491,7 @@ Available statusline elements:
 | `inlay-hints.length-limit` | non-zero integer or unset | Unset | Truncate displayed inlay hints to this length. |
 | `color-swatches.enable` | boolean | `true` | Render swatches beside document colors. |
 | `code-actions.border-style` | border style or `"inherit"` | `"inherit"` | Code action menu borders. See [popup borders](#popup-borders). |
+| `semantic-tokens.enable` | boolean | `true` | Refine syntax colors with language-server symbol kinds and traits. See [semantic highlighting](./themes.md#semantic-highlighting). |
 | `code-lenses.enable` | boolean | `true` | Show code lens labels, such as run or test actions, beside code. Use `Space l` for the commands on the current line. |
 | `code-lenses.border-style` | border style or `"inherit"` | `"inherit"` | Code lens command menu borders. See [popup borders](#popup-borders). |
 | `completion.snippets` | boolean | `true` | Advertise and insert LSP snippet completions. A server restart is required after changing it. |

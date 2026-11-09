@@ -6,10 +6,23 @@
 ## SYNTAX HIGHLIGHTING
 
 # Constants
+# Source annotations and picker matches can be styled independently.
+# Interface and readonly symbol styles.
+"ui.welcome.heading" = "nord9"
+"ui.welcome.command" = "nord4"
+"variable.readonly" = "nord4"
+"variable.other.member.readonly" = "nord4"
+
+"ui.picker.match" = "nord9"
+"comment.error" = "nord11"
+"comment.warning" = "nord13"
+"comment.info" = "nord8"
+"comment.hint" = "nord10"
+
 "constant" = "nord4"
 "constant.builtin" = "nord9"
 "constant.builtin.boolean" = "nord9"
-"constant.builtin.character" = "nord15"
+"constant.character" = "nord15"
 "constant.character.escape" = "nord13"
 "constant.macro" = "nord9"
 "constant.numeric" = "nord15"
@@ -41,7 +54,7 @@
 "function.special" = "nord9"
 
 # Git
-"git.delta.moved" = "nord12"
+"diff.delta.moved" = "nord12"
 
 # Keywords
 "keyword" = "nord9"
@@ -51,7 +64,7 @@
 "keyword.directive" = "nord9"
 "keyword.function" = "nord9"
 "keyword.operator" = "nord9"
-"keyword.return" = "nord9"
+"keyword.control.return" = "nord9"
 "keyword.storage.modifier" = "nord9"
 "keyword.storage.type" = "nord9"
 
@@ -63,8 +76,7 @@
 
 # Strings
 "string" = "nord14"
-"string.escape" = "nord13"
-"string.regex" = "nord13"
+"string.regexp" = "nord13"
 "string.special" = "nord13"
 
 # Types

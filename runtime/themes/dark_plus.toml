@@ -2,6 +2,19 @@
 # License: MIT (see licenses/vscode.license)
 
 # SYNTAX
+# Source annotations and picker matches can be styled independently.
+# Interface and readonly symbol styles.
+"ui.welcome.heading" = "light_blue"
+"ui.welcome.command" = "constant"
+"variable.readonly" = "constant"
+"variable.other.member.readonly" = "constant"
+
+"ui.picker.match" = "light_blue"
+"comment.error" = { fg = "red" }
+"comment.warning" = { fg = "gold2" }
+"comment.info" = { fg = "light_blue" }
+"comment.hint" = { fg = "light_gray3" }
+
 "attribute"                 = "variable"
 "comment"                   = "dark_green"
 "constant"                  = "constant"
@@ -20,7 +33,6 @@
 "keyword.control"           = "special"
 "keyword.directive"         = "special"
 "label"                     = "blue2"
-"module"                    = "type"
 "namespace"                 = "type"
 "operator"                  = "text"
 "punctuation"               = "text"

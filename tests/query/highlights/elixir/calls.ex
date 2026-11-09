@@ -1,10 +1,10 @@
 def f(x) do
   helper(x)
-# ^ @function
+# ^ @function.call
   x |> Mod.doThing()
-#          ^ @function
+#          ^ @function.call
   "#{String.upcase(x)}"
-#            ^ @function
+#            ^ @function.call
   is_binary(x)
-# ^ @function
+# ^ @function.call
 end

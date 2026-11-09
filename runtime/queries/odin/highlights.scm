@@ -197,11 +197,11 @@
 
 (overloaded_procedure_declaration (identifier) @function)
 
-(call_expression function: (identifier) @function)
+(call_expression function: (identifier) @function.call)
 
 (call_expression
-  function: (identifier) @function.builtin
-  (#any-of? @function.builtin
+  function: (identifier) @function.builtin.call
+  (#any-of? @function.builtin.call
     "abs" "align_of" "append" "append_elem" "append_elem_string" 
     "append_elems" "append_nothing" "append_soa" "append_soa_elem" 
     "append_soa_elems" "append_string" "assert" "assert_contextless" 
@@ -280,7 +280,7 @@
 (member_expression
   (identifier) "."
   (call_expression
-    function: (identifier) @function.method))
+    function: (identifier) @function.method.call))
 
 (struct_type "{" (identifier) @variable.other.member)
 

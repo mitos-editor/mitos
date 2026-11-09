@@ -1,8 +1,8 @@
 function f(x)
     obj.doThing(x)
-#       ^ @function
+#       ^ @function.call
     helper(x)
-#   ^ @function
+#   ^ @function.call
     y = obj.field
 #           ^ @variable.other.member
 end

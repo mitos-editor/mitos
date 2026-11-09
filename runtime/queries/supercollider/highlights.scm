@@ -7,12 +7,12 @@
 (environment_var name:(identifier) @variable.builtin)
 (builtin_var) @constant.builtin
 
-(function_definition name: (variable (_ name: (identifier) @function)))
+(function_definition name: (variable (_ name: (identifier) @function.definition)))
 
 (named_argument name: (identifier) @variable.other.member)
 
-(function_call name: (identifier) @function)
-(function_call "." name: (identifier) @function.method)
+(function_call name: (identifier) @function.call)
+(function_call "." name: (identifier) @function.method.call)
 
 (class) @type
 

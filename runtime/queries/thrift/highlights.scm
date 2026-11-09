@@ -12,7 +12,7 @@
 ; Function
 
 (function_definition
-  (identifier) @function)
+  (identifier) @function.definition)
 
 ; Fields
 
@@ -163,7 +163,7 @@
   "server"
   "stateful"
   "transient"
-] @type.directive
+] @keyword.directive
 
 ; Literals
 
@@ -208,4 +208,3 @@
 ; Comments
 
 (comment) @comment
-

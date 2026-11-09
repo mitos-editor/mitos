@@ -335,37 +335,51 @@
   arguments: (arguments
     (scoped_identifier
       path: _
-      name: (identifier) @function)))
+      name: (identifier) @function.reference)))
 
 (call_expression
   function: [
-    ((identifier) @function)
+    ((identifier) @function.call)
     (scoped_identifier
-      name: (identifier) @function)
+      name: (identifier) @function.call)
     ; method call `obj.method()` — consistent with the generic_function case below
     (field_expression
-      field: (field_identifier) @function.method)
+      field: (field_identifier) @function.method.call)
   ])
 (generic_function
   function: [
-    ((identifier) @function)
+    ((identifier) @function.reference)
     (scoped_identifier
-      name: (identifier) @function)
+      name: (identifier) @function.reference)
     (field_expression
-      field: (field_identifier) @function.method)
+      field: (field_identifier) @function.method.reference)
   ])
 
+(call_expression
+  function: (generic_function
+    function: [
+      (identifier) @function.call
+      (scoped_identifier name: (identifier) @function.call)
+      (field_expression field: (field_identifier) @function.method.call)
+    ]))
+
 (function_item
-  name: (identifier) @function)
+  name: (identifier) @function.definition)
 (function_signature_item
-  name: (identifier) @function)
+  name: (identifier) @function.declaration)
 
 (function_item
   (visibility_modifier) 
-  name: (identifier) @function.public)
+  name: (identifier) @function.public.definition)
 (function_signature_item
   (visibility_modifier) 
-  name: (identifier) @function.public)
+  name: (identifier) @function.public.declaration)
+
+; Associated functions and receiver methods in impls and traits.
+(impl_item body: (declaration_list (function_item name: (identifier) @function.method.definition)))
+(trait_item body: (declaration_list (function_item name: (identifier) @function.method.definition)))
+(trait_item body: (declaration_list (function_signature_item name: (identifier) @function.method.declaration)))
+(impl_item body: (declaration_list (function_item (visibility_modifier) name: (identifier) @function.method.public.definition)))
 
 ; -------
 ; Guess Other Types
@@ -486,14 +500,14 @@
 (inner_attribute_item) @attribute
 
 (macro_definition
-  name: (identifier) @function.macro)
+  name: (identifier) @function.macro.definition)
 (macro_invocation
   macro: [
-    ((identifier) @function.macro)
+    ((identifier) @function.macro.call)
     (scoped_identifier
-      name: (identifier) @function.macro)
+      name: (identifier) @function.macro.call)
   ]
-  "!" @function.macro)
+  "!" @function.macro.call)
 
 (metavariable) @variable.parameter
 (fragment_specifier) @type
@@ -517,8 +531,8 @@
 
 
 (call_expression
-  (identifier) @function.builtin
-  (#any-of? @function.builtin
+  (identifier) @function.builtin.call
+  (#any-of? @function.builtin.call
     "drop"
     "size_of"
     "size_of_val"
@@ -564,3 +578,10 @@
     "FromIterator"
     "TryFrom"
     "TryInto"))
+
+; Definition kinds are known syntactically; references may require semantic tokens.
+(struct_item name: (type_identifier) @type.struct.definition)
+(enum_item name: (type_identifier) @type.enum.definition)
+(trait_item name: (type_identifier) @type.trait.definition)
+(union_item name: (type_identifier) @type.union.definition)
+(type_item name: (type_identifier) @type.alias.definition)

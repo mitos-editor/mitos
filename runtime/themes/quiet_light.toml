@@ -6,6 +6,19 @@
 
 # --- Syntax ---
 
+# Source annotations and picker matches can be styled independently.
+# Interface and readonly symbol styles.
+"ui.welcome.heading" = "orange"
+"ui.welcome.command" = "orange"
+"variable.readonly" = "orange"
+"variable.other.member.readonly" = "orange"
+
+"ui.picker.match" = "orange"
+"comment.error" = "error-red"
+"comment.warning" = "warn"
+"comment.info" = "blue"
+"comment.hint" = "gray"
+
 "comment" = { fg = "muted", modifiers = ["italic"] }
 "comment.line" = { fg = "muted", modifiers = ["italic"] }
 "comment.block" = { fg = "muted", modifiers = ["italic"] }

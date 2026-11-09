@@ -150,8 +150,8 @@
 (parameters (identifier) @variable.parameter)
 
 (function_call
-  (identifier) @function.builtin
-  (#any-of? @function.builtin
+  (identifier) @function.builtin.call
+  (#any-of? @function.builtin.call
     ;; built-in functions in Lua 5.1
     "assert" "collectgarbage" "dofile" "error" "getfenv" "getmetatable" "ipairs"
     "load" "loadfile" "loadstring" "module" "next" "pairs" "pcall" "print"
@@ -160,14 +160,14 @@
 
 (function_declaration
   name: [
-    (identifier) @function
+    (identifier) @function.definition
     (dot_index_expression
-      field: (identifier) @function)
+      field: (identifier) @function.definition)
   ])
 
 (function_declaration
   name: (method_index_expression
-    method: (identifier) @function.method))
+    method: (identifier) @function.method.definition))
 
 (assignment_statement
   (variable_list .
@@ -189,11 +189,11 @@
 
 (function_call
   name: [
-    (identifier) @function
+    (identifier) @function.call
     (dot_index_expression
-      field: (identifier) @function)
+      field: (identifier) @function.call)
     (method_index_expression
-      method: (identifier) @function.method)
+      method: (identifier) @function.method.call)
   ])
 
 ; TODO: incorrectly highlights variable N in `N, nop = 42, function() end`

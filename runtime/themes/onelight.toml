@@ -1,15 +1,26 @@
 # Author : erasin<erasinoo@gmail.com>
 # License: MIT (see licenses/onelight.license)
 
+# Source annotations and picker matches can be styled independently.
+# Interface and readonly symbol styles.
+"ui.welcome.heading" = { fg = "deep-purple" }
+"ui.welcome.command" = { fg = "cyan", modifiers = ["bold"] }
+"variable.readonly" = { fg = "cyan", modifiers = ["bold"] }
+"variable.other.member.readonly" = { fg = "cyan", modifiers = ["bold"] }
+
+"ui.picker.match" = { fg = "deep-purple" }
+"comment.error" = { fg = "red", modifiers = ["bold"] }
+"comment.warning" = { fg = "yellow", modifiers = ["bold"] }
+"comment.info" = { fg = "blue", modifiers = ["bold"] }
+"comment.hint" = { fg = "green", modifiers = ["bold"] }
+
 "attribute" = { fg = "yellow" }
 "label" = { fg = "cyan" }
 "operator" = { fg = "red" }
 "tag" = { fg = "cyan" }
 "special" = { fg = "deep-purple" }
-"property" = { fg = "purple" }
 "constructor" = { fg = "blue" }
 "namespace" = { fg = "blue" }
-"module" = { fg = "blue" }
 
 "type" = { fg = "gold" }
 "type.builtin" = { fg = "yellow" }

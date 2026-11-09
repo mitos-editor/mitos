@@ -185,13 +185,20 @@
 ; Method signatures in interfaces / type literals, and function-typed
 ; property signatures (`foo(): void`, `bar: () => void`).
 (method_signature
-  name: (property_identifier) @function.method)
+  name: (property_identifier) @function.method.declaration)
 (abstract_method_signature
-  name: (property_identifier) @function.method)
+  name: (property_identifier) @function.method.declaration)
 (property_signature
-  name: (property_identifier) @function.method
+  name: (property_identifier) @function.method.declaration
   type: (type_annotation
     [
       (function_type)
       (union_type (parenthesized_type (function_type)))
     ]))
+
+(interface_declaration name: (type_identifier) @type.interface.definition)
+(type_alias_declaration name: (type_identifier) @type.alias.definition)
+(enum_declaration name: (identifier) @type.enum.definition)
+
+(class_declaration name: (type_identifier) @type.class.definition)
+(class name: (type_identifier) @type.class.definition)

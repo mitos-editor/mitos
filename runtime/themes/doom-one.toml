@@ -1,6 +1,17 @@
 # Author: spentbliss <zyhkekrz.hatbox475@passinbox.com>
 # License: MIT (see licenses/doom-one.LICENSE)
 
+# Source annotations and picker matches can be styled independently.
+# Interface and readonly symbol styles.
+"ui.welcome.command" = "orange"
+"variable.readonly" = "orange"
+"variable.other.member.readonly" = "orange"
+
+"comment.error" = { fg = "red", modifiers = ["bold"] }
+"comment.warning" = { fg = "yellow", modifiers = ["bold"] }
+"comment.info" = { fg = "cyan", modifiers = ["bold"] }
+"comment.hint" = { fg = "blue", modifiers = ["bold"] }
+
 "ui.link" = { modifiers = ["underlined"] }
 "ui.background" = { bg = "bg", fg = "fg" } 
 "ui.text" = "fg"
@@ -64,14 +75,13 @@
 "constant.builtin" = "orange"
 "constant.numeric" = "orange"
 "constant.character" = "orange"
-"constant.boolean" = "orange"
+"constant.builtin.boolean" = "orange"
 
 "attribute" = "magenta"
 "operator" = "blue"
 "tag" = { fg = "magenta", modifiers = ["bold"] }
 "tag.special" = { fg = "orange", modifiers = ["bold"] }
 "namespace" = "blue"
-"macro" = "orange"
 "label" = "red"
 
 # Interface specific

@@ -1,11 +1,24 @@
 # Author : Chromo-residuum-opec <development.0extl@simplelogin.com>
 # License: MIT (see licenses/iceberg.license)
 
+# Source annotations and picker matches can be styled independently.
+# Interface and readonly symbol styles.
+"ui.welcome.heading" = { fg = "green" }
+"ui.welcome.command" = { fg = "purple" }
+"variable.readonly" = { fg = "purple" }
+"variable.other.member.readonly" = { fg = "purple" }
+
+"ui.picker.match" = { fg = "green" }
+"comment.error" = { fg = "red" }
+"comment.warning" = { fg = "orange" }
+"comment.info" = { fg = "cyan" }
+"comment.hint" = { fg = "comment_fg" }
+
 "attribute" = { fg = "green" }
-"boolean" = { fg = "purple" }
-"character" = { fg = "purple" }
+"constant.builtin.boolean" = { fg = "purple" }
+"constant.character" = { fg = "purple" }
 "comment" = { fg = "comment_fg" }
-"conditional" = { fg = "blue" }
+"keyword.control.conditional" = { fg = "blue" }
 "constant" = { fg = "purple" }
 "constructor" = { fg = "blue" }
 "diagnostic.deprecated" = { modifiers = ["crossed_out"] }
@@ -21,17 +34,16 @@
 "diff.plus" = { fg = "green" }
 "diff.plus.gutter" = { fg = "green", bg = "linenr_bg" }
 "error" = { fg = "red" }
-"exception" = { fg = "blue" }
-"field" = { fg = "background_fg" }
-"float" = { fg = "purple" }
+"keyword.control.exception" = { fg = "blue" }
+"variable.other.member" = { fg = "background_fg" }
+"constant.numeric.float" = { fg = "purple" }
 "function" = { fg = "pale" }
 "function.macro" = { fg = "green" }
 "hint" = { fg = "comment_fg" }
-"identifier" = { fg = "blue" }
 "info" = { fg = "cyan" }
 "keyword" = { fg = "blue" }
 "keyword.directive" = { fg = "green" }
-"keyword.import" = { fg = "pale" }
+"keyword.control.import" = { fg = "pale" }
 "label" = { fg = "green" }
 "markup.bold" = { modifiers = ["bold"] }
 "markup.heading" = { fg = "blue", modifiers = ["bold"] }
@@ -44,23 +56,21 @@
 "markup.raw" = { fg = "cyan" }
 "markup.raw.inline" = { bg = "black", fg = "blue" }
 "markup.strikethrough" = { modifiers = ["crossed_out"] }
-"method" = { fg = "pale" }
+"function.method" = { fg = "pale" }
 "namespace" = { fg = "blue" }
-"number" = { fg = "purple" }
+"constant.numeric" = { fg = "purple" }
 "operator" = { fg = "blue" }
-"parameter" = { fg = "background_fg" }
-"property" = { fg = "background_fg" }
+"variable.parameter" = { fg = "background_fg" }
 "punctuation.bracket" = { fg = "background_fg" }
 "punctuation.delimiter" = { fg = "background_fg" }
 "punctuation.special" = { fg = "green" }
-"repeat" = { fg = "blue" }
+"keyword.control.repeat" = { fg = "blue" }
 "special" = { fg = "green" }
 "string" = { fg = "cyan" }
-"string.escape" = { fg = "green" }
+"constant.character.escape" = { fg = "green" }
 "string.special" = { fg = "green" }
 "tag" = { fg = "blue" }
-"tag.attribute" = { fg = "purple" }
-"text" = { fg = "background_fg" }
+"ui.text" = { fg = "background_fg" }
 "type" = { fg = "blue" }
 "ui.link" = { modifiers = ["underlined"] }
 "ui.background" = { fg = "background_fg", bg = "background_bg" }
@@ -75,7 +85,7 @@
 "ui.help" = { fg = "background_fg", bg = "cursorlinenr_bg" }
 "ui.linenr" = { fg = "linenr_fg", bg = "linenr_bg" }
 "ui.menu" = { fg = "background_fg", bg = "cursorlinenr_bg" }
-"ui.menu.border" = { fg = "comment_fg" }
+"ui.border" = { fg = "comment_fg" }
 "ui.menu.selected" = { fg = "menusel_fg", bg = "menusel_bg" }
 "ui.popup" = { fg = "background_fg", bg = "cursorlinenr_bg" }
 "ui.popup.info" = { fg = "blue" }

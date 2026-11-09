@@ -152,6 +152,14 @@ where
 
                         Ok(serde_json::Value::Null)
                     }
+                    Ok(MethodCall::SemanticTokensRefresh) => {
+                        let server_id = language_server!().id();
+                        view::features::semantic_tokens::refresh_for_language_server(
+                            &mut self.editor,
+                            server_id,
+                        );
+                        Ok(serde_json::Value::Null)
+                    }
                     Ok(MethodCall::CodeLensRefresh) => {
                         let server_id = language_server!().id();
                         view::features::code_lenses::refresh_for_language_server(

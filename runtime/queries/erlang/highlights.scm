@@ -37,7 +37,7 @@
 ; Functions
 (function_clause name: (atom) @function)
 (call module: (atom) @namespace)
-(call function: (atom) @function)
+(call function: (atom) @function.call)
 (stab_clause name: (atom) @function)
 (function_capture module: (atom) @namespace)
 (function_capture function: (atom) @function)

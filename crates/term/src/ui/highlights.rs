@@ -2,6 +2,7 @@
 //! Inputs describe the document and viewport; no editor component or compositor is required.
 
 use editor_config::{BlockCursorRendering, CursorConfig};
+use editor_core::highlight::Highlight;
 use editor_core::{
     graphemes::{next_grapheme_boundary, prev_grapheme_boundary},
     highlight::OverlayHighlights,
@@ -31,11 +32,68 @@ pub(crate) fn document_syntax_styles<'a>(
         let end = doc.text().byte_to_char_idx(range.end);
         // Captured nodes can extend beyond the queried range. Clamp starts and
         // stop at its end so concatenated segments remain monotonically ordered.
-        std::iter::once((start, theme.get("ui.text"))).chain(
-            syntax_styles(doc.text().slice(..), highlighter, theme)
-                .map(move |(pos, style)| (pos.max(start), style))
-                .take_while(move |(pos, _)| *pos < end),
-        )
+        let syntax = std::iter::once((start, theme.get("ui.text"), None)).chain(
+            classified_syntax_styles(doc.text().slice(..), highlighter, theme)
+                .map(move |(pos, style, scope)| (pos.max(start), style, scope))
+                .take_while(move |(pos, _, _)| *pos < end),
+        );
+        let tokens = doc.semantic_tokens();
+        let first = tokens.partition_point(|token| token.range.end <= start);
+        let semantic = tokens[first..]
+            .iter()
+            .take_while(move |token| token.range.start < end)
+            .map(|token| {
+                (
+                    token.range.start.max(start)..token.range.end.min(end),
+                    token.scope.as_str(),
+                )
+            })
+            .collect::<Vec<_>>();
+        merge_semantic_styles(syntax, semantic, theme)
+    })
+}
+
+/// Merge semantic refinements into syntax events before selection, search and
+/// diagnostic overlays. At token ends the exact underlying syntax is restored.
+fn merge_semantic_styles<'a>(
+    syntax: impl Iterator<Item = (usize, theme::Style, Option<Highlight>)> + 'a,
+    semantic: Vec<(ops::Range<usize>, &'a str)>,
+    theme: &'a Theme,
+) -> impl Iterator<Item = (usize, theme::Style)> + 'a {
+    let mut syntax = syntax.peekable();
+    let mut semantic = semantic
+        .into_iter()
+        .flat_map(|(range, scope)| [(range.start, Some(scope)), (range.end, None)])
+        .peekable();
+    let mut syntax_style = theme::Style::default();
+    let mut syntax_scope = None;
+    let mut semantic_scope = None;
+    let mut resolved = std::collections::HashMap::new();
+    std::iter::from_fn(move || {
+        let pos = match (syntax.peek(), semantic.peek()) {
+            (Some((a, _, _)), Some((b, _))) => (*a).min(*b),
+            (Some((a, _, _)), None) => *a,
+            (None, Some((b, _))) => *b,
+            (None, None) => return None,
+        };
+        while syntax.peek().is_some_and(|(offset, _, _)| *offset == pos) {
+            let (_, style, scope) = syntax.next().unwrap();
+            syntax_style = style;
+            syntax_scope = scope;
+        }
+        while semantic.peek().is_some_and(|(offset, _)| *offset == pos) {
+            semantic_scope = semantic.next().unwrap().1;
+        }
+        let refinement = semantic_scope
+            .map(|semantic| {
+                *resolved.entry((syntax_scope, semantic)).or_insert_with(|| {
+                    let scope =
+                        theme::scopes::refine(syntax_scope.map(|id| theme.scope(id)), semantic);
+                    theme.get(&scope)
+                })
+            })
+            .unwrap_or_default();
+        Some((pos, syntax_style.patch(refinement)))
     })
 }
 
@@ -441,17 +499,18 @@ pub(super) fn primary_native_cursor_kind(
 
 /// Resolve syntax and overlay events into contiguous UTF-8 byte ranges.
 /// Callers convert offsets only when crossing into document character coordinates.
-pub(crate) fn styled_spans(
+fn classified_spans(
     mut syntax: Option<syntax::Highlighter<'_>>,
     overlays: impl IntoIterator<Item = OverlayHighlights>,
     theme: &Theme,
     base: theme::Style,
     len: usize,
-) -> impl Iterator<Item = (ops::Range<usize>, theme::Style)> {
+) -> impl Iterator<Item = (ops::Range<usize>, theme::Style, Option<Highlight>)> {
     use editor_core::highlight::{HighlightEvent, OverlayHighlighter};
 
     let mut overlays = OverlayHighlighter::new(overlays);
     let mut syntax_style = base;
+    let mut syntax_scope = None;
     let mut overlay_style = theme::Style::default();
     let mut position = 0;
     std::iter::from_fn(move || {
@@ -462,11 +521,13 @@ pub(crate) fn styled_spans(
             while syntax.next_event_offset() as usize <= position {
                 let (event, highlights) = syntax.advance();
                 let previous = if event == HighlightEvent::Refresh {
+                    syntax_scope = None;
                     base
                 } else {
                     syntax_style
                 };
                 syntax_style = highlights.fold(previous, |style, highlight| {
+                    syntax_scope = Some(highlight);
                     style.patch(theme.highlight(highlight))
                 });
             }
@@ -490,8 +551,35 @@ pub(crate) fn styled_spans(
         debug_assert!(end > position, "highlight events must advance");
         let range = position..end;
         position = end;
-        Some((range, syntax_style.patch(overlay_style)))
+        Some((range, syntax_style.patch(overlay_style), syntax_scope))
     })
+}
+
+pub(crate) fn styled_spans(
+    syntax: Option<syntax::Highlighter<'_>>,
+    overlays: impl IntoIterator<Item = OverlayHighlights>,
+    theme: &Theme,
+    base: theme::Style,
+    len: usize,
+) -> impl Iterator<Item = (ops::Range<usize>, theme::Style)> {
+    classified_spans(syntax, overlays, theme, base, len).map(|(range, style, _)| (range, style))
+}
+
+fn classified_syntax_styles(
+    text: editor_core::RopeSlice<'_>,
+    highlighter: Option<syntax::Highlighter<'_>>,
+    theme: &Theme,
+) -> impl Iterator<Item = (usize, theme::Style, Option<Highlight>)> {
+    use stdx::rope::RopeSliceExt;
+    classified_spans(highlighter, [], theme, theme.get("ui.text"), text.len()).map(
+        move |(range, style, scope)| {
+            (
+                text.byte_to_char_idx(text.ceil_char_boundary(range.start)),
+                style,
+                scope,
+            )
+        },
+    )
 }
 
 /// Adapt resolved byte spans to the character positions consumed by the renderer.
@@ -516,6 +604,59 @@ mod tests {
     use super::*;
     use BlockCursorRendering::{Native, Software};
     use CursorKind::{Bar, Block, Underline};
+
+    #[test]
+    fn semantic_symbol_kinds_preserve_syntactic_call_roles() {
+        let theme = Theme::from(toml::Value::Table(toml::toml! {
+            "function" = "red"
+            "function.call" = "green"
+            "function.method" = "blue"
+            "function.method.call" = "yellow"
+            "*.deprecated" = { modifiers = ["crossed_out"] }
+        }));
+        let call = theme.find_highlight_exact("function.method.call").unwrap();
+        let events: Vec<_> = merge_semantic_styles(
+            [(0, theme.highlight(call), Some(call))].into_iter(),
+            vec![(0..3, "function.method.deprecated"), (3..6, "function")],
+            &theme,
+        )
+        .collect();
+        assert_eq!(events[0].1.fg, Some(theme::Color::Yellow));
+        assert!(events[0]
+            .1
+            .add_modifier
+            .contains(theme::Modifier::CROSSED_OUT));
+        // Semantic resolution corrects a package-qualified call from method to
+        // function, retaining the syntactically known invocation role.
+        assert_eq!(events[1].1.fg, Some(theme::Color::Green));
+    }
+
+    #[test]
+    fn semantic_refinements_restore_syntax_at_boundaries_and_keep_modifiers() {
+        let red = theme::Style::default().fg(theme::Color::Red);
+        let blue = theme::Style::default().fg(theme::Color::Blue);
+        let bold = theme::Style::default().add_modifier(theme::Modifier::BOLD);
+        let theme = Theme::from(toml::Value::Table(toml::toml! {
+            "function.definition" = { modifiers = ["bold"] }
+            "constant" = "red"
+        }));
+        let actual: Vec<_> = merge_semantic_styles(
+            [(0, red, None), (4, blue, None)].into_iter(),
+            vec![(2..6, "function.definition"), (6..8, "constant")],
+            &theme,
+        )
+        .collect();
+        assert_eq!(
+            actual,
+            vec![
+                (0, red),
+                (2, red.patch(bold)),
+                (4, blue.patch(bold)),
+                (6, red),
+                (8, blue)
+            ]
+        );
+    }
 
     #[test]
     fn link_overlays_preserve_syntax_colors_unless_explicitly_overridden() {

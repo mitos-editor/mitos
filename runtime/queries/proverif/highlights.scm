@@ -23,7 +23,7 @@
 ;; Function & Macro Definitions
 
 (function_def
-  name: (ident) @function)
+  name: (ident) @function.definition)
 
 (function_macro_def
   name: (ident) @function.macro)
