@@ -227,6 +227,11 @@ fn build_theme_values(
         rainbow_length += 1;
     }
 
+    // Link navigation decorates source text without replacing its syntax color.
+    values
+        .entry("ui.link".to_owned())
+        .or_insert_with(|| Value::Table(toml::toml! { modifiers = ["underlined"] }));
+
     for (name, style_value) in values {
         let mut style = Style::default();
         if let Err(err) = palette.parse_style(&mut style, style_value) {
@@ -578,6 +583,33 @@ mod tests {
                 theme.tinted_background(Some(Color::Rgb(144, 208, 144))),
                 None
             );
+        }
+    }
+
+    #[test]
+    fn document_links_default_to_underline_without_markup_colors() {
+        let theme = Theme::from(Value::Table(toml::toml! {
+            "markup.link" = "blue"
+            "markup.link.url" = "red"
+        }));
+        let highlight = theme.find_highlight_exact("ui.link").unwrap();
+        assert_eq!(
+            theme.highlight(highlight),
+            Style::default().underline_style(UnderlineStyle::Line)
+        );
+    }
+
+    #[test]
+    fn document_link_style_can_be_overridden_or_disabled() {
+        for (style, expected) in [
+            (toml::toml! { fg = "red" }, Style::default().fg(Color::Red)),
+            (toml::Table::new(), Style::default()),
+        ] {
+            let mut values = toml::Table::new();
+            values.insert("ui.link".into(), Value::Table(style));
+            let theme = Theme::from(Value::Table(values));
+            let highlight = theme.find_highlight_exact("ui.link").unwrap();
+            assert_eq!(theme.highlight(highlight), expected);
         }
     }
 

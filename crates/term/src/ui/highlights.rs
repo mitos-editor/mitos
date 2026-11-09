@@ -232,9 +232,7 @@ pub(crate) fn document_highlights(
 }
 
 pub(crate) fn document_link_highlights(doc: &Document, theme: &Theme) -> Option<OverlayHighlights> {
-    let highlight = theme
-        .find_highlight_exact("markup.link.url")
-        .or_else(|| theme.find_highlight_exact("markup.link"))?;
+    let highlight = theme.find_highlight_exact("ui.link")?;
 
     if doc.document_links().is_empty() {
         return None;
@@ -491,6 +489,48 @@ mod tests {
     use super::*;
     use BlockCursorRendering::{Native, Software};
     use CursorKind::{Bar, Block, Underline};
+
+    #[test]
+    fn link_overlays_preserve_syntax_colors_unless_explicitly_overridden() {
+        use ui_core::graphics::{StyleExt as _, UnderlineStyle};
+        for (link_style, expected) in [
+            (
+                None,
+                theme::Style::default()
+                    .fg(theme::Color::Red)
+                    .underline_style(UnderlineStyle::Line),
+            ),
+            (
+                Some(toml::toml! { fg = "green" }),
+                theme::Style::default().fg(theme::Color::Green),
+            ),
+            (
+                Some(toml::Table::new()),
+                theme::Style::default().fg(theme::Color::Red),
+            ),
+        ] {
+            let mut values = toml::toml! {
+                "string" = "red"
+                "markup.link" = "blue"
+                "markup.link.url" = "blue"
+            };
+            if let Some(style) = link_style {
+                values.insert("ui.link".into(), toml::Value::Table(style));
+            }
+            let theme = Theme::from(toml::Value::Table(values));
+            let link = theme.find_highlight_exact("ui.link").unwrap();
+            let syntax = theme.get("string");
+            let spans: Vec<_> = styled_spans(
+                None,
+                [OverlayHighlights::single(link, 1..4)],
+                &theme,
+                syntax,
+                5,
+            )
+            .collect();
+            assert_eq!(spans, [(0..1, syntax), (1..4, expected), (4..5, syntax)]);
+        }
+    }
 
     #[test]
     fn styled_spans_restore_outer_styles_at_shared_utf8_boundaries() {

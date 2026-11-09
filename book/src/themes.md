@@ -371,6 +371,7 @@ These scopes are used for theming the editor interface:
 | `ui.picker.header.column.active`  | The column name in pickers with multiple columns where the cursor is entering into.            |
 | `ui.window`                       | Borderlines separating splits                                                                  |
 | `ui.help`                         | Description box for commands                                                                   |
+| `ui.link` | Language-server links in source text; defaults to underline only. |
 | `ui.text`                         | Default text style, command prompts, panel titles, popup text, and fallback for panel borders    |
 | `ui.text.focus`                   | The currently selected line in the picker                                                      |
 | `ui.text.inactive`                | Same as `ui.text` but when the text is inactive (e.g. suggestions)                             |
@@ -422,6 +423,15 @@ These scopes are used for theming the editor interface:
 | `diagnostic.deprecated`           | Diagnostics with deprecated tag (editing area)                                                 |
 | `diagnostic.spelling` | Spelling diagnostics in the editing area (falls back to the hint diagnostic style). |
 | `tabstop`                         | Snippet placeholder                                                                            |
+
+Language-server links use `ui.link` independently of `markup.link` syntax styles.
+By default, links are underlined and retain their syntax colors. Set a foreground
+explicitly to recolor them, or use an empty style to hide the decoration while
+keeping navigation available:
+
+```toml
+"ui.link" = {}
+```
 
 [editor-section]: ./configuration.md#editor
 [#2380]: https://github.com/helix-editor/helix/issues/2380
