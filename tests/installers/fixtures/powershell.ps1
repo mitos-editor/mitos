@@ -6,7 +6,11 @@ $env:PROCESSOR_ARCHITEW6432 = ''
 
 function Invoke-RestMethod {
     param($Uri)
-    @{ tag_name = $env:FIXTURE_TAG }
+    if ($Uri -like '*releases?per_page=*') {
+        Get-Content -LiteralPath (Join-Path $env:FIXTURE_DIR 'releases.json') -Raw | ConvertFrom-Json
+    } else {
+        @{ tag_name = $env:FIXTURE_TAG }
+    }
 }
 
 function Invoke-WebRequest {

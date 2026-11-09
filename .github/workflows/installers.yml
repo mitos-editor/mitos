@@ -5,13 +5,21 @@ on:
     paths:
       - 'book/install/**'
       - 'tests/installers/**'
-      - '.github/workflows/installers.yml'
+      - '.github/workflows/**'
+      - '.github/scripts/nightly.py'
+      - '.github/scripts/update-stable.sh'
+      - '.github/scripts/test-release.py'
+      - 'tests/releases/**'
   push:
     branches: [main]
     paths:
       - 'book/install/**'
       - 'tests/installers/**'
-      - '.github/workflows/installers.yml'
+      - '.github/workflows/**'
+      - '.github/scripts/nightly.py'
+      - '.github/scripts/update-stable.sh'
+      - '.github/scripts/test-release.py'
+      - 'tests/releases/**'
 
 permissions:
   contents: read
@@ -27,3 +35,28 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Test installers with local release fixtures
         run: python -m unittest discover -s tests/installers -v
+
+  releases:
+    name: Release workflow checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Test release selection and publication
+        run: python -m unittest discover -s tests/releases -v
+      - name: Install actionlint
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=1.7.12
+          mkdir -p "$RUNNER_TEMP/actionlint"
+          gh release download "v$version" --repo rhysd/actionlint \
+            --pattern "actionlint_${version}_linux_amd64.tar.gz" \
+            --pattern "actionlint_${version}_checksums.txt" --dir "$RUNNER_TEMP/actionlint"
+          cd "$RUNNER_TEMP/actionlint"
+          sha256sum --check --ignore-missing "actionlint_${version}_checksums.txt"
+          tar -xzf "actionlint_${version}_linux_amd64.tar.gz"
+          echo "$PWD" >> "$GITHUB_PATH"
+      - name: Check workflows
+        run: actionlint

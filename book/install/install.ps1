@@ -2,8 +2,10 @@
 <#
 .SYNOPSIS
 Installs a verified Mitos release for the current Windows user.
+.PARAMETER Channel
+Choose stable (the default) or nightly.
 .PARAMETER Version
-Release version, such as 0.1.0, or latest (the default).
+Stable version or dated nightly tag, or latest (the default).
 .PARAMETER InstallDir
 Installation root. Defaults to the Mitos directory in LOCALAPPDATA.
 .PARAMETER NoModifyPath
@@ -15,7 +17,9 @@ Leaves the user and current session PATH unchanged.
 param(
     [string]$Version = 'latest',
     [string]$InstallDir = (Join-Path $env:LOCALAPPDATA 'Mitos'),
-    [switch]$NoModifyPath
+    [switch]$NoModifyPath,
+    [ValidateSet('stable', 'nightly')]
+    [string]$Channel = 'stable'
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -37,14 +41,26 @@ switch ($architecture) {
 # Windows PowerShell 5.1 may otherwise negotiate an obsolete TLS version.
 [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 if ($Version -eq 'latest') {
-    $release = Invoke-RestMethod -Uri 'https://api.github.com/repos/mitos-editor/mitos/releases/latest'
+    if ($Channel -eq 'nightly') {
+        $releases = Invoke-RestMethod -Uri 'https://api.github.com/repos/mitos-editor/mitos/releases?per_page=100'
+        $release = $releases | Where-Object {
+            $_.prerelease -and -not $_.draft -and
+            $_.tag_name -cmatch '^nightly-\d{4}-\d{2}-\d{2}-[0-9a-f]{12}$'
+        } | Sort-Object @{ Expression = { $_.tag_name.Substring(8, 10) } }, published_at -Descending | Select-Object -First 1
+        if (-not $release) { throw 'No nightly builds are available.' }
+    } else {
+        $release = Invoke-RestMethod -Uri 'https://api.github.com/repos/mitos-editor/mitos/releases/latest'
+    }
     $Version = $release.tag_name
 }
 $Version = $Version -replace '^v', ''
-if ($Version -notmatch '^\d+\.\d+\.\d+$') {
-    throw "Expected a stable release version such as 0.1.0, got: $Version"
+if ($Version -cmatch '^nightly-\d{4}-\d{2}-\d{2}-[0-9a-f]{12}$') {
+    $tag = $Version
+} elseif ($Version -match '^\d+\.\d+\.\d+$') {
+    $tag = "v$Version"
+} else {
+    throw "Expected a stable version or dated nightly tag, got: $Version"
 }
-$tag = "v$Version"
 $package = "mitos-$tag-$arch-windows"
 $archive = "$package.zip"
 $releaseUrl = "https://github.com/mitos-editor/mitos/releases/download/$tag"

@@ -1,6 +1,7 @@
 """Installer regression tests using local release archives and download fixtures."""
 import hashlib
 import io
+import json
 import os
 import re
 from pathlib import Path
@@ -121,6 +122,72 @@ class InstallerTests(unittest.TestCase):
         self.assertTrue((self.install/'v0.1.0-aarch64-macos/runtime').exists())
         self.assertEqual(self.run_shell('--version', '0.1.0').returncode, 0)
         self.assertIn('v0.1.0', str((self.bin/'ms').resolve()))
+
+    def nightly_fixtures(self, system='macos', arch='aarch64', bad_hash=False):
+        tag = 'nightly-2026-11-09-abcdef123456'
+        self.create_archive(tag=tag, system=system, arch=arch, bad_hash=bad_hash)
+        releases = [
+            dict(tag_name='v9.0.0', prerelease=False, draft=False, published_at='2026-11-11'),
+            dict(tag_name='nightly-2026-11-10-abcdef123456', prerelease=True,
+                 draft=True, published_at='2026-11-10'),
+            dict(tag_name='nightly-2026-11-08-abcdef123456', prerelease=True,
+                 draft=False, published_at='2026-11-12'),
+            dict(tag_name=tag, prerelease=True, draft=False, published_at='2026-11-09'),
+        ]
+        (self.downloads / 'releases.json').write_text(json.dumps(releases))
+        return tag
+
+    def test_shell_nightly_selection_pin_and_return_to_stable(self):
+        tag = self.nightly_fixtures()
+        result = self.run_shell('--channel', 'nightly')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(tag, str((self.bin / 'ms').resolve()))
+        self.assertTrue((self.install / f'{tag}-aarch64-macos/runtime').exists())
+        # Pinning needs no channel lookup and remains available for rollbacks.
+        self.assertEqual(self.run_shell('--version', tag).returncode, 0)
+        self.create_archive()
+        self.assertEqual(self.run_shell().returncode, 0)
+        self.assertIn('v0.1.0', str((self.bin / 'ms').resolve()))
+
+    def test_shell_nightly_bad_checksum_preserves_stable(self):
+        self.create_archive()
+        self.assertEqual(self.run_shell().returncode, 0)
+        before = (self.bin / 'ms').readlink()
+        self.nightly_fixtures(bad_hash=True)
+        result = self.run_shell('--channel', 'nightly')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('Checksum mismatch', result.stderr)
+        self.assertEqual((self.bin / 'ms').readlink(), before)
+
+    def test_shell_no_nightly_and_invalid_channel(self):
+        (self.downloads / 'releases.json').write_text('[]')
+        result = self.run_shell('--channel', 'nightly')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('No nightly builds', result.stderr)
+        self.assertFalse(self.install.exists())
+        self.assertNotEqual(self.run_shell('--channel', 'unknown').returncode, 0)
+
+    def test_powershell_nightly_selection_pin_and_return_to_stable(self):
+        self.env['FIXTURE_ARCH'] = 'AMD64'
+        tag = self.nightly_fixtures(system='windows', arch='x86_64')
+        result = self.run_powershell('-Channel', 'nightly')
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        launcher = self.install / 'bin/ms.cmd'
+        self.assertIn(tag, launcher.read_text())
+        result = self.run_powershell('-Version', tag)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.create_archive(system='windows', arch='x86_64')
+        result = self.run_powershell()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn('v0.1.0', launcher.read_text())
+
+    def test_powershell_no_nightly(self):
+        self.env['FIXTURE_ARCH'] = 'AMD64'
+        (self.downloads / 'releases.json').write_text('[]')
+        result = self.run_powershell('-Channel', 'nightly')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('No nightly builds', result.stderr)
+        self.assertFalse(self.install.exists())
 
     def assert_no_shell_install_started(self):
         self.assertEqual(self.download_log.read_text(), '')

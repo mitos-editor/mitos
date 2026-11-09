@@ -5,10 +5,11 @@ set -eu
 fail() { printf 'Mitos installer: %s\n' "$*" >&2; exit 1; }
 usage() {
   cat <<'HELP'
-Usage: install.sh [--version VERSION] [--install-dir DIR] [--bin-dir DIR]
+Usage: install.sh [--channel stable|nightly] [--version VERSION] [--install-dir DIR] [--bin-dir DIR]
 
 Install the latest Mitos release for Linux or macOS without sudo.
-  --version VERSION  Install a specific release (for example, 0.1.0).
+  --channel CHANNEL  Choose stable (default) or nightly. Nightly needs python3.
+  --version VERSION  Install a stable version or a dated nightly tag.
   --install-dir DIR  Version directory root (default: $XDG_DATA_HOME/mitos or ~/.local/share/mitos).
   --bin-dir DIR      Directory for the ms symlink (default: ~/.local/bin).
   --help             Show this help.
@@ -25,6 +26,7 @@ download() {
 # start downloading or modifying an installation.
 main() {
   version=latest
+  channel=stable
   : "${HOME:?HOME must be set}"
   case "${XDG_DATA_HOME:-}" in
     /*) install_dir="$XDG_DATA_HOME/mitos" ;;
@@ -33,9 +35,10 @@ main() {
   bin_dir="$HOME/.local/bin"
   while [ "$#" -gt 0 ]; do
     case "$1" in
-      --version | --install-dir | --bin-dir)
+      --channel | --version | --install-dir | --bin-dir)
         [ "$#" -ge 2 ] && [ -n "$2" ] || fail "Missing value for $1"
         case "$1" in
+          --channel) channel=$2 ;;
           --version) version=$2 ;;
           --install-dir) install_dir=$2 ;;
           --bin-dir) bin_dir=$2 ;;
@@ -45,6 +48,8 @@ main() {
       *) fail "Unknown option: $1 (use --help)" ;;
     esac
   done
+
+  case "$channel" in stable | nightly) ;; *) fail "Unknown channel: $channel" ;; esac
 
   for tool in curl tar; do
     command -v "$tool" >/dev/null 2>&1 || fail "Required command not found: $tool"
@@ -76,17 +81,33 @@ main() {
   trap cleanup EXIT
   trap 'exit 1' HUP INT TERM
 
-  # GitHub's latest-release redirect avoids a JSON parser or GitHub CLI dependency.
-  if [ "$version" = latest ]; then
+  if [ "$version" = latest ] && [ "$channel" = nightly ]; then
+    command -v python3 >/dev/null 2>&1 || fail 'Nightly selection requires python3, or pass --version nightly-DATE-COMMIT.'
+    download 'https://api.github.com/repos/mitos-editor/mitos/releases?per_page=100' \
+      --output "$work_dir/releases.json"
+    version=$(python3 -c '
+import json, re, sys
+releases = [r for r in json.load(open(sys.argv[1])) if r["prerelease"] and not r["draft"]
+            and re.fullmatch(r"nightly-\d{4}-\d{2}-\d{2}-[0-9a-f]{12}", r["tag_name"])]
+if not releases:
+    sys.exit("No nightly builds are available.")
+print(max(releases, key=lambda r: (r["tag_name"][8:18], r["published_at"]))["tag_name"])
+' "$work_dir/releases.json") || fail 'Could not select a nightly build.'
+  elif [ "$version" = latest ]; then
+    # The stable redirect needs no JSON parser or GitHub CLI.
     release_url=$(download \
       --output /dev/null --write-out '%{url_effective}' \
       https://github.com/mitos-editor/mitos/releases/latest)
     version=${release_url##*/}
   fi
   version=${version#v}
-  printf '%s\n' "$version" | LC_ALL=C grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' \
-    || fail "Expected a stable release version such as 0.1.0, got: $version"
-  tag="v$version"
+  if printf '%s\n' "$version" | LC_ALL=C grep -Eq '^nightly-[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9a-f]{12}$'; then
+    tag=$version
+  else
+    printf '%s\n' "$version" | LC_ALL=C grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' \
+      || fail "Expected a stable version or dated nightly tag, got: $version"
+    tag="v$version"
+  fi
   package="mitos-$tag-$arch-$os"
   archive="$package.tar.xz"
   release_url="https://github.com/mitos-editor/mitos/releases/download/$tag"
