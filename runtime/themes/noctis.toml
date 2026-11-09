@@ -24,6 +24,7 @@
 # UI ==============================
 # For styling helix itself.
 
+"ui.link" = { modifiers = ["underlined"] }
 'ui.background' = { fg = "autocomp-green", bg = "dark-green" } # Default background color.
 'ui.window' = { fg = "mid-green" } # Window border between splits.
 

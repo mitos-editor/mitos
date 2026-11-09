@@ -15,6 +15,7 @@
 "diagnostic.deprecated" = { modifiers = ["crossed_out"] }
 
 # UI
+"ui.link" = { modifiers = ["underlined"] }
 'ui.background' = { fg = 'foreground', bg = 'background' }
 'ui.window' = { fg = 'grey7' }
 'ui.gutter' = { bg = 'grey2' }

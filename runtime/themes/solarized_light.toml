@@ -41,6 +41,7 @@
 
 # 背景
 # background
+"ui.link" = { modifiers = ["underlined"] }
 "ui.background" = { bg = "base03" }
 
 "ui.virtual.whitespace" = { fg = "base01" }

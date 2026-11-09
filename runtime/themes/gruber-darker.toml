@@ -36,6 +36,7 @@
 "info" = { fg = "aqua1", modifiers = ["bold"] }
 "hint" = { fg = "blue0", modifiers = ["bold"] }
 
+"ui.link" = { modifiers = ["underlined"] }
 "ui.background" = { bg = "bg0" }
 "ui.linenr" = { fg = "bg4" }
 "ui.linenr.selected" = { fg = "yellow0" }

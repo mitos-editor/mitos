@@ -6,6 +6,7 @@
 # and inspired by the lotus variant of https://github.com/rebelot/kanagawa.nvim
 
 ## User interface
+"ui.link" = { modifiers = ["underlined"] }
 "ui.selection" = { bg = "lotusBlue1" }
 "ui.selection.primary" = { bg = "lotusBlue1" }
 "ui.background" = { fg = "lotusInk0", bg = "lotusWhite0" }

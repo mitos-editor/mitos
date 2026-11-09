@@ -1,5 +1,6 @@
 # License: Vim (see licenses/vim.license)
 
+"ui.link" = { modifiers = ["underlined"] }
 "ui.background" = { bg = "black" }
 "ui.bufferline" = { bg = "black" }
 "ui.bufferline.active" = { fg = "light-magenta", bg = "dark-magenta" }

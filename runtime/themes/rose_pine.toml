@@ -5,6 +5,7 @@
 #   The Rosé Pine team will update Helix, including you as a co-author.
 # License: MIT (see licenses/rose_pine.license)
 
+"ui.link" = { modifiers = ["underlined"] }
 "ui.background" = { bg = "base" }
 "ui.background.separator" = { bg = "base" }
 

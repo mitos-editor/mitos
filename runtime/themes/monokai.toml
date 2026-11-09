@@ -35,6 +35,7 @@
 "attribute" = { fg = "fn_declaration" }
 
 "comment" = { fg = "#88846F" }
+"ui.link" = { modifiers = ["underlined"] }
 "ui.virtual.whitespace" = "#88846F"
 "ui.virtual.ruler" = { bg = "#24241e" }
 "ui.virtual.jump-label" = { fg = "special", modifiers = ["bold"] }

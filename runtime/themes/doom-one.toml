@@ -1,6 +1,7 @@
 # Author: spentbliss <zyhkekrz.hatbox475@passinbox.com>
 # License: MIT (see licenses/doom-one.LICENSE)
 
+"ui.link" = { modifiers = ["underlined"] }
 "ui.background" = { bg = "bg", fg = "fg" } 
 "ui.text" = "fg"
 "ui.text.focus" = { bg = "bg_highlight", fg = "cyan" }

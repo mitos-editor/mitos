@@ -4,6 +4,7 @@
 #    https://github.com/nickav/naysayer-theme.el
 # License: GPL-3.0-or-later (see licenses/naysayer.license)
 
+"ui.link" = { modifiers = ["underlined"] }
 "ui.background" = { bg = "bg" }
 "ui.text" = "text"
 "ui.linenr" = { bg = "bg", fg = "line-fg" }

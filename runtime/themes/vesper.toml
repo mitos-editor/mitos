@@ -71,6 +71,7 @@ warning = { fg = "beige" }
 # UI
 # "ui.window" = { bg = "white" }
 
+"ui.link" = { modifiers = ["underlined"] }
 "ui.popup" = { bg = "dark-gray" }
  
 "ui.selection" = { bg = "bg-selection" }

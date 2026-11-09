@@ -63,6 +63,7 @@
 "diff.delta" = "blue"
 "diff.minus" = "red"
 
+"ui.link" = { modifiers = ["underlined"] }
 "ui.background" = { bg = "bg0" }
 "ui.background.separator" = "grey0"
 "ui.cursor" = { fg = "bg1", bg = "grey2" }

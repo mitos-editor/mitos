@@ -54,6 +54,7 @@
 "diff.delta" = { fg = "blue" }
 "diff.minus" = { fg = "red" }
 
+"ui.link" = { modifiers = ["underlined"] }
 "ui.background" = { fg = "light", bg = "darkest" }
 
 "ui.window" = { bg = "widget" }

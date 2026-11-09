@@ -48,6 +48,7 @@
 "diagnostic.unnecessary" = { modifiers = ["dim"] }
 "diagnostic.deprecated" = { modifiers = ["crossed_out"] }
 
+"ui.link" = { modifiers = ["underlined"] }
 "ui.background" = { bg = "bg0" }
 "ui.linenr" = { fg = "gray0" }
 "ui.linenr.selected" = { fg = "gray1", modifiers = ["bold"] }

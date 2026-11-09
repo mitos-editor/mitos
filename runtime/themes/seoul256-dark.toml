@@ -54,6 +54,7 @@
 "warning" = { fg = "yellow", modifiers = ["bold"] }
 "error" = { fg = "red", modifiers = ["bold"] }
 
+"ui.link" = { modifiers = ["underlined"] }
 "ui.background" = { bg = "gray4" }
 "ui.gutter" = { bg = "gray5" }
 "ui.gutter.selected" = { bg = "gray3" }

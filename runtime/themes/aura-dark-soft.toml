@@ -5,6 +5,7 @@
 # Author: Dalton Menezes
 # License: MIT (see licenses/aura.LICENSE)
 
+"ui.link" = { modifiers = ["underlined"] }
 "ui.background" = { fg = "white", bg = "black"}
 
 "ui.linenr" = { fg = "accent17"}

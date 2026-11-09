@@ -52,6 +52,7 @@
 "diff.minus".fg = "red"
 "diff.plus".fg  = "green"
 
+"ui.link" = { modifiers = ["underlined"] }
 "ui.background"           = { fg = "foreground", bg = "background" }
 "ui.cursor"               = { fg = "background", bg = "blue", modifiers = ["dim"] }
 "ui.cursor.match"         = { fg = "green", modifiers = ["underlined"] }

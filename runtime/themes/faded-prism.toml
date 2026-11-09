@@ -32,6 +32,7 @@
 
 # UI
 
+"ui.link" = { modifiers = ["underlined"] }
 "ui.background" = { fg = "white", bg = "dark_gray" }
 
 "ui.linenr" = { fg = "off_white" }

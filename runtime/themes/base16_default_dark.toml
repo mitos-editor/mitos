@@ -1,6 +1,7 @@
 # Author: RayGervais <raygervais@hotmail.ca>
 # License: MIT (see licenses/base16.license)
 
+"ui.link" = { modifiers = ["underlined"] }
 "ui.background" = { bg = "base00" }
 "ui.virtual.whitespace" = "base03"
 "ui.virtual.jump-label" = { fg = "blue", modifiers = ["bold", "underlined"] }

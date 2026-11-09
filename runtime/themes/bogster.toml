@@ -41,6 +41,7 @@
 "diff.delta" = "bogster-orange"
 "diff.minus" = "bogster-lred"
 
+"ui.link" = { modifiers = ["underlined"] }
 "ui.background" = { bg = "bogster-base1" }
 "ui.linenr" = { fg = "bogster-base4" }
 "ui.linenr.selected" = { fg = "bogster-fg1" }

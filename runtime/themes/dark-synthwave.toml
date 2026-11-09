@@ -5,6 +5,7 @@
 # License: MIT (see licenses/dark-synthwave.license)
 
 # UI Colors
+"ui.link" = { modifiers = ["underlined"] }
 "ui.background" = { bg = "black", fg = "blood-red" }
 "ui.cursor" = { fg = "white", modifiers = ["reversed"] }
 "ui.cursor.primary" = { fg = "white", modifiers = ["reversed"] }

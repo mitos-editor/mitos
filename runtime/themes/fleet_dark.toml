@@ -65,6 +65,7 @@
 "diff.delta" = "Blue 80"
 
 # ui specific
+"ui.link" = { modifiers = ["underlined"] }
 "ui.background" = { bg = "Gray 10" } # .separator
 "ui.statusline" = { fg = "Gray 120", bg = "Gray 20" } # .inactive / .normal / .insert / .select
 "ui.statusline.normal" = { fg = "Gray 120", bg = "Gray 20" }

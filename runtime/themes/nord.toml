@@ -88,6 +88,7 @@
 
 ## EDITOR UI COLORS
 
+"ui.link" = { modifiers = ["underlined"] }
 "ui.background" = { bg = "nord0" }
 "ui.text" = "nord4"
 "ui.window" = "nord1"

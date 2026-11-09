@@ -2,6 +2,7 @@
 # License: MIT (see licenses/vscode.license)
 
 # Interface
+"ui.link" = { modifiers = ["underlined"] }
 "ui.background" = { bg = "black" }
 "ui.window" = { fg = "aqua" }
 "special" = "orange"                           # file picker fuzzy match

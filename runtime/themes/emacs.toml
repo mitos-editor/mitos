@@ -45,6 +45,7 @@
 "markup.raw.inline" = { fg = "dark_cyan" }
 "markup.raw.block" = { fg = "dark_cyan" }
 
+"ui.link" = { modifiers = ["underlined"] }
 "ui.background" = { fg = "black", bg = "white" }
 "ui.background.separator" = { fg = "black", bg = "white" }
 "ui.cursor" = { fg = "white", bg = "gray70" }

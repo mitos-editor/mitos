@@ -36,6 +36,7 @@
 "diff.delta" = "yellow"
 
 # Interface
+"ui.link" = { modifiers = ["underlined"] }
 "ui.background"= { bg = "background" }
 "ui.cursor" = { fg = "dark_gray", bg = "yellow" }
 "ui.cursor.primary" = { fg = "dark_gray", bg = "orange" }

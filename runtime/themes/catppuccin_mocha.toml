@@ -69,6 +69,7 @@
 
 # User Interface
 # --------------
+"ui.link" = { modifiers = ["underlined"] }
 "ui.background" = { fg = "text", bg = "base" }
 
 "ui.linenr" = { fg = "surface1" }

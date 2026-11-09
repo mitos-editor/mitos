@@ -495,17 +495,17 @@ mod tests {
         use ui_core::graphics::{StyleExt as _, UnderlineStyle};
         for (link_style, expected) in [
             (
-                None,
+                toml::toml! { modifiers = ["underlined"] },
                 theme::Style::default()
                     .fg(theme::Color::Red)
                     .underline_style(UnderlineStyle::Line),
             ),
             (
-                Some(toml::toml! { fg = "green" }),
+                toml::toml! { fg = "green" },
                 theme::Style::default().fg(theme::Color::Green),
             ),
             (
-                Some(toml::Table::new()),
+                toml::Table::new(),
                 theme::Style::default().fg(theme::Color::Red),
             ),
         ] {
@@ -514,9 +514,7 @@ mod tests {
                 "markup.link" = "blue"
                 "markup.link.url" = "blue"
             };
-            if let Some(style) = link_style {
-                values.insert("ui.link".into(), toml::Value::Table(style));
-            }
+            values.insert("ui.link".into(), toml::Value::Table(link_style));
             let theme = Theme::from(toml::Value::Table(values));
             let link = theme.find_highlight_exact("ui.link").unwrap();
             let syntax = theme.get("string");

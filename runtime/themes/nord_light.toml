@@ -1,6 +1,7 @@
 # Author: Two-Six<twopsix@duck.com>
 # License: MIT (see licenses/nord.license)
 
+"ui.link" = { modifiers = ["underlined"] }
 "ui.background" = {bg="nord6"}
 "ui.text" = "nord0"
 "ui.selection" = {bg="nord7", fg="nord6"}

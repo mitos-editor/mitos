@@ -1,6 +1,7 @@
 # Author : geonove <andre.novellini@gmail.com>
 # License: Vim (see licenses/vim.license)
 
+"ui.link" = { modifiers = ["underlined"] }
 "ui.menu" = { fg = "light-gray", bg = "gray" }
 "ui.menu.selected" = { modifiers = ["reversed"] }
 "ui.linenr" = "yellow"

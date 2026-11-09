@@ -43,6 +43,7 @@ label = "scale.red.3"
 "diff.minus" = "closed.fg"
 "diff.delta" = "attention.fg"
 
+"ui.link" = { modifiers = ["underlined"] }
 "ui.background" = { bg = "canvas.default" }
 "ui.background.separator" = { fg = "fg.subtle" }
 "ui.linenr" = { fg = "fg.subtle" }

@@ -227,11 +227,6 @@ fn build_theme_values(
         rainbow_length += 1;
     }
 
-    // Link navigation decorates source text without replacing its syntax color.
-    values
-        .entry("ui.link".to_owned())
-        .or_insert_with(|| Value::Table(toml::toml! { modifiers = ["underlined"] }));
-
     for (name, style_value) in values {
         let mut style = Style::default();
         if let Err(err) = palette.parse_style(&mut style, style_value) {
@@ -587,16 +582,39 @@ mod tests {
     }
 
     #[test]
-    fn document_links_default_to_underline_without_markup_colors() {
+    fn bundled_themes_define_link_decoration_without_a_foreground() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../runtime");
+        let loader = Loader::new(Resources::new(vec![root.clone()]));
+        let mut names = vec!["default".to_owned(), "base16_default".to_owned()];
+        for entry in std::fs::read_dir(root.join("themes")).unwrap() {
+            let path = entry.unwrap().path();
+            if path
+                .extension()
+                .is_some_and(|extension| extension == "toml")
+            {
+                names.push(path.file_stem().unwrap().to_str().unwrap().to_owned());
+            }
+        }
+        for name in names {
+            let theme = loader.load(&name).unwrap();
+            let highlight = theme
+                .find_highlight_exact("ui.link")
+                .unwrap_or_else(|| panic!("{name} must define or inherit ui.link"));
+            assert_eq!(
+                theme.highlight(highlight),
+                Style::default().underline_style(UnderlineStyle::Line),
+                "{name} must preserve syntax colors for links"
+            );
+        }
+    }
+
+    #[test]
+    fn themes_without_link_decoration_do_not_inherit_markup_styles() {
         let theme = Theme::from(Value::Table(toml::toml! {
             "markup.link" = "blue"
             "markup.link.url" = "red"
         }));
-        let highlight = theme.find_highlight_exact("ui.link").unwrap();
-        assert_eq!(
-            theme.highlight(highlight),
-            Style::default().underline_style(UnderlineStyle::Line)
-        );
+        assert!(theme.find_highlight_exact("ui.link").is_none());
     }
 
     #[test]

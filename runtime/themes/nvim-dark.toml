@@ -42,6 +42,7 @@ tabstop = { modifiers = ["italic"], bg = "panel"}
 "diff.minus" = "rose"
 "diff.delta" = "sun"
 
+"ui.link" = { modifiers = ["underlined"] }
 "ui.background" = { bg = "night" }
 "ui.background.separator" = { fg = "panel" }
 "ui.linenr" = { fg = "slate" }

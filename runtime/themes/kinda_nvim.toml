@@ -5,6 +5,7 @@
 # 
 # GitHub : https://github.com/strash/kinda_nvim.hx
 
+"ui.link" = { modifiers = ["underlined"] }
 "ui.background" = { bg ="bg", fg = "fg_4" }
 "ui.background.separator" = { bg = "bg", fg = "fg_4" }
 
