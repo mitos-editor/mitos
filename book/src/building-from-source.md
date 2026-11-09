@@ -257,13 +257,16 @@ shell completions, desktop entry, and launcher.
 
 ## Using Mitos as a Nix flake input
 
-With flakes enabled, add Mitos to your flake inputs and use its default package:
+With flakes enabled, add Mitos to your flake inputs and use its default package.
+The `stable` branch points to the latest release. To follow unreleased changes,
+use `github:mitos-editor/mitos/main` instead. To pin one release, use its tag,
+such as `github:mitos-editor/mitos/v0.2.1`.
 
 ```nix
 {
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
-    mitos.url = "github:mitos-editor/mitos/main";
+    mitos.url = "github:mitos-editor/mitos/stable";
     mitos.inputs.nixpkgs.follows = "nixpkgs";
   };
 

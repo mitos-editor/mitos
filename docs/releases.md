@@ -67,6 +67,7 @@ build workflow. See the [release-plz token setup guide](https://release-plz.dev/
 8. Test the hosted installers with the newly published version. Public download
    URLs and the latest-release installer do not expose draft releases; the
    previous published release stays available while the new draft builds.
+9. Check that the Stable branch workflow moved `stable` to the release commit.
 
 If a build fails, the release stays in draft. Retry the failed jobs before
 publishing; do not move the version tag. Uploads and reruns never publish the
@@ -75,6 +76,18 @@ rather than changing the published release.
 
 Manual dispatch of the Release workflow remains a preview build and uploads CI
 artifacts. Manual dispatch of Release-plz on `main` reruns release automation.
+
+## Stable branch
+
+The `stable` branch points to the latest published release, so it is a fixed Git
+ref for the newest version tag. A draft release does not move the branch, because
+`.github/workflows/stable-branch.yml` runs when a release is published, and it
+skips prereleases.
+
+The workflow pushes the release commit without force, so the branch can only move
+forward. If the release commit is not a descendant of `stable`, for example when
+an older release is published after a newer one, the job fails and the branch
+does not change.
 
 ## Hosted installers
 
