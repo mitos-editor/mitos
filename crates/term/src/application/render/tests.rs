@@ -126,6 +126,10 @@ async fn pending_application(path: &Path) -> anyhow::Result<(TestApplication, Ed
 }
 
 #[tokio::test(flavor = "multi_thread")]
+#[cfg_attr(
+    not(feature = "runtime-grammars"),
+    ignore = "requires compiled runtime grammars; enable the runtime-grammars feature"
+)]
 async fn ready_syntax_is_published_before_first_frame() -> anyhow::Result<()> {
     let dir = tempfile::tempdir()?;
     let (mut app, callback) = pending_application(&dir.path().join("startup.json")).await?;
@@ -143,6 +147,10 @@ async fn ready_syntax_is_published_before_first_frame() -> anyhow::Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+#[cfg_attr(
+    not(feature = "runtime-grammars"),
+    ignore = "requires compiled runtime grammars; enable the runtime-grammars feature"
+)]
 async fn opening_a_file_publishes_ready_syntax_before_input_frame() -> anyhow::Result<()> {
     let dir = tempfile::tempdir()?;
     let path = dir.path().join("opened.json");
@@ -172,6 +180,10 @@ async fn opening_a_file_publishes_ready_syntax_before_input_frame() -> anyhow::R
 }
 
 #[tokio::test]
+#[cfg_attr(
+    not(feature = "runtime-grammars"),
+    ignore = "requires compiled runtime grammars; enable the runtime-grammars feature"
+)]
 async fn syntax_finishing_during_grace_is_in_the_first_frame() -> anyhow::Result<()> {
     let dir = tempfile::tempdir()?;
     let (mut app, callback) = pending_application(&dir.path().join("startup.json")).await?;
@@ -706,6 +718,10 @@ async fn a_completion_between_preparation_and_drawing_keeps_its_redraw() -> anyh
 }
 
 #[tokio::test]
+#[cfg_attr(
+    not(feature = "runtime-grammars"),
+    ignore = "requires compiled runtime grammars; enable the runtime-grammars feature"
+)]
 async fn syntax_grace_includes_newly_visible_unfocused_splits() -> anyhow::Result<()> {
     let dir = tempfile::tempdir()?;
     let (mut app, callback) = pending_application(&dir.path().join("unfocused.json")).await?;

@@ -58,7 +58,7 @@ jobs:
           grammar-cache-version: ${{ env.GRAMMAR_CACHE_VERSION }}
 
       - name: Run cargo test
-        run: cargo test --workspace --profile integration --locked
+        run: cargo test --workspace --features term/runtime-grammars --profile integration --locked
 
       - name: Run process integration tests
         run: cargo integration-test --locked

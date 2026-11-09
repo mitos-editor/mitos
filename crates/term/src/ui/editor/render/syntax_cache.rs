@@ -390,6 +390,10 @@ mod rendering_tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
+    #[cfg_attr(
+        not(feature = "runtime-grammars"),
+        ignore = "requires compiled runtime grammars; enable the runtime-grammars feature"
+    )]
     async fn publication_and_geometry_changes_match_fresh_rendering() -> anyhow::Result<()> {
         let dir = tempfile::tempdir()?;
         let path = dir.path().join("source.rs");
