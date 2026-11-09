@@ -45,8 +45,18 @@ jobs:
           persist-credentials: false
       - name: Test release selection and publication
         run: python -m unittest discover -s tests/releases -v
-      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
-        with:
-          tool: actionlint@1.7.12
+      - name: Install actionlint
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=1.7.12
+          mkdir -p "$RUNNER_TEMP/actionlint"
+          gh release download "v$version" --repo rhysd/actionlint \
+            --pattern "actionlint_${version}_linux_amd64.tar.gz" \
+            --pattern "actionlint_${version}_checksums.txt" --dir "$RUNNER_TEMP/actionlint"
+          cd "$RUNNER_TEMP/actionlint"
+          sha256sum --check --ignore-missing "actionlint_${version}_checksums.txt"
+          tar -xzf "actionlint_${version}_linux_amd64.tar.gz"
+          echo "$PWD" >> "$GITHUB_PATH"
       - name: Check workflows
         run: actionlint
