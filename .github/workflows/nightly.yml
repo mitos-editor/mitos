@@ -2,7 +2,7 @@ name: Nightly
 
 on:
   schedule:
-    - cron: '17 3 * * *'
+    - cron: '0 2 * * *'
   workflow_dispatch:
 
 concurrency:
@@ -26,15 +26,18 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Select a tested main commit
+      - name: Prepare nightly tag
         id: select
         env:
           GH_TOKEN: ${{ github.token }}
         run: python .github/scripts/nightly.py select
 
-  package:
+  test:
     needs: select
-    if: needs.select.outputs.ref != ''
+    uses: ./.github/workflows/build.yml
+
+  package:
+    needs: [select, test]
     uses: ./.github/workflows/package-release.yml
     permissions:
       contents: write

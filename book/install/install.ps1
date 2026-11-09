@@ -46,7 +46,7 @@ if ($Version -eq 'latest') {
         $release = $releases | Where-Object {
             $_.prerelease -and -not $_.draft -and
             $_.tag_name -cmatch '^nightly-\d{4}-\d{2}-\d{2}-[0-9a-f]{12}$'
-        } | Sort-Object published_at -Descending | Select-Object -First 1
+        } | Sort-Object @{ Expression = { $_.tag_name.Substring(8, 10) } }, published_at -Descending | Select-Object -First 1
         if (-not $release) { throw 'No nightly builds are available.' }
     } else {
         $release = Invoke-RestMethod -Uri 'https://api.github.com/repos/mitos-editor/mitos/releases/latest'

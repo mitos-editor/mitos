@@ -131,7 +131,7 @@ class InstallerTests(unittest.TestCase):
             dict(tag_name='nightly-2026-11-10-abcdef123456', prerelease=True,
                  draft=True, published_at='2026-11-10'),
             dict(tag_name='nightly-2026-11-08-abcdef123456', prerelease=True,
-                 draft=False, published_at='2026-11-08'),
+                 draft=False, published_at='2026-11-12'),
             dict(tag_name=tag, prerelease=True, draft=False, published_at='2026-11-09'),
         ]
         (self.downloads / 'releases.json').write_text(json.dumps(releases))

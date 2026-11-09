@@ -99,23 +99,28 @@ and merge its fixes back into `main`.
 
 ## Nightly builds
 
-The Nightly workflow runs daily at 03:17 UTC and can be started manually on
-`main`. It builds the run's exact commit only when that commit is still the tip
-of `main` and its push-triggered Build workflow passed. Commits with an existing
-published nightly are skipped.
+The Nightly workflow is scheduled daily at 02:00 UTC and can be started manually
+on `main`. Every run tests and builds its snapshot of `main`, even if the code
+has not changed since the previous night. It reuses the Build workflow before
+packaging. A failed test or build prevents publication.
+
+Tags use the run's original UTC date, so retrying a failed run on another day
+keeps the same tag.
 
 Stable releases and nightlies use `package-release.yml`, with Rust 1.97.1,
 the same six platforms, bundled runtimes, AppImages, Debian package, checksums,
-and provenance. Each platform extracts its archive and checks the binary and runtime outside
-the checkout.
-Nightly Debian versions sort below the corresponding stable version.
+and provenance. Each platform extracts its archive and checks the binary and
+runtime outside the checkout. Nightly Debian versions sort below the
+corresponding stable version.
 
 Nightlies use dated tags such as `nightly-2026-11-09-abcdef123456`. All builds and
 uploads must succeed before publication. Failed uploads leave a draft that a
 rerun can resume. Published assets are never replaced. A failed run leaves the
 previous nightly available. After publication, cleanup keeps the last 14 nightly
 releases and removes their older tags; stable releases and other prereleases
-are untouched. Download a build if you need to keep it longer.
+are untouched. Installers and cleanup order nightlies by their tag date, so a
+late retry of an older build does not replace a newer day's build. Download a
+build if you need to keep it longer.
 
 Installers default to stable. Use `--channel nightly` or `-Channel nightly` to
 try a nightly, or pass a dated tag as the version. See the

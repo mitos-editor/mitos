@@ -28,13 +28,13 @@ class NightlyTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.output = Path(self.temp.name) / 'output'
         self.output.touch()
-        self.env = patch.dict(os.environ, GITHUB_OUTPUT=str(self.output), GITHUB_SHA=REF, NIGHTLY_REF=REF, NIGHTLY_TAG=TAG)
+        self.env = patch.dict(os.environ, GITHUB_OUTPUT=str(self.output), GITHUB_SHA=REF, GITHUB_RUN_ID='1234', NIGHTLY_REF=REF, NIGHTLY_TAG=TAG)
         self.env.start()
         self.addCleanup(self.env.stop)
         self.calls = []
         self.existing = []
         self.after = [release()]
-        self.runs = [dict(head_sha=REF, conclusion='success')]
+        self.created_at = '2026-11-09T02:00:00Z'
         self.tag_ref = REF
         self.failure = None
         self.api_mock = patch.object(nightly, 'api', side_effect=self.api)
@@ -49,10 +49,8 @@ class NightlyTests(unittest.TestCase):
 
     def api(self, path, *args):
         self.calls.append((path, *args))
-        if path.endswith('/commits/main'):
-            return dict(sha=REF)
-        if '/runs?' in path:
-            return dict(workflow_runs=self.runs)
+        if path.endswith('/actions/runs/1234'):
+            return dict(created_at=self.created_at)
         if '/git/matching-refs/' in path:
             return []
         if path.endswith('/git/refs'):
@@ -75,25 +73,19 @@ class NightlyTests(unittest.TestCase):
              patch.object(nightly.subprocess, 'run'):
             nightly.publish(REPO)
 
-    def test_selects_exact_successful_main_commit(self):
+    def test_selects_run_commit_and_original_date_for_retries(self):
         nightly.select(REPO)
-        lines = self.output.read_text().splitlines()
-        self.assertEqual(lines[0], f'ref={REF}')
-        self.assertRegex(lines[1], rf'^tag=nightly-\d{{4}}-\d{{2}}-\d{{2}}-{REF[:12]}$')
+        self.assertEqual(self.output.read_text(), f'ref={REF}\ntag={TAG}\n')
+        self.assertEqual(self.calls, [(f'repos/{REPO}/actions/runs/1234',)])
 
-    def test_does_not_select_failed_pending_missing_or_other_commit(self):
-        for runs in ([], [dict(head_sha=REF, conclusion=None)],
-                     [dict(head_sha=REF, conclusion='failure')],
-                     [dict(head_sha='0' * 40, conclusion='success')]):
-            with self.subTest(runs=runs):
-                self.runs = runs
-                nightly.select(REPO)
-                self.assertEqual(self.output.read_text(), '')
-
-    def test_main_moved_since_workflow_started(self):
-        with patch.dict(os.environ, GITHUB_SHA='0' * 40):
-            nightly.select(REPO)
-        self.assertEqual(self.output.read_text(), '')
+    def test_same_commit_gets_a_new_build_each_day(self):
+        self.existing.append(release())
+        nightly.select(REPO)
+        self.created_at = '2026-11-10T02:00:00Z'
+        nightly.select(REPO)
+        self.assertEqual(self.output.read_text().splitlines(), [
+            f'ref={REF}', f'tag={TAG}', f'ref={REF}',
+            f'tag=nightly-2026-11-10-{REF[:12]}'])
 
     def test_checksum_failure_does_not_create_or_publish_release(self):
         with patch.object(nightly.Path, 'iterdir', return_value=[Path('dist/SHA256SUMS')]), \
@@ -102,16 +94,6 @@ class NightlyTests(unittest.TestCase):
             with self.assertRaises(subprocess.CalledProcessError):
                 nightly.publish(REPO)
         self.assertEqual(self.calls, [])
-
-    def test_skips_already_published_commit(self):
-        self.existing.append(release())
-        nightly.select(REPO)
-        self.assertEqual(self.output.read_text(), '')
-
-    def test_draft_does_not_prevent_retry(self):
-        self.existing.append(release(draft=True))
-        nightly.select(REPO)
-        self.assertIn(f'ref={REF}', self.output.read_text())
 
     def test_uploads_before_publishing_and_never_sets_latest(self):
         self.publish()
@@ -150,10 +132,13 @@ class NightlyTests(unittest.TestCase):
     def test_retention_only_deletes_old_dated_nightlies(self):
         self.after[:] = [release(tag=f'nightly-2026-10-{day:02}-abcdef123456', date=f'2026-10-{day:02}')
                          for day in range(1, 17)]
-        self.after += [release('v0.2.1', prerelease=False), release('v0.3.0-rc1'), release(draft=True)]
+        self.after += [release('v0.2.1', prerelease=False), release('v0.3.0-rc1'), release(draft=True),
+                       release('nightly-2026-09-01-abcdef123456', date='2026-11-12')]
         self.publish()
         deleted = [c[2] for c in self.calls if c[:2] == ('release', 'delete')]
-        self.assertEqual(deleted, ['nightly-2026-10-02-abcdef123456', 'nightly-2026-10-01-abcdef123456'])
+        self.assertEqual(deleted, ['nightly-2026-10-02-abcdef123456',
+                                   'nightly-2026-10-01-abcdef123456',
+                                   'nightly-2026-09-01-abcdef123456'])
         self.assertTrue(all('--cleanup-tag' in c for c in self.calls if c[:2] == ('release', 'delete')))
 
     def test_release_listing_paginates(self):

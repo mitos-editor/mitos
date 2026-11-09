@@ -91,7 +91,7 @@ releases = [r for r in json.load(open(sys.argv[1])) if r["prerelease"] and not r
             and re.fullmatch(r"nightly-\d{4}-\d{2}-\d{2}-[0-9a-f]{12}", r["tag_name"])]
 if not releases:
     sys.exit("No nightly builds are available.")
-print(max(releases, key=lambda r: r["published_at"])["tag_name"])
+print(max(releases, key=lambda r: (r["tag_name"][8:18], r["published_at"]))["tag_name"])
 ' "$work_dir/releases.json") || fail 'Could not select a nightly build.'
   elif [ "$version" = latest ]; then
     # The stable redirect needs no JSON parser or GitHub CLI.

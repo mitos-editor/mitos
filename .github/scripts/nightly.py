@@ -1,5 +1,4 @@
-"""Select tested main commits and publish complete, dated nightly releases."""
-import datetime
+"""Prepare and publish complete, dated nightly releases."""
 import json
 import os
 from pathlib import Path
@@ -28,18 +27,9 @@ def is_nightly(release):
 
 def select(repo):
     ref = os.environ['GITHUB_SHA']
-    if api(f'repos/{repo}/commits/main')['sha'] != ref:
-        print('Main moved since this run started; start a new run.')
-        return
-    runs = api(f'repos/{repo}/actions/workflows/build.yml/runs'
-               f'?branch=main&event=push&head_sha={ref}&per_page=1')['workflow_runs']
-    if not runs or runs[0]['head_sha'] != ref or runs[0]['conclusion'] != 'success':
-        print('Main has no successful Build run for this commit; keeping the previous nightly.')
-        return
-    if any(is_nightly(r) and r['tag_name'].endswith(f'-{ref[:12]}') for r in releases(repo)):
-        print('This commit already has a nightly.')
-        return
-    date = datetime.datetime.now(datetime.timezone.utc).date()
+    # Keep the original date when a failed run is retried on another day.
+    run = api(f'repos/{repo}/actions/runs/{os.environ["GITHUB_RUN_ID"]}')
+    date = run['created_at'][:10]
     tag = f'nightly-{date}-{ref[:12]}'
     with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
         output.write(f'ref={ref}\ntag={tag}\n')
@@ -81,7 +71,7 @@ def publish(repo):
 def prune(repo):
     # Prune only our dated, published prereleases, after the new one is public.
     nightlies = sorted((r for r in releases(repo) if is_nightly(r)),
-                       key=lambda r: r['published_at'], reverse=True)
+                       key=lambda r: (r['tag_name'][8:18], r['published_at']), reverse=True)
     for old in nightlies[14:]:
         gh('release', 'delete', old['tag_name'], '--cleanup-tag', '--yes', '--repo', repo)
 
