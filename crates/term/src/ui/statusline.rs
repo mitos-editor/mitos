@@ -1,6 +1,7 @@
 use super::icon_span;
 use editor_core::indent::IndentStyle;
 use editor_core::search::statistics::Count;
+use editor_core::unicode::{segmentation::UnicodeSegmentation, width::UnicodeWidthStr};
 use editor_core::{coords_at_pos, encoding, Position};
 
 use lsp_client::lsp::DiagnosticSeverity;
@@ -25,7 +26,7 @@ pub struct RenderContext<'a> {
     pub doc: &'a Document,
     pub view: &'a View,
     pub spinners: &'a ProgressSpinners,
-    pub parts: RenderBuffer<'a>,
+    parts: Line<'a>,
 }
 
 impl<'a> RenderContext<'a> {
@@ -42,7 +43,7 @@ impl<'a> RenderContext<'a> {
             doc,
             view,
             spinners,
-            parts: RenderBuffer::default(),
+            parts: Line::default(),
         }
     }
 
@@ -51,10 +52,10 @@ impl<'a> RenderContext<'a> {
     }
 }
 
-#[derive(Default)]
-pub struct RenderBuffer<'a> {
-    pub left: Line<'a>,
-    pub right: Line<'a>,
+struct Part<'a> {
+    element: StatusLineElementID,
+    line: Line<'a>,
+    compact: Option<Line<'a>>,
 }
 
 pub fn render(context: &mut RenderContext, viewport: Rect, surface: &mut Surface) {
@@ -67,35 +68,198 @@ pub fn render(context: &mut RenderContext, viewport: Rect, surface: &mut Surface
     } else {
         "ui.statusline.inactive"
     });
-
     surface.set_style(viewport.with_height(1), base_style);
 
-    // Left side of the status line.
-
     let config = context.editor.config();
+    let mut left = render_parts(context, &config.statusline.left, base_style);
+    let mut right = render_parts(context, &config.statusline.right, base_style);
+    fit_parts(&mut left, &mut right, viewport.width as usize);
 
-    for element_id in &config.statusline.left {
-        let render = get_render_function(*element_id);
-        (render)(context, |context, span| {
-            append(&mut context.parts.left, span, base_style)
-        });
-    }
+    let left = join_parts(left);
+    let right = join_parts(right);
+    let [left_area, right_area] =
+        statusline_areas(viewport, right.width().min(viewport.width as usize) as u16);
+    left.render(left_area, surface);
+    right.right_aligned().render(right_area, surface);
+}
 
-    // Right side of the status line.
-
-    for element_id in &config.statusline.right {
-        let render = get_render_function(*element_id);
-        (render)(context, |context, span| {
-            append(&mut context.parts.right, span, base_style)
+fn render_parts<'a>(
+    context: &mut RenderContext<'a>,
+    elements: &[StatusLineElementID],
+    base_style: Style,
+) -> Vec<Part<'a>> {
+    elements
+        .iter()
+        .map(|&element| {
+            let render = get_render_function(element);
+            render(context, |context, span| {
+                append(&mut context.parts, span, base_style)
+            });
+            let line = std::mem::take(&mut context.parts);
+            let compact = if is_filename(element) {
+                let mut compact = Line::from(Span::styled(
+                    format!(" {} ", filename(context, FileNameFormat::Base)),
+                    base_style,
+                ));
+                if context.doc.review().is_some() {
+                    compact.spans.push(Span::styled("DIFF ", base_style));
+                }
+                Some(compact)
+            } else {
+                None
+            };
+            Part {
+                element,
+                line,
+                compact,
+            }
         })
+        .collect()
+}
+
+fn join_parts(parts: Vec<Part<'_>>) -> Line<'_> {
+    Line::from(
+        parts
+            .into_iter()
+            .flat_map(|part| part.line.spans)
+            .collect::<Vec<_>>(),
+    )
+}
+
+fn is_filename(element: StatusLineElementID) -> bool {
+    use StatusLineElementID as E;
+    matches!(element, E::FileName | E::FileAbsolutePath | E::FileBaseName)
+}
+
+fn parts_width(left: &[Part<'_>], right: &[Part<'_>]) -> usize {
+    left.iter().chain(right).map(|part| part.line.width()).sum()
+}
+
+fn fit_parts<'a>(left: &mut [Part<'a>], right: &mut [Part<'a>], width: usize) {
+    use StatusLineElementID as E;
+    let mut excess = parts_width(left, right).saturating_sub(width);
+    if excess == 0 {
+        return;
     }
 
-    let [left_area, right_area] = statusline_areas(viewport, context.parts.right.width() as u16);
+    // Language is useful at full width, but is the first field to give up space.
+    for part in left.iter_mut().chain(right.iter_mut()) {
+        if part.element == E::FileType && excess > 0 {
+            excess = excess.saturating_sub(part.line.width());
+            part.line.spans.clear();
+        }
+    }
 
-    std::mem::take(&mut context.parts.left).render(left_area, surface);
-    std::mem::take(&mut context.parts.right)
-        .right_aligned()
-        .render(right_area, surface);
+    // Shorten paths and context before hiding any other fields.
+    for part in left.iter_mut().chain(right.iter_mut()) {
+        if excess == 0 {
+            return;
+        }
+        if let Some(compact) = part.compact.take() {
+            let saved = part.line.width().saturating_sub(compact.width());
+            if saved > 0 {
+                part.line = compact;
+                excess = excess.saturating_sub(saved);
+            }
+        }
+    }
+    for part in left.iter_mut().chain(right.iter_mut()) {
+        let minimum = match part.element {
+            E::Branch => 8,
+            E::DebugSession => 16,
+            _ => continue,
+        };
+        shrink_part(part, &mut excess, minimum, false);
+    }
+
+    // Keep custom ordering and sides. Only visibility changes as space runs out.
+    for element in [
+        E::DebugSession,
+        E::Branch,
+        E::CurrentWorkingDirectory,
+        E::FileIndentStyle,
+        E::FileLineEnding,
+        E::FileEncoding,
+        E::TotalLineNumbers,
+        E::PositionPercentage,
+        E::PrimarySelectionLength,
+        E::WorkspaceDiagnostics,
+        E::CodeActionHint,
+        E::Spinner,
+        E::Separator,
+        E::Spacer,
+        E::Diagnostics,
+        E::SearchPosition,
+        E::Register,
+        E::Selections,
+    ] {
+        for part in left.iter_mut().chain(right.iter_mut()) {
+            if excess == 0 {
+                return;
+            }
+            if part.element == element {
+                excess = excess.saturating_sub(part.line.width());
+                part.line.spans.clear();
+            }
+        }
+    }
+
+    // If the basename itself is too long, preserve its suffix and file extension.
+    for part in left.iter_mut().chain(right.iter_mut()) {
+        if is_filename(part.element) && excess > 0 {
+            let old_width = part.line.width();
+            part.line.spans.truncate(1);
+            excess = excess.saturating_sub(old_width - part.line.width());
+            shrink_part(part, &mut excess, 3, true);
+        }
+    }
+}
+
+fn shrink_part(part: &mut Part<'_>, excess: &mut usize, minimum: usize, from_start: bool) {
+    let old_width = part.line.width();
+    let width = old_width.saturating_sub(*excess).max(minimum);
+    if width >= old_width {
+        return;
+    }
+    truncate_line(&mut part.line, width, from_start);
+    *excess = excess.saturating_sub(old_width - part.line.width());
+}
+
+fn truncate_line(line: &mut Line<'_>, width: usize, from_start: bool) {
+    if line.width() <= width {
+        return;
+    }
+    if width == 0 {
+        line.spans.clear();
+        return;
+    }
+    let mut remaining = width.saturating_sub(1);
+    let mut spans = Vec::new();
+    let mut source: Vec<_> = line.spans.iter().collect();
+    if from_start {
+        source.reverse();
+    }
+    'spans: for span in source {
+        let mut graphemes: Vec<_> = span.content.graphemes(true).collect();
+        if from_start {
+            graphemes.reverse();
+        }
+        for grapheme in graphemes {
+            let width = grapheme.width();
+            if width > remaining {
+                break 'spans;
+            }
+            spans.push(Span::styled(grapheme.to_owned(), span.style));
+            remaining -= width;
+        }
+    }
+    if from_start {
+        spans.reverse();
+        spans.insert(0, Span::raw("…"));
+    } else {
+        spans.push(Span::raw("…"));
+    }
+    line.spans = spans;
 }
 
 fn statusline_areas(viewport: Rect, right_width: u16) -> [Rect; 2] {
@@ -445,14 +609,12 @@ where
 {
     let selection = context.doc.selection(context.view.id);
     let count = selection.len();
-    write(
-        context,
-        if count == 1 {
-            " 1 sel ".into()
-        } else {
-            format!(" {}/{count} sels ", selection.primary_index() + 1).into()
-        },
-    );
+    if count > 1 {
+        write(
+            context,
+            format!(" {}/{count} sels ", selection.primary_index() + 1).into(),
+        );
+    }
 }
 
 fn render_primary_selection_length<'a, F>(context: &mut RenderContext<'a>, write: F)
@@ -626,6 +788,11 @@ fn render_filename<'a, F>(context: &mut RenderContext<'a>, write: F, format: Fil
 where
     F: Fn(&mut RenderContext<'a>, Span<'a>) + Copy,
 {
+    write(context, format!(" {} ", filename(context, format)).into());
+    render_review_status(context, write);
+}
+
+fn filename(context: &RenderContext<'_>, format: FileNameFormat) -> String {
     let doc = context.doc;
     let display = doc.display_metadata();
     let path = match format {
@@ -648,8 +815,7 @@ where
         || doc.display_name(),
         |path| display.format_path(path).into(),
     );
-    write(context, format!(" {name} ").into());
-    render_review_status(context, write);
+    name.into_owned()
 }
 
 fn render_review_status<'a, F>(context: &mut RenderContext<'a>, write: F)
@@ -738,7 +904,9 @@ where
         return;
     }
 
-    write(context, head.into());
+    if !head.is_empty() {
+        write(context, format!(" {head} ").into());
+    }
 }
 
 fn render_register<'a, F>(context: &mut RenderContext<'a>, write: F)
@@ -815,6 +983,146 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn part(element: StatusLineElementID, text: &str, compact: Option<&str>) -> Part<'static> {
+        Part {
+            element,
+            line: Line::raw(text.to_owned()),
+            compact: compact.map(|text| Line::raw(text.to_owned())),
+        }
+    }
+
+    #[test]
+    fn language_is_hidden_before_other_fields_change() {
+        use StatusLineElementID as E;
+        let mut left = vec![part(E::FileName, " src/main.rs ", Some(" main.rs "))];
+        let mut right = vec![
+            part(E::FileType, " rust ", None),
+            part(E::Position, " 1:1 ", None),
+        ];
+        fit_parts(&mut left, &mut right, 18);
+        assert_eq!(join_parts(left).to_string(), " src/main.rs ");
+        assert_eq!(join_parts(right).to_string(), " 1:1 ");
+    }
+
+    #[test]
+    fn narrow_statuslines_preserve_essential_fields_on_either_side() {
+        use StatusLineElementID as E;
+        for swap_sides in [false, true] {
+            for width in 34..=160 {
+                let mut left = vec![
+                    part(E::Mode, " NOR ", None),
+                    part(
+                        E::FileName,
+                        " very/long/directory/main.rs ",
+                        Some(" main.rs "),
+                    ),
+                    part(E::ReadOnlyIndicator, " [readonly] ", None),
+                    part(E::FileModificationIndicator, "[+]", None),
+                    part(E::Branch, &"feature/long-branch-".repeat(20), None),
+                    part(
+                        E::DebugSession,
+                        &format!(
+                            " Debug #1 {} (running, 1 session) ",
+                            "long-name-".repeat(20)
+                        ),
+                        None,
+                    ),
+                ];
+                let mut right = vec![
+                    part(E::Diagnostics, " E 12345 W 12345 ", None),
+                    part(E::Selections, " 1/20 sels ", None),
+                    part(E::Register, " reg=a ", None),
+                    part(E::SearchPosition, " [12345/12345] ", None),
+                    part(E::FileType, " rust ", None),
+                    part(E::Position, " 1:1 ", None),
+                ];
+                if swap_sides {
+                    std::mem::swap(&mut left, &mut right);
+                }
+                fit_parts(&mut left, &mut right, width);
+                assert!(parts_width(&left, &right) <= width);
+                let text = format!("{}{}", join_parts(left), join_parts(right));
+                for essential in ["NOR", "main.rs", "[readonly]", "[+]", "1:1"] {
+                    assert!(
+                        text.contains(essential),
+                        "width={width}, swapped={swap_sides}: {text:?}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn long_basenames_keep_the_extension_and_file_state() {
+        use StatusLineElementID as E;
+        let mut left = vec![
+            part(E::Mode, " NOR ", None),
+            part(
+                E::FileName,
+                " very-long-basename.rs ",
+                Some(" very-long-basename.rs "),
+            ),
+            part(E::ReadOnlyIndicator, " [readonly] ", None),
+            part(E::FileModificationIndicator, "[+]", None),
+        ];
+        let mut right = vec![part(E::Position, " 1:1 ", None)];
+        fit_parts(&mut left, &mut right, 34);
+        assert!(parts_width(&left, &right) <= 34);
+        let text = format!("{}{}", join_parts(left), join_parts(right));
+        for essential in ["NOR", "…", ".rs", "[readonly]", "[+]", "1:1"] {
+            assert!(text.contains(essential), "{text:?}");
+        }
+    }
+
+    #[test]
+    fn review_details_do_not_displace_the_basename() {
+        use StatusLineElementID as E;
+        let mut filename = part(E::FileName, " main.rs ", None);
+        filename.line.spans.push(Span::raw("DIFF "));
+        let mut left = vec![filename];
+        let mut right = vec![part(E::Position, " 1:1 ", None)];
+        fit_parts(&mut left, &mut right, 14);
+        assert_eq!(join_parts(left).to_string(), " main.rs ");
+        assert_eq!(join_parts(right).to_string(), " 1:1 ");
+    }
+
+    #[test]
+    fn shortening_preserves_graphemes_and_styles() {
+        use tui::style::Color;
+        for (from_start, expected) in [(false, "界e\u{301}…"), (true, "…👩‍💻.rs")] {
+            let style = Style::default().fg(Color::Red).bg(Color::Blue);
+            let mut line = Line::from(Span::styled("界e\u{301}👩‍💻.rs", style));
+            truncate_line(&mut line, if from_start { 6 } else { 4 }, from_start);
+            assert_eq!(line.to_string(), expected);
+            assert!(line
+                .spans
+                .iter()
+                .filter(|span| span.content != "…")
+                .all(|span| span.style == style));
+        }
+    }
+
+    #[test]
+    fn tiny_and_empty_statuslines_do_not_write_outside_their_viewport() {
+        use StatusLineElementID as E;
+        for width in 0..=12 {
+            let mut left = vec![part(E::FileName, " wide-界.rs ", Some(" wide-界.rs "))];
+            let mut right = vec![part(E::Position, " 123:456 ", None)];
+            fit_parts(&mut left, &mut right, width as usize);
+            let area = Rect::new(2, 1, width, 1);
+            let mut buffer = Surface::empty(Rect::new(0, 0, 20, 3));
+            buffer[(1, 1)].set_symbol("L");
+            buffer[(area.right(), 1)].set_symbol("R");
+            let right = join_parts(right);
+            let [left_area, right_area] =
+                statusline_areas(area, right.width().min(width as usize) as u16);
+            join_parts(left).render(left_area, &mut buffer);
+            right.right_aligned().render(right_area, &mut buffer);
+            assert_eq!(buffer[(1, 1)].symbol(), "L");
+            assert_eq!(buffer[(area.right(), 1)].symbol(), "R");
+        }
+    }
 
     #[test]
     fn left_section_fills_space_not_needed_by_the_right_section() {
