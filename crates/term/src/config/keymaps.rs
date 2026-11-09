@@ -65,6 +65,7 @@ impl<'de> Deserialize<'de> for SidebarBinding {
             "hide" => SidebarAction::Hide,
             "next_view" => SidebarAction::NextView,
             "previous_view" => SidebarAction::PreviousView,
+            "resize" => SidebarAction::Resize,
             action => SidebarAction::Picker(
                 FileExplorerAction::deserialize(action.into_deserializer())?.0,
             ),

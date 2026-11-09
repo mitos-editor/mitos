@@ -138,6 +138,13 @@ directories and your selection.
 | `Esc` with a search | Clear the search and keep the sidebar focused |
 | `Esc` without a search | Return to the editor |
 | `q` while navigating | Hide the sidebar |
+| `Ctrl-w r` while navigating | Resize the sidebar |
+
+In resize mode, `h` / `Left` shrinks the sidebar and `l` / `Right` grows it by
+five columns. A count changes the step, such as `10 l`. Press `Enter` to keep
+the width, `Esc` to restore it, or `=` to return to the default width. The chosen
+width is kept when hiding and reopening the sidebar. Narrow terminals constrain
+it to leave at least 24 columns for documents.
 
 Search uses fuzzy matching and includes collapsed directories, excluding Git
 and other version control metadata. Results show matching names with their

@@ -753,3 +753,30 @@ async fn sidebar_hints_follow_remapped_and_nested_prefixes() -> anyhow::Result<(
     assert!(!screen(&app).contains("Focus document window"));
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn resize_mode_changes_width_and_can_cancel_or_reset() -> anyhow::Result<()> {
+    if super::helpers::isolation::workspace(
+        "test::sidebar::resize_mode_changes_width_and_can_cancel_or_reset",
+    )?
+    .is_none()
+    {
+        return Ok(());
+    }
+    let (mut app, _dir, _root) = sidebar().await?;
+    let original = app.editor.tree.area();
+    keys(&mut app, "<C-w>r5ll<ret>").await?;
+    assert_eq!(app.editor.tree.area().x, original.x + 10);
+    assert_eq!(app.editor.tree.area().right(), original.right());
+    keys(&mut app, "<C-w>r1h<esc>").await?;
+    assert_eq!(app.editor.tree.area().x, original.x + 10);
+    keys(&mut app, "q<C-w>e").await?;
+    assert_eq!(app.editor.tree.area().x, original.x + 10);
+    keys(&mut app, "<C-w>r9999l<ret>").await?;
+    assert_eq!(app.editor.tree.area().width, 24);
+    keys(&mut app, "<C-w>r9999h<ret>").await?;
+    assert_eq!(app.editor.tree.area().x, 20);
+    keys(&mut app, "<C-w>r=<ret>").await?;
+    assert_eq!(app.editor.tree.area(), original);
+    Ok(())
+}
