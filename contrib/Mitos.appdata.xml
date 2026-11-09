@@ -36,6 +36,13 @@
   <url type="bugtracker">https://github.com/mitos-editor/mitos/issues</url>
 
   <releases>
+    <release version="0.2.1" date="2026-11-09">
+      <url type="details">https://github.com/mitos-editor/mitos/releases/tag/v0.2.1</url>
+      <description>
+        <p>Fix Windows release packaging and publish the downloads blocked in 0.2.0.
+        Git pulls use native fast-forward operations where supported.</p>
+      </description>
+    </release>
     <release version="0.2.0" date="2026-11-08">
       <url type="details">https://github.com/mitos-editor/mitos/releases/tag/v0.2.0</url>
       <description>

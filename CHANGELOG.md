@@ -2,15 +2,10 @@
 
 ## [Unreleased]
 
-## [0.2.1](https://github.com/mitos-editor/mitos/compare/v0.2.0...v0.2.1) - 2026-11-08
+## [0.2.1](https://github.com/mitos-editor/mitos/compare/v0.2.0...v0.2.1) - 2026-11-09
 
-### Added
-
-- *(vcs)* fast-forward pulls with gix
-
-### Other
-
-- *(vcs)* make native fallback outcomes explicit
+- Fix release packaging on Windows: omit upstream grammar symlinks that prevented both Windows builds from extracting their sources. The failure also blocked publication of all 0.2.0 downloads; this release includes the [0.2.0 features and upgrade notes](#020---2026-11-08) below.
+- Fast-forward Git pulls now use [gitoxide](https://github.com/GitoxideLabs/gitoxide) where supported, with explicit fallback to Git for other cases. See [fetch, pull, and push](https://mitos.computer/docs/version-control.html#fetch-pull-and-push).
 
 ## [0.2.0](https://github.com/mitos-editor/mitos/compare/v0.1.3...v0.2.0) - 2026-11-08
 

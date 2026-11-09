@@ -38,7 +38,7 @@ jobs:
         run: cargo run --locked --package=grammar-build --bin=grammar-fetch
 
       - name: Bundle grammars
-        run: tar cJf grammars.tar.xz -C runtime/grammars/sources .
+        run: bash .github/scripts/bundle-grammars.sh runtime/grammars/sources grammars.tar.xz
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
