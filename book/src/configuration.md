@@ -426,8 +426,8 @@ single statusline at the bottom of the editor for the focused view.
 | Key | Type | Default |
 | --- | --- | --- |
 | `global` | boolean | `false` |
-| `left` | array of element names | `["mode", "spinner", "debug-session", "branch", "file-name", "read-only-indicator", "file-modification-indicator"]` |
-| `right` | array of element names | `["diagnostics", "selections", "register", "search-position", "position", "file-encoding"]` |
+| `left` | array of element names | `["mode", "spinner", "file-name", "read-only-indicator", "file-modification-indicator", "branch", "debug-session"]` |
+| `right` | array of element names | `["diagnostics", "selections", "register", "search-position", "file-type", "position", "file-encoding"]` |
 | `separator` | string | `"│"` |
 | `mode.color` | boolean | `false` |
 | `mode.normal` | string | `"NOR"` |
@@ -435,6 +435,14 @@ single statusline at the bottom of the editor for the focused view.
 | `mode.select` | string | `"SEL"` |
 | `diagnostics` | severity array | `["warning", "error"]` |
 | `workspace-diagnostics` | severity array | `["warning", "error"]` |
+
+When space is limited, the statusline hides the file type first, shortens paths,
+branch names, and debug details, then hides optional fields. It keeps the mode,
+filename, read-only and modified indicators, and cursor position when space allows.
+
+Diagnostics describe the current file by default. To show counts across files,
+replace `"diagnostics"` with `"workspace-diagnostics"` in `right`. This can be useful
+with `global = true`; counts reflect the diagnostics currently reported to Mitos.
 
 Available statusline elements:
 
@@ -454,9 +462,9 @@ Available statusline elements:
 | `read-only-indicator` | An indicator that shows `[readonly]` when a file cannot be written |
 | `total-line-numbers` | The total line numbers of the opened file |
 | `file-type` | The type of the opened file |
-| `diagnostics` | The number of warnings and/or errors |
-| `workspace-diagnostics` | The number of warnings and/or errors on workspace |
-| `selections` | The main selection index out of the number of active selections |
+| `diagnostics` | The number of warnings and/or errors in the current file |
+| `workspace-diagnostics` | The number of warnings and/or errors reported across files |
+| `selections` | The main selection index and selection count, shown only with multiple selections |
 | `search-position` | Last search match position and count, such as `[3/12]`; counts above the limit use `>N`, and unavailable counts use `?` |
 | `primary-selection-length` | The number of characters currently in the main selection |
 | `position` | The cursor position |

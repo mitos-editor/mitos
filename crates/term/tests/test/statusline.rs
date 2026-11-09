@@ -259,3 +259,137 @@ async fn key_help_preserves_the_bottom_statusline() -> anyhow::Result<()> {
     }
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn single_selection_is_hidden_but_multiple_selections_are_shown() -> anyhow::Result<()> {
+    use super::helpers::keys;
+
+    for (input, expected) in [("#[a|]#bc\n", None), ("#[a|]#b#(c|)#\n", Some("1/2 sels"))] {
+        let mut app = AppBuilder::new()
+            .with_lang_loader(language::syntax::Loader::default())
+            .with_input_text(input)
+            .build()?;
+        keys(&mut app, "").await?;
+        let (view, doc) = current_ref!(app.editor);
+        let text = row(app.terminal_backend().buffer(), view.statusline_area(doc));
+        if let Some(expected) = expected {
+            assert!(text.contains(expected), "{text:?}");
+        } else {
+            assert!(!text.contains("sel"), "{text:?}");
+        }
+        assert!(app.close().await.is_empty());
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn busy_statuslines_preserve_file_identity_and_state() -> anyhow::Result<()> {
+    use super::helpers::keys;
+    use arc_swap::ArcSwap;
+    use std::sync::Arc;
+    use tokio::net::TcpListener;
+
+    let dir = tempfile::tempdir()?;
+    let path = dir.path().join("main.rs");
+    std::fs::write(&path, "hello\n")?;
+    let permissions = std::fs::metadata(&path)?.permissions();
+    let listener = TcpListener::bind("127.0.0.1:0").await?;
+    for global in [false, true] {
+        for icons in [false, true] {
+            let mut config = test_config();
+            config.editor.statusline.global = global;
+            config.editor.icons = icons;
+            let mut app = AppBuilder::new()
+                .with_config(config)
+                .with_file(&path, None)
+                .with_input_text("#[h|]#ello world\n")
+                .with_lang_loader(language::syntax::Loader::default())
+                .build()?;
+            let (_, doc) = view::current!(app.editor);
+            doc.set_version_control_head(Some(Arc::new(ArcSwap::from_pointee(
+                format!("feature/{}", "long-branch-name-".repeat(12)).into_boxed_str(),
+            ))));
+            let mut readonly = permissions.clone();
+            readonly.set_readonly(true);
+            std::fs::set_permissions(&path, readonly)?;
+            doc.detect_readonly();
+            assert!(doc.is_readonly());
+            app.editor.connect_debugger(
+                Some(listener.local_addr()?),
+                language_config::DebugAdapterConfig {
+                    name: "long-debug-session-name-".repeat(12),
+                    transport: language_config::DebugAdapterTransport::Tcp,
+                    command: String::new(),
+                    args: vec![],
+                    port_arg: None,
+                    templates: vec![],
+                    quirks: Default::default(),
+                },
+                None,
+            );
+            app.editor.open(&path, Action::VerticalSplit)?;
+            app.editor.open(&path, Action::VerticalSplit)?;
+            keys(&mut app, "").await?;
+            std::fs::set_permissions(&path, permissions.clone())?;
+            let buffer = app.terminal_backend().buffer();
+            for (view, focused) in app.editor.tree.views() {
+                if global && !focused {
+                    continue;
+                }
+                let doc = app.editor.document(view.document_id()).unwrap();
+                let area = if global {
+                    Rect::new(0, buffer.area.bottom() - 2, buffer.area.width, 1)
+                } else {
+                    view.statusline_area(doc)
+                };
+                let text = row(buffer, area);
+                for essential in ["main.rs", "[readonly]", "[+]", "1:1"] {
+                    assert!(
+                        text.contains(essential),
+                        "global={global}, icons={icons}: {text:?}"
+                    );
+                }
+                assert_eq!(text.contains("NOR"), focused, "{text:?}");
+            }
+            assert!(app.close().await.is_empty());
+        }
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn default_statusline_shows_language_and_only_unusual_encoding() -> anyhow::Result<()> {
+    use super::helpers::keys;
+
+    let dir = tempfile::tempdir()?;
+    let path = dir.path().join("main.rs");
+    std::fs::write(&path, "hello\n")?;
+    let loader = language::syntax::Loader::new(
+        toml::from_str(
+            r#"
+            [[language]]
+            name = "rust"
+            scope = "source.rust"
+            file-types = ["rs"]
+        "#,
+        )?,
+        loader::syntax::Resources::default(),
+    )?;
+    let mut app = AppBuilder::new()
+        .with_file(path, None)
+        .with_lang_loader(loader)
+        .build()?;
+    keys(&mut app, "").await?;
+    let (view, doc) = current_ref!(app.editor);
+    let text = row(app.terminal_backend().buffer(), view.statusline_area(doc));
+    assert!(text.contains("rust"), "{text:?}");
+    assert!(!text.contains("UTF-8"), "{text:?}");
+    view::current!(app.editor).1.set_encoding("windows-1252")?;
+    app.editor.redraw().request();
+    keys(&mut app, "").await?;
+    let (view, doc) = current_ref!(app.editor);
+    let text = row(app.terminal_backend().buffer(), view.statusline_area(doc));
+    assert!(text.contains("windows-1252"), "{text:?}");
+    assert!(app.close().await.is_empty());
+    Ok(())
+}
