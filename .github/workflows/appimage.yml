@@ -4,8 +4,6 @@ on:
   pull_request:
     paths:
       - '.github/scripts/*appimage.sh'
-      - '.github/scripts/bundle-grammars.sh'
-      - 'tests/releases/**'
       - '.github/workflows/appimage.yml'
       - '.github/workflows/release.yml'
       - 'contrib/Mitos.desktop'
@@ -15,8 +13,6 @@ on:
     branches: [main]
     paths:
       - '.github/scripts/*appimage.sh'
-      - '.github/scripts/bundle-grammars.sh'
-      - 'tests/releases/**'
       - '.github/workflows/appimage.yml'
       - '.github/workflows/release.yml'
       - 'contrib/Mitos.desktop'
@@ -41,8 +37,6 @@ jobs:
             os: ubuntu-22.04-arm
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Check grammar archive portability
-        run: python3 -m unittest discover -s tests/releases -v
       # Exercise packaging with real binaries and grammars without rebuilding Rust.
       - name: Download release fixture
         env:

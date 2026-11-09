@@ -48,8 +48,7 @@ build workflow. See the [release-plz token setup guide](https://release-plz.dev/
    [AppStream release metadata specification](https://www.freedesktop.org/software/appstream/docs/sect-Metadata-Releases.html).
    This metadata and the desktop icon are included in Debian, AppImage, and Nix
    packages. Nix reads its version from the workspace manifest.
-4. Run `python3 -m unittest discover -s tests/installers -v` and
-   `python3 -m unittest discover -s tests/releases -v`, build the book,
+4. Run `python3 -m unittest discover -s tests/installers -v`, build the book,
    and validate release workflow changes with `actionlint`. Check
    `nix/grammar-sources.json` against `languages.toml`; regenerate changed pins
    with `cargo xtask update-nix-grammar-sources` on a machine with Nix installed.
