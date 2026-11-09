@@ -103,8 +103,9 @@ pub fn raw_regex_prompt(
     completion_fn: impl FnMut(&Editor, &str) -> CompletionResult + 'static,
     fun: impl Fn(&mut crate::compositor::Context, rope::Regex, &str, PromptEvent) + 'static,
 ) {
-    search_prompt(
+    search_prompt_impl(
         cx,
+        false,
         prompt,
         history_register,
         completion_fn,
@@ -123,10 +124,24 @@ pub fn search_prompt(
     fun: impl Fn(&mut crate::compositor::Context, view::features::buffer_search::Query, &str, PromptEvent)
         + 'static,
 ) {
+    search_prompt_impl(cx, true, prompt, history_register, completion_fn, fun);
+}
+
+fn search_prompt_impl(
+    cx: &mut crate::commands::Context,
+    highlight_search: bool,
+    prompt: std::borrow::Cow<'static, str>,
+    history_register: Option<char>,
+    completion_fn: impl FnMut(&Editor, &str) -> CompletionResult + 'static,
+    fun: impl Fn(&mut crate::compositor::Context, view::features::buffer_search::Query, &str, PromptEvent)
+        + 'static,
+) {
     let (view, doc) = current!(cx.editor);
     let doc_id = view.document_id();
     let view_id = view.id;
     let snapshot = doc.selection(view.id).clone();
+    let highlight_snapshot = doc.search_highlight(view.id).cloned();
+    let highlight_version = doc.version();
     doc.begin_selection_preview(view.id);
     let offset_snapshot = doc.view_offset(view.id);
     let config = cx.editor.config();
@@ -143,10 +158,19 @@ pub fn search_prompt(
                     doc.set_selection(view.id, snapshot.clone());
                     doc.set_view_offset(view.id, offset_snapshot);
                     doc.finish_selection_preview(view.id);
+                    if highlight_search {
+                        let query = (doc.version() == highlight_version)
+                            .then(|| highlight_snapshot.clone())
+                            .flatten();
+                        doc.set_search_highlight(view.id, query);
+                    }
                 }
                 PromptEvent::Update | PromptEvent::Validate => {
                     if input.is_empty() {
                         let doc = doc_mut!(cx.editor, &doc_id);
+                        if highlight_search {
+                            doc.set_search_highlight(view_id, None);
+                        }
                         doc.set_selection(view_id, snapshot.clone());
                         doc.set_view_offset(view_id, offset_snapshot);
                         if event == PromptEvent::Validate {
@@ -181,6 +205,9 @@ pub fn search_prompt(
                         Err(err) => {
                             let doc = doc_mut!(cx.editor, &doc_id);
                             let view = view_mut!(cx.editor, view_id);
+                            if highlight_search {
+                                doc.set_search_highlight(view.id, None);
+                            }
                             doc.set_selection(view.id, snapshot.clone());
                             doc.set_view_offset(view.id, offset_snapshot);
 

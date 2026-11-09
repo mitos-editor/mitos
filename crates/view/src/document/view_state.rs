@@ -21,6 +21,7 @@ pub(crate) struct DocumentViewState {
     pub code_actions: Option<event::TaskController>,
     pub shell_filters: Option<event::TaskController>,
     pub search: crate::features::buffer_search::State,
+    pub search_highlight: Option<(crate::features::buffer_search::Query, buffer::Snapshot)>,
 }
 
 impl Clone for DocumentViewState {
@@ -40,6 +41,7 @@ impl Clone for DocumentViewState {
             code_actions: Default::default(),
             shell_filters: Default::default(),
             search: self.search.presentation(),
+            search_highlight: self.search_highlight.clone(),
         }
     }
 }
@@ -60,6 +62,7 @@ impl DocumentViewState {
             code_actions: Default::default(),
             shell_filters: Default::default(),
             search: Default::default(),
+            search_highlight: None,
         }
     }
 
@@ -73,6 +76,24 @@ impl DocumentViewState {
 }
 
 impl super::Document {
+    /// Active search highlighting belongs to a view and expires when its buffer changes.
+    pub fn search_highlight(
+        &self,
+        view: crate::ViewId,
+    ) -> Option<&crate::features::buffer_search::Query> {
+        let (query, snapshot) = self.view_states.get(&view)?.search_highlight.as_ref()?;
+        snapshot.is_current(&self.buffer).then_some(query)
+    }
+
+    pub fn set_search_highlight(
+        &mut self,
+        view: crate::ViewId,
+        query: Option<crate::features::buffer_search::Query>,
+    ) {
+        let snapshot = self.snapshot();
+        self.view_state_mut(view).search_highlight = query.map(|query| (query, snapshot));
+    }
+
     pub(crate) fn search_state_mut(
         &mut self,
         view: crate::ViewId,

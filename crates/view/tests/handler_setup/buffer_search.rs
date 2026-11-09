@@ -296,3 +296,19 @@ async fn shared_search_counts_matches_and_preserves_other_splits() -> anyhow::Re
     assert!(doc.changes().is_empty());
     Ok(())
 }
+
+#[tokio::test]
+async fn search_highlights_do_not_require_counts_and_expire_after_edits() -> anyhow::Result<()> {
+    let mut fixture = Fixture::new("é one one\n")?;
+    fixture.configure(|config| config.statusline.right.clear());
+    search(&mut fixture, "one", 1)?;
+    let (view, doc) = current!(fixture.editor);
+    assert!(doc.search_highlight(view.id).is_some());
+    let edit = Transaction::change(doc.text(), [(0, 1, Some("a".into()))].into_iter());
+    doc.apply(edit.changes())?;
+    assert!(doc.search_highlight(view.id).is_none());
+    search(&mut fixture, "absent", 1)?;
+    let (view, doc) = current_ref!(fixture.editor);
+    assert!(doc.search_highlight(view.id).is_some());
+    Ok(())
+}
