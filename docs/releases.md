@@ -1,9 +1,11 @@
 # Releases
 
 [release-plz](https://release-plz.dev/) opens and updates a release PR on pushes
-to `main`. Merging that PR creates a GitHub release and a version tag such as `v0.1.0`;
+to `main`. Merging that PR creates a draft GitHub release and a version tag such as `v0.2.1`;
 the tag triggers `.github/workflows/release.yml` to build and upload the binary
 archives, Linux AppImages, Debian package, SHA-256 checksums, and provenance attestations.
+The release stays in draft until you publish it manually. Artifact uploads find
+the existing draft by ID and refuse to proceed if it is already published.
 
 Releases use Git tags only; release-plz does not publish crates to crates.io.
 The `term` package owns the release and root changelog. Its version is inherited
@@ -20,8 +22,8 @@ pushed back into this repository.
 With no existing release tags, release-plz treats `0.1.0` as the initial
 release and keeps that version in its first release PR. Subsequent versions
 follow release-plz's semantic version bumps from commit messages.
-`release_always = false` ensures publication happens only after a release PR
-is merged.
+`release_always = false` ensures draft release creation happens only after a
+release PR is merged. `git_release_draft = true` keeps the release unpublished.
 
 ## Repository setup
 
@@ -54,12 +56,23 @@ build workflow. See the [release-plz token setup guide](https://release-plz.dev/
 5. Wait for CI and merge the release PR.
 6. Verify the Release-plz and Release workflows finish. Check all six platform
    archives, both Linux AppImages, the x86_64 Debian package, source archive,
-   `SHA256SUMS`, and provenance attestations on the GitHub release. The source
+   `SHA256SUMS`, and provenance attestations on the draft GitHub release. The source
    archive includes pinned grammar sources and excludes Git metadata and CI
    build artifacts. Test `ms --version` and `ms --health rust` from an extracted
-   archive outside the checkout, and test the hosted installers with the new
-   version. Actual artifact publication and installation can only be verified
-   after the tag build finishes.
+   archive outside the checkout. Download draft assets while authenticated with
+   `gh release download v0.2.1 --repo mitos-editor/mitos` (replace the version).
+7. When the Release workflow is green and the draft has all artifacts, open it
+   in [GitHub Releases](https://github.com/mitos-editor/mitos/releases), review
+   the notes, and click **Publish release**. Alternatively, run
+   `gh release edit v0.2.1 --repo mitos-editor/mitos --draft=false --latest`.
+8. Test the hosted installers with the newly published version. Public download
+   URLs and the latest-release installer do not expose draft releases; the
+   previous published release stays available while the new draft builds.
+
+If a build fails, the release stays in draft. Retry the failed jobs before
+publishing; do not move the version tag. Uploads and reruns never publish the
+release automatically. A rerun after manual publication fails the draft check
+rather than changing the published release.
 
 Manual dispatch of the Release workflow remains a preview build and uploads CI
 artifacts. Manual dispatch of Release-plz on `main` reruns release automation.
