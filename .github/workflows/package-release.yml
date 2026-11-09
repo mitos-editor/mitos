@@ -204,7 +204,7 @@ jobs:
           mv dist/runtime "$package/"
           if [[ "$PLATFORM" == *-windows ]]; then
             mv dist/ms.exe "$package/"
-            7z a "dist/$package.zip" "$package"
+            python -m zipfile -c "dist/$package.zip" "$package"
             python .github/scripts/test-release.py "dist/$package.zip"
           else
             mv dist/ms "$package/"
