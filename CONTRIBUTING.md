@@ -92,14 +92,21 @@ the PR triggers normal CI without GitHub Actions token approval requirements.
 
 ## Unit Tests/Documentation Tests
 
-Prepare the pinned runtime grammars before running tests that need syntax support:
+`cargo test -p term --lib` runs the terminal unit tests without compiled runtime
+grammars. Tests that assert syntax highlighting are marked ignored unless the
+`runtime-grammars` feature is enabled.
+
+Prepare the pinned runtime grammars before running the full workspace suite:
 
 ```shell
 cargo run --locked --package grammar-build --bin grammar-fetch
 cargo run --locked --package grammar-build --bin grammar-build
 ```
 
-Run `cargo test --workspace` to run unit tests and documentation tests in all packages.
+Run `cargo test --workspace --features term/runtime-grammars` to run unit tests
+and documentation tests in all packages, including the terminal syntax tests.
+CI prepares the grammars and enables this feature; missing or broken grammars
+remain test failures in that suite.
 Cargo builds and checks leave grammar sources and compiled runtime assets alone.
 
 ## Integration Tests

@@ -362,6 +362,10 @@ async fn preview_rendering_tolerates_locations_beyond_a_shortened_file() -> anyh
 }
 
 #[tokio::test]
+#[cfg_attr(
+    not(feature = "runtime-grammars"),
+    ignore = "requires compiled runtime grammars; enable the runtime-grammars feature"
+)]
 async fn preview_highlights_after_50_ms_without_restarting_or_switching_queues(
 ) -> anyhow::Result<()> {
     let mut fixture = Fixture::new()?;
@@ -389,6 +393,10 @@ async fn preview_highlights_after_50_ms_without_restarting_or_switching_queues(
 }
 
 #[tokio::test]
+#[cfg_attr(
+    not(feature = "runtime-grammars"),
+    ignore = "requires compiled runtime grammars; enable the runtime-grammars feature"
+)]
 async fn changing_selection_cancels_the_previous_preview_and_allows_returning() -> anyhow::Result<()>
 {
     let mut fixture = Fixture::new()?;
@@ -415,6 +423,10 @@ async fn changing_selection_cancels_the_previous_preview_and_allows_returning() 
 }
 
 #[tokio::test]
+#[cfg_attr(
+    not(feature = "runtime-grammars"),
+    ignore = "requires compiled runtime grammars; enable the runtime-grammars feature"
+)]
 async fn queued_results_cannot_publish_to_hidden_or_replaced_previews() -> anyhow::Result<()> {
     let mut fixture = Fixture::new()?;
     let path = fixture.preview("preview.json");
@@ -454,6 +466,10 @@ async fn queued_results_cannot_publish_to_hidden_or_replaced_previews() -> anyho
 }
 
 #[tokio::test]
+#[cfg_attr(
+    not(feature = "runtime-grammars"),
+    ignore = "requires compiled runtime grammars; enable the runtime-grammars feature"
+)]
 async fn cached_previews_refresh_language_resources_and_ignore_old_results() -> anyhow::Result<()> {
     let mut fixture = Fixture::new()?;
     let path = fixture.preview("file.json");
@@ -492,6 +508,10 @@ async fn cached_previews_refresh_language_resources_and_ignore_old_results() -> 
 }
 
 #[tokio::test]
+#[cfg_attr(
+    not(feature = "runtime-grammars"),
+    ignore = "requires compiled runtime grammars; enable the runtime-grammars feature"
+)]
 async fn replacement_preserves_highlighted_preview() -> anyhow::Result<()> {
     let mut fixture = Fixture::new()?;
     let path = fixture.preview("preview.json");

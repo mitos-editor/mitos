@@ -342,6 +342,10 @@ mod tests {
     use super::*;
 
     #[test]
+    #[cfg_attr(
+        not(feature = "runtime-grammars"),
+        ignore = "requires compiled runtime grammars; enable the runtime-grammars feature"
+    )]
     fn code_spans_preserve_unicode_overlays_tabs_and_line_endings() {
         let loader = syntax::Loader::new(
             toml::from_str(
