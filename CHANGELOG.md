@@ -1,5 +1,7 @@
 # Changelog
 
+[Unreleased]: https://github.com/mitos-editor/mitos/commits/main
+
 ## [Unreleased]
 
 ## [0.2.1](https://github.com/mitos-editor/mitos/compare/v0.2.0...v0.2.1) - 2026-11-09
