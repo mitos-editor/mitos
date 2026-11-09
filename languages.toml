@@ -1650,7 +1650,7 @@ indent = { tab-width = 2, unit = "  " }
 
 [[grammar]]
 name = "ocaml"
-source = { git = "https://github.com/tree-sitter/tree-sitter-ocaml", rev = "3b2e14e0697d405c9aa0beddfa09b71f45abc504", subpath = "grammars/ocaml" }
+source = { git = "https://github.com/tree-sitter/tree-sitter-ocaml", rev = "a1c562e73ab787dcc69fdc2e5510c53bbce5364f", subpath = "grammars/ocaml" }
 
 [[language]]
 name = "ocaml-interface"
@@ -1670,7 +1670,7 @@ indent = { tab-width = 2, unit = "  " }
 
 [[grammar]]
 name = "ocaml-interface"
-source = { git = "https://github.com/tree-sitter/tree-sitter-ocaml", rev = "3b2e14e0697d405c9aa0beddfa09b71f45abc504", subpath = "grammars/interface" }
+source = { git = "https://github.com/tree-sitter/tree-sitter-ocaml", rev = "a1c562e73ab787dcc69fdc2e5510c53bbce5364f", subpath = "grammars/interface" }
 
 [[language]]
 name = "dune"
@@ -2298,7 +2298,7 @@ language-servers = [ "metals" ]
 
 [[grammar]]
 name = "scala"
-source = { git = "https://github.com/tree-sitter/tree-sitter-scala", rev = "8c0b6d44bfd66bf7bc9a1fc15084ef17cef2f97e" }
+source = { git = "https://github.com/tree-sitter/tree-sitter-scala", rev = "ce959c63a66bf10c82eebf1c42d755ea11950c09" }
 
 [[language]]
 name = "dockerfile"
@@ -2501,7 +2501,7 @@ indent = { tab-width = 2, unit = "  " }
 
 [[grammar]]
 name = "rescript"
-source = { git = "https://github.com/rescript-lang/tree-sitter-rescript", rev = "90643a6302057b969c51e1bf235b8ecf1da49232" }
+source = { git = "https://github.com/rescript-lang/tree-sitter-rescript", rev = "cc6a15ee6297d493089134cb661a54fc7a13e376" }
 
 [[language]]
 name = "erlang"
@@ -2942,7 +2942,7 @@ comment-token = "#"
 
 [[grammar]]
 name = "ssh_client_config"
-source = { git = "https://github.com/metio/tree-sitter-ssh-client-config", rev = "a641b03515a4bc48938fbf9efe55212de94bef95" }
+source = { git = "https://github.com/metio/tree-sitter-ssh-client-config", rev = "499fa3d1a48579589b83a617e3dd23a703663853" }
 
 [[language]]
 name = "scheme"
@@ -3698,7 +3698,7 @@ language-servers = ["matlab-language-server"]
 
 [[grammar]]
 name = "matlab"
-source = { git = "https://github.com/acristoffers/tree-sitter-matlab", rev = "f03d0347acd8bb05d4edd8c845ac1718729e1fad" }
+source = { git = "https://github.com/acristoffers/tree-sitter-matlab", rev = "ff2f83da49bb06128c4cfd055e7c95c05c77cded" }
 
 [[language]]
 name = "ponylang"
@@ -4022,7 +4022,7 @@ formatter = { command = "just", args = ["--fmt", "--justfile", "-"] }
 
 [[grammar]]
 name = "just"
-source = { git = "https://codeberg.org/poliorcetics/tree-sitter-just", rev = "d24f1a93cad7994850e701b6a035124b99db8eec" }
+source = { git = "https://codeberg.org/poliorcetics/tree-sitter-just", rev = "fe6fd684fe5e7f3cb88beeed45a02f358ed37cf7" }
 
 [[language]]
 name = "gn"
@@ -4435,7 +4435,7 @@ indent = { tab-width = 2, unit = "  " }
 
 [[grammar]]
 name = "pkl"
-source = { git = "https://github.com/apple/tree-sitter-pkl", rev = "c837eff683d62f3cb5e6309b44c257640f202d4b" }
+source = { git = "https://github.com/apple/tree-sitter-pkl", rev = "438dc0ddd3785ffa4d173a91fa956e193957d022" }
 
 [[language]]
 name = "groovy"
@@ -4539,7 +4539,7 @@ indent = { tab-width = 4, unit = "    " }
 
 [[grammar]]
 name = "tcl"
-source = { git = "https://github.com/tree-sitter-grammars/tree-sitter-tcl", rev = "850a72ab6436e06645b33b11cfa60cbdb04b1f01" }
+source = { git = "https://github.com/tree-sitter-grammars/tree-sitter-tcl", rev = "a04c20a68d933e8f7f6b33f542bab8ddadaabfd6" }
 
 [[language]]
 name = "supercollider"
@@ -4859,7 +4859,7 @@ indent = { tab-width = 4, unit = "    " }
 
 [[grammar]]
 name = "cylc"
-source = { git = "https://github.com/seanwallawalla/ElliotFontaine_Tree-Sitter-Cylc", rev = "6d1d81137112299324b526477ce1db989ab58fb8" }
+source = { git = "https://github.com/seanwallawalla/ElliotFontaine_Tree-Sitter-Cylc", rev = "5517ecade85b1de85ed8e0cb742b81decc64183a" }
 
 [[language]]
 name = "quint"
@@ -5256,7 +5256,7 @@ auto-format = true
 
 [[grammar]]
 name = "caddyfile"
-source = { git = "https://github.com/caddyserver/tree-sitter-caddyfile", rev = "86e8f31101b5a2795b966d4c2e85bbe3c977f519" }
+source = { git = "https://github.com/caddyserver/tree-sitter-caddyfile", rev = "53c0cf6521c2b562f448d59c0a4ba6fa77933928" }
 
 [[language]]
 name = "properties"
@@ -5664,7 +5664,7 @@ formatter = { command = "drools-fmt" }
 
 [[grammar]]
 name = "drools"
-source = { git = "https://github.com/iByteABit256/tree-sitter-drools", rev = "f1404d2a3974dfcfd4193246e763edeeb4b399c1" }
+source = { git = "https://github.com/iByteABit256/tree-sitter-drools", rev = "6571480daaaffc9cb9daada501bbef5b7dd1613d" }
 
 [[language]]
 name = "proverif"
