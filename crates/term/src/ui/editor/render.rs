@@ -393,6 +393,11 @@ impl PaneRenderer {
         overlays.push(highlights::overlay_highlights(&layout));
 
         highlights::diagnostic_highlights(doc, theme, &mut overlays);
+        if let Some(query) = doc.search_highlight(view.id)
+            && let Some(overlay) = highlights::search_highlights(query, &layout, theme)
+        {
+            overlays.push(overlay);
+        }
 
         if is_focused {
             if config.lsp.document_highlight.auto_trigger

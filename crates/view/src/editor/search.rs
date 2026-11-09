@@ -28,6 +28,7 @@ impl Editor {
         let padding = config.scroll.padding;
         let handler = self.handlers.buffer_search.clone();
         let (view, doc) = current!(self);
+        doc.set_search_highlight(view.id, Some(query.clone()));
         let mut outcome = SearchOutcome::NotFound;
         let mut wrapped = false;
         let mut changed = false;

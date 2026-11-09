@@ -134,3 +134,52 @@ async fn g_minus_and_g_plus_traverse_text_history() -> anyhow::Result<()> {
     );
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn search_highlights_restore_on_cancel_and_clear_on_invalid_or_empty_input(
+) -> anyhow::Result<()> {
+    let mut app = AppBuilder::new()
+        .with_input_text("#[o|]#ne two one\n")
+        .build()?;
+    keys(&mut app, "/one<ret>").await?;
+    let query_matches_one = |app: &term::application::TestApplication| {
+        use stdx::rope::RopeSliceExt as _;
+        let (view, doc) = current_ref!(app.editor);
+        doc.search_highlight(view.id).is_some_and(|query| {
+            query
+                .regex()
+                .is_match(editor_core::Rope::from("one").slice(..).regex_input())
+        })
+    };
+    assert!(query_matches_one(&app));
+    // Selection regex prompts do not own buffer search highlighting.
+    keys(&mut app, "s<ret>").await?;
+    assert!(query_matches_one(&app));
+    keys(&mut app, "s[<ret>").await?;
+    assert!(query_matches_one(&app));
+    keys(&mut app, "/two<esc>").await?;
+    assert!(query_matches_one(&app));
+    keys(&mut app, "/[<ret>").await?;
+    let (view, doc) = current_ref!(app.editor);
+    assert!(doc.search_highlight(view.id).is_none());
+    keys(&mut app, "/one<ret>/two<backspace><backspace><backspace>").await?;
+    let (view, doc) = current_ref!(app.editor);
+    assert!(doc.search_highlight(view.id).is_none());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn search_highlights_stay_cleared_after_a_background_edit_during_prompt() -> anyhow::Result<()>
+{
+    let mut app = AppBuilder::new()
+        .with_input_text("#[o|]#ne two one\n")
+        .build()?;
+    keys(&mut app, "/one<ret>/two").await?;
+    let doc = view::doc_mut!(app.editor);
+    let edit = editor_core::Transaction::change(doc.text(), [(0, 1, Some("a".into()))].into_iter());
+    doc.apply(edit.changes())?;
+    keys(&mut app, "<esc>").await?;
+    let (view, doc) = current_ref!(app.editor);
+    assert!(doc.search_highlight(view.id).is_none());
+    Ok(())
+}

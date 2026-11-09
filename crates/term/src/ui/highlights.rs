@@ -46,6 +46,33 @@ pub(crate) fn overlay_highlights(layout: &view::view::ViewLayout) -> OverlayHigh
     )
 }
 
+/// Search the visible source ranges without traversing folded text or the rest of a large buffer.
+pub(crate) fn search_highlights(
+    query: &view::features::buffer_search::Query,
+    layout: &view::view::ViewLayout,
+    theme: &Theme,
+) -> Option<OverlayHighlights> {
+    use stdx::rope::RopeSliceExt as _;
+    let highlight = theme
+        .find_highlight_exact("ui.cursor.match")
+        .or_else(|| theme.find_highlight_exact("ui.selection"))?;
+    let ranges = layout
+        .visible_byte_ranges()
+        .into_iter()
+        .flat_map(|range| {
+            query
+                .regex()
+                .find_iter(layout.text.regex_input_at_bytes(range))
+                .filter(|matched| !matched.is_empty())
+                .map(|matched| {
+                    layout.text.byte_to_char_idx(matched.start())
+                        ..layout.text.byte_to_char_idx(matched.end())
+                })
+        })
+        .collect();
+    Some(OverlayHighlights::Homogeneous { highlight, ranges })
+}
+
 pub(crate) fn rainbow_highlights(
     doc: &Document,
     layout: &view::view::ViewLayout,
@@ -528,6 +555,77 @@ mod tests {
             .collect();
             assert_eq!(spans, [(0..1, syntax), (1..4, expected), (4..5, syntax)]);
         }
+    }
+
+    #[test]
+    fn search_highlights_use_character_ranges_and_skip_empty_matches() {
+        let theme = Theme::from(toml::Value::Table(toml::toml! {
+            "ui.cursor.match" = { bg = "#ff0000" }
+        }));
+        let text = editor_core::Rope::from("é cat CAT\ncat\n");
+        let layout = view::view::ViewLayout {
+            text: text.slice(..),
+            viewport: view::graphics::Rect::new(0, 0, 40, 10),
+            offset: Default::default(),
+            format: Default::default(),
+            annotations: Default::default(),
+        };
+        let query = view::features::buffer_search::Query::new("cat", true, false).unwrap();
+        let Some(OverlayHighlights::Homogeneous { ranges, .. }) =
+            search_highlights(&query, &layout, &theme)
+        else {
+            panic!("missing search overlay")
+        };
+        assert_eq!(ranges, vec![2..5, 6..9, 10..13]);
+        let query = view::features::buffer_search::Query::new("^", true, false).unwrap();
+        let Some(OverlayHighlights::Homogeneous { ranges, .. }) =
+            search_highlights(&query, &layout, &theme)
+        else {
+            panic!("missing search overlay")
+        };
+        assert!(ranges.is_empty());
+    }
+
+    #[test]
+    fn search_highlights_keep_full_line_context_at_viewport_edges() {
+        use stdx::rope::RopeExt as _;
+        let theme = Theme::from(toml::Value::Table(toml::toml! {
+            "ui.cursor.match" = { bg = "#ff0000" }
+        }));
+        let text = editor_core::Rope::from("above\nleft cat right\ncat below\nafter\n");
+        let mut layout = view::view::ViewLayout {
+            text: text.slice(..),
+            viewport: view::graphics::Rect::new(0, 0, 3, 2),
+            offset: view::view::ViewPosition {
+                anchor: text.line_to_char_idx(1),
+                horizontal_offset: 5,
+                ..Default::default()
+            },
+            format: Default::default(),
+            annotations: Default::default(),
+        };
+        let ranges = |pattern| {
+            let query = view::features::buffer_search::Query::new(pattern, false, false).unwrap();
+            let Some(OverlayHighlights::Homogeneous { ranges, .. }) =
+                search_highlights(&query, &layout, &theme)
+            else {
+                panic!("missing search overlay")
+            };
+            ranges
+        };
+        assert_eq!(ranges("cat"), vec![11..14, 21..24]);
+        assert_eq!(ranges("right\\ncat"), vec![15..24]);
+        assert!(ranges(r"\Aleft|right\z").is_empty());
+        // A match beginning above the searched viewport is deliberately excluded.
+        assert!(ranges("above\\nleft").is_empty());
+        layout.viewport.height = 1;
+        let query = view::features::buffer_search::Query::new("right\\ncat", false, false).unwrap();
+        let Some(OverlayHighlights::Homogeneous { ranges, .. }) =
+            search_highlights(&query, &layout, &theme)
+        else {
+            panic!("missing search overlay")
+        };
+        assert!(ranges.is_empty());
     }
 
     #[test]

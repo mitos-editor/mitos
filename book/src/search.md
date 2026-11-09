@@ -13,6 +13,17 @@ Search ignores case unless the pattern contains an uppercase letter. It wraps
 at the end of a file by default. Change either behavior in
 [`editor.search`](./configuration.md#editorsearch).
 
+Buffer search matches use the theme's `ui.cursor.match` style. The active
+selection keeps its selection style. Highlights remain after confirming a search
+and clear when the document changes. Canceling restores the previous highlights;
+empty or invalid input clears the preview. Confirming an empty prompt repeats
+the previous search.
+
+Highlighting covers complete visible source lines, including horizontally
+scrolled text. Multiline matches crossing the viewport boundary or a fold may
+be omitted. Workspace search and replacement previews retain their existing
+result-line highlighting.
+
 ## Replace several matches
 
 1. Press `%` to select the whole file, or select the region you want to edit.

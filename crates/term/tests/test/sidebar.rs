@@ -476,7 +476,17 @@ async fn creating_in_the_tree_uses_the_selected_directory_and_refreshes_children
     let (mut app, _dir, root) = sidebar().await?;
     keys(&mut app, "/^sub$<ret><ret><A-n>created.txt<ret>").await?;
     assert!(root.join("sub/created.txt").is_file(), "{}", screen(&app));
-    assert!(screen(&app).contains("created.txt"));
+    // File creation can finish before the asynchronous tree refresh is rendered.
+    tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        while !screen(&app).contains("created.txt") {
+            keys(&mut app, "").await?;
+        }
+        anyhow::Ok(())
+    })
+    .await
+    .map_err(|error| {
+        anyhow::anyhow!("waiting for created.txt: {error}; screen: {}", screen(&app))
+    })??;
     Ok(())
 }
 
