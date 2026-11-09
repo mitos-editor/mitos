@@ -13,7 +13,7 @@ use std::{
 };
 use tui::text::Span;
 use vcs::operations::{
-    repository::{Branch, BranchCursor, BranchPage, Worktree},
+    repository::{Branch, BranchCursor, Worktree},
     GitRepository, RepositoryOperation,
 };
 use view::{features::git_operations::GitAction, Editor};
@@ -125,7 +125,7 @@ fn branches(
     editor: &Editor,
     repo: GitRepository,
     workspace: PathBuf,
-) -> Picker<Branch, RepositoryData> {
+) -> Picker<Arc<Branch>, RepositoryData> {
     let actions = repo.clone();
     let mut pager = BranchPager::new(editor, repo.clone());
     let action_repo = repo.clone();
@@ -133,7 +133,7 @@ fn branches(
     Picker::new_with_callback_result(
         editor.redraw().clone(),
         [
-            PickerColumn::new("branch", |branch: &Branch, data: &RepositoryData| {
+            PickerColumn::new("branch", |branch: &Arc<Branch>, data: &RepositoryData| {
                 Span::styled(
                     branch.name.as_str(),
                     data.theme.get(if branch.current {
@@ -144,19 +144,19 @@ fn branches(
                 )
                 .into()
             }),
-            PickerColumn::new("current", |branch: &Branch, data| {
+            PickerColumn::new("current", |branch: &Arc<Branch>, data| {
                 Span::styled(
                     if branch.current { "*" } else { "" },
                     data.theme.get("diff.plus"),
                 )
                 .into()
             }),
-            PickerColumn::new("upstream", |branch: &Branch, data| {
+            PickerColumn::new("upstream", |branch: &Arc<Branch>, data| {
                 Span::styled(branch.upstream.as_str(), data.theme.get("string.special")).into()
             }),
         ],
         0,
-        Vec::<Branch>::new(),
+        Vec::<Arc<Branch>>::new(),
         RepositoryData::new(editor, repo),
         move |_, branch, _| {
             let action = GitAction::Repository(
@@ -184,9 +184,16 @@ fn branches(
     })
     .with_item_actions(
         |maps| &maps.branch_picker,
-        move |_, branch, action| branch_action(&action_repo, &action_workspace, branch, action),
+        move |_, branch, action| {
+            branch_action(
+                &action_repo,
+                &action_workspace,
+                branch.map(AsRef::as_ref),
+                action,
+            )
+        },
     )
-    .with_editor_updates(move |cx| pager.update(cx))
+    .with_paged_updates(move |cx| pager.update(cx))
     .with_item_key(|branch| branch.name.clone())
 }
 
@@ -305,7 +312,7 @@ fn branch_action(
     workspace: &Path,
     branch: Option<&Branch>,
     action: PickerItemAction,
-) -> PickerCallbackResult<Branch, RepositoryData> {
+) -> PickerCallbackResult<Arc<Branch>, RepositoryData> {
     match action {
         PickerItemAction::CreateBranch => create_prompt(repo, workspace, false),
         PickerItemAction::DeleteBranch => {
@@ -416,12 +423,7 @@ fn create_prompt<T: 'static>(
 
 struct BranchPager {
     repo: GitRepository,
-    cursor: Option<BranchCursor>,
-    pending: Option<tokio::sync::oneshot::Receiver<Result<BranchPage>>>,
-    rows: Vec<Branch>,
-    failed: bool,
-    replacing: bool,
-    replacement: Vec<Branch>,
+    pages: crate::ui::picker::paged::Paged<Arc<Branch>, BranchCursor>,
     dirty: bool,
     changes: view::features::workspace_changes::WorkspaceChanges,
     generation: u64,
@@ -431,7 +433,28 @@ impl BranchPager {
     fn new(editor: &Editor, repo: GitRepository) -> Self {
         use view::features::workspace_changes::{Policy, WorkspaceChanges};
         Self {
-            cursor: Some(repo.branch_cursor()),
+            pages: crate::ui::picker::paged::Paged::new(
+                Some(repo.branch_cursor()),
+                [
+                    "More branches available",
+                    "Loading branches…",
+                    "Complete branch list",
+                ],
+                |branch: &Arc<Branch>| {
+                    std::mem::size_of::<Branch>()
+                        + 128
+                        + 5 * (branch.name.len() + branch.upstream.len())
+                },
+                |cursor, _cancel| {
+                    Box::pin(async move {
+                        let page = cursor.next_page().await?;
+                        Ok(crate::ui::picker::paged::Page {
+                            rows: page.branches,
+                            next: page.next,
+                        })
+                    })
+                },
+            ),
             changes: WorkspaceChanges::new(
                 editor,
                 repo.root(),
@@ -443,106 +466,30 @@ impl BranchPager {
             ),
             generation: super::actions::generation(editor),
             repo,
-            pending: None,
-            rows: Vec::new(),
-            failed: false,
-            replacing: true,
-            replacement: Vec::new(),
             dirty: false,
         }
     }
 
-    fn update(&mut self, cx: crate::ui::picker::UpdateContext<'_, Branch>) -> Option<Vec<Branch>> {
+    fn update(
+        &mut self,
+        cx: crate::ui::picker::UpdateContext<'_, Arc<Branch>>,
+    ) -> Option<crate::ui::picker::Update<Arc<Branch>>> {
         let generation = super::actions::generation(cx.editor);
         self.dirty |= self.changes.changed(cx.editor, self.repo.root());
-        // Let an in-flight page publish before starting a queued filesystem refresh.
         if cx.resumed
             || generation != self.generation
-            || (self.pending.is_none() && (self.dirty || self.changes.poll_due(cx.editor)))
+            || (!self.pages.is_pending() && (self.dirty || self.changes.poll_due(cx.editor)))
         {
-            cx.task.cancel();
-            self.pending = None;
-            self.cursor = Some(self.repo.branch_cursor());
-            self.failed = false;
-            self.replacing = true;
-            self.replacement.clear();
+            self.pages.reset(Some(self.repo.branch_cursor()), cx.task);
             self.dirty = false;
             self.generation = generation;
             self.changes.mark_refreshed();
         }
-        let mut changed = false;
-        if let Some(pending) = &mut self.pending {
-            match pending.try_recv() {
-                Ok(result) => {
-                    self.pending = None;
-                    match result {
-                        Ok(page) => {
-                            self.cursor = page.next;
-                            self.changes.mark_refreshed();
-                            if self.replacing {
-                                self.replacement.extend(page.branches);
-                                // Refresh the previously visible prefix together so polling
-                                // cannot remove the selected row merely by restarting at page one.
-                                if self.replacement.len() >= self.rows.len()
-                                    || self.cursor.is_none()
-                                {
-                                    self.rows = std::mem::take(&mut self.replacement);
-                                    self.replacing = false;
-                                    changed = true;
-                                }
-                            } else {
-                                self.rows.extend(page.branches);
-                                changed = true;
-                            }
-                            self.rows.sort_by(|a, b| a.name.cmp(&b.name));
-                        }
-                        Err(error) => {
-                            self.failed = true;
-                            cx.editor.set_error(|| error.to_string());
-                        }
-                    }
-                }
-                Err(tokio::sync::oneshot::error::TryRecvError::Closed) => {
-                    self.pending = None;
-                    self.failed = true;
-                }
-                Err(tokio::sync::oneshot::error::TryRecvError::Empty) => {}
-            }
+        let update = self.pages.update(cx);
+        if update.is_some() || self.pages.is_pending() {
+            self.changes.mark_refreshed();
         }
-        if !changed
-            && self.pending.is_none()
-            && !self.failed
-            && (self.replacing
-                || self.rows.is_empty()
-                || !cx.query.trim().is_empty()
-                || cx.near_end)
-            && let Some(cursor) = self.cursor.clone()
-        {
-            let cancel = cx.task.restart();
-            let redraw = cx.editor.redraw().clone();
-            let (tx, rx) = tokio::sync::oneshot::channel();
-            self.pending = Some(rx);
-            tokio::spawn(async move {
-                if let Some(result) = event::cancelable_future(cursor.next_page(), cancel).await {
-                    let _ = tx.send(result);
-                    redraw.request();
-                }
-            });
-        }
-        *cx.incomplete = self.cursor.is_some() || self.failed;
-        *cx.status = Some(
-            if self.failed {
-                "Branches incomplete; reopen to retry"
-            } else if self.pending.is_some() {
-                "Loading branches…"
-            } else if self.cursor.is_some() {
-                "More branches available"
-            } else {
-                "Complete branch list"
-            }
-            .into(),
-        );
-        changed.then(|| self.rows.clone())
+        update
     }
 }
 

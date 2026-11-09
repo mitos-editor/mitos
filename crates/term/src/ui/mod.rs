@@ -319,12 +319,17 @@ pub fn file_picker(editor: &Editor, root: PathBuf) -> FilePicker {
     .with_item_key(|path| path.clone());
     let injector = picker.injector();
     tokio::task::spawn_blocking(move || {
-        files.lock().unwrap().initial(
+        let complete = files.lock().unwrap().initial(
             &root,
             &initial_config,
             || injector.is_shutdown(),
             |path| injector.push(path.to_owned()).is_ok(),
         );
+        if complete {
+            injector.complete();
+        } else {
+            injector.pause();
+        }
     });
     picker
 }

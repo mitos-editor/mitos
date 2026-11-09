@@ -83,7 +83,18 @@ cleanup cannot remove a later prompt in the same application.
 
 The private picker `results` module owns active and pending matchers, publication,
 generation invalidation, and navigation restoration. Rendering and input remain
-in the picker; provider adapters request replacements through that result owner.
+in the picker; provider adapters request append or replacement updates through that result owner.
+Append injects only new rows and preserves the selected row as matching changes
+its rank. Replacement keeps the old snapshot visible until the new snapshot is
+matched, then restores selection at publication.
+
+The private picker `paged` module owns demand, one in-flight request, retry,
+cancellation, and a soft retained-row budget for history and branch adapters.
+Adapters own source cursors and invalidation. Refreshes stage enough rows to
+replace the visible prefix together; ordinary continuation appends. Native VCS
+workers share immutable rows with the matcher so cursor replay does not duplicate
+metadata. Source completion is explicit and independent of matcher activity or
+producer-handle lifetime; obsolete producers cannot report into a newer query.
 
 Use `cargo doc --open` for API documentation. Crate READMEs summarize ownership;
 this guide explains how those owners cooperate.

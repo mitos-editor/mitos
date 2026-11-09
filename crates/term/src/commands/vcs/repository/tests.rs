@@ -139,7 +139,7 @@ async fn branch_picker_creates_confirms_deletion_and_refreshes() -> Result<()> {
         .iter()
         .any(|branch| branch.name == "topic"));
     let picker = &mut compositor
-        .find::<ui::overlay::Overlay<Picker<Branch, RepositoryData>>>()
+        .find::<ui::overlay::Overlay<Picker<Arc<Branch>, RepositoryData>>>()
         .unwrap()
         .content;
     until(picker, &mut app, |picker| {
@@ -166,7 +166,7 @@ async fn branch_picker_creates_confirms_deletion_and_refreshes() -> Result<()> {
         .iter()
         .any(|branch| branch.name == "topic"));
     let picker = &mut compositor
-        .find::<ui::overlay::Overlay<Picker<Branch, RepositoryData>>>()
+        .find::<ui::overlay::Overlay<Picker<Arc<Branch>, RepositoryData>>>()
         .unwrap()
         .content;
     until(picker, &mut app, |picker| {
@@ -265,7 +265,7 @@ fn repository() -> Result<(tempfile::TempDir, GitRepository)> {
     Ok((dir, git))
 }
 
-fn press(picker: &mut Picker<Branch, RepositoryData>, app: &mut TestApplication, key: &str) {
+fn press(picker: &mut Picker<Arc<Branch>, RepositoryData>, app: &mut TestApplication, key: &str) {
     let config = crate::config::Config::default();
     let updates = tokio::sync::mpsc::unbounded_channel().0;
     let mut jobs = crate::job::Jobs::new();
@@ -287,7 +287,7 @@ fn press(picker: &mut Picker<Branch, RepositoryData>, app: &mut TestApplication,
     draw(picker, app);
 }
 
-fn screen(picker: &mut Picker<Branch, RepositoryData>, app: &mut TestApplication) -> String {
+fn screen(picker: &mut Picker<Arc<Branch>, RepositoryData>, app: &mut TestApplication) -> String {
     frame(picker, app)
         .content
         .iter()

@@ -193,7 +193,7 @@ impl CommitReviewPreview {
     }
 }
 
-impl PickerPreview<CommitEntry> for CommitReviewPreview {
+impl PickerPreview<Arc<CommitEntry>> for CommitReviewPreview {
     fn cancel(&mut self) {
         self.task.cancel();
         self.details = None;
@@ -210,7 +210,7 @@ impl PickerPreview<CommitEntry> for CommitReviewPreview {
         self.opened
     }
 
-    fn update(&mut self, item: Option<&CommitEntry>, _area: Rect, cx: &mut Context) {
+    fn update(&mut self, item: Option<&Arc<CommitEntry>>, _area: Rect, cx: &mut Context) {
         let Some(commit) = item else {
             self.cancel();
             return;
@@ -279,7 +279,7 @@ impl PickerPreview<CommitEntry> for CommitReviewPreview {
 
     fn render(
         &mut self,
-        item: Option<&CommitEntry>,
+        item: Option<&Arc<CommitEntry>>,
         area: Rect,
         surface: &mut Buffer,
         cx: &mut DrawContext,
@@ -317,7 +317,7 @@ impl PickerPreview<CommitEntry> for CommitReviewPreview {
 
     fn action(
         &mut self,
-        item: Option<&CommitEntry>,
+        item: Option<&Arc<CommitEntry>>,
         action: PreviewAction,
         cx: &mut Context,
     ) -> EventResult {
@@ -368,7 +368,7 @@ mod tests {
 
     fn frame(
         preview: &mut CommitReviewPreview,
-        commit: Option<&CommitEntry>,
+        commit: Option<&Arc<CommitEntry>>,
         app: &mut TestApplication,
         action: Option<PreviewAction>,
     ) -> String {
@@ -377,7 +377,7 @@ mod tests {
 
     fn frame_in(
         preview: &mut CommitReviewPreview,
-        commit: Option<&CommitEntry>,
+        commit: Option<&Arc<CommitEntry>>,
         app: &mut TestApplication,
         action: Option<PreviewAction>,
         area: Rect,
@@ -408,7 +408,7 @@ mod tests {
 
     async fn until_text(
         preview: &mut CommitReviewPreview,
-        commit: &CommitEntry,
+        commit: &Arc<CommitEntry>,
         app: &mut TestApplication,
         needle: &str,
     ) -> anyhow::Result<String> {

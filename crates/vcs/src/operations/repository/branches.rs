@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 use tokio::sync::{mpsc, oneshot};
 
 pub const BRANCH_PAGE_SIZE: usize = 100;
-type Batch = (Vec<Branch>, bool);
+type Batch = (Vec<Arc<Branch>>, bool);
 struct Request {
     offset: usize,
     reply: oneshot::Sender<Result<Batch>>,
@@ -17,7 +17,7 @@ pub struct BranchCursor {
 }
 
 pub struct BranchPage {
-    pub branches: Vec<Branch>,
+    pub branches: Vec<Arc<Branch>>,
     pub next: Option<BranchCursor>,
 }
 
@@ -94,7 +94,6 @@ fn run(repository: GitRepository, mut requests: mpsc::Receiver<Request>) {
         let platform = repo.references()?;
         let mut references = platform.local_branches()?;
         let mut rows = Vec::new();
-        let mut bytes = 0;
         let mut exhausted = false;
         let first = first.take().unwrap();
         let mut request = Some(first.reply);
@@ -102,6 +101,12 @@ fn run(repository: GitRepository, mut requests: mpsc::Receiver<Request>) {
         loop {
             let reply = request.take().unwrap();
             let result = (|| -> Result<Option<Batch>> {
+                let mut bytes: usize = rows
+                    .get(offset..rows.len().min(offset + BRANCH_PAGE_SIZE + 1))
+                    .unwrap_or(&[])
+                    .iter()
+                    .map(|row: &Arc<Branch>| row.name.len() + row.upstream.len())
+                    .sum();
                 while !exhausted && rows.len() < offset + BRANCH_PAGE_SIZE + 1 {
                     if reply.is_closed() {
                         return Ok(None);
@@ -116,15 +121,15 @@ fn run(repository: GitRepository, mut requests: mpsc::Receiver<Request>) {
                     bytes += name.len() + upstream.len();
                     ensure!(
                         bytes <= 1024 * 1024,
-                        "Branch listing exceeds the 1 MiB display limit"
+                        "Branch page exceeds the 1 MiB display limit"
                     );
-                    rows.push(Branch {
+                    rows.push(Arc::new(Branch {
                         current: head
                             .as_ref()
                             .is_some_and(|head| head.as_ref() == reference.name()),
                         name,
                         upstream,
-                    });
+                    }));
                 }
                 let end = rows.len().min(offset + BRANCH_PAGE_SIZE);
                 Ok(Some((

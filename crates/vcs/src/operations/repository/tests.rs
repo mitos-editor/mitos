@@ -957,7 +957,7 @@ async fn branch_pages_replay_and_continue_across_packed_and_loose_refs() -> Resu
         .into_iter()
         .chain(second.branches)
         .chain(third.branches)
-        .map(|branch| branch.name)
+        .map(|branch| branch.name.clone())
         .collect();
     names.sort();
     names.dedup();
@@ -967,7 +967,7 @@ async fn branch_pages_replay_and_continue_across_packed_and_loose_refs() -> Resu
         repo.branches()
             .await?
             .into_iter()
-            .map(|branch| branch.name)
+            .map(|branch| branch.name.clone())
             .collect::<Vec<_>>()
     );
     Ok(())
@@ -2035,5 +2035,44 @@ async fn native_pull_defers_unsupported_settings_without_mutation() -> Result<()
         std::fs::read_to_string(dir.path().join("file.txt"))?,
         "initial\n"
     );
+    Ok(())
+}
+
+#[tokio::test]
+async fn branch_pages_bound_each_page_and_share_replayed_metadata() -> Result<()> {
+    let dir = initial()?;
+    let repo = GitRepository::discover(dir.path())?;
+    let id = repo.open(false)?.head_id()?.detach();
+    let prefix = [
+        "a".repeat(200),
+        "b".repeat(200),
+        "c".repeat(200),
+        "d".repeat(200),
+    ]
+    .join("/");
+    let mut packed = String::from("# pack-refs with: sorted\n");
+    for index in 0..1400 {
+        packed.push_str(&format!("{id} refs/heads/{prefix}/topic-{index:04}\n"));
+    }
+    assert!(packed.len() > 1024 * 1024);
+    std::fs::write(dir.path().join(".git/packed-refs"), packed)?;
+    let cursor = repo.branch_cursor();
+    let first = cursor.next_page().await?;
+    let mut next = first.next.clone();
+    let mut count = first.branches.len();
+    while let Some(cursor) = next {
+        let page = cursor.next_page().await?;
+        count += page.branches.len();
+        next = page.next;
+    }
+    assert_eq!(count, 1401);
+    // Replaying an old cursor measures only that page, even after visiting all
+    // rows, and shares its metadata instead of making another deep copy.
+    let replay = cursor.next_page().await?;
+    assert_eq!(replay.branches, first.branches);
+    assert!(std::sync::Arc::ptr_eq(
+        &replay.branches[0],
+        &first.branches[0]
+    ));
     Ok(())
 }

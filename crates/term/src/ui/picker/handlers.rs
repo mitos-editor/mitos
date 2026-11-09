@@ -113,6 +113,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> AsyncHook for DynamicQu
             } else {
                 picker.results.discard_pending();
 
+                picker.results.preserve_selection = false;
                 picker.results.matcher.restart(false);
                 picker.injector()
             };
@@ -124,8 +125,13 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> AsyncHook for DynamicQu
             );
             let cancel = picker.dynamic_query_request.restart();
             tokio::spawn(async move {
-                if let Some(Err(err)) = event::cancelable_future(get_options, &cancel).await {
-                    log::info!("Dynamic request failed: {err}");
+                match event::cancelable_future(get_options, &cancel).await {
+                    Some(Ok(())) => injector.complete(),
+                    Some(Err(err)) => {
+                        injector.fail();
+                        log::info!("Dynamic request failed: {err}");
+                    }
+                    None => injector.pause(),
                 }
                 // NOTE: the Drop implementation of Injector will request a redraw when the
                 // injector falls out of scope here, clearing the "running" indicator.

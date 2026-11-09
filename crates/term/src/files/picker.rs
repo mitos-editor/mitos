@@ -91,7 +91,7 @@ impl FilePickerCache {
         config: &FilePickerConfig,
         cancelled: impl Fn() -> bool,
         emit: impl FnMut(&Path) -> bool,
-    ) {
+    ) -> bool {
         self.index = None;
         self.changes(root);
         if let Some(index) = FileIndex::scan(
@@ -108,6 +108,9 @@ impl FilePickerCache {
             {
                 self.scans += 1;
             }
+            true
+        } else {
+            false
         }
     }
     pub(crate) fn refresh(

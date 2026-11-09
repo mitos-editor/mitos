@@ -573,7 +573,10 @@ pub fn workspace_symbol_picker(cx: &mut Context) {
                             })?;
                         }
                     }
-                    Err(error) => log::error!("Error requesting workspace symbols: {error}"),
+                    Err(error) => {
+                        injector.fail();
+                        log::error!("Error requesting workspace symbols: {error}");
+                    }
                 }
             }
             Ok(())

@@ -8,6 +8,10 @@ use view::Editor;
 pub(super) type QueryUpdates<D> = Box<dyn FnMut(&mut Editor, &D) -> bool>;
 
 /// Feature-owned state is sampled on redraw without rebuilding unchanged rows.
+#[cfg_attr(
+    not(any(feature = "git", test)),
+    expect(dead_code, reason = "Loading hints are consumed by Git sources")
+)]
 pub(crate) struct UpdateContext<'a, T> {
     pub editor: &'a mut Editor,
     /// Search input, including column filters.
@@ -22,9 +26,17 @@ pub(crate) struct UpdateContext<'a, T> {
     pub task: &'a mut event::TaskController,
     /// A cached picker was restored and may have discarded an unpublished refresh.
     pub resumed: bool,
+    pub toggle_loading: bool,
 }
 
-type EditorRefresh<T> = Box<dyn FnMut(UpdateContext<'_, T>) -> Option<Vec<T>>>;
+/// Append extends one source generation; replace publishes a refreshed snapshot.
+pub(crate) enum Update<T> {
+    #[cfg(any(feature = "git", test))]
+    Append(Vec<T>),
+    Replace(Vec<T>),
+}
+
+type EditorRefresh<T> = Box<dyn FnMut(UpdateContext<'_, T>) -> Option<Update<T>>>;
 
 pub(super) struct EditorUpdates<T> {
     refresh: EditorRefresh<T>,
@@ -33,6 +45,8 @@ pub(super) struct EditorUpdates<T> {
     pub resumed: bool,
     pub status: Option<String>,
     pub incomplete: bool,
+    pub toggle_loading: bool,
+    pub paged: bool,
 }
 
 impl<T: Send + Sync + 'static, D: Send + Sync + 'static> Picker<T, D> {
@@ -89,8 +103,30 @@ impl<T: Send + Sync + 'static, D: Send + Sync + 'static> Picker<T, D> {
     }
 
     pub(crate) fn with_editor_updates(
+        self,
+        mut refresh: impl FnMut(UpdateContext<'_, T>) -> Option<Vec<T>> + 'static,
+    ) -> Self
+    where
+        T: PartialEq,
+    {
+        self.with_updates(move |cx| refresh(cx).map(Update::Replace), false)
+    }
+
+    #[cfg(any(feature = "git", test))]
+    pub(crate) fn with_paged_updates(
+        self,
+        refresh: impl FnMut(UpdateContext<'_, T>) -> Option<Update<T>> + 'static,
+    ) -> Self
+    where
+        T: PartialEq,
+    {
+        self.with_updates(refresh, true)
+    }
+
+    fn with_updates(
         mut self,
-        refresh: impl FnMut(UpdateContext<'_, T>) -> Option<Vec<T>> + 'static,
+        refresh: impl FnMut(UpdateContext<'_, T>) -> Option<Update<T>> + 'static,
+        paged: bool,
     ) -> Self
     where
         T: PartialEq,
@@ -102,12 +138,14 @@ impl<T: Send + Sync + 'static, D: Send + Sync + 'static> Picker<T, D> {
             resumed: false,
             status: None,
             incomplete: false,
+            toggle_loading: false,
+            paged,
         });
         self
     }
 
     pub(super) fn refresh_from_editor(&mut self, editor: &mut Editor) {
-        if self.results.pending_options.is_some() || self.results.matcher.tick(0).running {
+        if self.results.pending_options.is_some() || self.results.tick(0).running {
             // Matching can finish in this frame after consuming its redraw signal.
             // Resume the deferred source refresh even if no further input arrives.
             if self.editor_updates.is_some() {
@@ -119,7 +157,7 @@ impl<T: Send + Sync + 'static, D: Send + Sync + 'static> Picker<T, D> {
             return;
         };
         let resumed = std::mem::take(&mut updates.resumed);
-        if let Some(options) = (updates.refresh)(UpdateContext {
+        if let Some(update) = (updates.refresh)(UpdateContext {
             editor,
             query: self.prompt.line(),
             near_end: {
@@ -139,7 +177,20 @@ impl<T: Send + Sync + 'static, D: Send + Sync + 'static> Picker<T, D> {
             selected: self.selection(),
             task: &mut updates.task,
             resumed,
+            toggle_loading: std::mem::take(&mut updates.toggle_loading),
         }) {
+            #[cfg(any(feature = "git", test))]
+            let options = match update {
+                #[cfg(any(feature = "git", test))]
+                Update::Append(rows) => {
+                    self.results.append(rows, &self.columns);
+                    self.editor_updates = Some(updates);
+                    return;
+                }
+                Update::Replace(rows) => rows,
+            };
+            #[cfg(not(any(feature = "git", test)))]
+            let Update::Replace(options) = update;
             let snapshot = self.results.matcher.snapshot();
             let unchanged = snapshot.item_count() as usize == options.len()
                 && options.iter().enumerate().all(|(index, item)| {
@@ -167,44 +218,25 @@ impl<T: Send + Sync + 'static, D: Send + Sync + 'static> Picker<T, D> {
     where
         T: PartialEq,
     {
-        let mut pending: Option<tokio::sync::oneshot::Receiver<anyhow::Result<Vec<T>>>> = None;
-        let mut complete = false;
-        self.with_editor_updates(move |cx| {
-            if complete {
-                return None;
-            }
-            if cx.resumed {
-                pending = None;
-            }
-            if let Some(receiver) = &mut pending {
-                match receiver.try_recv() {
-                    Ok(result) => {
-                        pending = None;
-                        complete = true;
-                        return match result {
-                            Ok(options) => Some(options),
-                            Err(error) => {
-                                cx.editor.set_error(|| error.to_string());
-                                None
-                            }
-                        };
-                    }
-                    Err(tokio::sync::oneshot::error::TryRecvError::Closed) => pending = None,
-                    Err(tokio::sync::oneshot::error::TryRecvError::Empty) => return None,
-                }
-            }
-            let cancel = cx.task.restart();
-            let work = load(cancel.clone());
-            let redraw = cx.editor.redraw().clone();
-            let (tx, rx) = tokio::sync::oneshot::channel();
-            pending = Some(rx);
-            tokio::spawn(async move {
-                if let Some(result) = event::cancelable_future(work, cancel).await {
-                    let _ = tx.send(result);
-                    redraw.request();
-                }
-            });
-            None
+        let mut pages = super::paged::Paged::new(
+            Some(()),
+            ["Results available", "Loading results…", "Complete results"],
+            |_| std::mem::size_of::<T>(),
+            move |(), cancel| {
+                let work = load(cancel);
+                Box::pin(async move {
+                    Ok(super::paged::Page {
+                        rows: work.await?,
+                        next: None,
+                    })
+                })
+            },
+        );
+        self.with_paged_updates(move |cx| {
+            pages.update(cx).map(|update| match update {
+                Update::Append(rows) => Update::Replace(rows),
+                update => update,
+            })
         })
     }
 
@@ -246,6 +278,43 @@ mod initial_options_tests {
             PickerColumn,
         },
     };
+
+    #[tokio::test]
+    async fn failed_initial_load_remains_partial_and_can_retry_without_reopening(
+    ) -> anyhow::Result<()> {
+        let mut app = application(false)?;
+        let mut picker = Picker::new(
+            app.editor.redraw().clone(),
+            [PickerColumn::new("item", |item: &u32, _: &()| {
+                item.to_string().into()
+            })],
+            0,
+            [],
+            (),
+            |_, _, _| {},
+        )
+        .with_initial_options({
+            let attempts = std::sync::atomic::AtomicUsize::new(0);
+            move |_| {
+                let failed = attempts.fetch_add(1, std::sync::atomic::Ordering::Relaxed) == 0;
+                Box::pin(async move {
+                    anyhow::ensure!(!failed, "initial read failed");
+                    Ok(vec![7])
+                })
+            }
+        });
+        until(&mut picker, &mut app, |p| {
+            p.editor_updates.as_ref().is_some_and(|updates| {
+                updates.status.as_deref() == Some("Results incomplete; retry loading")
+            })
+        })
+        .await?;
+        assert!(picker.editor_updates.as_ref().unwrap().incomplete);
+        picker.editor_updates.as_mut().unwrap().toggle_loading = true;
+        until(&mut picker, &mut app, |p| p.selection() == Some(&7)).await?;
+        assert!(!picker.editor_updates.as_ref().unwrap().incomplete);
+        Ok(())
+    }
 
     #[tokio::test(flavor = "multi_thread")]
     async fn hiding_and_restoring_a_picker_rejects_the_previous_initial_read() -> anyhow::Result<()>

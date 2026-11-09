@@ -23,6 +23,7 @@
 | `` <A-k> ``, `` <A-up> `` | `` preview_scroll_up `` |
 | `` <C-ret> ``, `` <Meta-ret> `` | `` replace_all `` |
 | `` <A-c> `` | `` toggle_case_sensitive `` |
+| `` <C-l> `` | `` toggle_loading `` |
 | `` <C-t> `` | `` toggle_preview `` |
 | `` <A-r> `` | `` toggle_replacement `` |
 
@@ -49,6 +50,7 @@
 | `` <A-k> ``, `` <A-up> `` | `` preview_scroll_up `` |
 | `` <C-ret> ``, `` <Meta-ret> `` | `` replace_all `` |
 | `` <A-c> `` | `` toggle_case_sensitive `` |
+| `` <C-l> `` | `` toggle_loading `` |
 | `` <C-t> `` | `` toggle_preview `` |
 | `` <A-r> `` | `` toggle_replacement `` |
 
@@ -76,6 +78,7 @@
 | `` <C-x> `` | `` remove_entry `` |
 | `` <C-ret> ``, `` <Meta-ret> `` | `` replace_all `` |
 | `` <A-c> `` | `` toggle_case_sensitive `` |
+| `` <C-l> `` | `` toggle_loading `` |
 | `` <C-t> `` | `` toggle_preview `` |
 | `` <A-r> `` | `` toggle_replacement `` |
 
@@ -106,6 +109,7 @@
 | `` <A-z> `` | `` stash `` |
 | `` <A-l> `` | `` stashes `` |
 | `` <A-c> `` | `` toggle_case_sensitive `` |
+| `` <C-l> `` | `` toggle_loading `` |
 | `` <C-t> `` | `` toggle_preview `` |
 | `` <A-r> `` | `` toggle_replacement `` |
 | `` <A-u> `` | `` unstage `` |
@@ -135,6 +139,7 @@
 | `` <A-k> ``, `` <A-up> `` | `` preview_scroll_up `` |
 | `` <C-ret> ``, `` <Meta-ret> `` | `` replace_all `` |
 | `` <A-c> `` | `` toggle_case_sensitive `` |
+| `` <C-l> `` | `` toggle_loading `` |
 | `` <C-t> `` | `` toggle_preview `` |
 | `` <A-r> `` | `` toggle_replacement `` |
 
@@ -163,6 +168,7 @@
 | `` <A-d> `` | `` remove_worktree `` |
 | `` <C-ret> ``, `` <Meta-ret> `` | `` replace_all `` |
 | `` <A-c> `` | `` toggle_case_sensitive `` |
+| `` <C-l> `` | `` toggle_loading `` |
 | `` <C-t> `` | `` toggle_preview `` |
 | `` <A-r> `` | `` toggle_replacement `` |
 
@@ -192,6 +198,7 @@
 | `` <A-k> ``, `` <A-up> `` | `` preview_scroll_up `` |
 | `` <C-ret> ``, `` <Meta-ret> `` | `` replace_all `` |
 | `` <A-c> `` | `` toggle_case_sensitive `` |
+| `` <C-l> `` | `` toggle_loading `` |
 | `` <C-t> `` | `` toggle_preview `` |
 | `` <A-r> `` | `` toggle_replacement `` |
 
@@ -220,6 +227,7 @@
 | `` <A-k> ``, `` <A-up> `` | `` preview_scroll_up `` |
 | `` <C-ret> ``, `` <Meta-ret> `` | `` replace_all `` |
 | `` <A-c> `` | `` toggle_case_sensitive `` |
+| `` <C-l> `` | `` toggle_loading `` |
 | `` <C-t> `` | `` toggle_preview `` |
 | `` <A-r> `` | `` toggle_replacement `` |
 
@@ -249,6 +257,7 @@
 | `` <A-j> ``, `` <A-down> `` | `` preview_scroll_down `` |
 | `` <A-k> ``, `` <A-up> `` | `` preview_scroll_up `` |
 | `` <C-ret> ``, `` <Meta-ret> `` | `` replace_all `` |
+| `` <C-l> `` | `` toggle_loading `` |
 | `` <C-t> `` | `` toggle_preview `` |
 | `` <A-r> `` | `` toggle_replacement `` |
 | `` <A-y> `` | `` yank_path `` |
@@ -284,6 +293,7 @@
 | `` <A-k> ``, `` <A-up> `` | `` preview_scroll_up `` |
 | `` <C-w>W `` | `` previous_view `` |
 | `` <C-ret> ``, `` <Meta-ret> `` | `` replace_all `` |
+| `` <C-l> `` | `` toggle_loading `` |
 | `` <C-t> `` | `` toggle_preview `` |
 | `` <A-r> `` | `` toggle_replacement `` |
 | `` <A-y> `` | `` yank_path `` |
@@ -315,6 +325,7 @@
 | `` <A-j> ``, `` <A-down> `` | `` preview_scroll_down `` |
 | `` <A-k> ``, `` <A-up> `` | `` preview_scroll_up `` |
 | `` <C-ret> ``, `` <Meta-ret> `` | `` replace_all `` |
+| `` <C-l> `` | `` toggle_loading `` |
 | `` <C-t> `` | `` toggle_preview `` |
 | `` <A-r> `` | `` toggle_replacement `` |
 | `` <A-y> `` | `` yank_path `` |

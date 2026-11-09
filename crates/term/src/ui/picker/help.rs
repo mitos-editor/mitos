@@ -33,6 +33,13 @@ impl<T: Send + Sync + 'static, D: Send + Sync + 'static> Picker<T, D> {
         if self.case_sensitive.is_some() {
             actions.push((PickerAction::ToggleCaseSensitive, "toggle case"));
         }
+        if self
+            .editor_updates
+            .as_ref()
+            .is_some_and(|updates| updates.paged)
+        {
+            actions.push((PickerAction::ToggleLoading, "pause / continue / retry"));
+        }
         if self.item_action_fn.is_some() {
             actions.extend([
                 (

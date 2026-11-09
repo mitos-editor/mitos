@@ -2,7 +2,7 @@ use super::*;
 use crate::{
     application::TestApplication,
     compositor::{Context, Event},
-    ui::picker::test::{all_items, application, draw, frame, until},
+    ui::picker::test::{all_items, application, draw, frame, until, until_with_timeout},
 };
 use std::process::Command;
 
@@ -29,27 +29,61 @@ fn git(root: &std::path::Path, args: &[&str]) -> String {
 fn repository(count: usize) -> (tempfile::TempDir, GitRepository) {
     let dir = tempfile::tempdir().unwrap();
     git(dir.path(), &["init"]);
-    let tree = git(dir.path(), &["mktree"]);
-    let mut head = git(dir.path(), &["commit-tree", &tree, "-m", "oldest-needle"]);
-    for index in 1..count {
-        head = git(
-            dir.path(),
-            &[
-                "commit-tree",
-                &tree,
-                "-p",
-                &head,
-                "-m",
-                &format!("commit-{index:03}"),
-            ],
-        );
+    // A single import keeps large-history coverage cheap on every platform.
+    use std::io::Write;
+    use std::process::Stdio;
+    let mut input = String::new();
+    for index in 0..count {
+        let subject = if index == 0 {
+            "oldest-needle".into()
+        } else {
+            format!("commit-{index:03}")
+        };
+        input.push_str(&format!(
+            "commit refs/heads/history-test\nmark :{}\ncommitter History Test <history@example.com> {} +0000\ndata {}\n{}\n",
+            index + 1, 1_700_000_000 + index, subject.len(), subject,
+        ));
+        if index > 0 {
+            input.push_str(&format!("from :{index}\n"));
+        }
+        input.push('\n');
     }
-    git(dir.path(), &["update-ref", "HEAD", &head]);
+    input.push_str("done\n");
+    let mut child = Command::new("git")
+        .arg("-C")
+        .arg(dir.path())
+        .args(["fast-import", "--quiet", "--done"])
+        .env_remove("GIT_DIR")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(input.as_bytes())
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    git(
+        dir.path(),
+        &["symbolic-ref", "HEAD", "refs/heads/history-test"],
+    );
     let repo = GitRepository::discover(dir.path()).unwrap();
     (dir, repo)
 }
 
-fn press(picker: &mut Picker<CommitEntry, Data>, app: &mut TestApplication, key: &str) -> String {
+fn press(
+    picker: &mut Picker<Arc<CommitEntry>, Data>,
+    app: &mut TestApplication,
+    key: &str,
+) -> String {
     let config = crate::config::Config::default();
     let updates = tokio::sync::mpsc::unbounded_channel().0;
     let mut jobs = crate::job::Jobs::new();
@@ -71,7 +105,7 @@ fn press(picker: &mut Picker<CommitEntry, Data>, app: &mut TestApplication, key:
     screen(picker, app)
 }
 
-fn screen(picker: &mut Picker<CommitEntry, Data>, app: &mut TestApplication) -> String {
+fn screen(picker: &mut Picker<Arc<CommitEntry>, Data>, app: &mut TestApplication) -> String {
     frame(picker, app)
         .content
         .iter()
@@ -168,57 +202,106 @@ async fn clearing_history_search_stops_loading_more_pages() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn history_limit_remains_visibly_incomplete() -> Result<()> {
-    let (_dir, repo) = repository(1);
-    let cursor = repo.history_cursor(None)?;
-    let commit = repo
-        .history_page(cursor.clone().unwrap())
-        .await?
-        .commits
-        .remove(0);
-    let mut pager = Pager {
-        repo,
-        cursor: cursor.clone(),
-        pending: None,
-        rows: vec![commit.clone(); HISTORY_DISPLAY_LIMIT - 1],
-        failed: false,
-        capped: false,
-    };
-    let (tx, rx) = tokio::sync::oneshot::channel();
-    tx.send(Ok(HistoryPage {
-        commits: vec![commit],
-        next: cursor,
-    }))
-    .ok()
-    .unwrap();
-    pager.pending = Some(rx);
+async fn history_search_reaches_past_five_thousand_commits() -> Result<()> {
+    let (_dir, repo) = repository(5_005);
     let mut app = application(false)?;
-    let mut task = event::TaskController::new();
-    let mut status = None;
-    let mut incomplete = false;
-    let rows = pager
-        .update(crate::ui::picker::UpdateContext {
-            editor: &mut app.editor,
-            query: "needle",
-            near_end: true,
-            status: &mut status,
-            incomplete: &mut incomplete,
-            selected: None,
-            task: &mut task,
-            resumed: false,
+    let mut picker = browser(&app.editor, repo, None, None)?;
+    until(&mut picker, &mut app, |p| all_items(p).count() == 100).await?;
+    for ch in "oldest-needle".chars() {
+        press(&mut picker, &mut app, &ch.to_string());
+    }
+    // Searching 51 pages needs more time on Windows under parallel CI load.
+    until_with_timeout(
+        &mut picker,
+        &mut app,
+        std::time::Duration::from_secs(30),
+        |p| {
+            all_items(p).count() == 5_005
+                && p.selection()
+                    .is_some_and(|row| row.subject == "oldest-needle")
+        },
+    )
+    .await?;
+    assert!(screen(&mut picker, &mut app).contains("Complete history"));
+    assert!(screen(&mut picker, &mut app).contains("1/5005"));
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn history_loading_can_be_paused_and_continued_with_the_shared_action() -> Result<()> {
+    let (_dir, repo) = repository(305);
+    let mut app = application(false)?;
+    let mut picker = browser(&app.editor, repo, None, None)?;
+    until(&mut picker, &mut app, |p| all_items(p).count() == 100).await?;
+    press(&mut picker, &mut app, "C-l");
+    assert!(screen(&mut picker, &mut app).contains("Loading paused"));
+    for ch in "oldest-needle".chars() {
+        press(&mut picker, &mut app, &ch.to_string());
+    }
+    for _ in 0..10 {
+        draw(&mut picker, &mut app);
+    }
+    assert_eq!(all_items(&picker).count(), 100);
+    press(&mut picker, &mut app, "C-l");
+    until(&mut picker, &mut app, |p| all_items(p).count() == 305).await?;
+    assert!(screen(&mut picker, &mut app).contains("Complete history"));
+    Ok(())
+}
+
+/// End-to-end measurements include traversal, matching, rendering, and explicit
+/// continuation at each soft budget. Fixture creation is outside the timer.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "manual history scaling measurement"]
+async fn history_scaling() -> Result<()> {
+    for count in [5_000, 50_000, 100_000] {
+        let (_dir, repo) = repository(count);
+        let mut app = application(false)?;
+        let mut picker = browser(&app.editor, repo, None, None)?;
+        let start = std::time::Instant::now();
+        for ch in "oldest-needle".chars() {
+            press(&mut picker, &mut app, &ch.to_string());
+        }
+        let mut pauses = 0;
+        tokio::time::timeout(std::time::Duration::from_secs(120), async {
+            loop {
+                app.editor.redraw().start_frame();
+                draw(&mut picker, &mut app);
+                if crate::ui::picker::test::loaded_count(&picker) == count {
+                    break;
+                }
+                if crate::ui::picker::test::source_status(&picker)
+                    .is_some_and(|status| status.starts_with("Memory budget reached"))
+                {
+                    pauses += 1;
+                    press(&mut picker, &mut app, "C-l");
+                }
+                app.editor.redraw().requested().await;
+            }
         })
-        .unwrap();
-    assert_eq!(rows.len(), HISTORY_DISPLAY_LIMIT);
-    assert_eq!(
-        status.as_deref(),
-        Some("5000 loaded; history limit reached")
-    );
-    assert!(
-        incomplete,
-        "a capped source must never report an exact total"
-    );
-    assert!(pager.cursor.is_none());
-    assert!(pager.pending.is_none());
+        .await?;
+        let bytes: usize = all_items(&picker).map(history_row_bytes).sum();
+        eprintln!(
+            "{count} history rows: {:?}, estimated {} MiB, {pauses} budget pauses",
+            start.elapsed(),
+            bytes / (1024 * 1024)
+        );
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn history_scrolling_reaches_past_five_thousand_without_losing_selection() -> Result<()> {
+    let (_dir, repo) = repository(5_005);
+    let mut app = application(false)?;
+    let mut picker = browser(&app.editor, repo, None, None)?;
+    until(&mut picker, &mut app, |p| all_items(p).count() == 100).await?;
+    for expected in (200..=5_000).step_by(100).chain([5_005]) {
+        press(&mut picker, &mut app, "end");
+        let selected = picker.selection().unwrap().id.clone();
+        until(&mut picker, &mut app, |p| all_items(p).count() == expected).await?;
+        assert_eq!(picker.selection().unwrap().id, selected);
+    }
+    assert!(screen(&mut picker, &mut app).contains("Complete history"));
     Ok(())
 }
 

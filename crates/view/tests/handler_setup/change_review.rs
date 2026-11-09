@@ -1036,7 +1036,7 @@ async fn historical_buffer_comparisons_keep_captured_unsaved_text_after_refresh(
         .commits
         .remove(0);
     let endpoint = RevisionFile::new(
-        commit.id,
+        commit.id.clone(),
         stdx::path::canonicalize_existing(&path)
             .strip_prefix(repo.root())?
             .to_owned(),
@@ -1184,12 +1184,12 @@ async fn historical_sides_detect_their_own_languages_and_open_with_source_syntax
         .remove(0);
     f.configure(|config| config.diff.engine = editor_config::DiffEngine::Syntax);
     let before = RevisionFile::new(
-        parent.id,
+        parent.id.clone(),
         stdx::path::canonicalize_existing(&old_path)
             .strip_prefix(repo.root())?
             .to_owned(),
     )?;
-    let after = RevisionFile::new(commit.id, "source.rs".into())?;
+    let after = RevisionFile::new(commit.id.clone(), "source.rs".into())?;
     let request = HistoricalReviewRequest::revisions(&f.editor, repo, Some(before), Some(after))?;
     let id = f.editor.open_historical_review(request, Action::Replace);
     finish_review(&mut f, id).await?;

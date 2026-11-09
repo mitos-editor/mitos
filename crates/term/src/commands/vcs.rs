@@ -237,21 +237,23 @@ fn refresh_changed_files(
 ) -> futures_util::future::BoxFuture<'static, anyhow::Result<Vec<ChangedFileEntry>>> {
     Box::pin(async move {
         let (tx, mut results) = tokio::sync::mpsc::unbounded_channel();
-        providers.for_each_file_status(scope, trust_full, move |root, change| {
-            if cancel.is_canceled() {
-                return false;
-            }
-            tx.send(change.map(|change| ChangedFileEntry {
-                display_path: display_path(
-                    change.change(),
-                    display_root.as_deref().unwrap_or(root),
-                ),
-                #[cfg(feature = "git")]
-                repository_root: root.to_owned(),
-                status: change,
-            }))
-            .is_ok()
-        });
+        drop(
+            providers.for_each_file_status(scope, trust_full, move |root, change| {
+                if cancel.is_canceled() {
+                    return false;
+                }
+                tx.send(change.map(|change| ChangedFileEntry {
+                    display_path: display_path(
+                        change.change(),
+                        display_root.as_deref().unwrap_or(root),
+                    ),
+                    #[cfg(feature = "git")]
+                    repository_root: root.to_owned(),
+                    status: change,
+                }))
+                .is_ok()
+            }),
+        );
         let mut entries = Vec::new();
         while let Some(entry) = results.recv().await {
             entries.push(entry?);
@@ -444,7 +446,8 @@ fn changed_file_picker_for_scope(cx: &mut Context, scope: vcs::ChangedFileScope)
         .query(&workspace_root, workspace::trust::TrustQuery::Git)
         .is_trusted();
     let status = cx.editor.status_sender().clone();
-    cx.editor.diff_providers.clone().for_each_file_status(
+    let completion = injector.clone();
+    let load = cx.editor.diff_providers.clone().for_each_file_status(
         scope,
         trust_full,
         move |worktree_root, change| match change {
@@ -460,11 +463,18 @@ fn changed_file_picker_for_scope(cx: &mut Context, scope: vcs::ChangedFileScope)
                 })
                 .is_ok(),
             Err(err) => {
+                injector.fail();
                 status.report_blocking(err);
                 true
             }
         },
     );
+    tokio::spawn(async move {
+        match load.await {
+            Ok(()) => completion.complete(),
+            Err(_) => completion.fail(),
+        }
+    });
     cx.push_layer(Box::new(overlaid(picker)));
 }
 
