@@ -54,6 +54,7 @@ jobs:
         env:
           ARCH: ${{ matrix.arch }}
           VERSION: test
+          GH_TOKEN: ${{ github.token }}
         run: bash .github/scripts/build-appimage.sh "$ARCH" fixture/ms fixture/runtime mitos.AppImage
 
       - name: Test bundled binary and runtime without FUSE

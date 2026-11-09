@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   release-plz:
-    name: Prepare release PR and publish merged release
+    name: Prepare release PR and draft merged release
     if: github.repository == 'mitos-editor/mitos' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
@@ -38,7 +38,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.RELEASE_PAT }}
 
-      - name: Publish merged release
+      - name: Create draft release
         uses: release-plz/action@f67a7e724bdad4a0f6875f186060a0ca2770d76c # v0.5.147
         with:
           command: release
