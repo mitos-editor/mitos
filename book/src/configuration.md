@@ -42,6 +42,33 @@ workspace is trusted; see [Workspace trust](./workspace-trust.md).
 Unknown `config.toml` editor keys are rejected. This makes misspelled settings
 fail visibly instead of being silently ignored.
 
+### Use an existing Helix configuration
+
+Point `MITOS_CONFIG_DIR` at your Helix configuration directory to reuse its
+`config.toml`, `languages.toml`, and custom runtime assets. For example, on
+Linux and macOS:
+
+```sh
+MITOS_CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/helix" ms
+```
+
+In PowerShell on Windows:
+
+```powershell
+$env:MITOS_CONFIG_DIR = "$env:APPDATA\helix"
+ms
+```
+
+This selects one user configuration directory; it does not merge Helix and
+Mitos user configurations. Workspace overrides still use `.mitos/` and require
+workspace trust. Language servers must be installed separately.
+
+Mitos accepts many legacy Helix setting names, but settings, commands, and
+bundled themes can differ. Adjust unsupported entries in a separate copy if
+you need to keep your Helix configuration compatible. `:config-open` and
+`:config-migrate` target the selected configuration, so edits or migration
+also affect Helix when you share the directory.
+
 ## Structure and compatibility
 
 Settings are grouped by feature. For example, use `editor.lsp.messages.enable`
