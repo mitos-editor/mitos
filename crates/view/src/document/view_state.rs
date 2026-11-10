@@ -23,6 +23,7 @@ pub(crate) struct DocumentViewState {
     pub inlay_hints: crate::features::inlay_hints::InlayHintsState,
     pub document_highlights: crate::features::document_highlight::DocumentHighlightsState,
     pub code_action_hints: crate::features::code_action_hint::CodeActionHints,
+    pub breadcrumbs: Option<Vec<crate::features::document_symbols::Crumb>>,
     pub search: crate::features::buffer_search::State,
     pub search_highlight: Option<(crate::features::buffer_search::Query, buffer::Snapshot)>,
 }
@@ -47,6 +48,7 @@ impl DocumentViewState {
             inlay_hints: self.inlay_hints.presentation(),
             document_highlights: self.document_highlights.presentation(),
             code_action_hints: self.code_action_hints.presentation(),
+            breadcrumbs: self.breadcrumbs.clone(),
             search: self.search.presentation(),
             search_highlight: self.search_highlight.clone(),
         }
@@ -71,6 +73,7 @@ impl DocumentViewState {
             inlay_hints: Default::default(),
             document_highlights: Default::default(),
             code_action_hints: Default::default(),
+            breadcrumbs: None,
             search: Default::default(),
             search_highlight: None,
         }

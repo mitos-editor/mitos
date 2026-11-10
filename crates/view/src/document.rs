@@ -475,7 +475,6 @@ impl Document {
     pub fn remove_view(&mut self, view_id: ViewId) {
         self.view_states.remove(&view_id);
         self.document_links.cancel_navigation_for(view_id);
-        self.document_symbols.remove_view(view_id);
         self.inline_completions.remove_view(self.id, view_id);
     }
 

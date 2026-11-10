@@ -23,7 +23,7 @@ impl Document {
         self.document_links.invalidate();
         self.code_lenses.clear();
         self.semantic_tokens.invalidate();
-        self.document_symbols.clear();
+        self.invalidate_document_symbols();
         self.clear_all_document_highlights();
         self.clear_all_code_action_hints();
         self.pull_diagnostics.clear();
