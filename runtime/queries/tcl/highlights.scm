@@ -38,7 +38,7 @@
                 "tcl_version"))
 
 
-["expr" "regexp"] @function.builtin
+["expr" "regexp" "regsub"] @function.builtin
 
 (command
   name: (simple_word) @function.builtin
@@ -50,8 +50,6 @@
    "info"
    "join"
    "puts"
-   "regexp"
-   "regsub"
    "split"
    "subst"
    "trace"
@@ -129,6 +127,8 @@
 (variable_substitution) @variable
 (variable_substitution (id) @variable)
 (quoted_word) @string
+(braced_word_simple) @string
+(braced_word "{*}" @string)
 (escaped_character) @constant.character.escape
 
 [

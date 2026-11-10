@@ -32,7 +32,7 @@
 
 (
   (type_constructor) @type.builtin
-  (#match? @type.builtin "^(int|char|bytes|string|float|bool|unit|exn|array|list|option|int32|int64|nativeint|format6|lazy_t)$")
+  (#match? @type.builtin "^(int|char|bytes|string|float|bool|unit|exn|array|list|option|int32|int64|nativeint|format6|lazy_t|int8x(16|32|64)#?|(int|float)16x(8|16|32)#?|(int|float)32x(4|8|16)#?|(int|float)64x(2|4|8)#?)$")
 )
 
 
