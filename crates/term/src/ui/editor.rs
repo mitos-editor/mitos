@@ -16,7 +16,7 @@ use stdx::rope::RopeExt as _;
 
 use editor_config::BufferLine;
 use editor_core::{movement::Direction, unicode::width::UnicodeWidthStr, Range, Selection};
-use std::{mem::take, num::NonZeroUsize};
+use std::num::NonZeroUsize;
 use ui_core::{
     input::{KeyEvent, MouseButton, MouseEvent, MouseEventKind},
     keyboard::{KeyCode, KeyModifiers},
@@ -624,28 +624,15 @@ impl Component for EditorView {
             }
             if matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left)) {
                 if in_sidebar && !self.sidebar_focused() {
-                    let callbacks = {
-                        let mut cx = commands::Context {
-                            config: context.config,
-                            editor: context.editor,
-                            interaction: context.interaction,
-                            count: None,
-                            register: None,
-                            callback: Vec::new(),
-                            on_next_key_callback: None,
-                            jobs: context.jobs,
-                        };
+                    let callback = {
+                        let mut cx = commands::Context::from_ui(context);
                         self.handle_non_key_input(&mut cx);
                         cx.interaction.count = None;
                         cx.interaction.selected_register = None;
-                        cx.callback
+                        cx.take_callback()
                     };
                     self.focus_visible_sidebar(context.editor);
-                    return EventResult::Consumed(Some(Box::new(move |compositor, cx| {
-                        for callback in callbacks {
-                            callback(compositor, cx);
-                        }
-                    })));
+                    return EventResult::Consumed(callback);
                 } else if !in_sidebar && let Some(sidebar) = &mut self.sidebar {
                     sidebar.focus_buffer();
                 }
@@ -657,16 +644,7 @@ impl Component for EditorView {
         if self.sidebar_focused() && matches!(event, Event::Key(_) | Event::Paste(_)) {
             return self.sidebar.as_mut().unwrap().handle_event(event, context);
         }
-        let mut cx = commands::Context {
-            config: context.config,
-            editor: context.editor,
-            interaction: context.interaction,
-            count: None,
-            register: None,
-            callback: Vec::new(),
-            on_next_key_callback: None,
-            jobs: context.jobs,
-        };
+        let mut cx = commands::Context::from_ui(context);
 
         // Lifecycle updates may be queued while input is already ready. Never let
         // a stale menu consume input after its shared session was invalidated.
@@ -722,15 +700,7 @@ impl Component for EditorView {
                             if let Some(completion) = &mut self.completion {
                                 let res = {
                                     // use a fake context here
-                                    let mut cx = Context {
-                                        config: cx.config,
-                                        editor: cx.editor,
-                                        interaction: cx.interaction,
-                                        jobs: cx.jobs,
-                                        scroll: None,
-                                        image_picker: None,
-                                        is_cursor_owner: false,
-                                    };
+                                    let mut cx = cx.as_ui();
 
                                     match completion.handle_event(event, &mut cx) {
                                         EventResult::Consumed(callback) => {
@@ -772,7 +742,7 @@ impl Component for EditorView {
                 }
 
                 // appease borrowck
-                let callbacks = take(&mut cx.callback);
+                let callback = cx.take_callback();
 
                 // if the command consumed the last view, skip the render.
                 // on the next loop cycle the Application will then terminate.
@@ -791,17 +761,6 @@ impl Component for EditorView {
                 if mode != Mode::Insert {
                     cx.editor.commit_changes();
                 }
-                let callback = if callbacks.is_empty() {
-                    None
-                } else {
-                    let callback: crate::compositor::Callback = Box::new(move |compositor, cx| {
-                        for callback in callbacks {
-                            callback(compositor, cx)
-                        }
-                    });
-                    Some(callback)
-                };
-
                 EventResult::Consumed(callback)
             }
 

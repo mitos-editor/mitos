@@ -635,16 +635,7 @@ pub(super) mod typed {
         cx.jobs
             .sender()
             .enqueue(crate::job::Callback::ui(move |compositor, cx| {
-                let mut command_cx = super::Context {
-                    config: cx.config,
-                    register: None,
-                    count: None,
-                    editor: cx.editor,
-                    interaction: cx.interaction,
-                    callback: Vec::new(),
-                    on_next_key_callback: None,
-                    jobs: cx.jobs,
-                };
+                let mut command_cx = super::Context::from_ui(cx);
                 command(&mut command_cx);
                 for callback in command_cx.callback {
                     callback(compositor, cx);
