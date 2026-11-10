@@ -11,18 +11,11 @@ type ExplorerRows = Vec<(ExplorerItem, usize)>;
 
 /// Immutable source revision. Normalize paths and discover parents once during
 /// the background filesystem walk, rather than on every query keystroke.
-pub(in crate::ui) struct SearchIndex {
+struct SearchIndex {
     rows: ExplorerRows,
     paths: Vec<String>,
     name_starts: Vec<usize>,
     parents: Vec<Option<usize>>,
-}
-
-impl std::ops::Deref for SearchIndex {
-    type Target = [(ExplorerItem, usize)];
-    fn deref(&self) -> &Self::Target {
-        &self.rows
-    }
 }
 
 impl SearchIndex {
@@ -116,12 +109,70 @@ pub struct ExplorerTree {
     pub searching: bool,
     // Reuse one recursive listing across keystrokes. Background filesystem
     // refreshes replace it so subsequent queries see the same source revision.
-    pub index: Arc<Mutex<Option<Arc<SearchIndex>>>>,
+    index: Arc<Mutex<Index>>,
+}
+
+#[derive(Default)]
+struct Index {
+    generation: u64,
+    state: IndexState,
+}
+
+#[derive(Default)]
+enum IndexState {
+    #[default]
+    Empty,
+    Ready(Arc<SearchIndex>),
+    Failed,
 }
 
 impl ExplorerTree {
     pub fn clear_index(&self) {
-        *self.index.lock().unwrap() = None;
+        let mut index = self.index.lock().unwrap();
+        index.generation = index.generation.wrapping_add(1);
+        index.state = IndexState::Empty;
+    }
+
+    pub fn reset_index(&mut self) {
+        self.index = Default::default();
+    }
+
+    pub fn search_failed(&self) -> bool {
+        matches!(self.index.lock().unwrap().state, IndexState::Failed)
+    }
+
+    fn load_index(
+        &self,
+        root: &Path,
+        config: &editor_config::FileExplorerConfig,
+        cancel: &event::TaskHandle,
+    ) -> std::io::Result<Arc<SearchIndex>> {
+        self.load_index_with(cancel, || {
+            search_index(root, config, || cancel.is_canceled())
+        })
+    }
+
+    fn load_index_with(
+        &self,
+        cancel: &event::TaskHandle,
+        load: impl FnOnce() -> std::io::Result<Arc<SearchIndex>>,
+    ) -> std::io::Result<Arc<SearchIndex>> {
+        let generation = {
+            let cached = self.index.lock().unwrap();
+            if let IndexState::Ready(index) = &cached.state {
+                return Ok(index.clone());
+            }
+            cached.generation
+        };
+        let result = load();
+        let mut cached = self.index.lock().unwrap();
+        if cached.generation == generation && !cancel.is_canceled() {
+            cached.state = match &result {
+                Ok(index) => IndexState::Ready(index.clone()),
+                Err(_) => IndexState::Failed,
+            };
+        }
+        result
     }
 
     pub fn is_expanded(&self, path: &PathBuf) -> bool {
@@ -152,6 +203,7 @@ pub(super) fn query(
     let tree = data.tree.as_mut().unwrap();
     tree.searching = !query.is_empty();
     let (options, cursor) = if query.is_empty() {
+        tree.clear_index();
         if let Some((path, _)) = selected {
             tree.reveal(&data.root, path);
         }
@@ -172,7 +224,7 @@ pub(super) fn query(
     Ok((options, data, cursor))
 }
 
-pub(in crate::ui) fn search_index(
+fn search_index(
     root: &Path,
     config: &editor_config::FileExplorerConfig,
     cancelled: impl Fn() -> bool,
@@ -212,7 +264,7 @@ pub(in crate::ui) fn search_index(
 }
 
 pub(super) fn query_async(
-    _editor: &Editor,
+    editor: &Editor,
     query: &str,
     data: &ExplorerData,
     selected: Option<&ExplorerItem>,
@@ -226,19 +278,46 @@ pub(super) fn query_async(
     let selected = selected.cloned();
     let tree = data.tree.as_mut().unwrap();
     tree.searching = true;
-    let index = tree.index.lock().unwrap().clone();
+    if tree.search_failed() {
+        tree.clear_index();
+    }
+    let config = editor.config().file_explorer.clone();
     Box::pin(async move {
-        Ok(tokio::task::spawn_blocking(move || {
-            let (options, first) = index.map_or_else(
-                || (Vec::new(), 0),
-                |index| index.matches(&query, || cancel.is_canceled()),
-            );
+        tokio::task::spawn_blocking(move || {
+            let tree = data.tree.as_ref().unwrap();
+            let index = tree.load_index(&data.root, &config, &cancel)?;
+            let (options, first) = index.matches(&query, || cancel.is_canceled());
             let cursor = selected
                 .and_then(|selected| options.iter().position(|item| *item == selected))
                 .unwrap_or(first);
-            (options, data, cursor)
+            Ok((options, data, cursor))
         })
-        .await?)
+        .await?
+    })
+}
+
+/// Filesystem refreshes and query matching share the same index loader.
+pub(super) fn refresh(
+    query: &str,
+    editor: &Editor,
+    data: Arc<ExplorerData>,
+    cancel: event::TaskHandle,
+) -> futures_util::future::BoxFuture<'static, anyhow::Result<Vec<ExplorerItem>>> {
+    if let Some(tree) = &data.tree {
+        tree.clear_index();
+        if !query.is_empty() {
+            let work = query_async(editor, query, &data, None, cancel);
+            return Box::pin(async move { Ok(work.await?.0) });
+        }
+    }
+    let config = editor.config().file_explorer.clone();
+    Box::pin(async move {
+        Ok(tokio::task::spawn_blocking(move || {
+            content(&data.root, data.tree.as_ref(), &config, || {
+                cancel.is_canceled()
+            })
+        })
+        .await??)
     })
 }
 
@@ -250,6 +329,39 @@ fn matches(root: &Path, query: &str, rows: &[(ExplorerItem, usize)]) -> (Vec<Exp
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn invalidation_during_load_prevents_stale_cache_publication() {
+        let tree = ExplorerTree::default();
+        let mut controller = event::TaskController::new();
+        let cancel = controller.restart();
+        let old = Arc::new(SearchIndex::new(Path::new("root"), Vec::new()));
+        tree.load_index_with(&cancel, || {
+            tree.clear_index();
+            Ok(old.clone())
+        })
+        .unwrap();
+        assert!(matches!(
+            tree.index.lock().unwrap().state,
+            IndexState::Empty
+        ));
+        assert!(tree
+            .load_index_with(&cancel, || {
+                tree.clear_index();
+                Err(std::io::Error::other("failed stale scan"))
+            })
+            .is_err());
+        assert!(matches!(
+            tree.index.lock().unwrap().state,
+            IndexState::Empty
+        ));
+        let fresh = Arc::new(SearchIndex::new(Path::new("root"), Vec::new()));
+        let loaded = tree.load_index_with(&cancel, || Ok(fresh.clone())).unwrap();
+        assert!(Arc::ptr_eq(&loaded, &fresh));
+        assert!(
+            matches!(&tree.index.lock().unwrap().state, IndexState::Ready(index) if Arc::ptr_eq(index, &fresh))
+        );
+    }
 
     #[test]
     fn query_matching_cancels_between_batches() {
@@ -277,6 +389,7 @@ mod tests {
         std::fs::write(dir.path().join(".gitignore"), "")?;
         let rows = search_index(dir.path(), &Default::default(), || false)?;
         let paths: Vec<_> = rows
+            .rows
             .iter()
             .map(|((path, _), _)| path.strip_prefix(dir.path()).unwrap())
             .collect();
@@ -302,6 +415,7 @@ mod tests {
         }
         let rows = search_index(dir.path(), &Default::default(), || false)?;
         let paths: Vec<_> = rows
+            .rows
             .iter()
             .map(|((path, _), _)| path.strip_prefix(dir.path()).unwrap())
             .collect();
