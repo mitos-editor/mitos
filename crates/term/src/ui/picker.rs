@@ -33,7 +33,6 @@ use event::AsyncHook;
 use futures_util::future::BoxFuture;
 use nucleo::{Config, Nucleo};
 use thiserror::Error;
-use tokio::sync::mpsc::Sender;
 use tui::{
     buffer::Buffer as Surface,
     layout::{Constraint, Layout, Size},
@@ -62,7 +61,7 @@ use view::{
     Editor,
 };
 
-use self::handlers::{DynamicQueryChange, DynamicQueryHandler};
+use self::handlers::{DynamicQuery, DynamicQueryChange, DynamicQueryHandler, QueryKind};
 use self::preview::{render_preview_content, FilePreview, FileScroll};
 use self::replacement::{split_picker_input_area, CaseSensitiveToggle, Replacement};
 
@@ -329,9 +328,7 @@ pub struct Picker<T: 'static + Send + Sync, D: 'static> {
     quicklist_fn: Option<QuicklistCallback<T>>,
     replacement: Option<Replacement<T, D>>,
     case_sensitive: Option<CaseSensitiveToggle<D>>,
-    dynamic_query_pending: bool,
-    dynamic_query_handler: Option<Sender<DynamicQueryChange>>,
-    dynamic_query_request: event::TaskController,
+    dynamic_query: Option<DynamicQuery>,
     poll: Option<PollTask>,
     matching: bool,
     file_updates: Option<file_updates::FileUpdates<T, D>>,
@@ -341,7 +338,6 @@ pub struct Picker<T: 'static + Send + Sync, D: 'static> {
     async_query_options: Option<query_options::AsyncQueryOptions<T, D>>,
     pending_query: Option<query_options::PendingQuery<T, D>>,
     query_task: event::TaskController,
-    query_refresh: bool,
     query_needs_refresh: bool,
     title: Option<Line<'static>>,
 }
@@ -474,9 +470,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             quicklist_fn: None,
             replacement: None,
             case_sensitive: None,
-            dynamic_query_pending: false,
-            dynamic_query_handler: None,
-            dynamic_query_request: event::TaskController::new(),
+            dynamic_query: None,
             poll: None,
             file_updates: None,
             editor_updates: None,
@@ -485,7 +479,6 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             async_query_options: None,
             pending_query: None,
             query_task: event::TaskController::new(),
-            query_refresh: false,
             query_needs_refresh: false,
             title: None,
             matching: true,
@@ -538,7 +531,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
     pub(crate) fn suspend(&mut self) {
         self.query_needs_refresh |= self.pending_query.is_some()
             || (self.async_query_options.is_some() && self.results.is_refreshing())
-            || (self.dynamic_query_handler.is_some() && self.file_updates.is_none());
+            || (self.dynamic_query.is_some() && self.file_updates.is_none());
         self.cancel_query_options();
         self.keys.clear();
         self.cancel_replacement();
@@ -546,9 +539,9 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         self.results.discard_pending();
         self.results.spare_matcher = None;
 
-        self.dynamic_query_pending = false;
-        self.query_refresh = false;
-        self.dynamic_query_request.cancel();
+        if let Some(query) = &mut self.dynamic_query {
+            query.suspend();
+        }
         if let Some(updates) = &mut self.editor_updates {
             updates.suspend();
         }
@@ -626,6 +619,12 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         self
     }
 
+    fn dynamic_query_pending(&self) -> bool {
+        self.dynamic_query
+            .as_ref()
+            .is_some_and(DynamicQuery::is_pending)
+    }
+
     pub fn with_dynamic_query(
         mut self,
         callback: DynQueryCallback<T, D>,
@@ -639,14 +638,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             self.results.version.clone(),
         )
         .spawn();
-        let event = DynamicQueryChange {
-            query: self.primary_query(),
-            // Treat the initial query as a paste.
-            is_paste: true,
-        };
-        event::send_blocking(&handler, event);
-        self.dynamic_query_pending = true;
-        self.dynamic_query_handler = Some(handler);
+        self.dynamic_query = Some(DynamicQuery::new(handler, self.primary_query()));
         self
     }
 
@@ -949,15 +941,11 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                 if let Some(updates) = &mut self.file_updates {
                     updates.query_changed();
                 }
-                self.refresh_options(options, Arc::new(data));
-                let pending = self.results.pending_options.as_mut().unwrap();
-                pending.preserve_selection = preserve_selection;
-                pending.cursor = Some(cursor as u32);
-                if !preserve_selection {
-                    self.results.offset = 0;
+                let data = Arc::new(data);
+                let injector = self.prepare_query_options(data.clone(), cursor, preserve_selection);
+                for item in options {
+                    inject_nucleo_item(&injector, &self.columns, item, &data);
                 }
-                self.matching = true;
-                self.redraw.request();
             }
             Err(error) => editor.status_sender().report_blocking(error),
         }
@@ -981,7 +969,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                 .get(&self.columns[self.primary_column].name)
                 .map(|pattern| &**pattern)
                 .unwrap_or_default();
-        if primary_changed && self.dynamic_query_handler.is_some() {
+        if primary_changed && self.dynamic_query.is_some() {
             if self.results.pending_options.is_some()
                 && let Some(updates) = &mut self.file_updates
             {
@@ -989,7 +977,6 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             }
             self.results.discard_pending();
 
-            self.query_refresh = false;
             self.query_needs_refresh = false;
         } else if let Some(pending) = &mut self.results.pending_options {
             pending.preserve_selection = false;
@@ -1017,26 +1004,20 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             let is_append = pattern.starts_with(old_pattern);
             self.results.reparse(i, pattern, is_append);
         }
-        // If this is a dynamic picker, notify the query hook that the primary
-        // query might have been updated.
-        if let Some(handler) = &self.dynamic_query_handler {
-            let previous = old_query
-                .get(&self.columns[self.primary_column].name)
-                .map(|pattern| &**pattern)
-                .unwrap_or_default();
-            if &*self.primary_query() != previous {
-                self.dynamic_query_pending = true;
-                if let Some(updates) = &mut self.editor_updates {
-                    updates.task.cancel();
-                }
-                self.dynamic_query_request.cancel();
-                self.results.invalidate();
-            }
-            let event = DynamicQueryChange {
-                query: self.primary_query(),
-                is_paste,
-            };
-            event::send_blocking(handler, event);
+        // Secondary filters update the debounce input without restarting the source.
+        if primary_changed
+            && self.dynamic_query.is_some()
+            && let Some(updates) = &mut self.editor_updates
+        {
+            updates.task.cancel();
+        }
+        let query = self.primary_query();
+        if let Some(dynamic_query) = &mut self.dynamic_query {
+            dynamic_query.schedule(
+                DynamicQueryChange { query, is_paste },
+                primary_changed.then_some(QueryKind::Replace),
+                &self.results.version,
+            );
         }
         true
     }
@@ -1142,7 +1123,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                     "smart-case "
                 }
             }),
-            if self.dynamic_query_pending
+            if self.dynamic_query_pending()
                 || self.matching
                 || self.results.matcher.active_injectors() > 0
             {
@@ -1151,7 +1132,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                 ""
             },
             snapshot.matched_item_count(),
-            if self.dynamic_query_pending
+            if self.dynamic_query_pending()
                 || self.results.source.get() != source::State::Complete
                 || self.results.is_refreshing()
                 || self

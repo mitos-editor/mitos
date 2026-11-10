@@ -45,8 +45,17 @@ fn query(query: &str) -> DynamicQueryChange {
     }
 }
 
-fn handler(picker: &Picker<u8, ()>, jobs: &Jobs) -> DynamicQueryHandler<u8, ()> {
-    DynamicQueryHandler::new(
+fn handler(
+    picker: &mut Picker<u8, ()>,
+    jobs: &Jobs,
+) -> (
+    DynamicQueryHandler<u8, ()>,
+    tokio::sync::mpsc::Receiver<DynamicQueryChange>,
+) {
+    // Drive debounce by hand to control queued callback ordering.
+    let (sender, changes) = tokio::sync::mpsc::channel(4);
+    picker.dynamic_query = Some(DynamicQuery::new(sender, picker.primary_query()));
+    let handler = DynamicQueryHandler::new(
         |query, editor, _, _| {
             editor.set_status(format!("query: {query}"));
             Box::pin(async { Ok(()) })
@@ -54,7 +63,8 @@ fn handler(picker: &Picker<u8, ()>, jobs: &Jobs) -> DynamicQueryHandler<u8, ()> 
         None,
         jobs.sender(),
         picker.results.version.clone(),
-    )
+    );
+    (handler, changes)
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -66,7 +76,7 @@ async fn queued_queries_validate_picker_identity_and_generation() -> anyhow::Res
         let mut original = picker(&app.editor);
         original.prompt.set_line("old".into(), &app.editor);
         original.handle_prompt_change(false);
-        let mut handler = handler(&original, &jobs);
+        let (mut handler, _changes) = handler(&mut original, &jobs);
         handler.handle_event(query("old"), None);
         compositor.push(Box::new(overlaid(original)));
         let callback = jobs.callbacks.recv().await.unwrap();
@@ -118,7 +128,7 @@ async fn only_the_latest_queued_query_starts_a_provider() -> anyhow::Result<()> 
     let mut picker = picker(&app.editor);
     picker.prompt.set_line("new".into(), &app.editor);
     picker.handle_prompt_change(false);
-    let mut handler = handler(&picker, &jobs);
+    let (mut handler, _changes) = handler(&mut picker, &jobs);
     compositor.push(Box::new(overlaid(picker)));
     handler.handle_event(query("old"), None);
     handler.handle_event(query("new"), None);
@@ -158,7 +168,7 @@ async fn queries_skipped_during_debounce_can_be_requested_again() -> anyhow::Res
     let mut picker = picker(&app.editor);
     picker.prompt.set_line("new".into(), &app.editor);
     picker.handle_prompt_change(false);
-    let mut handler = handler(&picker, &jobs);
+    let (mut handler, _changes) = handler(&mut picker, &jobs);
     compositor.push(Box::new(overlaid(picker)));
     handler.handle_event(query("old"), None);
     let skipped = jobs.callbacks.recv().await.unwrap();
@@ -200,7 +210,7 @@ async fn queries_skipped_during_debounce_can_be_requested_again() -> anyhow::Res
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn editing_or_closing_a_picker_drops_its_running_provider() -> anyhow::Result<()> {
+async fn editing_suspending_or_closing_a_picker_drops_its_running_provider() -> anyhow::Result<()> {
     use std::time::Duration;
     use tokio::sync::{mpsc, oneshot};
 
@@ -211,7 +221,7 @@ async fn editing_or_closing_a_picker_drops_its_running_provider() -> anyhow::Res
         }
     }
 
-    for close in [false, true] {
+    for change in ["edit", "suspend", "close"] {
         let mut app = application()?;
         let mut jobs = Jobs::new();
         let mut compositor = Compositor::new(Rect::new(0, 0, 80, 24));
@@ -256,15 +266,22 @@ async fn editing_or_closing_a_picker_drops_its_running_provider() -> anyhow::Res
         let done = tokio::time::timeout(Duration::from_secs(5), running.recv())
             .await?
             .unwrap();
-        if close {
+        if change == "close" {
             compositor.pop();
         } else {
             let picker = &mut compositor
                 .find::<Overlay<Picker<u8, mpsc::UnboundedSender<oneshot::Receiver<()>>>>>()
                 .unwrap()
                 .content;
-            picker.prompt.set_line("new".into(), &app.editor);
-            picker.handle_prompt_change(true);
+            if change == "suspend" {
+                picker.suspend();
+                assert!(!picker.dynamic_query_pending());
+                picker.refresh_query_if_changed(&mut app.editor);
+                assert!(picker.dynamic_query_pending());
+            } else {
+                picker.prompt.set_line("new".into(), &app.editor);
+                picker.handle_prompt_change(true);
+            }
         }
         tokio::time::timeout(Duration::from_secs(5), done).await??;
         assert!(app.close().await.is_empty());

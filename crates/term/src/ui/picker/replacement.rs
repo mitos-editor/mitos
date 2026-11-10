@@ -266,8 +266,7 @@ impl<T: Send + Sync + 'static, D: Send + Sync + 'static> Picker<T, D> {
         self.refresh_query_if_changed(cx.editor);
         self.publish_options();
         if self.replacement_pending()
-            || self.dynamic_query_pending
-            || self.query_refresh
+            || self.dynamic_query_pending()
             || self.results.is_refreshing()
             || self
                 .file_updates

@@ -106,8 +106,7 @@ pub(crate) async fn until_with_timeout<T: Send + Sync, D: Send + Sync>(
 pub(crate) fn is_settled<T: Send + Sync, D: Send + Sync>(picker: &mut Picker<T, D>) -> bool {
     picker.pending_query.is_none()
         && !picker.replacement_pending()
-        && !picker.dynamic_query_pending
-        && !picker.query_refresh
+        && !picker.dynamic_query_pending()
         && !picker.results.is_refreshing()
         && picker
             .file_updates

@@ -213,7 +213,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         }
         if updates.dirty
             && self.pending_query.is_none()
-            && !self.dynamic_query_pending
+            && !self.dynamic_query_pending()
             && updates.pending.is_none()
             && self.results.matcher.active_injectors() == 0
             && !self.results.is_refreshing()

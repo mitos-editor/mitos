@@ -15,6 +15,61 @@ pub(super) struct DynamicQueryChange {
     pub is_paste: bool,
 }
 
+/// Whether queued work replaces a query or refreshes its existing rows.
+#[derive(Clone, Copy)]
+pub(super) enum QueryKind {
+    Replace,
+    Refresh,
+}
+
+/// One dynamic source owns its debounce channel, pending intent, and running request.
+pub(super) struct DynamicQuery {
+    handler: tokio::sync::mpsc::Sender<DynamicQueryChange>,
+    request: event::TaskController,
+    pending: Option<QueryKind>,
+}
+
+impl DynamicQuery {
+    pub fn new(handler: tokio::sync::mpsc::Sender<DynamicQueryChange>, query: Arc<str>) -> Self {
+        // Treat the initial query as a paste, without invalidating existing injectors.
+        event::send_blocking(
+            &handler,
+            DynamicQueryChange {
+                query,
+                is_paste: true,
+            },
+        );
+        Self {
+            handler,
+            request: event::TaskController::new(),
+            pending: Some(QueryKind::Replace),
+        }
+    }
+
+    pub fn is_pending(&self) -> bool {
+        self.pending.is_some()
+    }
+
+    pub fn suspend(&mut self) {
+        self.pending = None;
+        self.request.cancel();
+    }
+
+    pub fn schedule(
+        &mut self,
+        change: DynamicQueryChange,
+        kind: Option<QueryKind>,
+        version: &atomic::AtomicUsize,
+    ) {
+        if let Some(kind) = kind {
+            self.pending = Some(kind);
+            self.request.cancel();
+            version.fetch_add(1, atomic::Ordering::Relaxed);
+        }
+        event::send_blocking(&self.handler, change);
+    }
+}
+
 pub(super) struct DynamicQueryHandler<T: 'static + Send + Sync, D: 'static + Send + Sync> {
     callback: Arc<DynQueryCallback<T, D>>,
     jobs: job::JobSender,
@@ -107,8 +162,12 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> AsyncHook for DynamicQu
                 );
                 return;
             }
-            picker.dynamic_query_pending = false;
-            let injector = if std::mem::take(&mut picker.query_refresh) {
+            let Some(dynamic_query) = &mut picker.dynamic_query else {
+                return;
+            };
+            let refresh = matches!(dynamic_query.pending.take(), Some(QueryKind::Refresh));
+            let cancel = dynamic_query.request.restart();
+            let injector = if refresh {
                 picker.refresh_injector()
             } else {
                 picker.results.discard_pending();
@@ -123,7 +182,6 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> AsyncHook for DynamicQu
                 picker.results.editor_data.clone(),
                 &injector,
             );
-            let cancel = picker.dynamic_query_request.restart();
             tokio::spawn(async move {
                 match event::cancelable_future(get_options, &cancel).await {
                     Some(Ok(())) => injector.complete(),
