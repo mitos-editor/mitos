@@ -682,18 +682,12 @@ impl Syntax {
         changeset: &ChangeSet,
         loader: &Loader,
     ) -> Result<(), Error> {
-        let edits = generate_edits(old_source, changeset);
-        if edits.is_empty() {
-            Ok(())
-        } else {
-            self.revision = next_revision();
-            self.inner.update(
-                source,
-                PARSE_TIMEOUT,
-                &edits,
-                &CompiledLanguages::new(loader),
-            )
-        }
+        self.update_with_loader(
+            old_source,
+            source,
+            changeset,
+            &CompiledLanguages::new(loader),
+        )
     }
 
     pub fn update(
@@ -703,13 +697,35 @@ impl Syntax {
         changeset: &ChangeSet,
         loader: &Loader,
     ) -> Result<(), Error> {
+        self.update_with_loader(old_source, source, changeset, loader)
+    }
+
+    fn update_with_loader(
+        &mut self,
+        old_source: RopeSlice,
+        source: RopeSlice,
+        changeset: &ChangeSet,
+        loader: &impl tree_house::LanguageLoader,
+    ) -> Result<(), Error> {
+        // Read the clock only when requested. The dependency owns tree edits,
+        // parsing, and injection/local queries; report their combined cost honestly.
+        let started = log::log_enabled!(target: "mitos::syntax_update", log::Level::Debug)
+            .then(std::time::Instant::now);
         let edits = generate_edits(old_source, changeset);
-        if edits.is_empty() {
+        let prepared = started.map(|_| std::time::Instant::now());
+        let result = if edits.is_empty() {
             Ok(())
         } else {
             self.revision = next_revision();
             self.inner.update(source, PARSE_TIMEOUT, &edits, loader)
+        };
+        if let (Some(started), Some(prepared)) = (started, prepared) {
+            log::debug!(target: "mitos::syntax_update",
+                "bytes={} edits={} edit_generation_us={} syntax_update_us={} success={}",
+                source.len(), edits.len(), prepared.duration_since(started).as_micros(),
+                prepared.elapsed().as_micros(), result.is_ok());
         }
+        result
     }
 
     pub fn layer(&self, layer: Layer) -> &tree_house::LayerData {

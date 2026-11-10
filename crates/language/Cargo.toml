@@ -26,3 +26,7 @@ log.workspace = true
 [dev-dependencies]
 tempfile.workspace = true
 gix = { workspace = true, features = ["sha1"] }
+
+[[bench]]
+name = "syntax_updates"
+harness = false
