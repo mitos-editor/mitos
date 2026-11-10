@@ -31,6 +31,10 @@ impl<'a> InlineBlame<'a> {
 }
 
 impl Decoration for InlineBlame<'_> {
+    fn can_skip_unwrapped_tail(&self) -> bool {
+        !matches!(self.doc.file_blame(), Some(Ok(_)))
+    }
+
     fn render_virt_lines(
         &mut self,
         renderer: &mut TextRenderer,

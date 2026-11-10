@@ -264,6 +264,25 @@ impl Debug for TextAnnotations<'_> {
 }
 
 impl<'a> TextAnnotations<'a> {
+    /// Skipping raw text cannot bypass layout-dependent annotations. Empty
+    /// layers are harmless; folds and virtual-line sessions require traversal.
+    pub(crate) fn can_skip_unwrapped_tail(&self, range: Range<usize>) -> bool {
+        self.conceals.is_empty()
+            && self.line_annotations.is_empty()
+            && self.inline_annotations.iter().all(|layer| {
+                let next = layer
+                    .annotations
+                    .partition_point(|item| item.char_idx < range.start);
+                layer
+                    .annotations
+                    .get(next)
+                    .is_none_or(|item| item.char_idx >= range.end)
+            })
+            // An overlay can replace a source grapheme with a line ending;
+            // retain traversal even when that overlay precedes the tail.
+            && self.overlays.iter().all(|layer| layer.annotations.is_empty())
+    }
+
     /// Install disjoint conceal ranges shared by rendering and positioning.
     pub fn set_conceals(&mut self, conceals: &'a [Conceal]) {
         self.conceals = conceals;

@@ -50,6 +50,10 @@ impl<'a> CodeLensDecoration<'a> {
 }
 
 impl Decoration for CodeLensDecoration<'_> {
+    fn can_skip_unwrapped_tail(&self) -> bool {
+        self.lenses.is_empty()
+    }
+
     fn reset_pos(&mut self, pos: usize) -> usize {
         self.ready = None;
         let line = self.text.char_to_line_idx(pos.min(self.text.len_chars()));
