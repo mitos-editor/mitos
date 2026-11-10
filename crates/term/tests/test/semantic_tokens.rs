@@ -3,7 +3,7 @@ use term::application::TestApplication;
 use tokio::sync::mpsc;
 use view::{
     callbacks::EditorCallback,
-    current, current_ref,
+    current,
     features::semantic_tokens::{self, SemanticTokensHandler},
     DocumentId,
 };
