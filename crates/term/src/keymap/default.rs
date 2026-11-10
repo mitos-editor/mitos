@@ -325,6 +325,7 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
             "P" => paste_clipboard_before,
             "R" => replace_selections_with_clipboard,
             "/" => search_picker_in_current_working_directory,
+            "L" => local_search,
             "k" => hover,
             "r" => rename_symbol,
             "h" => select_references_to_symbol_under_cursor,

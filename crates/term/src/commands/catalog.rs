@@ -8,7 +8,7 @@ use crate::{
         PromptEvent,
     },
 };
-use ::command_line::{Args, Flag, Signature};
+use command_line::{Args, Flag, Signature};
 use std::{collections::HashMap, sync::LazyLock};
 
 macro_rules! static_commands {
@@ -115,6 +115,7 @@ impl MappableCommand {
         search_selection_detect_word_boundaries => super::search::search_selection_detect_word_boundaries, "Use current selection as the search pattern, automatically wrapping with `\\b` on word boundaries",
         make_search_word_bounded => super::search::make_search_word_bounded, "Modify current search to make it word bounded",
         search_picker_in_current_working_directory => super::search::global_search, "Open search picker rooted at the current working directory",
+        local_search => super::search::local_search, "Local search in buffer",
         extend_line => super::selection::extend_line, "Select current line, if already selected, extend to another line based on the anchor",
         extend_line_below => super::selection::extend_line_below, "Select current line, if already selected, extend to next line",
         extend_line_above => super::selection::extend_line_above, "Select current line, if already selected, extend to previous line",
