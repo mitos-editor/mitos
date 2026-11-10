@@ -951,6 +951,144 @@ mod whitespace_tests {
     }
 
     #[test]
+    fn line_end_hooks_and_width_decorations_keep_exact_geometry() {
+        use std::{cell::RefCell, rc::Rc};
+
+        struct EndGeometry {
+            anchor: usize,
+            width_dependent: bool,
+            hooks: Rc<RefCell<Vec<(usize, usize)>>>,
+            widths: Rc<RefCell<Vec<usize>>>,
+        }
+        impl crate::Decoration for EndGeometry {
+            fn can_skip_unwrapped_tail(&self) -> bool {
+                !self.width_dependent
+            }
+            fn reset_pos(&mut self, _: usize) -> usize {
+                self.anchor
+            }
+            fn decorate_grapheme(&mut self, _: &mut TextRenderer, g: &FormattedGrapheme) -> usize {
+                self.hooks.borrow_mut().push((g.char_idx, g.visual_pos.col));
+                usize::MAX
+            }
+            fn render_virt_lines(
+                &mut self,
+                _: &mut TextRenderer,
+                _: crate::LinePos,
+                offset: DisplayPosition,
+            ) -> DisplayPosition {
+                if self.width_dependent {
+                    self.widths.borrow_mut().push(offset.col);
+                }
+                DisplayPosition::default()
+            }
+        }
+
+        let first = format!("{}\t界", "x".repeat(1_000));
+        let end = first.chars().count();
+        let config = editor_config::Config::default();
+        let theme = Theme::default();
+        for ending in ["", "\n", "\r\n"] {
+            let source = if ending.is_empty() {
+                first.clone()
+            } else {
+                format!("{first}{ending}following")
+            };
+            let text = Rope::from_str(&source);
+            for width_dependent in [false, true] {
+                for offset in [0, 7, 101] {
+                    let draw = |force_slow| {
+                        let hooks = Rc::new(RefCell::new(Vec::new()));
+                        let widths = Rc::new(RefCell::new(Vec::new()));
+                        let viewport = Rect::new(0, 0, 19, 3);
+                        let mut surface = Surface::empty(viewport);
+                        let mut renderer = TextRenderer::new(
+                            &mut surface,
+                            RenderSettings {
+                                whitespace: &config.whitespace,
+                                indent_guides: &config.indent_guides,
+                                tab_width: 4,
+                                indent_width: 4,
+                            },
+                            &theme,
+                            DisplayPosition::new(0, offset),
+                            viewport,
+                        );
+                        let mut decorations = DecorationManager::default();
+                        decorations.add_decoration(EndGeometry {
+                            anchor: if width_dependent { usize::MAX } else { end },
+                            width_dependent,
+                            hooks: hooks.clone(),
+                            widths: widths.clone(),
+                        });
+                        if force_slow {
+                            decorations.add_decoration(RequireFullTraversal);
+                        }
+                        render_text(
+                            &mut renderer,
+                            text.slice(..),
+                            0,
+                            &TextFormat::default(),
+                            &TextAnnotations::default(),
+                            std::iter::empty(),
+                            vec![],
+                            &theme,
+                            decorations,
+                        );
+                        let hooks = hooks.borrow().clone();
+                        let widths = widths.borrow().clone();
+                        if width_dependent {
+                            // The newline or synthetic EOF occupies one more cell.
+                            assert_eq!(widths[0], 1_007);
+                        } else {
+                            assert_eq!(hooks, vec![(end, 1_006)]);
+                        }
+                        (surface, hooks, widths)
+                    };
+                    assert_eq!(draw(false), draw(true));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn tail_skipping_preserves_standalone_controls_and_unicode_separators() {
+        for separator in [
+            "\r", "\u{85}", "\u{2028}", "\u{2029}", "\x0b", "\x0c", "\0", "\x1b", "\x7f",
+        ] {
+            let text = format!(
+                "{}{separator}{}\nfollowing",
+                "x".repeat(1_000),
+                "y".repeat(1_000)
+            );
+            for offset in [0, 7, 101] {
+                let annotations = TextAnnotations::default();
+                assert_eq!(
+                    render_with_layout_annotations(
+                        &text,
+                        "",
+                        19,
+                        false,
+                        offset,
+                        &annotations,
+                        true
+                    ),
+                    render_with_layout_annotations(
+                        &text,
+                        "",
+                        19,
+                        false,
+                        offset,
+                        &annotations,
+                        false
+                    ),
+                    "separator={separator:?}, offset={offset}",
+                );
+            }
+        }
+    }
+
+    #[test]
     fn annotated_tails_keep_virtual_lines_overlays_and_folded_suffixes() {
         use text_layout::text_annotations::{Conceal, InlineAnnotation, Overlay};
         let text = format!("{}\nfolded body\nclosing\nfollowing", "x".repeat(200));
