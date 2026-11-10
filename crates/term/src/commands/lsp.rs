@@ -797,7 +797,7 @@ pub(super) mod typed {
 
     use crate::{
         compositor,
-        job::{self, Callback},
+        job::Callback,
         ui::{self, overlay::overlaid},
     };
     use ::command_line::Args;
@@ -834,8 +834,9 @@ pub(super) mod typed {
                     )
                 })
                 .collect::<Vec<_>>();
-            let callback = async move {
-                let call: job::Callback = Callback::ui(move |compositor, cx| {
+            cx.jobs
+                .sender()
+                .enqueue(Callback::ui(move |compositor, cx| {
                     let editor = &mut *cx.editor;
                     let columns = [ui::PickerColumn::new(
                         "title",
@@ -854,10 +855,7 @@ pub(super) mod typed {
                         },
                     );
                     compositor.push(Box::new(overlaid(picker.with_title("LSP Commands"))))
-                });
-                Ok(call)
-            };
-            cx.jobs.callback(callback);
+                }));
         } else {
             let command = args[0].to_string();
             let matches: Vec<_> = ls_id_commands

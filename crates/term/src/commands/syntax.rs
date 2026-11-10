@@ -318,7 +318,7 @@ pub(super) mod typed {
 
     use crate::{
         compositor,
-        job::{self, Callback},
+        job::Callback,
         ui::{self, Popup},
     };
     use ::command_line::Args;
@@ -339,19 +339,16 @@ pub(super) mod typed {
 
         let contents = format!("```json\n{:?}\n````", scopes);
 
-        let callback = async move {
-            let call: job::Callback = Callback::ui(move |compositor, cx| {
+        cx.jobs
+            .sender()
+            .enqueue(Callback::ui(move |compositor, cx| {
                 let editor = &mut *cx.editor;
                 let contents = ui::Markdown::new(contents, editor.syn_loader.clone());
                 let popup = Popup::new("hover", contents)
                     .with_border(ui::PopupBorder::Hover)
                     .auto_close(true);
                 compositor.replace_or_push("hover", popup);
-            });
-            Ok(call)
-        };
-
-        cx.jobs.callback(callback);
+            }));
 
         Ok(())
     }
@@ -417,19 +414,16 @@ pub(super) mod typed {
             content.push_str(&format!("### Semantic refinement\n\n- Server classification: `{}`\n- Effective classification: `{effective}`\n- Theme selectors: `{}`\n- Style: `{:?}`\n", token.scope, cx.editor.theme.matching_selectors(&effective).join("`, `"), syntax_style.patch(cx.editor.theme.get(&effective))));
         }
 
-        let callback = async move {
-            let call: job::Callback = Callback::ui(move |compositor, cx| {
+        cx.jobs
+            .sender()
+            .enqueue(Callback::ui(move |compositor, cx| {
                 let editor = &mut *cx.editor;
                 let content = ui::Markdown::new(content, editor.syn_loader.clone());
                 let popup = Popup::new("hover", content)
                     .with_border(ui::PopupBorder::Hover)
                     .auto_close(true);
                 compositor.replace_or_push("hover", popup);
-            });
-            Ok(call)
-        };
-
-        cx.jobs.callback(callback);
+            }));
 
         Ok(())
     }
@@ -464,19 +458,16 @@ pub(super) mod typed {
                     acc
                 });
 
-        let callback = async move {
-            let call: job::Callback = Callback::ui(move |compositor, cx| {
+        cx.jobs
+            .sender()
+            .enqueue(Callback::ui(move |compositor, cx| {
                 let editor = &mut *cx.editor;
                 let content = ui::Markdown::new(languages, editor.syn_loader.clone());
                 let popup = Popup::new("hover", content)
                     .with_border(ui::PopupBorder::Hover)
                     .auto_close(true);
                 compositor.replace_or_push("hover", popup);
-            });
-            Ok(call)
-        };
-
-        cx.jobs.callback(callback);
+            }));
 
         Ok(())
     }
@@ -498,19 +489,16 @@ pub(super) mod typed {
                 language::syntax::pretty_print_tree(&mut contents, selected_node)?;
                 contents.push_str("\n```");
 
-                let callback = async move {
-                    let call: job::Callback = Callback::ui(move |compositor, cx| {
+                cx.jobs
+                    .sender()
+                    .enqueue(Callback::ui(move |compositor, cx| {
                         let editor = &mut *cx.editor;
                         let contents = ui::Markdown::new(contents, editor.syn_loader.clone());
                         let popup = Popup::new("hover", contents)
                             .with_border(ui::PopupBorder::Hover)
                             .auto_close(true);
                         compositor.replace_or_push("hover", popup);
-                    });
-                    Ok(call)
-                };
-
-                cx.jobs.callback(callback);
+                    }));
             }
         }
 

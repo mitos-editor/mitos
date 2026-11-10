@@ -239,16 +239,14 @@ pub(super) mod typed {
             // If the path is a directory, open a file picker on that directory and update the status
             // message
             if let Ok(true) = std::fs::canonicalize(&path).map(|p| p.is_dir()) {
-                let callback = async move {
-                    let call: job::Callback = job::Callback::ui(move |compositor, cx| {
+                cx.jobs
+                    .sender()
+                    .enqueue(job::Callback::ui(move |compositor, cx| {
                         let editor = &mut *cx.editor;
                         let picker =
                             ui::file_picker(editor, path.into_owned()).with_default_action(action);
                         compositor.push(Box::new(overlaid(picker)));
-                    });
-                    Ok(call)
-                };
-                cx.jobs.callback(callback);
+                    }));
             } else {
                 // Otherwise, just open the file
                 let _ = cx.editor.open(&path, action)?;

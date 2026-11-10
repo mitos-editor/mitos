@@ -261,8 +261,9 @@ fn prompt_migration(cx: &mut compositor::Context, scope: MigrationScope) -> anyh
         message.push_str("\n\nThis changes the project's working tree.");
     }
     // Queue the dialog after the command prompt has closed.
-    cx.jobs.callback(async move {
-        let callback = move |_: &mut view::Editor, compositor: &mut compositor::Compositor| {
+    cx.jobs
+        .sender()
+        .enqueue(crate::job::Callback::ui(move |compositor, _cx| {
             let dialog = ui::Select::new(
                 message,
                 [MigrationChoice::Cancel, MigrationChoice::Migrate],
@@ -277,11 +278,7 @@ fn prompt_migration(cx: &mut compositor::Context, scope: MigrationScope) -> anyh
                 },
             );
             compositor.push(Box::new(dialog));
-        };
-        Ok(crate::job::Callback::ui(move |compositor, cx| {
-            callback(cx.editor, compositor)
-        }))
-    });
+        }));
     Ok(())
 }
 
