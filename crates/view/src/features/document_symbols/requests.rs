@@ -80,7 +80,7 @@ fn request_document_symbols(editor: &mut Editor, doc_id: DocumentId) {
     });
 }
 
-pub(crate) fn register_hooks(events: &event::EventHub) {
+pub(crate) fn register_hooks(events: &event::EventHub, hooks: crate::handlers::DocumentHooks) {
     register_hook!(events => move |event: &mut DocumentLanguageDidChange<'_>| {
         request_document_symbols(event.editor, event.doc);
         Ok(())
@@ -106,7 +106,11 @@ pub(crate) fn register_hooks(events: &event::EventHub) {
         let doc_id = event.doc.id();
         // PERF: Enabled breadcrumbs request fresh LSP symbols after every real edit for live
         // feedback. If insert-mode latency regresses, debounce this request path.
-        if let Some(handler) = &event.doc.document_symbols.handler {
+        if !event.doc.is_content_readonly()
+            && let Some(services) = hooks.upgrade()
+            && let Some(services) = services.get()
+        {
+            let handler = &services.document_symbols;
             handler.callbacks.send_blocking(move |editor| {
                 request_document_symbols(editor, doc_id);
                 if let Some(view_id) = view_id

@@ -30,7 +30,6 @@ pub(crate) struct SemanticTokens {
     cache: Vec<SemanticToken>,
     revision: u64,
     request: TaskController,
-    pub(crate) handler: Option<SemanticTokensHandler>,
 }
 
 impl SemanticTokens {
@@ -263,11 +262,17 @@ pub fn refresh_for_language_server(editor: &mut Editor, server: LanguageServerId
     }
 }
 
-pub(crate) fn register_hooks(events: &event::EventHub) {
+pub(crate) fn register_hooks(events: &event::EventHub, hooks: crate::handlers::DocumentHooks) {
     register_hook!(events => move |event: &mut DocumentDidOpen<'_>| { request(event.editor, event.doc, None); Ok(()) });
     register_hook!(events => move |event: &mut DocumentLanguageDidChange<'_>| { request(event.editor, event.doc, None); Ok(()) });
     register_hook!(events => move |event: &mut DocumentDidChange<'_>| {
-        if let Some(handler) = &event.doc.semantic_tokens.handler { event::send_blocking(&handler.events, event.doc.id()); }
+        if !event.doc.is_content_readonly()
+            && let Some(services) = hooks.upgrade()
+            && let Some(services) = services.get()
+        {
+            let handler = &services.semantic_tokens;
+            event::send_blocking(&handler.events, event.doc.id());
+        }
         Ok(())
     });
     register_hook!(events => move |event: &mut LanguageServerInitialized<'_>| { refresh_for_language_server(event.editor, event.server_id); Ok(()) });
