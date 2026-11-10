@@ -591,6 +591,8 @@ mod tests {
             root.search(&[key!('Z')]).unwrap(),
             "Mismatch for view mode on `z` and `Z`"
         );
+        assert!(!root.search(&[key!('z')]).unwrap().node().unwrap().is_sticky);
+        assert!(root.search(&[key!('Z')]).unwrap().node().unwrap().is_sticky);
     }
 
     #[test]
