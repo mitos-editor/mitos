@@ -5,7 +5,12 @@ use stdx::rope::RopeExt as _;
 
 use editor_core::highlight::OverlayHighlights;
 use theme::{Style, Theme};
-use view::{features::change_review::ReviewLineKind, graphics::Rect, view::ViewLayout, Document};
+use view::{
+    features::change_review::{ReviewLine, ReviewLineKind, ReviewSource},
+    graphics::Rect,
+    view::ViewLayout,
+    Document,
+};
 
 use crate::ui::{
     document::{LinePos, TextRenderer},
@@ -43,12 +48,6 @@ pub fn syntax_styles(
 ) -> Option<Vec<(usize, Style)>> {
     let review = doc.review()?;
     let source = review.source()?;
-    let loader = source.syntax_loader();
-    // Captured reviews can outlive a language-loader reload. Keep that loader's
-    // highlight IDs aligned with the currently displayed theme too.
-    if loader.scopes().as_slice() != theme.scopes() {
-        loader.set_scopes(theme.scopes().to_vec());
-    }
     let text = doc.text();
     let mut styles = Vec::new();
     for index in visible_lines(layout) {
@@ -57,21 +56,41 @@ pub fn syntax_styles(
         let Some(row) = review.row(index) else {
             continue;
         };
-        let Some((original, syntax, line)) = source.syntax_for_row(row) else {
-            continue;
-        };
-        let byte = original.line_to_byte_idx(line, stdx::rope::LINE_TYPE);
-        let end = byte + row.text.len();
-        let char_start = original.byte_to_char_idx(byte);
-        let char_end = original.byte_to_char_idx(end);
-        let highlighter = syntax.highlighter(original.slice(..), loader, byte as u32..end as u32);
-        styles.extend(
-            super::super::highlights::syntax_styles(original.slice(..), Some(highlighter), theme)
-                .take_while(|(position, _)| *position <= char_end)
-                .map(|(position, style)| (start + position.saturating_sub(char_start), style)),
-        );
+        if let Some(row_styles) = row_syntax_styles(source, row, theme) {
+            styles.extend(
+                row_styles
+                    .into_iter()
+                    .map(|(position, style)| (start + position, style)),
+            );
+        }
     }
     Some(styles)
+}
+
+/// Character offsets relative to one projected row, shared by native documents
+/// and compact previews. Query the complete original side, never the diff text.
+pub(super) fn row_syntax_styles(
+    source: &ReviewSource,
+    row: &ReviewLine,
+    theme: &Theme,
+) -> Option<Vec<(usize, Style)>> {
+    let (original, syntax, line) = source.syntax_for_row(row)?;
+    let loader = source.syntax_loader();
+    // Captured reviews can outlive a language-loader or theme reload.
+    if loader.scopes().as_slice() != theme.scopes() {
+        loader.set_scopes(theme.scopes().to_vec());
+    }
+    let byte = original.line_to_byte_idx(line, stdx::rope::LINE_TYPE);
+    let end = byte + row.text.len();
+    let char_start = original.byte_to_char_idx(byte);
+    let char_end = original.byte_to_char_idx(end);
+    let highlighter = syntax.highlighter(original.slice(..), loader, byte as u32..end as u32);
+    Some(
+        super::super::highlights::syntax_styles(original.slice(..), Some(highlighter), theme)
+            .take_while(|(position, _)| *position <= char_end)
+            .map(|(position, style)| (position.saturating_sub(char_start), style))
+            .collect(),
+    )
 }
 
 pub fn highlights(doc: &Document, layout: &ViewLayout, theme: &Theme) -> Option<OverlayHighlights> {

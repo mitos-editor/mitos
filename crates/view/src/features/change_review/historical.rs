@@ -252,6 +252,10 @@ impl HistoricalReviewRequest {
     ) -> Result<(Arc<ReviewSource>, Arc<Review>)> {
         let source = self.source(canceled)?;
         let review = source.compute(None, canceled);
+        if !review.truncated {
+            source.prepare_syntax(canceled);
+        }
+        ensure!(!canceled(), "Historical review canceled");
         Ok((source, review))
     }
 

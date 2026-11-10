@@ -133,7 +133,8 @@ impl<T, K: Eq> PickerPreview<T> for HistoricalReviewPreview<T, K> {
                             let view = ReviewView::from_shared(
                                 "Historical change".into(),
                                 snapshot.review.clone(),
-                            );
+                            )
+                            .with_source(snapshot.source.clone());
                             self.ready = Some(view);
                             self.snapshot = Some(snapshot);
                         }
@@ -233,6 +234,7 @@ impl<T, K: Eq> PickerPreview<T> for HistoricalReviewPreview<T, K> {
 mod tests {
     use super::*;
     use crate::{application::TestApplication, job::Jobs, ui::picker::test::application};
+    use crate::{args::Args, config::Config};
 
     fn render(
         preview: &mut HistoricalReviewPreview<u8, u8>,
@@ -319,6 +321,81 @@ mod tests {
         );
         let text: String = surface.content.iter().map(|cell| cell.symbol()).collect();
         assert!(!text.contains("removed"));
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    #[cfg_attr(
+        not(feature = "runtime-grammars"),
+        ignore = "requires compiled runtime grammars; enable the runtime-grammars feature"
+    )]
+    async fn historical_picker_preserves_both_sides_multiline_syntax() -> anyhow::Result<()> {
+        let mut config = Config::default();
+        config.editor.lsp.enable = false;
+        config.editor.files.watch.enable = false;
+        config.editor.files.watch.watch_vcs = false;
+        let loader = language::Loader::new(
+            toml::from_str(
+                r#"
+                [[language]]
+                name = "rust"
+                scope = "source.rust"
+                file-types = ["rs"]
+            "#,
+            )?,
+            Default::default(),
+        )?;
+        let mut app = TestApplication::new(
+            Args::default(),
+            config,
+            loader,
+            workspace::trust::WorkspaceTrust::fully_trusted(loader::workspace_trust_dir()),
+        )?;
+        app.editor.theme = theme::Theme::from(toml::from_str::<toml::Value>(
+            r##"
+            "ui.text" = "#ffffff"
+            "comment" = "#00ff00"
+            "string" = "#ff00ff"
+        "##,
+        )?);
+        // The unchanged opening delimiter is outside the displayed diff context.
+        let prefix = format!("/*\n{}", "unchanged\n".repeat(12));
+        let request = HistoricalReviewRequest::comparison(
+            &app.editor,
+            "example.rs".into(),
+            ".".into(),
+            "test".into(),
+            vcs::Comparison {
+                before: format!("{prefix}λ old\n*/\n").into_bytes(),
+                after: format!("{prefix}*/\nlet value = \"λ new\";\n").into_bytes(),
+            },
+        );
+        let mut preview: HistoricalReviewPreview<u8, u8> =
+            HistoricalReviewPreview::new(|item| Some(*item), move |_, _| Ok(request.clone()));
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while preview.snapshot.is_none() {
+                render(&mut preview, 1, &mut app);
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await?;
+        let surface = render(&mut preview, 1, &mut app);
+        let position = |needle: &str| {
+            surface
+                .content
+                .chunks(80)
+                .enumerate()
+                .find_map(|(y, row)| {
+                    let text: String = row.iter().map(|cell| cell.symbol()).collect();
+                    text.find(needle)
+                        .map(|byte| (text[..byte].chars().count() as u16, y as u16))
+                })
+                .unwrap_or_else(|| panic!("missing {needle}"))
+        };
+        let (x, y) = position("λ old");
+        assert_eq!(surface[(x, y)].fg, view::graphics::Color::Rgb(0, 255, 0));
+        let (x, y) = position("λ new");
+        assert_eq!(surface[(x, y)].fg, view::graphics::Color::Rgb(255, 0, 255));
         Ok(())
     }
 }

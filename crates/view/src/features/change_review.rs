@@ -11,7 +11,7 @@ use vcs::{ComparisonKind, FileStatus, MAX_REVIEW_BYTES};
 use crate::{DocumentId, Editor};
 
 pub use language_config::DiffEngine;
-pub use text_diff::{Review, ReviewLineKind};
+pub use text_diff::{Review, ReviewLine, ReviewLineKind};
 
 mod document;
 mod engine;
@@ -283,11 +283,13 @@ impl ReviewRequest {
             .prefer_conflicts
             .then(|| super::conflicts::ConflictPresentation::new(source.after()));
         let content = if let Some(conflicts) = conflicts.filter(|conflicts| conflicts.active()) {
-            source.prepare_syntax(canceled);
             ReviewContent::Conflict(Arc::new(conflicts))
         } else {
             ReviewContent::Diff(source.compute(Some(self.engine()), canceled))
         };
+        if !matches!(&content, ReviewContent::Diff(review) if review.truncated) {
+            source.prepare_syntax(canceled);
+        }
         ensure!(!canceled(), "Diff preview canceled");
         ensure!(
             stamp == self.stamp(),

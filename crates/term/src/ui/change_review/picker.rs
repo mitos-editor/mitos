@@ -232,12 +232,13 @@ impl<T> PickerPreview<T> for ChangeReviewPreview<T> {
                                     .unwrap_or(status.path())
                                     .display();
                                 let content = match &snapshot.content {
-                                    ReviewContent::Diff(review) => {
-                                        PreviewContent::Diff(ReviewView::from_shared(
+                                    ReviewContent::Diff(review) => PreviewContent::Diff(
+                                        ReviewView::from_shared(
                                             format!("{} · {}", comparison.label(), path),
                                             review.clone(),
-                                        ))
-                                    }
+                                        )
+                                        .with_source(snapshot.source.clone()),
+                                    ),
                                     ReviewContent::Conflict(model) => {
                                         PreviewContent::Conflict(Box::new(ConflictView::new(
                                             format!("Conflicts · {path}"),
