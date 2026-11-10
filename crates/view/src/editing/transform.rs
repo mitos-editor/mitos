@@ -354,6 +354,7 @@ mod move_lines_tests {
         );
         assert_eq!(doc.version(), version);
         assert!(doc.changes().is_empty());
+        assert!(!editing::undo(&mut doc, view.id));
     }
 
     #[tokio::test]
