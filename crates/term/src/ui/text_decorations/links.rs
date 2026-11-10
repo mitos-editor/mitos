@@ -69,6 +69,10 @@ impl<'a> DocumentLinks<'a> {
 }
 
 impl Decoration for DocumentLinks<'_> {
+    fn can_skip_unwrapped_tail(&self) -> bool {
+        true
+    }
+
     fn reset_pos(&mut self, pos: usize) -> usize {
         self.next = self.ranges.partition_point(|link| link.range.end <= pos);
         self.ranges

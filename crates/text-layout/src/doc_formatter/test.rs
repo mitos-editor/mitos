@@ -254,3 +254,75 @@ fn annotation_and_overlay() {
         "fooo  bar "
     );
 }
+
+#[test]
+fn skipped_unwrapped_tails_resume_at_the_exact_following_line() {
+    use editor_core::Rope;
+    use stdx::rope::RopeExt as _;
+    for ending in ["\n", "\r\n"] {
+        let text = Rope::from_str(&format!(
+            "{}界e\u{301}{ending}\t続き{ending}last",
+            "x".repeat(10_000)
+        ));
+        let next = text.line_to_char_idx(1);
+        let inline = [InlineAnnotation::new(next, "hint")];
+        let mut annotations = TextAnnotations::default();
+        annotations.add_inline_annotations(&inline, None);
+        let format = TextFormat::default();
+        let signature = |g: super::FormattedGrapheme| {
+            (
+                format!("{:?}", g.raw),
+                g.char_idx,
+                g.line_idx,
+                g.block_line_idx,
+                g.visual_pos,
+            )
+        };
+        let expected: Vec<_> =
+            DocumentFormatter::new_at_prev_checkpoint(text.slice(..), &format, &annotations, 0)
+                .skip_while(|g| g.char_idx < next)
+                .map(signature)
+                .collect();
+        let mut formatter =
+            DocumentFormatter::new_at_prev_checkpoint(text.slice(..), &format, &annotations, 0);
+        for _ in 0..20 {
+            formatter.next().unwrap();
+        }
+        assert!(formatter.skip_unwrapped_line_tail());
+        assert_eq!(formatter.next_char_pos(), next);
+        assert_eq!(formatter.map(signature).collect::<Vec<_>>(), expected);
+    }
+}
+
+#[test]
+fn tail_skipping_preserves_annotated_and_wrapped_traversals() {
+    use editor_core::Rope;
+    let text = Rope::from_str("long line\nnext");
+    let inline = [InlineAnnotation::new(8, "virtual\nline")];
+    let mut annotations = TextAnnotations::default();
+    annotations.add_inline_annotations(&inline, None);
+    for wrap in [false, true] {
+        let format = TextFormat {
+            soft_wrap: wrap,
+            ..TextFormat::default()
+        };
+        let mut formatter =
+            DocumentFormatter::new_at_prev_checkpoint(text.slice(..), &format, &annotations, 0);
+        formatter.next().unwrap();
+        let position = formatter.next_char_pos();
+        assert!(!formatter.skip_unwrapped_line_tail());
+        assert_eq!(formatter.next_char_pos(), position);
+    }
+    let format = TextFormat::default();
+    let annotations = TextAnnotations::default();
+    let mut formatter =
+        DocumentFormatter::new_at_prev_checkpoint(text.slice(..), &format, &annotations, 0);
+    formatter.next().unwrap();
+    assert!(formatter.skip_unwrapped_line_tail());
+    formatter.next().unwrap();
+    assert!(formatter.skip_unwrapped_line_tail());
+    assert!(
+        formatter.next().is_none(),
+        "the final hidden EOF cell is consumed with its tail"
+    );
+}

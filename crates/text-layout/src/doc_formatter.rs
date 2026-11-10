@@ -443,6 +443,50 @@ impl<'t> DocumentFormatter<'t> {
         }
     }
 
+    /// Discard the rest of an unwrapped document line without formatting it.
+    /// The next item starts the following line at column zero. At the final
+    /// line this also consumes the synthetic EOF cell. No exact line width is
+    /// computed, so callers must not need positions or hooks in the discarded tail.
+    /// Returns false without advancing for wrapping, folds, overlays, virtual-line
+    /// sessions, or inline annotations in the tail.
+    pub fn skip_unwrapped_line_tail(&mut self) -> bool {
+        if self.text_fmt.soft_wrap
+            || self.exhausted
+            || self.visual_pos.col == 0
+            || self
+                .inline_annotation_graphemes
+                .as_ref()
+                .is_some_and(|(items, _)| !items.as_str().is_empty())
+        {
+            return false;
+        }
+        let next_line = self.line_pos + 1;
+        let has_next_line = next_line < self.text.len_lines(stdx::rope::LINE_TYPE);
+        let end = if has_next_line {
+            self.text.line_to_char_idx(next_line)
+        } else {
+            self.text.len_chars()
+        };
+        let annotation_end = end + usize::from(!has_next_line);
+        if !self
+            .annotations
+            .can_skip_unwrapped_tail(self.char_pos..annotation_end)
+        {
+            return false;
+        }
+        self.char_pos = end;
+        self.graphemes = self.text.slice_chars(end..).graphemes();
+        self.annotation_cursor.skip_concealed(end);
+        self.inline_annotation_graphemes = None;
+        self.indent_level = None;
+        self.visual_pos.row += 1;
+        self.visual_pos.col = 0;
+        self.line_pos = next_line;
+        self.block_line_pos = next_line;
+        self.exhausted = !has_next_line;
+        true
+    }
+
     /// returns the char index at the end of the last yielded grapheme
     pub fn next_char_pos(&self) -> usize {
         self.char_pos

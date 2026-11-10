@@ -23,6 +23,10 @@ pub struct Cursor<'a> {
     pub primary_cursor: usize,
 }
 impl Decoration for Cursor<'_> {
+    fn can_skip_unwrapped_tail(&self) -> bool {
+        true
+    }
+
     fn reset_pos(&mut self, pos: usize) -> usize {
         if pos <= self.primary_cursor {
             self.primary_cursor

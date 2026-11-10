@@ -43,6 +43,10 @@ impl<'a> DebugValues<'a> {
 }
 
 impl Decoration for DebugValues<'_> {
+    fn can_skip_unwrapped_tail(&self) -> bool {
+        self.values.is_empty()
+    }
+
     fn reset_pos(&mut self, pos: usize) -> usize {
         self.ready = None;
         let line = self.text.char_to_line_idx(pos.min(self.text.len_chars()));
