@@ -2,7 +2,7 @@ use editor_config::{InlineBlameConfig, InlineBlameShow};
 use text_layout::DisplayPosition;
 use theme::Style;
 use view::document::PresentedDocument;
-#[cfg(test)]
+#[cfg(all(test, feature = "git"))]
 use view::Document;
 use view::ViewId;
 
