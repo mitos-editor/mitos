@@ -127,7 +127,7 @@ fn branches(
     workspace: PathBuf,
 ) -> Picker<Arc<Branch>, RepositoryData> {
     let actions = repo.clone();
-    let mut pager = BranchPager::new(editor, repo.clone());
+    let pager = BranchPager::new(editor, repo.clone());
     let action_repo = repo.clone();
     let action_workspace = workspace.clone();
     Picker::new_with_callback_result(
@@ -193,7 +193,7 @@ fn branches(
             )
         },
     )
-    .with_paged_updates(move |cx| pager.update(cx))
+    .with_paged_updates(pager)
     .with_item_key(|branch| branch.name.clone())
 }
 
@@ -475,7 +475,8 @@ impl BranchPager {
                         })
                     })
                 },
-            ),
+            )
+            .with_suspend(BranchCursor::suspend),
             changes: WorkspaceChanges::new(
                 editor,
                 repo.root(),
@@ -489,6 +490,12 @@ impl BranchPager {
             repo,
             dirty: false,
         }
+    }
+}
+
+impl crate::ui::picker::PickerSource<Arc<Branch>> for BranchPager {
+    fn suspend(&mut self) {
+        crate::ui::picker::PickerSource::suspend(&mut self.pages);
     }
 
     fn update(

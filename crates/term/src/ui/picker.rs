@@ -70,6 +70,8 @@ pub use self::preview::{
     CachedPreview, FileLocation, ImagePreview, PathOrId, Preview, MAX_FILE_SIZE_FOR_PREVIEW,
 };
 pub(crate) use replacement::{ReplacementStep, ReplacementTask};
+#[cfg(any(feature = "git", test))]
+pub(crate) use updates::PickerSource;
 #[cfg(feature = "git")]
 pub(crate) use updates::Update;
 pub(crate) use updates::UpdateContext;
@@ -524,11 +526,30 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         self
     }
 
+    /// Stop background source activity while retaining published rows and selection.
+    /// Restoring the picker resumes its sources through their existing update path.
     pub(crate) fn suspend(&mut self) {
         self.keys.clear();
+        self.cancel_replacement();
+        self.results.version.fetch_add(1, atomic::Ordering::Relaxed);
+        self.query_needs_refresh =
+            self.dynamic_query_handler.is_some() && self.file_updates.is_none();
+        self.results.discard_pending();
+        self.results.spare_matcher = None;
+
+        self.dynamic_query_pending = false;
+        self.query_refresh = false;
+        self.dynamic_query_request.cancel();
+        if let Some(updates) = &mut self.editor_updates {
+            updates.suspend();
+        }
         self.poll = None;
         if let Some(updates) = &mut self.file_updates {
             updates.stop();
+        }
+        self.preview.cancel_loads(None);
+        if let Some(preview) = &mut self.custom_preview {
+            preview.cancel();
         }
     }
 
@@ -1390,27 +1411,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                     }
                 })));
             }
-            picker.cancel_replacement();
-            picker.query_needs_refresh =
-                picker.dynamic_query_handler.is_some() && picker.file_updates.is_none();
-            picker.results.discard_pending();
-            picker.results.spare_matcher = None;
-
-            picker.dynamic_query_pending = false;
-            picker.query_refresh = false;
-            picker.dynamic_query_request.cancel();
-            if let Some(updates) = &mut picker.editor_updates {
-                updates.task.cancel();
-                updates.resumed = true;
-            }
-            picker.poll = None;
-            if let Some(updates) = &mut picker.file_updates {
-                updates.stop();
-            }
-            picker.preview.cancel_loads(None);
-            if let Some(preview) = &mut picker.custom_preview {
-                preview.cancel();
-            }
+            picker.suspend();
             // if the picker is very large don't store it as last_picker to avoid
             // excessive memory consumption
             let callback: compositor::Callback =
@@ -1420,14 +1421,6 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                         compositor.pop();
                     })
                 } else {
-                    // stop streaming in new items in the background, really we should
-                    // be restarting the stream somehow once the picker gets
-                    // reopened instead (like for an FS crawl) that would also remove the
-                    // need for the special case above but that is pretty tricky
-                    picker
-                        .results
-                        .version
-                        .fetch_add(1, atomic::Ordering::Relaxed);
                     Box::new(|compositor: &mut Compositor, _ctx| {
                         // remove the layer
                         compositor.last_picker = compositor.pop();

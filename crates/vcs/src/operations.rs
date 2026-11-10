@@ -25,6 +25,7 @@ mod index;
 mod stage;
 mod stash;
 mod unstage;
+mod worker;
 pub use stash::{StashEntry, StashFile, StashLayer};
 
 pub use crate::repository::GitRepository;

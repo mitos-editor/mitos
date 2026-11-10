@@ -2167,3 +2167,24 @@ async fn native_worktree_locks_preserve_reasons_and_reject_stale_or_untrusted_ac
     assert!(!target.is_locked());
     Ok(())
 }
+
+#[tokio::test]
+async fn branch_cursor_suspension_releases_replay_rows_and_can_resume() -> Result<()> {
+    let dir = initial()?;
+    let repo = GitRepository::discover(dir.path())?;
+    let cursor = repo.branch_cursor();
+    let page = cursor.next_page().await?;
+    let name = page.branches[0].name.clone();
+    let retained = std::sync::Arc::downgrade(&page.branches[0]);
+    drop(page);
+    assert!(retained.upgrade().is_some());
+    cursor.suspend();
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        while retained.upgrade().is_some() {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await?;
+    assert_eq!(cursor.next_page().await?.branches[0].name, name);
+    Ok(())
+}

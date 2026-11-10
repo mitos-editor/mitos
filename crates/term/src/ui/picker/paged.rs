@@ -30,6 +30,7 @@ pub(crate) struct Paged<T, C> {
     bytes: usize,
     budget: usize,
     replacement: Option<(usize, Vec<T>)>,
+    suspend_cursor: Option<fn(&C)>,
 }
 
 impl<T: Send + 'static, C: Clone + Send + 'static> Paged<T, C> {
@@ -54,7 +55,13 @@ impl<T: Send + 'static, C: Clone + Send + 'static> Paged<T, C> {
             bytes: 0,
             budget: INITIAL_BUDGET,
             replacement: None,
+            suspend_cursor: None,
         }
+    }
+
+    pub fn with_suspend(mut self, suspend: fn(&C)) -> Self {
+        self.suspend_cursor = Some(suspend);
+        self
     }
 
     pub fn is_pending(&self) -> bool {
@@ -193,6 +200,22 @@ impl<T: Send + 'static, C: Clone + Send + 'static> Paged<T, C> {
             .into(),
         );
         update
+    }
+}
+
+impl<T: Send + 'static, C: Clone + Send + 'static> super::PickerSource<T> for Paged<T, C> {
+    fn update(&mut self, cx: UpdateContext<'_, T>) -> Option<Update<T>> {
+        Paged::update(self, cx)
+    }
+
+    fn suspend(&mut self) {
+        self.pending = None;
+        if self.state == State::Loading {
+            self.state = State::More;
+        }
+        if let (Some(cursor), Some(suspend)) = (&self.cursor, self.suspend_cursor) {
+            suspend(cursor);
+        }
     }
 }
 

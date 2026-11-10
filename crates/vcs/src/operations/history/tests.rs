@@ -122,6 +122,7 @@ async fn continuation_is_pinned_and_tracks_a_rename_across_pages() -> Result<()>
         .history_page(repo.history_cursor(Some(&root.join("new.txt")))?.unwrap())
         .await?;
     assert_eq!(first.commits.len(), HISTORY_PAGE_SIZE);
+    first.next.as_ref().unwrap().suspend();
     let repository_page = repo
         .history_page(repo.history_cursor(None)?.unwrap())
         .await?;
@@ -469,5 +470,67 @@ async fn file_history_modifications_follow_only_the_first_merge_parent() -> Resu
     );
     assert_eq!(page.commits[0].file.as_ref().unwrap().status, "M");
     assert_eq!(page.commits[0].parents.len(), 2);
+    Ok(())
+}
+
+#[tokio::test]
+async fn history_cursor_suspension_releases_replay_rows_and_preserves_pinned_head() -> Result<()> {
+    let dir = empty_git_repo();
+    let root = dir.path();
+    let selected = root.join("selected.txt");
+    std::fs::write(&selected, "before\n")?;
+    commit(root, "initial");
+    let repo = GitRepository::discover(root)?;
+    let cursor = repo.history_cursor(Some(&selected))?.unwrap();
+    std::fs::rename(root.join(".git"), root.join("saved.git"))?;
+    assert!(repo.history_page(cursor.clone()).await.is_err());
+    std::fs::rename(root.join("saved.git"), root.join(".git"))?;
+    let page = repo.history_page(cursor.clone()).await?;
+    let pinned = page.commits[0].id.clone();
+    let retained = std::sync::Arc::downgrade(&page.commits[0]);
+    drop(page);
+    assert!(retained.upgrade().is_some());
+    cursor.suspend();
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        while retained.upgrade().is_some() {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await?;
+    std::fs::write(&selected, "after\n")?;
+    commit(root, "new head");
+    assert_eq!(repo.history_page(cursor).await?.commits[0].id, pinned);
+    Ok(())
+}
+
+#[tokio::test]
+async fn resumed_history_budget_counts_only_the_requested_page() -> Result<()> {
+    let dir = empty_git_repo();
+    std::fs::write(dir.path().join("file.txt"), "initial\n")?;
+    commit(dir.path(), "initial");
+    let repo = GitRepository::discover(dir.path())?;
+    let git = repo.open(false)?;
+    let head = git.head_commit()?;
+    let mut object = head.decode()?.to_owned()?;
+    let mut previous = head.id;
+    // Each page is under 1 MiB; replaying two pages exceeds it in aggregate.
+    object.message = "😀".repeat(1000).into();
+    object.author.name = "😀".repeat(1000).into();
+    for _ in 0..205 {
+        object.parents = [previous].into_iter().collect();
+        previous = git.write_object(&object)?.detach();
+    }
+    exec_git_cmd(&["update-ref", "HEAD", &previous.to_string()], dir.path());
+    let first = repo
+        .history_page(repo.history_cursor(None)?.unwrap())
+        .await?;
+    assert_eq!(first.commits.len(), HISTORY_PAGE_SIZE);
+    let second = repo.history_page(first.next.unwrap()).await?;
+    assert_eq!(second.commits.len(), HISTORY_PAGE_SIZE);
+    let cursor = second.next.unwrap();
+    cursor.suspend();
+    let third = repo.history_page(cursor).await?;
+    assert_eq!(third.commits.len(), 6);
+    assert!(third.next.is_none());
     Ok(())
 }

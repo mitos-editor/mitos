@@ -76,7 +76,7 @@ fn browser(
     let preview_repo = data.repo.clone();
     let accept = data.clone();
     let actions = data.clone();
-    let mut pager = crate::ui::picker::paged::Paged::new(
+    let pager = crate::ui::picker::paged::Paged::new(
         cursor,
         [
             "More history available",
@@ -94,7 +94,8 @@ fn browser(
                 })
             })
         },
-    );
+    )
+    .with_suspend(vcs::operations::history::HistoryCursor::suspend);
     let picker = Picker::new_with_callback_result(
         editor.redraw().clone(),
         [
@@ -145,7 +146,7 @@ fn browser(
     .with_title(title)
     .with_help(|maps| super::actions::help(&maps.history_picker))
     .with_item_key(|c| c.id.as_str().to_owned())
-    .with_paged_updates(move |cx| pager.update(cx))
+    .with_paged_updates(pager)
     .with_item_actions(
         |maps| &maps.history_picker,
         move |_, row, action| {
