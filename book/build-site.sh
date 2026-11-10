@@ -11,13 +11,14 @@ mdbook build "$book_dir" --dest-dir "$site_dir/.build"
 mv "$site_dir/.build/html" "$site_dir/docs"
 rm -rf "$site_dir/.build"
 
-cp "$book_dir/homepage/index.html" "$site_dir/index.html"
-cp "$book_dir/homepage/landing.css" "$site_dir/landing.css"
-cp "$book_dir/brand.css" "$site_dir/brand.css"
-cp "$book_dir/homepage/404.html" "$site_dir/404.html"
-cp "$book_dir/theme/favicon.svg" "$site_dir/favicon.svg"
-cp "$book_dir/theme/favicon.png" "$site_dir/favicon.png"
-cp "$book_dir/install/install.sh" "$site_dir/install.sh"
-cp "$book_dir/install/install.ps1" "$site_dir/install.ps1"
-cp "$book_dir/install/_headers" "$site_dir/_headers"
+cp "$book_dir/homepage/index.html" \
+  "$book_dir/homepage/landing.css" \
+  "$book_dir/homepage/404.html" \
+  "$book_dir/brand.css" \
+  "$book_dir/theme/favicon.svg" \
+  "$book_dir/theme/favicon.png" \
+  "$book_dir/install/install.sh" \
+  "$book_dir/install/install.ps1" \
+  "$book_dir/install/_headers" \
+  "$site_dir/"
 cp -R "$book_dir/install/checksums" "$site_dir/checksums"

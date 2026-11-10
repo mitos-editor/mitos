@@ -189,7 +189,7 @@ jobs:
       - name: Smoke test AppImage
         if: runner.os == 'Linux'
         shell: bash
-        run: bash .github/scripts/test-appimage.sh dist/*.AppImage
+        run: python .github/scripts/test-release.py dist/*.AppImage
 
       - name: Package and test platform archive
         shell: bash

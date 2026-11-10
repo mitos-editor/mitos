@@ -6,8 +6,8 @@ if [ "$#" -ne 2 ]; then
     exit 1
 fi
 
-archive="$(CDPATH= cd -- "$(dirname -- "$2")" && pwd)/$(basename -- "$2")"
-CDPATH= cd -- "$1"
+archive="$(CDPATH='' cd -- "$(dirname -- "$2")" && pwd)/$(basename -- "$2")"
+CDPATH='' cd -- "$1"
 # The compiler needs regular source files, not upstream editor integration
 # symlinks. Some point to missing binaries or their own directory, which Git
 # Bash cannot extract on Windows. Do not follow them or ship Git metadata.

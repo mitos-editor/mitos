@@ -37,18 +37,13 @@ class NightlyTests(unittest.TestCase):
         self.created_at = '2026-11-09T02:00:00Z'
         self.tag_ref = REF
         self.failure = None
-        self.api_mock = patch.object(nightly, 'api', side_effect=self.api)
-        self.api_mock.start()
-        self.addCleanup(self.api_mock.stop)
-        self.release_mock = patch.object(nightly, 'releases', side_effect=[self.existing, self.after])
-        self.release_mock.start()
-        self.addCleanup(self.release_mock.stop)
-        self.gh_mock = patch.object(nightly, 'gh', side_effect=self.gh)
-        self.gh_mock.start()
-        self.addCleanup(self.gh_mock.stop)
+        for name, effect in [('api', self.api), ('releases', [self.existing, self.after]), ('gh', self.gh)]:
+            patcher = patch.object(nightly, name, side_effect=effect)
+            patcher.start()
+            self.addCleanup(patcher.stop)
 
-    def api(self, path, *args):
-        self.calls.append((path, *args))
+    def api(self, path, *, method='GET', **fields):
+        self.calls.append((method, path, fields))
         if path.endswith('/actions/runs/1234'):
             return dict(created_at=self.created_at)
         if '/git/matching-refs/' in path:
@@ -57,7 +52,7 @@ class NightlyTests(unittest.TestCase):
             return {}
         if '/commits/nightly-' in path:
             return dict(sha=self.tag_ref)
-        if args and args[1] == 'POST':
+        if method == 'POST':
             return release(draft=True)
         return {}
 
@@ -73,16 +68,16 @@ class NightlyTests(unittest.TestCase):
              patch.object(nightly.subprocess, 'run'):
             nightly.publish(REPO)
 
-    def test_selects_run_commit_and_original_date_for_retries(self):
-        nightly.select(REPO)
+    def test_prepares_run_commit_and_original_date_for_retries(self):
+        nightly.prepare(REPO)
         self.assertEqual(self.output.read_text(), f'ref={REF}\ntag={TAG}\n')
-        self.assertEqual(self.calls, [(f'repos/{REPO}/actions/runs/1234',)])
+        self.assertEqual(self.calls, [('GET', f'repos/{REPO}/actions/runs/1234', {})])
 
     def test_same_commit_gets_a_new_build_each_day(self):
         self.existing.append(release())
-        nightly.select(REPO)
+        nightly.prepare(REPO)
         self.created_at = '2026-11-10T02:00:00Z'
-        nightly.select(REPO)
+        nightly.prepare(REPO)
         self.assertEqual(self.output.read_text().splitlines(), [
             f'ref={REF}', f'tag={TAG}', f'ref={REF}',
             f'tag=nightly-2026-11-10-{REF[:12]}'])
@@ -98,19 +93,18 @@ class NightlyTests(unittest.TestCase):
     def test_uploads_before_publishing_and_never_sets_latest(self):
         self.publish()
         upload = next(i for i, c in enumerate(self.calls) if c[:2] == ('release', 'upload'))
-        publish = next(i for i, c in enumerate(self.calls) if 'PATCH' in c)
+        publish = next(i for i, c in enumerate(self.calls) if c[0] == 'PATCH')
         self.assertLess(upload, publish)
-        self.assertIn('make_latest=false', self.calls[publish])
-        self.assertIn('prerelease=true', self.calls[publish])
-        create = next(c for c in self.calls if 'POST' in c and c[0].endswith('/releases'))
-        self.assertIn('draft=true', create)
-        self.assertIn(f'target_commitish={REF}', create)
+        self.assertEqual(self.calls[publish][2], dict(draft=False, prerelease=True, make_latest='false'))
+        create = next(c for c in self.calls if c[0] == 'POST' and c[1].endswith('/releases'))
+        self.assertIs(create[2]['draft'], True)
+        self.assertEqual(create[2]['target_commitish'], REF)
 
     def test_upload_failure_leaves_draft_and_does_not_prune(self):
         self.failure = subprocess.CalledProcessError(1, ['gh', 'release', 'upload'])
         with self.assertRaises(subprocess.CalledProcessError):
             self.publish()
-        self.assertFalse(any('PATCH' in c or c[:2] == ('release', 'delete') for c in self.calls))
+        self.assertFalse(any(c[0] == 'PATCH' or c[:2] == ('release', 'delete') for c in self.calls))
 
     def test_published_release_is_not_modified(self):
         self.existing.append(release())
@@ -121,7 +115,7 @@ class NightlyTests(unittest.TestCase):
         self.existing.append(release(draft=True))
         self.publish()
         self.assertFalse(any('POST' in c and c[0].endswith('/releases') for c in self.calls))
-        self.assertTrue(any('PATCH' in c for c in self.calls))
+        self.assertTrue(any(c[0] == 'PATCH' for c in self.calls))
 
     def test_wrong_tag_commit_is_rejected(self):
         self.tag_ref = '0' * 40
@@ -145,6 +139,25 @@ class NightlyTests(unittest.TestCase):
         with patch.object(nightly, 'gh', return_value=json.dumps([[release()], [release('v0.2.1')]])) as gh:
             self.assertEqual(len(list_releases(REPO)), 2)
             self.assertIn('--paginate', gh.call_args.args)
+
+
+class GithubApiTests(unittest.TestCase):
+    @patch.object(nightly.subprocess, 'check_output', return_value='{"id": 42}\n')
+    def test_sends_json_fields_with_boolean_types(self, request):
+        result = nightly.api('repos/example/mitos/releases', method='POST',
+                             draft=True, prerelease=True, make_latest='false')
+        self.assertEqual(result, {'id': 42})
+        self.assertEqual(request.call_args.args[0], [
+            'gh', 'api', 'repos/example/mitos/releases', '--method', 'POST', '--input', '-'])
+        self.assertEqual(json.loads(request.call_args.kwargs['input']),
+                         dict(draft=True, prerelease=True, make_latest='false'))
+
+    @patch.object(nightly.subprocess, 'check_output', return_value='{"sha": "abcdef"}')
+    def test_reads_do_not_send_a_request_body(self, request):
+        self.assertEqual(nightly.api('repos/example/mitos/commits/main'), {'sha': 'abcdef'})
+        self.assertEqual(request.call_args.args[0], [
+            'gh', 'api', 'repos/example/mitos/commits/main', '--method', 'GET'])
+        self.assertIsNone(request.call_args.kwargs['input'])
 
 
 if __name__ == '__main__':

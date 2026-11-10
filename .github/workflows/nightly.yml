@@ -13,43 +13,43 @@ permissions:
   contents: read
 
 jobs:
-  select:
+  prepare:
     if: github.repository == 'mitos-editor/mitos' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       contents: read
       actions: read
     outputs:
-      ref: ${{ steps.select.outputs.ref }}
-      tag: ${{ steps.select.outputs.tag }}
+      ref: ${{ steps.prepare.outputs.ref }}
+      tag: ${{ steps.prepare.outputs.tag }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: Prepare nightly tag
-        id: select
+        id: prepare
         env:
           GH_TOKEN: ${{ github.token }}
-        run: python .github/scripts/nightly.py select
+        run: python .github/scripts/nightly.py prepare
 
   test:
-    needs: select
+    needs: prepare
     uses: ./.github/workflows/build.yml
 
   package:
-    needs: [select, test]
+    needs: [prepare, test]
     uses: ./.github/workflows/package-release.yml
     permissions:
       contents: write
       id-token: write
       attestations: write
     with:
-      ref: ${{ needs.select.outputs.ref }}
-      tag: ${{ needs.select.outputs.tag }}
+      ref: ${{ needs.prepare.outputs.ref }}
+      tag: ${{ needs.prepare.outputs.tag }}
       attest: true
 
   publish:
-    needs: [select, package]
+    needs: [prepare, package]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -64,6 +64,6 @@ jobs:
       - name: Publish nightly and keep the last 14 builds
         env:
           GH_TOKEN: ${{ github.token }}
-          NIGHTLY_REF: ${{ needs.select.outputs.ref }}
-          NIGHTLY_TAG: ${{ needs.select.outputs.tag }}
+          NIGHTLY_REF: ${{ needs.prepare.outputs.ref }}
+          NIGHTLY_TAG: ${{ needs.prepare.outputs.tag }}
         run: python .github/scripts/nightly.py publish
