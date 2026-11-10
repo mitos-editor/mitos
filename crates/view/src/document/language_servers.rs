@@ -28,20 +28,28 @@ impl Document {
         Some(attachment.client)
     }
 
+    /// Each eligible client appears once, in first matching configured order.
     pub fn language_servers_with_feature(
         &self,
         feature: LanguageServerFeature,
     ) -> impl Iterator<Item = &lsp_client::Client> {
-        self.language_config().into_iter().flat_map(move |config| {
-            config.language_servers.iter().filter_map(move |features| {
-                let attachment = self.language_servers.get(&features.name)?;
-                let client = &*attachment.client;
-                (attachment.opened
-                    && crate::language_servers::supports_feature(client.capabilities(), feature)
-                    && features.has_feature(feature))
-                .then_some(client)
+        let mut seen = std::collections::HashSet::new();
+        self.language_config()
+            .into_iter()
+            .flat_map(move |config| {
+                config.language_servers.iter().filter_map(move |features| {
+                    let attachment = self.language_servers.get(&features.name)?;
+                    let client = &*attachment.client;
+                    (attachment.opened
+                        && crate::language_servers::supports_feature(
+                            client.capabilities(),
+                            feature,
+                        )
+                        && features.has_feature(feature))
+                    .then_some(client)
+                })
             })
-        })
+            .filter(move |client| seen.insert(client.id()))
     }
 
     /// Wire synchronization visits each opened binding once, independently of

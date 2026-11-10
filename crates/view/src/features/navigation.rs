@@ -3,10 +3,7 @@
 use lsp_client::UriExt as _;
 mod open;
 
-use std::{
-    collections::HashSet,
-    sync::{Arc, Weak},
-};
+use std::sync::{Arc, Weak};
 
 use editor_core::{Selection, Uri};
 use event::{cancelable_future, register_hook};
@@ -215,7 +212,7 @@ pub fn request(editor: &mut Editor, kind: NavigationKind) {
     let include_declaration = editor.config().lsp.references.include_declaration;
     let mode = editor.mode();
     let (view, doc) = crate::current!(editor);
-    let mut servers = HashSet::new();
+    let mut servers = Vec::new();
     let limit = if kind == NavigationKind::SelectReferences {
         1
     } else {
@@ -223,7 +220,7 @@ pub fn request(editor: &mut Editor, kind: NavigationKind) {
     };
     let mut futures: FuturesUnordered<_> = doc
         .language_servers_with_feature(kind.feature())
-        .filter(|server| servers.insert(server.id()))
+        .inspect(|server| servers.push(server.id()))
         .take(limit)
         .filter_map(|server| {
             let encoding = server.offset_encoding();
@@ -243,7 +240,7 @@ pub fn request(editor: &mut Editor, kind: NavigationKind) {
     let target = (doc.id(), view.id);
     let request = Request {
         owner: Arc::downgrade(&shared),
-        target: SelectionRequest::new(doc, view.id, cancel, servers.into_iter().collect()),
+        target: SelectionRequest::new(doc, view.id, cancel, servers),
         kind,
         mode,
     };

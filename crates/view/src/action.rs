@@ -344,11 +344,8 @@ pub(crate) fn code_actions_for_range_filtered(
     impl Future<Output = Result<Option<Vec<CodeActionOrCommand>>, lsp_client::Error>> + use<>,
     LanguageServerId,
 )> {
-    let mut seen_language_servers = HashSet::new();
-
     doc.language_servers_with_feature(LanguageServerFeature::CodeAction)
         .filter(|ls| servers.is_none_or(|servers| servers.contains(&ls.id())))
-        .filter(|ls| seen_language_servers.insert(ls.id()))
         // TODO this should probably already been filtered in something like "language_servers_with_feature"
         .filter_map(|language_server| {
             let offset_encoding = language_server.offset_encoding();

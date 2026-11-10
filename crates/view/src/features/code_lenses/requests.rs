@@ -62,12 +62,12 @@ fn request_document_code_lenses(
     doc.code_lenses.cancel_requests();
     doc.code_lenses.version = None;
     let cancel = doc.code_lenses.request.restart();
-    let mut servers = HashSet::new();
+    let mut servers = Vec::new();
     let futures: FuturesUnordered<_> = doc
         .language_servers_with_feature(LanguageServerFeature::CodeLens)
         // Exit hooks run before removal from the registry.
         .filter(|server| Some(server.id()) != exited_server)
-        .filter(|server| servers.insert(server.id()))
+        .inspect(|server| servers.push(server.id()))
         .filter_map(|server| {
             let text = doc.text().clone();
             let encoding = server.offset_encoding();
@@ -102,7 +102,7 @@ fn request_document_code_lenses(
         doc.code_lenses.cache.clear();
         return;
     }
-    let request = DocumentRequest::new(doc, cancel, servers.into_iter().collect());
+    let request = DocumentRequest::new(doc, cancel, servers);
     tokio::spawn(async move {
         let Some(mut lenses) = collect_responses(futures, &request.cancel, "code lens").await
         else {

@@ -1,9 +1,6 @@
 //! Hover requests belong to the document and view that initiated them.
 
-use std::{
-    collections::HashSet,
-    sync::{Arc, Weak},
-};
+use std::sync::{Arc, Weak};
 
 use event::{cancelable_future, register_hook};
 use futures_util::{stream::FuturesUnordered, StreamExt};
@@ -72,10 +69,10 @@ pub fn request(editor: &mut Editor) {
         .hover
         .get_or_insert_default()
         .restart();
-    let mut servers = HashSet::new();
+    let mut servers = Vec::new();
     let mut futures: FuturesUnordered<_> = doc
         .language_servers_with_feature(LanguageServerFeature::Hover)
-        .filter(|server| servers.insert(server.id()))
+        .inspect(|server| servers.push(server.id()))
         .map(|server| {
             let name = server.name().to_owned();
             let future = server
@@ -95,7 +92,7 @@ pub fn request(editor: &mut Editor) {
     let target = (doc.id(), view.id);
     let request = Request {
         owner: Arc::downgrade(&shared),
-        target: SelectionRequest::new(doc, view.id, cancel, servers.into_iter().collect()),
+        target: SelectionRequest::new(doc, view.id, cancel, servers),
     };
     editor.handlers.hover.target = Some(target);
     let callbacks = (*shared).clone();
