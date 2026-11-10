@@ -996,7 +996,13 @@ async fn branch_pages_publish_before_a_later_ref_error() -> Result<()> {
     assert_eq!(first.branches.len(), BRANCH_PAGE_SIZE);
     let second = first.next.unwrap().next_page().await?;
     assert_eq!(second.branches.len(), BRANCH_PAGE_SIZE);
-    assert!(second.next.unwrap().next_page().await.is_err());
+    let cursor = second.next.unwrap();
+    assert!(cursor.next_page().await.is_err());
+    exec_git_cmd(&["config", "--unset", "branch.topic-204.merge"], dir.path());
+    let recovered = cursor.next_page().await?;
+    assert_eq!(recovered.branches.len(), 6);
+    assert_eq!(recovered.branches.last().unwrap().name, "topic-204");
+    assert!(recovered.next.is_none());
     Ok(())
 }
 
@@ -1011,6 +1017,10 @@ async fn branch_pages_report_initialization_errors_and_empty_repositories() -> R
     std::fs::rename(dir.path().join(".git"), dir.path().join("old.git"))?;
     let error = cursor.next_page().await.err().unwrap().to_string();
     assert!(error.contains("discover git repo"), "{error}");
+    std::fs::rename(dir.path().join("old.git"), dir.path().join(".git"))?;
+    let recovered = cursor.next_page().await?;
+    assert!(recovered.branches.is_empty());
+    assert!(recovered.next.is_none());
     Ok(())
 }
 

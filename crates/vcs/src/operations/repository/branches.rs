@@ -41,6 +41,8 @@ impl GitRepository {
 
 impl BranchCursor {
     /// Cursor clones can retry canceled pages without skipping any references.
+    /// A failed worker is restarted and replays the live listing to this offset;
+    /// callers should create a new cursor when changing the repository's references.
     pub async fn next_page(&self) -> Result<BranchPage> {
         let (reply, receiver) = oneshot::channel();
         let sender = {
@@ -49,7 +51,7 @@ impl BranchCursor {
                 .sender
                 .lock()
                 .map_err(|_| anyhow::anyhow!("Branch worker lock poisoned"))?;
-            if sender.is_none() {
+            if sender.as_ref().is_none_or(|sender| sender.is_closed()) {
                 let (tx, rx) = mpsc::channel(1);
                 let repository = self.source.repository.clone();
                 std::thread::Builder::new()
@@ -66,7 +68,7 @@ impl BranchCursor {
                     reply,
                 })
                 .await
-                .map_err(|_| anyhow::anyhow!("Branch worker stopped; reopen to retry"))?;
+                .map_err(|_| anyhow::anyhow!("Branch worker stopped; retry the page"))?;
             receiver.await.context("Branch worker stopped")?
         };
         let (branches, more) = tokio::time::timeout(std::time::Duration::from_secs(15), read)
@@ -118,7 +120,11 @@ fn run(repository: GitRepository, mut requests: mpsc::Receiver<Request>) {
                     let reference = reference?;
                     let upstream = upstream_name(&repo, reference.name())?;
                     let name = reference.name().shorten().to_str()?.to_owned();
-                    bytes += name.len() + upstream.len();
+                    // Rebuilding a failed worker may need to replay earlier pages.
+                    // Their metadata does not count against the requested page's budget.
+                    if rows.len() >= offset {
+                        bytes += name.len() + upstream.len();
+                    }
                     ensure!(
                         bytes <= 1024 * 1024,
                         "Branch page exceeds the 1 MiB display limit"
@@ -132,12 +138,18 @@ fn run(repository: GitRepository, mut requests: mpsc::Receiver<Request>) {
                     }));
                 }
                 let end = rows.len().min(offset + BRANCH_PAGE_SIZE);
+                ensure!(offset <= end, "Branch listing changed; reopen to refresh");
                 Ok(Some((
                     rows[offset..end].to_vec(),
                     !exhausted || end < rows.len(),
                 )))
             })();
             let failed = result.is_err();
+            // Make failure observable before waking the caller, so an immediate
+            // retry always replaces this worker rather than using its dying channel.
+            if failed {
+                requests.close();
+            }
             if let Some(result) = result.transpose() {
                 let _ = reply.send(result);
             }
@@ -154,6 +166,7 @@ fn run(repository: GitRepository, mut requests: mpsc::Receiver<Request>) {
     })();
     // Initialization failures must reach the waiting caller as well.
     if let Err(error) = result {
+        requests.close();
         let _ = first.unwrap().reply.send(Err(error));
     }
 }
