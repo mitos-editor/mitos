@@ -387,3 +387,44 @@ mod move_lines_tests {
         );
     }
 }
+
+#[cfg(test)]
+mod join_tests {
+    use super::*;
+    use crate::editing::tests::document_and_view;
+    use editor_core::test;
+
+    #[tokio::test]
+    async fn joining_whitespace_and_selecting_inserted_spaces() {
+        for (input, select_space, count, expected) in [
+            ("#[a|]#bc\ndef\n", false, 1, "#[a|]#bc def\n"),
+            ("#[a|]#bc\n\ndef\n", false, 2, "#[a|]#bc def\n"),
+            ("#[a|]#bc\n\n    def\n", false, 2, "#[a|]#bc def\n"),
+            (
+                "#[a\n\nb\n\nc\n\nd\n\ne|]#\n",
+                true,
+                1,
+                "a#[ |]#b#( |)#c#( |)#d#( |)#e\n",
+            ),
+            ("#[a|]#bc\ndef\n", true, 1, "abc#[ |]#def\n"),
+            ("#[a|]#bc\n\ndef\n", true, 1, "#[a|]#bc\ndef\n"),
+            ("#[a|]#bc\n\n    def\n", true, 2, "abc#[ |]#def\n"),
+            (
+                "#[aaa   \n\nbb  \n\nc |]#\n",
+                true,
+                1,
+                "aaa   #[ |]#bb  #( |)#c \n",
+            ),
+        ] {
+            let (mut doc, view) = document_and_view(input);
+            for _ in 0..count {
+                join_selections(&mut doc, view.id, select_space).unwrap();
+            }
+            assert_eq!(
+                test::plain(doc.text().slice(..), doc.selection(view.id)),
+                expected,
+                "{input}"
+            );
+        }
+    }
+}

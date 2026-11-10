@@ -1084,7 +1084,6 @@ async fn test_insert_newline_after_last_gdscript_body_line() -> anyhow::Result<(
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_join_selections() -> anyhow::Result<()> {
-    // normal join
     test((
         indoc! {"\
             #[a|]#bc
@@ -1097,26 +1096,11 @@ async fn test_join_selections() -> anyhow::Result<()> {
     ))
     .await?;
 
-    // join with empty line
     test((
         indoc! {"\
             #[a|]#bc
 
             def
-        "},
-        "JJ",
-        indoc! {"\
-            #[a|]#bc def
-        "},
-    ))
-    .await?;
-
-    // join with additional space in non-empty line
-    test((
-        indoc! {"\
-            #[a|]#bc
-
-                def
         "},
         "JJ",
         indoc! {"\
@@ -1130,7 +1114,6 @@ async fn test_join_selections() -> anyhow::Result<()> {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_join_selections_space() -> anyhow::Result<()> {
-    // join with empty lines panic
     test((
         indoc! {"\
             #[a
@@ -1150,7 +1133,6 @@ async fn test_join_selections_space() -> anyhow::Result<()> {
     ))
     .await?;
 
-    // normal join
     test((
         indoc! {"\
             #[a|]#bc
@@ -1159,51 +1141,6 @@ async fn test_join_selections_space() -> anyhow::Result<()> {
         "<A-J>",
         indoc! {"\
             abc#[ |]#def
-        "},
-    ))
-    .await?;
-
-    // join with empty line
-    test((
-        indoc! {"\
-            #[a|]#bc
-
-            def
-        "},
-        "<A-J>",
-        indoc! {"\
-            #[a|]#bc
-            def
-        "},
-    ))
-    .await?;
-
-    // join with additional space in non-empty line
-    test((
-        indoc! {"\
-            #[a|]#bc
-
-                def
-        "},
-        "<A-J><A-J>",
-        indoc! {"\
-            abc#[ |]#def
-        "},
-    ))
-    .await?;
-
-    // join with retained trailing spaces
-    test((
-        indoc! {"\
-            #[aaa   
-
-            bb  
-
-            c |]#
-        "},
-        "<A-J>",
-        indoc! {"\
-            aaa   #[ |]#bb  #( |)#c 
         "},
     ))
     .await?;

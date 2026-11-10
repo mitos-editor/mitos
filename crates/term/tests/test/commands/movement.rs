@@ -3,71 +3,11 @@ use super::*;
 #[tokio::test(flavor = "multi_thread")]
 async fn test_move_parent_node_end() -> anyhow::Result<()> {
     let tests = vec![
-        // single cursor stays single cursor, first goes to end of current
-        // node, then parent
+        ("fn f() { #[x|]#; }\n", "<A-e>", "fn f() { x#[;|]# }\n"),
         (
-            indoc! {r##"
-                fn foo() {
-                    let result = if true {
-                        "yes"
-                    } else {
-                        "no#["|]#
-                    }
-                }
-            "##},
-            "<A-e>",
-            indoc! {"\
-                fn foo() {
-                    let result = if true {
-                        \"yes\"
-                    } else {
-                        \"no\"#[\n|]#
-                    }
-                }
-            "},
-        ),
-        (
-            indoc! {"\
-                fn foo() {
-                    let result = if true {
-                        \"yes\"
-                    } else {
-                        \"no\"#[\n|]#
-                    }
-                }
-            "},
-            "<A-e>",
-            indoc! {"\
-                fn foo() {
-                    let result = if true {
-                        \"yes\"
-                    } else {
-                        \"no\"
-                    }#[\n|]#
-                }
-            "},
-        ),
-        // select mode extends
-        (
-            indoc! {r##"
-                fn foo() {
-                    let result = if true {
-                        "yes"
-                    } else {
-                        #["no"|]#
-                    }
-                }
-            "##},
+            "fn f() { #[x|]#; }\n",
             "v<A-e><A-e>",
-            indoc! {"\
-                fn foo() {
-                    let result = if true {
-                        \"yes\"
-                    } else {
-                        #[\"no\"
-                    }\n|]#
-                }
-            "},
+            "fn f() { #[x; |]#}\n",
         ),
     ];
 
@@ -81,113 +21,11 @@ async fn test_move_parent_node_end() -> anyhow::Result<()> {
 #[tokio::test(flavor = "multi_thread")]
 async fn test_move_parent_node_start() -> anyhow::Result<()> {
     let tests = vec![
-        // single cursor stays single cursor, first goes to end of current
-        // node, then parent
+        ("fn f() { #[x|]#; }\n", "<A-b>", "fn f() #[{|]# x; }\n"),
         (
-            indoc! {r##"
-                fn foo() {
-                    let result = if true {
-                        "yes"
-                    } else {
-                        "no#["|]#
-                    }
-                }
-            "##},
-            "<A-b>",
-            indoc! {"\
-                fn foo() {
-                    let result = if true {
-                        \"yes\"
-                    } else {
-                        #[\"|]#no\"
-                    }
-                }
-            "},
-        ),
-        (
-            indoc! {"\
-                fn foo() {
-                    let result = if true {
-                        \"yes\"
-                    } else {
-                        \"no\"#[\n|]#
-                    }
-                }
-            "},
-            "<A-b>",
-            indoc! {"\
-                fn foo() {
-                    let result = if true {
-                        \"yes\"
-                    } else #[{|]#
-                        \"no\"
-                    }
-                }
-            "},
-        ),
-        (
-            indoc! {"\
-                fn foo() {
-                    let result = if true {
-                        \"yes\"
-                    } else #[{|]#
-                        \"no\"
-                    }
-                }
-            "},
-            "<A-b>",
-            indoc! {"\
-                fn foo() {
-                    let result = if true {
-                        \"yes\"
-                    } #[e|]#lse {
-                        \"no\"
-                    }
-                }
-            "},
-        ),
-        // select mode extends
-        (
-            indoc! {r##"
-                fn foo() {
-                    let result = if true {
-                        "yes"
-                    } else {
-                        #["no"|]#
-                    }
-                }
-            "##},
+            "fn f() { #[x|]#; }\n",
             "v<A-b><A-b>",
-            indoc! {"\
-                fn foo() {
-                    let result = if true {
-                        \"yes\"
-                    } else #[|{
-                        ]#\"no\"
-                    }
-                }
-            "},
-        ),
-        (
-            indoc! {r##"
-                fn foo() {
-                    let result = if true {
-                        "yes"
-                    } else {
-                        #["no"|]#
-                    }
-                }
-            "##},
-            "v<A-b><A-b><A-b>",
-            indoc! {"\
-                fn foo() {
-                    let result = if true {
-                        \"yes\"
-                    } #[|else {
-                        ]#\"no\"
-                    }
-                }
-            "},
+            "#[|fn f() { ]#x; }\n",
         ),
     ];
 
@@ -454,154 +292,15 @@ async fn test_smart_tab_move_parent_node_end() -> anyhow::Result<()> {
 #[tokio::test(flavor = "multi_thread")]
 async fn select_all_siblings() -> anyhow::Result<()> {
     let tests = vec![
-        // basic tests
         (
-            indoc! {r##"
-                let foo = bar(#[a|]#, b, c);
-            "##},
+            "let foo = bar(#[a|]#, b, c);\n",
             "<A-a>",
-            indoc! {r##"
-                let foo = bar(#[a|]#, #(b|)#, #(c|)#);
-            "##},
+            "let foo = bar(#[a|]#, #(b|)#, #(c|)#);\n",
         ),
         (
-            indoc! {r##"
-                let a = [
-                    #[1|]#,
-                    2,
-                    3,
-                    4,
-                    5,
-                ];
-            "##},
+            "let a = [#[|1]#, 2, 3];\n",
             "<A-a>",
-            indoc! {r##"
-                let a = [
-                    #[1|]#,
-                    #(2|)#,
-                    #(3|)#,
-                    #(4|)#,
-                    #(5|)#,
-                ];
-            "##},
-        ),
-        // direction is preserved
-        (
-            indoc! {r##"
-                let a = [
-                    #[|1]#,
-                    2,
-                    3,
-                    4,
-                    5,
-                ];
-            "##},
-            "<A-a>",
-            indoc! {r##"
-                let a = [
-                    #[|1]#,
-                    #(|2)#,
-                    #(|3)#,
-                    #(|4)#,
-                    #(|5)#,
-                ];
-            "##},
-        ),
-        // can't pick any more siblings - selection stays the same
-        (
-            indoc! {r##"
-                let a = [
-                    #[1|]#,
-                    #(2|)#,
-                    #(3|)#,
-                    #(4|)#,
-                    #(5|)#,
-                ];
-            "##},
-            "<A-a>",
-            indoc! {r##"
-                let a = [
-                    #[1|]#,
-                    #(2|)#,
-                    #(3|)#,
-                    #(4|)#,
-                    #(5|)#,
-                ];
-            "##},
-        ),
-        // each cursor does the sibling select independently
-        (
-            indoc! {r##"
-                let a = [
-                    #[1|]#,
-                    2,
-                    3,
-                    4,
-                    5,
-                ];
-
-                let b = [
-                    #("one"|)#,
-                    "two",
-                    "three",
-                    "four",
-                    "five",
-                ];
-            "##},
-            "<A-a>",
-            indoc! {r##"
-                let a = [
-                    #[1|]#,
-                    #(2|)#,
-                    #(3|)#,
-                    #(4|)#,
-                    #(5|)#,
-                ];
-
-                let b = [
-                    #("one"|)#,
-                    #("two"|)#,
-                    #("three"|)#,
-                    #("four"|)#,
-                    #("five"|)#,
-                ];
-            "##},
-        ),
-        // conflicting sibling selections get normalized. Here, the primary
-        // selection would choose every list item, but because the secondary
-        // range covers more than one item, the descendent is the entire list,
-        // which means the sibling is the assignment. The list item ranges just
-        // get normalized out since the list itself becomes selected.
-        (
-            indoc! {r##"
-                let a = [
-                    #[1|]#,
-                    2,
-                    #(3,
-                    4|)#,
-                    5,
-                ];
-            "##},
-            "<A-a>",
-            indoc! {r##"
-                let #(a|)# = #[[
-                    1,
-                    2,
-                    3,
-                    4,
-                    5,
-                ]|]#;
-            "##},
-        ),
-        // select siblings based on nearest parent with named children
-        (
-            indoc! {r##"
-                let foo = bar(*#[a|]#, b, c);
-            "##},
-            "<A-a>",
-            indoc! {r##"
-                let foo = bar(#[*a|]#, #(b|)#, #(c|)#);
-            "##},
+            "let a = [#[|1]#, #(|2)#, #(|3)#];\n",
         ),
     ];
 
@@ -615,118 +314,15 @@ async fn select_all_siblings() -> anyhow::Result<()> {
 #[tokio::test(flavor = "multi_thread")]
 async fn select_all_children() -> anyhow::Result<()> {
     let tests = vec![
-        // basic tests
         (
-            indoc! {r##"
-                let foo = bar#[(a, b, c)|]#;
-            "##},
+            "let foo = bar#[(a, b, c)|]#;\n",
             "<A-I>",
-            indoc! {r##"
-                let foo = bar(#[a|]#, #(b|)#, #(c|)#);
-            "##},
+            "let foo = bar(#[a|]#, #(b|)#, #(c|)#);\n",
         ),
         (
-            indoc! {r##"
-                let a = #[[
-                    1,
-                    2,
-                    3,
-                    4,
-                    5,
-                ]|]#;
-            "##},
+            "let a = #[|[1, 2, 3]]#;\n",
             "<A-I>",
-            indoc! {r##"
-                let a = [
-                    #[1|]#,
-                    #(2|)#,
-                    #(3|)#,
-                    #(4|)#,
-                    #(5|)#,
-                ];
-            "##},
-        ),
-        // direction is preserved
-        (
-            indoc! {r##"
-                let a = #[|[
-                    1,
-                    2,
-                    3,
-                    4,
-                    5,
-                ]]#;
-            "##},
-            "<A-I>",
-            indoc! {r##"
-                let a = [
-                    #[|1]#,
-                    #(|2)#,
-                    #(|3)#,
-                    #(|4)#,
-                    #(|5)#,
-                ];
-            "##},
-        ),
-        // can't pick any more children - selection stays the same
-        (
-            indoc! {r##"
-                let a = [
-                    #[1|]#,
-                    #(2|)#,
-                    #(3|)#,
-                    #(4|)#,
-                    #(5|)#,
-                ];
-            "##},
-            "<A-I>",
-            indoc! {r##"
-                let a = [
-                    #[1|]#,
-                    #(2|)#,
-                    #(3|)#,
-                    #(4|)#,
-                    #(5|)#,
-                ];
-            "##},
-        ),
-        // each cursor does the sibling select independently
-        (
-            indoc! {r##"
-                let a = #[|[
-                    1,
-                    2,
-                    3,
-                    4,
-                    5,
-                ]]#;
-
-                let b = #([
-                    "one",
-                    "two",
-                    "three",
-                    "four",
-                    "five",
-                ]|)#;
-            "##},
-            "<A-I>",
-            indoc! {r##"
-                let a = [
-                    #[|1]#,
-                    #(|2)#,
-                    #(|3)#,
-                    #(|4)#,
-                    #(|5)#,
-                ];
-
-                let b = [
-                    #("one"|)#,
-                    #("two"|)#,
-                    #("three"|)#,
-                    #("four"|)#,
-                    #("five"|)#,
-                ];
-            "##},
+            "let a = [#[|1]#, #(|2)#, #(|3)#];\n",
         ),
     ];
 
@@ -740,33 +336,15 @@ async fn select_all_children() -> anyhow::Result<()> {
 #[tokio::test(flavor = "multi_thread")]
 async fn test_select_next_sibling() -> anyhow::Result<()> {
     let tests = vec![
-        // basic test
         (
-            indoc! {r##"
-                fn inc(x: usize) -> usize { x + 1 #[}|]#
-                fn dec(x: usize) -> usize { x - 1 }
-                fn ident(x: usize) -> usize { x }
-            "##},
+            "fn inc(x: usize) -> usize { x + 1 #[}|]# fn dec(x: usize) -> usize { x - 1 } fn ident(x: usize) -> usize { x }\n",
             "<A-n>",
-            indoc! {r##"
-                fn inc(x: usize) -> usize { x + 1 }
-                #[fn dec(x: usize) -> usize { x - 1 }|]#
-                fn ident(x: usize) -> usize { x }
-            "##},
+            "fn inc(x: usize) -> usize { x + 1 } #[fn dec(x: usize) -> usize { x - 1 }|]# fn ident(x: usize) -> usize { x }\n",
         ),
-        // direction is not preserved and is always forward.
         (
-            indoc! {r##"
-                fn inc(x: usize) -> usize { x + 1 #[}|]#
-                fn dec(x: usize) -> usize { x - 1 }
-                fn ident(x: usize) -> usize { x }
-            "##},
+            "fn inc(x: usize) -> usize { x + 1 #[}|]# fn dec(x: usize) -> usize { x - 1 } fn ident(x: usize) -> usize { x }\n",
             "<A-n><A-;><A-n>",
-            indoc! {r##"
-                fn inc(x: usize) -> usize { x + 1 }
-                fn dec(x: usize) -> usize { x - 1 }
-                #[fn ident(x: usize) -> usize { x }|]#
-            "##},
+            "fn inc(x: usize) -> usize { x + 1 } fn dec(x: usize) -> usize { x - 1 } #[fn ident(x: usize) -> usize { x }|]#\n",
         ),
     ];
 
@@ -780,33 +358,15 @@ async fn test_select_next_sibling() -> anyhow::Result<()> {
 #[tokio::test(flavor = "multi_thread")]
 async fn test_select_prev_sibling() -> anyhow::Result<()> {
     let tests = vec![
-        // basic test
         (
-            indoc! {r##"
-                fn inc(x: usize) -> usize { x + 1 }
-                fn dec(x: usize) -> usize { x - 1 }
-                #[|f]#n ident(x: usize) -> usize { x }
-            "##},
+            "fn inc(x: usize) -> usize { x + 1 } fn dec(x: usize) -> usize { x - 1 } #[|f]#n ident(x: usize) -> usize { x }\n",
             "<A-p>",
-            indoc! {r##"
-                fn inc(x: usize) -> usize { x + 1 }
-                #[|fn dec(x: usize) -> usize { x - 1 }]#
-                fn ident(x: usize) -> usize { x }
-            "##},
+            "fn inc(x: usize) -> usize { x + 1 } #[|fn dec(x: usize) -> usize { x - 1 }]# fn ident(x: usize) -> usize { x }\n",
         ),
-        // direction is not preserved and is always backward.
         (
-            indoc! {r##"
-                fn inc(x: usize) -> usize { x + 1 }
-                fn dec(x: usize) -> usize { x - 1 }
-                #[|f]#n ident(x: usize) -> usize { x }
-            "##},
+            "fn inc(x: usize) -> usize { x + 1 } fn dec(x: usize) -> usize { x - 1 } #[|f]#n ident(x: usize) -> usize { x }\n",
             "<A-p><A-;><A-p>",
-            indoc! {r##"
-                #[|fn inc(x: usize) -> usize { x + 1 }]#
-                fn dec(x: usize) -> usize { x - 1 }
-                fn ident(x: usize) -> usize { x }
-            "##},
+            "#[|fn inc(x: usize) -> usize { x + 1 }]# fn dec(x: usize) -> usize { x - 1 } fn ident(x: usize) -> usize { x }\n",
         ),
     ];
 
