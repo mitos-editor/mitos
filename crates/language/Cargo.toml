@@ -24,6 +24,7 @@ toml.workspace = true
 log.workspace = true
 
 [dev-dependencies]
+core = { workspace = true, features = ["integration"] }
 tempfile.workspace = true
 gix = { workspace = true, features = ["sha1"] }
 
