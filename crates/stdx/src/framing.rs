@@ -63,40 +63,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn writes_header_body_and_flushes_in_order() {
-        use std::{
-            pin::Pin,
-            task::{Context, Poll},
-        };
-        #[derive(Default)]
-        struct Writer(Vec<Vec<u8>>);
-        impl AsyncWrite for Writer {
-            fn poll_write(
-                mut self: Pin<&mut Self>,
-                _: &mut Context<'_>,
-                bytes: &[u8],
-            ) -> Poll<io::Result<usize>> {
-                self.0.push(bytes.to_vec());
-                Poll::Ready(Ok(bytes.len()))
-            }
-            fn poll_flush(mut self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<io::Result<()>> {
-                self.0.push(Vec::new());
-                Poll::Ready(Ok(()))
-            }
-            fn poll_shutdown(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<io::Result<()>> {
-                Poll::Ready(Ok(()))
-            }
-        }
-        let mut writer = Writer::default();
+    async fn writes_and_flushes_a_byte_counted_frame() {
+        let mut writer = tokio::io::BufWriter::new(Vec::new());
         write(&mut writer, "界".as_bytes()).await.unwrap();
-        assert_eq!(
-            writer.0,
-            [
-                b"Content-Length: 3\r\n\r\n".to_vec(),
-                "界".as_bytes().to_vec(),
-                Vec::new()
-            ]
-        );
+        assert_eq!(writer.get_ref(), "Content-Length: 3\r\n\r\n界".as_bytes());
     }
 
     #[tokio::test]
