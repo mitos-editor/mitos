@@ -263,4 +263,79 @@ mod tests {
         assert_eq!(&*picker.primary_query(), "");
         Ok(())
     }
+    #[tokio::test]
+    async fn accepting_a_restored_query_before_redraw_restarts_it_without_using_stale_rows(
+    ) -> anyhow::Result<()> {
+        use super::super::test::{application, until};
+        use crate::{config::Config, job::Jobs, keymap::component::PickerAction};
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        let mut app = application(false)?;
+        let accepted = Arc::new(Mutex::new(Vec::new()));
+        let requests = Arc::new(AtomicUsize::new(0));
+        let mut picker = Picker::new(
+            app.editor.redraw().clone(),
+            [Column::new("item", |item: &u32, _: &()| {
+                format!("new query {item}").into()
+            })],
+            0,
+            [0],
+            (),
+            {
+                let accepted = accepted.clone();
+                move |_, item, _| accepted.lock().unwrap().push(*item)
+            },
+        )
+        .with_query_options(|_, _, _, _| Ok((vec![0], (), 0)))
+        .with_async_query_options({
+            let requests = requests.clone();
+            move |_, _, _, _, _| {
+                requests.fetch_add(1, Ordering::Relaxed);
+                Box::pin(std::future::pending())
+            }
+        });
+        until(&mut picker, &mut app, |p| {
+            p.selection() == Some(&0) && !p.matching
+        })
+        .await?;
+        picker.prompt.set_line("new query".into(), &app.editor);
+        picker.handle_prompt_change(false);
+        picker.refresh_query_options(&app.editor, false);
+        // Hierarchical matching retains its last published rows while a query runs.
+        until(&mut picker, &mut app, |p| {
+            p.selection() == Some(&0) && !p.matching
+        })
+        .await?;
+        picker.suspend();
+        assert!(picker.query_needs_refresh);
+        let pending_before_input = picker.has_pending_render();
+        let config = Config::default();
+        let updates = tokio::sync::mpsc::unbounded_channel().0;
+        let mut jobs = Jobs::new();
+        let mut cx = Context {
+            config: crate::config::Context {
+                current: &config,
+                updates: &updates,
+            },
+            editor: &mut app.editor,
+            interaction: &mut app.interaction,
+            jobs: &mut jobs,
+            scroll: None,
+            image_picker: None,
+            is_cursor_owner: true,
+        };
+        // Reopening can deliver input before any update/render callback.
+        let _ = picker.execute_actions(&[PickerAction::Accept], &mut cx);
+        assert!(
+            accepted.lock().unwrap().is_empty(),
+            "accepted a row from the previous query"
+        );
+        assert!(
+            pending_before_input,
+            "a suspended query must keep sidebar actions queued"
+        );
+        assert!(picker.pending_query.is_some());
+        assert_eq!(requests.load(Ordering::Relaxed), 2);
+        Ok(())
+    }
 }

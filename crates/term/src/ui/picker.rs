@@ -1451,6 +1451,10 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         };
 
         // A restored picker can receive input before its first redraw.
+        // Resume its query before any action can use the previous published rows.
+        if self.query_needs_refresh {
+            self.refresh_query_if_changed(ctx.editor);
+        }
         self.poll_query_options(ctx.editor);
         self.refresh_from_editor(ctx.editor);
         if self.query_options.is_some() {
@@ -1480,7 +1484,8 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             }
             // Keep navigation available while replacements load or a resumed
             // picker waits for its old matcher before checking the current source.
-            if (self.pending_query.is_some()
+            if (self.query_needs_refresh
+                || self.pending_query.is_some()
                 || self.results.is_refreshing()
                 || self
                     .editor_updates
@@ -1756,6 +1761,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
 impl<I: 'static + Send + Sync, D: 'static + Send + Sync> Component for Picker<I, D> {
     fn has_pending_render(&self) -> bool {
         self.matching
+            || self.query_needs_refresh
             || self.pending_query.is_some()
             || (self.on_close.is_some() && self.results.is_refreshing())
     }
