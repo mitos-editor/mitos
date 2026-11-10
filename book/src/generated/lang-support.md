@@ -285,6 +285,7 @@
 | starlark | ✓ | ✓ | ✓ |  | ✓ | ✓ | `starpls`, `buck2` |
 | strace | ✓ |  |  |  |  |  |  |
 | strictdoc | ✓ |  |  | ✓ |  |  |  |
+| structurizr | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | `strz` |
 | styx | ✓ | ✓ | ✓ |  | ✓ |  | `styx` |
 | supercollider | ✓ |  |  |  |  | ✓ |  |
 | svelte | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | `svelteserver` |
