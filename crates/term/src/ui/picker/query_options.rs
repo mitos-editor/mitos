@@ -49,6 +49,9 @@ impl<T: Send + Sync + 'static, D: Send + Sync + 'static> Picker<T, D> {
             return false;
         };
         let cancel = self.query_task.restart();
+        if let Some(updates) = &mut self.file_updates {
+            updates.query_changed();
+        }
         let work = source(
             editor,
             &self.primary_query(),
@@ -56,9 +59,6 @@ impl<T: Send + Sync + 'static, D: Send + Sync + 'static> Picker<T, D> {
             self.selection().filter(|_| preserve_selection),
             cancel.clone(),
         );
-        if let Some(updates) = &mut self.file_updates {
-            updates.query_changed();
-        }
         let (tx, result) = oneshot::channel();
         self.pending_query = Some(PendingQuery {
             result,

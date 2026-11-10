@@ -113,7 +113,13 @@ pub struct ExplorerTree {
 }
 
 #[derive(Default)]
-enum Index {
+struct Index {
+    generation: u64,
+    state: IndexState,
+}
+
+#[derive(Default)]
+enum IndexState {
     #[default]
     Empty,
     Ready(Arc<SearchIndex>),
@@ -122,7 +128,9 @@ enum Index {
 
 impl ExplorerTree {
     pub fn clear_index(&self) {
-        *self.index.lock().unwrap() = Index::Empty;
+        let mut index = self.index.lock().unwrap();
+        index.generation = index.generation.wrapping_add(1);
+        index.state = IndexState::Empty;
     }
 
     pub fn reset_index(&mut self) {
@@ -130,7 +138,7 @@ impl ExplorerTree {
     }
 
     pub fn search_failed(&self) -> bool {
-        matches!(*self.index.lock().unwrap(), Index::Failed)
+        matches!(self.index.lock().unwrap().state, IndexState::Failed)
     }
 
     fn load_index(
@@ -139,15 +147,29 @@ impl ExplorerTree {
         config: &editor_config::FileExplorerConfig,
         cancel: &event::TaskHandle,
     ) -> std::io::Result<Arc<SearchIndex>> {
-        if let Index::Ready(index) = &*self.index.lock().unwrap() {
-            return Ok(index.clone());
-        }
-        let result = search_index(root, config, || cancel.is_canceled());
+        self.load_index_with(cancel, || {
+            search_index(root, config, || cancel.is_canceled())
+        })
+    }
+
+    fn load_index_with(
+        &self,
+        cancel: &event::TaskHandle,
+        load: impl FnOnce() -> std::io::Result<Arc<SearchIndex>>,
+    ) -> std::io::Result<Arc<SearchIndex>> {
+        let generation = {
+            let cached = self.index.lock().unwrap();
+            if let IndexState::Ready(index) = &cached.state {
+                return Ok(index.clone());
+            }
+            cached.generation
+        };
+        let result = load();
         let mut cached = self.index.lock().unwrap();
-        if !cancel.is_canceled() {
-            *cached = match &result {
-                Ok(index) => Index::Ready(index.clone()),
-                Err(_) => Index::Failed,
+        if cached.generation == generation && !cancel.is_canceled() {
+            cached.state = match &result {
+                Ok(index) => IndexState::Ready(index.clone()),
+                Err(_) => IndexState::Failed,
             };
         }
         result
@@ -307,6 +329,39 @@ fn matches(root: &Path, query: &str, rows: &[(ExplorerItem, usize)]) -> (Vec<Exp
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn invalidation_during_load_prevents_stale_cache_publication() {
+        let tree = ExplorerTree::default();
+        let mut controller = event::TaskController::new();
+        let cancel = controller.restart();
+        let old = Arc::new(SearchIndex::new(Path::new("root"), Vec::new()));
+        tree.load_index_with(&cancel, || {
+            tree.clear_index();
+            Ok(old.clone())
+        })
+        .unwrap();
+        assert!(matches!(
+            tree.index.lock().unwrap().state,
+            IndexState::Empty
+        ));
+        assert!(tree
+            .load_index_with(&cancel, || {
+                tree.clear_index();
+                Err(std::io::Error::other("failed stale scan"))
+            })
+            .is_err());
+        assert!(matches!(
+            tree.index.lock().unwrap().state,
+            IndexState::Empty
+        ));
+        let fresh = Arc::new(SearchIndex::new(Path::new("root"), Vec::new()));
+        let loaded = tree.load_index_with(&cancel, || Ok(fresh.clone())).unwrap();
+        assert!(Arc::ptr_eq(&loaded, &fresh));
+        assert!(
+            matches!(&tree.index.lock().unwrap().state, IndexState::Ready(index) if Arc::ptr_eq(index, &fresh))
+        );
+    }
 
     #[test]
     fn query_matching_cancels_between_batches() {
