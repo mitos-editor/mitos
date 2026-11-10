@@ -3,12 +3,14 @@ use super::*;
 use crate::{config::Config as AppConfig, job::Jobs};
 use std::{path::PathBuf, time::Duration};
 
-async fn settle<T: Send + Sync, D: Send + Sync>(picker: &mut Picker<T, D>) {
+async fn settle<T: Send + Sync, D: Send + Sync>(picker: &mut Picker<T, D>, editor: &Editor) {
     tokio::time::timeout(Duration::from_secs(5), async {
         loop {
+            picker.poll_query_options(editor);
             picker.publish_options();
             let status = picker.results.matcher.tick(10);
-            if !status.running
+            if picker.pending_query.is_none()
+                && !status.running
                 && picker.results.matcher.active_injectors() == 0
                 && !picker.results.is_refreshing()
             {
@@ -47,7 +49,7 @@ async fn file_picker_match_text_and_order_ignore_icons() -> anyhow::Result<()> {
         std::fs::write(path, "")?;
     }
     let mut picker = ui::file_picker(&app.editor, dir.path().to_owned());
-    settle(&mut picker).await;
+    settle(&mut picker, &app.editor).await;
     let patterns = ["", "core", "^core", "cr", "rs$", "!md", "café", "🦀"];
     let mut expected = Vec::new();
     for icons in [false, true] {
@@ -63,7 +65,7 @@ async fn file_picker_match_text_and_order_ignore_icons() -> anyhow::Result<()> {
         );
         for (index, pattern) in patterns.iter().enumerate() {
             picker.results.reparse(0, pattern, false);
-            settle(&mut picker).await;
+            settle(&mut picker, &app.editor).await;
             let snapshot = picker.results.matcher.snapshot();
             for item in snapshot.matched_items(..) {
                 assert_eq!(
@@ -93,7 +95,7 @@ async fn file_explorer_match_text_and_order_ignore_icons() -> anyhow::Result<()>
     std::fs::write(dir.path().join("core.rs"), "")?;
     std::fs::write(dir.path().join("cr.rs"), "")?;
     let mut picker = ui::file_explorer(dir.path().to_owned(), &app.editor)?;
-    settle(&mut picker).await;
+    settle(&mut picker, &app.editor).await;
     let options = matched(&picker);
     let mut expected = Vec::new();
     for icons in [false, true] {
@@ -109,7 +111,7 @@ async fn file_explorer_match_text_and_order_ignore_icons() -> anyhow::Result<()>
         );
         for (index, pattern) in ["", "core", "^core", "cr"].iter().enumerate() {
             picker.results.reparse(0, pattern, false);
-            settle(&mut picker).await;
+            settle(&mut picker, &app.editor).await;
             for item in picker.results.matcher.snapshot().matched_items(..) {
                 let (path, is_dir) = item.data;
                 let name = path
@@ -140,7 +142,7 @@ async fn embedded_picker_waits_for_unpublished_directory_rows() -> anyhow::Resul
     let mut picker =
         ui::file_explorer::picker(dir.path().to_owned(), &app.editor, true)?.embedded(|_, _| {});
     test::draw(&mut picker, &mut app);
-    settle(&mut picker).await;
+    settle(&mut picker, &app.editor).await;
     // Keep the replacement incomplete regardless of worker scheduling.
     picker.refresh_options(matched(&picker), picker.results.editor_data.clone());
     let held = picker
@@ -153,7 +155,7 @@ async fn embedded_picker_waits_for_unpublished_directory_rows() -> anyhow::Resul
     picker.matching = false;
     assert!(picker.has_pending_render());
     drop(held);
-    settle(&mut picker).await;
+    settle(&mut picker, &app.editor).await;
     assert!(!picker.has_pending_render());
     Ok(())
 }
@@ -178,7 +180,7 @@ async fn tree_search_preserves_navigation_on_refresh_and_resets_it_for_a_new_que
     picker.prompt.set_line("test".into(), &app.editor);
     picker.handle_prompt_change(false);
     picker.refresh_query_options(&app.editor, false);
-    settle(&mut picker).await;
+    settle(&mut picker, &app.editor).await;
     assert_eq!(
         picker.selection().unwrap().0,
         dir.path().join("alpha/a_test.rs")
@@ -196,7 +198,7 @@ async fn tree_search_preserves_navigation_on_refresh_and_resets_it_for_a_new_que
         || false,
     )?);
     picker.refresh_query_options(&app.editor, true);
-    settle(&mut picker).await;
+    settle(&mut picker, &app.editor).await;
     assert_eq!(
         picker.selection().unwrap().0,
         dir.path().join("zeta/test.rs")
@@ -204,7 +206,7 @@ async fn tree_search_preserves_navigation_on_refresh_and_resets_it_for_a_new_que
 
     picker.refresh_query_options(&app.editor, true);
     picker.results.cursor = 2;
-    settle(&mut picker).await;
+    settle(&mut picker, &app.editor).await;
     assert_eq!(
         picker.selection().unwrap().0,
         dir.path().join("alpha/a_test.rs")
@@ -215,7 +217,7 @@ async fn tree_search_preserves_navigation_on_refresh_and_resets_it_for_a_new_que
     picker.prompt.set_line("ts".into(), &app.editor);
     picker.handle_prompt_change(false);
     picker.refresh_query_options(&app.editor, false);
-    settle(&mut picker).await;
+    settle(&mut picker, &app.editor).await;
     assert_eq!(
         picker.selection().unwrap().0,
         dir.path().join("alpha/0_test.rs")
@@ -243,10 +245,10 @@ async fn decorative_prefixes_do_not_match_and_preserve_unicode_highlights() -> a
         |_, _, _| {},
     );
     picker.results.reparse(0, "^icon", false);
-    settle(&mut picker).await;
+    settle(&mut picker, &app.editor).await;
     assert!(matched(&picker).is_empty());
     picker.results.reparse(0, "^café", false);
-    settle(&mut picker).await;
+    settle(&mut picker, &app.editor).await;
     assert_eq!(
         matched(&picker),
         [PathBuf::from("café.rs"), PathBuf::from("café.txt")]
@@ -305,7 +307,7 @@ async fn decorative_prefixes_do_not_match_and_preserve_unicode_highlights() -> a
         .results
         .reset(vec![path], Arc::new(()), &picker.columns);
     picker.results.reparse(0, "café", false);
-    settle(&mut picker).await;
+    settle(&mut picker, cx.editor).await;
     for width in [28, 70, 28] {
         let area = Rect::new(0, 0, width, 20);
         let mut surface = Surface::empty(area);

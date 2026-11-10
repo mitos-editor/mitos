@@ -12,6 +12,7 @@ pub(crate) mod paged;
 mod paging_tests;
 mod preview;
 mod query;
+mod query_options;
 mod replacement;
 mod results;
 pub(crate) mod scroll;
@@ -337,6 +338,9 @@ pub struct Picker<T: 'static + Send + Sync, D: 'static> {
     editor_updates: Option<updates::EditorUpdates<T>>,
     query_updates: Option<updates::QueryUpdates<D>>,
     query_options: Option<QueryOptions<T, D>>,
+    async_query_options: Option<query_options::AsyncQueryOptions<T, D>>,
+    pending_query: Option<query_options::PendingQuery<T, D>>,
+    query_task: event::TaskController,
     query_refresh: bool,
     query_needs_refresh: bool,
     title: Option<Line<'static>>,
@@ -478,6 +482,9 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             editor_updates: None,
             query_updates: None,
             query_options: None,
+            async_query_options: None,
+            pending_query: None,
+            query_task: event::TaskController::new(),
             query_refresh: false,
             query_needs_refresh: false,
             title: None,
@@ -529,11 +536,13 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
     /// Stop background source activity while retaining published rows and selection.
     /// Restoring the picker resumes its sources through their existing update path.
     pub(crate) fn suspend(&mut self) {
+        self.query_needs_refresh |= self.pending_query.is_some()
+            || (self.async_query_options.is_some() && self.results.is_refreshing())
+            || (self.dynamic_query_handler.is_some() && self.file_updates.is_none());
+        self.cancel_query_options();
         self.keys.clear();
         self.cancel_replacement();
         self.results.version.fetch_add(1, atomic::Ordering::Relaxed);
-        self.query_needs_refresh =
-            self.dynamic_query_handler.is_some() && self.file_updates.is_none();
         self.results.discard_pending();
         self.results.spare_matcher = None;
 
@@ -769,6 +778,8 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
     }
 
     fn replace_options(&mut self, options: Vec<T>, editor_data: D, editor: &Editor) {
+        self.cancel_query_options();
+        self.query_needs_refresh = false;
         if self.on_close.is_some() {
             if let Some(updates) = &mut self.file_updates {
                 updates.stop();
@@ -899,7 +910,11 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
 
     pub(super) fn refresh_query_options(&mut self, editor: &Editor, preserve_selection: bool) {
         self.publish_options();
-        let preserve_selection = preserve_selection && !self.results.is_refreshing();
+        let preserve_selection =
+            preserve_selection && self.pending_query.is_none() && !self.results.is_refreshing();
+        if self.start_query_options(editor, preserve_selection) {
+            return;
+        }
         if let Some(source) = &self.query_options {
             let result = source(
                 editor,
@@ -913,6 +928,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
 
     /// Reveal an owner-selected item, clearing any filter that could hide it.
     pub(super) fn reveal_query_item(&mut self, editor: &Editor, item: &T) {
+        self.cancel_query_options();
         self.publish_options();
         if let Some(source) = &self.query_options {
             let result = source(editor, "", &self.results.editor_data, Some(item));
@@ -1435,6 +1451,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         };
 
         // A restored picker can receive input before its first redraw.
+        self.poll_query_options(ctx.editor);
         self.refresh_from_editor(ctx.editor);
         if self.query_options.is_some() {
             self.results.tick(10);
@@ -1463,7 +1480,8 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             }
             // Keep navigation available while replacements load or a resumed
             // picker waits for its old matcher before checking the current source.
-            if (self.results.is_refreshing()
+            if (self.pending_query.is_some()
+                || self.results.is_refreshing()
                 || self
                     .editor_updates
                     .as_ref()
@@ -1737,7 +1755,9 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
 
 impl<I: 'static + Send + Sync, D: 'static + Send + Sync> Component for Picker<I, D> {
     fn has_pending_render(&self) -> bool {
-        self.matching || (self.on_close.is_some() && self.results.is_refreshing())
+        self.matching
+            || self.pending_query.is_some()
+            || (self.on_close.is_some() && self.results.is_refreshing())
     }
 
     fn update(&mut self, area: Rect, cx: &mut Context) {
@@ -1766,6 +1786,7 @@ impl<I: 'static + Send + Sync, D: 'static + Send + Sync> Component for Picker<I,
             self.poll = None;
         }
 
+        self.poll_query_options(cx.editor);
         self.poll_replacement(cx);
         self.refresh_files(cx.editor);
         self.refresh_query_if_changed(cx.editor);

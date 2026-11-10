@@ -2,7 +2,6 @@
 
 use super::{content, ExplorerData, ExplorerItem};
 use std::{
-    borrow::Cow,
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
 };
@@ -10,13 +9,114 @@ use view::Editor;
 
 type ExplorerRows = Vec<(ExplorerItem, usize)>;
 
+/// Immutable source revision. Normalize paths and discover parents once during
+/// the background filesystem walk, rather than on every query keystroke.
+pub(in crate::ui) struct SearchIndex {
+    rows: ExplorerRows,
+    paths: Vec<String>,
+    name_starts: Vec<usize>,
+    parents: Vec<Option<usize>>,
+}
+
+impl std::ops::Deref for SearchIndex {
+    type Target = [(ExplorerItem, usize)];
+    fn deref(&self) -> &Self::Target {
+        &self.rows
+    }
+}
+
+impl SearchIndex {
+    fn new(root: &Path, rows: ExplorerRows) -> Self {
+        let mut ancestors = Vec::new();
+        let mut parents = Vec::with_capacity(rows.len());
+        let mut paths = Vec::with_capacity(rows.len());
+        let mut name_starts = Vec::with_capacity(rows.len());
+        for (index, ((path, _), depth)) in rows.iter().enumerate() {
+            ancestors.truncate(*depth);
+            parents.push(ancestors.last().copied());
+            ancestors.push(index);
+            let text = path
+                .strip_prefix(root)
+                .unwrap_or(path)
+                .components()
+                .map(|part| part.as_os_str().to_string_lossy())
+                .collect::<Vec<_>>()
+                .join("/");
+            name_starts.push(text.rfind('/').map_or(0, |separator| separator + 1));
+            paths.push(text);
+        }
+        Self {
+            rows,
+            paths,
+            name_starts,
+            parents,
+        }
+    }
+
+    pub(super) fn matches(
+        &self,
+        query: &str,
+        cancelled: impl Fn() -> bool,
+    ) -> (Vec<ExplorerItem>, usize) {
+        let query = query.replace(std::path::MAIN_SEPARATOR, "/");
+        let pattern = nucleo::pattern::Pattern::parse(
+            &query,
+            nucleo::pattern::CaseMatching::Smart,
+            nucleo::pattern::Normalization::Smart,
+        );
+        let mut matcher = nucleo::Matcher::new(nucleo::Config::DEFAULT.match_paths());
+        let mut scratch = Vec::new();
+        let mut keep = vec![false; self.rows.len()];
+        let mut first_match = None;
+        let path_query = query.contains('/');
+        for (index, path) in self.paths.iter().enumerate() {
+            let text = if path_query {
+                &**path
+            } else {
+                &path[self.name_starts[index]..]
+            };
+            if index % 256 == 0 && cancelled() {
+                return (Vec::new(), 0);
+            }
+            if pattern
+                .score(nucleo::Utf32Str::new(text, &mut scratch), &mut matcher)
+                .is_some()
+            {
+                first_match.get_or_insert(index);
+                keep[index] = true;
+                let mut parent = self.parents[index];
+                while let Some(index) = parent {
+                    if keep[index] {
+                        break;
+                    }
+                    keep[index] = true;
+                    parent = self.parents[index];
+                }
+            }
+        }
+        let cursor = first_match.map_or(0, |first| {
+            keep[..first].iter().filter(|keep| **keep).count()
+        });
+        let mut options = Vec::new();
+        for (index, ((item, _), keep)) in self.rows.iter().zip(keep).enumerate() {
+            if index % 256 == 0 && cancelled() {
+                return (Vec::new(), 0);
+            }
+            if keep {
+                options.push(item.clone());
+            }
+        }
+        (options, cursor)
+    }
+}
+
 #[derive(Clone, Default)]
 pub struct ExplorerTree {
     pub expanded: ui_core::tree::Tree<PathBuf>,
     pub searching: bool,
     // Reuse one recursive listing across keystrokes. Background filesystem
     // refreshes replace it so subsequent queries see the same source revision.
-    pub index: Arc<Mutex<Option<ExplorerRows>>>,
+    pub index: Arc<Mutex<Option<Arc<SearchIndex>>>>,
 }
 
 impl ExplorerTree {
@@ -66,13 +166,8 @@ pub(super) fn query(
             .unwrap_or(0);
         (options, cursor)
     } else {
-        let index = tree.index.lock().unwrap();
-        let (options, first_match) =
-            matches(&data.root, query, index.as_deref().unwrap_or_default());
-        let cursor = selected
-            .and_then(|selected| options.iter().position(|item| item == selected))
-            .unwrap_or(first_match);
-        (options, cursor)
+        // Nonempty matching is handled by the background query source.
+        (Vec::new(), 0)
     };
     Ok((options, data, cursor))
 }
@@ -81,7 +176,7 @@ pub(in crate::ui) fn search_index(
     root: &Path,
     config: &editor_config::FileExplorerConfig,
     cancelled: impl Fn() -> bool,
-) -> std::io::Result<Vec<(ExplorerItem, usize)>> {
+) -> std::io::Result<Arc<SearchIndex>> {
     std::fs::read_dir(root)?;
     let mut options = crate::files::explorer_options(config);
     options.exclude_vcs = true;
@@ -113,59 +208,64 @@ pub(in crate::ui) fn search_index(
         }
         key
     });
-    Ok(rows)
+    Ok(Arc::new(SearchIndex::new(root, rows)))
 }
 
-pub(super) fn matches(
-    root: &Path,
+pub(super) fn query_async(
+    _editor: &Editor,
     query: &str,
-    rows: &[(ExplorerItem, usize)],
-) -> (Vec<ExplorerItem>, usize) {
-    let query = query.replace(std::path::MAIN_SEPARATOR, "/");
-    let pattern = nucleo::pattern::Pattern::parse(
-        &query,
-        nucleo::pattern::CaseMatching::Smart,
-        nucleo::pattern::Normalization::Smart,
-    );
-    let mut matcher = nucleo::Matcher::new(nucleo::Config::DEFAULT.match_paths());
-    let mut scratch = Vec::new();
-    let mut first_match = None;
-    let rows = ui_core::tree::filter_rows(
-        rows.iter().map(|(item, depth)| (item, *depth)).collect(),
-        |(path, _)| {
-            let text = if query.contains('/') {
-                Cow::Owned(
-                    path.strip_prefix(root)
-                        .unwrap_or(path)
-                        .components()
-                        .map(|part| part.as_os_str().to_string_lossy())
-                        .collect::<Vec<_>>()
-                        .join("/"),
-                )
-            } else {
-                path.file_name().unwrap_or_default().to_string_lossy()
-            };
-            if pattern
-                .score(nucleo::Utf32Str::new(&text, &mut scratch), &mut matcher)
-                .is_some()
-            {
-                first_match.get_or_insert_with(|| path.clone());
-                true
-            } else {
-                false
-            }
-        },
-    );
-    let options: Vec<_> = rows.into_iter().map(|(item, _)| (*item).clone()).collect();
-    let cursor = first_match
-        .and_then(|path| options.iter().position(|(candidate, _)| *candidate == path))
-        .unwrap_or(0);
-    (options, cursor)
+    data: &ExplorerData,
+    selected: Option<&ExplorerItem>,
+    cancel: event::TaskHandle,
+) -> futures_util::future::BoxFuture<
+    'static,
+    anyhow::Result<(Vec<ExplorerItem>, ExplorerData, usize)>,
+> {
+    let query = query.to_owned();
+    let mut data = data.clone();
+    let selected = selected.cloned();
+    let tree = data.tree.as_mut().unwrap();
+    tree.searching = true;
+    let index = tree.index.lock().unwrap().clone();
+    Box::pin(async move {
+        Ok(tokio::task::spawn_blocking(move || {
+            let (options, first) = index.map_or_else(
+                || (Vec::new(), 0),
+                |index| index.matches(&query, || cancel.is_canceled()),
+            );
+            let cursor = selected
+                .and_then(|selected| options.iter().position(|item| *item == selected))
+                .unwrap_or(first);
+            (options, data, cursor)
+        })
+        .await?)
+    })
+}
+
+#[cfg(test)]
+fn matches(root: &Path, query: &str, rows: &[(ExplorerItem, usize)]) -> (Vec<ExplorerItem>, usize) {
+    SearchIndex::new(root, rows.to_vec()).matches(query, || false)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn query_matching_cancels_between_batches() {
+        let root = Path::new("workspace");
+        let rows = (0..10_000)
+            .map(|i| ((root.join(format!("file{i}.rs")), false), 0))
+            .collect();
+        let index = SearchIndex::new(root, rows);
+        let checks = std::cell::Cell::new(0);
+        let (options, _) = index.matches("file", || {
+            checks.set(checks.get() + 1);
+            checks.get() == 2
+        });
+        assert!(options.is_empty());
+        assert_eq!(checks.get(), 2);
+    }
 
     #[test]
     fn recursive_search_excludes_metadata_but_keeps_useful_dotfiles() -> anyhow::Result<()> {
