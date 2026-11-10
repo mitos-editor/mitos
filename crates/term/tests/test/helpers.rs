@@ -548,3 +548,24 @@ pub async fn finish_debugger(
     assert!(app.close().await.is_empty());
     Ok(())
 }
+
+/// Build the compositor context shared by component integration fixtures.
+pub(crate) fn component_context<'a>(
+    app: &'a mut term::application::TestApplication,
+    config: &'a term::config::Config,
+    updates: &'a tokio::sync::mpsc::UnboundedSender<term::config::ConfigEvent>,
+    jobs: &'a mut term::job::Jobs,
+) -> term::compositor::Context<'a> {
+    term::compositor::Context {
+        config: term::config::Context {
+            current: config,
+            updates,
+        },
+        editor: &mut app.editor,
+        interaction: &mut app.interaction,
+        jobs,
+        scroll: None,
+        image_picker: None,
+        is_cursor_owner: false,
+    }
+}

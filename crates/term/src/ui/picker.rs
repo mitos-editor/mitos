@@ -2165,25 +2165,11 @@ mod tests {
     async fn refresh_preserves_cursor_and_blocks_row_actions_until_matching_finishes(
     ) -> anyhow::Result<()> {
         use super::*;
-        use crate::{application::TestApplication, config::Config as AppConfig, job::Jobs};
+        use crate::{config::Config as AppConfig, job::Jobs};
         use std::{cell::RefCell, rc::Rc, time::Duration};
 
-        let mut config = AppConfig::default();
-        config.editor.files.watch.enable = false;
-        config.editor.files.watch.watch_vcs = false;
-        let syntax = language::syntax::Loader::new(
-            language_config::Configuration {
-                language: vec![],
-                language_server: Default::default(),
-            },
-            Default::default(),
-        )?;
-        let mut app = TestApplication::new(
-            Default::default(),
-            config.clone(),
-            syntax,
-            workspace::trust::WorkspaceTrust::fully_trusted(loader::workspace_trust_dir()),
-        )?;
+        let config = AppConfig::default();
+        let mut app = super::test::application(false)?;
         let mut jobs = Jobs::new();
         let updates = tokio::sync::mpsc::unbounded_channel().0;
         let mut cx = Context {
@@ -2303,7 +2289,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn resumed_picker_blocks_stale_row_actions_while_matcher_is_busy() -> anyhow::Result<()> {
         use super::*;
-        use crate::{application::TestApplication, config::Config as AppConfig, job::Jobs};
+        use crate::{config::Config as AppConfig, job::Jobs};
         use std::{
             cell::RefCell,
             rc::Rc,
@@ -2311,22 +2297,8 @@ mod tests {
             time::Duration,
         };
 
-        let mut config = AppConfig::default();
-        config.editor.files.watch.enable = false;
-        config.editor.files.watch.watch_vcs = false;
-        let syntax = language::syntax::Loader::new(
-            language_config::Configuration {
-                language: vec![],
-                language_server: Default::default(),
-            },
-            Default::default(),
-        )?;
-        let mut app = TestApplication::new(
-            Default::default(),
-            config.clone(),
-            syntax,
-            workspace::trust::WorkspaceTrust::fully_trusted(loader::workspace_trust_dir()),
-        )?;
+        let config = AppConfig::default();
+        let mut app = super::test::application(false)?;
         let mut jobs = Jobs::new();
         let updates = tokio::sync::mpsc::unbounded_channel().0;
         let mut cx = Context {

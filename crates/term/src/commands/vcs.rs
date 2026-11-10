@@ -13,6 +13,9 @@ use theme::Style;
 use tui::{text::Span, widgets::Cell};
 use view::{document::Mode, Editor};
 
+#[cfg(all(test, feature = "git"))]
+mod test_support;
+
 #[cfg(feature = "git")]
 mod actions;
 #[cfg(feature = "git")]
