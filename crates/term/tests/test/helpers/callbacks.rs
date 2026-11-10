@@ -64,15 +64,35 @@ pub fn bounded_sender<T: Send + 'static>(
     )
 }
 
+/// Receivers that preserve the scheduling/publication tag.
+pub trait CallbackReceiver {
+    async fn next_callback(&mut self) -> Option<(bool, EditorCallback)>;
+}
+
+impl CallbackReceiver for mpsc::UnboundedReceiver<(bool, EditorCallback)> {
+    async fn next_callback(&mut self) -> Option<(bool, EditorCallback)> {
+        self.recv().await
+    }
+}
+
+impl CallbackReceiver for mpsc::Receiver<(bool, EditorCallback)> {
+    async fn next_callback(&mut self) -> Option<(bool, EditorCallback)> {
+        self.recv().await
+    }
+}
+
 /// Apply scheduling callbacks until the next feature publication is ready.
 pub async fn response(
     app: &mut term::application::TestApplication,
-    callbacks: &mut mpsc::UnboundedReceiver<(bool, EditorCallback)>,
+    callbacks: &mut impl CallbackReceiver,
 ) -> anyhow::Result<EditorCallback> {
     use anyhow::Context as _;
     tokio::time::timeout(std::time::Duration::from_secs(10), async {
         loop {
-            let (scheduling, callback) = callbacks.recv().await.context("callback queue closed")?;
+            let (scheduling, callback) = callbacks
+                .next_callback()
+                .await
+                .context("callback queue closed")?;
             if scheduling {
                 callback(&mut app.editor);
             } else {
