@@ -82,9 +82,9 @@ impl Fixture {
             std::fs::write(&path, "{}\n").unwrap();
         }
         let picker = self.compositor.find::<Overlay<Picker<(), ()>>>().unwrap();
-        picker.content.preview.get::<(), ()>(
+        picker.content.preview.prepare::<(), ()>(
             &self.app.editor,
-            (PathOrId::Path(&path), None),
+            PathOrId::Path(&path),
             &self.jobs,
             None,
             Size::new(30, 20),
@@ -102,13 +102,17 @@ impl Fixture {
 
     fn read_preview(&mut self, path: &Path) -> Option<String> {
         let picker = self.compositor.find::<Overlay<Picker<(), ()>>>().unwrap();
-        let (preview, _) = picker.content.preview.get::<(), ()>(
+        picker.content.preview.prepare::<(), ()>(
             &self.app.editor,
-            (PathOrId::Path(path), None),
+            PathOrId::Path(path),
             &self.jobs,
             None,
             Size::new(30, 20),
-        )?;
+        );
+        let (preview, _) = picker
+            .content
+            .preview
+            .cached(&self.app.editor, (PathOrId::Path(path), None))?;
         preview.document().map(|doc| doc.text().to_string())
     }
 
@@ -437,16 +441,17 @@ async fn queued_results_cannot_publish_to_hidden_or_replaced_previews() -> anyho
         .compositor
         .find::<Overlay<Picker<(), ()>>>()
         .unwrap();
+    picker.content.preview.prepare::<(), ()>(
+        &fixture.app.editor,
+        PathOrId::Id(closed),
+        &fixture.jobs,
+        None,
+        Size::new(30, 20),
+    );
     assert!(picker
         .content
         .preview
-        .get::<(), ()>(
-            &fixture.app.editor,
-            (PathOrId::Id(closed), None),
-            &fixture.jobs,
-            None,
-            Size::new(30, 20),
-        )
+        .cached(&fixture.app.editor, (PathOrId::Id(closed), None))
         .is_none());
     fixture.publish(callback);
     assert!(fixture.document(&path).syntax().is_none());

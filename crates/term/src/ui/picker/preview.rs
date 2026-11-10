@@ -429,206 +429,179 @@ impl FilePreview {
         editor: &'editor Editor,
         (target, range): FileLocation<'_>,
     ) -> Option<(Preview<'preview, 'editor>, Option<(usize, usize)>)> {
-        let path = match target {
-            PathOrId::Id(id) => {
-                let doc = editor.document(id)?;
-                if !doc.is_binary() {
-                    return Some((Preview::EditorDocument(doc), range));
-                }
-                doc.path()?
-            }
-            PathOrId::Path(path) => {
-                if let Some(doc) = open_text_document(editor, path) {
-                    return Some((Preview::EditorDocument(doc), range));
-                }
-                path
-            }
-        };
-        self.preview_cache
-            .get_mut(path)
-            .map(|entry| (Preview::Cached(&mut entry.preview), range))
+        match resolve_target(editor, target)? {
+            PathOrId::Id(id) => Some((Preview::EditorDocument(editor.document(id)?), range)),
+            PathOrId::Path(path) => self
+                .preview_cache
+                .get_mut(path)
+                .map(|entry| (Preview::Cached(&mut entry.preview), range)),
+        }
     }
 
-    pub(super) fn get<'preview, 'editor, T: 'static + Send + Sync, D: 'static + Send + Sync>(
-        &'preview mut self,
-        editor: &'editor Editor,
-        (path_or_id, range): FileLocation<'_>,
+    /// Prepare the selected file. Rendering reads only through `cached`.
+    pub(super) fn prepare<T: 'static + Send + Sync, D: 'static + Send + Sync>(
+        &mut self,
+        editor: &Editor,
+        target: PathOrId<'_>,
         jobs: &crate::job::Jobs,
         image_picker: Option<&ratatui_image::picker::Picker>,
         image_size: Size,
-    ) -> Option<(Preview<'preview, 'editor>, Option<(usize, usize)>)> {
+    ) {
         self.image_cache
             .get_or_insert_with(|| jobs.image_cache.clone());
         self.receive_changes(editor);
-        let path_or_id = match path_or_id {
-            PathOrId::Id(id) => {
-                let Some(doc) = editor.documents.get(&id) else {
-                    self.cancel_loads(None);
-                    return None;
-                };
-                if doc.is_binary() {
-                    doc.path().map_or(PathOrId::Id(id), PathOrId::Path)
-                } else {
-                    PathOrId::Id(id)
-                }
-            }
-            path => path,
-        };
-        self.cancel_loads(match path_or_id {
-            PathOrId::Path(path) => Some((path, image_size)),
-            PathOrId::Id(_) => None,
+        let target = resolve_target(editor, target);
+        self.cancel_loads(match target {
+            Some(PathOrId::Path(path)) => Some((path, image_size)),
+            _ => None,
         });
-        match path_or_id {
-            PathOrId::Path(path) => {
-                if let Some(doc) = open_text_document(editor, path) {
-                    self.cancel_syntax_load(None);
-                    return Some((Preview::EditorDocument(doc), range));
-                }
+        let Some(PathOrId::Path(path)) = target else {
+            return;
+        };
+        let stamp = FileStamp::read(path);
+        let loader = editor.syn_loader.load();
+        let poll = &editor.config().files.reload.poll;
+        let writing = editor.file_is_writing(path);
+        if writing && !self.preview_cache.contains_key(path) {
+            return;
+        }
+        if !writing
+            && self.preview_cache.get(path).is_some_and(|entry| {
+                entry.invalidated
+                    || entry.stamp != stamp
+                    || matches!(&entry.preview, CachedPreview::Document(doc)
+                    if !std::ptr::eq(doc.syntax_loader(), loader.as_ref()))
+                    || (matches!(entry.preview, CachedPreview::Directory(_))
+                        && poll.enable
+                        && entry.checked.elapsed() >= Duration::from_millis(poll.interval.max(100)))
+            })
+            && !self.refresh_document(path, editor, FileStamp::read(path))
+        {
+            self.remove(path);
+        }
+        if matches!(self.preview_cache.get(path).map(|entry| &entry.preview), Some(CachedPreview::Image(image))
+            if image.size() != image_size || matches!(image.as_ref(), ImagePreview::Ready { image, .. }
+                if image_picker.is_some_and(|picker| !image.is_current(path, picker, image_size))))
+        {
+            self.remove(path);
+        }
+        if let Some((path, _)) = self.preview_cache.get_key_value(path) {
+            let path = Arc::clone(path);
+            self.highlight::<T, D>(path, jobs);
+            return;
+        }
 
-                let stamp = FileStamp::read(path);
-                let loader = editor.syn_loader.load();
-                let poll = &editor.config().files.reload.poll;
-                let writing = editor.file_is_writing(path);
-                if writing && !self.preview_cache.contains_key(path) {
-                    return None;
-                }
-                if !writing
-                    && self.preview_cache.get(path).is_some_and(|entry| {
-                        entry.invalidated
-                            || entry.stamp != stamp
-                            || matches!(&entry.preview, CachedPreview::Document(doc)
-                            if !std::ptr::eq(doc.syntax_loader(), loader.as_ref()))
-                            || (matches!(entry.preview, CachedPreview::Directory(_))
-                                && poll.enable
-                                && entry.checked.elapsed()
-                                    >= Duration::from_millis(poll.interval.max(100)))
-                    })
-                    && !self.refresh_document(path, editor, FileStamp::read(path))
-                {
-                    self.remove(path);
-                }
-                if matches!(self.preview_cache.get(path).map(|entry| &entry.preview), Some(CachedPreview::Image(image))
-                    if image.size() != image_size || matches!(image.as_ref(), ImagePreview::Ready { image, .. }
-                        if image_picker.is_some_and(|picker| !image.is_current(path, picker, image_size))))
-                {
-                    self.remove(path);
-                }
-                if self.preview_cache.contains_key(path) {
-                    let (path, _) = self.preview_cache.get_key_value(path).unwrap();
-                    let path = Arc::clone(path);
-                    self.highlight::<T, D>(path.clone(), jobs);
-                    let preview = self.preview_cache.get_mut(&path).unwrap();
-                    return Some((Preview::Cached(&mut preview.preview), range));
-                }
-
-                let path: Arc<Path> = path.into();
-                if let Some(image) = image_picker
-                    .and_then(|picker| cached_image(&jobs.image_cache, &path, picker, image_size))
-                {
-                    // Other images remain available in the shared, bounded cache.
-                    self.preview_cache
-                        .retain(|_, entry| !matches!(entry.preview, CachedPreview::Image(_)));
-                    self.preview_cache.insert(
-                        path.clone(),
-                        CacheEntry::new(
-                            &path,
-                            stamp,
-                            CachedPreview::Image(Box::new(ImagePreview::Ready {
+        let path: Arc<Path> = path.into();
+        if let Some(image) = image_picker
+            .and_then(|picker| cached_image(&jobs.image_cache, &path, picker, image_size))
+        {
+            // Other images remain available in the shared, bounded cache.
+            self.preview_cache
+                .retain(|_, entry| !matches!(entry.preview, CachedPreview::Image(_)));
+            self.preview_cache.insert(
+                path.clone(),
+                CacheEntry::new(
+                    &path,
+                    stamp,
+                    CachedPreview::Image(Box::new(ImagePreview::Ready {
+                        size: image_size,
+                        image,
+                    })),
+                ),
+            );
+            return;
+        }
+        let preview = std::fs::metadata(&path)
+            .and_then(|metadata| {
+                if metadata.is_dir() {
+                    let files =
+                        crate::ui::directory_content(&path, &editor.config().file_explorer)?;
+                    Ok(CachedPreview::Directory(files))
+                } else if metadata.is_file() {
+                    if metadata.len() > MAX_FILE_SIZE_FOR_PREVIEW {
+                        return Ok(CachedPreview::LargeFile);
+                    }
+                    let is_binary = std::fs::File::open(&path).and_then(|file| {
+                        let n = file.take(1024).read_to_end(&mut self.read_buffer)?;
+                        let bytes = &self.read_buffer[..n];
+                        let is_binary =
+                            crate::is_binary(bytes) || image::guess_format(bytes).is_ok();
+                        self.read_buffer.clear();
+                        Ok(is_binary)
+                    })?;
+                    if is_binary {
+                        return Ok(if image_picker.is_some() {
+                            CachedPreview::Image(Box::new(ImagePreview::Loading {
                                 size: image_size,
-                                image,
-                            })),
-                        ),
-                    );
-                    return Some((
-                        Preview::Cached(&mut self.preview_cache.get_mut(&path).unwrap().preview),
-                        range,
-                    ));
-                }
-                let preview = std::fs::metadata(&path)
-                    .and_then(|metadata| {
-                        if metadata.is_dir() {
-                            let files = crate::ui::directory_content(
-                                &path,
-                                &editor.config().file_explorer,
-                            )?;
-                            Ok(CachedPreview::Directory(files))
-                        } else if metadata.is_file() {
-                            if metadata.len() > MAX_FILE_SIZE_FOR_PREVIEW {
-                                return Ok(CachedPreview::LargeFile);
-                            }
-                            let is_binary = std::fs::File::open(&path).and_then(|file| {
-                                let n = file.take(1024).read_to_end(&mut self.read_buffer)?;
-                                let bytes = &self.read_buffer[..n];
-                                let is_binary =
-                                    crate::is_binary(bytes) || image::guess_format(bytes).is_ok();
-                                self.read_buffer.clear();
-                                Ok(is_binary)
-                            })?;
-                            if is_binary {
-                                return Ok(if image_picker.is_some() {
-                                    CachedPreview::Image(Box::new(ImagePreview::Loading {
-                                        size: image_size,
-                                        request: Arc::new(()),
-                                    }))
-                                } else {
-                                    CachedPreview::Binary
-                                });
-                            }
-                            let doc = Document::open_for_preview(
-                                &path,
-                                editor.config.clone(),
-                                editor.syn_loader.load_full(),
-                            )
-                            .or(Err(std::io::Error::new(
-                                std::io::ErrorKind::NotFound,
-                                "Cannot open document",
-                            )))?;
-                            Ok(CachedPreview::Document(Box::new(doc)))
+                                request: Arc::new(()),
+                            }))
                         } else {
-                            Err(std::io::Error::new(
-                                std::io::ErrorKind::NotFound,
-                                "Neither a dir, nor a file",
-                            ))
-                        }
-                    })
-                    .unwrap_or(CachedPreview::NotFound);
-                let request = match &preview {
-                    CachedPreview::Image(image) => match image.as_ref() {
-                        ImagePreview::Loading { request, .. } => Some(request.clone()),
-                        _ => None,
-                    },
-                    _ => None,
-                };
-                if request.is_some() {
-                    // Decoded images and their terminal encodings can be much larger than the
-                    // files on disk. Keep only the active image preview while retaining the
-                    // existing cache behavior for text documents and directories.
-                    self.preview_cache
-                        .retain(|_, entry| !matches!(entry.preview, CachedPreview::Image(_)));
+                            CachedPreview::Binary
+                        });
+                    }
+                    let doc = Document::open_for_preview(
+                        &path,
+                        editor.config.clone(),
+                        editor.syn_loader.load_full(),
+                    )
+                    .or(Err(std::io::Error::new(
+                        std::io::ErrorKind::NotFound,
+                        "Cannot open document",
+                    )))?;
+                    Ok(CachedPreview::Document(Box::new(doc)))
+                } else {
+                    Err(std::io::Error::new(
+                        std::io::ErrorKind::NotFound,
+                        "Neither a dir, nor a file",
+                    ))
                 }
-                self.preview_cache
-                    .insert(path.clone(), CacheEntry::new(&path, stamp, preview));
-                self.highlight::<T, D>(path.clone(), jobs);
-                if let Some(request) = request {
-                    self.image_task = Some(spawn_image_preview::<T, D>(
-                        jobs.sender(),
-                        jobs.image_cache.clone(),
-                        path.clone(),
-                        image_picker.unwrap().clone(),
-                        image_size,
-                        request,
-                    ));
-                }
-                Some((
-                    Preview::Cached(&mut self.preview_cache.get_mut(&path).unwrap().preview),
-                    range,
-                ))
-            }
-            PathOrId::Id(id) => {
-                let doc = editor.documents.get(&id).unwrap();
-                Some((Preview::EditorDocument(doc), range))
+            })
+            .unwrap_or(CachedPreview::NotFound);
+        let request = match &preview {
+            CachedPreview::Image(image) => match image.as_ref() {
+                ImagePreview::Loading { request, .. } => Some(request.clone()),
+                _ => None,
+            },
+            _ => None,
+        };
+        if request.is_some() {
+            // Decoded images and their terminal encodings can be much larger than the
+            // files on disk. Keep only the active image preview while retaining the
+            // existing cache behavior for text documents and directories.
+            self.preview_cache
+                .retain(|_, entry| !matches!(entry.preview, CachedPreview::Image(_)));
+        }
+        self.preview_cache
+            .insert(path.clone(), CacheEntry::new(&path, stamp, preview));
+        self.highlight::<T, D>(path.clone(), jobs);
+        if let Some(request) = request {
+            self.image_task = Some(spawn_image_preview::<T, D>(
+                jobs.sender(),
+                jobs.image_cache.clone(),
+                path.clone(),
+                image_picker.unwrap().clone(),
+                image_size,
+                request,
+            ));
+        }
+    }
+}
+
+/// Open text buffers are authoritative; binary buffers use their file preview.
+fn resolve_target<'a>(editor: &'a Editor, target: PathOrId<'a>) -> Option<PathOrId<'a>> {
+    match target {
+        PathOrId::Id(id) => {
+            let doc = editor.document(id)?;
+            if doc.is_binary() {
+                doc.path().map(PathOrId::Path)
+            } else {
+                Some(PathOrId::Id(id))
             }
         }
+        PathOrId::Path(path) => Some(
+            open_text_document(editor, path)
+                .map_or(PathOrId::Path(path), |doc| PathOrId::Id(doc.id())),
+        ),
     }
 }
 

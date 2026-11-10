@@ -1041,8 +1041,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         true
     }
 
-    /// Get (cached) preview for the currently selected item. If a document corresponding
-    /// to the path is already open in the editor, it is used instead.
+    /// Prepare the selected file's cache and background loads before rendering.
     fn prepare_preview(
         &mut self,
         editor: &Editor,
@@ -1061,7 +1060,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         };
         self.preview_scroll.select(&location);
         self.preview
-            .get::<T, D>(editor, location, jobs, image_picker, image_size);
+            .prepare::<T, D>(editor, location.0, jobs, image_picker, image_size);
     }
 
     fn get_preview<'picker, 'editor>(
