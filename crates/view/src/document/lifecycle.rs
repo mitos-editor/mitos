@@ -16,7 +16,7 @@ impl Document {
         self.rename.cancel();
         self.cancel_view_requests(|state| &mut state.code_actions);
         self.workspace_symbols.cancel();
-        self.inlay_hints.clear();
+        self.reset_all_inlay_hints();
         self.inline_completions.clear();
         self.accepted_completions.cancel();
         self.document_colors.invalidate();
