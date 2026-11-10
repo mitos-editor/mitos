@@ -29,7 +29,7 @@ mod statusline;
 mod text;
 mod text_decorations;
 
-use crate::job::{self, Callback};
+use crate::job::Callback;
 use crate::ui::completers::CompletionResult;
 pub use completion::Completion;
 pub use editor::EditorView;
@@ -212,28 +212,24 @@ fn search_prompt_impl(
                             doc.set_view_offset(view.id, offset_snapshot);
 
                             if event == PromptEvent::Validate {
-                                let callback = async move {
-                                    let call: job::Callback =
-                                        Callback::ui(move |compositor, cx| {
-                                            let editor = &mut *cx.editor;
-                                            let contents = Text::new(err.root_cause().to_string());
-                                            let size = compositor.size();
-                                            let editor_area = size.clip_bottom(
-                                                1 + editor.config().command_line.reserved_height(),
-                                            );
-                                            let popup = Popup::new("invalid-regex", contents)
-                                                .with_border(panel::PopupBorder::Search)
-                                                .position(Some(text_layout::DisplayPosition::new(
-                                                    editor_area.bottom().saturating_sub(1) as usize,
-                                                    0,
-                                                )))
-                                                .auto_close(true);
-                                            compositor.replace_or_push("invalid-regex", popup);
-                                        });
-                                    Ok(call)
-                                };
-
-                                cx.jobs.callback(callback);
+                                cx.jobs
+                                    .sender()
+                                    .enqueue(Callback::ui(move |compositor, cx| {
+                                        let editor = &mut *cx.editor;
+                                        let contents = Text::new(err.root_cause().to_string());
+                                        let size = compositor.size();
+                                        let editor_area = size.clip_bottom(
+                                            1 + editor.config().command_line.reserved_height(),
+                                        );
+                                        let popup = Popup::new("invalid-regex", contents)
+                                            .with_border(panel::PopupBorder::Search)
+                                            .position(Some(text_layout::DisplayPosition::new(
+                                                editor_area.bottom().saturating_sub(1) as usize,
+                                                0,
+                                            )))
+                                            .auto_close(true);
+                                        compositor.replace_or_push("invalid-regex", popup);
+                                    }));
                             }
                         }
                     }

@@ -632,8 +632,9 @@ pub(super) mod typed {
         cx: &mut compositor::Context,
         command: fn(&mut super::Context),
     ) -> anyhow::Result<()> {
-        cx.jobs.callback(async move {
-            Ok(crate::job::Callback::ui(move |compositor, cx| {
+        cx.jobs
+            .sender()
+            .enqueue(crate::job::Callback::ui(move |compositor, cx| {
                 let mut command_cx = super::Context {
                     config: cx.config,
                     register: None,
@@ -648,8 +649,7 @@ pub(super) mod typed {
                 for callback in command_cx.callback {
                     callback(compositor, cx);
                 }
-            }))
-        });
+            }));
 
         Ok(())
     }

@@ -199,15 +199,11 @@ pub(super) mod typed {
         cx: &mut compositor::Context,
         _args: Args,
     ) -> anyhow::Result<()> {
-        let callback = Box::pin(async move {
-            let call: job::Callback = job::Callback::ui(move |compositor, _cx| {
+        cx.jobs
+            .sender()
+            .enqueue(job::Callback::ui(move |compositor, _cx| {
                 compositor.need_full_redraw();
-            });
-
-            Ok(call)
-        });
-
-        cx.jobs.callback(callback);
+            }));
 
         Ok(())
     }
