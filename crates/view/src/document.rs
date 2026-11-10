@@ -1,5 +1,7 @@
 mod display;
 mod presentation;
+pub(crate) use presentation::Presentation;
+pub use presentation::PresentedDocument;
 mod source;
 pub use crate::features::formatting::FormatterError;
 pub use display::{DocumentDisplay, DocumentKind};

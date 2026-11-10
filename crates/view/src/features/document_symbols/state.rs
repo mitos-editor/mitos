@@ -16,15 +16,6 @@ pub(crate) struct DocumentSymbols {
     pub(super) picker: TaskController,
 }
 
-impl DocumentSymbols {
-    pub(crate) fn presentation(&self) -> Self {
-        Self {
-            cache: self.cache.clone(),
-            ..Self::default()
-        }
-    }
-}
-
 #[derive(Clone)]
 struct DocumentSymbolCache {
     tree: Vec<ThinDocumentSymbol>,

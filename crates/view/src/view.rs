@@ -282,16 +282,7 @@ impl View {
     }
 
     pub fn gutter_offset(&self, doc: &Document) -> u16 {
-        let total_width = self
-            .gutters_for(doc)
-            .iter()
-            .map(|gutter| crate::gutter::width(*gutter, self, doc) as u16)
-            .sum();
-        if total_width < self.area.width {
-            total_width
-        } else {
-            0
-        }
+        self.gutter_offset_presented(doc.into())
     }
 
     pub fn breadcrumb_offset(&self, doc: &Document) -> u16 {
@@ -440,8 +431,32 @@ impl View {
 
     /// Prepare geometry, text formatting, and feature annotations once for an operation.
     pub fn layout<'a>(&self, doc: &'a Document, theme: Option<&Theme>) -> ViewLayout<'a> {
-        let viewport = self.inner_area(doc);
-        let format = doc.text_format(viewport.width, theme);
+        self.layout_presented(doc.into(), theme)
+    }
+
+    pub fn gutter_offset_presented(&self, doc: crate::document::PresentedDocument<'_>) -> u16 {
+        let width = self
+            .gutters_for(doc.source())
+            .iter()
+            .map(|gutter| crate::gutter::width(*gutter, self, doc) as u16)
+            .sum();
+        if width < self.area.width {
+            width
+        } else {
+            0
+        }
+    }
+
+    pub fn layout_presented<'a>(
+        &self,
+        doc: crate::document::PresentedDocument<'a>,
+        theme: Option<&Theme>,
+    ) -> ViewLayout<'a> {
+        let viewport = self
+            .content_area(doc.source())
+            .clip_top(self.breadcrumb_offset(doc.source()))
+            .clip_left(self.gutter_offset_presented(doc));
+        let format = doc.source().text_format(viewport.width, theme);
         let annotations = self.prepare_text_annotations(doc, theme, &format, viewport.width);
         ViewLayout {
             text: doc.text().slice(..),
@@ -454,7 +469,7 @@ impl View {
 
     fn prepare_text_annotations<'a>(
         &self,
-        doc: &'a Document,
+        doc: crate::document::PresentedDocument<'a>,
         theme: Option<&Theme>,
         format: &TextFormat,
         width: u16,
@@ -492,7 +507,7 @@ impl View {
                 .add_inline_annotations(other_inlay_hints, other_style)
                 .add_inline_annotations(padding_after_inlay_hints, None);
         };
-        let config = doc.config.load();
+        let config = doc.source().config.load();
 
         if config.lsp.color_swatches.enable
             && let Some(DocumentColorSwatches {

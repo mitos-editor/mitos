@@ -29,33 +29,6 @@ pub(crate) struct DocumentViewState {
 }
 
 impl DocumentViewState {
-    /// Copy rendering state without inheriting live requests or view history.
-    pub(super) fn presentation(&self) -> Self {
-        Self {
-            selection: self.selection.clone(),
-            folds: self.folds.clone(),
-            position: self.position,
-            jump_labels: self.jump_labels.clone(),
-            restore_append_cursor: self.restore_append_cursor,
-            expansion_history: self.expansion_history.clone(),
-            // Selection history belongs to the view that made the changes.
-            selection_undo: Default::default(),
-            selection_shown: self.selection_shown,
-            hover: Default::default(),
-            navigation: Default::default(),
-            code_actions: Default::default(),
-            shell_filters: Default::default(),
-            inlay_hints: self.inlay_hints.presentation(),
-            document_highlights: self.document_highlights.presentation(),
-            code_action_hints: self.code_action_hints.presentation(),
-            breadcrumbs: self.breadcrumbs.clone(),
-            search: self.search.presentation(),
-            search_highlight: self.search_highlight.clone(),
-        }
-    }
-}
-
-impl DocumentViewState {
     pub(super) fn new(selection: Selection) -> Self {
         Self {
             selection,

@@ -1,13 +1,14 @@
 //! Shared gutter widths used by viewport layout and hit testing.
 
-use crate::{Document, View};
+use crate::{document::PresentedDocument, View};
 use editor_config::GutterType;
 
 fn count_digits(n: usize) -> usize {
     (usize::checked_ilog10(n).unwrap_or(0) + 1) as usize
 }
 
-pub fn width(gutter: GutterType, view: &View, doc: &Document) -> usize {
+pub fn width<'a>(gutter: GutterType, view: &View, doc: impl Into<PresentedDocument<'a>>) -> usize {
+    let doc = doc.into();
     match gutter {
         GutterType::Diagnostics => 1,
         GutterType::LineNumbers => line_numbers_width(view, doc),
@@ -22,8 +23,8 @@ pub fn width(gutter: GutterType, view: &View, doc: &Document) -> usize {
 /// The width of the gutter depends on the number of lines in the document,
 /// whether there is content on the last line (the `~` line), and the
 /// `editor.gutters.line-numbers.min-width` settings.
-fn line_numbers_width(view: &View, doc: &Document) -> usize {
-    if let Some(review) = doc.review() {
+fn line_numbers_width(view: &View, doc: PresentedDocument<'_>) -> usize {
+    if let Some(review) = doc.source().review() {
         return review.review().line_number_width() * 2 + 1;
     }
     let text = doc.text();
@@ -33,7 +34,7 @@ fn line_numbers_width(view: &View, doc: &Document) -> usize {
     // Relative numbers still measure cursor motions through physical source lines.
     let conflicts = doc.conflict_presentation();
     let last_drawn = if conflicts.regions.is_empty()
-        || doc.config.load().line_number == editor_config::LineNumber::Relative
+        || doc.source().config.load().line_number == editor_config::LineNumber::Relative
     {
         last_drawn
     } else {

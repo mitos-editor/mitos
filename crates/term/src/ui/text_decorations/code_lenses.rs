@@ -187,7 +187,7 @@ mod tests {
         let viewport = view::graphics::Rect::new(2, 1, width, 10);
         let mut renderer = TextRenderer::new(
             &mut surface,
-            crate::ui::document::render_settings(doc, &doc.config.load()),
+            crate::ui::document::render_settings(doc.into(), &doc.config.load()),
             &theme,
             offset,
             viewport,
@@ -199,7 +199,7 @@ mod tests {
             ..Default::default()
         };
         decorations.add_decoration(InlineDiagnostics::new(
-            doc,
+            doc.into(),
             &theme,
             0,
             config,

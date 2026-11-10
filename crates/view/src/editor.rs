@@ -645,8 +645,9 @@ impl Editor {
         let doc = self.completion_presentation(doc);
         let text = doc.text().slice(..);
         let cursor = doc.selection(view.id).primary().cursor(text);
-        if let Some(mut pos) = view.screen_coords_at_pos(doc, cursor) {
-            let inner = view.inner_area(doc);
+        let layout = view.layout_presented(doc, None);
+        if let Some(mut pos) = layout.display_position_at_pos(cursor) {
+            let inner = layout.viewport;
             pos.col += inner.x as usize;
             pos.row += inner.y as usize;
             let cursorkind = self.mode.cursor_shape(&config.cursor.shape);

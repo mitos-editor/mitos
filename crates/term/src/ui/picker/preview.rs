@@ -824,7 +824,7 @@ pub(super) fn render_preview_content(
     };
     let mut overlay_highlights = Vec::new();
     if let Some(highlights) =
-        crate::ui::change_review::document::highlights(doc, &layout, &cx.editor.theme)
+        crate::ui::change_review::document::highlights(doc.into(), &layout, &cx.editor.theme)
     {
         overlay_highlights.push(highlights);
     }
@@ -832,17 +832,17 @@ pub(super) fn render_preview_content(
         .language_config()
         .and_then(|config| config.rainbow_brackets)
         .unwrap_or(config.rainbow_brackets.enable)
-        && let Some(overlay) = highlights::rainbow_highlights(doc, &layout, &cx.editor.theme)
+        && let Some(overlay) = highlights::rainbow_highlights(doc.into(), &layout, &cx.editor.theme)
     {
         overlay_highlights.push(overlay);
     }
 
-    highlights::diagnostic_highlights(doc, &cx.editor.theme, &mut overlay_highlights);
+    highlights::diagnostic_highlights(doc.into(), &cx.editor.theme, &mut overlay_highlights);
 
     let mut decorations = DecorationManager::default();
     if doc.review().is_some() {
         decorations.add_decoration(crate::ui::change_review::document::line_backgrounds(
-            doc,
+            doc.into(),
             &cx.editor.theme,
         ));
     }
@@ -869,7 +869,7 @@ pub(super) fn render_preview_content(
 
     render_document(
         surface,
-        doc,
+        doc.into(),
         &layout,
         overlay_highlights,
         &cx.editor.theme,

@@ -92,12 +92,12 @@ impl ConflictView {
             .row;
         let mut decorations = DecorationManager::default();
         decorations.add_decoration(text_decorations::conflicts::line_backgrounds(
-            doc,
+            doc.into(),
             &cx.editor.theme,
         ));
         render_document(
             surface,
-            doc,
+            doc.into(),
             &view::view::ViewLayout {
                 text: doc.text().slice(..),
                 viewport,

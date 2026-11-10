@@ -116,7 +116,12 @@ impl DiagnosticsHandler {
         self.active_generation
             .store(self.generation.get(), atomic::Ordering::Relaxed);
     }
-    pub fn show_cursorline_diagnostics(&self, doc: &Document, view: ViewId) -> bool {
+    pub fn show_cursorline_diagnostics<'a>(
+        &self,
+        doc: impl Into<crate::document::PresentedDocument<'a>>,
+        view: ViewId,
+    ) -> bool {
+        let doc = doc.into();
         if !self.active {
             return false;
         }
@@ -124,11 +129,11 @@ impl DiagnosticsHandler {
             .selection(view)
             .primary()
             .cursor_line(doc.text().slice(..));
-        if self.last_cursor_line.get() == cursor_line && self.last_doc.get() == doc.id() {
+        if self.last_cursor_line.get() == cursor_line && self.last_doc.get() == doc.source().id() {
             let active_generation = self.active_generation.load(atomic::Ordering::Relaxed);
             self.generation.get() == active_generation
         } else {
-            self.last_doc.set(doc.id());
+            self.last_doc.set(doc.source().id());
             self.last_cursor_line.set(cursor_line);
             self.generation.set(self.generation.get() + 1);
             send_blocking(

@@ -1,14 +1,17 @@
 use editor_config::{InlineBlameConfig, InlineBlameShow};
 use text_layout::DisplayPosition;
 use theme::Style;
-use view::{Document, ViewId};
+use view::document::PresentedDocument;
+#[cfg(test)]
+use view::Document;
+use view::ViewId;
 
 use crate::ui::document::{LinePos, TextRenderer};
 use crate::ui::text_decorations::Decoration;
 
 /// Format only rendered lines, without allocating storage for the entire document.
 pub struct InlineBlame<'a> {
-    doc: &'a Document,
+    doc: PresentedDocument<'a>,
     config: &'a InlineBlameConfig,
     cursor_line: usize,
     style: Style,
@@ -16,7 +19,7 @@ pub struct InlineBlame<'a> {
 
 impl<'a> InlineBlame<'a> {
     pub fn new(
-        doc: &'a Document,
+        doc: PresentedDocument<'a>,
         view: ViewId,
         config: &'a InlineBlameConfig,
         style: Style,
@@ -32,7 +35,7 @@ impl<'a> InlineBlame<'a> {
 
 impl Decoration for InlineBlame<'_> {
     fn can_skip_unwrapped_tail(&self) -> bool {
-        !matches!(self.doc.file_blame(), Some(Ok(_)))
+        !matches!(self.doc.source().file_blame(), Some(Ok(_)))
     }
 
     fn render_virt_lines(
@@ -44,7 +47,7 @@ impl Decoration for InlineBlame<'_> {
         if !pos.is_last_visual_line
             || self.config.show == InlineBlameShow::Never
             || (self.config.show == InlineBlameShow::CursorLine && pos.doc_line != self.cursor_line)
-            || !matches!(self.doc.file_blame(), Some(Ok(_)))
+            || !matches!(self.doc.source().file_blame(), Some(Ok(_)))
         {
             return DisplayPosition::new(0, 0);
         }
@@ -61,6 +64,7 @@ impl Decoration for InlineBlame<'_> {
         }
         let Ok(blame) = self
             .doc
+            .source()
             .line_blame(pos.doc_line as u32, &self.config.format)
         else {
             return DisplayPosition::new(0, 0);
@@ -145,14 +149,14 @@ mod tests {
         let theme = theme::Loader::new(loader::theme::Resources::new(vec![])).default_theme();
         let mut decorations = DecorationManager::default();
         decorations.add_decoration(InlineBlame::new(
-            doc,
+            doc.into(),
             ViewId::default(),
             config,
             Style::default(),
         ));
         render_document(
             &mut surface,
-            doc,
+            doc.into(),
             &view::view::ViewLayout {
                 text: doc.text().slice(..),
                 viewport: area,

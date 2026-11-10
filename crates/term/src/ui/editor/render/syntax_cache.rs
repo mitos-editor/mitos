@@ -3,7 +3,10 @@ use buffer::Snapshot;
 use language::syntax::Loader;
 use std::ops::Range;
 use theme::Style;
-use view::{view::ViewLayout, Document, DocumentId};
+use view::document::PresentedDocument;
+#[cfg(test)]
+use view::Document;
+use view::{view::ViewLayout, DocumentId};
 
 type Event = (usize, Style);
 // Large ranges can arise from wrapping or a large terminal. Bypass retention
@@ -34,7 +37,7 @@ pub(super) struct ViewportSyntaxCache {
 impl ViewportSyntaxCache {
     pub(super) fn styles<'a, I, F>(
         &'a mut self,
-        doc: &'a Document,
+        doc: PresentedDocument<'a>,
         layout: &ViewLayout,
         theme: u64,
         fresh: F,
@@ -44,7 +47,7 @@ impl ViewportSyntaxCache {
         F: FnOnce() -> I + 'a,
     {
         let key = Key {
-            document: doc.id(),
+            document: doc.source().id(),
             syntax: doc.syntax().map(|s| s.revision()),
             semantic: doc.semantic_tokens_revision(),
             loader: doc.syntax_loader().highlight_revision(),
@@ -246,13 +249,14 @@ mod identity_tests {
         let two = (1, Style::default());
         assert_eq!(
             cache
-                .styles(&first, &view.layout(&first, None), 0, || [one].into_iter())
+                .styles((&first).into(), &view.layout(&first, None), 0, || [one]
+                    .into_iter())
                 .collect::<Vec<_>>(),
             [one]
         );
         assert_eq!(
             cache
-                .styles(&second, &other.layout(&second, None), 0, || [two]
+                .styles((&second).into(), &other.layout(&second, None), 0, || [two]
                     .into_iter())
                 .collect::<Vec<_>>(),
             [two]
@@ -264,11 +268,14 @@ mod identity_tests {
         let mut cache = ViewportSyntaxCache::default();
         let layout = view.layout(&doc, None);
         cache
-            .styles(&doc, &layout, 0, || [(0, Style::default())].into_iter())
+            .styles((&doc).into(), &layout, 0, || {
+                [(0, Style::default())].into_iter()
+            })
             .for_each(drop);
         assert_eq!(
             cache
-                .styles(&doc, &layout, 1, || [(1, Style::default())].into_iter())
+                .styles((&doc).into(), &layout, 1, || [(1, Style::default())]
+                    .into_iter())
                 .next()
                 .unwrap()
                 .0,
@@ -277,7 +284,8 @@ mod identity_tests {
         doc.syntax_loader().refresh_highlights();
         assert_eq!(
             cache
-                .styles(&doc, &layout, 1, || [(2, Style::default())].into_iter())
+                .styles((&doc).into(), &layout, 1, || [(2, Style::default())]
+                    .into_iter())
                 .next()
                 .unwrap()
                 .0,
@@ -290,7 +298,9 @@ mod identity_tests {
         let mut cache = ViewportSyntaxCache::default();
         let layout = view.layout(&doc, None);
         {
-            let mut styles = cache.styles(&doc, &layout, 0, || [(0, Style::default())].into_iter());
+            let mut styles = cache.styles((&doc).into(), &layout, 0, || {
+                [(0, Style::default())].into_iter()
+            });
             assert!(styles.next().is_some());
             doc.syntax_loader().refresh_highlights();
         }
@@ -298,7 +308,8 @@ mod identity_tests {
         assert_eq!(cache.entry.as_ref().unwrap().prefix.events.capacity(), 0);
         assert_eq!(
             cache
-                .styles(&doc, &layout, 0, || [(2, Style::default())].into_iter())
+                .styles((&doc).into(), &layout, 0, || [(2, Style::default())]
+                    .into_iter())
                 .next()
                 .unwrap()
                 .0,
@@ -312,7 +323,7 @@ mod identity_tests {
         let mut cache = ViewportSyntaxCache::default();
         let read = |cache: &mut ViewportSyntaxCache, doc: &Document, value| {
             cache
-                .styles(doc, &view.layout(doc, None), 0, || {
+                .styles(doc.into(), &view.layout(doc, None), 0, || {
                     [(value, Style::default())].into_iter()
                 })
                 .next()
@@ -354,7 +365,7 @@ mod rendering_tests {
         let overlays = || {
             vec![highlights::selection_highlights(
                 editor.mode(),
-                doc,
+                doc.into(),
                 view,
                 &editor.theme,
                 &config.cursor,
@@ -363,12 +374,12 @@ mod rendering_tests {
             )]
         };
         let layout = view.layout(doc, Some(&editor.theme));
-        let styles = cache.styles(doc, &layout, editor.theme.revision(), || {
-            highlights::document_syntax_styles(doc, &layout, &editor.theme)
+        let styles = cache.styles(doc.into(), &layout, editor.theme.revision(), || {
+            highlights::document_syntax_styles(doc.into(), &layout, &editor.theme)
         });
         render_document_with_styles(
             &mut actual,
-            doc,
+            doc.into(),
             &layout,
             overlays(),
             &editor.theme,
@@ -378,7 +389,7 @@ mod rendering_tests {
         let fresh = view.layout(doc, Some(&editor.theme));
         render_document(
             &mut expected,
-            doc,
+            doc.into(),
             &fresh,
             overlays(),
             &editor.theme,

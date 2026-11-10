@@ -87,7 +87,7 @@ pub(super) enum CompletionEdit {
     Shown,
     Preview {
         source: buffer::Snapshot,
-        document: Box<Document>,
+        presentation: Box<crate::document::Presentation>,
     },
     Applied(CompletionApply),
 }
@@ -239,25 +239,27 @@ impl Editor {
             changes = changes.compose(additional.changes().clone());
         }
         let transaction = Transaction::from(changes).with_selection(selection);
-        let document = Box::new(doc.presentation(&transaction, session.trigger.view));
+        let presentation = Box::new(doc.presentation(&transaction, session.trigger.view));
         self.handlers.completions.edit = Some(CompletionEdit::Preview {
             source: doc.snapshot(),
-            document,
+            presentation,
         });
         Ok(true)
     }
 
     /// Read-only text and mapped rendering state while a completion preview is current.
-    pub fn completion_presentation<'a>(&'a self, doc: &'a Document) -> &'a Document {
+    pub fn completion_presentation<'a>(
+        &'a self,
+        doc: &'a Document,
+    ) -> crate::document::PresentedDocument<'a> {
         match &self.handlers.completions.edit {
-            Some(CompletionEdit::Preview { source, document })
-                if document.id() == doc.id()
-                    && source.is_current(&doc.buffer)
-                    && super::is_active(self) =>
-            {
-                document
+            Some(CompletionEdit::Preview {
+                source,
+                presentation,
+            }) if source.is_current(&doc.buffer) && super::is_active(self) => {
+                crate::document::PresentedDocument::proposed(doc, presentation)
             }
-            _ => doc,
+            _ => doc.into(),
         }
     }
 
