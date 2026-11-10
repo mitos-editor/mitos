@@ -87,6 +87,10 @@ impl Document {
         }
         for state in self.view_states.values_mut() {
             state.expansion_history.clear();
+            state.inlay_hints.apply_changes(changes);
+            state
+                .document_highlights
+                .apply_changes(changes, self.buffer.text().len_chars());
             state.folds.apply_changes(changes);
             let selection = &mut state.selection;
             *selection = selection
@@ -123,12 +127,8 @@ impl Document {
         self.inline_completions.clear();
         self.map_snippet(changes);
 
-        self.inlay_hints.apply_changes(changes);
         self.cancel_view_requests(|state| &mut state.hover);
         self.cancel_view_requests(|state| &mut state.navigation);
-
-        self.document_highlights
-            .apply_changes(changes, self.buffer.text().len_chars());
 
         // Install an explicit transaction selection before observers inspect the new state.
         if let (Some(selection), Some(view_id)) = (selection, view_id) {

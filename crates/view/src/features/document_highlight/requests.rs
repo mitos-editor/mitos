@@ -172,7 +172,7 @@ fn schedule(doc: &mut crate::Document, view: ViewId) {
     {
         let doc_id = doc.id();
         let scheduled = doc.document_highlight_controller(view).restart();
-        if let Some(handler) = &doc.document_highlights.handler {
+        if let Some(handler) = &doc.document_highlight_handler {
             handler.callbacks.send_work_blocking(move |editor| {
                 if !scheduled.is_canceled() {
                     request_document_highlights(editor, doc_id, view);

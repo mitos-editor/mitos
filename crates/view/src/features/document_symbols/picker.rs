@@ -148,10 +148,8 @@ impl Editor {
             .document_mut(document)
             .context("Symbol document is closed")?;
         let uri = doc.uri().context("Document has no URI")?;
-        let mut seen = std::collections::HashSet::new();
         let requests = doc
             .language_servers_with_feature(LanguageServerFeature::DocumentSymbols)
-            .filter(|server| seen.insert(server.id()))
             .filter_map(|server| {
                 let future = server.document_symbols(doc.identifier())?;
                 let (id, encoding, uri) = (server.id(), server.offset_encoding(), uri.clone());

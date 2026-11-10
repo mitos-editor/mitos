@@ -1,6 +1,6 @@
 //! Workspace symbol providers captured independently of picker presentation.
 
-use std::{collections::HashSet, sync::Weak};
+use std::sync::Weak;
 
 use anyhow::{ensure, Context as _, Result};
 use event::{register_hook, TaskHandle};
@@ -124,10 +124,8 @@ impl Editor {
         let doc = self
             .document_mut(document)
             .context("Workspace symbol document is closed")?;
-        let mut seen = HashSet::new();
         let servers = doc
             .language_servers_with_feature(LanguageServerFeature::WorkspaceSymbols)
-            .filter(|server| seen.insert(server.id()))
             .filter_map(|server| doc.language_servers.get(server.name()))
             .map(|attachment| std::sync::Arc::downgrade(&attachment.client))
             .collect::<Vec<_>>();

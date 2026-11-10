@@ -135,7 +135,7 @@ pub(crate) fn register_hooks(events: &event::EventHub) {
     register_hook!(events => move |event: &mut LanguageServerExited<'_>| {
         for doc in event.editor.documents_mut() {
             if doc.supports_language_server(event.server_id) {
-                doc.document_symbols.clear();
+                doc.invalidate_document_symbols();
             }
         }
         Ok(())
@@ -144,7 +144,7 @@ pub(crate) fn register_hooks(events: &event::EventHub) {
     register_hook!(events => move |event: &mut ConfigDidChange<'_>| {
         if !event.new.lsp.enable {
             for doc in event.editor.documents_mut() {
-                doc.document_symbols.clear();
+                doc.invalidate_document_symbols();
             }
             return Ok(());
         }
@@ -163,7 +163,7 @@ pub(crate) fn register_hooks(events: &event::EventHub) {
         if event.old.breadcrumb.enable && !event.new.breadcrumb.enable {
             for doc in event.editor.documents_mut() {
                 doc.document_symbols.request.cancel();
-                doc.document_symbols.clear_cache();
+                doc.clear_document_symbols();
             }
         }
 

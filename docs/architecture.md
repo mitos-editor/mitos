@@ -807,10 +807,14 @@ Feature modules group a feature's state, request policy, and lifecycle wiring.
 Hover keeps those together in `features/hover.rs`. Inlay hints, document colors,
 links, highlights, symbols, and code lenses each group cache/edit mapping in
 `features/<feature>/state.rs` with request coordination in `requests.rs`.
-`Document` owns typed feature state and delegates view cleanup and edit mapping to
-it; `Handlers` binds each state to its editor's coordinator. Cache and scheduling
+`Document` and `DocumentViewState` own typed feature state and delegate edit mapping
+to it; `Handlers` binds document state to its editor's coordinator. Cache and scheduling
 internals stay within the feature. Cache-only clears preserve replacement requests;
 invalidation methods explicitly own request cancellation.
+Feature providers come from `Document::language_servers_with_feature`, which
+filters routing and capabilities before yielding each attached server once in
+configured order. Consumers retain server identities for response freshness;
+they do not repeat provider deduplication.
 Document annotation types retain their intentional public facade in `document`.
 All feature callers use `features` directly; there are no legacy handler aliases.
 `handlers` composes the services and retains the LSP/DAP protocol bridges and
@@ -1497,13 +1501,19 @@ protocol sessions, cancellation, and view bindings remain editor-level checks.
 
 ## Document/view state
 
-Each document owns one `DocumentViewState` per bound view, containing its selection,
-viewport position, jump labels, append cursor restoration, and structural selection history. Initialization
-preserves existing records; removal drops them together while feature coordinators
-cancel their own requests. Selection and viewport anchors map through each edit before observers
-run. Optional selection lookup and read-only iterators expose the state without
-parallel maps. Revision-keyed cursor history remains document-owned so undo in
-another split can restore the original selection after its originating view closes.
+Each document owns one `DocumentViewState` per bound view. It contains selection,
+viewport position, jump labels, cursor restoration, selection history, and
+view-scoped feature state. Inlay hints, highlights, code-action availability, and
+breadcrumbs live here rather than in separate maps. Initialization preserves
+existing records; removing a record drops its caches and request controllers
+together. Presentation copies retain display state without live request controllers.
+
+Feature coordinators and document-wide caches remain at document scope. Inline
+completion and link-following are single active sessions tagged with their
+originating view; closing that view explicitly cancels the session. Selection and
+viewport anchors map through edits before observers run. Revision-keyed cursor
+history remains document-owned so undo in another split can restore the original
+selection after its originating view closes.
 
 History navigation plans its steps without moving the current revision. Each
 applied step advances the text, text version, and history cursor together before

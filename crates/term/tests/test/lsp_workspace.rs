@@ -652,6 +652,7 @@ roots = [".lsp-root"]
 language-servers = [
     {{ name = "alpha", only-features = ["document-symbols"] }},
     {{ name = "alpha", only-features = ["document-colors"] }},
+    {{ name = "alpha", only-features = ["document-symbols", "document-colors"] }},
 ]
 "#,
             server.toml()
@@ -699,7 +700,7 @@ language-servers = [
             doc.language_servers()
                 .map(|client| client.id())
                 .collect::<Vec<_>>(),
-            [first, first]
+            [first, first, first]
         );
         for feature in [
             LanguageServerFeature::DocumentSymbols,

@@ -16,14 +16,14 @@ impl Document {
         self.rename.cancel();
         self.cancel_view_requests(|state| &mut state.code_actions);
         self.workspace_symbols.cancel();
-        self.inlay_hints.clear();
+        self.reset_all_inlay_hints();
         self.inline_completions.clear();
         self.accepted_completions.cancel();
         self.document_colors.invalidate();
         self.document_links.invalidate();
         self.code_lenses.clear();
         self.semantic_tokens.invalidate();
-        self.document_symbols.clear();
+        self.invalidate_document_symbols();
         self.clear_all_document_highlights();
         self.clear_all_code_action_hints();
         self.pull_diagnostics.clear();

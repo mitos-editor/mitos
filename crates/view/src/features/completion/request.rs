@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use stdx::rope::RopeExt as _;
@@ -209,10 +209,8 @@ pub(super) fn request_completions(
     let text = doc.text();
     let trigger_text = text.slice_chars(..cursor);
 
-    let mut seen_language_servers = HashSet::new();
     let language_servers: Vec<_> = doc
         .language_servers_with_feature(LanguageServerFeature::Completion)
-        .filter(|ls| seen_language_servers.insert(ls.id()))
         .collect();
     let mut requests = JoinSet::new();
     for (priority, ls) in language_servers.iter().enumerate() {

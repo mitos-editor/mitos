@@ -1,7 +1,5 @@
 //! Shared coordination for LSP document links results.
 
-use std::collections::HashSet;
-
 use event::register_hook;
 use futures_util::stream::FuturesUnordered;
 use language_config::LanguageServerFeature;
@@ -51,11 +49,11 @@ fn request_document_links(
     let cancel = doc.document_links.request.restart();
 
     // Exit hooks run before the server is removed from the registry.
-    let mut seen_language_servers = HashSet::new();
+    let mut servers = Vec::new();
     let futures: FuturesUnordered<_> = doc
         .language_servers_with_feature(LanguageServerFeature::DocumentLinks)
         .filter(|ls| Some(ls.id()) != exited_server)
-        .filter(|ls| seen_language_servers.insert(ls.id()))
+        .inspect(|server| servers.push(server.id()))
         .filter_map(|language_server| {
             let text = doc.text().clone();
             let offset_encoding = language_server.offset_encoding();
@@ -97,7 +95,7 @@ fn request_document_links(
         return;
     }
 
-    let request = DocumentRequest::new(doc, cancel, seen_language_servers.into_iter().collect());
+    let request = DocumentRequest::new(doc, cancel, servers);
 
     tokio::spawn(async move {
         let Some(all_links) = collect_responses(futures, &request.cancel, "document link").await

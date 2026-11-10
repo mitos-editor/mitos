@@ -1,17 +1,14 @@
-//! Per-view highlight caches and request cancellation.
+//! Per-view highlight cache and request cancellation.
 
 use editor_core::{Assoc, ChangeSet};
 use event::TaskController;
-use std::collections::HashMap;
 
-use super::DocumentHighlightHandler;
 use crate::{Document, ViewId};
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub(crate) struct DocumentHighlightsState {
-    cache: HashMap<ViewId, Vec<std::ops::Range<usize>>>,
-    requests: HashMap<ViewId, TaskController>,
-    pub(super) handler: Option<DocumentHighlightHandler>,
+    cache: Option<Vec<std::ops::Range<usize>>>,
+    request: Option<TaskController>,
 }
 
 impl DocumentHighlightsState {
@@ -22,22 +19,8 @@ impl DocumentHighlightsState {
         }
     }
 
-    pub(crate) fn bind_handler(&mut self, handler: DocumentHighlightHandler) {
-        self.handler = Some(handler);
-    }
-
-    pub(crate) fn remove_view(&mut self, view: ViewId) {
-        self.cache.remove(&view);
-        self.requests.remove(&view);
-    }
-
-    fn clear(&mut self) {
-        self.cache.clear();
-        self.requests.clear();
-    }
-
     pub(crate) fn apply_changes(&mut self, changes: &ChangeSet, text_len: usize) {
-        for highlights in self.cache.values_mut() {
+        if let Some(highlights) = &mut self.cache {
             let mut updated = Vec::with_capacity(highlights.len());
             for mut range in highlights.drain(..) {
                 changes.update_positions(
@@ -66,34 +49,36 @@ impl Document {
         view_id: ViewId,
         ranges: Vec<std::ops::Range<usize>>,
     ) {
-        if ranges.is_empty() {
-            self.document_highlights.cache.remove(&view_id);
-        } else {
-            self.document_highlights.cache.insert(view_id, ranges);
-        }
+        self.view_state_mut(view_id).document_highlights.cache =
+            (!ranges.is_empty()).then_some(ranges);
     }
 
     /// Clear rendered highlights without canceling a replacement request.
     pub fn clear_document_highlights(&mut self, view_id: ViewId) {
-        self.document_highlights.cache.remove(&view_id);
+        if let Some(state) = self.view_states.get_mut(&view_id) {
+            state.document_highlights.cache = None;
+        }
     }
 
     /// Clear every view and cancel all outstanding highlight requests.
     pub fn clear_all_document_highlights(&mut self) {
-        self.document_highlights.clear();
+        for state in self.view_states.values_mut() {
+            state.document_highlights = Default::default();
+        }
     }
 
     pub fn document_highlights(&self, view_id: ViewId) -> Option<&[std::ops::Range<usize>]> {
-        self.document_highlights
+        self.view_states
+            .get(&view_id)?
+            .document_highlights
             .cache
-            .get(&view_id)
-            .map(Vec::as_slice)
+            .as_deref()
     }
 
     pub(crate) fn document_highlight_controller(&mut self, view_id: ViewId) -> &mut TaskController {
-        self.document_highlights
-            .requests
-            .entry(view_id)
-            .or_default()
+        self.view_state_mut(view_id)
+            .document_highlights
+            .request
+            .get_or_insert_default()
     }
 }

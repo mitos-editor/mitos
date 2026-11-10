@@ -19,7 +19,8 @@ use view_state::DocumentViewState;
 
 pub use crate::features::blame::LineBlameError;
 use crate::features::{
-    blame::DocumentBlame, code_action_hint::CodeActionHints, inline_completion::InlineCompletions,
+    blame::DocumentBlame, code_action_hint::CodeActionHintHandler,
+    inline_completion::InlineCompletions,
 };
 // Retain document-facing annotation types at their established public paths.
 pub use crate::features::inline_completion::InlineCompletion;
@@ -67,8 +68,8 @@ use crate::{
     events::SelectionDidChange,
     features::{
         code_lenses::DocumentCodeLenses, document_colors::DocumentColors,
-        document_highlight::DocumentHighlightsState, document_links::DocumentLinks,
-        document_symbols::DocumentSymbols, inlay_hints::InlayHintsState,
+        document_highlight::DocumentHighlightHandler, document_links::DocumentLinks,
+        document_symbols::DocumentSymbols,
     },
     view::ViewPosition,
     DocumentId, ViewId,
@@ -188,15 +189,14 @@ pub struct Document {
     // Document-wide feature state. View-bound request controllers live in view_states.
     // Dropping either owner cancels its in-flight work.
     pub(crate) rename: event::TaskController,
-    pub(crate) inlay_hints: InlayHintsState,
     pub(crate) inline_completions: InlineCompletions,
     pub(crate) accepted_completions: crate::features::completion::AcceptedCompletions,
     pub(crate) document_colors: DocumentColors,
     pub(crate) code_lenses: DocumentCodeLenses,
     pub(crate) semantic_tokens: crate::features::semantic_tokens::SemanticTokens,
     pub(crate) document_links: DocumentLinks,
-    pub(crate) document_highlights: DocumentHighlightsState,
-    pub(crate) code_action_hints: CodeActionHints,
+    pub(crate) document_highlight_handler: Option<DocumentHighlightHandler>,
+    pub(crate) code_action_hint_handler: Option<CodeActionHintHandler>,
     pub(crate) conflicts:
         std::sync::OnceLock<Arc<crate::features::conflicts::ConflictPresentation>>,
     pub(crate) document_symbols: DocumentSymbols,
@@ -268,7 +268,6 @@ impl fmt::Debug for Document {
             .field("id", &self.id)
             .field("buffer", &self.buffer)
             .field("views", &self.view_states)
-            .field("text_annotations", &self.inlay_hints)
             .field("file", &self.file)
             .field("syntax", &self.syntax)
             .field("language", &self.language)
@@ -304,7 +303,6 @@ impl Document {
             buffer: buffer::Buffer::new(text),
             view_states: HashMap::default(),
             pending_navigation: None,
-            inlay_hints: Default::default(),
             rename: Default::default(),
             inline_completions: Default::default(),
             accepted_completions: Default::default(),
@@ -336,8 +334,8 @@ impl Document {
             config,
             version_control_head: None,
             focused_at: std::time::Instant::now(),
-            document_highlights: Default::default(),
-            code_action_hints: Default::default(),
+            document_highlight_handler: None,
+            code_action_hint_handler: None,
             conflicts: Default::default(),
             document_links: Default::default(),
             document_colors: Default::default(),
@@ -476,12 +474,8 @@ impl Document {
     /// Remove any views' data and state that is stored in the `Document`.
     pub fn remove_view(&mut self, view_id: ViewId) {
         self.view_states.remove(&view_id);
-        self.inlay_hints.remove_view(view_id);
         self.document_links.cancel_navigation_for(view_id);
-        self.document_symbols.remove_view(view_id);
-        self.document_highlights.remove_view(view_id);
         self.inline_completions.remove_view(self.id, view_id);
-        self.code_action_hints.remove_view(view_id);
     }
 
     /// Capture text and the selection of an attached view. Text tracking belongs
@@ -811,7 +805,7 @@ impl Document {
 
     /// Set the inlay hints for this document and `view_id`.
     pub fn set_inlay_hints(&mut self, view_id: ViewId, inlay_hints: DocumentInlayHints) {
-        self.inlay_hints.set(view_id, inlay_hints);
+        self.view_state_mut(view_id).inlay_hints.set(inlay_hints);
     }
 
     pub fn set_jump_labels(&mut self, view_id: ViewId, labels: Vec<Overlay>) {
@@ -831,13 +825,15 @@ impl Document {
 
     /// Get the inlay hints for this document and `view_id`.
     pub fn inlay_hints(&self, view_id: ViewId) -> Option<&DocumentInlayHints> {
-        self.inlay_hints.get(view_id)
+        self.view_states.get(&view_id)?.inlay_hints.get()
     }
 
     /// Completely removes all the inlay hints saved for the document, dropping them to free memory
     /// (since it often means inlay hints have been fully deactivated).
     pub fn reset_all_inlay_hints(&mut self) {
-        self.inlay_hints.clear();
+        for state in self.view_states.values_mut() {
+            state.inlay_hints = Default::default();
+        }
     }
 
     pub fn has_language_server_with_feature(&self, feature: LanguageServerFeature) -> bool {
@@ -888,6 +884,12 @@ mod test {
         doc.set_document_highlights(second, std::iter::once(3..5).collect());
         doc.set_code_action_hints(first);
         doc.set_code_action_hints(second);
+        let inlay_hints = DocumentInlayHints::empty_with_id(DocumentInlayHintsId {
+            first_line: 0,
+            last_line: 1,
+        });
+        doc.set_inlay_hints(first, inlay_hints.clone());
+        doc.set_inlay_hints(second, inlay_hints);
         let first_highlight = doc.document_highlight_controller(first).restart();
         let second_highlight = doc.document_highlight_controller(second).restart();
         let first_hint = doc.code_action_controller(first).restart();
@@ -896,6 +898,8 @@ mod test {
         doc.remove_view(first);
 
         assert!(doc.document_highlights(first).is_none());
+        assert!(doc.inlay_hints(first).is_none());
+        assert!(doc.inlay_hints(second).is_some());
         assert!(!doc.code_action_hints(first));
         assert!(first_highlight.is_canceled());
         assert!(first_hint.is_canceled());

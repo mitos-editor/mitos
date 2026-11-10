@@ -50,16 +50,17 @@ impl Document {
         doc.line_ending = self.line_ending;
         doc.language = self.language.clone();
         doc.syntax = self.syntax.clone();
-        doc.view_states = self.view_states.clone();
+        doc.view_states = self
+            .view_states
+            .iter()
+            .map(|(&view, state)| (view, state.presentation()))
+            .collect();
         doc.snippet = self.snippet.clone();
         doc.diagnostics = self.diagnostics.clone();
         doc.document_colors = self.document_colors.presentation();
         doc.document_links = self.document_links.presentation();
         doc.code_lenses = self.code_lenses.presentation();
-        doc.document_highlights = self.document_highlights.presentation();
         doc.document_symbols = self.document_symbols.presentation();
-        doc.code_action_hints = self.code_action_hints.presentation();
-        doc.inlay_hints = self.inlay_hints.presentation();
         let change = doc
             .buffer
             .apply(transaction.changes())
@@ -98,6 +99,20 @@ mod tests {
         let view = ViewId::default();
         doc.ensure_view_init(view);
         doc.set_document_highlights(view, std::iter::once(1..4).collect());
+        doc.set_code_action_hints(view);
+        let mut inlay_hints =
+            super::super::DocumentInlayHints::empty_with_id(super::super::DocumentInlayHintsId {
+                first_line: 0,
+                last_line: 1,
+            });
+        inlay_hints
+            .type_inlay_hints
+            .push(text_layout::text_annotations::InlineAnnotation::new(
+                1, "hint",
+            ));
+        doc.set_inlay_hints(view, inlay_hints);
+        let highlights = doc.document_highlight_controller(view).restart();
+        let hints = doc.code_action_controller(view).restart();
         let request = doc.rename.restart();
         let state = doc.view_state_mut(view);
         let view_requests = [
@@ -118,12 +133,19 @@ mod tests {
             Some(std::slice::from_ref(&(3..6)))
         );
         assert_eq!(presentation.selection(view), &Selection::single(3, 4));
+        assert!(presentation.code_action_hints(view));
+        assert_eq!(
+            presentation.inlay_hints(view).unwrap().type_inlay_hints[0].char_idx,
+            3
+        );
         assert_eq!(doc.text(), before.text());
         assert_eq!(doc.snapshot().version(), before.version());
         assert_eq!(doc.selection(view), &selection);
         assert_eq!(events.load(Ordering::Relaxed), 0);
         drop(presentation);
         assert!(!request.is_canceled());
+        assert!(!highlights.is_canceled());
+        assert!(!hints.is_canceled());
         assert!(view_requests.iter().all(|request| !request.is_canceled()));
         crate::editing::apply(&mut doc, &transaction, view).unwrap();
         assert_eq!(events.load(Ordering::Relaxed), 1);
