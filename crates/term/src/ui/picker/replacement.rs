@@ -254,9 +254,9 @@ impl<T: Send + Sync + 'static, D: Send + Sync + 'static> Picker<T, D> {
         }
         self.request_dynamic_refresh(true);
         editor.set_status(if self.case_sensitive.as_ref().unwrap().enabled {
-            "Global search is case-sensitive"
+            "Search is case-sensitive"
         } else {
-            "Global search is using smart case"
+            "Search is using smart case"
         });
     }
 
@@ -277,7 +277,7 @@ impl<T: Send + Sync + 'static, D: Send + Sync + 'static> Picker<T, D> {
             || self.results.matcher.active_injectors() > 0
         {
             cx.editor
-                .set_error(|| "Wait for global search to finish before replacing matches.");
+                .set_error(|| "Wait for search to finish before replacing matches.");
             return;
         }
         if self.replacement.is_none() {

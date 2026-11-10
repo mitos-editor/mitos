@@ -24,6 +24,20 @@ scrolled text. Multiline matches crossing the viewport boundary or a fold may
 be omitted. Workspace search and replacement previews retain their existing
 result-line highlighting.
 
+## Browse matches in the current buffer
+
+Press `Space L` to open buffer search. Enter a regular expression to see matching
+lines and a preview, then press `Enter` to select a match. Buffer search includes
+unsaved edits and works in scratch buffers and files you have not saved yet.
+
+Press `Alt-c` to toggle case sensitivity, or `Ctrl-q` to copy the results to the
+[quicklist](./quicklist.md). `Space '` reopens the picker for the same buffer.
+
+Press `Alt-r` to enter replacement text. `Enter` replaces the selected match;
+`Ctrl-Enter` replaces all occurrences in the buffer. Replacements expand regex
+captures, remain unsaved, and form one undo step. See
+[Replacing search results](./pickers.md#replacing-global-search-results) for capture syntax.
+
 ## Replace several matches
 
 1. Press `%` to select the whole file, or select the region you want to edit.

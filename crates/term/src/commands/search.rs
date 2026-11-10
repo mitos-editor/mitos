@@ -280,17 +280,8 @@ pub(super) fn global_search(cx: &mut Context) {
     cx.push_layer(Box::new(overlaid(picker)));
 }
 
-// works by using the global search thingy but settings the root to this buffer's path only
-pub(super) fn local_search(cx: &mut Context) {
-    let Some(path) = doc!(cx.editor).path().map(ToOwned::to_owned) else {
-        cx.editor.set_error(|| "Current buffer has no file path"); // e.g the opening screen
-        return;
-    };
-    let reg = cx.register.unwrap_or('/');
-    cx.editor.registers.last_search_register = reg;
-    let picker = global_search_picker(cx.editor, cx.jobs, path, reg);
-    cx.push_layer(Box::new(overlaid(picker)));
-}
+mod buffer_picker;
+pub(super) use buffer_picker::search_picker_in_current_buffer;
 
 fn global_search_picker(
     editor: &mut Editor,

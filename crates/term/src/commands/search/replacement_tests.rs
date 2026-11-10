@@ -478,7 +478,7 @@ async fn case_toggle_requeries_and_replacement_prompt_owns_register_input() -> a
         .get_status()
         .unwrap()
         .0
-        .contains("Wait for global search"));
+        .contains("Wait for search"));
     h.settle().await?;
     assert_eq!(h.count(), 1);
     h.app.editor.registers.push('r', "!".into())?;
