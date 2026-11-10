@@ -59,7 +59,6 @@ impl<T: Send + Sync + 'static, D: Send + Sync + 'static> Picker<T, D> {
         if let Some(updates) = &mut self.file_updates {
             updates.query_changed();
         }
-        self.results.discard_pending();
         let (tx, result) = oneshot::channel();
         self.pending_query = Some(PendingQuery {
             result,
@@ -77,6 +76,26 @@ impl<T: Send + Sync + 'static, D: Send + Sync + 'static> Picker<T, D> {
         true
     }
 
+    /// Both query sources stage rows with the same selection/publication policy.
+    pub(super) fn prepare_query_options(
+        &mut self,
+        data: Arc<D>,
+        cursor: usize,
+        preserve_selection: bool,
+    ) -> nucleo::Injector<T> {
+        let injector =
+            self.results
+                .prepare_refresh(data, &self.columns, self.file_fn.is_some(), &self.redraw);
+        let pending = self.results.pending_options.as_mut().unwrap();
+        pending.preserve_selection = preserve_selection;
+        pending.cursor = Some(cursor as u32);
+        if !preserve_selection {
+            self.results.offset = 0;
+        }
+        self.matching = true;
+        injector
+    }
+
     pub(super) fn poll_query_options(&mut self, editor: &Editor) {
         let Some(pending) = &mut self.pending_query else {
             return;
@@ -92,18 +111,7 @@ impl<T: Send + Sync + 'static, D: Send + Sync + 'static> Picker<T, D> {
                 match result {
                     Ok((options, data, cursor)) => {
                         let data = Arc::new(data);
-                        let injector = self.results.prepare_refresh(
-                            data.clone(),
-                            &self.columns,
-                            self.file_fn.is_some(),
-                            &self.redraw,
-                        );
-                        let pending = self.results.pending_options.as_mut().unwrap();
-                        pending.preserve_selection = preserve;
-                        pending.cursor = Some(cursor as u32);
-                        if !preserve {
-                            self.results.offset = 0;
-                        }
+                        let injector = self.prepare_query_options(data.clone(), cursor, preserve);
                         let columns = self.columns.clone();
                         let cancel = self.query_task.restart();
                         let redraw = self.redraw.on_drop();
@@ -116,7 +124,6 @@ impl<T: Send + Sync + 'static, D: Send + Sync + 'static> Picker<T, D> {
                                 inject_nucleo_item(&injector, &columns, item, &data);
                             }
                         });
-                        self.matching = true;
                     }
                     Err(error) => editor.status_sender().report_blocking(error),
                 }
