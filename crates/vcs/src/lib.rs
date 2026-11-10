@@ -156,20 +156,6 @@ impl DiffProviderRegistry {
         })
     }
 
-    /// Enumerate changed files on a blocking worker. Returning false stops iteration.
-    pub fn for_each_changed_file(
-        self,
-        scope: ChangedFileScope,
-        trust_full: bool,
-        f: impl Fn(&Path, Result<FileChange>) -> bool + Send + 'static,
-    ) {
-        drop(
-            self.for_each_file_status(scope, trust_full, move |root, status| {
-                f(root, status.map(|status| status.change().clone()))
-            }),
-        );
-    }
-
     /// Enumerate with the first successful provider, reporting one terminal error if none succeeds.
     pub fn for_each_file_status(
         self,

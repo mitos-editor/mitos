@@ -79,17 +79,6 @@ fn head_name(repo: &Repository) -> Result<Arc<ArcSwap<Box<str>>>> {
     Ok(Arc::new(ArcSwap::from_pointee(name.into_boxed_str())))
 }
 
-#[cfg(test)]
-pub fn for_each_changed_file(
-    scope: &ChangedFileScope,
-    trust_full: bool,
-    f: impl Fn(&Path, Result<FileChange>) -> bool,
-) -> Result<()> {
-    for_each_file_status(scope, trust_full, |root, status| {
-        f(root, status.map(|status| status.change().clone()))
-    })
-}
-
 pub fn for_each_file_status(
     scope: &ChangedFileScope,
     trust_full: bool,

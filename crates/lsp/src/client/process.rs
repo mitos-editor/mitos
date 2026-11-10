@@ -404,16 +404,6 @@ impl Client {
         self.notify::<lsp::notification::Exit>(())
     }
 
-    /// Requests graceful shutdown and then sends `exit`.
-    ///
-    /// Returns early without sending `exit` when the server rejects or fails
-    /// the shutdown request.
-    pub async fn shutdown_and_exit(&self) -> Result<()> {
-        self.shutdown().await?;
-        self.exit();
-        Ok(())
-    }
-
     /// Sends the LSP shutdown request followed immediately by the exit
     /// notification, without waiting for the shutdown response (fire-and-forget).
     /// The server receives both in order and exits on its own; any late shutdown
