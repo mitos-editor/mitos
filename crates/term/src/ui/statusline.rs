@@ -397,79 +397,13 @@ where
                 counts
             });
 
-    for sev in &context.editor.config().statusline.diagnostics {
-        match sev {
-            Severity::Hint if hints > 0 => {
-                let glyph = context
-                    .editor
-                    .config()
-                    .icons
-                    .then(|| ICONS.diagnostic().hint().to_string());
-                write(
-                    context,
-                    Span::styled(
-                        glyph.unwrap_or_else(|| {
-                            ICONS.diagnostic().hint().with_no_padding().to_string()
-                        }),
-                        context.editor.theme.get("hint"),
-                    ),
-                );
-                write(context, format!(" {} ", hints).into());
-            }
-            Severity::Info if info > 0 => {
-                let glyph = context
-                    .editor
-                    .config()
-                    .icons
-                    .then(|| ICONS.diagnostic().info().to_string());
-                write(
-                    context,
-                    Span::styled(
-                        glyph.unwrap_or_else(|| {
-                            ICONS.diagnostic().info().with_no_padding().to_string()
-                        }),
-                        context.editor.theme.get("info"),
-                    ),
-                );
-                write(context, format!(" {} ", info).into());
-            }
-            Severity::Warning if warnings > 0 => {
-                let glyph = context
-                    .editor
-                    .config()
-                    .icons
-                    .then(|| ICONS.diagnostic().warning().to_string());
-                write(
-                    context,
-                    Span::styled(
-                        glyph.unwrap_or_else(|| {
-                            ICONS.diagnostic().warning().with_no_padding().to_string()
-                        }),
-                        context.editor.theme.get("warning"),
-                    ),
-                );
-                write(context, format!(" {} ", warnings).into());
-            }
-            Severity::Error if errors > 0 => {
-                let glyph = context
-                    .editor
-                    .config()
-                    .icons
-                    .then(|| ICONS.diagnostic().error().to_string());
-                write(
-                    context,
-                    Span::styled(
-                        glyph.unwrap_or_else(|| {
-                            ICONS.diagnostic().error().with_no_padding().to_string()
-                        }),
-                        context.editor.theme.get("error"),
-                    ),
-                );
-                write(context, format!(" {} ", errors).into());
-            }
-            _ => {}
-        }
-    }
+    render_diagnostic_counts(
+        context,
+        (hints, info, warnings, errors),
+        &context.editor.config().statusline.diagnostics,
+        "",
+        write,
+    );
 }
 
 fn render_workspace_diagnostics<'a, F>(context: &mut RenderContext<'a>, write: F)
@@ -514,92 +448,50 @@ where
         }
     }
 
-    let sevs_to_show = &context.editor.config().statusline.workspace_diagnostics;
+    render_diagnostic_counts(
+        context,
+        (hints, info, warnings, errors),
+        &context.editor.config().statusline.workspace_diagnostics,
+        " W ",
+        write,
+    );
+}
 
-    // Avoid showing the " W " if no diagnostic counts will be shown.
-    if !sevs_to_show.iter().any(|sev| match sev {
-        Severity::Hint => hints != 0,
-        Severity::Info => info != 0,
-        Severity::Warning => warnings != 0,
-        Severity::Error => errors != 0,
-    }) {
-        return;
-    }
-
-    write(context, " W ".into());
-
-    for sev in sevs_to_show {
-        match sev {
-            Severity::Hint if hints > 0 => {
-                let glyph = context
-                    .editor
-                    .config()
-                    .icons
-                    .then(|| ICONS.diagnostic().hint().to_string());
-                write(
-                    context,
-                    Span::styled(
-                        glyph.unwrap_or_else(|| {
-                            ICONS.diagnostic().hint().with_no_padding().to_string()
-                        }),
-                        context.editor.theme.get("hint"),
-                    ),
-                );
-                write(context, format!(" {} ", hints).into());
-            }
-            Severity::Info if info > 0 => {
-                let glyph = context
-                    .editor
-                    .config()
-                    .icons
-                    .then(|| ICONS.diagnostic().info().to_string());
-                write(
-                    context,
-                    Span::styled(
-                        glyph.unwrap_or_else(|| {
-                            ICONS.diagnostic().info().with_no_padding().to_string()
-                        }),
-                        context.editor.theme.get("info"),
-                    ),
-                );
-                write(context, format!(" {} ", info).into());
-            }
-            Severity::Warning if warnings > 0 => {
-                let glyph = context
-                    .editor
-                    .config()
-                    .icons
-                    .then(|| ICONS.diagnostic().warning().to_string());
-                write(
-                    context,
-                    Span::styled(
-                        glyph.unwrap_or_else(|| {
-                            ICONS.diagnostic().warning().with_no_padding().to_string()
-                        }),
-                        context.editor.theme.get("warning"),
-                    ),
-                );
-                write(context, format!(" {} ", warnings).into());
-            }
-            Severity::Error if errors > 0 => {
-                let glyph = context
-                    .editor
-                    .config()
-                    .icons
-                    .then(|| ICONS.diagnostic().error().to_string());
-                write(
-                    context,
-                    Span::styled(
-                        glyph.unwrap_or_else(|| {
-                            ICONS.diagnostic().error().with_no_padding().to_string()
-                        }),
-                        context.editor.theme.get("error"),
-                    ),
-                );
-                write(context, format!(" {} ", errors).into());
-            }
-            _ => {}
+fn render_diagnostic_counts<'a, F>(
+    context: &mut RenderContext<'a>,
+    (hints, info, warnings, errors): (u32, u32, u32, u32),
+    severities: &[::diagnostics::Severity],
+    prefix: &str,
+    write: F,
+) where
+    F: Fn(&mut RenderContext<'a>, Span<'a>) + Copy,
+{
+    use ::diagnostics::Severity;
+    let mut needs_prefix = !prefix.is_empty();
+    for severity in severities {
+        let (count, icon, style) = match severity {
+            Severity::Hint => (hints, ICONS.diagnostic().hint(), "hint"),
+            Severity::Info => (info, ICONS.diagnostic().info(), "info"),
+            Severity::Warning => (warnings, ICONS.diagnostic().warning(), "warning"),
+            Severity::Error => (errors, ICONS.diagnostic().error(), "error"),
+        };
+        if count == 0 {
+            continue;
         }
+        if needs_prefix {
+            write(context, prefix.to_owned().into());
+            needs_prefix = false;
+        }
+        let icon = if context.editor.config().icons {
+            icon
+        } else {
+            icon.with_no_padding()
+        };
+        write(
+            context,
+            Span::styled(icon.to_string(), context.editor.theme.get(style)),
+        );
+        write(context, format!(" {count} ").into());
     }
 }
 
