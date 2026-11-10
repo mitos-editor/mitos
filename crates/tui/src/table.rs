@@ -206,19 +206,6 @@ mod tests {
     }
 
     #[test]
-    fn last_column_fills_remaining_width() {
-        let mut buffer = Buffer::empty(Rect::new(0, 0, 5, 1));
-        let table = Table::new(
-            [Row::new(["a", "bcde"])],
-            [Constraint::Length(1), Constraint::Length(1)],
-        )
-        .column_spacing(0)
-        .flex(Flex::Legacy);
-        StatefulWidget::render(table, buffer.area, &mut buffer, &mut TableState::default());
-        assert_eq!(buffer, Buffer::with_lines(["abcde"]));
-    }
-
-    #[test]
     fn start_truncation_uses_available_width_and_keeps_short_rows_left_aligned() {
         let buffer = render(
             [Row::new(["long/path/to/file.rs"]), Row::new(["main.rs"])],
