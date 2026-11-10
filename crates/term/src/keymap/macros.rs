@@ -79,6 +79,10 @@ macro_rules! alt {
 /// ```
 #[macro_export]
 macro_rules! keymap {
+    (@trie ($trie:expr)) => {
+        $trie
+    };
+
     (@trie $cmd:ident) => {
         $crate::keymap::KeyTrie::MappableCommand($crate::commands::MappableCommand::$cmd)
     };
