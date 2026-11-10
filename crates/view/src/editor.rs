@@ -205,6 +205,7 @@ impl Editor {
         mut handlers: Handlers,
         workspace_trust: WorkspaceTrust,
     ) -> Self {
+        handlers.bind_document_hooks();
         let language_servers = crate::language_servers::Registry::new(syn_loader.clone());
         let conf = config.load();
         let auto_pairs = (&conf.auto_pairs).into();

@@ -397,13 +397,17 @@ pub fn resolve_code_lenses(
     })
 }
 
-pub(crate) fn register_hooks(events: &event::EventHub) {
+pub(crate) fn register_hooks(events: &event::EventHub, hooks: crate::handlers::DocumentHooks) {
     register_hook!(events => move |event: &mut DocumentDidOpen<'_>| {
         request_document_code_lenses(event.editor, event.doc, None);
         Ok(())
     });
     register_hook!(events => move |event: &mut DocumentDidChange<'_>| {
-        if let Some(handler) = &event.doc.code_lenses.handler {
+        if !event.doc.is_content_readonly()
+            && let Some(services) = hooks.upgrade()
+            && let Some(services) = services.get()
+        {
+            let handler = &services.code_lenses;
             event::send_blocking(&handler.events, event.doc.id());
         }
         Ok(())

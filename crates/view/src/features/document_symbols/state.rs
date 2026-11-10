@@ -7,7 +7,6 @@ use lsp_client::{
 };
 use std::sync::Arc;
 
-use super::DocumentSymbolsHandler;
 use crate::{Document, ViewId};
 
 #[derive(Default)]
@@ -15,7 +14,6 @@ pub(crate) struct DocumentSymbols {
     cache: Option<DocumentSymbolCache>,
     pub(super) request: TaskController,
     pub(super) picker: TaskController,
-    pub(super) handler: Option<DocumentSymbolsHandler>,
 }
 
 impl DocumentSymbols {
@@ -24,10 +22,6 @@ impl DocumentSymbols {
             cache: self.cache.clone(),
             ..Self::default()
         }
-    }
-
-    pub(crate) fn bind_handler(&mut self, handler: DocumentSymbolsHandler) {
-        self.handler = Some(handler);
     }
 }
 

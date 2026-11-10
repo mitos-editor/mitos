@@ -147,7 +147,7 @@ fn attach_document_colors(
     });
 }
 
-pub(crate) fn register_hooks(events: &event::EventHub) {
+pub(crate) fn register_hooks(events: &event::EventHub, hooks: crate::handlers::DocumentHooks) {
     register_hook!(events => move |event: &mut DocumentLanguageDidChange<'_>| {
         request_document_colors(event.editor, event.doc, None);
         Ok(())
@@ -162,7 +162,11 @@ pub(crate) fn register_hooks(events: &event::EventHub) {
     register_hook!(events => move |event: &mut DocumentDidChange<'_>| {
         // Cancel the ongoing request, if present.
         event.doc.document_colors.request.cancel();
-        if let Some(handler) = &event.doc.document_colors.handler {
+        if !event.doc.is_content_readonly()
+            && let Some(services) = hooks.upgrade()
+            && let Some(services) = services.get()
+        {
+            let handler = &services.document_colors;
             event::send_blocking(&handler.events, event.doc.id());
         }
 

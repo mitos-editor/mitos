@@ -14,12 +14,25 @@ use crate::{
 };
 use editor_config::Config;
 use event::register_hook;
+use std::sync::{Arc, OnceLock, Weak};
 
 // Feature implementations live in `features`; this module composes their services
 // and retains protocol bridges and registry setup.
 pub mod dap;
 pub mod lsp;
 mod snippet;
+
+/// Document hooks retain their registration order while services may still be
+/// replaced before editor construction. The hub holds only a weak binding.
+pub(crate) type DocumentHooks = Weak<OnceLock<DocumentServices>>;
+
+pub(crate) struct DocumentServices {
+    pub document_colors: document_colors::DocumentColorsHandler,
+    pub document_links: document_links::DocumentLinksHandler,
+    pub code_lenses: code_lenses::DocumentCodeLensesHandler,
+    pub document_symbols: document_symbols::DocumentSymbolsHandler,
+    pub semantic_tokens: semantic_tokens::SemanticTokensHandler,
+}
 
 /// Services configured before an editor takes ownership. Access owned services through
 /// [`Editor::handlers()`]; use explicit editor methods when replacing a running service.
@@ -28,6 +41,7 @@ pub struct Handlers {
     pub config_requests: Option<crate::editor::ConfigRequests>,
     pub(crate) presentations: crate::presentation::Inbox,
     events: event::EventHub,
+    document_hooks: Arc<OnceLock<DocumentServices>>,
     pub(crate) lsp_progress: lsp_client::LspProgressMap,
     pub(crate) callbacks: EditorCallbackSender,
     pub(crate) status: event::status::StatusSender,
@@ -87,12 +101,14 @@ impl Handlers {
         callbacks: EditorCallbackSender,
         events: event::EventHub,
     ) -> Self {
-        register_hooks(&events);
+        let document_hooks = Arc::new(OnceLock::new());
+        register_hooks(&events, Arc::downgrade(&document_hooks));
         let presentations = crate::presentation::Inbox::default();
         let (status, status_messages) = event::status::StatusSender::channel();
         Self {
             config_requests: None,
             events,
+            document_hooks,
             lsp_progress: Default::default(),
             status,
             status_messages,
@@ -131,6 +147,22 @@ impl Handlers {
         }
     }
 
+    /// Bind hooks once the editor takes ownership of the final configured services.
+    pub(crate) fn bind_document_hooks(&self) {
+        assert!(
+            self.document_hooks
+                .set(DocumentServices {
+                    document_colors: self.document_colors.clone(),
+                    document_links: self.document_links.clone(),
+                    code_lenses: self.code_lenses.clone(),
+                    document_symbols: self.document_symbols.clone(),
+                    semantic_tokens: self.semantic_tokens.clone(),
+                })
+                .is_ok(),
+            "document hooks already bound"
+        );
+    }
+
     /// Attach every document-scoped service before opening or initializing a document.
     pub(crate) fn attach_document(&self, doc: &mut crate::Document) {
         doc.events = self.events.clone();
@@ -141,14 +173,8 @@ impl Handlers {
         if doc.is_content_readonly() {
             return;
         }
-        doc.document_colors
-            .bind_handler(self.document_colors.clone());
-        doc.code_lenses.bind_handler(self.code_lenses.clone());
-        doc.semantic_tokens.handler = Some(self.semantic_tokens.clone());
-        doc.document_links.bind_handler(self.document_links.clone());
+        doc.document_links.cancel_navigation();
         doc.document_highlight_handler = Some(self.document_highlight.clone());
-        doc.document_symbols
-            .bind_handler(self.document_symbols.clone());
         doc.pull_diagnostics
             .bind_handler(self.pull_diagnostics.clone());
         doc.code_action_hint_handler = Some(self.code_action_hint.clone());
@@ -199,7 +225,7 @@ impl Editor {
 }
 
 // Install shared hooks once when constructing the services owned by an editor.
-fn register_hooks(events: &event::EventHub) {
+fn register_hooks(events: &event::EventHub, document_hooks: DocumentHooks) {
     auto_reload::register_hooks(events);
     auto_save::register_hooks(events);
     blame::register_hooks(events);
@@ -223,13 +249,13 @@ fn register_hooks(events: &event::EventHub) {
     });
     document_highlight::register_hooks(events);
     code_action_hint::register_hooks(events);
-    document_symbols::register_hooks(events);
+    document_symbols::register_hooks(events, document_hooks.clone());
     diagnostics::pull::register_hooks(events);
     snippet::register_hooks(events);
-    document_colors::register_hooks(events);
-    code_lenses::register_hooks(events);
-    semantic_tokens::register_hooks(events);
-    document_links::register_hooks(events);
+    document_colors::register_hooks(events, document_hooks.clone());
+    code_lenses::register_hooks(events, document_hooks.clone());
+    semantic_tokens::register_hooks(events, document_hooks.clone());
+    document_links::register_hooks(events, document_hooks);
     inline_completion::register_hooks(events);
     spelling::register_hooks(events);
     workspace_trust::register_hooks(events);
