@@ -12,7 +12,6 @@ use tokio::sync::mpsc;
 use view::{
     callbacks::EditorCallback,
     current, current_ref,
-    editor::Action,
     features::code_lenses::{self, CodeLensCommand, DocumentCodeLensesHandler, ResolvedCodeLenses},
     DocumentId,
 };
@@ -20,7 +19,7 @@ use view::{
 use super::helpers::{
     callbacks,
     lsp::{self, Gate, ServerConfig},
-    run_event_loop_until_idle, test_config, AppBuilder,
+    run_event_loop_until_idle, test_config,
 };
 
 struct Fixture {
@@ -48,20 +47,15 @@ impl Fixture {
             logs.push(lsp::log_path(dir.path(), name));
             gates.push(gate);
         }
-        let loader = lsp::syntax_loader("lens-test", "lens-test", names, &servers);
-        let mut config = test_config();
-        config.editor.lsp.enable = true;
-        let (sender, callbacks) = callbacks::unbounded(|blocking, callback| (blocking, callback));
-        let mut app = AppBuilder::new()
-            .with_config(config)
-            .with_lang_loader(loader)
-            .with_handler_setup(move |handlers, _| {
-                handlers.code_lenses = DocumentCodeLensesHandler::new(sender);
-            })
-            .build()?;
-        let path = dir.path().join("document.lens-test");
-        std::fs::write(&path, "😀 original\n")?;
-        app.editor.open(&path, Action::Replace)?;
+        let (app, callbacks) = lsp::feature_app_with_servers(
+            dir.path(),
+            "😀 original\n",
+            "lens-test",
+            names,
+            test_config(),
+            &servers,
+            |handlers, sender, _| handlers.code_lenses = DocumentCodeLensesHandler::new(sender),
+        )?;
         let doc = current_ref!(app.editor).1.id();
         let mut fixture = Self {
             app,
@@ -80,21 +74,7 @@ impl Fixture {
     }
 
     async fn response(&mut self) -> anyhow::Result<EditorCallback> {
-        tokio::time::timeout(Duration::from_secs(10), async {
-            loop {
-                let (blocking, callback) = self
-                    .callbacks
-                    .recv()
-                    .await
-                    .context("callback queue closed")?;
-                if blocking {
-                    callback(&mut self.app.editor);
-                } else {
-                    return Ok(callback);
-                }
-            }
-        })
-        .await?
+        callbacks::response(&mut self.app, &mut self.callbacks).await
     }
 
     async fn resolve(&mut self) -> ResolvedCodeLenses {

@@ -63,3 +63,22 @@ pub fn bounded_sender<T: Send + 'static>(
         move |callback| event::send_blocking(&blocking, wrap_blocking(true, callback)),
     )
 }
+
+/// Apply scheduling callbacks until the next feature publication is ready.
+pub async fn response(
+    app: &mut term::application::TestApplication,
+    callbacks: &mut mpsc::UnboundedReceiver<(bool, EditorCallback)>,
+) -> anyhow::Result<EditorCallback> {
+    use anyhow::Context as _;
+    tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        loop {
+            let (scheduling, callback) = callbacks.recv().await.context("callback queue closed")?;
+            if scheduling {
+                callback(&mut app.editor);
+            } else {
+                return Ok(callback);
+            }
+        }
+    })
+    .await?
+}
