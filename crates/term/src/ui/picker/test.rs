@@ -117,10 +117,12 @@ pub(crate) fn is_settled<T: Send + Sync, D: Send + Sync>(picker: &mut Picker<T, 
         && !picker.results.matcher.tick(0).running
 }
 
+#[cfg(feature = "git")]
 pub(crate) fn loaded_count<T: Send + Sync, D>(picker: &Picker<T, D>) -> usize {
     picker.results.matcher.snapshot().item_count() as usize
 }
 
+#[cfg(feature = "git")]
 pub(crate) fn source_status<T: Send + Sync, D>(picker: &Picker<T, D>) -> Option<&str> {
     picker
         .editor_updates
