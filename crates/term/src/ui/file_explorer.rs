@@ -35,7 +35,7 @@ use crate::{
 
 mod tree;
 
-use tree::{matches, query};
+use tree::{query, query_async};
 pub(super) use tree::{search_index, ExplorerTree};
 
 /// (path, is the path a directory?)
@@ -216,7 +216,8 @@ pub(super) fn picker(
                             return Ok(Vec::new());
                         }
                         *index = Some(rows.clone());
-                        return Ok(matches(&data.root, &query, &rows).0);
+                        drop(index);
+                        return Ok(rows.matches(&query, || cancel.is_canceled()).0);
                     }
                     content(&data.root, data.tree.as_ref(), &config, || {
                         cancel.is_canceled()
@@ -231,7 +232,9 @@ pub(super) fn picker(
     .with_item_data_actions(|maps| &maps.file_explorer, action);
 
     Ok(if tree_mode {
-        picker.with_query_options(query)
+        picker
+            .with_query_options(query)
+            .with_async_query_options(query_async)
     } else {
         picker
     })

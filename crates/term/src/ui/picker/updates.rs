@@ -86,7 +86,11 @@ impl<T: Send + Sync + 'static, D: Send + Sync + 'static> Picker<T, D> {
         if !(changed || resume) {
             return;
         }
-        self.request_dynamic_refresh(false);
+        if self.async_query_options.is_some() {
+            self.refresh_query_options(editor, true);
+        } else {
+            self.request_dynamic_refresh(false);
+        }
     }
 
     pub(super) fn request_dynamic_refresh(&mut self, is_paste: bool) {
