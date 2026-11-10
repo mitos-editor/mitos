@@ -7,6 +7,7 @@
 - [Installation](./install.md)
   - [Building from source](./building-from-source.md)
 - [Basics](./basics.md)
+- [Changelog](./changelog.md)
 
 # Editing with Mitos
 

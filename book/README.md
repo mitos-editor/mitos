@@ -33,6 +33,10 @@ keeps it at `site/docs/`.
 Command and language tables under `src/generated/` come from `cargo xtask docgen`;
 edit their Rust metadata or `languages.toml` source before regenerating them.
 
+The changelog page includes the repository's root `CHANGELOG.md` using mdBook's
+built-in include directive. Edit that file to update release notes on both GitHub
+and the website; no copying or generation step is needed.
+
 The site build also publishes `/install.sh`, `/install.ps1`, and `/checksums/`.
 Installers download binaries from GitHub Releases. New releases include
 `SHA256SUMS`; `0.1.0` uses the checked-in manifest from GitHub's asset digests.
