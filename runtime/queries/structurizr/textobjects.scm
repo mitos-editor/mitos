@@ -1,7 +1,8 @@
 (comment)+ @comment.around
 (comment) @comment.inside
 
-[
+; Capture the declaration that owns each body, including its keyword and name.
+(_ body: [
   (workspace_block)
   (model_block)
   (views_block)
@@ -12,9 +13,9 @@
   (terminology_block)
   (deployment_environment_block)
   (style_mode_block)
-] @class.around
+]) @class.around
 
-[
+(_ body: [
   (person_block)
   (software_system_block)
   (container_block)
@@ -27,11 +28,8 @@
   (relationship_block)
   (relationships_block)
   (dynamic_relationship_block)
-  (dynamic_parallel_block)
   (element_directive_block)
   (elements_block)
-  (properties_block)
-  (perspectives_block)
   (perspective_block)
   (system_landscape_view_block)
   (system_context_view_block)
@@ -44,7 +42,14 @@
   (image_view_block)
   (image_source_block)
   (style_rule_block)
-  (users_block)
   (group_block)
   (enterprise_block)
+]) @function.around
+
+; These nodes already include their headers, or have no separate declaration.
+[
+  (dynamic_parallel_block)
+  (properties_block)
+  (perspectives_block)
+  (users_block)
 ] @function.around

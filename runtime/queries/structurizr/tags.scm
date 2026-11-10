@@ -1,6 +1,6 @@
 ; Workspace sections
 (workspace name: (_) @name) @definition.module
-(workspace "workspace" @name) @definition.module
+(workspace !name "workspace" @name) @definition.module
 
 (model "model" @name) @definition.section
 (views "views" @name) @definition.section
