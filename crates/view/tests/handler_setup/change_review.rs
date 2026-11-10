@@ -65,6 +65,16 @@ async fn review_buffers_are_native_documents_with_independent_splits_and_no_file
     finish_review(&mut f, first).await?;
     let doc = f.editor.document(first).unwrap();
     assert!(doc.path().is_none());
+    assert_eq!(
+        doc.source_path().map(stdx::path::canonicalize_existing),
+        Some(stdx::path::canonicalize_existing(&path))
+    );
+    assert_eq!(
+        stdx::path::canonicalize_existing(
+            &view::features::git_operations::GitScope::capture(&f.editor).path
+        ),
+        stdx::path::canonicalize_existing(&path)
+    );
     assert!(doc.uri().is_none());
     assert!(doc.is_readonly() && !doc.is_modified());
     assert!(doc.display_name().contains("[diff"));
@@ -998,6 +1008,11 @@ async fn stash_review_completion_is_owned_by_its_document_and_opens_frozen_reado
     );
     assert!(doc.is_content_readonly());
     assert!(doc.path().is_none() && doc.uri().is_none());
+    assert_eq!(
+        doc.source_path().map(stdx::path::canonicalize_existing),
+        Some(stdx::path::canonicalize_existing(&path))
+    );
+    assert!(doc.review().is_none());
     assert!(!doc.is_modified());
     assert!(view::editing::apply(
         doc,

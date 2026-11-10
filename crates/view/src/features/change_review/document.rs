@@ -146,17 +146,6 @@ impl ReviewDocument {
     }
 }
 
-impl Document {
-    /// Derived content can be selected and searched but cannot be edited or saved.
-    /// This is independent of filesystem write permissions and cannot be forced.
-    pub fn is_content_readonly(&self) -> bool {
-        self.review.is_some() || self.historical.is_some()
-    }
-    pub fn review(&self) -> Option<&ReviewDocument> {
-        self.review.as_deref()
-    }
-}
-
 enum Work {
     Historical(Arc<super::HistoricalReviewRequest>),
     Read {
@@ -263,7 +252,7 @@ impl Editor {
             self.config.clone(),
             self.syn_loader.load_full(),
         );
-        doc.review = Some(Box::new(state));
+        doc.set_review(state);
         let id = self.new_file_from_document(action, doc);
         self.events()
             .clone()
@@ -321,8 +310,7 @@ impl Editor {
         self.documents
             .get_mut(&id)
             .unwrap()
-            .review
-            .as_mut()
+            .review_mut()
             .unwrap()
             .request = request.clone();
         let mut work = request.work(None);
@@ -338,7 +326,7 @@ impl Editor {
     fn start_review(&mut self, id: DocumentId, work: Work) {
         let doc = self.documents.get_mut(&id).unwrap();
         let old = doc.snapshot();
-        let state = doc.review.as_mut().unwrap();
+        let state = doc.review_mut().unwrap();
         let cancel = state.task.restart();
         // Metadata-only checks should not flash the loading status on every poll.
         state.loading = !matches!(&work, Work::Read { request, observed: Some(previous), .. }
@@ -380,7 +368,7 @@ impl Editor {
                                     && let Some(state) = editor
                                         .documents
                                         .get_mut(&id)
-                                        .and_then(|doc| doc.review.as_mut())
+                                        .and_then(|doc| doc.review_mut())
                                 {
                                     state.loading = true;
                                     editor.redraw().request();
@@ -443,8 +431,7 @@ impl Editor {
                                 .documents
                                 .get_mut(&id)
                                 .unwrap()
-                                .review
-                                .as_mut()
+                                .review_mut()
                                 .unwrap()
                                 .loading = false;
                             super::live::queue(editor, id);
@@ -477,7 +464,7 @@ impl Editor {
         let doc = self.documents.get_mut(&id).unwrap();
         let (source, review, transaction, changes, observed) = match result {
             Ok(None) => {
-                doc.review.as_mut().unwrap().loading = false;
+                doc.review_mut().unwrap().loading = false;
                 return;
             }
             Ok(Some(Computed {
@@ -498,7 +485,7 @@ impl Editor {
                 (None, review, transaction, projection.changes, None)
             }
         };
-        let state = doc.review.as_mut().unwrap();
+        let state = doc.review_mut().unwrap();
         let initialize = !state.initialized;
         state.initialized = source.is_some();
         state.review = review;
@@ -602,7 +589,7 @@ impl Editor {
 
     pub fn open_review_source(&mut self, jump: bool, action: Action) -> Result<()> {
         let (view, doc) = crate::current_ref!(self);
-        if !jump && let Some(source) = &doc.historical {
+        if !jump && let Some(source) = doc.historical() {
             let path = source.path.clone();
             ensure!(
                 path.is_file(),

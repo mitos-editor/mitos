@@ -1,7 +1,9 @@
 mod display;
 mod presentation;
+mod source;
 pub use crate::features::formatting::FormatterError;
 pub use display::{DocumentDisplay, DocumentKind};
+use source::DocumentSource;
 use stdx::rope::RopeExt as _;
 pub(crate) mod history;
 mod language_servers;
@@ -199,8 +201,7 @@ pub struct Document {
         std::sync::OnceLock<Arc<crate::features::conflicts::ConflictPresentation>>,
     pub(crate) document_symbols: DocumentSymbols,
     pub(crate) workspace_symbols: event::TaskController,
-    pub(crate) review: Option<Box<crate::features::change_review::ReviewDocument>>,
-    pub(crate) historical: Option<crate::features::change_review::historical::HistoricalDocument>,
+    source: DocumentSource,
 
     file: file::FileState,
 
@@ -297,8 +298,7 @@ impl Document {
 
         Self {
             id: DocumentId::default(),
-            review: None,
-            historical: None,
+            source: DocumentSource::FileOrScratch,
             snippet: None,
             file: file::FileState::new(encoding, has_bom),
             buffer: buffer::Buffer::new(text),
@@ -379,10 +379,7 @@ impl Document {
             return None;
         }
         let language = loader
-            .language_for_filename(
-                self.path()
-                    .or_else(|| self.historical.as_ref().map(|source| source.path.as_path()))?,
-            )
+            .language_for_filename(self.source_path()?)
             .or_else(|| loader.language_for_shebang(self.text().slice(..)))?;
 
         Some(loader.language(language).config().clone())

@@ -21,21 +21,9 @@ pub struct GitScope {
 impl GitScope {
     pub fn capture(editor: &Editor) -> Self {
         let (_, doc) = crate::current_ref!(editor);
-        if let Some(review) = doc.review() {
-            return Self {
-                path: review.path().to_owned(),
-                workspace: review.workspace().to_owned(),
-            };
-        }
-        if let Some(historical) = &doc.historical {
-            return Self {
-                path: historical.path.clone(),
-                workspace: historical.workspace.clone(),
-            };
-        }
         Self {
             path: doc
-                .path()
+                .source_path()
                 .map_or_else(stdx::env::current_working_dir, |path| path.to_owned()),
             workspace: doc.workspace_root().to_owned(),
         }
