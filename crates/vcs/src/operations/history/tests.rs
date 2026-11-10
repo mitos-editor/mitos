@@ -333,3 +333,141 @@ async fn history_reads_work_without_git_executable() -> Result<()> {
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn file_history_modifications_ignore_unrelated_commit_display_limit() -> Result<()> {
+    let dir = empty_git_repo();
+    let root = dir.path();
+    let selected = root.join("selected.txt");
+    std::fs::write(&selected, "before\n")?;
+    commit(root, "initial");
+    // Exercise the display limit without creating thousands of worktree files.
+    // A single existing blob can back every unrelated entry in a synthetic tree.
+    let repo = GitRepository::discover(root)?;
+    let git = repo.open(false)?;
+    let before = git.head_commit()?.tree()?;
+    let blob = before
+        .lookup_entry_by_path("selected.txt")?
+        .unwrap()
+        .object_id();
+    let mut tree = gix::objs::Tree::default();
+    for index in 0..20_001 {
+        tree.entries.push(gix::objs::tree::Entry {
+            mode: gix::objs::tree::EntryKind::Blob.into(),
+            filename: format!("unrelated-{index:05}.txt").into(),
+            oid: blob,
+        });
+    }
+    let unrelated = git.write_object(&tree)?.detach();
+    let modified = git.write_blob(b"after\n")?.detach();
+    let tree = gix::objs::Tree {
+        entries: vec![
+            gix::objs::tree::Entry {
+                mode: gix::objs::tree::EntryKind::Blob.into(),
+                filename: "selected.txt".into(),
+                oid: modified,
+            },
+            gix::objs::tree::Entry {
+                mode: gix::objs::tree::EntryKind::Tree.into(),
+                filename: "unrelated".into(),
+                oid: unrelated,
+            },
+        ],
+    };
+    let tree = git.write_object(&tree)?.to_string();
+    exec_git_cmd(&["read-tree", &tree], root);
+    create_commit_with_message(root, false, "selected and many unrelated changes");
+    let page = repo
+        .history_page(repo.history_cursor(Some(&selected))?.unwrap())
+        .await?;
+    assert_eq!(page.commits.len(), 2);
+    assert_eq!(
+        page.commits[0].subject,
+        "selected and many unrelated changes"
+    );
+    let file = page.commits[0].file.as_ref().unwrap();
+    assert_eq!(file.status, "M");
+    assert_eq!(file.before.as_deref(), Some(Path::new("selected.txt")));
+    assert_eq!(file.after, file.before);
+    // The repository-wide browser retains its explicit display budget.
+    assert!(repo.commit_files(&page.commits[0], 0).await.is_err());
+    Ok(())
+}
+
+#[tokio::test]
+async fn file_history_preserves_mode_and_type_changes() -> Result<()> {
+    let dir = empty_git_repo();
+    let root = dir.path();
+    let selected = root.join("selected.txt");
+    std::fs::write(&selected, "target\n")?;
+    commit(root, "initial");
+    exec_git_cmd(&["update-index", "--chmod=+x", "selected.txt"], root);
+    create_commit_with_message(root, false, "executable");
+    let repo = GitRepository::discover(root)?;
+    let git = repo.open(false)?;
+    let blob = git
+        .head_commit()?
+        .tree()?
+        .lookup_entry_by_path("selected.txt")?
+        .unwrap()
+        .object_id();
+    exec_git_cmd(
+        &[
+            "update-index",
+            "--cacheinfo",
+            &format!("120000,{blob},selected.txt"),
+        ],
+        root,
+    );
+    create_commit_with_message(root, false, "symlink");
+    let page = repo
+        .history_page(repo.history_cursor(Some(&selected))?.unwrap())
+        .await?;
+    assert_eq!(page.commits.len(), 3);
+    assert_eq!(
+        page.commits
+            .iter()
+            .map(|row| row.file.as_ref().unwrap().status.as_str())
+            .collect::<Vec<_>>(),
+        ["T", "M", "A"]
+    );
+    for row in &page.commits {
+        let files = repo.commit_files(row, 0).await?;
+        assert_eq!(files.len(), 1);
+        let actual = row.file.as_ref().unwrap();
+        assert_eq!(actual.status, files[0].status);
+        assert_eq!(actual.before, files[0].before);
+        assert_eq!(actual.after, files[0].after);
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn file_history_modifications_follow_only_the_first_merge_parent() -> Result<()> {
+    let dir = empty_git_repo();
+    let root = dir.path();
+    let selected = root.join("selected.txt");
+    std::fs::write(&selected, "before\n")?;
+    commit(root, "initial");
+    exec_git_cmd(&["checkout", "-b", "side"], root);
+    std::fs::write(&selected, "after\n")?;
+    commit(root, "side edit");
+    exec_git_cmd(&["checkout", "-"], root);
+    std::fs::write(root.join("other.txt"), "main\n")?;
+    commit(root, "unrelated main edit");
+    exec_git_cmd(&["merge", "--no-ff", "side", "-m", "merge"], root);
+    let repo = GitRepository::discover(root)?;
+    let page = repo
+        .history_page(repo.history_cursor(Some(&selected))?.unwrap())
+        .await?;
+    assert_eq!(
+        page.commits
+            .iter()
+            .map(|row| row.subject.as_str())
+            .collect::<Vec<_>>(),
+        ["merge", "initial"]
+    );
+    assert_eq!(page.commits[0].file.as_ref().unwrap().status, "M");
+    assert_eq!(page.commits[0].parents.len(), 2);
+    Ok(())
+}
