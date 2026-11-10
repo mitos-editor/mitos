@@ -25,7 +25,7 @@
 (interface_declaration name: (identifier) @type.definition)
 (typedef_declaration name: (identifier) @type.definition)
 
-(function_declaration name: (identifier) @function)
+(function_declaration name: (identifier) @function.definition)
 (function_arg name: (identifier) @variable.parameter)
 
 ; Expressions
@@ -36,8 +36,8 @@
 ; @function, while a plain `o.field` stays a member.
 (member_expression member: (identifier) @variable.other.member)
 
-(call_expression object: (identifier) @function)
-(call_expression object: (member_expression member: (identifier) @function.method))
+(call_expression object: (identifier) @function.call)
+(call_expression object: (member_expression member: (identifier) @function.method.call))
 
 ; Literals
 ; --------
@@ -103,10 +103,10 @@
   "while"
 ] @keyword
 
-(function_declaration name: "new" @constructor)
+(function_declaration name: "new" @constructor.definition)
 (call_expression
   "new" @keyword
-  constructor: (type_name) @constructor
+  constructor: (type_name) @constructor.call
 )
 
 ; Tokens
@@ -140,3 +140,5 @@
   "}" @punctuation.special
 ) @embedded
 
+
+(function_declaration name: (identifier) @function.declaration !body)

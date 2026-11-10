@@ -3,6 +3,19 @@
 # https://github.com/chipotle/spacebones/blob/main/SpaceBones%20Light.bbColorScheme
 # License: MIT (see licenses/spacebones.license)
 
+# Source annotations and picker matches can be styled independently.
+# Interface and readonly symbol styles.
+"ui.welcome.heading" = "#ba2f59"
+"ui.welcome.command" = { fg = "#6c3163" }
+"variable.readonly" = { fg = "#6c3163" }
+"variable.other.member.readonly" = { fg = "#6c3163" }
+
+"ui.picker.match" = "#ba2f59"
+"comment.error" = { fg = "#e0211d" }
+"comment.warning" = { fg = "meta" }
+"comment.info" = { fg = "theme_blue" }
+"comment.hint" = { fg = "bg2" }
+
 "attribute" = "#b1951d"
 "keyword" = { fg = "#3a81c3" }
 "keyword.directive" = "#3a81c3"
@@ -11,7 +24,6 @@
 "punctuation.delimiter" = "#6c3163"
 "operator" = "#ba2f59"
 "special" = "#ba2f59"
-"variable.property" = "#7590db"
 "variable" = "#715ab1"
 "variable.builtin" = "#715ab1"
 "variable.parameter" = "#7590db"
@@ -26,10 +38,9 @@
 "constant" = { fg = "#6c3163" }
 "constant.builtin" = { fg = "#6c3163", modifiers = ["bold"] }
 "string" = "theme_aqua"
-"number" = "#6c3163"
-"escape" = { fg = "fg2", modifiers = ["bold"] }
+"constant.numeric" = "#6c3163"
+"constant.character.escape" = { fg = "fg2", modifiers = ["bold"] }
 "label" = "#b1951d"
-"module" = "#b1951d"
 
 # TODO
 "markup.heading" = "theme_blue"

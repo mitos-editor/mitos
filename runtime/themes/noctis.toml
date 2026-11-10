@@ -1,3 +1,11 @@
+"ui.picker.match" = { fg = "mid-blue" }
+
+# Interface and readonly symbol styles.
+"ui.welcome.heading" = { fg = "mid-blue" }
+"ui.welcome.command" = { fg = "light-blue", modifiers = ["bold"] }
+"variable.readonly" = { fg = "light-blue", modifiers = ["bold"] }
+"variable.other.member.readonly" = { fg = "light-blue", modifiers = ["bold"] }
+
 # Author : 0rphee <0rph3e@proton.me>
 # License: MIT (see licenses/noctis.LICENSE)
 
@@ -6,7 +14,12 @@
 
 ## GENERAL ==============================
 
-'property' = { fg = "red" } # Regex group names.
+# Source annotations and picker matches can be styled independently.
+"comment.error" = { fg = "red", modifiers = ["bold"] } # Editor errors, like mistyping a command.
+"comment.warning" = { fg ="yellow", modifiers = ["bold"] } # Editor warnings.
+"comment.info" = { fg = "mid-blue" } # Code diagnostic info in gutter (LSP).
+"comment.hint" = { fg = "light-green", modifiers = ["bold"] } # Code diagnostics hint in gutter (LSP).
+
 "warning" = { fg ="yellow", modifiers = ["bold"] } # Editor warnings.
 "error" = { fg = "red", modifiers = ["bold"] } # Editor errors, like mistyping a command.
 "info" = { fg = "mid-blue" } # Code diagnostic info in gutter (LSP).
@@ -173,10 +186,8 @@
 
 'markup.normal' = { }
 'markup.normal.completion' = { } # For completion doc popup ui.
-'markup.normal.raw' = { } # For hover popup ui.
 
 'markup.heading.completion' = { } # Headings for completion doc popup ui.
-'markup.heading.raw' = { } # Headings for hover popup ui.
 
 'markup.raw' = { } # Code block in Markdown.
 'markup.raw.block' = { } # Multiline (```) codeblock in Markdown.

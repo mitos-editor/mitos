@@ -6,6 +6,19 @@
 # License: MIT (see licenses/jetbrains_cyan_light.LICENSE)
 # Source: https://github.com/OlyaB/CyanTheme
 
+# Source annotations and picker matches can be styled independently.
+# Interface and readonly symbol styles.
+"ui.welcome.heading" = "shade06"
+"ui.welcome.command" = "darker_blue"
+"variable.readonly" = "darker_blue"
+"variable.other.member.readonly" = "darker_blue"
+
+"ui.picker.match" = "shade06"
+"comment.error" = "red"
+"comment.warning" = "orange"
+"comment.info" = "light_blue"
+"comment.hint" = "shade04"
+
 "attribute" = "blue"
 "type" = "shade07"
 "type.enum.variant" = "purple"

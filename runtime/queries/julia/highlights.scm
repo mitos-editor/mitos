@@ -37,7 +37,7 @@
 ; ------
 
 (macro_definition
-  (signature (call_expression . (identifier) @function.macro)))
+  (signature (call_expression . (identifier) @function.macro.call)))
 
 (macro_identifier
   "@" @function.macro
@@ -69,15 +69,15 @@
   (function_definition
     (signature
       [
-        (call_expression . (identifier) @function)
-        (where_expression (call_expression . (identifier) @function))
+        (call_expression . (identifier) @function.call)
+        (where_expression (call_expression . (identifier) @function.call))
       ]))
-  (#match? @function "^[^A-Z]"))
+  (#match? @function.call "^[^A-Z]"))
 
 (
   (assignment
-    . (call_expression . (identifier) @function))
-  (#match? @function "^[^A-Z]"))
+    . (call_expression . (identifier) @function.call))
+  (#match? @function.call "^[^A-Z]"))
 
 ; ---------------
 ; Functions calls
@@ -85,14 +85,14 @@
 
 (
   (call_expression
-    (identifier) @function)
+    (identifier) @function.call)
   ; prevent constructors (PascalCase) to be highlighted as functions
-  (#match? @function "^[^A-Z]"))
+  (#match? @function.call "^[^A-Z]"))
 
 (
   (call_expression
-    (field_expression (identifier) @function .))
-  (#match? @function "^[^A-Z]"))
+    (field_expression (identifier) @function.call .))
+  (#match? @function.call "^[^A-Z]"))
 
 (
   (broadcast_call_expression

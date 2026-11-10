@@ -51,7 +51,7 @@
 
 [
   (backslash_escape)
-] @string.escape
+] @constant.character.escape
 
 (block_quote) @markup.quote
 

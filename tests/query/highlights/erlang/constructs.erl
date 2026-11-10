@@ -6,5 +6,5 @@ handle(Msg) ->
 %      ^ @variable.parameter
     lists:map(F, Msg).
 %   ^ @namespace
-%         ^ @function
+%         ^ @function.call
 %                ^ @variable.parameter

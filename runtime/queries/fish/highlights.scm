@@ -126,7 +126,7 @@
   name: [
         (word) (concatenation)
         ]
-@function)
+@function.definition)
 
 (function_definition
   option: [

@@ -1,4 +1,4 @@
 invokeit(1)
-^ @function.method
+^ @function.method.call
 x.doThing(2)
-  ^ @function.method
+  ^ @function.method.call

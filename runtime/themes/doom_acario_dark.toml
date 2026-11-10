@@ -1,3 +1,15 @@
+"ui.picker.match" = { fg = "orange" }
+"comment.error" = { fg = "red", modifiers = ["bold"] }
+"comment.warning" = { fg = "orange" }
+"comment.info" = { fg = "blue", modifiers = ["bold"] }
+"comment.hint" = { fg = "blue", modifiers = ["bold"] }
+
+# Interface and readonly symbol styles.
+"ui.welcome.heading" = { fg = "orange" }
+"ui.welcome.command" = { fg = "magenta" }
+"variable.readonly" = { fg = "magenta" }
+"variable.other.member.readonly" = { fg = "magenta" }
+
 # Author : Luna <rinnray@gliroid.com>
 #
 # This was made based on

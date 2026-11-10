@@ -35,7 +35,7 @@ alias: (identifier) @variable.other.member
 (comment) @comment
 
 (function_call
-  (identifier) @function)
+  (identifier) @function.call)
 
 [
   "+"
@@ -133,7 +133,7 @@ alias: (identifier) @variable.other.member
 
 (function_definition
   (keyword_let)
-  name: (identifier) @function)
+  name: (identifier) @function.definition)
 
 (parameter
   (identifier) @variable.parameter)

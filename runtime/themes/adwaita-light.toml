@@ -1,3 +1,14 @@
+# Source annotations and picker matches can be styled independently.
+# Interface and readonly symbol styles.
+"ui.welcome.command" = "violet_4"
+"variable.readonly" = "violet_4"
+"variable.other.member.readonly" = "violet_4"
+
+"comment.error" = "red_5"
+"comment.warning" = "yellow_4"
+"comment.info" = "purple_3"
+"comment.hint" = "blue_3"
+
 inherits="adwaita-dark"
 "attribute" = "orange_5"
 # License: LGPL-2.1-or-later (see licenses/adwaita.license)

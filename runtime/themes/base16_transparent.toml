@@ -2,6 +2,19 @@
 # This theme is base on base16_theme(Author: NNB <nnbnh@protonmail.com>)
 # License: MIT (see licenses/base16.license)
 
+# Source annotations and picker matches can be styled independently.
+# Interface and readonly symbol styles.
+"ui.welcome.heading" = "light-blue"
+"ui.welcome.command" = "yellow"
+"variable.readonly" = "yellow"
+"variable.other.member.readonly" = "yellow"
+
+"ui.picker.match" = "light-blue"
+"comment.error" = "light-red"
+"comment.warning" = "light-yellow"
+"comment.info" = "light-blue"
+"comment.hint" = "light-gray"
+
 "ui.link" = { modifiers = ["underlined"] }
 "ui.background" = { fg = "white"}
 "ui.background.separator" = { fg = "gray" }
@@ -25,7 +38,6 @@
 "ui.cursor" = { modifiers = ["reversed"] }
 "ui.cursor.match" = { fg = "light-yellow", underline = { color = "light-yellow", style = "line" } }
 "ui.cursor.primary" = { modifiers = ["reversed", "slow_blink"] }
-"ui.cursor.secondary" = { modifiers = ["reversed"] }
 "ui.cursorline.primary" = { underline = { color = "light-gray", style = "line" } }
 "ui.cursorline.secondary" = { underline = { color = "light-gray", style = "line" } }
 "ui.cursorcolumn.primary" = { bg = "gray" }
@@ -64,8 +76,6 @@
 "markup.quote" = "light-cyan"
 "markup.raw" = "green"
 "markup.normal" = { fg = "blue" }
-"markup.insert" = { fg = "green" }
-"markup.select" = { fg = "magenta" }
 
 "diff.plus" = "light-green"
 "diff.delta" = "light-blue"
@@ -75,12 +85,10 @@
 "ui.gutter" = "gray"
 "info" = "light-blue"
 "hint" = "light-gray"
-"debug" = "light-gray"
 "warning" = "light-yellow"
 "error" = "light-red"
 
 "diagnostic.info" = { underline = { color = "light-blue", style = "dotted" } }
 "diagnostic.hint" = { underline = { color = "light-gray", style = "double_line" } }
-"diagnostic.debug" = { underline ={ color ="light-gray", style = "dashed" } }
 "diagnostic.warning" = { underline = { color = "light-yellow", style = "curl" } }
 "diagnostic.error" = { underline = { color ="light-red", style = "curl" } }

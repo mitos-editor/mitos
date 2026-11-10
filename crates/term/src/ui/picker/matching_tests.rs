@@ -284,7 +284,11 @@ async fn decorative_prefixes_do_not_match_and_preserve_unicode_highlights() -> a
         .windows(4)
         .position(|cells| cells.iter().map(|cell| cell.symbol()).collect::<String>() == "café")
         .unwrap();
-    let highlight = cx.editor.theme.get("special").add_modifier(Modifier::BOLD);
+    let highlight = cx
+        .editor
+        .theme
+        .get("ui.picker.match")
+        .add_modifier(Modifier::BOLD);
     for cell in &row[start..start + 4] {
         assert!(cell.modifier.contains(tui::style::Modifier::BOLD));
         if let Some(fg) = highlight.fg {

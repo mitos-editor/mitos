@@ -2,7 +2,7 @@
 (comment) @comment.line
 
 (string) @string
-(string "i" @keyword.modifier)
+(string "i" @keyword.storage.modifier)
 
 (identifier) @variable.other
 (rule_name (identifier) @function)

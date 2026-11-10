@@ -8,6 +8,19 @@
 # INTERFACE
 # These scopes are used for theming the editor interface.
 
+# Source annotations and picker matches can be styled independently.
+# Interface and readonly symbol styles.
+"ui.welcome.heading" = { fg = "fg2" } # Special symbols e.g `?` in Rust, `...` in Hare.
+"ui.welcome.command" = { fg = "orange-bright" } # Constant value
+"variable.readonly" = { fg = "orange-bright" } # Constant value
+"variable.other.member.readonly" = { fg = "orange-bright" } # Constant value
+
+"ui.picker.match" = { fg = "fg2" } # Special symbols e.g `?` in Rust, `...` in Hare.
+"comment.error" = { fg = "red", bg = "bg1" } # Diagnostics error (gutter)
+"comment.warning" = { fg = "yellow", bg = "bg1" } # Diagnostics warning (gutter)
+"comment.info" = { fg = "blue", bg = "bg1" } # Diagnostics info (gutter)
+"comment.hint" = { fg = "green", bg = "bg1" } # Diagnostics hint (gutter)
+
 "ui.link" = { modifiers = ["underlined"] }
 "ui.background" = { bg = "bg1" } # Default background color.
 "ui.window" = { fg = "bg0" } # Window border between splits.

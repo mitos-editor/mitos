@@ -1,7 +1,19 @@
 # License: MIT (see licenses/new_moon.license)
 
+# Source annotations and picker matches can be styled independently.
+# Interface and readonly symbol styles.
+"ui.welcome.heading" = { fg = "lightest" } # or beige
+"ui.welcome.command" = { fg = "purple" }
+"variable.readonly" = { fg = "purple" }
+"variable.other.member.readonly" = { fg = "purple" }
+
+"ui.picker.match" = { fg = "lightest" } # or beige
+"comment.error" = { fg = "red" }
+"comment.warning" = { fg = "yellow" }
+"comment.info" = { fg = "blue" }
+"comment.hint" = { fg = "light_gray" }
+
 "namespace" = { fg = "blue" }
-"module" = { fg = "blue" }
 
 "type" = { fg = "blue" }
 "type.builtin" = { fg = "blue" }

@@ -4,6 +4,19 @@
 
 # Syntax
 
+# Source annotations and picker matches can be styled independently.
+# Interface and readonly symbol styles.
+"ui.welcome.heading" = "red"
+"ui.welcome.command" = "light_blue"
+"variable.readonly" = "light_blue"
+"variable.other.member.readonly" = "light_blue"
+
+"ui.picker.match" = "red"
+"comment.error" = "error_red"
+"comment.warning" = "warning_yellow"
+"comment.info" = "suggestion_blue"
+"comment.hint" = "suggestion_blue"
+
 "variable" = "white"
 "namespace" = "white"
 "punctuation" = "off_white"

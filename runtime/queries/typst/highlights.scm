@@ -47,9 +47,9 @@
 ; FUNCTIONS
 (field field: (ident) @variable.other.member)
 (call
-  item: (ident) @function)
+  item: (ident) @function.call)
 (call
-  item: (field field: (ident) @function.method))
+  item: (field field: (ident) @function.method.call))
 (tagged field: (ident) @tag)
 (comment) @comment
 

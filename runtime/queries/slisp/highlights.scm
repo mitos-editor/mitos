@@ -32,14 +32,14 @@
 ;; Function definitions
 [ "def" ] @keyword
 
-(function_definition name: (symbol) @function)
+(function_definition name: (symbol) @function.definition)
 (function_definition parameters: (parameters (symbol) @variable.parameter))
 (function_definition docstring: (string) @string.documentation)
 
 ;; Macro definitions
 [ "mac" ] @keyword
 
-(macro_definition name: (symbol) @function)
+(macro_definition name: (symbol) @function.definition)
 (macro_definition parameters: (parameters (symbol) @variable.parameter))
 (macro_definition docstring: (string) @string.documentation)
 

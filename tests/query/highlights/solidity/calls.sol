@@ -1,9 +1,9 @@
 contract C {
   function f() public {
     obj.doThing();
-//      ^ @function.method
+//      ^ @function.method.call
     helper(1);
-//  ^ @function
+//  ^ @function.call
     uint x = obj.field;
 //               ^ @variable.other.member
   }

@@ -1,5 +1,18 @@
 # Author : Nick Ogden <nick@nickogden.org>
 
+# Source annotations and picker matches can be styled independently.
+# Interface and readonly symbol styles.
+"ui.welcome.heading" = "green"
+"ui.welcome.command" = "lightblue"
+"variable.readonly" = "lightblue"
+"variable.other.member.readonly" = "lightblue"
+
+"ui.picker.match" = "green"
+"comment.error" = "red"
+"comment.warning" = "orange"
+"comment.info" = "grey05"
+"comment.hint" = "grey05"
+
 "ui.link" = { modifiers = ["underlined"] }
 "ui.background" = { bg = "grey01" }
 "ui.menu" = { fg = "grey05", bg = "grey00" }
@@ -85,7 +98,6 @@
 
 "info" = "grey05"
 "hint" = "grey05"
-"debug" = "grey05"
 "warning" = "orange"
 "error" = "red"
 

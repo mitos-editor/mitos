@@ -8,12 +8,12 @@
 ; Functions
 
 (function_item
-  (identifier) @function
+  (identifier) @function.definition
 )
 (function_item
   parameters: (parameters (parameter (assignment value: (_) @constant)))
 )
-(function_call name: (identifier) @function)
+(function_call name: (identifier) @function.call)
 (function_call
   arguments: (arguments (assignment name: _ @variable.parameter))
 )

@@ -1,9 +1,9 @@
 object O {
   def m() = {
     invokeit()
-//  ^ @function
+//  ^ @function.call
     obj.doThing()
-//      ^ @function.method
+//      ^ @function.method.call
     val x = obj.field
 //              ^ @variable.other.member
   }

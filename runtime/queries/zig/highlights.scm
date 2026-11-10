@@ -92,14 +92,14 @@
 (builtin_identifier) @function.builtin
 
 (call_expression
-  function: (identifier) @function)
+  function: (identifier) @function.call)
 
 (call_expression
   function: (field_expression
-    member: (identifier) @function.method))
+    member: (identifier) @function.method.call))
 
 (function_declaration
-  name: (identifier) @function)
+  name: (identifier) @function.definition)
 
 ; Modules
 
@@ -312,3 +312,5 @@
 
 ((comment) @comment.block.documentation
   (#match? @comment.block.documentation "^//!"))
+
+(function_declaration name: (identifier) @function.declaration !body)

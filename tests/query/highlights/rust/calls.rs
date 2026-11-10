@@ -1,6 +1,6 @@
 fn main() {
     invokeit();
-//  ^ @function
+//  ^ @function.call
     let s = String::new();
 //          ^ @type
 }

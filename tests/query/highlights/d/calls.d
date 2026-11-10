@@ -1,3 +1,3 @@
 void f() { foo(); }
-//   ^ @function
-//         ^ @function
+//   ^ @function.definition
+//         ^ @function.call

@@ -2,6 +2,19 @@
 # Ported from : [rsms/sublime-theme](https://github.com/rsms/sublime-theme)
 # License: ISC (see licenses/rasmus.license)
 
+# Source annotations and picker matches can be styled independently.
+# Interface and readonly symbol styles.
+"ui.welcome.heading" = "yellow"
+"ui.welcome.command" = "white"
+"variable.readonly" = "white"
+"variable.other.member.readonly" = "white"
+
+"ui.picker.match" = "yellow"
+"comment.error" = "bright_red"
+"comment.warning" = "bright_yellow"
+"comment.info" = "bright_blue"
+"comment.hint" = "bright_cyan"
+
 "attribute" = "cyan"
 
 "keyword" = "blue"

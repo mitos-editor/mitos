@@ -4,6 +4,12 @@
 # Original author: kaolin-valley-dark by Ogden Webb: github.com/ogdenwebb/emacs-kaolin-themes
 # Kaolin Valley Dark Theme - Colorful Kaolin theme with brown background
 
+# Source annotations and picker matches can be styled independently.
+# Interface and readonly symbol styles.
+"ui.welcome.heading" = "ultramarine3"
+
+"ui.picker.match" = "ultramarine3"
+
 inherits = "kaolin-dark"
 
 "attribute" = "fg1"
@@ -25,7 +31,7 @@ inherits = "kaolin-dark"
 "constant.numeric" = "aquamarine3"
 "constant.character.escape" = "fg1"
 "label" = "ultramarine3"
-"module" = "green0"
+"namespace" = "green0"
 
 "diff.delta" = "type"
 

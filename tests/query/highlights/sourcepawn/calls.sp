@@ -1,2 +1,2 @@
 void f() { foo(); }
-//         ^ @function
+//         ^ @function.call

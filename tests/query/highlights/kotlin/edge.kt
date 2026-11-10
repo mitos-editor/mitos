@@ -1,4 +1,4 @@
 fun f() {
     val x = "${obj.compute()}"
-//                 ^ @function.method
+//                 ^ @function.method.call
 }

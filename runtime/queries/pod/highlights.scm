@@ -62,36 +62,36 @@
 )
 
 (interior_sequence
-  (sequence_letter) @character
-  (#eq? @character "B")
+  (sequence_letter) @_character
+  (#eq? @_character "B")
   (content) @markup.bold)
 
 (interior_sequence
-  (sequence_letter) @character
-  (#eq? @character "C")
-  (content) @markup.literal)
+  (sequence_letter) @_character
+  (#eq? @_character "C")
+  (content) @markup.raw)
 
 (interior_sequence
-  (sequence_letter) @character
-  (#eq? @character "F")
+  (sequence_letter) @_character
+  (#eq? @_character "F")
   (content) @markup.underline @string.special)
 
 (interior_sequence
-  (sequence_letter) @character
-  (#eq? @character "I")
+  (sequence_letter) @_character
+  (#eq? @_character "I")
   (content) @markup.bold)
 
 (interior_sequence
-  (sequence_letter) @character
-  (#eq? @character "L")
+  (sequence_letter) @_character
+  (#eq? @_character "L")
   (content) @markup.link.url)
 
 (interior_sequence
-  (sequence_letter) @character
-  (#eq? @character "X")
-  (content) @markup.reference)
+  (sequence_letter) @_character
+  (#eq? @_character "X")
+  (content) @markup.link.label)
 
 (escape_sequence
-  (sequence_letter) @character
+  (sequence_letter) @_character
   ["<" ">"] @punctuation.delimiter
-  (content) @string.special.escape)
+  (content) @constant.character.escape)

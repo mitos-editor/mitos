@@ -12,10 +12,10 @@
 
 (storage_class) @keyword.storage
 
-(function_declaration (identifier) @function)
+(function_declaration (identifier) @function.definition)
 
-(call_expression (identifier) @function)
-(call_expression (type (identifier) @function))
+(call_expression (identifier) @function.call)
+(call_expression (type (identifier) @function.call))
 
 ; Member access `o.field`: the trailing identifier of a property expression
 ; (anchored so the receiver isn't captured). Method calls parse as a
@@ -245,4 +245,4 @@
 (at_attribute) @attribute
 
 ; everything after __EOF_ is plain text
-(end_file) @ui.text
+(end_file) @variable

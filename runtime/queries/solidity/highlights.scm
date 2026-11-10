@@ -58,7 +58,7 @@
 (interface_declaration name: (identifier) @type)
 (event_definition name: (identifier) @type)
 (error_declaration name: (identifier) @type)
-(function_definition name: (identifier) @function)
+(function_definition name: (identifier) @function.definition)
 (modifier_definition name: (identifier) @function)
 (yul_evm_builtin) @function.builtin
 
@@ -81,11 +81,11 @@
 (revert_statement error: (expression (identifier) @type))
 (modifier_invocation . (_) @function)
 
-(call_expression . (_(member_expression property: (_) @function.method)))
-(call_expression . (expression (identifier) @function))
+(call_expression . (_(member_expression property: (_) @function.method.call)))
+(call_expression . (expression (identifier) @function.call))
 
 ; Function parameters
-(call_struct_argument name: (identifier) @field)
+(call_struct_argument name: (identifier) @variable.other.member)
 (event_parameter name: (identifier) @variable.parameter)
 (parameter name: (identifier) @variable.parameter)
 
@@ -243,3 +243,5 @@
   "delete"
   "new"
 ] @keyword.operator
+
+(function_definition name: (identifier) @function.declaration !body)

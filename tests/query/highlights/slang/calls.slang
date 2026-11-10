@@ -1,7 +1,7 @@
 void render(int &value) {
 //               ^ @variable.parameter
   helper(value);
-//^ @function
+//^ @function.call
   Thing(value);
-//^ @constructor
+//^ @constructor.call
 }

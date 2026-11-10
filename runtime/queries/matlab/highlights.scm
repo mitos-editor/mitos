@@ -35,11 +35,11 @@
 
 (function_definition
   "function" @keyword.function
-  name: (identifier) @function
+  name: (identifier) @function.definition
   [ "end" "endfunction" ]? @keyword.function)
 
-(function_signature name: (identifier) @function)
-(function_call name: (identifier) @function)
+(function_signature name: (identifier) @function.declaration)
+(function_call name: (identifier) @function.call)
 (handle_operator (identifier) @function)
 (validation_functions (identifier) @function)
 (command (command_name) @function.macro)

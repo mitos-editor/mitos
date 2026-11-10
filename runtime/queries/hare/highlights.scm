@@ -125,13 +125,13 @@
 (floating_literal) @constant.numeric.float
 
 (call_expression
-  (postfix_expression (nested_expression (identifier (name) @function))))
+  (postfix_expression (nested_expression (identifier (name) @function.call))))
 (call_expression
-  (postfix_expression (field_access_expression selector: (name) @function.method)))
+  (postfix_expression (field_access_expression selector: (name) @function.method.call)))
 (size_expression "size" @function.builtin)
 
 (function_declaration
-  name: (identifier (name) @function))
+  name: (identifier (name) @function.definition))
 
 (parameter (name) @variable.parameter)
 
@@ -144,3 +144,5 @@
 
 (alias_type (identifier (name) @type))
 (unwrapped_alias (identifier (name) @type))
+
+(function_declaration name: (identifier (name) @function.declaration) !body)

@@ -263,9 +263,9 @@
 (func_declaration name: (_) @function)
 (iterator_declaration name: (_) @function)
 (converter_declaration name: (_) @function)
-(method_declaration name: (_) @function.method)
+(method_declaration name: (_) @function.method.definition)
 (template_declaration name: (_) @function.macro)
-(macro_declaration name: (_) @function.macro)
+(macro_declaration name: (_) @function.macro.definition)
 (symbol_declaration name: (_) @variable)
 
 ; Member access: the field of a dot expression (o.field). Before the call
@@ -275,14 +275,14 @@
 
 (call
   function: [
-    (identifier) @function
+    (identifier) @function.call
     (dot_expression
-      right: (identifier) @function)
+      right: (identifier) @function.call)
     (bracket_expression
       left: [
-        (identifier) @function
+        (identifier) @function.call
         (dot_expression
-          right: (identifier) @function)])])
+          right: (identifier) @function.call)])])
 (generalized_string
   function: [
     (identifier) @function
@@ -358,3 +358,5 @@
 ;; Built-in types (primitive and common types)
 ((identifier) @type.builtin
   (#match? @type.builtin "^(int|int8|int16|int32|int64|uint|uint8|uint16|uint32|uint64|float|float32|float64|bool|char|string|cstring|pointer|ptr|ref|void|auto|any|type|typed|untyped|typedesc|range|array|openArray|openarray|varargs|seq|set|tuple|object|enum|concept|distinct|proc|iterator|cstringArray|csize|csize_t|clonglong|culonglong|clong|culong|cint|cuint|cshort|cushort|cchar|cschar|cuchar|cfloat|cdouble|clongdouble|byte|Natural|Positive|sink|lent|owned|iterable|static)$"))
+
+(method_declaration name: (_) @function.method.declaration !body)

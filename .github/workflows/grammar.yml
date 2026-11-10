@@ -49,6 +49,10 @@ jobs:
           cache-grammars: 'true'
           grammar-cache-version: ${{ env.GRAMMAR_CACHE_VERSION }}
 
+      - name: Validate scope vocabulary
+        if: always()
+        run: cargo xtask scope-check
+
       - name: Validate queries
         if: always()
         run: cargo xtask query-check

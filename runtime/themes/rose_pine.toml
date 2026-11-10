@@ -5,6 +5,19 @@
 #   The Rosé Pine team will update Helix, including you as a co-author.
 # License: MIT (see licenses/rose_pine.license)
 
+# Source annotations and picker matches can be styled independently.
+# Interface and readonly symbol styles.
+"ui.welcome.heading" = "rose"
+"ui.welcome.command" = "foam"
+"variable.readonly" = "foam"
+"variable.other.member.readonly" = "foam"
+
+"ui.picker.match" = "rose"
+"comment.error" = "love"
+"comment.warning" = "gold"
+"comment.info" = "foam"
+"comment.hint" = "iris"
+
 "ui.link" = { modifiers = ["underlined"] }
 "ui.background" = { bg = "base" }
 "ui.background.separator" = { bg = "base" }
@@ -60,7 +73,6 @@
 "error" = "love"
 "info" = "foam"
 "hint" = "iris"
-"debug" = "rose"
 
 "diagnostic" = { underline = { color = "subtle", style = "curl" } }
 "diagnostic.hint" = { underline = { color = "iris", style = "curl" } }

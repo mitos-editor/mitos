@@ -1063,7 +1063,11 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             } else {
                 "ui.text.focus"
             });
-        let highlight_style = cx.editor.theme.get("special").add_modifier(Modifier::BOLD);
+        let highlight_style = cx
+            .editor
+            .theme
+            .get("ui.picker.match")
+            .add_modifier(Modifier::BOLD);
 
         // -- Render the frame:
         // clear area

@@ -37,52 +37,52 @@
 ; i.e. a::b::c::d::func();
 (call_expression
   function: (qualified_identifier
-    name: (identifier) @function))
+    name: (identifier) @function.call))
 (call_expression
   function: (qualified_identifier
     name: (qualified_identifier
-      name: (identifier) @function)))
+      name: (identifier) @function.call)))
 (call_expression
   function: (qualified_identifier
     name: (qualified_identifier
       name: (qualified_identifier
-        name: (identifier) @function))))
+        name: (identifier) @function.call))))
 (call_expression
   function: (qualified_identifier
     name: (qualified_identifier
       name: (qualified_identifier
         name: (qualified_identifier
-          name: (identifier) @function)))))
+          name: (identifier) @function.call)))))
 
 (template_function
-  name: (identifier) @function)
+  name: (identifier) @function.reference)
 
 (template_method
-  name: (field_identifier) @function.method)
+  name: (field_identifier) @function.method.reference)
 
 ; Support up to 4 levels of nesting of qualifiers
 ; i.e. a::b::c::d::func();
 (function_declarator
   declarator: (qualified_identifier
-    name: (identifier) @function))
+    name: (identifier) @function.declaration))
 (function_declarator
   declarator: (qualified_identifier
     name: (qualified_identifier
-      name: (identifier) @function)))
+      name: (identifier) @function.declaration)))
 (function_declarator
   declarator: (qualified_identifier
     name: (qualified_identifier
       name: (qualified_identifier
-        name: (identifier) @function))))
+        name: (identifier) @function.declaration))))
 (function_declarator
   declarator: (qualified_identifier
     name: (qualified_identifier
       name: (qualified_identifier
         name: (qualified_identifier
-          name: (identifier) @function)))))
+          name: (identifier) @function.declaration)))))
 
 (function_declarator
-  declarator: (field_identifier) @function.method)
+  declarator: (field_identifier) @function.method.declaration)
 
 ; Constructors
 
@@ -91,8 +91,8 @@
   (field_declaration_list
     (function_definition
       (function_declarator
-        (identifier) @constructor)))
-        (#eq? @type @constructor))
+        (identifier) @constructor.definition)))
+        (#eq? @type @constructor.definition))
 (destructor_name "~" @constructor
   (identifier) @constructor)
 
@@ -191,3 +191,15 @@
 ; Strings
 
 (raw_string_literal) @string
+
+(call_expression function: (template_function name: (identifier) @function.call))
+(call_expression function: (field_expression field: (template_method name: (field_identifier) @function.method.call)))
+(function_definition declarator: (function_declarator declarator: (field_identifier) @function.method.definition))
+
+(function_definition declarator: (function_declarator declarator: (qualified_identifier name: (identifier) @function.definition)))
+
+(function_definition declarator: (function_declarator declarator: (qualified_identifier name: (qualified_identifier name: (identifier) @function.definition))))
+
+(function_definition declarator: (function_declarator declarator: (qualified_identifier name: (qualified_identifier name: (qualified_identifier name: (identifier) @function.definition)))))
+
+(function_definition declarator: (function_declarator declarator: (qualified_identifier name: (qualified_identifier name: (qualified_identifier name: (qualified_identifier name: (identifier) @function.definition))))))

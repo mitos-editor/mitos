@@ -5,6 +5,19 @@
 # 
 # GitHub : https://github.com/strash/kinda_nvim.hx
 
+# Source annotations and picker matches can be styled independently.
+# Interface and readonly symbol styles.
+"ui.welcome.heading" = { fg = "fg_tertiary_variant" }
+"ui.welcome.command" = { fg = "fg", modifiers = [ "bold" ] }
+"variable.readonly" = { fg = "fg", modifiers = [ "bold" ] }
+"variable.other.member.readonly" = { fg = "fg", modifiers = [ "bold" ] }
+
+"ui.picker.match" = { fg = "fg_tertiary_variant" }
+"comment.error" = { fg = "fg_err" }
+"comment.warning" = { fg = "fg_warn" }
+"comment.info" = { fg = "fg_info" }
+"comment.hint" = { fg = "fg_hint" }
+
 "ui.link" = { modifiers = ["underlined"] }
 "ui.background" = { bg ="bg", fg = "fg_4" }
 "ui.background.separator" = { bg = "bg", fg = "fg_4" }
@@ -142,7 +155,7 @@
 "markup.bold" = { modifiers = [ "bold" ] }
 "markup.italic" = { modifiers = [ "italic" ] }
 "markup.strikethrough" = { modifiers = [ "crossed_out" ] }
-"markup.lint" = { modifiers = [ "underlined" ] }
+"markup.underline" = { modifiers = [ "underlined" ] }
 "markup.raw" = { fg = "fg_primary" }
 
 "diff.plus" = { fg = "fg_primary", bg = "bg_hint" }

@@ -1,3 +1,3 @@
 SELECT count(*) FROM t.users;
---     ^ @function.method
+--     ^ @function.method.call
 --                     ^ @variable.other.member

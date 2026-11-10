@@ -1,6 +1,17 @@
 # Based on Flexoki: https://stephango.com/flexoki
 # License: MIT (see licenses/flexoki.license)
 
+# Source annotations and picker matches can be styled independently.
+# Interface and readonly symbol styles.
+"ui.welcome.command" = "pu"
+"variable.readonly" = "pu"
+"variable.other.member.readonly" = "pu"
+
+"comment.error" = { fg = "re", modifiers = ["bold"] }
+"comment.warning" = { fg = "or", modifiers = ["bold"] }
+"comment.info" = { fg = "ye", modifiers = ["bold"] }
+"comment.hint" = { fg = "bl", modifiers = ["bold"] }
+
 "ui.link" = { modifiers = ["underlined"] }
 "ui.background" = { bg = "bg" }
 "ui.cursor" = { fg = "tx", bg = "tx-3" }

@@ -2,6 +2,19 @@
 # Author: Soc Virnyl Estela <socvirnyl.estela@gmail.com>
 # License: MIT (see licenses/papercolor.license)
 
+# Source annotations and picker matches can be styled independently.
+# Interface and readonly symbol styles.
+"ui.welcome.heading" = "special"
+"ui.welcome.command" = "bright5"
+"variable.readonly" = "bright5"
+"variable.other.member.readonly" = "bright5"
+
+"ui.picker.match" = "special"
+"comment.error" = { bg = "error_bg", fg = "error_fg" }
+"comment.warning" = "bright4"
+"comment.info" = "todo_fg"
+"comment.hint" = "bright6"
+
 "ui.link" = { modifiers = ["underlined"] }
 "ui.linenr.selected" = { fg = "cursorlinenr_fg", modifiers = ["bold"] }
 "ui.linenr" = { fg = "linenumber_fg" }

@@ -1,5 +1,5 @@
 f() ->
   mod:func(X),
-%     ^ @function
+%     ^ @function.call
   helper(Y).
-% ^ @function
+% ^ @function.call

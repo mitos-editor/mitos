@@ -125,7 +125,7 @@
 ; Function calls
 
 (call
-  method: [(identifier) (constant)] @function.method)
+  method: [(identifier) (constant)] @function.method.call)
 
 ((identifier) @function.builtin
  (#match? @function.builtin "^(attr|attr_accessor|attr_reader|attr_writer|include|prepend|refine|private|protected|public)$"))

@@ -3,7 +3,7 @@ trait Greeter:
     def greet(self):
 #             ^ @variable.builtin
         print("hi")
-#       ^ @function.builtin
+#       ^ @function.builtin.call
 
 def use_value(read value: Int):
 #                  ^ @variable.parameter

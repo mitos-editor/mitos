@@ -11,8 +11,26 @@ contributing to Mitos.
 
 The full list of highlight scopes, and what each is for, is documented on the
 [themes page]. Match the most specific scope that fits the node — for example a
-method call is `@function.method` while a plain field access is
+method call is `@function.method.call` while a plain field access is
 `@variable.other.member`.
+
+Use explicit occurrence roles when the grammar provides them: a method body
+introduces `@function.method.definition`, a signature without a body introduces
+`@function.method.declaration`, and an invocation uses `@function.method.call`.
+A reference to a callable value is not a call. Keep broad captures when a
+classification would require resolving a symbol or guessing from its name.
+
+Qualifiers such as `builtin`, `public`, and `mutable` can combine with a role;
+`@function.method.public.definition` preserves both facts. Themes match these
+qualifiers independently of their order. Do not put occurrence roles in
+`@local.definition.<class>`: the class propagates to references and must describe
+the symbol, rather than the role of its definition occurrence.
+
+Predicate-only captures must start with `_` (for example `@_name`). `@none` and
+the structural `@local.*` captures are reserved. New public kinds or qualifiers
+belong in `crates/theme/src/scopes/mod.rs`; regenerate the reference and concrete
+capture inventory with `cargo xtask docgen`. `cargo xtask scope-check` rejects
+unknown captures and misspelled theme keys without requiring native grammars.
 
 A query file may reuse another language's with `; inherits: <lang>` on the first
 line (for example `tsx` inherits `typescript`, which inherits `ecma`). An

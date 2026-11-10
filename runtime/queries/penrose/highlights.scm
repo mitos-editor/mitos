@@ -38,8 +38,8 @@
 (constructor_decl parameters: (parameter_list (parameter type: (escaped_identifier) @type)))
 (constructor_decl result_type: (identifier) @type)
 (constructor_decl result_type: (escaped_identifier) @type)
-(function_decl name: (identifier) @function)
-(function_decl name: (escaped_identifier) @function)
+(function_decl name: (identifier) @function.definition)
+(function_decl name: (escaped_identifier) @function.definition)
 (function_decl parameters: (parameter_list (parameter type: (identifier) @type)))
 (function_decl parameters: (parameter_list (parameter type: (escaped_identifier) @type)))
 (function_decl result_type: (identifier) @type)
@@ -53,7 +53,7 @@
 (value_decl type: (identifier) @type)
 (value_decl type: (escaped_identifier) @type)
 
-(predicate_modifier) @keyword.modifier
+(predicate_modifier) @keyword.storage.modifier
 (arrow) @operator
 (tilde) @operator
 
@@ -98,7 +98,7 @@
 (typed_binding type: (escaped_identifier) @type)
 (typed_binding names: (identifier_list (identifier) @variable))
 (typed_binding names: (identifier_list (escaped_identifier) @variable))
-(binding_modifier) @keyword.modifier
+(binding_modifier) @keyword.storage.modifier
 (single_binding type: (identifier) @type)
 (single_binding type: (escaped_identifier) @type)
 (single_binding name: (identifier) @variable)
@@ -188,8 +188,8 @@
 (path (escaped_identifier) @variable.other.member)
 
 ; Functions and calls
-(call_expression (identifier) @function)
-(call_expression (path) @function)
+(call_expression (identifier) @function.call)
+(call_expression (path) @function.call)
 (numberof_expression "numberof" @function)
 (listof_expression "listof" @function)
 (nameof_expression "nameof" @function)

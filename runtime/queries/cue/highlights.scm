@@ -71,15 +71,15 @@
 
 ; Functions
 (call_expression
-  function: (identifier) @function)
+  function: (identifier) @function.call)
 
 (call_expression
   function: (selector_expression
     (_)
-    (identifier) @function))
+    (identifier) @function.call))
 
 (call_expression
-  function: (builtin_function) @function)
+  function: (builtin_function) @function.call)
 
 (builtin_function) @function.builtin
 

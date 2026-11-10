@@ -196,7 +196,7 @@
 (macro_definition command: (identifier) @keyword)
 
 (call_expression
-  function: (identifier) @function.builtin)
+  function: (identifier) @function.builtin.call)
 
 
 ; Returns

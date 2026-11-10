@@ -23,23 +23,23 @@
 
 (call_expression
   function: [
-    (identifier) @function
-    (parenthesized_expression (identifier) @function)
+    (identifier) @function.call
+    (parenthesized_expression (identifier) @function.call)
   ])
 
 (call_expression
   function: [
-    (selector_expression field: (field_identifier) @function.method)
+    (selector_expression field: (field_identifier) @function.method.call)
     (parenthesized_expression
-      (selector_expression field: (field_identifier) @function.method))
+      (selector_expression field: (field_identifier) @function.method.call))
   ])
 
 (call_expression
   function: [
-    (identifier) @function.builtin
-    (parenthesized_expression (identifier) @function.builtin)
+    (identifier) @function.builtin.call
+    (parenthesized_expression (identifier) @function.builtin.call)
   ]
-  (#match? @function.builtin "^(append|cap|close|complex|copy|delete|imag|len|make|new|panic|print|println|real|recover|min|max|clear)$"))
+  (#match? @function.builtin.call "^(append|cap|close|complex|copy|delete|imag|len|make|new|panic|print|println|real|recover|min|max|clear)$"))
 
 ; Types
 
@@ -73,25 +73,25 @@
 ; Function definitions
 
 (function_declaration
-  name: (identifier) @function)
+  name: (identifier) @function.definition)
 
 ((function_declaration
-  name: (identifier) @function.public)
-  (#match? @function.public "^[A-Z]"))
+  name: (identifier) @function.public.definition)
+  (#match? @function.public.definition "^[A-Z]"))
 
 (method_declaration
-  name: (field_identifier) @function.method)
+  name: (field_identifier) @function.method.definition)
 
 ((method_declaration
-  name: (field_identifier) @function.method.public)
-  (#match? @function.method.public "^[A-Z]"))
+  name: (field_identifier) @function.method.public.definition)
+  (#match? @function.method.public.definition "^[A-Z]"))
 
 (method_elem
-  name: (field_identifier) @function.method)
+  name: (field_identifier) @function.method.declaration)
 
 ((method_elem
-  name: (field_identifier) @function.method.public)
-  (#match? @function.method.public "^[A-Z]"))
+  name: (field_identifier) @function.method.public.declaration)
+  (#match? @function.method.public.declaration "^[A-Z]"))
 
 ; Blank identifier `_` (Go's discard) — dim as unused.
 ; It parses as (blank_identifier) in imports and as (identifier) elsewhere
@@ -268,3 +268,15 @@
     ; )
     (const_spec)
   ])
+
+; External declarations without bodies remain declarations.
+(function_declaration name: (identifier) @function.declaration !body)
+(method_declaration name: (field_identifier) @function.method.declaration !body)
+(type_spec name: (type_identifier) @type.struct.definition type: (struct_type))
+(type_spec name: (type_identifier) @type.interface.definition type: (interface_type))
+(type_alias name: (type_identifier) @type.alias.definition)
+
+((function_declaration name: (identifier) @function.public.declaration !body)
+ (#match? @function.public.declaration "^[A-Z]"))
+((method_declaration name: (field_identifier) @function.method.public.declaration !body)
+ (#match? @function.method.public.declaration "^[A-Z]"))

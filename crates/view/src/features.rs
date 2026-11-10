@@ -30,6 +30,7 @@ pub mod navigation;
 pub(crate) mod process;
 pub mod rename;
 pub(crate) mod request;
+pub mod semantic_tokens;
 pub mod shell;
 pub mod signature_help;
 pub mod spelling;

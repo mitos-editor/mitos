@@ -1,5 +1,18 @@
 # Syntax highlighting
 
+# Source annotations and picker matches can be styled independently.
+# Interface and readonly symbol styles.
+"ui.welcome.heading" = "purple40"
+"ui.welcome.command" = "teal40"
+"variable.readonly" = "teal40"
+"variable.other.member.readonly" = "teal40"
+
+"ui.picker.match" = "purple40"
+"comment.error" = "magenta30"
+"comment.warning" = "yellow30"
+"comment.info" = "blue40"
+"comment.hint" = "cyan40"
+
 "attribute" = { fg = "blue60", modifiers = ["italic"] }
 
 "type" = { fg = "cyan30", modifiers = ["italic"] }

@@ -7,6 +7,15 @@
 # All credits to the original author, the palette is taken from the README
 # because of some theming differences, it's not an exact copy of the original.
 
+# Source annotations and picker matches can be styled independently.
+# Interface and readonly symbol styles.
+"ui.welcome.heading" = "dragonYellow"
+"ui.welcome.command" = "dragonOrange"
+"variable.readonly" = "dragonOrange"
+"variable.other.member.readonly" = "dragonOrange"
+
+"ui.picker.match" = "dragonYellow"
+
 inherits = "kanagawa"
 
 ## User interface

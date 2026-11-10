@@ -1,6 +1,6 @@
 def f
   obj.first.second
-#     ^ @function.method
+#     ^ @function.method.call
   helper(1)
-# ^ @function.method
+# ^ @function.method.call
 end

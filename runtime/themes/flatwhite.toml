@@ -2,6 +2,19 @@
 # Adopted from https://github.com/biletskyy/flatwhite-syntax
 # License: MIT (see licenses/flatwhite.license)
 
+# Source annotations and picker matches can be styled independently.
+# Interface and readonly symbol styles.
+"ui.welcome.heading" = { fg = "blue_text", bg = "blue_bg" }
+"ui.welcome.command" = { fg = "blue_text", bg = "blue_bg" }
+"variable.readonly" = { fg = "blue_text", bg = "blue_bg" }
+"variable.other.member.readonly" = { fg = "blue_text", bg = "blue_bg" }
+
+"ui.picker.match" = { fg = "blue_text", bg = "blue_bg" }
+"comment.error" = { fg = "diff_delete" }
+"comment.warning" = { fg = "orange_text", bg = "orange_bg" }
+"comment.info" = { fg = "orange_text", bg = "orange_bg" }
+"comment.hint" = { modifiers = ["bold"] }
+
 "attribute" = { fg = "blue_text", bg = "blue_bg" }
 "comment" = { fg = "base2", bg = "base6" }
 "comment.line" = { fg = "base2", bg = "base6" }

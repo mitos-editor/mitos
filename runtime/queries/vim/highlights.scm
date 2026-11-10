@@ -36,15 +36,15 @@
 
 ; Function related
 (function_declaration
-  name: (_) @function)
+  name: (_) @function.definition)
 
 (call_expression
-  function: (identifier) @function)
+  function: (identifier) @function.call)
 
 (call_expression
   function:
     (scoped_identifier
-      (identifier) @function))
+      (identifier) @function.call))
 
 (parameters
   (identifier) @variable.parameter)

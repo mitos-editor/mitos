@@ -59,10 +59,10 @@
 ; function definitions/declarations
 
 (function_declaration
-    name: (identifier) @function.method)
+    name: (identifier) @function.method.declaration)
 
 (function_definition
-      name: (identifier) @function.method)
+      name: (identifier) @function.method.definition)
 
 ; imports/exports
 
@@ -92,25 +92,25 @@
  (#match? @type "^[A-Z]"))
 
 (call_expression
-  function: (identifier) @function)
+  function: (identifier) @function.call)
 
 (call_expression
-  function: (operator_identifier) @function)
-
-(call_expression
-  function: (field_expression
-    field: (identifier) @function.method))
+  function: (operator_identifier) @function.call)
 
 (call_expression
   function: (field_expression
-    field: (operator_identifier) @function.method))
+    field: (identifier) @function.method.call))
+
+(call_expression
+  function: (field_expression
+    field: (operator_identifier) @function.method.call))
 
 ((call_expression
    function: (identifier) @variable.other.member)
  (#match? @variable.other.member "^[A-Z]"))
 
 (generic_function
-  function: (identifier) @function)
+  function: (identifier) @function.reference)
 
 (interpolated_string_expression
   interpolator: (identifier) @function)
@@ -123,10 +123,10 @@
 ; function definitions
 
 (function_definition
-  name: (identifier) @function)
+  name: (identifier) @function.definition)
 
 (function_definition
-  name: (operator_identifier) @function)
+  name: (operator_identifier) @function.definition)
 
 (parameter
   name: (identifier) @variable.parameter)
@@ -279,3 +279,5 @@
 (capture_variable) @operator
 (xml_element ["<" ">" "</" "/>"] @punctuation.bracket)
 (xml_pattern ["<" ">" "</" "/>"] @punctuation.bracket)
+
+(call_expression function: (generic_function function: (identifier) @function.call))

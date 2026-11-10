@@ -5,6 +5,19 @@
 # This theme is based on Nathaniel Webb's VSCodePopTheme <https://github.com/ArtisanByteCrafter/VSCodePopTheme>
 # License: MIT (see licenses/pop-dark.license)
 
+# Source annotations and picker matches can be styled independently.
+# Interface and readonly symbol styles.
+"ui.welcome.heading" = { fg = 'orangeW' }
+"ui.welcome.command" = { fg = "greyG" }
+"variable.readonly" = { fg = "greyG" }
+"variable.other.member.readonly" = { fg = "greyG" }
+
+"ui.picker.match" = { fg = 'orangeW' }
+"comment.error" = { fg = 'redE', modifiers = ['bold'] }
+"comment.warning" = { fg = 'orangeW', modifiers = ['bold'] }
+"comment.info" = { fg = 'brownD' }
+"comment.hint" = { fg = 'yellowH', modifiers = ['bold'] }
+
 info = { fg = 'brownD' }
 hint = { fg = 'yellowH', modifiers = ['bold'] }
 warning = { fg = 'orangeW', modifiers = ['bold'] }
@@ -51,7 +64,6 @@ error = { fg = 'redE', modifiers = ['bold'] }
 'ui.popup.info' = { bg = 'brownH', fg = 'greyT' }
 tag = { fg = 'blueH' }
 label = { fg = 'greenS' }
-module = { bg = 'orangeL' }
 special = { fg = 'orangeW' }
 operator = { fg = 'orangeY' }
 attribute = { fg = 'orangeL' }
@@ -81,7 +93,7 @@ namespace = { fg = 'orangeL' }
 'variable.builtin' = { fg = 'blueL' }
 'variable.parameter' = { fg = 'white' }
 'variable.other.member' = { fg = 'orangeH' }
-'variable.function' = { fg = 'blueL' }
+'function.call' = { fg = 'blueL' }
 'punctuation' = { fg = 'blueL' }
 'punctuation.delimiter' = { fg = 'blueH' }
 'punctuation.bracket' = { fg = 'orangeN' }
@@ -121,9 +133,7 @@ namespace = { fg = 'orangeL' }
 'markup.quote' = { fg = 'blueL' }
 'markup.normal' = { fg = 'blueL' }
 'markup.normal.completion' = { bg = 'brownN' }
-'markup.normal.raw' = { bg = 'brownN' }
 'markup.heading.completion' = { fg = 'greenN' }
-'markup.heading.raw' = { bg = 'brownN' }
 'markup.raw' = { bg = 'brownN' }
 'markup.raw.block' = { bg = 'brownH', fg = 'orangeH' }
 'markup.raw.inline' = { fg = 'blueL' }

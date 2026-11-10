@@ -162,36 +162,36 @@
 ;--------------------------------
 
 (function_expression
-  name: (identifier) @function)
+  name: (identifier) @function.definition)
 (function_declaration
-  name: (identifier) @function)
+  name: (identifier) @function.definition)
 (method_definition
-  name: (property_identifier) @function.method)
+  name: (property_identifier) @function.method.definition)
 (method_definition
-  name: (private_property_identifier) @function.method.private)
+  name: (private_property_identifier) @function.method.private.definition)
 
 (pair
-  key: (property_identifier) @function.method
+  key: (property_identifier) @function.method.definition
   value: [(function_expression) (arrow_function)])
 (pair
-  key: (private_property_identifier) @function.method.private
+  key: (private_property_identifier) @function.method.private.definition
   value: [(function_expression) (arrow_function)])
 
 (assignment_expression
   left: (member_expression
-    property: (property_identifier) @function.method)
+    property: (property_identifier) @function.method.definition)
   right: [(function_expression) (arrow_function)])
 (assignment_expression
   left: (member_expression
-    property: (private_property_identifier) @function.method.private)
+    property: (private_property_identifier) @function.method.private.definition)
   right: [(function_expression) (arrow_function)])
 
 (variable_declarator
-  name: (identifier) @function
+  name: (identifier) @function.definition
   value: [(function_expression) (arrow_function)])
 
 (assignment_expression
-  left: (identifier) @function
+  left: (identifier) @function.definition
   right: [(function_expression) (arrow_function)])
 
 ; Function and method parameters
@@ -206,14 +206,14 @@
 ;--------------------------
 
 (call_expression
-  function: (identifier) @function)
+  function: (identifier) @function.call)
 
 (call_expression
   function: (member_expression
-    property: (property_identifier) @function.method))
+    property: (property_identifier) @function.method.call))
 (call_expression
   function: (member_expression
-    property: (private_property_identifier) @function.method.private))
+    property: (private_property_identifier) @function.method.private.call))
 
 ; Literals
 ;---------
@@ -282,8 +282,8 @@
  (#is-not? local))
 
 (call_expression
- (identifier) @function.builtin
- (#any-of? @function.builtin
+ (identifier) @function.builtin.call
+ (#any-of? @function.builtin.call
   "eval"
   "fetch"
   "isFinite"

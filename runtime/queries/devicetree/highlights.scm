@@ -73,7 +73,7 @@
 (identifier) @variable
 
 (call_expression
-  function: (identifier) @function)
+  function: (identifier) @function.call)
 (preproc_function_def
   name: (identifier) @function.special)
 
@@ -85,7 +85,7 @@
   label: (identifier) @label)
 
 (property
-  name: (identifier) @property)
+  name: (identifier) @variable.other.member)
 
 (unit_address) @tag
 

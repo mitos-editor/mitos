@@ -5,7 +5,7 @@ use crate::{
         auto_reload, auto_save, blame, buffer_search, code_action_hint, code_actions, code_lenses,
         completion::{self, CompletionEvent, CompletionHandler},
         diagnostics, document_colors, document_highlight, document_links, document_symbols, hover,
-        inlay_hints, inline_completion, navigation, rename,
+        inlay_hints, inline_completion, navigation, rename, semantic_tokens,
         signature_help::{self, SignatureHelpInvoked},
         spelling::{self, SpellingHandler},
         syntax, word_index, workspace_symbols, workspace_trust,
@@ -37,6 +37,7 @@ pub struct Handlers {
     pub document_links: document_links::DocumentLinksHandler,
     pub document_colors: document_colors::DocumentColorsHandler,
     pub code_lenses: code_lenses::DocumentCodeLensesHandler,
+    pub semantic_tokens: semantic_tokens::SemanticTokensHandler,
     pub syntax: syntax::SyntaxHandler,
     pub buffer_search: buffer_search::Handler,
     pub completions: CompletionHandler,
@@ -102,6 +103,7 @@ impl Handlers {
             document_links: document_links::DocumentLinksHandler::new(callbacks.clone()),
             document_colors: document_colors::DocumentColorsHandler::new(callbacks.clone()),
             code_lenses: code_lenses::DocumentCodeLensesHandler::new(callbacks.clone()),
+            semantic_tokens: semantic_tokens::SemanticTokensHandler::new(callbacks.clone()),
             syntax: syntax::SyntaxHandler::new(callbacks.clone()),
             buffer_search: buffer_search::Handler::new(callbacks.clone()),
             completions: CompletionHandler::new(callbacks.clone(), config),
@@ -142,6 +144,7 @@ impl Handlers {
         doc.document_colors
             .bind_handler(self.document_colors.clone());
         doc.code_lenses.bind_handler(self.code_lenses.clone());
+        doc.semantic_tokens.handler = Some(self.semantic_tokens.clone());
         doc.document_links.bind_handler(self.document_links.clone());
         doc.document_highlights
             .bind_handler(self.document_highlight.clone());
@@ -227,6 +230,7 @@ fn register_hooks(events: &event::EventHub) {
     snippet::register_hooks(events);
     document_colors::register_hooks(events);
     code_lenses::register_hooks(events);
+    semantic_tokens::register_hooks(events);
     document_links::register_hooks(events);
     inline_completion::register_hooks(events);
     spelling::register_hooks(events);

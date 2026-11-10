@@ -119,7 +119,7 @@
 (list
   .
   (symbol) @_f
-  (#eq? @_f "quote")) @string.symbol
+  (#eq? @_f "quote")) @string.special.symbol
 
 ; keywords
 

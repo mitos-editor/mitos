@@ -1,6 +1,19 @@
 # NOTE: For contributors looking to modify the theme, please submit a pull request at https://github.com/catppuccin/helix instead of updating this file. Changes are frequently synchronized from the catppuccin/helix theme repository.
 # Syntax highlighting
 # -------------------
+# Source annotations and picker matches can be styled independently.
+# Interface and readonly symbol styles.
+"ui.welcome.heading" = "blue" # fuzzy highlight
+"ui.welcome.command" = "peach"
+"variable.readonly" = "peach"
+"variable.other.member.readonly" = "peach"
+
+"ui.picker.match" = "blue" # fuzzy highlight
+"comment.error" = "red"
+"comment.warning" = "yellow"
+"comment.info" = "sky"
+"comment.hint" = "teal"
+
 "attribute" = "yellow"
 # License: MIT (see licenses/catppuccin.license)
 

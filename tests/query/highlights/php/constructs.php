@@ -2,8 +2,8 @@
 class Box {
 //    ^ @constructor
     function method($count) {
-//           ^ @function.method
+//           ^ @function.method.definition
         return $obj->doThing();
-//                   ^ @function.method
+//                   ^ @function.method.call
     }
 }

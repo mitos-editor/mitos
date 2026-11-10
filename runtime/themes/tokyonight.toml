@@ -1,6 +1,19 @@
 # Author: Paul Graydon <untimely.creation97@proton.me>
 # License: Apache-2.0 (see licenses/tokyonight.license)
 
+# Source annotations and picker matches can be styled independently.
+# Interface and readonly symbol styles.
+"ui.welcome.heading" = { fg = "aqua" }
+"ui.welcome.command" = { fg = "orange" }
+"variable.readonly" = { fg = "orange" }
+"variable.other.member.readonly" = { fg = "orange" }
+
+"ui.picker.match" = { fg = "aqua" }
+"comment.error" = { fg = "error" }
+"comment.warning" = { fg = "yellow" }
+"comment.info" = { fg = "info" }
+"comment.hint" = { fg = "hint" }
+
 attribute = { fg = "cyan" }
 comment = { fg = "comment", modifiers = ["italic"] }
 "comment.block.documentation" = { fg = "yellow" }

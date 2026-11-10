@@ -1,8 +1,12 @@
 //! Theme parsing, palette resolution, and style lookup without editor or protocol state.
 
 pub mod icons;
+pub mod scopes;
 
-use std::{collections::HashMap, sync::LazyLock};
+use std::{
+    collections::HashMap,
+    sync::{Arc, LazyLock, RwLock},
+};
 
 use anyhow::Result;
 use editor_core::{hashmap, highlight::Highlight};
@@ -148,6 +152,7 @@ pub struct Theme {
     /// is called many times per frame, so we optimize lookups.
     scope_index: HashMap<String, Highlight>,
     rainbow_length: usize,
+    syntax_cache: Arc<RwLock<HashMap<String, Option<Style>>>>,
 }
 
 impl From<Value> for Theme {
@@ -239,7 +244,46 @@ fn build_theme_values(
         highlights.push(style);
     }
 
+    // Compile composed syntax styles once, keeping the render loop an indexed
+    // lookup. The inventory is generated from bundled queries; custom theme keys
+    // are retained and custom scopes still support ordinary prefix fallback.
+    let candidates: std::collections::BTreeSet<_> = scopes
+        .iter()
+        .cloned()
+        .chain(crate::scopes::CAPTURES.iter().map(|s| s.to_string()))
+        .chain(crate::scopes::KINDS.iter().map(|(s, _)| s.to_string()))
+        .collect();
+    for name in candidates {
+        if crate::scopes::Classification::parse(&name).is_some() {
+            let style = resolve_syntax(&styles, &name).unwrap_or_default();
+            if let Some(index) = scopes.iter().position(|s| s == &name) {
+                highlights[index] = style;
+            } else {
+                scopes.push(name);
+                highlights.push(style);
+            }
+        }
+    }
     (styles, scopes, highlights, rainbow_length, warnings)
+}
+
+/// Resolve syntax selectors from broad to specific, merging individual style
+/// properties. A wildcard supplies cross-kind traits; kind-specific rules win.
+fn resolve_syntax(styles: &HashMap<String, Style>, scope: &str) -> Option<Style> {
+    let classification = scopes::Classification::parse(scope)?;
+    let mut matches: Vec<_> = styles
+        .iter()
+        .filter_map(|(selector, style)| {
+            scopes::specificity_for(selector, &classification)
+                .map(|specificity| (specificity, selector.as_str(), *style))
+        })
+        .collect();
+    matches.sort_unstable_by(|a, b| (a.0, a.1).cmp(&(b.0, b.1)));
+    let mut result: Option<Style> = None;
+    for (_, _, style) in matches {
+        result = Some(result.unwrap_or_default().patch(style));
+    }
+    result
 }
 
 fn default_rainbow() -> Vec<Style> {
@@ -311,10 +355,25 @@ impl Theme {
         }
     }
 
-    /// Get the style of a scope, falling back to dot separated broader
-    /// scopes. For example if `ui.text.focus` is not defined in the theme,
-    /// `ui.text` is tried and then `ui` is tried.
+    /// Resolve syntax selectors by composing their properties. Interface and
+    /// custom scopes use longest-prefix fallback: `ui.text.focus` tries
+    /// `ui.text` and then `ui` when no exact style is available.
     pub fn try_get(&self, scope: &str) -> Option<Style> {
+        if let Some(id) = self.find_highlight_exact(scope) {
+            return Some(self.highlight(id));
+        }
+        if scopes::Classification::parse(scope).is_some() {
+            let cached = self.syntax_cache.read().unwrap().get(scope).copied();
+            if let Some(style) = cached {
+                return style;
+            }
+            let style = resolve_syntax(&self.styles, scope);
+            self.syntax_cache
+                .write()
+                .unwrap()
+                .insert(scope.to_owned(), style);
+            return style;
+        }
         scope_prefixes(scope).find_map(|s| self.styles.get(s).copied())
     }
 
@@ -336,6 +395,23 @@ impl Theme {
 
     pub fn find_highlight(&self, scope: &str) -> Option<Highlight> {
         scope_prefixes(scope).find_map(|scope| self.find_highlight_exact(scope))
+    }
+
+    /// Explicit selectors contributing to a syntax classification, in application order.
+    pub fn matching_selectors<'a>(&'a self, scope: &str) -> Vec<&'a str> {
+        let Some(classification) = scopes::Classification::parse(scope) else {
+            return Vec::new();
+        };
+        let mut selectors: Vec<_> = self
+            .styles
+            .keys()
+            .filter_map(|selector| {
+                scopes::specificity_for(selector, &classification)
+                    .map(|rank| (rank, selector.as_str()))
+            })
+            .collect();
+        selectors.sort_unstable();
+        selectors.into_iter().map(|(_, name)| name).collect()
     }
 
     pub fn is_16_color(&self) -> bool {
@@ -471,6 +547,9 @@ impl ThemePalette {
     }
 
     pub fn parse_underline_style(value: &Value) -> Result<UnderlineStyle, String> {
+        if value.as_str() == Some("none") {
+            return Ok(UnderlineStyle::Reset);
+        }
         value
             .as_str()
             .and_then(|s| s.parse().ok())
@@ -504,6 +583,18 @@ impl ThemePalette {
                                 *style = style.underline_style(UnderlineStyle::Line);
                             } else {
                                 *style = style.add_modifier(Self::parse_modifier(modifier)?);
+                            }
+                        }
+                    }
+                    "remove-modifiers" => {
+                        let modifiers = value
+                            .as_array()
+                            .ok_or("Removed modifiers should be an array")?;
+                        for modifier in modifiers {
+                            if modifier.as_str() == Some("underlined") {
+                                *style = style.underline_style(UnderlineStyle::Reset);
+                            } else {
+                                *style = style.remove_modifier(Self::parse_modifier(modifier)?);
                             }
                         }
                     }
@@ -629,6 +720,110 @@ mod tests {
             let highlight = theme.find_highlight_exact("ui.link").unwrap();
             assert_eq!(theme.highlight(highlight), expected);
         }
+    }
+
+    #[test]
+    fn syntax_traits_compose_with_kind_colors_in_any_qualifier_order() {
+        let theme = Theme::from(Value::Table(toml::toml! {
+            "function" = "red"
+            "function.method" = "blue"
+            "*.definition" = { modifiers = ["bold"] }
+            "*.deprecated" = { modifiers = ["crossed_out"] }
+            "function.method.public" = { modifiers = ["italic"] }
+            "function.method.definition" = { underline = { style = "line" } }
+        }));
+        let expected = theme.get("function.method.public.definition.deprecated");
+        assert_eq!(expected.fg, Some(Color::Blue));
+        assert!(expected
+            .add_modifier
+            .contains(Modifier::BOLD | Modifier::ITALIC | Modifier::CROSSED_OUT));
+        assert_eq!(
+            expected,
+            theme.get("function.method.deprecated.definition.public")
+        );
+        let call = theme.get("function.method.public.call");
+        assert_eq!(call.fg, Some(Color::Blue));
+        assert!(!call.add_modifier.contains(Modifier::BOLD));
+        assert_eq!(
+            theme.matching_selectors("function.method.definition"),
+            [
+                "*.definition",
+                "function",
+                "function.method",
+                "function.method.definition"
+            ]
+        );
+    }
+
+    #[test]
+    fn specific_rules_can_remove_inherited_modifiers_and_underlining() {
+        let theme = Theme::from(Value::Table(toml::toml! {
+            "*.definition" = { modifiers = ["bold", "italic"] }
+            "function" = { fg = "green", underline = { style = "curl" } }
+            "function.method.definition" = { remove-modifiers = ["bold"], underline = { style = "none" } }
+        }));
+        let method = theme.get("function.method.definition");
+        assert_eq!(method.fg, Some(Color::Green));
+        assert!(method.add_modifier.contains(Modifier::ITALIC));
+        assert!(!method
+            .add_modifier
+            .intersects(Modifier::BOLD | Modifier::UNDERLINED));
+    }
+
+    #[test]
+    fn readonly_semantic_bindings_use_explicit_theme_rules() {
+        let theme = Theme::from(Value::Table(toml::toml! {
+            "variable" = "white"
+            "variable.other.member" = "blue"
+            "constant" = "yellow"
+        }));
+        assert_eq!(theme.get("variable.readonly").fg, Some(Color::White));
+        assert_eq!(
+            theme.get("variable.other.member.readonly").fg,
+            Some(Color::Blue)
+        );
+        let customized = Theme::from(Value::Table(toml::toml! {
+            "constant" = "yellow"
+            "variable.readonly" = "red"
+            "variable.other.member.readonly" = "green"
+        }));
+        assert_eq!(customized.get("variable.readonly").fg, Some(Color::Red));
+        assert_eq!(
+            customized.get("variable.other.member.readonly").fg,
+            Some(Color::Green)
+        );
+    }
+
+    #[test]
+    fn bundled_capture_ids_preserve_classification_without_theme_specific_rules() {
+        let theme = Theme::from(Value::Table(toml::toml! { "function" = "green" }));
+        for scope in ["function.method.call", "function.method.definition"] {
+            let id = theme.find_highlight_exact(scope).unwrap();
+            assert_eq!(theme.scope(id), scope);
+            assert_eq!(theme.highlight(id).fg, Some(Color::Green));
+        }
+        assert_eq!(theme.try_get_exact("function.method.call"), None);
+        assert!(theme.find_highlight_exact("ui.selection").is_none());
+    }
+
+    #[test]
+    fn syntax_composition_and_interface_prefix_lookup_remain_separate() {
+        let theme = Theme::from(Value::Table(toml::toml! {
+            "function" = "green"
+            "function.definition" = { modifiers = ["bold"] }
+            "ui.picker.match" = "red"
+            "ui.picker" = { bg = "black" }
+            "comment" = "gray"
+            "error" = "red"
+            "ui.text" = "white"
+        }));
+        assert_eq!(theme.get("function.definition").fg, Some(Color::Green));
+        assert_eq!(theme.get("ui.picker.match").fg, Some(Color::Red));
+        assert_eq!(theme.get("comment.error").fg, Some(Color::DarkGray));
+        assert_eq!(theme.get("ui.text.focus").fg, Some(Color::White));
+        // Custom extension scopes retain prefix fallback without being rejected.
+        let custom = Theme::from(Value::Table(toml::toml! { "custom" = "blue" }));
+        assert_eq!(custom.get("custom.part").fg, Some(Color::Blue));
     }
 
     #[test]

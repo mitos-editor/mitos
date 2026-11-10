@@ -1,3 +1,9 @@
+# Source annotations and picker matches can be styled independently.
+"comment.error" = "red214"
+"comment.warning" = "red194"
+"comment.info" = "blue247"
+"comment.hint" = "green156"
+
 "type.builtin" = "red207"
 "type.enum" = "red199"
 "constant.builtin" = "red207"

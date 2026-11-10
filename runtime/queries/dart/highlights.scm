@@ -31,8 +31,9 @@
 (constructor_signature
   name: (identifier) @function.method)
 
-(function_signature
-  name: (identifier) @function.method)
+(function_signature name: (identifier) @function.method)
+(method_signature (function_signature name: (identifier) @function.method.definition))
+(declaration (function_signature name: (identifier) @function.method.declaration))
 
 (getter_signature
   (identifier) @function.builtin)

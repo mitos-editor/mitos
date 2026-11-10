@@ -61,7 +61,7 @@
 ; Functions
 
 (function_call
-  name: (ident) @function)
+  name: (ident) @function.call)
 
 ; Tags
 

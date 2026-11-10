@@ -4,6 +4,12 @@
 # Version 4.6.0
 # License: GPL-3.0 (see licenses/modus.LICENSE)
 
+# Source annotations and picker matches can be styled independently.
+"comment.error" = "yellow-intense"
+"comment.warning" = "magenta-faint"
+"comment.info" = "cyan"
+"comment.hint" = "blue"
+
 inherits = "modus_vivendi"
 
 "constant.character.escape" = "magenta"

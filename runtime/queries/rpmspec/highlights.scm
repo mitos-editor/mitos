@@ -134,7 +134,7 @@
   "%license"
   "%missingok"
   "%readme"
-] @keyword.type
+] @keyword.storage.type
 
 (changelog
   "%changelog" @type.definition)
@@ -142,11 +142,11 @@
 (macro_definition
   "%" @punctuation.special
   ["define" "global"] @constant.builtin
-  name: (identifier) @keyword.macro)
+  name: (identifier) @keyword.directive)
 
 (macro_undefinition
   "%" @punctuation.special
-    (identifier) @keyword.macro)
+    (identifier) @keyword.directive)
 
 (macro_simple_expansion
   "%" @punctuation.special

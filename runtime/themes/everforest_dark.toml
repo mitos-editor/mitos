@@ -8,6 +8,19 @@
 # Email: sainnhe@gmail.com
 # License: MIT (see licenses/everforest.LICENSE)
 
+# Source annotations and picker matches can be styled independently.
+# Interface and readonly symbol styles.
+"ui.welcome.heading" = "blue"
+"ui.welcome.command" = "fg"
+"variable.readonly" = "fg"
+"variable.other.member.readonly" = "fg"
+
+"ui.picker.match" = "blue"
+"comment.error" = "red"
+"comment.warning" = "yellow"
+"comment.info" = "blue"
+"comment.hint" = "green"
+
 "type" = "yellow"
 "constant" = "fg"
 "constant.builtin" = { fg = "purple", modifiers = ["italic"] }
@@ -38,7 +51,6 @@
 "namespace" = { fg = "yellow", modifiers = ["italic"] }
 "attribute" = { fg = "purple", modifiers = ["italic"] }
 "constructor" = "green"
-"module" = "yellow"
 "special" = "blue"
 "ui.link" = { modifiers = ["underlined"] }
 "ui.virtual.jump-label" = { fg = "#00dfff", modifiers = ["bold"] }

@@ -1,5 +1,5 @@
 let _ = helper x
-(*      ^ @function *)
+(*      ^ @function.call *)
 let _ = Mod.doThing 1
 (*      ^ @namespace *)
-(*          ^ @function *)
+(*          ^ @function.call *)

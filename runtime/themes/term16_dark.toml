@@ -1,12 +1,24 @@
 # Author: dgkf
 
+# Source annotations and picker matches can be styled independently.
+# Interface and readonly symbol styles.
+"ui.welcome.heading" = "light-red"
+"ui.welcome.command" = { fg = "light-yellow", modifiers = ["bold", "dim"] }
+"variable.readonly" = { fg = "light-yellow", modifiers = ["bold", "dim"] }
+"variable.other.member.readonly" = { fg = "light-yellow", modifiers = ["bold", "dim"] }
+
+"ui.picker.match" = "light-red"
+"comment.error" = "light-red"
+"comment.warning" = "yellow"
+"comment.info" = "light-cyan"
+"comment.hint" = { fg = "light-gray", modifiers = ["dim"] }
+
 "ui.link" = { modifiers = ["underlined"] }
 "ui.background" = { }
 "ui.background.separator" = { fg = "red" }
 "ui.cursor" = { fg = "light-gray", modifiers = ["reversed"] }
 "ui.cursor.match" = { fg = "light-yellow", modifiers = ["reversed"] }
 "ui.cursor.primary" = { fg = "light-gray", modifiers = ["reversed"] }
-"ui.cursor.secondary" = { fg = "gray", modifiers = ["reversed"] }
 "ui.cursorline.primary" = { bg = "black" }
 "ui.gutter" = { }
 "ui.gutter.selected" = { bg = "black" }
@@ -76,6 +88,5 @@
 
 "info" = "light-cyan"
 "hint" = { fg = "light-gray", modifiers = ["dim"] }
-"debug" = "white"
 "warning" = "yellow"
 "error" = "light-red"

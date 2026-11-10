@@ -42,16 +42,16 @@
 ; Builtin functions
 
 (call
-  function: (attribute attribute: (identifier) @function.method))
+  function: (attribute attribute: (identifier) @function.method.call))
 
 (call
-  function: (identifier) @function)
+  function: (identifier) @function.call)
 
 
 ((call
-  function: (identifier) @function.builtin)
+  function: (identifier) @function.builtin.call)
   (#match?
-    @function.builtin
+    @function.builtin.call
     "^(abs|all|always_inline|any|ascii|bin|bool|breakpoint|bytearray|bytes|callable|chr|classmethod|compile|complex|constrained|delattr|dict|dir|divmod|enumerate|eval|exec|filter|float|format|frozenset|getattr|globals|hasattr|hash|help|hex|id|input|int|isinstance|issubclass|iter|len|list|locals|map|max|memoryview|min|next|object|oct|open|ord|pow|print|property|range|repr|reversed|round|set|setattr|slice|sorted|staticmethod|str|sum|super|tuple|type|unroll|vars|zip|__mlir_attr|__mlir_op|__mlir_type|__import__)$"))
 
 ; Function calls
@@ -62,29 +62,29 @@
 ] @keyword.function
 
 (call
-  function: (attribute attribute: (identifier) @constructor)
-  (#match? @constructor "^[A-Z]"))
+  function: (attribute attribute: (identifier) @constructor.call)
+  (#match? @constructor.call "^[A-Z]"))
 
 (call
-  function: (identifier) @constructor
-  (#match? @constructor "^[A-Z]"))
+  function: (identifier) @constructor.call
+  (#match? @constructor.call "^[A-Z]"))
 
 ; Function definitions
 
 (function_definition
-  name: (identifier) @function)
+  name: (identifier) @function.definition)
 
 
 (function_definition
-  name: (identifier) @constructor
-  (#match? @constructor "^(__new__|__init__|__moveinit__|__copyinit__)$"))
+  name: (identifier) @constructor.definition
+  (#match? @constructor.definition "^(__new__|__init__|__moveinit__|__copyinit__)$"))
 
 ; Decorators
 
 (decorator (identifier) @function)
 (decorator (attribute attribute: (identifier) @function))
 (decorator (call
-  function: (attribute attribute: (identifier) @function)))
+  function: (attribute attribute: (identifier) @function.call)))
 
 ; Parameters
 

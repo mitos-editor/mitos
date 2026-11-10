@@ -1,3 +1,14 @@
+"comment.error" = "red"
+"comment.warning" = "yellow"
+"comment.info" = "blue"
+"comment.hint" = "gray"
+
+# Interface and readonly symbol styles.
+"ui.welcome.heading" = "blue"
+"ui.welcome.command" = "yellow"
+"variable.readonly" = "yellow"
+"variable.other.member.readonly" = "yellow"
+
 # Author: NNB <nnbnh@protonmail.com>
 
 "ui.link" = { modifiers = ["underlined"] }
@@ -16,7 +27,7 @@
 "variable" = "red"
 "constant.numeric" = "yellow"
 "constant" = "yellow"
-"attributes" = "yellow"
+"attribute" = "yellow"
 "type" = "yellow"
 "ui.cursor.match" = { fg = "yellow", modifiers = ["underlined"] }
 "string"  = "green"
@@ -25,6 +36,7 @@
 "function" = "blue"
 "constructor" = "blue"
 "special" = "blue"
+"ui.picker.match" = "blue"
 "keyword" = "magenta"
 "label" = "magenta"
 "namespace" = "magenta"
@@ -52,6 +64,5 @@
 "ui.gutter" = { bg = "black" }
 "info" = "blue"
 "hint" = "gray"
-"debug" = "gray"
 "warning" = "yellow"
 "error" = "red"

@@ -41,8 +41,8 @@
   (identifier) @variable.builtin (#eq? @variable.builtin "SCRIPTDIR"))
 
 (enable_directive
-  (identifier) @diagnostic.error
-  (#not-any-of? @diagnostic.error
+  (identifier) @error
+  (#not-any-of? @error
     "add-default-case"
     "avoid-nullary-conditions"
     "check-extra-masked-returns"

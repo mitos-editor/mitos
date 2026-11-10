@@ -1,7 +1,7 @@
 fn run() {
-// ^ @function
+// ^ @function.definition
     let y = bar(2);
-//          ^ @function
+//          ^ @function.call
     let z = obj.field;
 //              ^ @variable.other.member
 }

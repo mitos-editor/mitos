@@ -1,6 +1,19 @@
 # Author: RayGervais <raygervais@hotmail.ca>
 # License: MIT (see licenses/base16.license)
 
+# Source annotations and picker matches can be styled independently.
+# Interface and readonly symbol styles.
+"ui.welcome.heading" = "base0D"
+"ui.welcome.command" = "base09"
+"variable.readonly" = "base09"
+"variable.other.member.readonly" = "base09"
+
+"ui.picker.match" = "base0D"
+"comment.error" = "base08"
+"comment.warning" = "base09"
+"comment.info" = "base0D"
+"comment.hint" = "base03"
+
 "ui.link" = { modifiers = ["underlined"] }
 "ui.background" = { bg = "base00" }
 "ui.virtual.whitespace" = "base03"
@@ -55,7 +68,6 @@
 "ui.gutter" = { bg = "base01" }
 "info" = "base0D"
 "hint" = "base03"
-"debug" = "base03"
 "warning" = "base09"
 "error" = "base08"
 

@@ -4,6 +4,19 @@
 # Only the Light and Dark variants were specifically tested
 # License: MIT (see licenses/github.license)
 
+# Source annotations and picker matches can be styled independently.
+# Interface and readonly symbol styles.
+"ui.welcome.heading" = "scale.blue.8"
+"ui.welcome.command" = "scale.blue.6"
+"variable.readonly" = "scale.blue.6"
+"variable.other.member.readonly" = "scale.blue.6"
+
+"ui.picker.match" = "scale.blue.8"
+"comment.error" = "danger.fg"
+"comment.warning" = "attention.fg"
+"comment.info" = "accent.fg"
+"comment.hint" = "success.fg"
+
 attribute = "fg.default"
 keyword = "scale.red.5"
 "keyword.directive" = "scale.red.5"          # -- preprocessor comments (#if in C)
@@ -49,7 +62,6 @@ label = "scale.red.5"
 "ui.linenr" = { fg = "fg.subtle" }
 "ui.linenr.selected" = { fg = "fg.default" }
 "ui.statusline" = { fg = "fg.muted", bg = "neutral.subtle" }
-"ui.statusline.active" = { fg = "fg.default", bg = "canvas.default", underline = { color = "scale.coral.3", style = "line" } }
 "ui.statusline.normal" = { fg = "fg.default", bg = "accent.muted" }
 "ui.statusline.insert" = { fg = "fg.default", bg = "attention.muted" }
 "ui.statusline.select" = { fg = "fg.default", bg = "sponsors.muted" }

@@ -4,6 +4,11 @@
 #    https://github.com/nickav/naysayer-theme.el
 # License: GPL-3.0-or-later (see licenses/naysayer.license)
 
+# Interface and readonly symbol styles.
+"ui.welcome.command" = "constants"
+"variable.readonly" = "constants"
+"variable.other.member.readonly" = "constants"
+
 "ui.link" = { modifiers = ["underlined"] }
 "ui.background" = { bg = "bg" }
 "ui.text" = "text"

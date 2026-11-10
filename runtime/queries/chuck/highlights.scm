@@ -21,7 +21,7 @@
 (function_definition name: [
   (class_identifier)
   (variable_identifier)
-] @function)
+] @function.definition)
 
 (global_unit_generator) @variable.builtin
 (hexidecimal) @constant.numeric

@@ -3,6 +3,15 @@
 # Original Creator: https://github.com/junegunn/seoul256.vim
 # License: MIT (see licenses/seoul256.license)
 
+# Source annotations and picker matches can be styled independently.
+# Interface and readonly symbol styles.
+"ui.welcome.heading" = { fg = "green4" }
+
+"ui.picker.match" = { fg = "green4" }
+"comment.warning" = { fg = "yellow5", modifiers = ["bold"] }
+"comment.info" = { fg = "green1", modifiers = ["bold"] }
+"comment.hint" = { fg = "blue", modifiers = ["bold"] }
+
 inherits = "seoul256-dark"
 
 "constructor" = { fg = "brown1" }

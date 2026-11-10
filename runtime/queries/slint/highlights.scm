@@ -52,7 +52,7 @@
 
 
 (function_call
-  name: (_) @function)
+  name: (_) @function.call)
 
 ; definitions
 (callback
@@ -68,10 +68,10 @@
   name: (_) @type.enum)
 
 (function_definition
-  name: (_) @function)
+  name: (_) @function.definition)
 
 (function_declaration
-  name: (_) @function)
+  name: (_) @function.definition)
 
 (struct_definition
   name: (_) @type)

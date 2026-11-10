@@ -36,7 +36,7 @@
 ; Function calls
 
 (call_expression
-  function: (identifier) @function)
+  function: (identifier) @function.call)
 
 (member_call_expression
   function: (identifier) @function.method)

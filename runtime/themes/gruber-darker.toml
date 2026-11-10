@@ -1,6 +1,16 @@
 # Author : Mehedi Hasan <mehedi.r137@gmail.com>
 # Based on : https://github.com/rexim/gruber-darker-theme
 
+# Source annotations and picker matches can be styled independently.
+# Interface and readonly symbol styles.
+"ui.welcome.heading" = { fg = "yellow0", modifiers = ["bold"] }
+
+"ui.picker.match" = { fg = "yellow0", modifiers = ["bold"] }
+"comment.error" = { fg = "red0", modifiers = ["bold"] }
+"comment.warning" = { fg = "orange1", modifiers = ["bold"] }
+"comment.info" = { fg = "aqua1", modifiers = ["bold"] }
+"comment.hint" = { fg = "blue0", modifiers = ["bold"] }
+
 "attribute" = "fg0"
 "keyword" = { fg = "yellow0", modifiers = ["bold"] }
 "keyword.directive" = "quartz"
@@ -25,7 +35,6 @@
 "string" = "green0"
 "constant.numeric" = "wisteria"
 "label" = "fg0"
-"module" = "aqua1"
 
 "diff.plus" = "green1"
 "diff.delta" = "orange1"
@@ -116,4 +125,3 @@ niagara0 = "#96a6c8"
 niagara1 = "#303540"
 wisteria = "#9e95c7"
 aqua1 =    "#8ec07c"
-

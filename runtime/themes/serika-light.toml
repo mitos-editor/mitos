@@ -6,16 +6,29 @@
 # Author: arturoalviar
 # License: MIT (see licenses/serika-syntax.LICENSE)
 
-"escape" = "orange"
+# Source annotations and picker matches can be styled independently.
+# Interface and readonly symbol styles.
+"ui.welcome.heading" = "orange"
+"ui.welcome.command" = "purple"
+"variable.readonly" = "purple"
+"variable.other.member.readonly" = "purple"
+
+"ui.picker.match" = "orange"
+"comment.error" = "nasty-red"
+"comment.warning" = "yellow"
+"comment.info" = "aqua"
+"comment.hint" = "blue"
+
+"constant.character.escape" = "orange"
 "type" = "yellow"
 "constant" = "purple"
-"number" = "purple"
+"constant.numeric" = "purple"
 "string" = "fg"
 "comment" = { fg = "grey2", modifiers = [ "italic" ] }
 "variable" = "yellow"
 "variable.builtin" = "blue"
 "variable.parameter" = "yellow"
-"variable.property" = "yellow"
+"variable.other.member" = "yellow"
 "label" = "aqua"
 "punctuation" = "grey0"
 "punctuation.delimiter" = "grey2"
@@ -29,7 +42,6 @@
 "namespace" = "fg"
 "attribute" = "aqua"
 "constructor" = "yellow"
-"module" = "blue"
 "special" = "orange"
 
 "ui.link" = { modifiers = ["underlined"] }
@@ -43,7 +55,6 @@
 "ui.cursor.insert" = { fg = "fg", bg = "pale-yellow" }
 "ui.cursor.select" = { fg = "fg", bg = "bg-yellow" }
 "ui.cursor.primary" = { fg = "nasty-red", bg = "grey0" }
-"ui.cursor.primary.match" = { fg = "grey2", bg = "pale-yellow" }
 "ui.cursor.primary.insert" = { fg = "dark-red", bg = "yellow" }
 "ui.cursor.primary.select" = { fg = "yellow", bg = "dark-red" }
 "ui.linenr" = { fg = "yellow", modifiers = ["dim"] }
@@ -64,7 +75,7 @@
 "ui.menu" = { fg = "bg0", bg = "bg3" }
 "ui.menu.selected" = { fg = "bg0", bg = "bg-yellow" }
 "ui.selection" = { bg = "grey0", modifiers = [ "dim" ] }
-"ui.selection.prime" = { underline.style = "line" }
+"ui.selection.primary" = { underline.style = "line" }
 "ui.virtual.inlay-hint" = { fg = "grey2", modifiers = ["italic"] }
 "ui.virtual.jump-label" = { fg = "nasty-red", modifiers = ["bold"] }
 "ui.virtual.ruler" = { bg = "bg0", modifiers = ["dim"] }

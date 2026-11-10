@@ -1,4 +1,4 @@
 invokeit()
--- ^ @function
+-- ^ @function.call
 obj:doThing()
 --   ^ @function.method

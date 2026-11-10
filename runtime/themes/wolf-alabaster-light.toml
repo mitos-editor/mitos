@@ -23,6 +23,17 @@
 # I don't consider this to be done! I absolutely want feedback. I absolutely will continue to tinker.
 
 # GENERAL - Diagnostics (LSP errors/warnings)
+# Source annotations and picker matches can be styled independently.
+# Interface and readonly symbol styles.
+"ui.welcome.command" = { fg = "constant" }
+"variable.readonly" = { fg = "constant" }
+"variable.other.member.readonly" = { fg = "constant" }
+
+"comment.error" = { fg = "error-red", modifiers = ["bold"] }
+"comment.warning" = { fg = "highlight" }
+"comment.info" = { fg = "definition" }
+"comment.hint" = { fg = "punctuation" }
+
 warning = { fg = "highlight" }
 error = { fg = "error-red", modifiers = ["bold"] }
 info = { fg = "definition" }
@@ -41,7 +52,7 @@ diagnostic = { underline = { style = "curl" } }
 # under the cursor. ui.cursor.match affects cursor appearance, not the bracket itself.
 # Following tonsky's Sublime approach (blue + underline) as closely as Helix allows.
 "ui.cursor.match" = { fg = "active", underline = { style = "line" } }
-"ui.match" = { fg = "active", underline = { style = "line" } }
+"ui.picker.match" = { fg = "active", underline = { style = "line" } }
 "ui.cursorline.primary" = { bg = "cursorline-primary" }
 "ui.cursorline" = { bg = "cursorline" }
 "ui.cursorcolumn" = { bg = "cursorline" }
@@ -132,7 +143,6 @@ diagnostic = { underline = { style = "curl" } }
 
 # Special cases
 "tag" = { fg = "definition" }
-"tag.error" = { fg = "error-red", underline = { style = "line" } }
 "attribute" = { fg = "fg" }
 "namespace" = { fg = "fg" }
 "label" = { fg = "constant" }

@@ -298,9 +298,9 @@ key: (identifier) @variable.other.member
   (#any-of? @keyword "overlay" "error"))
 
 (command
-  head: (cmd_identifier) @cmd
+  head: (cmd_identifier) @_cmd
   arg_str: (val_string) @keyword
-  (#eq? @cmd "overlay")
+  (#eq? @_cmd "overlay")
   (#eq? @keyword "as"))
 
 (command

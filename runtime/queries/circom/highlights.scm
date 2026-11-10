@@ -28,7 +28,7 @@
 (main_component_definition) @constructor
 
 ; Invocations
-(call_expression . (identifier) @function)
+(call_expression . (identifier) @function.call)
 
 ; Function parameters
 (parameter name: (identifier) @variable.parameter)

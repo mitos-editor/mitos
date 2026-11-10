@@ -3,6 +3,19 @@
 # Ported by: @satoqz
 # License: MIT (see licenses/gruvbox_material.license)
 
+# Source annotations and picker matches can be styled independently.
+# Interface and readonly symbol styles.
+"ui.welcome.heading" = "green"
+"ui.welcome.command" = "fg0"
+"variable.readonly" = "fg0"
+"variable.other.member.readonly" = "fg0"
+
+"ui.picker.match" = "green"
+"comment.error" = "red"
+"comment.warning" = "yellow"
+"comment.info" = "blue"
+"comment.hint" = "green"
+
 "attribute" = "green"
 "comment" = { fg = "grey1", modifiers = ["italic"] }
 "constant" = "fg0"

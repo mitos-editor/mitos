@@ -4,6 +4,6 @@ class Box
 #     ^ @function.method
 #            ^ @variable.parameter
     helper(count)
-#   ^ @function.method
+#   ^ @function.method.call
   end
 end

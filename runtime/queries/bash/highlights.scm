@@ -158,7 +158,7 @@
   operator: _ @operator)
 
 (function_definition
-  name: (word) @function)
+  name: (word) @function.definition)
 
 (command_name
   (word) @function)

@@ -1,5 +1,5 @@
 proc f() =
   obj.doThing()
-#     ^ @function
+#     ^ @function.call
   helper(1)
-# ^ @function
+# ^ @function.call

@@ -136,18 +136,18 @@
   declarator: (type_identifier) @type.definition)
 
 (call_expression
-  function: (identifier) @function)
+  function: (identifier) @function.call)
 (call_expression
   function: (field_expression
-    field: (field_identifier) @function))
+    field: (field_identifier) @function.call))
 (call_expression (argument_list (identifier) @variable))
 (function_declarator
-  declarator: [(identifier) (field_identifier)] @function)
+  declarator: [(identifier) (field_identifier)] @function.declaration)
 
 ; GCC builtins, e.g. __builtin_expect
 ((call_expression
-  function: (identifier) @function.builtin)
- (#match? @function.builtin "^__builtin_"))
+  function: (identifier) @function.builtin.call)
+ (#match? @function.builtin.call "^__builtin_"))
 
 ; Up to 6 layers of declarators
 (parameter_declaration
@@ -179,7 +179,7 @@
             (identifier) @variable.parameter))))))
 
 (preproc_function_def
-  name: (identifier) @function.special)
+  name: (identifier) @function.macro.definition)
 
 (attribute
   name: (identifier) @attribute)
@@ -207,3 +207,11 @@
    "__VA_ARGS__" "__VA_OPT__" "__cplusplus"))
 
 (comment) @comment
+
+; Definitions, including pointer-returning declarators.
+(function_definition declarator: (function_declarator declarator: [(identifier) (field_identifier)] @function.definition))
+(function_definition declarator: (_ declarator: (function_declarator declarator: [(identifier) (field_identifier)] @function.definition)))
+(function_definition declarator: (_ declarator: (_ declarator: (function_declarator declarator: [(identifier) (field_identifier)] @function.definition))))
+(function_definition declarator: (_ declarator: (_ declarator: (_ declarator: (function_declarator declarator: [(identifier) (field_identifier)] @function.definition)))))
+(function_definition declarator: (_ declarator: (_ declarator: (_ declarator: (_ declarator: (function_declarator declarator: [(identifier) (field_identifier)] @function.definition))))))
+(function_definition declarator: (_ declarator: (_ declarator: (_ declarator: (_ declarator: (_ declarator: (function_declarator declarator: [(identifier) (field_identifier)] @function.definition)))))))

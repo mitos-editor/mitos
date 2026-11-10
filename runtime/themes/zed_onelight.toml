@@ -2,6 +2,11 @@
 # Author : EricHenry
 # License: MIT (see licenses/zed_one.license)
 
+# Interface and readonly symbol styles.
+"ui.welcome.command" = { fg = "green" }
+"variable.readonly" = { fg = "green" }
+"variable.other.member.readonly" = { fg = "green" }
+
 inherits = "zed_onedark"
 
 "attribute" = { fg = "green" }

@@ -32,8 +32,8 @@
 (unqualified_type (symbol (symbol) @namespace (identifier) @type))
 
 (attribute) @variable.other.member
-(method_declaration (symbol (symbol) @type (identifier) @function))
-(method_declaration (symbol (identifier) @function))
+(method_declaration (symbol (symbol) @type (identifier) @function.definition))
+(method_declaration (symbol (identifier) @function.definition))
 (local_function_declaration (identifier) @function)
 (destructor_declaration (identifier) @function)
 (creation_method_declaration (symbol (symbol (identifier) @type) (identifier) @constructor))
@@ -43,7 +43,7 @@
 (errordomain_declaration (symbol) @type)
 (errorcode (identifier) @constant)
 (constant_declaration (identifier) @constant)
-(method_call_expression (member_access_expression (identifier) @function))
+(method_call_expression (member_access_expression (identifier) @function.call))
 (lambda_expression (identifier) @variable.parameter)
 (parameter (identifier) @variable.parameter)
 (property_declaration (symbol (identifier) @variable.other.member))

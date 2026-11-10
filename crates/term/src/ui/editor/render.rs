@@ -182,8 +182,8 @@ impl PaneRenderer {
 
         let text = theme.get("ui.text");
         let dim = theme.get("ui.text.inactive");
-        let accent = theme.get("special");
-        let command_style = theme.get("constant");
+        let accent = theme.get("ui.welcome.heading");
+        let command_style = theme.get("ui.welcome.command");
         let header = [
             Line::styled(
                 format!("mitos {VERSION_AND_GIT_HASH}"),

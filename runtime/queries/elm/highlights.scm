@@ -52,7 +52,7 @@
 
 
 (import) @keyword.control.import
-(module) @keyword.other
+(module) @keyword
 
 (number_constant_expr) @constant.numeric
 

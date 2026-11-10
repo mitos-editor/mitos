@@ -2,6 +2,19 @@
 # Based on Kim Nørgaard's Neovim dark (accented) theme for Zed: https://github.com/KimNorgaard/zed-neovim-default
 # License: MIT (see licenses/nvim_dark.license)
 
+# Source annotations and picker matches can be styled independently.
+# Interface and readonly symbol styles.
+"ui.welcome.heading" = "aqua"
+"ui.welcome.command" = "fog"
+"variable.readonly" = "fog"
+"variable.other.member.readonly" = "fog"
+
+"ui.picker.match" = "aqua"
+"comment.error" = "rose"
+"comment.warning" = "sun"
+"comment.info" = "aqua"
+"comment.hint" = "stone"
+
 attribute = "fog"
 keyword = { fg = "fog", modifiers = ["bold"] }
 "keyword.directive" = { fg = "fog", modifiers = ["bold"] }

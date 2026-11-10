@@ -5,6 +5,19 @@
 # URL: https://github.com/p4ymak
 # License: MIT (see licenses/sonokai.LICENSE)
 
+# Source annotations and picker matches can be styled independently.
+# Interface and readonly symbol styles.
+"ui.welcome.heading" = "orange"
+"ui.welcome.command" = "fg"
+"variable.readonly" = "fg"
+"variable.other.member.readonly" = "fg"
+
+"ui.picker.match" = "orange"
+"comment.error" = { fg = 'red', bg = 'bg2', modifiers = ['bold'] }
+"comment.warning" = { fg = 'yellow', bg = 'bg2', modifiers = ['bold'] }
+"comment.info" = { fg = 'green', bg = 'bg2' }
+"comment.hint" = { fg = 'blue', bg = 'bg2', modifiers = ['bold'] }
+
 "type" = "blue"
 "constant" = "fg"
 "constant.builtin" = "purple"
@@ -28,7 +41,6 @@
 "namespace" = "blue"
 "attribute" = "purple"
 "constructor" = "blue"
-"module" = "blue"
 "special" = "orange"
 
 "markup.heading.marker" = "grey"

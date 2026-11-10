@@ -3,6 +3,6 @@ module a::m {
         let x = o.val;
 //                ^ @variable.other.member
         let y = vector::length(&o);
-//                      ^ @function
+//                      ^ @function.call
     }
 }

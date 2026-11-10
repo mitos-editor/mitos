@@ -1,5 +1,5 @@
 function result = demo(value)
-%                 ^ @function
+%                 ^ @function.definition
   if value
     result = 1;
   end

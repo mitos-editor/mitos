@@ -1,5 +1,18 @@
 # License: MIT (see licenses/solarized.license)
 
+# Source annotations and picker matches can be styled independently.
+# Interface and readonly symbol styles.
+"ui.welcome.heading" = { fg = "orange" }
+"ui.welcome.command" = { fg = "cyan" }
+"variable.readonly" = { fg = "cyan" }
+"variable.other.member.readonly" = { fg = "cyan" }
+
+"ui.picker.match" = { fg = "orange" }
+"comment.error" = { fg = "red", modifiers= ["bold", "underlined"] }
+"comment.warning" = { fg = "orange", modifiers= ["bold", "underlined"] }
+"comment.info" = { fg = "blue", modifiers= ["bold", "underlined"] }
+"comment.hint" = { fg = "base01", modifiers= ["bold", "underlined"] }
+
 "attribute" = { fg = "violet" }
 "keyword" = { fg = "green" }
 "keyword.directive" = { fg = "orange" }
@@ -7,7 +20,7 @@
 "operator" = { fg = "green" }
 "special" = { fg = "orange" }
 "variable.builtin" = { fg = "cyan", modifiers = ["bold"] }
-"variable.function" = { fg = "blue" }
+"function.call" = { fg = "blue" }
 "type" = { fg = "yellow" }
 "type.builtin" = { fg = "yellow", modifiers = ["bold"] }
 "constructor" = { fg = "blue" }
@@ -21,7 +34,6 @@
 "constant.builtin" = { fg = "cyan", modifiers = ["bold"] }
 "constant.character.escape" = { fg = "red", modifiers = ["bold"] }
 "label" = { fg = "green" }
-"module" = { fg = "violet" }
 "tag" = { fg = "magenta" }
 
 # TODO

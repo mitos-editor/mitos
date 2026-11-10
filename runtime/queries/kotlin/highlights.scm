@@ -185,13 +185,13 @@
 
 ; generic function call (e.g. foo())
 (call_expression
-	. (simple_identifier) @function)
+	. (simple_identifier) @function.call)
 
 ; method call via navigation (e.g. obj.method())
 (call_expression
 	(navigation_expression
 		(navigation_suffix
-			(simple_identifier) @function.method) . ))
+			(simple_identifier) @function.method.call) . ))
 
 ; infix function call (e.g. 1 to 2)
 (infix_expression
@@ -200,8 +200,8 @@
 
 ; builtin function calls
 (call_expression
-	. (simple_identifier) @function.builtin
-    (#match? @function.builtin "^(arrayOf|arrayOfNulls|byteArrayOf|shortArrayOf|intArrayOf|longArrayOf|ubyteArrayOf|ushortArrayOf|uintArrayOf|ulongArrayOf|floatArrayOf|doubleArrayOf|booleanArrayOf|charArrayOf|emptyArray|mapOf|setOf|listOf|emptyMap|emptySet|emptyList|mutableMapOf|mutableSetOf|mutableListOf|print|println|error|TODO|run|runCatching|repeat|lazy|lazyOf|enumValues|enumValueOf|assert|check|checkNotNull|require|requireNotNull|with|suspend|synchronized)$"))
+	. (simple_identifier) @function.builtin.call
+    (#match? @function.builtin.call "^(arrayOf|arrayOfNulls|byteArrayOf|shortArrayOf|intArrayOf|longArrayOf|ubyteArrayOf|ushortArrayOf|uintArrayOf|ulongArrayOf|floatArrayOf|doubleArrayOf|booleanArrayOf|charArrayOf|emptyArray|mapOf|setOf|listOf|emptyMap|emptySet|emptyList|mutableMapOf|mutableSetOf|mutableListOf|print|println|error|TODO|run|runCatching|repeat|lazy|lazyOf|enumValues|enumValueOf|assert|check|checkNotNull|require|requireNotNull|with|suspend|synchronized)$"))
 
 ; constant access via navigation (e.g. Foo.CONSTANT)
 (_
@@ -252,12 +252,12 @@
 (function_declaration
 	(modifiers)?
 	(type_parameters)?
-	(simple_identifier) @function)
+	(simple_identifier) @function.definition)
 
 ; extension function
 (function_declaration
 	receiver: (receiver_type)
-	(simple_identifier) @function)
+	(simple_identifier) @function.definition)
 
 ; TODO: Separate labeled returns/breaks/continue/super/this
 ;       Must be implemented in the parser first

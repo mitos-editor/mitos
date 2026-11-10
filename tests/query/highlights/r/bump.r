@@ -3,4 +3,4 @@ result <- function(value) {
 # ^ @keyword.control.return
 }
 object$render()
-#      ^ @function.method
+#      ^ @function.method.call

@@ -4,6 +4,12 @@
 # Original author: kaolin-dark by Ogden Webb: github.com/ogdenwebb/emacs-kaolin-themes
 # Kaolin Light Theme - Light variant of the original Kaolin Dark Theme
 
+# Source annotations and picker matches can be styled independently.
+# Interface and readonly symbol styles.
+"ui.welcome.heading" = "ultramarine1"
+
+"ui.picker.match" = "ultramarine1"
+
 inherits = "kaolin-dark"
 
 "keyword.directive" = "selection0"
@@ -18,7 +24,7 @@ inherits = "kaolin-dark"
 "constant.builtin" = { fg = "selection0" }
 "string" = "green0"
 "constant.numeric" = "selection0"
-"module" = "selection0"
+"namespace" = "selection0"
 
 "ui.linenr.selected" = { fg = "green1", modifiers = ["bold"] }
 "ui.statusline" = { fg = "selection0", bg = "bg1" }

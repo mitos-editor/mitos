@@ -50,6 +50,7 @@ fn main() -> anyhow::Result<()> {
     let diagnostics = args.first().is_some_and(|arg| arg == "--diagnostics");
     let action_execution = args.first().is_some_and(|arg| arg == "--action-execution");
     let code_actions = args.first().is_some_and(|arg| arg == "--code-actions");
+    let semantic_tokens = args.first().is_some_and(|arg| arg == "--semantic-tokens");
     let code_lenses = args.first().is_some_and(|arg| arg == "--code-lenses");
     let inline_values = args.first().is_some_and(|arg| arg == "--inline-values");
     let mut hold_lenses = args.iter().any(|arg| arg == "--hold-resolves");
@@ -79,6 +80,7 @@ fn main() -> anyhow::Result<()> {
         || action_execution
         || code_lenses
         || inline_values
+        || semantic_tokens
     {
         Some(std::fs::File::create(&args[2])?)
     } else {
@@ -129,6 +131,7 @@ fn main() -> anyhow::Result<()> {
             || action_execution
             || code_lenses
             || inline_values
+            || semantic_tokens
             || language_features
             || navigation
         {
@@ -837,6 +840,23 @@ fn main() -> anyhow::Result<()> {
                 {"range": range(3, 9), "variableName": "ANSWER", "caseSensitiveLookup": false},
                 {"range": range(3, 9), "expression": "answer + 1"}
             ]),
+            "initialize" if semantic_tokens => json!({"capabilities": {
+                "positionEncoding": "utf-16", "textDocumentSync": 1,
+                "semanticTokensProvider": {
+                    "legend": {"tokenTypes": ["method"], "tokenModifiers": ["definition", "deprecated"]},
+                    "full": !args.iter().any(|arg| arg == "--range-only"),
+                    "range": true
+                }
+            }}),
+            "textDocument/semanticTokens/full" | "textDocument/semanticTokens/range"
+                if semantic_tokens =>
+            {
+                if text.contains("no tokens") {
+                    json!({"data": []})
+                } else {
+                    json!({"data": [0, 3, 3, 0, 3]})
+                }
+            }
             "initialize" if code_lenses => json!({"capabilities": {
                 "positionEncoding": "utf-16", "textDocumentSync": 1,
                 "codeLensProvider": {"resolveProvider": !args.iter().any(|arg| arg == "--no-resolve")},

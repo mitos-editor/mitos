@@ -26,16 +26,16 @@
 (decorator) @function
 
 (call
-  function: (attribute attribute: (identifier) @function.method))
+  function: (attribute attribute: (identifier) @function.method.call))
 (call
-  function: (identifier) @function)
+  function: (identifier) @function.call)
 
 ; Builtin functions
 
 ((call
-  function: (identifier) @function.builtin)
+  function: (identifier) @function.builtin.call)
  (#any-of?
-   @function.builtin
+   @function.builtin.call
    "abs" "all" "any" "ascii" "bin" "bool" "breakpoint" "bytearray" "bytes" "callable" "chr" "classmethod" "compile" "complex" "delattr" "dict" "dir" "divmod" "enumerate" "eval" "exec" "filter" "float" "format" "frozenset" "getattr" "globals" "hasattr" "hash" "help" "hex" "id" "input" "int" "isinstance" "issubclass" "iter" "len" "list" "locals" "map" "max" "memoryview" "min" "next" "object" "oct" "open" "ord" "pow" "print" "property" "range" "repr" "reversed" "round" "set" "setattr" "slice" "sorted" "staticmethod" "str" "sum" "super" "tuple" "type" "vars" "zip" "__import__"))
 
 ; Types
@@ -59,7 +59,7 @@
 ; Function definitions
 
 (function_definition
-  name: (identifier) @function)
+  name: (identifier) @function.definition)
 
 (cdef_statement
   (cvar_def

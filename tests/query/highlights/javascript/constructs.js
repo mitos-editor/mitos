@@ -1,8 +1,8 @@
 class Box {
-//    ^ @constructor
+//    ^ @type.class.definition
   method(count) {
-//^ @function.method
+//^ @function.method.definition
     return helper(count);
-//         ^ @function
+//         ^ @function.call
   }
 }

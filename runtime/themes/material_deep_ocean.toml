@@ -3,6 +3,19 @@
 
 # Syntax Highlighting
 
+# Source annotations and picker matches can be styled independently.
+# Interface and readonly symbol styles.
+"ui.welcome.heading" = "cyan"
+"ui.welcome.command" = "yellow"
+"variable.readonly" = "yellow"
+"variable.other.member.readonly" = "yellow"
+
+"ui.picker.match" = "cyan"
+"comment.error" = "error"
+"comment.warning" = "yellow"
+"comment.info" = "blue"
+"comment.hint" = "purple"
+
 "type" = "purple"
 
 "constructor" = "blue"

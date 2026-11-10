@@ -1,3 +1,3 @@
 def helper():
     invokeit()
-#   ^ @function
+#   ^ @function.call

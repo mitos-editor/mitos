@@ -60,10 +60,10 @@
 
 (function_decl 
   (function_header
-    (identifier) @function))
+    (identifier) @function.definition))
 
 (call_expression
-  (identifier) @function)
+  (identifier) @function.call)
 
 ; templates
 

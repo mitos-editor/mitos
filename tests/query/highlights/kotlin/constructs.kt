@@ -1,7 +1,7 @@
 fun method(count: Int): Boolean {
-//  ^ @function
+//  ^ @function.definition
 //         ^ @variable.parameter
 //                 ^ @type.builtin
     return helper(count)
-//         ^ @function
+//         ^ @function.call
 }

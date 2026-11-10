@@ -53,9 +53,9 @@
 (preprocessor_directive) @comment
 (shebang) @comment
 (function_definition
-    name: (variable) @function.method)
+    name: (variable) @function.method.definition)
 (function_call
-    name: (variable) @function.method)
+    name: (variable) @function.method.call)
 (import_statement
     "pub" @keyword
     "import" @keyword

@@ -2,14 +2,14 @@ package main
 
 func main() {
 	invokeit()
-//	^ @function
+//	^ @function.call
 
     (invokeit)()
-//   ^ @function
+//   ^ @function.call
     (obj.Method)()
-//       ^ @function.method
+//       ^ @function.method.call
     (len)(items)
-//   ^ @function.builtin
+//   ^ @function.builtin.call
     callbacks[0]()
 //  ^ @variable
 }

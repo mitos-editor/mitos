@@ -146,6 +146,7 @@ supported by your terminal emulator.
 
 | Modifier       |
 | ---            |
+| `none`         |
 | `line`         |
 | `curl`         |
 | `dashed`       |
@@ -181,248 +182,137 @@ Colors from the palette and modifiers may be used.
 
 ### Scopes
 
-The following is a list of scopes available to use for styling:
+Syntax queries assign a **kind**, such as `function.method`, and optional
+**qualifiers**, such as `definition`, `public`, or `deprecated`. Kinds form a
+hierarchy; qualifiers describe independent roles or traits. For example,
+`function.method.public.definition` identifies a public method definition.
+Qualifier order does not affect theme matching.
 
-#### Syntax highlighting
+Definitions, declarations, calls, and references are distinct:
 
-These keys match [tree-sitter scopes](https://tree-sitter.github.io/tree-sitter/3-syntax-highlighting.html#highlights).
+| Scope | Meaning |
+| --- | --- |
+| `function.definition` | Function definition |
+| `function.declaration` | Function declaration/signature without a known definition body |
+| `function.call` | Function invocation |
+| `function.reference` | Reference to a function value |
+| `function.method.definition` | Method definition |
+| `function.method.declaration` | Method declaration/signature without a known definition body |
+| `function.method.call` | Method invocation |
+| `function.method` | Method with an unspecified occurrence role |
 
-When determining styling for a highlight, the longest matching theme key will be used. For example, if the highlight is `function.builtin.static`, the key `function.builtin` will be used instead of `function`.
+A query may use a broader scope when syntax alone cannot establish the kind or
+role. Calling `pkg.name()` does not necessarily establish whether `pkg` is a
+package or a value. Passing a callable as an argument does not invoke it.
+Language coverage varies with each grammar and query.
 
-This list also defines capture names for language queries. See
-[Adding highlight queries](./guides/highlights.md) when changing syntax highlighting.
+Style syntax with ordinary theme keys. Use `*` in place of the kind to match a
+qualifier across kinds:
 
-We use a similar set of scopes as
-[Sublime Text](https://www.sublimetext.com/docs/scope_naming.html). See also
-[TextMate](https://macromates.com/manual/en/language_grammars) scopes.
+```toml
+"function" = "blue"
+"function.method" = "cyan"
+"*.definition" = { modifiers = ["bold"] }
+"*.deprecated" = { modifiers = ["crossed_out"] }
+"*.documentation" = { modifiers = ["italic"] }
+"function.method.public" = { modifiers = ["underlined"] }
+"function.method.call" = "green"
+```
 
-- `attribute` - Class attributes, HTML tag attributes
+These rules make public method definitions cyan, bold, and underlined; method
+calls green; and deprecated symbols crossed out. Both
+`function.method.public.definition` and `function.method.definition.public`
+match the public-method and definition rules.
 
-- `type` - Types
-  - `builtin` - Primitive types provided by the language (`int`, `usize`)
-  - `parameter` - Generic type parameters (`T`)
-  - `enum`
-    - `variant` - Enum variants
-- `constructor` - Constructors, struct/record literals, type names in value position
+Matching syntax rules are applied from broad to specific. Specificity compares
+kind depth first, then the number of qualifiers. Equally specific rules apply
+in lexical order, with the later rule winning conflicting properties. An exact
+combination can resolve a tie explicitly. Properties are merged: a bold-only
+rule keeps the inherited foreground. More specific colors and underline
+properties override broader ones; style modifiers combine. Use
+`remove-modifiers = ["bold"]` to remove an inherited modifier, or
+`underline = { style = "none" }` to remove inherited underlining.
 
-- `constant`
-  - `builtin` Special constants provided by the language (`true`, `false`, `nil` etc)
-    - `boolean`
-  - `character`
-    - `escape`
-  - `numeric` (numbers)
-    - `integer`
-    - `float`
+This property inheritance applies to syntax styles, including `markup` and
+`diff` syntax kinds. Interface keys keep their existing longest-prefix fallback
+and do not merge parent properties. Theme-file `inherits` continues to replace
+an explicitly overridden key, while merging palettes.
 
-- `string`
-  - `regexp` - Regular expressions
-  - `special`
-    - `path`
-    - `url`
-    - `symbol` - Erlang/Elixir atoms, Ruby symbols, Clojure keywords
+Existing keys such as `function.public`, `function.method.private`,
+`variable.parameter.mutable`, and `comment.block.documentation` remain valid.
+Custom scopes are accepted at runtime and retain prefix fallback. Bundled
+queries and themes must use the public vocabulary below; the generated capture
+inventory ensures every bundled classification can resolve composed rules.
 
-- `comment` - Code comments
-  - `line` - Single line comments (`//`)
-    - `documentation` - Line documentation comments (e.g. `///` in Rust)
-  - `block` - Block comments (e.g. (`/* */`)
-    - `documentation` - Block documentation comments (e.g. `/** */` in Rust)
-  - `unused` - Unused variables and patterns, e.g. `_` and `_foo`
+### Semantic highlighting
 
-- `variable` - Variables
-  - `mutable` - Mutable variables (e.g. marked with `mut` in Rust)
-  - `builtin` - Reserved language variables (`self`, `this`, `super`, etc.)
-    - `mutable` - Mutable language variables (e.g. `mut self` in Rust)
-  - `parameter` - Function parameters
-    - `mutable` - Mutable function parameters (e.g. marked with `mut` in Rust)
-  - `other`
-    - `member` - Fields of composite data types (e.g. structs, unions)
-      - `private` - Private fields that use a unique syntax (currently just ECMAScript-based languages)
+When enabled, a language server can refine syntax highlighting with resolved
+symbol kinds and traits, such as `type.class`, `variable.other.member.readonly`,
+or `function.method.definition.deprecated`. Syntax queries and semantic tokens
+use the same theme selectors. Semantic styles are applied over syntax colors,
+before selections, search matches, and diagnostics. An unspecified semantic
+occurrence role preserves a call or reference already established by syntax.
+Explicit semantic roles take precedence, except that a generic declaration
+flag preserves a definition body established by syntax. Servers often mark
+both declarations and definitions with that flag. Unstyled properties retain
+the underlying syntax appearance.
 
-- `label` - `.class`, `#id` in CSS, etc.
+Semantic highlighting is enabled by default. To disable it:
 
-- `punctuation`
-  - `delimiter` - Commas, colons
-  - `bracket` - Parentheses, angle brackets, etc.
-  - `special` - String interpolation brackets.
+```toml
+[editor.lsp.semantic-tokens]
+enable = false
+```
 
-- `keyword`
-  - `control`
-    - `conditional` - `if`, `else`
-    - `repeat` - `for`, `while`, `loop`
-    - `import` - `import`, `export`
-    - `return`
-    - `exception`
-  - `operator` - `or`, `in`
-  - `directive` - Preprocessor directives (`#if` in C)
-  - `function` - `fn`, `func`
-  - `storage` - Keywords describing how things are stored
-    - `type` - The type of something, `class`, `function`, `var`, `let`, etc.
-    - `modifier` - Storage modifiers like `static`, `mut`, `const`, `ref`, etc.
+A language can exclude a particular server from semantic highlighting using
+`except-features = ["semantic-tokens"]` in its `language-servers` entry. If
+several servers support the feature, Mitos uses the first configured provider.
+Full-document and range-only providers are supported. Requests are debounced
+after edits; stale tokens are cleared immediately, and responses are discarded
+when their document snapshot or server binding has changed. Unsupported server
+extensions fall back to syntax highlighting. Delta updates and dynamic
+semantic-token registration are not advertised.
 
-- `operator` - `||`, `+=`, `>`
+Use `variable.readonly` and `variable.other.member.readonly` to style read-only
+bindings and fields. Bundled themes define these rules explicitly.
 
-- `function` - Function definitions and calls
-  - `public` - Public function definitions
-  - `builtin` - Language built-in functions
-  - `method` - Method definitions and calls (`obj.method()`)
-    - `public` - Public method definitions
-    - `private` - Private methods that use a unique syntax (currently just ECMAScript-based languages)
-  - `macro` - Macro invocations (e.g. `println!` in Rust)
-  - `special` (preprocessor in C)
+A semantic token without a declaration or definition modifier is not assumed to
+be a call: it may be a reference to a callable value.
 
-- `tag` - Tags (e.g. `<body>` in HTML)
-  - `builtin`
+### Independent interface and annotation colors
 
-- `namespace` - Modules and namespaces (e.g. `std::collections`, package names)
+Use `ui.picker.match` for matching text in pickers and the file explorer.
+Welcome-screen headings and command examples use `ui.welcome.heading` and
+`ui.welcome.command`. Use `comment.error`, `comment.warning`, `comment.info`,
+and `comment.hint` for annotations in comments. These settings let source
+annotations and interface matches differ from diagnostics and language syntax.
 
-- `special` - `derive` in Rust, bolded query-match in pickers (includes file explorer), etc.
-See also [highlighting discussion][#2380]
-
-- `markup`
-  - `heading`
-    - `marker`
-    - `1`, `2`, `3`, `4`, `5`, `6` - heading text for h1 through h6
-  - `list`
-    - `unnumbered`
-    - `numbered`
-    - `checked`
-    - `unchecked`
-  - `bold`
-  - `italic`
-  - `strikethrough`
-  - `link`
-    - `url` - URLs pointed to by links
-    - `label` - non-URL link references
-    - `text` - URL and image descriptions in links
-  - `quote`
-  - `raw`
-    - `inline`
-    - `block`
-
-- `diff` - version control changes
-  - `plus` - additions
-    - `gutter` - gutter indicator
-    - `line` - added-line background in diff views (optional; otherwise derived from the theme)
-    - `word` - changed text in review buffers (optional; otherwise uses `diff.plus`)
-  - `minus` - deletions
-    - `gutter` - gutter indicator
-    - `line` - removed-line background in diff views (optional; otherwise derived from the theme)
-    - `word` - changed text in review buffers (optional; otherwise uses `diff.minus`)
-  - `delta` - modifications
-    - `moved` - renamed or moved files/changes
-    - `conflict` - merge conflicts
-    - `gutter` - gutter indicator
-
-- `embedded` - Interpolated expressions embedded in a string template (`${…}`)
+Inline diagnostic text uses `ui.diagnostic.inline.error`, `.warning`, `.info`,
+and `.hint`. Diagnostic underlines in the editing area use `diagnostic.error`,
+`diagnostic.warning`, and related keys.
 
 To keep syntax colors visible in review buffers, give `diff.plus.word` and
 `diff.minus.word` a background or text modifier without setting a foreground.
 
-#### Interface
+### Inspecting and validating scopes
 
-These scopes are used for theming the editor interface:
+Run `:highlight-inspect` to see syntax classifications, semantic refinement,
+matching theme selectors, and resolved styles at the cursor. `:tree-sitter-scopes` shows syntax-tree node
+names instead.
 
-- `markup`
-  - `normal`
-    - `completion` - for completion doc popup UI
-    - `hover` - for hover popup UI
-  - `heading`
-    - `completion` - for completion doc popup UI
-    - `hover` - for hover popup UI
-  - `raw`
-    - `inline`
-      - `completion` - for completion doc popup UI
-      - `hover` - for hover popup UI
+For contributors, `cargo xtask scope-check` checks bundled theme keys and query
+captures against the registry. `cargo xtask theme-check` checks style values
+and palettes. Run `cargo xtask docgen` after changing the registry or captures
+to regenerate the reference and capture inventory.
 
+### Scope reference
 
-| Key                               | Notes                                                                                          |
-| ---                               | ---                                                                                            |
-| `ui.background`                   |                                                                                                |
-| `ui.background.separator`         | Picker separator below input line                                                              |
-| `ui.cursor`                       |                                                                                                |
-| `ui.cursor.normal`                |                                                                                                |
-| `ui.cursor.insert`                |                                                                                                |
-| `ui.cursor.select`                |                                                                                                |
-| `ui.cursor.match`                 | Matching bracket etc.                                                                          |
-| `ui.cursor.primary`               | Cursor with main selection                                                                     |
-| `ui.cursor.primary.normal`        |                                                                                                |
-| `ui.cursor.primary.insert`        |                                                                                                |
-| `ui.cursor.primary.select`        |                                                                                                |
-| `ui.debug.breakpoint`             | Breakpoint indicator, found in the gutter                                                      |
-| `ui.debug.active`                 | Indicator for the line at which debugging execution is paused at, found in the gutter          |
-| `ui.gutter`                       | Gutter                                                                                         |
-| `ui.gutter.selected`              | Gutter for the line the cursor is on                                                           |
-| `ui.linenr`                       | Line numbers                                                                                   |
-| `ui.linenr.selected`              | Line number for the line the cursor is on                                                      |
-| `ui.statusline`                   | Statusline                                                                                     |
-| `ui.statusline.inactive`          | Statusline (unfocused document)                                                                |
-| `ui.statusline.normal`            | Statusline mode during normal mode ([only if `editor.statusline.mode.color` is enabled][editor-section]) |
-| `ui.statusline.insert`            | Statusline mode during insert mode ([only if `editor.statusline.mode.color` is enabled][editor-section]) |
-| `ui.statusline.select`            | Statusline mode during select mode ([only if `editor.statusline.mode.color` is enabled][editor-section]) |
-| `ui.statusline.separator`         | Separator character in statusline                                                              |
-| `ui.bufferline`                   | Style for the buffer line                                                                      |
-| `ui.bufferline.active`            | Style for the active buffer in buffer line                                                     |
-| `ui.bufferline.background`        | Style for bufferline background                                                                |
-| `ui.popup`                        | Documentation popups (e.g. Space k)                                                          |
-| `ui.popup.info`                   | Prompt for multiple key options                                                                |
-| `ui.border`                       | Panel and popup borders; falls back to `ui.text`                                                |
-| `ui.picker.header`                | Header row area in pickers with multiple columns                                               |
-| `ui.picker.header.column`         | Column names in pickers with multiple columns                                                  |
-| `ui.picker.header.column.active`  | The column name in pickers with multiple columns where the cursor is entering into.            |
-| `ui.window`                       | Borderlines separating splits                                                                  |
-| `ui.help`                         | Description box for commands                                                                   |
-| `ui.link` | Navigable links in the document. |
-| `ui.text`                         | Default text style, command prompts, panel titles, popup text, and fallback for panel borders    |
-| `ui.text.focus`                   | The currently selected line in the picker                                                      |
-| `ui.text.inactive`                | Same as `ui.text` but when the text is inactive (e.g. suggestions)                             |
-| `ui.text.info`                    | The key: command text in `ui.popup.info` boxes                                                 |
-| `ui.text.directory`               | Directory names in prompt completion                                                           |
-| `ui.text.symlink`                 | Symlink names in prompt completion                                                             |
-| `ui.virtual.ruler`                | `bg` for background rulers; `fg` for glyph rulers, falling back to `bg` (see [`editor.rulers`][editor-section]) |
-| `ui.virtual.trailing_whitespace`  | Trailing whitespace; falls back to `ui.virtual.whitespace`                                      |
-| `ui.virtual.whitespace`           | Visible whitespace characters                                                                  |
-| `ui.virtual.indent-guide`         | Vertical indent width guides                                                                   |
-| `ui.virtual.inlay-hint`           | Default style for inlay hints of all kinds                                                     |
-| `ui.virtual.inlay-hint.parameter` | Style for inlay hints of kind `parameter` (language servers are not required to set a kind)    |
-| `ui.virtual.inlay-hint.type`      | Style for inlay hints of kind `type` (language servers are not required to set a kind)         |
-| `ui.virtual.conflict.current`     | Current changes, opening marker, and label                                                     |
-| `ui.virtual.conflict.incoming`    | Incoming changes, closing marker, and label                                                    |
-| `ui.virtual.conflict.base`        | Original version in a three-way conflict                                                       |
-| `ui.virtual.fold`                 | Ellipsis representing folded text |
-| `ui.virtual.wrap`                 | Soft-wrap indicator (see the [`editor.soft-wrap` config][editor-section])                      |
-| `ui.virtual.jump-label`           | Style for virtual jump labels                                                                  |
-| `ui.virtual.inline-completion`    | LSP ghost text; falls back to `ui.virtual.inlay-hint` |
-| `ui.virtual.code-lens`            | End-of-line code lens labels; falls back to `ui.virtual.inlay-hint` |
-| `ui.virtual.inline-blame`         | Inline blame indicator (see the [`editor.inline-blame` config][editor-section])                |
-| `ui.virtual.debug-value`          | Runtime values beside source while debugging; falls back to `ui.virtual.inlay-hint`             |
-| `ui.menu`                         | Code and command completion menus                                                              |
-| `ui.menu.selected`                | Selected autocomplete item                                                                     |
-| `ui.menu.scroll`                  | `fg` sets thumb color, `bg` sets track color of scrollbar                                      |
-| `ui.selection`                    | For selections in the editing area                                                             |
-| `ui.selection.primary`            |                                                                                                |
-| `ui.highlight`                    | Highlighted lines in the picker preview                                                        |
-| `ui.highlight.frameline`          | Line at which debugging execution is paused at                                                 |
-| `ui.cursorline.primary`           | The line of the primary cursor ([if cursorline is enabled][editor-section])                    |
-| `ui.cursorline.secondary`         | The lines of any other cursors ([if cursorline is enabled][editor-section])                    |
-| `ui.cursorcolumn.primary`         | The column of the primary cursor ([if cursorcolumn is enabled][editor-section])                |
-| `ui.cursorcolumn.secondary`       | The columns of any other cursors ([if cursorcolumn is enabled][editor-section])                |
-| `warning`                         | Diagnostics warning (gutter)                                                                   |
-| `warning.diagnostic.inline`       | The inline diagnostic for the warning severity                                                 |
-| `error`                           | Diagnostics error (gutter)                                                                     |
-| `error.diagnostic.inline`         | The inline diagnostic for the error severity                                                   |
-| `info`                            | Diagnostics info (gutter)                                                                      |
-| `info.diagnostic.inline`          | The inline diagnostic for the warning severity                                                 |
-| `hint`                            | Diagnostics hint (gutter)                                                                      |
-| `hint.diagnostic.inline`          | The inline diagnostic for the hint severity                                                    |
-| `diagnostic`                      | Diagnostics fallback style (editing area)                                                      |
-| `diagnostic.hint`                 | Diagnostics hint (editing area)                                                                |
-| `diagnostic.info`                 | Diagnostics info (editing area)                                                                |
-| `diagnostic.warning`              | Diagnostics warning (editing area)                                                             |
-| `diagnostic.error`                | Diagnostics error (editing area)                                                               |
-| `diagnostic.unnecessary`          | Diagnostics with unnecessary tag (editing area)                                                |
-| `diagnostic.deprecated`           | Diagnostics with deprecated tag (editing area)                                                 |
-| `diagnostic.spelling` | Spelling diagnostics in the editing area (falls back to the hint diagnostic style). |
-| `tabstop`                         | Snippet placeholder                                                                            |
+The reference is generated from `crates/theme/src/scopes/`. Syntax kinds are
+inspired by [Helix](https://docs.helix-editor.com/themes.html) and
+[Neovim](https://neovim.io/doc/user/treesitter/#treesitter-highlight-groups);
+independent roles and traits also map the standard
+[LSP semantic classifications](https://code.visualstudio.com/api/language-extensions/semantic-highlight-guide).
+
+{{#include generated/theme-scopes.md}}
 
 [editor-section]: ./configuration.md#editor
-[#2380]: https://github.com/helix-editor/helix/issues/2380

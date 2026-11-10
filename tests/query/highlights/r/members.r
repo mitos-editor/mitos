@@ -1,3 +1,3 @@
 f <- function(o) { foo(1); o$fld }
-#                  ^ @function
+#                  ^ @function.call
 #                            ^ @variable.other.member

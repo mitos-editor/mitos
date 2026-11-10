@@ -38,7 +38,7 @@
 (function_parameter
   name: (identifier) @variable.parameter)
 ((function_call
-   function: (identifier) @function)
+   function: (identifier) @function.call)
  (#is-not? local))
 ; highlights `a` in `|> a` as function
 ((binary_expression
@@ -186,7 +186,7 @@
 
 ; affects e.g. `replace` in `string.replace("+", "-")`
 ; without this, it would be highlighted as a field instead of function
-(function_call (field_access (label) @function))
+(function_call (field_access (label) @function.call))
 
 ; highlights `floor` in `|> float.floor` as function
 (binary_expression

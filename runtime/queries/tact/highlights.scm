@@ -126,7 +126,7 @@
 ; ---------------
 
 (method_call_expression
-  name: (identifier) @function.method)
+  name: (identifier) @function.method.call)
 
 ; function.builtin
 ; ----------------

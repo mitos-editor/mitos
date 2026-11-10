@@ -696,6 +696,67 @@ impl Client {
         Some(self.call::<lsp::request::Rename>(params))
     }
 
+    /// Static semantic-token options. Dynamic registration and delta updates are
+    /// deliberately not advertised until their lifetimes are supported.
+    pub fn semantic_tokens_options(&self) -> Option<&lsp::SemanticTokensOptions> {
+        use lsp::SemanticTokensServerCapabilities::*;
+        match self.capabilities().semantic_tokens_provider.as_ref()? {
+            SemanticTokensOptions(options) => Some(options),
+            SemanticTokensRegistrationOptions(options) => Some(&options.semantic_tokens_options),
+        }
+    }
+
+    /// Request a complete snapshot, using a whole-document range for range-only
+    /// servers. Full responses are always requested without a previous result ID.
+    pub fn semantic_tokens(
+        &self,
+        text_document: lsp::TextDocumentIdentifier,
+        end: lsp::Position,
+    ) -> Option<impl Future<Output = Result<Vec<lsp::SemanticToken>>> + use<>> {
+        let options = self.semantic_tokens_options()?;
+        let full = matches!(
+            options.full,
+            Some(
+                lsp::SemanticTokensFullOptions::Bool(true)
+                    | lsp::SemanticTokensFullOptions::Delta { .. }
+            )
+        );
+        if !full && options.range != Some(true) {
+            return None;
+        }
+        let full_request = full.then(|| {
+            self.call::<lsp::request::SemanticTokensFullRequest>(lsp::SemanticTokensParams {
+                text_document: text_document.clone(),
+                work_done_progress_params: Default::default(),
+                partial_result_params: Default::default(),
+            })
+        });
+        let range_request = (!full).then(|| {
+            self.call::<lsp::request::SemanticTokensRangeRequest>(lsp::SemanticTokensRangeParams {
+                text_document,
+                range: lsp::Range::new(lsp::Position::new(0, 0), end),
+                work_done_progress_params: Default::default(),
+                partial_result_params: Default::default(),
+            })
+        });
+        Some(async move {
+            let tokens = if let Some(request) = full_request {
+                match request.await? {
+                    Some(lsp::SemanticTokensResult::Tokens(tokens)) => tokens.data,
+                    Some(lsp::SemanticTokensResult::Partial(tokens)) => tokens.data,
+                    None => Vec::new(),
+                }
+            } else {
+                match range_request.unwrap().await? {
+                    Some(lsp::SemanticTokensRangeResult::Tokens(tokens)) => tokens.data,
+                    Some(lsp::SemanticTokensRangeResult::Partial(tokens)) => tokens.data,
+                    None => Vec::new(),
+                }
+            };
+            Ok(tokens)
+        })
+    }
+
     pub fn code_lens(
         &self,
         text_document: lsp::TextDocumentIdentifier,

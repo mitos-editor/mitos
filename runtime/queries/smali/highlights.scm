@@ -20,13 +20,13 @@
 ; Methods
 
 (method_definition
-  (method_signature (method_identifier) @function.method))
+  (method_signature (method_identifier) @function.method.definition))
 
 (expression
   (opcode) @_invoke
 	(body
 	  (full_method_signature
-      (method_signature (method_identifier) @function.method)))
+      (method_signature (method_identifier) @function.method.call)))
   (#match? @_invoke "^invoke"))
 
 (expression
@@ -37,29 +37,29 @@
 
 (method_handle
   (full_method_signature
-	(method_signature (method_identifier) @function.method)))
+	(method_signature (method_identifier) @function.method.reference)))
 
 (custom_invoke
-  . (identifier) @function.method
-  (method_signature (method_identifier) @function.method))
+  . (identifier) @function.method.call
+  (method_signature (method_identifier) @function.method.call))
 
 (annotation_value
   (body
-    (method_signature (method_identifier) @function.method)))
+    (method_signature (method_identifier) @function.method.reference)))
 
 (annotation_value
   (body
     (full_method_signature
-      (method_signature (method_identifier) @function.method))))
+      (method_signature (method_identifier) @function.method.reference))))
 
 (field_definition
 	(body
-		(method_signature (method_identifier) @function.method)))
+		(method_signature (method_identifier) @function.method.reference)))
 
 (field_definition
 	(body
 	  (full_method_signature
-		  (method_signature (method_identifier) @function.method))))
+		  (method_signature (method_identifier) @function.method.reference))))
 
 ((method_identifier) @constructor
   (#match? @constructor "^(<init>|<clinit>)$"))

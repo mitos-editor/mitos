@@ -2,7 +2,7 @@ def h():
     m = obj.method
 #           ^ @variable.other.member
     s = f"{obj.compute()}"
-#              ^ @function.method
+#              ^ @function.method.call
     obj.first().second()
-#       ^ @function.method
-#                ^ @function.method
+#       ^ @function.method.call
+#                ^ @function.method.call

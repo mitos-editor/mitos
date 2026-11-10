@@ -86,10 +86,10 @@
 (comment) @comment
 
 (invocation
-  operator: (entity (identifier) @function .))
+  operator: (entity (identifier) @function.call .))
 (call_expression
-  (entity (identifier) @function .))
+  (entity (identifier) @function.call .))
 (call_expression
-  method: (entity (identifier) @function.method .))
+  method: (entity (identifier) @function.method.call .))
 
 (qualified_dollar_var module: (identifier) @namespace)

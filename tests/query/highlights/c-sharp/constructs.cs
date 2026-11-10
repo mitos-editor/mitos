@@ -1,10 +1,10 @@
 class Box {
 //    ^ @type
     void M() {
-//       ^ @function.method
+//       ^ @function.method.definition
         Helper(1);
-//      ^ @function
+//      ^ @function.call
         obj.Do();
-//          ^ @function.method
+//          ^ @function.method.call
     }
 }

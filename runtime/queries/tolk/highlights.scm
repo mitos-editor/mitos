@@ -110,16 +110,16 @@
 (null_literal) @constant.builtin
 
 (function_declaration
-  name: (identifier) @function)
+  name: (identifier) @function.definition)
 (method_declaration
-  name: (identifier) @function)
+  name: (identifier) @function.definition)
 (get_method_declaration
   name: (identifier) @function)
 (dot_access field: (identifier) @variable.other.member)
 (function_call
-  callee: (identifier) @function)
+  callee: (identifier) @function.call)
 (function_call
-  callee: (dot_access field: (identifier) @function.method))
+  callee: (dot_access field: (identifier) @function.method.call))
 
 
 

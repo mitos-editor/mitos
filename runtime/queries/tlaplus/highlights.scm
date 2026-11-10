@@ -154,7 +154,7 @@
 (unbounded_quantification (identifier) @variable.parameter)
 
 ; Operators, functions, and macros
-(function_definition name: (identifier) @function)
+(function_definition name: (identifier) @function.definition)
 (module_definition name: (_) @namespace)
 (operator_definition name: (_) @operator)
 (pcal_macro_decl name: (identifier) @function)

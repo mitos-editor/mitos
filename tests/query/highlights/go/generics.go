@@ -11,7 +11,7 @@ func Sum[T Number](xs []T) T {
 }
 
 type Box[T any] struct { Value T }
-//   ^ @type.definition
+//   ^ @type.struct.definition
 //                             ^ @type.parameter
 
 type Values[T any] = []T
@@ -40,7 +40,7 @@ type (
 
 func instantiate(value any) {
     pkg.Map[int, string](1, "one")
-//      ^ @function.method
+//      ^ @function.method.call
     Box[int](value)
 //  ^ @type
     _ = Box[int]{Value: 1}
