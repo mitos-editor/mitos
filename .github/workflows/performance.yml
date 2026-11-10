@@ -1,0 +1,60 @@
+name: Performance workloads
+
+on:
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: Cargo build profile
+        type: choice
+        options: [release, opt]
+        default: release
+      samples:
+        description: Independent editor sessions per workload
+        type: string
+        default: '5'
+      files:
+        description: Workspace file count
+        type: string
+        default: '10000'
+      commits:
+        description: Repository commit count
+        type: string
+        default: '1000'
+
+permissions:
+  contents: read
+
+jobs:
+  record:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      MITOS_DISABLE_AUTO_GRAMMAR_BUILD: '1'
+      PROFILE: ${{ inputs.profile }}
+      SAMPLES: ${{ inputs.samples }}
+      FILES: ${{ inputs.files }}
+      COMMITS: ${{ inputs.commits }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/rust-setup
+        with:
+          toolchain: '1.97.1'
+          cache-key: performance-${{ inputs.profile }}
+          cache-grammars: 'true'
+      - name: Check recorder contracts
+        run: python3 -m unittest discover -s tests/performance -p 'test_*.py'
+      - name: Build production editor
+        run: cargo build --locked --profile "$PROFILE" -p term --bin ms
+      - name: Record workload observations
+        run: >-
+          python3 tests/performance/workloads.py
+          --binary "target/$PROFILE/ms" --runtime runtime
+          --samples "$SAMPLES" --files "$FILES" --commits "$COMMITS"
+          --output artifacts/performance.json
+      - name: Upload measurements
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: performance-${{ inputs.profile }}-${{ github.sha }}
+          path: artifacts/*.json
+          if-no-files-found: warn
