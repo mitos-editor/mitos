@@ -162,6 +162,7 @@ spade-language-server = {command = "swim", args = ["lsp"]}
 sqls = { command = "sqls" }
 starpls = {command = "starpls"}
 styx = { command = "styx", args = ["lsp"] }
+strz = { command = "strz", args = ["server"] }
 svlangserver = { command = "svlangserver", args = [], config.systemverilog.includeIndexing = ["*.{v,vh,sv,svh}", "**/*.{v,vh,sv,svh}"] }
 swipl = { command = "swipl", args = [ "-g", "use_module(library(lsp_server))", "-g", "lsp_server:main", "-t", "halt", "--", "stdio" ] }
 superhtml = {  command = "superhtml", args = ["lsp"]}
@@ -5822,3 +5823,16 @@ comment-tokens = ["REM", "::"]
 [[grammar]]
 name = "batch"
 source = { git = "https://github.com/wharflab/tree-sitter-batch", rev = "2aa22f00d7f5bbe58556b8eef0b1fc1629508603" }
+
+[[language]]
+name = "structurizr"
+scope = "source.structurizr"
+injection-regex = "structurizr"
+file-types = ["dsl"]
+comment-tokens = ["//", "#"]
+indent = { tab-width = 4, unit = "    " }
+language-servers = ["strz"]
+
+[[grammar]]
+name = "structurizr"
+source = { git = "https://github.com/sinon/tree-sitter-structurizr", rev = "301152e1207534e792c0cd0aaea3436e2e26984c", subpath = "crates/strz-grammar" }

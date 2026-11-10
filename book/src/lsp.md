@@ -26,6 +26,8 @@ can run alongside it, for example Ruff for Python checking and formatting.
   Mitos tries `regols` first, then `regal language-server` with formatting
   enabled. Reorder the alternatives to prefer Regal. Project roots can contain
   `.regal/config.yaml` or `.regal.yaml`.
+- For Structurizr DSL, build the [`strz`](https://github.com/sinon/tree-sitter-structurizr)
+  binary and put it on `PATH`. The language server is currently pre-release.
 
 Run `ms --health kdl`, `ms --health hcl`, or `ms --health rego` to check the
 configured executables, then `:lsp-restart` after installing a server.
