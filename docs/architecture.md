@@ -1407,10 +1407,14 @@ helpers configure its command arguments, TOML language definitions, log paths,
 and initialization gates; each feature suite keeps its response scenarios and
 assertions explicit.
 
-Place algorithm tests in the owning feature crate. Reuse existing fixtures and
-keep assertions about observable behavior; moving code alone does not require a
-new test. Changes to async ownership need coverage for queued callbacks as well
-as in-flight requests.
+Keep the detailed behavior matrix in the owning crate. Higher layers test their
+own contracts: for example, core covers line movement, view covers selection and
+undo state, and terminal tests cover bindings, counts, and command composition.
+Keep regression cases for distinct behavior; remove copies already exercised at
+the same boundary. Reuse existing fixtures and assert observable behavior.
+Moving code alone does not require a new test, and upstream widget behavior does
+not need a local duplicate. Changes to async ownership need coverage for queued
+callbacks as well as in-flight requests.
 
 Debugger integration fixtures share DAP framing, response envelopes, breakpoint
 verification, variable data, and named reply gates from
