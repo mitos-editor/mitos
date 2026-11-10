@@ -142,7 +142,7 @@ belong in `keys.normal`, `keys.insert`, and `keys.select`.
 | `keys.quicklist-picker` | All `keys.picker` actions, plus `remove_entry` |
 | `keys.git-picker` | All `keys.picker` actions, plus `stage`, `unstage`, `stash`, `actions`, `stashes` |
 | `keys.branch-picker` | All `keys.picker` actions, plus `create_branch`, `delete_branch` |
-| `keys.worktree-picker` | All `keys.picker` actions, plus `create_worktree`, `remove_worktree` |
+| `keys.worktree-picker` | All `keys.picker` actions, plus `create_worktree`, `remove_worktree`, `lock_worktree`, `unlock_worktree` |
 | `keys.stash-picker` | All `keys.picker` actions, plus `apply_stash`, `apply_stash_with_index`, `actions` |
 | `keys.history-picker` | All `keys.picker` actions, plus `actions`, `back` |
 | `keys.file-explorer` | All `keys.picker` actions, plus `create_path`, `move_path`, `copy_path`, `delete_path`, `yank_path` |

@@ -89,7 +89,7 @@ macro_rules! picker_actions {
 }
 picker_actions!(GitPickerAction, { "stage" => Stage, "unstage" => Unstage, "stash" => Stash, "actions" => Actions, "stashes" => Stashes });
 picker_actions!(BranchPickerAction, {"create_branch" => CreateBranch, "delete_branch" => DeleteBranch});
-picker_actions!(WorktreePickerAction, {"create_worktree" => CreateWorktree, "remove_worktree" => RemoveWorktree});
+picker_actions!(WorktreePickerAction, {"create_worktree" => CreateWorktree, "remove_worktree" => RemoveWorktree, "lock_worktree" => LockWorktree, "unlock_worktree" => UnlockWorktree});
 picker_actions!(HistoryPickerAction, {"actions" => Actions, "back" => HistoryBack});
 picker_actions!(FileExplorerAction, { "create_path" => CreatePath, "move_path" => MovePath, "copy_path" => CopyPath, "delete_path" => DeletePath, "yank_path" => YankPath });
 picker_actions!(StashPickerAction, { "apply_stash" => ApplyStash, "apply_stash_with_index" => ApplyStashWithIndex, "actions" => Actions });

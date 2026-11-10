@@ -325,6 +325,10 @@ one in the file picker. Your open buffers and unsaved edits are kept.
 Press `Alt-n` to enter a new worktree path, relative to this picker's
 repository root, then an existing branch name (leave it empty for detached HEAD).
 Press `Alt-d` to confirm removal of the selected worktree.
+Press `Alt-l` to lock a linked worktree against removal and pruning, or `Alt-u`
+to unlock it. Locking an already locked worktree preserves its existing reason.
+The main worktree cannot be locked. These actions require workspace trust and
+work even when a linked worktree folder is temporarily unavailable.
 Remap these shortcuts under `[keys.worktree-picker]`. Branch and worktree
 pickers show the active shortcuts along their bottom border when
 `picker.show-keybindings` is enabled.
