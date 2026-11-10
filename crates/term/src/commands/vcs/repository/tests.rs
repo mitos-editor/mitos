@@ -1,50 +1,14 @@
+use super::super::test_support::{git, key, screen};
 use super::*;
 use crate::{
     application::TestApplication,
-    compositor::{self, Event},
+    compositor,
     job::Jobs,
     ui::picker::test::{all_items, application, draw, frame, until},
 };
 use vcs::operations::repository::BRANCH_PAGE_SIZE;
 use view::graphics::Color;
 
-fn git(root: &Path, args: &[&str]) {
-    let output = std::process::Command::new("git")
-        .arg("-C")
-        .arg(root)
-        .args(["-c", "commit.gpgsign=false"])
-        .args(args)
-        .env_remove("GIT_DIR")
-        .output()
-        .unwrap();
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-}
-fn key(
-    app: &mut TestApplication,
-    compositor: &mut compositor::Compositor,
-    jobs: &mut Jobs,
-    key: &str,
-) {
-    let config = crate::config::Config::default();
-    let updates = tokio::sync::mpsc::unbounded_channel().0;
-    let mut cx = Context {
-        config: crate::config::Context {
-            current: &config,
-            updates: &updates,
-        },
-        editor: &mut app.editor,
-        interaction: &mut app.interaction,
-        jobs,
-        scroll: None,
-        image_picker: None,
-        is_cursor_owner: true,
-    };
-    assert!(compositor.handle_event(&Event::Key(key.parse().unwrap()), &mut cx));
-}
 async fn finish(
     app: &mut TestApplication,
     compositor: &mut compositor::Compositor,
@@ -294,33 +258,8 @@ fn repository() -> Result<(tempfile::TempDir, GitRepository)> {
 }
 
 fn press(picker: &mut Picker<Arc<Branch>, RepositoryData>, app: &mut TestApplication, key: &str) {
-    let config = crate::config::Config::default();
-    let updates = tokio::sync::mpsc::unbounded_channel().0;
-    let mut jobs = crate::job::Jobs::new();
-    picker.handle_event(
-        &Event::Key(key.parse().unwrap()),
-        &mut Context {
-            config: crate::config::Context {
-                current: &config,
-                updates: &updates,
-            },
-            editor: &mut app.editor,
-            interaction: &mut app.interaction,
-            jobs: &mut jobs,
-            scroll: None,
-            image_picker: None,
-            is_cursor_owner: true,
-        },
-    );
+    super::super::test_support::press(picker, app, key);
     draw(picker, app);
-}
-
-fn screen(picker: &mut Picker<Arc<Branch>, RepositoryData>, app: &mut TestApplication) -> String {
-    frame(picker, app)
-        .content
-        .iter()
-        .map(|cell| cell.symbol())
-        .collect()
 }
 
 #[tokio::test(flavor = "multi_thread")]

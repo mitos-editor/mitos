@@ -162,7 +162,7 @@ pub fn feature_app<'a>(
     text: &str,
     language: &str,
     names: &[&'a str],
-    mut config: term::config::Config,
+    config: term::config::Config,
     server: impl Fn(&'a str) -> ServerConfig<'a>,
     setup: impl FnOnce(
             &mut view::handlers::Handlers,
@@ -176,11 +176,34 @@ pub fn feature_app<'a>(
         .iter()
         .map(|name| server(name).initialize_gate(&gate).toml())
         .collect::<String>();
+    let (mut app, callbacks) =
+        feature_app_with_servers(dir, text, language, names, config, &servers, setup)?;
+    let (view, doc) = view::current!(app.editor);
+    doc.set_selection(
+        view.id,
+        editor_core::Selection::point(doc.text().len_chars() - 1),
+    );
+    Ok((app, callbacks, gate))
+}
+
+pub fn feature_app_with_servers(
+    dir: &Path,
+    text: &str,
+    language: &str,
+    names: &[&str],
+    mut config: term::config::Config,
+    servers: &str,
+    setup: impl FnOnce(
+            &mut view::handlers::Handlers,
+            view::callbacks::EditorCallbackSender,
+            &editor_config::Config,
+        ) + 'static,
+) -> anyhow::Result<(TestApplication, FeatureCallbacks)> {
     config.editor.lsp.enable = true;
     let (sender, callbacks) = super::callbacks::deferred(|blocking, callback| (blocking, callback));
     let mut app = AppBuilder::new()
         .with_config(config)
-        .with_lang_loader(syntax_loader(language, language, names, &servers))
+        .with_lang_loader(syntax_loader(language, language, names, servers))
         .with_handler_setup(move |handlers, config| {
             let sender = sender(handlers.redraw().clone());
             setup(handlers, sender, config);
@@ -189,12 +212,7 @@ pub fn feature_app<'a>(
     let path = dir.join(format!("document.{language}"));
     std::fs::write(&path, text)?;
     app.editor.open(&path, Action::Replace)?;
-    let (view, doc) = view::current!(app.editor);
-    doc.set_selection(
-        view.id,
-        editor_core::Selection::point(doc.text().len_chars() - 1),
-    );
-    Ok((app, callbacks, gate))
+    Ok((app, callbacks))
 }
 
 pub async fn wait_message(path: &Path, method: &str) -> anyhow::Result<serde_json::Value> {

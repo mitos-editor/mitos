@@ -49,18 +49,12 @@ impl Fixture {
     }
 
     fn context(&mut self) -> Context<'_> {
-        Context {
-            config: term::config::Context {
-                current: &self.config,
-                updates: &self.updates,
-            },
-            editor: &mut self.app.editor,
-            interaction: &mut self.app.interaction,
-            jobs: &mut self.jobs,
-            scroll: None,
-            image_picker: None,
-            is_cursor_owner: false,
-        }
+        super::helpers::component_context(
+            &mut self.app,
+            &self.config,
+            &self.updates,
+            &mut self.jobs,
+        )
     }
 
     fn key(&mut self, component: &mut impl Component, key: &str) -> EventResult {

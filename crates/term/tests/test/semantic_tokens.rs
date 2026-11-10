@@ -1,21 +1,17 @@
-use std::time::Duration;
-
-use anyhow::Context as _;
 use editor_core::Transaction;
 use term::application::TestApplication;
 use tokio::sync::mpsc;
 use view::{
     callbacks::EditorCallback,
-    current, current_ref,
-    editor::Action,
+    current,
     features::semantic_tokens::{self, SemanticTokensHandler},
     DocumentId,
 };
 
 use super::helpers::{
     callbacks,
-    lsp::{self, Gate, ServerConfig},
-    test_config, AppBuilder,
+    lsp::{self, ServerConfig},
+    test_config,
 };
 
 struct Fixture {
@@ -29,32 +25,26 @@ struct Fixture {
 impl Fixture {
     async fn new(range_only: bool) -> anyhow::Result<Self> {
         let dir = tempfile::tempdir()?;
-        let gate = Gate::new(dir.path().join("initialize-ready"));
-        let mut server = ServerConfig::feature("semantic", "--semantic-tokens", dir.path())
-            .initialize_gate(&gate);
-        if range_only {
-            server = server.arg("--range-only");
-        }
-        let loader = lsp::syntax_loader(
-            "semantic-test",
+        let (mut app, callbacks, gate) = lsp::feature_app(
+            dir.path(),
+            "😀 foo\n",
             "semantic-test",
             &["semantic"],
-            &server.toml(),
-        );
-        let (sender, callbacks) = callbacks::unbounded(|blocking, callback| (blocking, callback));
-        let mut config = test_config();
-        config.editor.lsp.enable = true;
-        let mut app = AppBuilder::new()
-            .with_config(config)
-            .with_lang_loader(loader)
-            .with_handler_setup(move |handlers, _| {
-                handlers.semantic_tokens = SemanticTokensHandler::new(sender);
-            })
-            .build()?;
-        let path = dir.path().join("document.semantic-test");
-        std::fs::write(&path, "😀 foo\n")?;
-        app.editor.open(&path, Action::Replace)?;
-        let doc = current_ref!(app.editor).1.id();
+            test_config(),
+            |name| {
+                let server = ServerConfig::feature(name, "--semantic-tokens", dir.path());
+                if range_only {
+                    server.arg("--range-only")
+                } else {
+                    server
+                }
+            },
+            |handlers, sender, _| handlers.semantic_tokens = SemanticTokensHandler::new(sender),
+        )?;
+        // Keep the original fixture's initial cursor position.
+        let (view, doc) = current!(app.editor);
+        doc.set_selection(view.id, editor_core::Selection::point(0));
+        let doc = doc.id();
         gate.release()?;
         lsp::initialize(&mut app, 1).await?;
         Ok(Self {
@@ -66,21 +56,7 @@ impl Fixture {
         })
     }
     async fn response(&mut self) -> anyhow::Result<EditorCallback> {
-        tokio::time::timeout(Duration::from_secs(10), async {
-            loop {
-                let (blocking, callback) = self
-                    .callbacks
-                    .recv()
-                    .await
-                    .context("callback queue closed")?;
-                if blocking {
-                    callback(&mut self.app.editor);
-                } else {
-                    return Ok(callback);
-                }
-            }
-        })
-        .await?
+        callbacks::response(&mut self.app, &mut self.callbacks).await
     }
     fn edit(&mut self, text: &str) {
         let (view, doc) = current!(self.app.editor);
