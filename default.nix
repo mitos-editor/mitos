@@ -5,6 +5,8 @@
   runCommand,
   installShellFiles,
   git,
+  pkg-config,
+  aws-lc,
   gitRev ? null,
   grammarOverlays ? [ ],
   includeGrammarIf ? _: true,
@@ -61,7 +63,10 @@ rustPlatform.buildRustPackage (self: {
   nativeBuildInputs = [
     installShellFiles
     git
+    pkg-config
   ];
+
+  buildInputs = [ aws-lc ];
 
   buildType = "release";
 
