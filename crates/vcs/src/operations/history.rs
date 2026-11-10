@@ -88,6 +88,14 @@ pub struct HistoryCursor {
     offset: usize,
 }
 
+impl HistoryCursor {
+    /// Release the native walk, object cache and replay rows. The next read
+    /// rebuilds from the pinned HEAD and original path to this cursor's offset.
+    pub fn suspend(&self) {
+        self.source.suspend();
+    }
+}
+
 pub struct HistoryPage {
     pub commits: Vec<std::sync::Arc<CommitEntry>>,
     pub next: Option<HistoryCursor>,

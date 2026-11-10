@@ -1,7 +1,7 @@
 //! One demand-driven worker owns the repository and its borrowed gix walker.
 //! Cursor clones share the visited prefix, so cancellation and retry cannot skip rows.
 use super::*;
-use std::sync::Mutex;
+use crate::operations::worker::Worker;
 use tokio::sync::{mpsc, oneshot};
 
 type Batch = (Vec<std::sync::Arc<CommitEntry>>, bool);
@@ -34,7 +34,7 @@ pub(super) struct Source {
     repository: GitRepository,
     head: gix::ObjectId,
     path: Option<PathBuf>,
-    sender: Mutex<Option<mpsc::Sender<Request>>>,
+    worker: Worker<Request>,
 }
 impl std::fmt::Debug for Source {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -54,7 +54,7 @@ impl Source {
             repository,
             head,
             path,
-            sender: Mutex::new(None),
+            worker: Worker::default(),
         }
     }
     pub(super) fn belongs_to(&self, repository: &GitRepository) -> bool {
@@ -62,25 +62,17 @@ impl Source {
             && self.repository.git_dir == repository.git_dir
             && self.repository.common_dir == repository.common_dir
     }
+    pub(super) fn suspend(&self) {
+        self.worker.suspend();
+    }
     pub(super) async fn page(&self, offset: usize) -> Result<Batch> {
         let (reply, receiver) = oneshot::channel();
-        let sender = {
-            let mut sender = self
-                .sender
-                .lock()
-                .map_err(|_| anyhow::anyhow!("History worker lock poisoned"))?;
-            if sender.as_ref().is_none_or(|sender| sender.is_closed()) {
-                let (tx, rx) = mpsc::channel(1);
-                let repository = self.repository.clone();
-                let head = self.head;
-                let path = self.path.clone();
-                std::thread::Builder::new()
-                    .name("git-history".into())
-                    .spawn(move || run_worker(repository, head, path, rx))?;
-                *sender = Some(tx);
-            }
-            sender.as_ref().unwrap().clone()
-        };
+        let repository = self.repository.clone();
+        let head = self.head;
+        let path = self.path.clone();
+        let sender = self.worker.sender("git-history", move |requests, cancel| {
+            run_worker(repository, head, path, requests, cancel)
+        })?;
         sender
             .send(Request { offset, reply })
             .await
@@ -94,10 +86,12 @@ fn run_worker(
     head: gix::ObjectId,
     path: Option<PathBuf>,
     mut requests: mpsc::Receiver<Request>,
+    cancel: event::TaskHandle,
 ) {
     let first = loop {
         match requests.blocking_recv() {
-            Some(request) if !request.reply.is_closed() => break request,
+            Some(request) if !cancel.is_canceled() && !request.reply.is_closed() => break request,
+            Some(_) if cancel.is_canceled() => return,
             Some(_) => continue,
             None => return,
         }
@@ -105,6 +99,7 @@ fn run_worker(
     let mut repo = match repository.open_read(false) {
         Ok(repo) => repo,
         Err(error) => {
+            requests.close();
             let _ = first.reply.send(Err(error));
             return;
         }
@@ -121,6 +116,7 @@ fn run_worker(
     let walk = match platform.all() {
         Ok(walk) => walk,
         Err(error) => {
+            requests.close();
             let _ = first.reply.send(Err(error.into()));
             return;
         }
@@ -135,12 +131,17 @@ fn run_worker(
     };
     let mut request = Some(first);
     while let Some(current) = request {
-        let result = source.page(current.offset, || current.reply.is_closed());
+        let result = source.page(current.offset, || {
+            cancel.is_canceled() || current.reply.is_closed()
+        });
         let failed = result.is_err();
+        if failed || cancel.is_canceled() {
+            requests.close();
+        }
         if let Some(result) = result.transpose() {
             let _ = current.reply.send(result);
         }
-        if failed {
+        if failed || cancel.is_canceled() {
             break;
         }
         request = requests.blocking_recv();
@@ -249,7 +250,11 @@ impl Walk<'_> {
                 subject,
                 file,
             };
-            page_bytes += metadata_size(&row);
+            // Resuming a suspended worker replays the pinned prefix. Earlier
+            // pages have their own budgets and must not consume this page's.
+            if self.rows.len() >= offset {
+                page_bytes += metadata_size(&row);
+            }
             ensure!(
                 page_bytes <= MAX_PAGE_BYTES,
                 "History page exceeds the 1 MiB display limit"

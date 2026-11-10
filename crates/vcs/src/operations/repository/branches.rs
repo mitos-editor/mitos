@@ -1,6 +1,7 @@
 //! A demand-driven worker keeps one native reference iterator across pages.
 use super::*;
-use std::sync::{Arc, Mutex};
+use crate::operations::worker::Worker;
+use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot};
 
 pub const BRANCH_PAGE_SIZE: usize = 100;
@@ -23,7 +24,7 @@ pub struct BranchPage {
 
 struct Source {
     repository: GitRepository,
-    sender: Mutex<Option<mpsc::Sender<Request>>>,
+    worker: Worker<Request>,
 }
 
 impl GitRepository {
@@ -32,7 +33,7 @@ impl GitRepository {
         BranchCursor {
             source: Arc::new(Source {
                 repository: self.clone(),
-                sender: Mutex::new(None),
+                worker: Worker::default(),
             }),
             offset: 0,
         }
@@ -40,27 +41,24 @@ impl GitRepository {
 }
 
 impl BranchCursor {
+    /// Release native enumeration state shared by this cursor and its clones.
+    /// The next read replays the live listing to the retained offset.
+    pub fn suspend(&self) {
+        self.source.worker.suspend();
+    }
+
     /// Cursor clones can retry canceled pages without skipping any references.
     /// A failed worker is restarted and replays the live listing to this offset;
     /// callers should create a new cursor when changing the repository's references.
     pub async fn next_page(&self) -> Result<BranchPage> {
         let (reply, receiver) = oneshot::channel();
-        let sender = {
-            let mut sender = self
-                .source
-                .sender
-                .lock()
-                .map_err(|_| anyhow::anyhow!("Branch worker lock poisoned"))?;
-            if sender.as_ref().is_none_or(|sender| sender.is_closed()) {
-                let (tx, rx) = mpsc::channel(1);
-                let repository = self.source.repository.clone();
-                std::thread::Builder::new()
-                    .name("git-branches".into())
-                    .spawn(move || run(repository, rx))?;
-                *sender = Some(tx);
-            }
-            sender.as_ref().unwrap().clone()
-        };
+        let repository = self.source.repository.clone();
+        let sender = self
+            .source
+            .worker
+            .sender("git-branches", move |requests, cancel| {
+                run(repository, requests, cancel)
+            })?;
         let read = async {
             sender
                 .send(Request {
@@ -85,7 +83,11 @@ impl BranchCursor {
     }
 }
 
-fn run(repository: GitRepository, mut requests: mpsc::Receiver<Request>) {
+fn run(
+    repository: GitRepository,
+    mut requests: mpsc::Receiver<Request>,
+    cancel: event::TaskHandle,
+) {
     let Some(first) = requests.blocking_recv() else {
         return;
     };
@@ -110,7 +112,7 @@ fn run(repository: GitRepository, mut requests: mpsc::Receiver<Request>) {
                     .map(|row: &Arc<Branch>| row.name.len() + row.upstream.len())
                     .sum();
                 while !exhausted && rows.len() < offset + BRANCH_PAGE_SIZE + 1 {
-                    if reply.is_closed() {
+                    if cancel.is_canceled() || reply.is_closed() {
                         return Ok(None);
                     }
                     let Some(reference) = references.next() else {
@@ -153,7 +155,7 @@ fn run(repository: GitRepository, mut requests: mpsc::Receiver<Request>) {
             if let Some(result) = result.transpose() {
                 let _ = reply.send(result);
             }
-            if failed {
+            if failed || cancel.is_canceled() {
                 break;
             }
             let Some(next) = requests.blocking_recv() else {

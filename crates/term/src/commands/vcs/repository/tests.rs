@@ -482,3 +482,39 @@ async fn repository_pickers_preserve_semantic_colours_on_selected_rows() -> Resu
     assert_colour(&surface, std::path::MAIN_SEPARATOR_STR, Color::Blue);
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn resumed_branch_picker_replaces_the_live_generation_atomically() -> Result<()> {
+    let (dir, repo) = repository()?;
+    let mut app = application(true)?;
+    let mut picker = branches(&app.editor, repo.clone(), repo.root().to_owned());
+    until(&mut picker, &mut app, |p| all_items(p).count() == 100).await?;
+    press(&mut picker, &mut app, "down");
+    let selected = picker.selection().unwrap().name.clone();
+    picker.suspend();
+    for index in 0..205 {
+        let name = format!("topic-{index:03}");
+        if name != selected {
+            std::fs::remove_file(dir.path().join(format!(".git/refs/heads/{name}")))?;
+        }
+    }
+    std::fs::write(
+        dir.path().join(".git/refs/heads/replacement"),
+        "1111111111111111111111111111111111111111\n",
+    )?;
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        loop {
+            draw(&mut picker, &mut app);
+            let count = all_items(&picker).count();
+            assert!(count == 100 || count == 2);
+            assert_eq!(picker.selection().unwrap().name, selected);
+            if count == 2 {
+                assert!(all_items(&picker).any(|branch| branch.name == "replacement"));
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await?;
+    Ok(())
+}

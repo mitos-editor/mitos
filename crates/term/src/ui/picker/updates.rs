@@ -36,10 +36,21 @@ pub(crate) enum Update<T> {
     Replace(Vec<T>),
 }
 
-type EditorRefresh<T> = Box<dyn FnMut(UpdateContext<'_, T>) -> Option<Update<T>>>;
+/// A source owns background activity separately from the picker's visible rows.
+/// Suspension releases source resources; the next update resumes or rebuilds them.
+pub(crate) trait PickerSource<T> {
+    fn update(&mut self, cx: UpdateContext<'_, T>) -> Option<Update<T>>;
+    fn suspend(&mut self) {}
+}
+
+impl<T, F: FnMut(UpdateContext<'_, T>) -> Option<Update<T>>> PickerSource<T> for F {
+    fn update(&mut self, cx: UpdateContext<'_, T>) -> Option<Update<T>> {
+        self(cx)
+    }
+}
 
 pub(super) struct EditorUpdates<T> {
-    refresh: EditorRefresh<T>,
+    source: Box<dyn PickerSource<T>>,
     same: fn(&T, &T) -> bool,
     pub task: event::TaskController,
     pub resumed: bool,
@@ -47,6 +58,14 @@ pub(super) struct EditorUpdates<T> {
     pub incomplete: bool,
     pub toggle_loading: bool,
     pub paged: bool,
+}
+
+impl<T> EditorUpdates<T> {
+    pub fn suspend(&mut self) {
+        self.task.cancel();
+        self.source.suspend();
+        self.resumed = true;
+    }
 }
 
 impl<T: Send + Sync + 'static, D: Send + Sync + 'static> Picker<T, D> {
@@ -109,30 +128,26 @@ impl<T: Send + Sync + 'static, D: Send + Sync + 'static> Picker<T, D> {
     where
         T: PartialEq,
     {
-        self.with_updates(move |cx| refresh(cx).map(Update::Replace), false)
+        self.with_updates(
+            move |cx: UpdateContext<'_, T>| refresh(cx).map(Update::Replace),
+            false,
+        )
     }
 
     #[cfg(any(feature = "git", test))]
-    pub(crate) fn with_paged_updates(
-        self,
-        refresh: impl FnMut(UpdateContext<'_, T>) -> Option<Update<T>> + 'static,
-    ) -> Self
+    pub(crate) fn with_paged_updates(self, source: impl PickerSource<T> + 'static) -> Self
     where
         T: PartialEq,
     {
-        self.with_updates(refresh, true)
+        self.with_updates(source, true)
     }
 
-    fn with_updates(
-        mut self,
-        refresh: impl FnMut(UpdateContext<'_, T>) -> Option<Update<T>> + 'static,
-        paged: bool,
-    ) -> Self
+    fn with_updates(mut self, source: impl PickerSource<T> + 'static, paged: bool) -> Self
     where
         T: PartialEq,
     {
         self.editor_updates = Some(EditorUpdates {
-            refresh: Box::new(refresh),
+            source: Box::new(source),
             same: T::eq,
             task: event::TaskController::new(),
             resumed: false,
@@ -157,7 +172,7 @@ impl<T: Send + Sync + 'static, D: Send + Sync + 'static> Picker<T, D> {
             return;
         };
         let resumed = std::mem::take(&mut updates.resumed);
-        if let Some(update) = (updates.refresh)(UpdateContext {
+        if let Some(update) = updates.source.update(UpdateContext {
             editor,
             query: self.prompt.line(),
             near_end: {
@@ -232,7 +247,7 @@ impl<T: Send + Sync + 'static, D: Send + Sync + 'static> Picker<T, D> {
                 })
             },
         );
-        self.with_paged_updates(move |cx| {
+        self.with_paged_updates(move |cx: UpdateContext<'_, T>| {
             pages.update(cx).map(|update| match update {
                 Update::Append(rows) => Update::Replace(rows),
                 update => update,
@@ -434,6 +449,123 @@ mod deferred_refresh_tests {
             }
         })
         .await?;
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod source_lifecycle_tests {
+    use super::*;
+    use crate::ui::{
+        picker::{
+            paged::{Page, Paged},
+            test::{application, draw, until},
+        },
+        PickerColumn,
+    };
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    #[derive(Clone)]
+    struct Cursor {
+        offset: u32,
+        suspended: Arc<AtomicUsize>,
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn suspending_paged_source_discards_late_rows_and_preserves_selection(
+    ) -> anyhow::Result<()> {
+        let mut app = application(false)?;
+        let suspended = Arc::new(AtomicUsize::new(0));
+        let (started, mut requests) = tokio::sync::mpsc::unbounded_channel();
+        let pages = Paged::new(
+            Some(Cursor {
+                offset: 0,
+                suspended: suspended.clone(),
+            }),
+            ["More", "Loading", "Complete"],
+            |_| 4,
+            move |cursor: Cursor, cancel| {
+                let (tx, rx) = tokio::sync::oneshot::channel();
+                started.send((cursor, cancel, tx)).unwrap();
+                Box::pin(async move { Ok(rx.await?) })
+            },
+        )
+        .with_suspend(|cursor| {
+            cursor.suspended.fetch_add(1, Ordering::Relaxed);
+        });
+        let mut picker = Picker::new(
+            app.editor.redraw().clone(),
+            [PickerColumn::new("item", |item: &u32, _: &()| {
+                item.to_string().into()
+            })],
+            0,
+            [],
+            (),
+            |_, _, _| {},
+        )
+        .with_paged_updates(pages);
+        let (initial, _, result) = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            loop {
+                draw(&mut picker, &mut app);
+                if let Ok(request) = requests.try_recv() {
+                    break request;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await?;
+        result
+            .send(Page {
+                rows: vec![1],
+                next: Some(Cursor {
+                    offset: 1,
+                    ..initial
+                }),
+            })
+            .ok()
+            .unwrap();
+        until(&mut picker, &mut app, |p| p.selection() == Some(&1)).await?;
+        let (old_cursor, old_cancel, old_result) =
+            tokio::time::timeout(std::time::Duration::from_secs(5), async {
+                loop {
+                    draw(&mut picker, &mut app);
+                    if let Ok(request) = requests.try_recv() {
+                        break request;
+                    }
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await?;
+        assert_eq!(old_cursor.offset, 1);
+        picker.suspend();
+        assert!(old_cancel.is_canceled());
+        assert_eq!(suspended.load(Ordering::Relaxed), 1);
+        let _ = old_result.send(Page {
+            rows: vec![99],
+            next: None,
+        });
+        draw(&mut picker, &mut app);
+        let (fresh, cancel, result) =
+            tokio::time::timeout(std::time::Duration::from_secs(5), requests.recv())
+                .await?
+                .unwrap();
+        assert!(!cancel.is_canceled());
+        assert_eq!(fresh.offset, 1);
+        result
+            .send(Page {
+                rows: vec![2],
+                next: None,
+            })
+            .ok()
+            .unwrap();
+        until(&mut picker, &mut app, |p| {
+            p.results.matcher.snapshot().item_count() == 2
+        })
+        .await?;
+        assert_eq!(picker.selection(), Some(&1));
+        let snapshot = picker.results.matcher.snapshot();
+        assert_eq!(*snapshot.get_item(0).unwrap().data, 1);
+        assert_eq!(*snapshot.get_item(1).unwrap().data, 2);
         Ok(())
     }
 }
