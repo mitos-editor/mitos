@@ -1,90 +1,55 @@
 use super::*;
 
-fn registry(providers: &[Option<&'static str>]) -> DiffProviderRegistry {
-    DiffProviderRegistry {
-        providers: providers.iter().copied().map(DiffProvider::Test).collect(),
-    }
-}
-
-#[test]
-fn decoration_and_review_queries_use_the_first_successful_provider() {
-    let providers = registry(&[None, Some("first"), Some("second")]);
-    let path = Path::new("file");
-    let decoration = providers.inspect_file(path, false, true);
-    assert_eq!(decoration.diff_base.unwrap(), b"first");
-    assert_eq!(&***decoration.head_name.unwrap().load(), "first");
-    let binary = providers.inspect_file(path, false, false);
-    assert!(binary.diff_base.is_none());
-    assert_eq!(&***binary.head_name.unwrap().load(), "first");
-    let status = providers.file_status(path, false).unwrap().unwrap();
-    let comparison = providers
-        .read_comparison(&status, ComparisonKind::Head, false)
-        .unwrap();
-    assert_eq!(comparison.before, b"first");
-}
-
-#[test]
-fn watch_inputs_include_every_available_provider() {
-    let providers = registry(&[None, Some("first"), Some("second")]);
-    let expected = [PathBuf::from("first"), PathBuf::from("second")];
-    let watches = providers.repository_watches(Path::new("repo"), false);
-    assert_eq!(watches.paths, expected);
-    assert_eq!(watches.files, expected);
-}
-
-async fn statuses(providers: DiffProviderRegistry) -> Vec<Result<FileStatus>> {
+#[tokio::test]
+async fn unavailable_repository_reports_one_terminal_error() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().to_owned();
     let (sender, mut responses) = tokio::sync::mpsc::unbounded_channel();
-    drop(providers.for_each_file_status(
-        ChangedFileScope::Repository("repo".into()),
+    for_each_file_status(
+        ChangedFileScope::Repository(path.clone()),
         false,
         move |root, result| {
-            assert_eq!(root, Path::new("repo"));
+            assert_eq!(root, path);
             sender.send(result).unwrap();
             true
         },
-    ));
-    tokio::time::timeout(std::time::Duration::from_secs(5), async {
-        let mut results = Vec::new();
-        while let Some(result) = responses.recv().await {
-            results.push(result);
-        }
-        results
-    })
+    )
     .await
-    .unwrap()
+    .unwrap();
+    let error = responses.recv().await.unwrap().unwrap_err();
+    assert_eq!(error.to_string(), "no diff provider returns success");
+    assert!(responses.recv().await.is_none());
 }
 
-#[tokio::test]
-async fn enumeration_uses_one_provider_and_stops_on_successful_empty_results() {
-    let results = statuses(registry(&[None, Some("first"), Some("second")])).await;
-    assert_eq!(results.len(), 1);
-    assert_eq!(results[0].as_ref().unwrap().path(), Path::new("repo/first"));
-    assert!(statuses(registry(&[Some(""), Some("second")]))
-        .await
-        .is_empty());
-    assert!(registry(&[Some(""), Some("second")])
-        .file_status(Path::new("file"), false)
-        .unwrap()
-        .is_none());
-}
-
-#[tokio::test]
-async fn empty_or_unavailable_registries_report_one_terminal_error() {
-    for providers in [registry(&[]), registry(&[None, None])] {
-        let results = statuses(providers).await;
-        assert_eq!(results.len(), 1);
-        assert_eq!(
-            results[0].as_ref().unwrap_err().to_string(),
-            "no diff provider returns success"
-        );
-    }
-    #[cfg(not(feature = "git"))]
-    assert!(DiffProviderRegistry::default().providers.is_empty());
+#[cfg(not(feature = "git"))]
+#[test]
+fn disabled_git_has_no_decorations_or_watches_and_rejects_explicit_queries() {
+    let path = Path::new("file");
+    let decoration = inspect_file(path, false, true);
+    assert!(decoration.diff_base.is_none());
+    assert!(decoration.head_name.is_none());
+    let watches = repository_watches(path, false);
+    assert!(watches.paths.is_empty());
+    assert!(watches.files.is_empty());
+    assert_eq!(
+        file_status(path, false).unwrap_err().to_string(),
+        "No VCS provider available"
+    );
+    let status = FileStatus {
+        staged: None,
+        unstaged: Some(FileChange::Modified { path: path.into() }),
+    };
+    assert_eq!(
+        read_comparison(&status, ComparisonKind::Head, false)
+            .unwrap_err()
+            .to_string(),
+        "No VCS provider available"
+    );
 }
 
 #[cfg(feature = "git")]
 #[test]
-fn fallback_keeps_git_diff_status_and_comparison_behavior() {
+fn inspection_preserves_git_diff_status_and_comparison_behavior() {
     use crate::git::test::{empty_git_repo, exec_git_cmd};
     let repo = empty_git_repo();
     let path = repo.path().join("file.txt");
@@ -92,16 +57,11 @@ fn fallback_keeps_git_diff_status_and_comparison_behavior() {
     exec_git_cmd(&["add", "file.txt"], repo.path());
     exec_git_cmd(&["commit", "-m", "initial"], repo.path());
     std::fs::write(&path, b"after").unwrap();
-    let providers = DiffProviderRegistry {
-        providers: vec![DiffProvider::Test(None), DiffProvider::Git].into(),
-    };
-    let decoration = providers.inspect_file(&path, false, true);
+    let decoration = inspect_file(&path, false, true);
     assert_eq!(decoration.diff_base.unwrap(), b"before");
     assert_eq!(&***decoration.head_name.unwrap().load(), "main");
-    let status = providers.file_status(&path, false).unwrap().unwrap();
-    let comparison = providers
-        .read_comparison(&status, ComparisonKind::Unstaged, false)
-        .unwrap();
+    let status = file_status(&path, false).unwrap().unwrap();
+    let comparison = read_comparison(&status, ComparisonKind::Unstaged, false).unwrap();
     assert_eq!(comparison.before, b"before");
     assert_eq!(comparison.after, b"after");
 }

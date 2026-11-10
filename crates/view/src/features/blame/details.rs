@@ -48,7 +48,7 @@ pub fn request_details(editor: &mut Editor) {
         .query(doc.workspace_root(), workspace::trust::TrustQuery::Git)
         .is_trusted();
     if doc.update_blame_trust(trust_full) {
-        doc.refresh_vcs(&editor.diff_providers, trust_full);
+        doc.refresh_vcs(trust_full);
     }
     session.target = Some(Target {
         line: doc.cursor_line(view.id) as u32,

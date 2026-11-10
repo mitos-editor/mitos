@@ -55,7 +55,7 @@ use editor_core::auto_pairs::AutoPairs;
 use editor_core::encoding::Encoding;
 use language_config::LanguageServerFeature;
 use text_layout::text_annotations::Overlay;
-use vcs::{DiffHandle, DiffProviderRegistry};
+use vcs::DiffHandle;
 
 use serde::de::{self, Deserialize, Deserializer};
 use serde::Serialize;
@@ -620,13 +620,13 @@ impl Document {
     }
 
     /// Refresh both branch display and the diff base after repository changes.
-    pub fn refresh_vcs(&mut self, providers: &DiffProviderRegistry, trust_full: bool) {
+    pub fn refresh_vcs(&mut self, trust_full: bool) {
         self.update_blame_trust(trust_full);
         self.blame.refresh();
         let Some(path) = self.path().map(ToOwned::to_owned) else {
             return;
         };
-        let vcs = providers.inspect_file(&path, trust_full, !self.is_binary());
+        let vcs = vcs::inspect_file(&path, trust_full, !self.is_binary());
         match vcs.diff_base {
             Some(base) => self.set_diff_base(base),
             None => self.diff_handle = None,

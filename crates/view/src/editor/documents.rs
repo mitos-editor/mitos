@@ -278,9 +278,7 @@ impl Editor {
                 .workspace_trust
                 .query(doc.workspace_root(), TrustQuery::Git)
                 .is_trusted();
-            let vcs = self
-                .diff_providers
-                .inspect_file(&path, trust_full, !doc.is_binary());
+            let vcs = vcs::inspect_file(&path, trust_full, !doc.is_binary());
             doc.set_version_control_head(vcs.head_name);
 
             let id = self.new_document(doc);

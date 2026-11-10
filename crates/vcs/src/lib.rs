@@ -1,15 +1,14 @@
 //! Version-control status and asynchronous document diffs.
 //!
-//! [`DiffProviderRegistry`] is deliberately best-effort: callers are editing
-//! files, so an unavailable repository or provider should remove VCS decoration
-//! rather than prevent the document from opening. Provider failures from
-//! [`DiffProviderRegistry::inspect_file`] are logged and returned as absent
+//! [`inspect_file`] is deliberately best-effort: callers are editing files,
+//! so an unavailable repository should remove VCS decoration rather than prevent
+//! the document from opening. Inspection failures are logged and returned as absent
 //! decoration. Changed-file enumeration reports a terminal error through its
-//! callback when no provider can serve the query.
+//! callback when the query cannot be served.
 //!
-//! Git is currently the only compiled provider. The `trust_full` argument on
-//! registry operations controls whether repository-local configuration and the
-//! features it enables may be trusted; preserve it when adding new entry points.
+//! The optional `git` feature enables repository operations. The `trust_full`
+//! argument controls whether repository-local configuration and the features it
+//! enables may be trusted; preserve it when adding new entry points.
 
 use anyhow::{anyhow, Result};
 use arc_swap::ArcSwap;
@@ -29,9 +28,6 @@ mod blob;
 mod blame;
 pub mod conflict;
 pub use blame::{FileBlame, LineBlame};
-
-mod provider;
-use provider::DiffProvider;
 
 mod diff;
 
@@ -61,27 +57,6 @@ impl ChangedFileScope {
     pub fn path(&self) -> &Path {
         match self {
             Self::Directory(path) | Self::Repository(path) => path,
-        }
-    }
-}
-
-/// Ordered access to the VCS providers compiled into this editor.
-///
-/// Watch inputs are combined across providers. Other queries use the first
-/// provider that succeeds, including a successful empty status listing.
-#[derive(Clone)]
-pub struct DiffProviderRegistry {
-    providers: Arc<[DiffProvider]>,
-}
-
-impl Default for DiffProviderRegistry {
-    fn default() -> Self {
-        Self {
-            providers: vec![
-                #[cfg(feature = "git")]
-                DiffProvider::Git,
-            ]
-            .into(),
         }
     }
 }
@@ -116,90 +91,93 @@ fn collect_repository_watches<'a>(
     watches
 }
 
-impl DiffProviderRegistry {
-    /// Read one provider's independent decorations with one discovery and current trust/configuration.
-    /// Binary documents skip blob reads and worktree filters.
-    pub fn inspect_file(&self, file: &Path, trust_full: bool, read_diff: bool) -> DocumentVcs {
-        self.providers
-            .iter()
-            .find_map(|provider| {
-                provider
-                    .inspect_file(file, trust_full, read_diff)
-                    .inspect_err(|error| {
-                        log::debug!("VCS inspection for {}: {error:#}", file.display())
-                    })
-                    .ok()
-            })
+/// Read decorations with one discovery and current trust/configuration.
+/// Binary documents skip blob reads and worktree filters.
+pub fn inspect_file(file: &Path, trust_full: bool, read_diff: bool) -> DocumentVcs {
+    #[cfg(feature = "git")]
+    {
+        git::inspect_file(file, trust_full, read_diff)
+            .inspect_err(|error| log::debug!("VCS inspection for {}: {error:#}", file.display()))
             .unwrap_or_default()
     }
+    #[cfg(not(feature = "git"))]
+    {
+        let _ = (file, trust_full, read_diff);
+        DocumentVcs::default()
+    }
+}
 
-    /// Collect every provider's watch inputs, sharing discovery within each provider.
-    pub fn repository_watches(&self, path: &Path, trust_full: bool) -> RepositoryWatches {
-        let mut watches = RepositoryWatches::default();
-        for provider in self.providers.iter() {
-            if let Ok(inputs) = provider.repository_watches(path, trust_full) {
-                watches.paths.extend(inputs.paths);
-                watches.files.extend(inputs.files);
-            }
+/// Read repository watch inputs, or an empty set when unavailable.
+pub fn repository_watches(path: &Path, trust_full: bool) -> RepositoryWatches {
+    #[cfg(feature = "git")]
+    {
+        repository::repository_watches(path, trust_full).unwrap_or_default()
+    }
+    #[cfg(not(feature = "git"))]
+    {
+        let _ = (path, trust_full);
+        RepositoryWatches::default()
+    }
+}
+
+/// Combine watch inputs for one refresh, inspecting each directory and trust pair once.
+/// Entries never survive this call, so configuration and trust changes are read afresh.
+pub fn repository_watches_for_paths<'a>(
+    paths: impl IntoIterator<Item = (&'a Path, bool)>,
+) -> RepositoryWatches {
+    collect_repository_watches(paths, repository_watches)
+}
+
+/// Enumerate on a blocking worker, reporting one terminal error if the query fails.
+pub fn for_each_file_status(
+    scope: ChangedFileScope,
+    trust_full: bool,
+    f: impl Fn(&Path, Result<FileStatus>) -> bool + Send + 'static,
+) -> tokio::task::JoinHandle<()> {
+    tokio::task::spawn_blocking(move || {
+        #[cfg(feature = "git")]
+        let result = git::for_each_file_status(&scope, trust_full, &f);
+        #[cfg(not(feature = "git"))]
+        let result: Result<()> = {
+            let _ = trust_full;
+            Err(anyhow!("No VCS provider available"))
+        };
+        if result.is_err() {
+            f(
+                scope.path(),
+                Err(anyhow!("no diff provider returns success")),
+            );
         }
-        watches
-    }
+    })
+}
 
-    /// Combine watch inputs for one refresh, inspecting each directory and trust pair once.
-    /// Entries never survive this call, so configuration and trust changes are read afresh.
-    pub fn repository_watches_for_paths<'a>(
-        &self,
-        paths: impl IntoIterator<Item = (&'a Path, bool)>,
-    ) -> RepositoryWatches {
-        collect_repository_watches(paths, |path, trusted| {
-            self.repository_watches(path, trusted)
-        })
+/// Read bounded comparison inputs on the caller's blocking worker.
+pub fn read_comparison(
+    status: &FileStatus,
+    kind: ComparisonKind,
+    trust_full: bool,
+) -> Result<Comparison> {
+    #[cfg(feature = "git")]
+    {
+        review::read_git_comparison(status, kind, trust_full)
     }
-
-    /// Enumerate with the first successful provider, reporting one terminal error if none succeeds.
-    pub fn for_each_file_status(
-        self,
-        scope: ChangedFileScope,
-        trust_full: bool,
-        f: impl Fn(&Path, Result<FileStatus>) -> bool + Send + 'static,
-    ) -> tokio::task::JoinHandle<()> {
-        tokio::task::spawn_blocking(move || {
-            if self
-                .query(|provider| provider.for_each_file_status(&scope, trust_full, &f))
-                .is_err()
-            {
-                f(
-                    scope.path(),
-                    Err(anyhow!("no diff provider returns success")),
-                );
-            }
-        })
+    #[cfg(not(feature = "git"))]
+    {
+        let _ = (status, kind, trust_full);
+        Err(anyhow!("No VCS provider available"))
     }
+}
 
-    /// Read bounded comparison inputs on the caller's blocking worker.
-    pub fn read_comparison(
-        &self,
-        status: &FileStatus,
-        kind: ComparisonKind,
-        trust_full: bool,
-    ) -> Result<Comparison> {
-        self.query(|provider| provider.read_comparison(status, kind, trust_full))
+/// Resolve current staged/unstaged paths, including rename chains, on a blocking worker.
+pub fn file_status(path: &Path, trust_full: bool) -> Result<Option<FileStatus>> {
+    #[cfg(feature = "git")]
+    {
+        git::file_status(path, trust_full)
     }
-
-    /// Resolve current staged/unstaged paths, including rename chains, on a blocking worker.
-    pub fn file_status(&self, path: &Path, trust_full: bool) -> Result<Option<FileStatus>> {
-        self.query(|provider| provider.file_status(path, trust_full))
-    }
-
-    fn query<T>(&self, mut query: impl FnMut(&DiffProvider) -> Result<T>) -> Result<T> {
-        let mut error = anyhow!("No VCS provider available");
-        for provider in self.providers.iter() {
-            match query(provider) {
-                Ok(result) => return Ok(result),
-                Err(err) => error = err,
-            }
-        }
-        Err(error)
+    #[cfg(not(feature = "git"))]
+    {
+        let _ = (path, trust_full);
+        Err(anyhow!("No VCS provider available"))
     }
 }
 

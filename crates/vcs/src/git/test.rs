@@ -521,12 +521,11 @@ fn inspection_keeps_head_for_untracked_files_and_refreshes_linked_worktrees() {
         )
         .unwrap();
     }
-    let providers = crate::DiffProviderRegistry::default();
     for (root, branch, contents) in [
         (repo.path(), "main", b"main\n".as_slice()),
         (linked.as_path(), "feature", b"feature\n".as_slice()),
     ] {
-        let inspected = providers.inspect_file(&root.join("file.txt"), false, true);
+        let inspected = crate::inspect_file(&root.join("file.txt"), false, true);
         assert_eq!(
             inspected.diff_base.as_deref(),
             Some(contents),
@@ -537,15 +536,15 @@ fn inspection_keeps_head_for_untracked_files_and_refreshes_linked_worktrees() {
             })
         );
         assert_eq!(&**inspected.head_name.unwrap().load_full(), branch);
-        let inspected = providers.inspect_file(&root.join("untracked.txt"), false, true);
+        let inspected = crate::inspect_file(&root.join("untracked.txt"), false, true);
         assert!(inspected.diff_base.is_none());
         assert_eq!(&**inspected.head_name.unwrap().load_full(), branch);
     }
     exec_git_cmd(&["checkout", "--detach"], &linked);
-    let inspected = providers.inspect_file(&linked.join("file.txt"), false, false);
+    let inspected = crate::inspect_file(&linked.join("file.txt"), false, false);
     assert!(inspected.diff_base.is_none());
     assert_eq!(inspected.head_name.unwrap().load().len(), 8);
-    let main = providers.inspect_file(&tracked, false, false);
+    let main = crate::inspect_file(&tracked, false, false);
     assert_eq!(&**main.head_name.unwrap().load_full(), "main");
 }
 

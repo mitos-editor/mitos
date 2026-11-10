@@ -272,7 +272,7 @@ async fn renaming_or_reloading_a_document_discards_queued_filters() -> anyhow::R
         } else {
             let (_, doc) = current!(f.editor);
             // Even an unchanged reload ends the operation's editing context.
-            doc.reload(&f.editor.diff_providers, true)?;
+            doc.reload(true)?;
         }
         callback(&mut f.editor);
         assert_eq!(

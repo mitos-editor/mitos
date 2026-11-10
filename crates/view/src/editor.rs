@@ -46,7 +46,6 @@ use crate::{
 };
 use editor_config::Config;
 use theme::Theme;
-use vcs::DiffProviderRegistry;
 use workspace::trust::WorkspaceTrust;
 
 use futures_util::StreamExt;
@@ -98,7 +97,6 @@ pub struct Editor {
     pub registers: Registers,
     pub(crate) language_servers: crate::language_servers::Registry,
     pub(crate) diagnostics: LspDiagnostics,
-    pub diff_providers: DiffProviderRegistry,
 
     pub(crate) debugger: crate::debugger::DebuggerState,
 
@@ -216,10 +214,9 @@ impl Editor {
             }
         };
 
-        // Initialize file watcher and diff providers
+        // Initialize file watching for the current workspace.
         let workspace = workspace::ResolvedWorkspace::current();
         let file_watcher = Watcher::new(&conf.files.watch, &workspace, handlers.callbacks.clone());
-        let diff_providers = DiffProviderRegistry::default();
 
         // The frontend refines this area with its remaining application chrome.
         area.height = area
@@ -237,7 +234,6 @@ impl Editor {
             theme: theme_loader.default_theme(),
             language_servers,
             diagnostics: LspDiagnostics::new(),
-            diff_providers,
             debugger: crate::debugger::DebuggerState::default(),
             syn_loader,
             theme_loader,
@@ -843,7 +839,7 @@ impl Editor {
             })
             .filter(|(_, demand)| !demand.is_empty())
             .collect();
-        let watches = self.diff_providers.repository_watches_for_paths(
+        let watches = vcs::repository_watches_for_paths(
             repositories
                 .iter()
                 .map(|(path, trusted)| (path.as_path(), *trusted)),

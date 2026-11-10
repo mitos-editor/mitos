@@ -70,7 +70,6 @@ impl ReviewComparison {
 #[derive(Clone)]
 pub struct ReviewRequest {
     worker: Arc<tokio::sync::Semaphore>,
-    providers: vcs::DiffProviderRegistry,
     status: FileStatus,
     fresh_status: bool,
     prefer_conflicts: bool,
@@ -159,7 +158,6 @@ impl ReviewRequest {
             .to_owned();
         Self {
             worker: editor.handlers.change_review.worker.clone(),
-            providers: editor.diff_providers.clone(),
             status: status.clone(),
             fresh_status: false,
             prefer_conflicts: false,
@@ -233,10 +231,7 @@ impl ReviewRequest {
             .parent()
             .and_then(|path| path.ancestors().find(|path| path.is_dir()))
             .unwrap_or(&self.workspace);
-        let mut paths = self
-            .providers
-            .repository_watches(directory, self.trust_full)
-            .paths;
+        let mut paths = vcs::repository_watches(directory, self.trust_full).paths;
         paths.extend(
             directory
                 .ancestors()
@@ -337,20 +332,16 @@ impl ReviewRequest {
             }
         };
         let status = if self.fresh_status {
-            self.providers
-                .file_status(self.status.path(), self.trust_full)?
-                .unwrap_or_else(|| FileStatus {
-                    staged: None,
-                    unstaged: Some(vcs::FileChange::Modified {
-                        path: self.status.path().to_owned(),
-                    }),
-                })
+            vcs::file_status(self.status.path(), self.trust_full)?.unwrap_or_else(|| FileStatus {
+                staged: None,
+                unstaged: Some(vcs::FileChange::Modified {
+                    path: self.status.path().to_owned(),
+                }),
+            })
         } else {
             self.status.clone()
         };
-        let comparison = self
-            .providers
-            .read_comparison(&status, kind, self.trust_full)?;
+        let comparison = vcs::read_comparison(&status, kind, self.trust_full)?;
         let (before, after) = if let Some(buffer) = self.buffer.clone() {
             ensure!(
                 buffer.len() <= MAX_REVIEW_BYTES,
@@ -396,7 +387,6 @@ fn decode(bytes: &[u8], encoding: Option<&'static Encoding>) -> Result<Rope> {
 pub struct HunkReviewRequest {
     target: super::request::SelectionRequest,
     worker: Arc<tokio::sync::Semaphore>,
-    providers: vcs::DiffProviderRegistry,
     path: std::path::PathBuf,
     workspace: std::path::PathBuf,
     trust_full: bool,
@@ -491,7 +481,6 @@ impl HunkReviewRequest {
         Ok(Self {
             target: super::request::SelectionRequest::new(doc, view.id, cancel, Vec::new()),
             worker: editor.handlers.change_review.worker.clone(),
-            providers: editor.diff_providers.clone(),
             path: path.clone(),
             workspace: doc.workspace_root().to_owned(),
             trust_full: editor
@@ -524,10 +513,7 @@ impl HunkReviewRequest {
         let cancel = self.target.cancel_handle().clone();
         run_review(worker, cancel, move || {
             let directory = self.path.parent().unwrap_or(&self.workspace);
-            let mut paths = self
-                .providers
-                .repository_watches(directory, self.trust_full)
-                .paths;
+            let mut paths = vcs::repository_watches(directory, self.trust_full).paths;
             paths.extend(
                 directory
                     .ancestors()
@@ -583,9 +569,7 @@ impl HunkReviewRequest {
                 path: self.path.clone(),
             }),
         };
-        let comparison =
-            self.providers
-                .read_comparison(&status, ComparisonKind::Head, self.trust_full)?;
+        let comparison = vcs::read_comparison(&status, ComparisonKind::Head, self.trust_full)?;
         let source = Arc::new(ReviewSource::new(
             decode(&comparison.before, Some(self.encoding))?,
             self.text.clone(),

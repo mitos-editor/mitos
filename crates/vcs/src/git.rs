@@ -91,6 +91,30 @@ pub fn for_each_file_status(
     )
 }
 
+pub(super) fn file_status(path: &Path, trust_full: bool) -> Result<Option<FileStatus>> {
+    let directory = path
+        .parent()
+        .and_then(|path| path.ancestors().find(|path| path.is_dir()))
+        .context("File has no existing parent directory")?;
+    let result = std::cell::RefCell::new(None);
+    for_each_file_status(
+        &ChangedFileScope::Repository(directory.into()),
+        trust_full,
+        |_, status| match status {
+            Ok(status) if status.path() == path => {
+                *result.borrow_mut() = Some(Ok(status));
+                false
+            }
+            Err(error) => {
+                *result.borrow_mut() = Some(Err(error));
+                false
+            }
+            _ => true,
+        },
+    )?;
+    result.into_inner().transpose()
+}
+
 /// Emulates the result of running `git status` from the command line.
 fn status(
     repo: &Repository,

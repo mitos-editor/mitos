@@ -464,21 +464,18 @@ mod trust_tests {
             expected
         );
         // Reusing the provider facade must never retain a previously trusted handle.
-        let providers = crate::DiffProviderRegistry::default();
-        let inspected = providers.inspect_file(status.path(), true, true);
+        let inspected = crate::inspect_file(status.path(), true, true);
         assert_eq!(
             String::from_utf8(inspected.diff_base.unwrap())
                 .unwrap()
                 .trim_end(),
             expected
         );
-        assert!(providers
-            .inspect_file(status.path(), true, false)
+        assert!(crate::inspect_file(status.path(), true, false)
             .diff_base
             .is_none());
         assert_eq!(
-            providers
-                .inspect_file(status.path(), false, true)
+            crate::inspect_file(status.path(), false, true)
                 .diff_base
                 .unwrap(),
             original
@@ -486,8 +483,7 @@ mod trust_tests {
         // Reload repository configuration on the next inspection.
         exec_git_cmd(&["config", "--unset", "filter.probe.smudge"], repo.path());
         assert_eq!(
-            providers
-                .inspect_file(status.path(), true, true)
+            crate::inspect_file(status.path(), true, true)
                 .diff_base
                 .unwrap(),
             original
