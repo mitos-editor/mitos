@@ -35,8 +35,8 @@ use crate::{
 
 mod tree;
 
+pub(super) use tree::ExplorerTree;
 use tree::{query, query_async};
-pub(super) use tree::{search_index, ExplorerTree};
 
 /// (path, is the path a directory?)
 pub(super) type ExplorerItem = (PathBuf, bool);
@@ -54,6 +54,8 @@ pub(super) fn picker(
     tree: bool,
 ) -> Result<FileExplorer, std::io::Error> {
     let tree_mode = tree;
+    let mut revision = editor.file_operation_revision();
+    let mut config = editor.config().file_explorer.clone();
     let tree = tree.then(ExplorerTree::default);
     let options = content(&root, tree.as_ref(), &editor.config().file_explorer, || {
         false
@@ -148,7 +150,7 @@ pub(super) fn picker(
             let mut tree = data.tree.clone();
             let new_root = if let Some(tree) = &mut tree {
                 tree.searching = false;
-                tree.index = Default::default();
+                tree.reset_index();
                 tree.reveal(&data.root, path);
                 tree.expanded.toggle(path.clone());
                 data.root.clone()
@@ -201,32 +203,7 @@ pub(super) fn picker(
             position: QuicklistPosition::None,
         })
     })
-    .with_file_updates(
-        editor,
-        |data| &data.root,
-        |query, editor, data, cancel| {
-            let config = editor.config().file_explorer.clone();
-            let query = query.to_owned();
-            Box::pin(async move {
-                Ok(tokio::task::spawn_blocking(move || {
-                    if let Some(tree) = data.tree.as_ref().filter(|_| !query.is_empty()) {
-                        let rows = search_index(&data.root, &config, || cancel.is_canceled())?;
-                        let mut index = tree.index.lock().unwrap();
-                        if cancel.is_canceled() {
-                            return Ok(Vec::new());
-                        }
-                        *index = Some(rows.clone());
-                        drop(index);
-                        return Ok(rows.matches(&query, || cancel.is_canceled()).0);
-                    }
-                    content(&data.root, data.tree.as_ref(), &config, || {
-                        cancel.is_canceled()
-                    })
-                })
-                .await??)
-            })
-        },
-    )
+    .with_file_updates(editor, |data| &data.root, tree::refresh)
     .with_refresh_generation(editor, Editor::file_operation_revision)
     .with_item_key(|(path, _)| path.clone())
     .with_item_data_actions(|maps| &maps.file_explorer, action);
@@ -235,6 +212,17 @@ pub(super) fn picker(
         picker
             .with_query_options(query)
             .with_async_query_options(query_async)
+            .with_query_updates(move |editor, data| {
+                let current = editor.file_operation_revision();
+                let current_config = &editor.config().file_explorer;
+                if current == revision && current_config == &config {
+                    return false;
+                }
+                revision = current;
+                config = current_config.clone();
+                data.tree.as_ref().unwrap().clear_index();
+                true
+            })
     } else {
         picker
     })

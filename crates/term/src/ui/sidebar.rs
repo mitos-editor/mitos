@@ -28,8 +28,6 @@ pub(super) struct Sidebar {
     state: State,
     active_path: Option<PathBuf>,
     keys: KeymapState,
-    search: event::TaskController,
-    search_pending: bool,
     pending_action: Option<PickerAction>,
     action_scheduled: bool,
     pub(super) width: Option<u16>,
@@ -52,8 +50,6 @@ impl Sidebar {
             state: State::Navigating,
             active_path: None,
             keys: KeymapState::default(),
-            search: event::TaskController::new(),
-            search_pending: false,
             pending_action: None,
             action_scheduled: false,
             width: None,
@@ -178,62 +174,13 @@ impl Sidebar {
     }
 
     pub fn has_pending_render(&self) -> bool {
-        self.search_pending || self.picker.has_pending_render()
-    }
-
-    fn cancel_search(&mut self) {
-        self.search.cancel();
-        self.search_pending = false;
-        self.clear_pending_input();
+        self.picker.has_pending_render()
     }
 
     fn clear_pending_input(&mut self) {
         self.pending_action = None;
         self.action_scheduled = false;
         self.pending_input.clear();
-    }
-
-    fn start_search(&mut self, cx: &mut Context) {
-        let data = self.picker.editor_data();
-        let root = data.root.clone();
-        let index = data.tree.as_ref().unwrap().index.clone();
-        let config = cx.editor.config().file_explorer.clone();
-        let revision = cx.editor.file_operation_revision();
-        let load = self.search.restart();
-        let worker = load.clone();
-        self.search_pending = true;
-        cx.jobs.callback(async move {
-            let rows = tokio::task::spawn_blocking(move || {
-                super::file_explorer::search_index(&root, &config, || worker.is_canceled())
-            })
-            .await
-            .unwrap_or_else(|error| Err(std::io::Error::other(error)));
-            Ok(crate::job::Callback::ui(move |compositor, cx| {
-                if load.is_canceled() {
-                    return;
-                }
-                let Some(sidebar) = compositor
-                    .find::<EditorView>()
-                    .and_then(|view| view.sidebar.as_mut())
-                else {
-                    return;
-                };
-                if revision != cx.editor.file_operation_revision() {
-                    sidebar.start_search(cx);
-                    return;
-                }
-                sidebar.search_pending = false;
-                match rows {
-                    Ok(rows) => *index.lock().unwrap() = Some(rows),
-                    Err(error) => {
-                        sidebar.clear_pending_input();
-                        cx.editor.set_error(|| error.to_string());
-                        return;
-                    }
-                }
-                sidebar.picker.refresh_query_options(cx.editor, true);
-            }))
-        });
     }
 
     pub fn update(&mut self, area: Rect, cx: &mut Context) {
@@ -252,8 +199,17 @@ impl Sidebar {
             }
         }
         self.picker.update(area, cx);
-        if self.search_pending
-            || self.picker.has_pending_render()
+        if self
+            .picker
+            .editor_data()
+            .tree
+            .as_ref()
+            .unwrap()
+            .search_failed()
+        {
+            self.clear_pending_input();
+        }
+        if self.picker.has_pending_render()
             || (self.pending_action.is_none() && self.pending_input.is_empty())
             || self.action_scheduled
         {
@@ -356,7 +312,6 @@ impl Sidebar {
                     self.picker.clear_filter(cx.editor);
                     self.state = State::Filtering;
                     self.picker.set_title("File Explorer (filter)");
-                    self.start_search(cx);
                     return EventResult::Consumed(None);
                 }
                 SidebarAction::FocusEditor => self.focus_buffer(),
@@ -376,14 +331,8 @@ impl Sidebar {
                     if self.state == State::Filtering
                         || self.picker.editor_data().tree.as_ref().unwrap().searching =>
                 {
-                    self.cancel_search();
+                    self.clear_pending_input();
                     self.picker.clear_filter(cx.editor);
-                    self.picker
-                        .editor_data()
-                        .tree
-                        .as_ref()
-                        .unwrap()
-                        .clear_index();
                     self.focus();
                 }
                 SidebarAction::Picker(PickerAction::Accept) if self.state == State::Filtering => {
@@ -391,7 +340,7 @@ impl Sidebar {
                     self.reset_input();
                 }
                 SidebarAction::Picker(action) => {
-                    if (self.search_pending || self.picker.has_pending_render())
+                    if self.picker.has_pending_render()
                         && matches!(
                             action,
                             PickerAction::Accept

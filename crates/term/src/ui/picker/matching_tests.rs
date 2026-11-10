@@ -171,12 +171,7 @@ async fn tree_search_preserves_navigation_on_refresh_and_resets_it_for_a_new_que
         std::fs::write(path, "")?;
     }
     let mut picker = ui::file_explorer::picker(dir.path().to_owned(), &app.editor, true)?;
-    let index = picker.editor_data().tree.as_ref().unwrap().index.clone();
-    *index.lock().unwrap() = Some(ui::file_explorer::search_index(
-        dir.path(),
-        &app.editor.config().file_explorer,
-        || false,
-    )?);
+    let tree = picker.editor_data().tree.as_ref().unwrap().clone();
     picker.prompt.set_line("test".into(), &app.editor);
     picker.handle_prompt_change(false);
     picker.refresh_query_options(&app.editor, false);
@@ -192,11 +187,7 @@ async fn tree_search_preserves_navigation_on_refresh_and_resets_it_for_a_new_que
         dir.path().join("zeta/test.rs")
     );
     std::fs::write(dir.path().join("alpha/0_test.rs"), "")?;
-    *index.lock().unwrap() = Some(ui::file_explorer::search_index(
-        dir.path(),
-        &app.editor.config().file_explorer,
-        || false,
-    )?);
+    tree.clear_index();
     picker.refresh_query_options(&app.editor, true);
     settle(&mut picker, &app.editor).await;
     assert_eq!(
