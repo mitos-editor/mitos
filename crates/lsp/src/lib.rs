@@ -237,14 +237,6 @@ impl LspProgressMap {
         self.0.remove(&server);
     }
 
-    /// Returns a map of all tokens corresponding to the language server with `id`.
-    pub fn progress_map(
-        &self,
-        id: LanguageServerId,
-    ) -> Option<&HashMap<lsp::ProgressToken, ProgressStatus>> {
-        self.0.get(&id)
-    }
-
     pub fn is_progressing(&self, id: LanguageServerId) -> bool {
         self.0.get(&id).map(|it| !it.is_empty()).unwrap_or_default()
     }
@@ -263,14 +255,6 @@ impl LspProgressMap {
             ProgressStatus::Created => None,
             ProgressStatus::Started { title, .. } => Some(title),
         })
-    }
-
-    /// Checks if progress `token` for server with `id` is created.
-    pub fn is_created(&mut self, id: LanguageServerId, token: &lsp::ProgressToken) -> bool {
-        self.0
-            .get(&id)
-            .map(|values| values.get(token).is_some())
-            .unwrap_or_default()
     }
 
     pub fn create(&mut self, id: LanguageServerId, token: lsp::ProgressToken) {

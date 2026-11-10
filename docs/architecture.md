@@ -129,6 +129,9 @@ catalogs and feature wiring are static; this organization does not require a plu
 The `workspace` crate depends only on `stdx`; applications supply its trust-store
 directory. Configuration migration
 passes explicit file changes to trust policy without a dependency back on `loader`.
+`ResolvedWorkspace` records both the root and whether discovery found a marker.
+Resolve again when directories or markers may have changed; an editor's cached
+workspace is not a substitute for fresh discovery at those boundaries.
 
 ## Core
 

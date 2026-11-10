@@ -642,15 +642,15 @@ impl Document {
         if let Some(source) = self.historical() {
             return &source.workspace;
         }
-        self.file
-            .workspace_root
-            .get_or_init(|| match self.file.path.as_deref() {
-                Some(p) => p
-                    .parent()
-                    .map(|dir| workspace::find_workspace_in(dir).0)
-                    .unwrap_or_else(|| workspace::find_workspace().0),
-                None => workspace::find_workspace().0,
-            })
+        self.file.workspace_root.get_or_init(|| {
+            self.file
+                .path
+                .as_deref()
+                .and_then(Path::parent)
+                .map(workspace::ResolvedWorkspace::resolve)
+                .unwrap_or_else(workspace::ResolvedWorkspace::current)
+                .into_root()
+        })
     }
 
     /// A stable path for user-facing output, relative to this document's workspace when possible.

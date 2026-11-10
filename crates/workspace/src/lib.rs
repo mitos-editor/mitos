@@ -38,20 +38,13 @@ impl ResolvedWorkspace {
         &self.root
     }
 
+    pub fn into_root(self) -> PathBuf {
+        self.root
+    }
+
     pub fn is_workspace(&self) -> bool {
         self.is_workspace
     }
-}
-
-/// Find the current workspace, retaining the legacy fallback flag for callers.
-pub fn find_workspace() -> (PathBuf, bool) {
-    let workspace = ResolvedWorkspace::current();
-    (workspace.root, !workspace.is_workspace)
-}
-
-pub fn find_workspace_in(dir: impl AsRef<Path>) -> (PathBuf, bool) {
-    let workspace = ResolvedWorkspace::resolve(dir);
-    (workspace.root, !workspace.is_workspace)
 }
 
 #[cfg(test)]

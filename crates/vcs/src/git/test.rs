@@ -95,13 +95,14 @@ fn changed_files_include_the_worktree_root_when_started_in_a_subdirectory() {
     std::fs::create_dir(&subdirectory).unwrap();
     let changes = RefCell::new(Vec::new());
 
-    git::for_each_changed_file(
+    git::for_each_file_status(
         &ChangedFileScope::Repository(subdirectory),
         true,
         |worktree_root, change| {
-            changes
-                .borrow_mut()
-                .push((worktree_root.to_path_buf(), change.unwrap()));
+            changes.borrow_mut().push((
+                worktree_root.to_path_buf(),
+                change.unwrap().change().clone(),
+            ));
             true
         },
     )
@@ -147,11 +148,11 @@ fn changed_files_can_be_scoped_to_a_directory() {
             exec_git_cmd(&["add", "-A"], temp_git.path());
         }
         let changes = RefCell::new(Vec::new());
-        git::for_each_changed_file(
+        git::for_each_file_status(
             &ChangedFileScope::Directory(project.clone()),
             true,
             |_worktree_root, change| {
-                changes.borrow_mut().push(change.unwrap());
+                changes.borrow_mut().push(change.unwrap().change().clone());
                 true
             },
         )
@@ -199,11 +200,11 @@ fn changed_files_include_staged_changes_without_duplicate_paths() {
     let index = std::fs::read(root.join(".git/index")).unwrap();
 
     let changes = RefCell::new(Vec::new());
-    git::for_each_changed_file(
+    git::for_each_file_status(
         &ChangedFileScope::Repository(root.into()),
         true,
         |_, change| {
-            changes.borrow_mut().push(change.unwrap());
+            changes.borrow_mut().push(change.unwrap().change().clone());
             true
         },
     )
@@ -247,11 +248,11 @@ fn changed_files_include_staged_additions_before_the_first_commit() {
     exec_git_cmd(&["add", "--intent-to-add", "intent.txt"], root);
 
     let changes = RefCell::new(Vec::new());
-    git::for_each_changed_file(
+    git::for_each_file_status(
         &ChangedFileScope::Repository(root.into()),
         false,
         |_, change| {
-            changes.borrow_mut().push(change.unwrap());
+            changes.borrow_mut().push(change.unwrap().change().clone());
             true
         },
     )
@@ -293,11 +294,11 @@ fn changed_files_keep_conflicts_alongside_staged_changes() {
     exec_git_cmd(&["add", "staged.txt"], root);
 
     let changes = RefCell::new(Vec::new());
-    git::for_each_changed_file(
+    git::for_each_file_status(
         &ChangedFileScope::Repository(root.into()),
         true,
         |_, change| {
-            changes.borrow_mut().push(change.unwrap());
+            changes.borrow_mut().push(change.unwrap().change().clone());
             true
         },
     )

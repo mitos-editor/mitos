@@ -8,7 +8,7 @@ use crate::{
 use std::io::Read;
 use stdx::Url;
 use view::{editor::Action, Editor};
-use workspace::find_workspace;
+use workspace::ResolvedWorkspace;
 
 pub(super) fn goto_file(cx: &mut Context) {
     goto_file_impl(cx, Action::Replace);
@@ -135,7 +135,10 @@ fn browse_directory(cx: &mut Context, source: Directory, explorer: bool) {
         "file picker"
     };
     let (path, error) = match source {
-        Directory::Workspace => (find_workspace().0, "Workspace directory does not exist"),
+        Directory::Workspace => (
+            ResolvedWorkspace::current().into_root(),
+            "Workspace directory does not exist",
+        ),
         Directory::Current => (
             stdx::env::current_working_dir(),
             "Current working directory does not exist",

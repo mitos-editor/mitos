@@ -53,7 +53,7 @@ async fn sidebar_with_config(
     // the process-wide working directory of concurrently running tests.
     let dir = tempfile::Builder::new()
         .prefix("sidebar-fixture-")
-        .tempdir_in(workspace::find_workspace().0)?;
+        .tempdir_in(workspace::ResolvedWorkspace::current().root())?;
     let root = stdx::path::canonicalize(dir.path());
     std::fs::write(root.join("a.txt"), "alpha\n")?;
     std::fs::write(root.join("b.txt"), "bravo\n")?;
@@ -666,7 +666,7 @@ async fn failed_search_discards_input_queued_for_its_result() -> anyhow::Result<
         return Ok(());
     }
     let (mut app, _dir, _root) = sidebar().await?;
-    let workspace = workspace::find_workspace().0;
+    let workspace = workspace::ResolvedWorkspace::current().into_root();
     let moved = workspace.with_file_name("moved-workspace");
     std::fs::rename(&workspace, &moved)?;
     queued_keys(&mut app, "/b.txt<ret><ret><C-e>").await?;

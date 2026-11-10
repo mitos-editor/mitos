@@ -407,16 +407,6 @@ impl Client {
 
         self.request::<requests::Evaluate>(args).await
     }
-
-    pub fn set_exception_breakpoints(
-        &self,
-        filters: Vec<String>,
-    ) -> impl Future<Output = Result<requests::SetExceptionBreakpointsResponse>> + use<> {
-        let args = requests::SetExceptionBreakpointsArguments { filters };
-
-        self.request_sender()
-            .request::<requests::SetExceptionBreakpoints>(args)
-    }
 }
 
 /// Cloneable request transport. It carries no selected thread, frame, or editor state.
