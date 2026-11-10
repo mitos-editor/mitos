@@ -135,7 +135,6 @@ mod tests {
         test::plain(text.slice(..), transaction.selection().unwrap())
     }
 
-    // Cases moved from the view suite exercise the core transformation directly.
     #[test]
     fn selections_and_blocks_move_at_edges() {
         for (input, direction, expected) in [
