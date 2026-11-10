@@ -24,7 +24,7 @@ pub mod syntax;
 pub mod theme;
 
 use stdx::path;
-use workspace::find_workspace;
+use workspace::ResolvedWorkspace;
 
 use etcetera::base_strategy::{choose_base_strategy, BaseStrategy};
 use std::path::{Path, PathBuf};
@@ -247,7 +247,10 @@ pub fn log_file() -> PathBuf {
 }
 
 pub fn workspace_config_file() -> PathBuf {
-    find_workspace().0.join(".mitos").join("config.toml")
+    ResolvedWorkspace::current()
+        .root()
+        .join(".mitos")
+        .join("config.toml")
 }
 
 pub fn lang_config_file() -> PathBuf {

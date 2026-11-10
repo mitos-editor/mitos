@@ -476,7 +476,7 @@ fn entry_path(store: &Path, workspace: &Path) -> PathBuf {
 fn path_filename(workspace: &Path) -> String {
     let mut hasher = Sha256::new();
     // `Path` is OsStr; encode lossy-but-deterministically. Two workspaces whose normalized paths
-    // differ only in non-UTF-8 bytes will collide here, but find_workspace() returns paths derived
+    // differ only in non-UTF-8 bytes will collide here, but workspace resolution returns paths derived
     // from CWD walking and that's already lossy on the FS side — accepting parity.
     hasher.update(workspace.as_os_str().to_string_lossy().as_bytes());
     let digest = hasher.finalize();

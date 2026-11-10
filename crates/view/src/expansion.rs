@@ -476,9 +476,12 @@ fn expand_variable(
                 .to_string_lossy()
                 .to_string(),
         ),
-        Variable::WorkspaceDirectory => {
-            std::borrow::Cow::Owned(workspace::find_workspace().0.to_string_lossy().to_string())
-        }
+        Variable::WorkspaceDirectory => std::borrow::Cow::Owned(
+            workspace::ResolvedWorkspace::current()
+                .root()
+                .to_string_lossy()
+                .to_string(),
+        ),
         Variable::Language => match doc.language_name() {
             Some(lang) => Cow::Owned(lang.to_owned()),
             None => Cow::Borrowed("text"),

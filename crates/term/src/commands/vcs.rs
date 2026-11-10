@@ -46,7 +46,7 @@ pub(super) fn git_stash_picker(cx: &mut Context) {
     #[cfg(feature = "git")]
     {
         let path = stdx::env::current_working_dir();
-        let workspace = workspace::find_workspace_in(&path).0;
+        let workspace = workspace::ResolvedWorkspace::resolve(&path).into_root();
         match actions::stash_browser(cx.editor, path, workspace) {
             Ok(picker) => cx.push_layer(picker),
             Err(error) => cx.editor.set_error(|| error.to_string()),
@@ -190,7 +190,7 @@ pub(super) fn toggle_inline_blame(cx: &mut Context) {
 pub(super) fn changed_file_picker(cx: &mut Context) {
     changed_file_picker_for_scope(
         cx,
-        vcs::ChangedFileScope::Directory(workspace::find_workspace().0),
+        vcs::ChangedFileScope::Directory(workspace::ResolvedWorkspace::current().into_root()),
     );
 }
 
@@ -342,7 +342,7 @@ fn changed_file_picker_for_scope(cx: &mut Context, scope: vcs::ChangedFileScope)
         return;
     }
 
-    let workspace_root = workspace::find_workspace_in(scope.path()).0;
+    let workspace_root = workspace::ResolvedWorkspace::resolve(scope.path()).into_root();
     let display_root = match &scope {
         vcs::ChangedFileScope::Directory(path) => Some(path.clone()),
         vcs::ChangedFileScope::Repository(_) => None,

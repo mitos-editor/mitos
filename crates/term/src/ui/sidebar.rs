@@ -38,15 +38,15 @@ pub(super) struct Sidebar {
 
 impl Sidebar {
     pub fn new(editor: &Editor) -> std::io::Result<Self> {
-        let picker = super::file_explorer::picker(workspace::find_workspace().0, editor, true)?
-            .embedded(|compositor, _| {
-                if let Some(sidebar) = compositor
-                    .find::<EditorView>()
-                    .and_then(|editor| editor.sidebar.as_mut())
-                {
-                    sidebar.focus_buffer();
-                }
-            });
+        let root = workspace::ResolvedWorkspace::current().into_root();
+        let picker = super::file_explorer::picker(root, editor, true)?.embedded(|compositor, _| {
+            if let Some(sidebar) = compositor
+                .find::<EditorView>()
+                .and_then(|editor| editor.sidebar.as_mut())
+            {
+                sidebar.focus_buffer();
+            }
+        });
         Ok(Self {
             picker,
             state: State::Navigating,
