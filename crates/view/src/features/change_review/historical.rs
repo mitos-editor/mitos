@@ -358,7 +358,7 @@ impl Editor {
             source.loader(),
         );
         // Syntax was prepared off-thread for this exact snapshot. It carries no filesystem/LSP identity.
-        doc.historical = Some(HistoricalDocument {
+        doc.set_historical(HistoricalDocument {
             path,
             workspace,
             label,
@@ -393,7 +393,7 @@ impl Editor {
         );
         let mut task = event::TaskController::new();
         let cancel = task.restart();
-        doc.historical = Some(HistoricalDocument {
+        doc.set_historical(HistoricalDocument {
             path,
             workspace: request.workspace.clone(),
             label,
@@ -466,5 +466,60 @@ impl Editor {
                 .await;
         });
         id
+    }
+}
+
+#[cfg(test)]
+mod source_tests {
+    use super::*;
+    use crate::{document::DocumentKind, editing::tests::document_and_view};
+
+    #[tokio::test]
+    async fn revision_origin_controls_language_display_and_immutable_content() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("deleted.rs");
+        let (mut doc, _) = document_and_view("#[|fn historical() {}]#\n");
+        doc.set_historical(HistoricalDocument {
+            path: path.clone(),
+            workspace: directory.path().to_owned(),
+            label: "abc123".into(),
+            _task: event::TaskController::new(),
+        });
+        let loader = language::syntax::Loader::new(
+            toml::from_str(
+                "[[language]]\nname = 'rust'\nscope = 'source.rust'\nfile-types = ['rs']",
+            )
+            .unwrap(),
+            loader::syntax::Resources::default(),
+        )
+        .unwrap();
+        assert_eq!(
+            doc.detect_language_config(&loader).unwrap().language_id,
+            "rust"
+        );
+        assert!(
+            !path.exists(),
+            "language detection must use historical source metadata"
+        );
+        assert_eq!(doc.source_path(), Some(path.as_path()));
+        assert_eq!(doc.workspace_root(), directory.path());
+        assert_eq!(doc.display_metadata().kind, DocumentKind::Revision);
+        assert_eq!(doc.display_name(), "deleted.rs [abc123]");
+        assert!(doc.review().is_none());
+        assert!(doc.path().is_none() && doc.uri().is_none() && doc.url().is_none());
+        assert!(doc.is_content_readonly() && doc.is_readonly() && !doc.is_modified());
+        doc.set_path(Some(&path));
+        assert!(doc.path().is_none());
+        let edit =
+            editor_core::Transaction::change(doc.text(), [(0, 0, Some("edit".into()))].into_iter());
+        assert!(doc.apply(edit.changes()).is_err());
+        assert!(doc.save(Some(path.clone()), true).is_err());
+        assert!(!path.exists());
+        // Replacing an origin cannot leave historical metadata alongside a virtual source.
+        let doc = doc.with_readonly_name("Adapter source".into());
+        assert!(doc.historical().is_none() && doc.source_path().is_none());
+        assert_eq!(doc.display_metadata().kind, DocumentKind::Virtual);
+        assert_eq!(doc.display_name(), "Adapter source");
+        assert!(doc.detect_language_config(&loader).is_none());
     }
 }

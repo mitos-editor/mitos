@@ -58,7 +58,6 @@ pub(super) struct FileState {
     has_bom: bool,
     binary: bool,
     readonly: bool,
-    readonly_name: Option<String>,
     // The last read or successful save, used to detect external changes.
     last_saved_time: SystemTime,
     last_saved_revision: usize,
@@ -77,7 +76,6 @@ impl FileState {
             has_bom,
             binary: false,
             readonly: false,
-            readonly_name: None,
             last_saved_time: SystemTime::now(),
             last_saved_revision: 0,
             auto_reload_seen_mtime: None,
@@ -101,17 +99,6 @@ impl Editor {
 }
 
 impl Document {
-    /// Name an immutable, pathless document supplied by an external service.
-    pub(crate) fn with_readonly_name(mut self, name: String) -> Self {
-        self.file.readonly_name = Some(name);
-        self.detect_readonly();
-        self
-    }
-
-    pub(crate) fn is_virtual(&self) -> bool {
-        self.file.readonly_name.is_some()
-    }
-
     /// Load an unregistered preview and prepare its cancellable syntax request.
     pub fn open_for_preview(
         path: &Path,
@@ -124,9 +111,9 @@ impl Document {
         Ok(doc)
     }
 
-    /// Whether the file is read-only, including binary content.
+    /// Whether editing is forbidden by the origin, binary content, or filesystem permissions.
     pub fn is_readonly(&self) -> bool {
-        self.file.readonly || self.is_content_readonly()
+        self.file.readonly || self.is_source_readonly()
     }
 
     /// External modification already surfaced by automatic reload.
@@ -478,9 +465,8 @@ impl Document {
     // Detect if the file is readonly and change the readonly field if necessary (unix only)
     pub fn detect_readonly(&mut self) {
         // Allows setting the flag for files the user cannot modify, like root files
-        self.file.readonly = self.is_virtual()
-            || self.file.binary
-            || self.file.path.as_ref().is_some_and(|p| readonly(p));
+        self.file.readonly =
+            self.file.binary || self.file.path.as_ref().is_some_and(|p| readonly(p));
     }
 
     /// Reload the document from its path.
@@ -617,7 +603,12 @@ impl Document {
     #[inline]
     /// File path on disk.
     pub fn path(&self) -> Option<&Path> {
-        self.file.path.as_deref()
+        match self.source {
+            super::DocumentSource::FileOrScratch | super::DocumentSource::Virtual { .. } => {
+                self.file.path.as_deref()
+            }
+            _ => None,
+        }
     }
 
     /// File path as a URL.
@@ -648,7 +639,7 @@ impl Document {
         if let Some(review) = self.review() {
             return review.workspace();
         }
-        if let Some(source) = &self.historical {
+        if let Some(source) = self.historical() {
             return &source.workspace;
         }
         self.file
@@ -675,21 +666,13 @@ impl Document {
     }
 
     pub fn display_name(&self) -> Cow<'_, str> {
-        if let Some(name) = &self.file.readonly_name {
-            return name.as_str().into();
+        if let Some(name) = self.virtual_name() {
+            return name.into();
         }
-        if let Some(review) = self.review() {
-            let path = review
-                .path()
-                .strip_prefix(review.workspace())
-                .unwrap_or(review.path());
-            return self.display_metadata().format_name(path).into();
-        }
-        if let Some(source) = &self.historical {
-            let path = source
-                .path
-                .strip_prefix(&source.workspace)
-                .unwrap_or(&source.path);
+        if self.is_content_readonly()
+            && let Some(path) = self.source_path()
+        {
+            let path = path.strip_prefix(self.workspace_root()).unwrap_or(path);
             return self.display_metadata().format_name(path).into();
         }
         self.display_path()
