@@ -201,19 +201,33 @@ impl Walk<'_> {
                         .lookup_entry_by_path(path)?
                         .map(|e| (e.object_id(), e.mode())))
                 };
-                if entry(&before)? == entry(&after)? {
+                let before_entry = entry(&before)?;
+                let after_entry = entry(&after)?;
+                if before_entry == after_entry {
                     self.pending = None;
                     continue;
                 }
-                let files = changes::between(&before, &after, &canceled);
-                if canceled() {
-                    return Ok(None);
-                }
-                let Some(file) = files?.into_iter().find(|file| {
-                    file.after.as_ref() == Some(path) || file.before.as_ref() == Some(path)
-                }) else {
-                    self.pending = None;
-                    continue;
+                let file = match (before_entry, after_entry) {
+                    (Some((_, before_mode)), Some((_, after_mode)))
+                        if !before_mode.is_tree() && !after_mode.is_tree() =>
+                    {
+                        // Ordinary edits need only two path lookups, not a repository-wide
+                        // diff and rename search (or its unrelated display-file limit).
+                        changes::modification(path.clone(), before_mode, after_mode)
+                    }
+                    _ => {
+                        let files = changes::between(&before, &after, &canceled);
+                        if canceled() {
+                            return Ok(None);
+                        }
+                        let Some(file) = files?.into_iter().find(|file| {
+                            file.after.as_ref() == Some(path) || file.before.as_ref() == Some(path)
+                        }) else {
+                            self.pending = None;
+                            continue;
+                        };
+                        file
+                    }
                 };
                 if let Some(before) = &file.before {
                     self.path = Some(before.clone());
