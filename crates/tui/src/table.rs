@@ -1,13 +1,13 @@
 //! Row preparation for suffix-preserving table truncation.
 //! Table construction, styling, selection, and rendering belong to Ratatui.
 
+use crate::text::truncate_line;
 use ratatui::{
     layout::{Constraint, Flex, Layout, Rect},
     style::Style,
-    text::{Line, Span, Text},
+    text::{Span, Text},
     widgets::{Cell as RatatuiCell, Row as RatatuiRow},
 };
-use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -109,7 +109,11 @@ pub fn truncate_rows_start(
                 } else {
                     0
                 };
-                truncate_line_start(line, (column.width as usize).saturating_sub(prefix_width));
+                truncate_line(
+                    line,
+                    (column.width as usize).saturating_sub(prefix_width),
+                    true,
+                );
             }
         }
     }
@@ -129,46 +133,12 @@ impl<'a> From<Row<'a>> for RatatuiRow<'a> {
     }
 }
 
-fn truncate_line_start(line: &mut Line<'_>, width: usize) {
-    if line.width() <= width {
-        return;
-    }
-    if width == 0 {
-        line.spans.clear();
-        return;
-    }
-
-    let mut remaining = width.saturating_sub(1);
-    let mut spans = Vec::new();
-    let mut exhausted = false;
-    for span in line.spans.iter().rev() {
-        let mut content = String::new();
-        for grapheme in span.content.graphemes(true).rev() {
-            let grapheme_width = grapheme.width();
-            if grapheme_width > remaining {
-                exhausted = true;
-                break;
-            }
-            content.insert_str(0, grapheme);
-            remaining -= grapheme_width;
-        }
-        if !content.is_empty() {
-            spans.push(Span::styled(content, span.style));
-        }
-        if remaining == 0 || exhausted {
-            break;
-        }
-    }
-    spans.reverse();
-    spans.insert(0, Span::raw("…"));
-    line.spans = spans;
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use ratatui::{
         buffer::Buffer,
+        text::Line,
         widgets::{StatefulWidget, Table, TableState},
     };
 
@@ -257,18 +227,6 @@ mod tests {
             Span::raw(".rs"),
         ]);
         assert_eq!(buffer, Buffer::with_lines([expected]));
-    }
-
-    #[test]
-    fn start_truncation_does_not_skip_wide_graphemes_between_spans() {
-        let text = Line::from(vec![Span::raw("ab"), Span::raw("界"), Span::raw("rs")]);
-        let buffer = render(
-            [Row::new([Cell::from(text)])],
-            &[Constraint::Length(6)],
-            Rect::new(0, 0, 4, 1),
-            false,
-        );
-        assert_eq!(buffer, Buffer::with_lines(["…rs "]));
     }
 
     #[test]

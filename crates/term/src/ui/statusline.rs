@@ -1,7 +1,6 @@
 use super::icon_span;
 use editor_core::indent::IndentStyle;
 use editor_core::search::statistics::Count;
-use editor_core::unicode::{segmentation::UnicodeSegmentation, width::UnicodeWidthStr};
 use editor_core::{coords_at_pos, encoding, Position};
 
 use lsp_client::lsp::DiagnosticSeverity;
@@ -17,7 +16,7 @@ use std::{collections::HashSet, path::Path};
 use editor_config::StatusLineElement as StatusLineElementID;
 use tui::buffer::Buffer as Surface;
 use tui::layout::{Constraint, Layout};
-use tui::text::{Line, Span};
+use tui::text::{truncate_line, Line, Span};
 use tui::widgets::Widget;
 
 pub struct RenderContext<'a> {
@@ -223,43 +222,6 @@ fn shrink_part(part: &mut Part<'_>, excess: &mut usize, minimum: usize, from_sta
     }
     truncate_line(&mut part.line, width, from_start);
     *excess = excess.saturating_sub(old_width - part.line.width());
-}
-
-fn truncate_line(line: &mut Line<'_>, width: usize, from_start: bool) {
-    if line.width() <= width {
-        return;
-    }
-    if width == 0 {
-        line.spans.clear();
-        return;
-    }
-    let mut remaining = width.saturating_sub(1);
-    let mut spans = Vec::new();
-    let mut source: Vec<_> = line.spans.iter().collect();
-    if from_start {
-        source.reverse();
-    }
-    'spans: for span in source {
-        let mut graphemes: Vec<_> = span.content.graphemes(true).collect();
-        if from_start {
-            graphemes.reverse();
-        }
-        for grapheme in graphemes {
-            let width = grapheme.width();
-            if width > remaining {
-                break 'spans;
-            }
-            spans.push(Span::styled(grapheme.to_owned(), span.style));
-            remaining -= width;
-        }
-    }
-    if from_start {
-        spans.reverse();
-        spans.insert(0, Span::raw("…"));
-    } else {
-        spans.push(Span::raw("…"));
-    }
-    line.spans = spans;
 }
 
 fn statusline_areas(viewport: Rect, right_width: u16) -> [Rect; 2] {
@@ -977,22 +939,6 @@ mod tests {
         fit_parts(&mut left, &mut right, 14);
         assert_eq!(join_parts(left).to_string(), " main.rs ");
         assert_eq!(join_parts(right).to_string(), " 1:1 ");
-    }
-
-    #[test]
-    fn shortening_preserves_graphemes_and_styles() {
-        use tui::style::Color;
-        for (from_start, expected) in [(false, "界e\u{301}…"), (true, "…👩‍💻.rs")] {
-            let style = Style::default().fg(Color::Red).bg(Color::Blue);
-            let mut line = Line::from(Span::styled("界e\u{301}👩‍💻.rs", style));
-            truncate_line(&mut line, if from_start { 6 } else { 4 }, from_start);
-            assert_eq!(line.to_string(), expected);
-            assert!(line
-                .spans
-                .iter()
-                .filter(|span| span.content != "…")
-                .all(|span| span.style == style));
-        }
     }
 
     #[test]
