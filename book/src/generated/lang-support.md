@@ -310,7 +310,7 @@
 | tolk | ✓ |  | ✓ |  |  |  |  |
 | toml | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | first available: `tombi` → `taplo` |
 | tql | ✓ |  | ✓ |  |  |  |  |
-| tsq | ✓ |  |  |  | ✓ | ✓ | `ts_query_ls` |
+| tsq | ✓ | ✓ |  |  | ✓ | ✓ | `ts_query_ls` |
 | tsx | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | first available: `tsc` → `typescript-language-server` → `vtsls` |
 | twig | ✓ | ✓ |  |  |  |  |  |
 | typescript | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | first available: `tsc` → `typescript-language-server` → `vtsls` |
