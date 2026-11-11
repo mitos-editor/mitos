@@ -205,7 +205,7 @@ impl Sidebar {
             .tree
             .as_ref()
             .unwrap()
-            .search_failed()
+            .take_search_failure()
         {
             self.clear_pending_input();
         }

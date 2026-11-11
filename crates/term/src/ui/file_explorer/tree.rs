@@ -116,6 +116,8 @@ pub struct ExplorerTree {
 struct Index {
     generation: u64,
     state: IndexState,
+    /// Keep a failed search observable even when a refresh replaces its cache state.
+    failure_pending: bool,
 }
 
 #[derive(Default)]
@@ -139,6 +141,10 @@ impl ExplorerTree {
 
     pub fn search_failed(&self) -> bool {
         matches!(self.index.lock().unwrap().state, IndexState::Failed)
+    }
+
+    pub fn take_search_failure(&self) -> bool {
+        std::mem::take(&mut self.index.lock().unwrap().failure_pending)
     }
 
     fn load_index(
@@ -167,6 +173,7 @@ impl ExplorerTree {
         let result = load();
         let mut cached = self.index.lock().unwrap();
         if cached.generation == generation && !cancel.is_canceled() {
+            cached.failure_pending |= result.is_err();
             cached.state = match &result {
                 Ok(index) => IndexState::Ready(index.clone()),
                 Err(_) => IndexState::Failed,
@@ -331,6 +338,21 @@ mod tests {
     use super::*;
 
     #[test]
+    fn search_failure_survives_index_invalidation() {
+        let tree = ExplorerTree::default();
+        let mut controller = event::TaskController::new();
+        let cancel = controller.restart();
+        assert!(tree
+            .load_index_with(&cancel, || Err(std::io::Error::other("failed search")))
+            .is_err());
+        tree.clear_index();
+        let fresh = Arc::new(SearchIndex::new(Path::new("root"), Vec::new()));
+        tree.load_index_with(&cancel, || Ok(fresh)).unwrap();
+        assert!(tree.take_search_failure());
+        assert!(!tree.take_search_failure());
+    }
+
+    #[test]
     fn invalidation_during_load_prevents_stale_cache_publication() {
         let tree = ExplorerTree::default();
         let mut controller = event::TaskController::new();
@@ -355,6 +377,7 @@ mod tests {
             tree.index.lock().unwrap().state,
             IndexState::Empty
         ));
+        assert!(!tree.take_search_failure());
         let fresh = Arc::new(SearchIndex::new(Path::new("root"), Vec::new()));
         let loaded = tree.load_index_with(&cancel, || Ok(fresh.clone())).unwrap();
         assert!(Arc::ptr_eq(&loaded, &fresh));
