@@ -2,16 +2,7 @@ use std::time::Duration;
 
 use term::application::TestApplication;
 
-use super::helpers::{run_event_loop_until_idle, AppBuilder};
-
-fn screen(app: &TestApplication) -> String {
-    app.terminal_backend()
-        .buffer()
-        .content()
-        .iter()
-        .map(|cell| cell.symbol())
-        .collect()
-}
+use super::helpers::{run_event_loop_until_idle, screen, AppBuilder};
 
 use super::helpers::keys;
 
@@ -135,38 +126,7 @@ async fn variable_browser_expands_nested_values_and_preserves_parent_navigation(
 
 #[tokio::test(flavor = "multi_thread")]
 async fn frame_picker_loads_deep_frames_and_preserves_its_filter() -> anyhow::Result<()> {
-    let mut app = AppBuilder::new().build()?;
-    let id = app.editor.connect_debugger(
-        None,
-        language_config::DebugAdapterConfig {
-            name: "stack fixture".into(),
-            transport: language_config::DebugAdapterTransport::Stdio,
-            command: env!("CARGO_BIN_EXE_mitos-test-dap").into(),
-            args: vec![],
-            port_arg: None,
-            templates: vec![],
-            quirks: Default::default(),
-        },
-        Some(view::debugger::DebuggerLaunch {
-            request: dap::ConnectionType::Launch,
-            arguments: serde_json::json!({"inspectStack":true}),
-        }),
-    );
-    tokio::time::timeout(Duration::from_secs(10), async {
-        loop {
-            app.editor.reset_idle_timer();
-            run_event_loop_until_idle(&mut app).await;
-            if app
-                .editor
-                .debugger()
-                .get_session(id)
-                .is_some_and(|s| s.current_stack_frame().is_some())
-            {
-                break;
-            }
-        }
-    })
-    .await?;
+    let (mut app, id) = start_fixture(serde_json::json!({"inspectStack":true})).await?;
     keys(&mut app, "<space>Gsf").await?;
     wait_for_text(&mut app, "Load more").await?;
     for expected in [64, 70] {

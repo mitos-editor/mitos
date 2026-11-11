@@ -25,6 +25,15 @@ use crossterm::event::Event;
 #[cfg(not(windows))]
 use termina::event::Event;
 
+pub fn screen(app: &TestApplication) -> String {
+    app.terminal_backend()
+        .buffer()
+        .content()
+        .iter()
+        .map(|cell| cell.symbol())
+        .collect()
+}
+
 /// Specify how to set up the input text with line feeds
 #[derive(Clone, Debug, Default)]
 pub enum LineFeedHandling {

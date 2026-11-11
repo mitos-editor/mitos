@@ -5,18 +5,9 @@ use language_config::DebugAdapterConfig;
 use term::application::TestApplication;
 use tokio::net::TcpListener;
 
-use super::helpers::{run_event_loop_until_idle, test_syntax_loader, AppBuilder};
+use super::helpers::{run_event_loop_until_idle, screen, test_syntax_loader, AppBuilder};
 
 use super::helpers::keys;
-
-fn screen(app: &TestApplication) -> String {
-    app.terminal_backend()
-        .buffer()
-        .content()
-        .iter()
-        .map(|cell| cell.symbol())
-        .collect()
-}
 
 fn connect(app: &mut TestApplication, listener: &TcpListener, name: &str) -> DebugAdapterId {
     // Keep the adapter pending so the test controls its lifetime through the UI.

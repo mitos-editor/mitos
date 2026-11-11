@@ -3,16 +3,7 @@ use std::path::PathBuf;
 use term::application::TestApplication;
 use view::{current_ref, editor::Action};
 
-use super::helpers::{keys, test_config, AppBuilder};
-
-fn screen(app: &TestApplication) -> String {
-    app.terminal_backend()
-        .buffer()
-        .content
-        .iter()
-        .map(|cell| cell.symbol())
-        .collect()
-}
+use super::helpers::{keys, screen, test_config, AppBuilder};
 
 async fn sidebar() -> anyhow::Result<(TestApplication, tempfile::TempDir, PathBuf)> {
     sidebar_with_config(test_config()).await
