@@ -118,6 +118,7 @@ async fn prompt_actions_preserve_unicode_typing_paste_and_callback_order() -> an
     consumed(prompt.handle_event(&Event::Paste("🙂".into()), &mut fixture.context()));
     assert!(!prompt.has_pending_keys());
     assert_eq!(prompt.line(), "🙂界x");
+    assert!(matches!(events.borrow().last(), Some((line, PromptEvent::Update)) if line == "🙂界x"));
     closes(fixture.key(&mut prompt, "C-space"));
     assert_eq!(prompt.line(), "🙂界x"); // The closing action ends the sequence.
     assert!(
