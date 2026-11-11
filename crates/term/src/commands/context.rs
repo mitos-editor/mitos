@@ -6,7 +6,7 @@ use ui_core::input::KeyEvent;
 use view::Editor;
 
 use crate::{
-    compositor::{Component, Compositor},
+    compositor::{self, Component, Compositor},
     job::{self, Callback, Jobs},
 };
 
@@ -24,7 +24,45 @@ pub struct Context<'a> {
     pub jobs: &'a mut Jobs,
 }
 
-impl Context<'_> {
+impl<'a> Context<'a> {
+    pub(crate) fn from_ui(cx: &'a mut compositor::Context<'_>) -> Self {
+        Self {
+            config: cx.config,
+            register: None,
+            count: None,
+            editor: cx.editor,
+            interaction: cx.interaction,
+            callback: Vec::new(),
+            on_next_key_callback: None,
+            jobs: cx.jobs,
+        }
+    }
+
+    pub(crate) fn as_ui(&mut self) -> compositor::Context<'_> {
+        compositor::Context {
+            config: self.config,
+            editor: self.editor,
+            interaction: self.interaction,
+            jobs: self.jobs,
+            scroll: None,
+            image_picker: None,
+            is_cursor_owner: false,
+        }
+    }
+
+    /// Collect pending compositor work without consuming a next-key continuation.
+    pub(crate) fn take_callback(&mut self) -> Option<compositor::Callback> {
+        if self.callback.is_empty() {
+            return None;
+        }
+        let callbacks = std::mem::take(&mut self.callback);
+        Some(Box::new(move |compositor, cx| {
+            for callback in callbacks {
+                callback(compositor, cx);
+            }
+        }))
+    }
+
     pub(crate) fn flush_completion_updates(&mut self) {
         while let Some(update) = view::features::completion::next_update(self.editor) {
             self.callback.push(Box::new(move |compositor, cx| {

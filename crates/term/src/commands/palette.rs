@@ -102,16 +102,9 @@ pub fn command_palette(cx: &mut Context) {
                 commands,
                 data,
                 move |cx, command, _action| {
-                    let mut ctx = Context {
-                        config: cx.config,
-                        register,
-                        count,
-                        editor: cx.editor,
-                        interaction: cx.interaction,
-                        callback: Vec::new(),
-                        on_next_key_callback: None,
-                        jobs: cx.jobs,
-                    };
+                    let mut ctx = Context::from_ui(cx);
+                    ctx.register = register;
+                    ctx.count = count;
                     let focus = view!(ctx.editor).id;
 
                     command.execute(&mut ctx);
@@ -130,13 +123,13 @@ pub fn command_palette(cx: &mut Context) {
                         }
                     }
                     let next_key = ctx.on_next_key_callback.take();
-                    let callbacks = ctx.callback;
-                    if callbacks.is_empty() && next_key.is_none() {
+                    let callback = ctx.take_callback();
+                    if callback.is_none() && next_key.is_none() {
                         ui::picker::PickerCallbackResult::Close
                     } else {
                         ui::picker::PickerCallbackResult::CloseWithCallback(Box::new(
                             move |compositor, cx| {
-                                for callback in callbacks {
+                                if let Some(callback) = callback {
                                     callback(compositor, cx);
                                 }
                                 if let Some(callback) = next_key

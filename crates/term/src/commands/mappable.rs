@@ -81,15 +81,7 @@ impl MappableCommand {
     fn execute_inner(&self, cx: &mut Context) {
         match &self {
             Self::Typable { name, args, doc: _ } => {
-                let mut context = compositor::Context {
-                    config: cx.config,
-                    editor: cx.editor,
-                    interaction: cx.interaction,
-                    jobs: cx.jobs,
-                    scroll: None,
-                    image_picker: None,
-                    is_cursor_owner: false,
-                };
+                let mut context = cx.as_ui();
                 match execute_keybinding(&mut context, name, args) {
                     Ok(callbacks) => cx.callback.extend(callbacks),
                     Err(error) => cx.editor.set_error(|| error.to_string()),
