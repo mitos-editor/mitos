@@ -23,15 +23,9 @@ impl Document {
     /// configured in `languages.toml`, with a fallback to tabs if it isn't specified. Line ending
     /// is likewise auto-detected, and will remain unchanged if no line endings were detected.
     pub fn detect_indent_and_line_ending(&mut self) {
-        self.indent_style = if let Some(indent_style) = self.editor_config.indent_style {
-            indent_style
-        } else {
-            auto_detect_indent_style(self.buffer.text()).unwrap_or_else(|| {
-                self.language_config()
-                    .and_then(|config| config.indent.as_ref())
-                    .map_or(DEFAULT_INDENT, |config| IndentStyle::from_str(&config.unit))
-            })
-        };
+        self.indent_style = self
+            .text_settings(&self.config.load())
+            .indent_style(self.text());
         if let Some(line_ending) = self
             .editor_config
             .line_ending
@@ -85,14 +79,7 @@ impl Document {
 
     /// The width that the tab character is rendered at
     pub fn tab_width(&self) -> usize {
-        self.editor_config
-            .tab_width
-            .map(|n| n.get() as usize)
-            .unwrap_or_else(|| {
-                self.language_config()
-                    .and_then(|config| config.indent.as_ref())
-                    .map_or(DEFAULT_TAB_WIDTH, |config| config.tab_width)
-            })
+        self.text_settings(&self.config.load()).tab_width()
     }
 
     // The width (in spaces) of a level of indentation.
@@ -115,18 +102,65 @@ impl Document {
     }
 
     pub fn text_width(&self) -> usize {
+        self.text_settings(&self.config.load()).text_width()
+    }
+
+    pub fn text_format(&self, viewport_width: u16, theme: Option<&Theme>) -> TextFormat {
+        self.text_settings(&self.config.load())
+            .text_format(viewport_width, theme)
+    }
+
+    fn text_settings<'a>(&'a self, config: &'a editor_config::Config) -> TextSettings<'a> {
+        TextSettings {
+            config,
+            language: self.language_config(),
+            editor_config: &self.editor_config,
+        }
+    }
+}
+
+/// Text display settings shared by live documents and unregistered file previews.
+pub(super) struct TextSettings<'a> {
+    pub config: &'a editor_config::Config,
+    pub language: Option<&'a language_config::LanguageConfiguration>,
+    pub editor_config: &'a EditorConfig,
+}
+
+impl TextSettings<'_> {
+    pub fn indent_style(&self, text: &editor_core::Rope) -> IndentStyle {
+        self.editor_config.indent_style.unwrap_or_else(|| {
+            auto_detect_indent_style(text).unwrap_or_else(|| {
+                self.language
+                    .and_then(|config| config.indent.as_ref())
+                    .map_or(DEFAULT_INDENT, |config| IndentStyle::from_str(&config.unit))
+            })
+        })
+    }
+
+    pub fn tab_width(&self) -> usize {
+        self.editor_config
+            .tab_width
+            .map(|n| n.get() as usize)
+            .unwrap_or_else(|| {
+                self.language
+                    .and_then(|config| config.indent.as_ref())
+                    .map_or(DEFAULT_TAB_WIDTH, |config| config.tab_width)
+            })
+    }
+
+    pub fn text_width(&self) -> usize {
         self.editor_config
             .max_line_length
             .map(|n| n.get() as usize)
-            .or_else(|| self.language_config().and_then(|config| config.text_width))
-            .unwrap_or_else(|| self.config.load().text_width)
+            .or_else(|| self.language.and_then(|config| config.text_width))
+            .unwrap_or(self.config.text_width)
     }
 
     pub fn text_format(&self, mut viewport_width: u16, theme: Option<&Theme>) -> TextFormat {
-        let config = self.config.load();
+        let config = self.config;
         let text_width = self.text_width();
         let mut soft_wrap_at_text_width = self
-            .language_config()
+            .language
             .and_then(|config| {
                 config
                     .soft_wrap
@@ -145,10 +179,7 @@ impl Document {
             }
         }
         let editor_soft_wrap = &config.soft_wrap;
-        let language_soft_wrap = self
-            .language
-            .as_ref()
-            .and_then(|config| config.soft_wrap.as_ref());
+        let language_soft_wrap = self.language.and_then(|config| config.soft_wrap.as_ref());
         let enable_soft_wrap = language_soft_wrap
             .and_then(|soft_wrap| soft_wrap.enable)
             .or(editor_soft_wrap.enable)

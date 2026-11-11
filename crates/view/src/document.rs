@@ -1,7 +1,9 @@
 mod display;
 mod presentation;
+mod preview;
 pub(crate) use presentation::Presentation;
 pub use presentation::PresentedDocument;
+pub use preview::PreviewText;
 mod source;
 pub use crate::features::formatting::FormatterError;
 pub use display::{DocumentDisplay, DocumentKind};
@@ -358,11 +360,7 @@ impl Document {
         if self.is_binary() || self.review().is_some() {
             return None;
         }
-        let language = loader
-            .language_for_filename(self.source_path()?)
-            .or_else(|| loader.language_for_shebang(self.text().slice(..)))?;
-
-        Some(loader.language(language).config().clone())
+        preview::detect_language(self.source_path()?, self.text(), loader)
     }
 
     /// Set the language and load its syntax immediately for an explicit language command.

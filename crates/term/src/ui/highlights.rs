@@ -17,28 +17,39 @@ use view::{document::Mode, graphics::CursorKind, View};
 /// after each fold restores enclosing syntax scopes without visiting its body.
 pub(crate) fn document_syntax_styles<'a>(
     doc: PresentedDocument<'a>,
-    layout: &view::view::ViewLayout,
+    layout: &view::view::ViewLayout<'a>,
     theme: &'a Theme,
 ) -> impl Iterator<Item = (usize, theme::Style)> + 'a {
+    text_syntax_styles(
+        doc.syntax(),
+        doc.syntax_loader(),
+        doc.semantic_tokens(),
+        layout,
+        theme,
+    )
+}
+
+pub(crate) fn text_syntax_styles<'a>(
+    syntax: Option<&'a language::Syntax>,
+    loader: &'a syntax::Loader,
+    tokens: &'a [view::features::semantic_tokens::SemanticToken],
+    layout: &view::view::ViewLayout<'a>,
+    theme: &'a Theme,
+) -> impl Iterator<Item = (usize, theme::Style)> + 'a {
+    let text = layout.text;
     let ranges = layout.visible_byte_ranges();
     ranges.into_iter().flat_map(move |range| {
-        let highlighter = doc.syntax().map(|syntax| {
-            syntax.highlighter(
-                doc.text().slice(..),
-                doc.syntax_loader(),
-                range.start as u32..range.end as u32,
-            )
-        });
-        let start = doc.text().byte_to_char_idx(range.start);
-        let end = doc.text().byte_to_char_idx(range.end);
+        let highlighter = syntax
+            .map(|syntax| syntax.highlighter(text, loader, range.start as u32..range.end as u32));
+        let start = text.byte_to_char_idx(range.start);
+        let end = text.byte_to_char_idx(range.end);
         // Captured nodes can extend beyond the queried range. Clamp starts and
         // stop at its end so concatenated segments remain monotonically ordered.
         let syntax = std::iter::once((start, theme.get("ui.text"), None)).chain(
-            classified_syntax_styles(doc.text().slice(..), highlighter, theme)
+            classified_syntax_styles(text, highlighter, theme)
                 .map(move |(pos, style, scope)| (pos.max(start), style, scope))
                 .take_while(move |(pos, _, _)| *pos < end),
         );
-        let tokens = doc.semantic_tokens();
         let first = tokens.partition_point(|token| token.range.end <= start);
         let semantic = tokens[first..]
             .iter()
@@ -137,8 +148,16 @@ pub(crate) fn rainbow_highlights(
     layout: &view::view::ViewLayout,
     theme: &Theme,
 ) -> Option<OverlayHighlights> {
-    let syntax = doc.syntax()?;
-    let text = doc.text().slice(..);
+    syntax_rainbow_highlights(doc.syntax()?, doc.syntax_loader(), layout, theme)
+}
+
+pub(crate) fn syntax_rainbow_highlights(
+    syntax: &language::Syntax,
+    loader: &syntax::Loader,
+    layout: &view::view::ViewLayout,
+    theme: &Theme,
+) -> Option<OverlayHighlights> {
+    let text = layout.text;
     let visible_range = layout.visible_byte_range();
     let start = syntax::child_for_byte_range(
         &syntax.tree().root_node(),
@@ -148,7 +167,7 @@ pub(crate) fn rainbow_highlights(
     Some(syntax.rainbow_highlights(
         text,
         theme.rainbow_length(),
-        doc.syntax_loader(),
+        loader,
         start..visible_range.end as u32,
     ))
 }
@@ -159,8 +178,16 @@ pub(crate) fn diagnostic_highlights(
     theme: &Theme,
     overlay_highlights: &mut Vec<OverlayHighlights>,
 ) {
+    diagnostic_styles(doc.diagnostics(), theme, overlay_highlights)
+}
+
+pub(crate) fn diagnostic_styles(
+    diagnostics: &[diagnostics::Diagnostic],
+    theme: &Theme,
+    overlay_highlights: &mut Vec<OverlayHighlights>,
+) {
     // Skip redundant work if no diagnostics.
-    if doc.diagnostics().is_empty() {
+    if diagnostics.is_empty() {
         return;
     }
 
@@ -200,7 +227,7 @@ pub(crate) fn diagnostic_highlights(
                 // This branch merges overlapping diagnostics, assuming that the current
                 // diagnostic starts on range.start or later. If this assertion fails,
                 // we will discard some part of `diagnostic`. This implies that
-                // `doc.diagnostics()` is not sorted by `diagnostic.range`.
+                // `diagnostics` is not sorted by `diagnostic.range`.
                 debug_assert!(existing_range.start <= range.start);
                 existing_range.end = range.end.max(existing_range.end)
             }
@@ -208,7 +235,7 @@ pub(crate) fn diagnostic_highlights(
         }
     };
 
-    for diagnostic in doc.diagnostics() {
+    for diagnostic in diagnostics {
         // Spelling diagnostics use their own scope when the theme defines `diagnostic.spelling`;
         // otherwise they fall through to the severity-based styling (`diagnostic.hint`).
         if spelling.is_some() && matches!(diagnostic.provider, DiagnosticProvider::Spelling) {

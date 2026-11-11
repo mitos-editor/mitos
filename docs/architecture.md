@@ -76,7 +76,12 @@ color, and area inputs. Drawing does not receive a mutable compositor context.
 
 Picker matching, input, and composition live in `term::ui::picker`. Its private
 `preview` module owns preview caches, loading, cancellation, asynchronous
-publication, and rendering. Dynamic query scheduling remains in `handlers`. Query callbacks validate
+publication, and rendering. Cached files own `document::PreviewText`: an immutable
+text snapshot, display settings, syntax work, and projected diagnostics. They do not
+own editable buffer history, per-view selections, or document services. Open buffers
+remain authoritative and use live document rendering. File decoding, settings,
+syntax computation, and highlight generation are shared with documents.
+Dynamic query scheduling remains in `handlers`. Query callbacks validate
 the originating picker's generation and query before restarting its provider.
 Prompt cleanup captures the prompt instances present at the focus change; queued
 cleanup cannot remove a later prompt in the same application.
@@ -478,7 +483,7 @@ The language-server registry is private to `view`. Hosts query clients through
 through editor operations so diagnostics, readiness, and document attachments are
 updated together. Hosts with a separate protocol loop use
 `next_language_server_message`; picker previews project cached diagnostics through
-`diagnostics_for_document` without borrowing the registry.
+`PreviewText::refresh_diagnostics` without borrowing the registry.
 Its private `editor/documents.rs` module owns document registration, loading,
 view binding, and closure. `editor/filesystem.rs` owns path operations and their
 watcher and language-server effects. Both implement the existing `Editor` API;
@@ -1512,6 +1517,9 @@ Saving uses one snapshot for both bytes and revision accounting. Formatting, syn
 and full spelling workers consume the captured text; their existing request wrappers
 validate the same snapshot before publishing. Document IDs, paths, language/loaders,
 protocol sessions, cancellation, and view bindings remain editor-level checks.
+Cached file previews create standalone snapshots with distinct identities, so
+replacing a cache entry also invalidates its pending syntax results without an
+editable buffer.
 
 ## Document/view state
 

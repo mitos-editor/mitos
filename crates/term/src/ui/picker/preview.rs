@@ -63,7 +63,7 @@ impl From<DocumentId> for PathOrId<'_> {
 pub type FileLocation<'a> = (PathOrId<'a>, Option<(usize, usize)>);
 
 pub enum CachedPreview {
-    Document(Box<Document>),
+    Text(Box<view::document::PreviewText>),
     Directory(Vec<(PathBuf, bool)>),
     Image(Box<ImagePreview>),
     Binary,
@@ -101,10 +101,10 @@ pub enum Preview<'picker, 'editor> {
 }
 
 impl Preview<'_, '_> {
-    fn document(&self) -> Option<&Document> {
+    fn document(&self) -> Option<PreviewDocument<'_>> {
         match self {
-            Preview::EditorDocument(doc) => Some(doc),
-            Preview::Cached(CachedPreview::Document(doc)) => Some(doc),
+            Preview::EditorDocument(doc) => Some(PreviewDocument::Live(doc)),
+            Preview::Cached(CachedPreview::Text(doc)) => Some(PreviewDocument::Cached(doc)),
             _ => None,
         }
     }
@@ -128,7 +128,7 @@ impl Preview<'_, '_> {
         match self {
             Self::EditorDocument(_) => "<Invalid file location>",
             Self::Cached(preview) => match &**preview {
-                CachedPreview::Document(_) => "<Invalid file location>",
+                CachedPreview::Text(_) => "<Invalid file location>",
                 CachedPreview::Directory(_) => "<Invalid directory location>",
                 CachedPreview::Image(image) => match &**image {
                     ImagePreview::Loading { .. } => "<Loading image>",
@@ -139,6 +139,51 @@ impl Preview<'_, '_> {
                 CachedPreview::LargeFile => "<File too large to preview>",
                 CachedPreview::NotFound => "<File not found>",
             },
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+enum PreviewDocument<'a> {
+    Live(&'a Document),
+    Cached(&'a view::document::PreviewText),
+}
+
+impl<'a> PreviewDocument<'a> {
+    fn text(self) -> &'a editor_core::Rope {
+        match self {
+            Self::Live(doc) => doc.text(),
+            Self::Cached(text) => text.text(),
+        }
+    }
+    fn text_format(self, width: u16, theme: &theme::Theme) -> TextFormat {
+        match self {
+            Self::Live(doc) => doc.text_format(width, Some(theme)),
+            Self::Cached(text) => text.text_format(width, Some(theme)),
+        }
+    }
+    fn language_config(self) -> Option<&'a language_config::LanguageConfiguration> {
+        match self {
+            Self::Live(doc) => doc.language_config(),
+            Self::Cached(text) => text.language_config(),
+        }
+    }
+    fn syntax(self) -> Option<&'a language::Syntax> {
+        match self {
+            Self::Live(doc) => doc.syntax(),
+            Self::Cached(text) => text.syntax(),
+        }
+    }
+    fn syntax_loader(self) -> &'a language::syntax::Loader {
+        match self {
+            Self::Live(doc) => doc.syntax_loader(),
+            Self::Cached(text) => text.syntax_loader(),
+        }
+    }
+    fn diagnostics(self) -> &'a [diagnostics::Diagnostic] {
+        match self {
+            Self::Live(doc) => doc.diagnostics(),
+            Self::Cached(text) => text.diagnostics(),
         }
     }
 }
@@ -179,20 +224,18 @@ impl FileScroll {
         Some((target, *range))
     }
 
-    fn document_height(&mut self, doc: &Document, format: &TextFormat) -> usize {
+    fn document_height(&mut self, text: &editor_core::Rope, format: &TextFormat) -> usize {
         if !format.soft_wrap {
-            return doc.text().len_lines(stdx::rope::LINE_TYPE);
+            return text.len_lines(stdx::rope::LINE_TYPE);
         }
-        // Reloaded preview documents can reuse document IDs and version numbers.
         // An unchanged rope clone gives us a constant-time text identity check.
-        if let Some((_, _, height)) = self.metrics.as_ref().filter(|(text, old, _)| {
-            editor_core::ropey::extra::esoterica::ropes_are_instances(text, doc.text())
-                && old == format
+        if let Some((_, _, height)) = self.metrics.as_ref().filter(|(cached, old, _)| {
+            editor_core::ropey::extra::esoterica::ropes_are_instances(cached, text) && old == format
         }) {
             return *height;
         }
-        let height = text_layout::softwrapped_dimensions(doc.text().slice(..), format).0;
-        self.metrics = Some((doc.text().clone(), format.clone(), height));
+        let height = text_layout::softwrapped_dimensions(text.slice(..), format).0;
+        self.metrics = Some((text.clone(), format.clone(), height));
         self.position = None;
         height
     }
@@ -281,7 +324,7 @@ impl FilePreview {
             return;
         }
         if let Some(path) = self.syntax_path.take()
-            && let Some(CachedPreview::Document(doc)) = self
+            && let Some(CachedPreview::Text(doc)) = self
                 .preview_cache
                 .get_mut(&path)
                 .map(|entry| &mut entry.preview)
@@ -300,7 +343,7 @@ impl FilePreview {
         path: Arc<Path>,
         jobs: &crate::job::Jobs,
     ) {
-        let Some(CachedPreview::Document(doc)) = self
+        let Some(CachedPreview::Text(doc)) = self
             .preview_cache
             .get_mut(&path)
             .map(|entry| &mut entry.preview)
@@ -340,7 +383,7 @@ impl FilePreview {
 
     fn invalidate(&mut self, path: &Path) {
         if let Some(entry) = self.preview_cache.get_mut(path)
-            && matches!(entry.preview, CachedPreview::Document(_))
+            && matches!(entry.preview, CachedPreview::Text(_))
         {
             entry.invalidated = true;
         } else {
@@ -352,7 +395,7 @@ impl FilePreview {
         let Some(entry) = self.preview_cache.get_mut(path) else {
             return false;
         };
-        let CachedPreview::Document(doc) = &mut entry.preview else {
+        let CachedPreview::Text(doc) = &mut entry.preview else {
             return false;
         };
         if stamp
@@ -361,16 +404,18 @@ impl FilePreview {
         {
             return false;
         }
-        let Ok(refreshed) =
-            Document::open_for_preview(path, editor.config.clone(), editor.syn_loader.load_full())
-        else {
+        let Ok(refreshed) = view::document::PreviewText::open(
+            path,
+            editor.config.clone(),
+            editor.syn_loader.load_full(),
+        ) else {
             return false;
         };
         if refreshed.is_binary() {
             return false;
         }
-        doc.refresh_preview(refreshed);
-        doc.replace_diagnostics(editor.diagnostics_for_document(doc), &[], None);
+        doc.refresh(refreshed);
+        doc.refresh_diagnostics(editor);
         entry.stamp = stamp;
         entry.canonical_path = stdx::path::canonicalize_existing(path);
         entry.checked = tokio::time::Instant::now();
@@ -469,7 +514,7 @@ impl FilePreview {
             && self.preview_cache.get(path).is_some_and(|entry| {
                 entry.invalidated
                     || entry.stamp != stamp
-                    || matches!(&entry.preview, CachedPreview::Document(doc)
+                    || matches!(&entry.preview, CachedPreview::Text(doc)
                     if !std::ptr::eq(doc.syntax_loader(), loader.as_ref()))
                     || (matches!(entry.preview, CachedPreview::Directory(_))
                         && poll.enable
@@ -539,7 +584,7 @@ impl FilePreview {
                             CachedPreview::Binary
                         });
                     }
-                    let doc = Document::open_for_preview(
+                    let doc = view::document::PreviewText::open(
                         &path,
                         editor.config.clone(),
                         editor.syn_loader.load_full(),
@@ -548,7 +593,7 @@ impl FilePreview {
                         std::io::ErrorKind::NotFound,
                         "Cannot open document",
                     )))?;
-                    Ok(CachedPreview::Document(Box::new(doc)))
+                    Ok(CachedPreview::Text(Box::new(doc)))
                 } else {
                     Err(std::io::Error::new(
                         std::io::ErrorKind::NotFound,
@@ -731,8 +776,8 @@ pub(super) fn render_preview_content(
     if inner.is_empty() {
         return;
     }
-    let format = doc.text_format(inner.width, Some(&cx.editor.theme));
-    let content_height = state.document_height(doc, &format);
+    let format = doc.text_format(inner.width, &cx.editor.theme);
+    let content_height = state.document_height(doc.text(), &format);
     let mut offset = ViewPosition::default();
     if !state.initialized
         && let Some((start_line, end_line)) = range
@@ -823,8 +868,9 @@ pub(super) fn render_preview_content(
         annotations: TextAnnotations::default(),
     };
     let mut overlay_highlights = Vec::new();
-    if let Some(highlights) =
-        crate::ui::change_review::document::highlights(doc.into(), &layout, &cx.editor.theme)
+    if let PreviewDocument::Live(live) = doc
+        && let Some(highlights) =
+            crate::ui::change_review::document::highlights(live.into(), &layout, &cx.editor.theme)
     {
         overlay_highlights.push(highlights);
     }
@@ -832,17 +878,25 @@ pub(super) fn render_preview_content(
         .language_config()
         .and_then(|config| config.rainbow_brackets)
         .unwrap_or(config.rainbow_brackets.enable)
-        && let Some(overlay) = highlights::rainbow_highlights(doc.into(), &layout, &cx.editor.theme)
+        && let Some(syntax) = doc.syntax()
+        && let Some(overlay) = highlights::syntax_rainbow_highlights(
+            syntax,
+            doc.syntax_loader(),
+            &layout,
+            &cx.editor.theme,
+        )
     {
         overlay_highlights.push(overlay);
     }
 
-    highlights::diagnostic_highlights(doc.into(), &cx.editor.theme, &mut overlay_highlights);
+    highlights::diagnostic_styles(doc.diagnostics(), &cx.editor.theme, &mut overlay_highlights);
 
     let mut decorations = DecorationManager::default();
-    if doc.review().is_some() {
+    if let PreviewDocument::Live(live) = doc
+        && live.review().is_some()
+    {
         decorations.add_decoration(crate::ui::change_review::document::line_backgrounds(
-            doc.into(),
+            live.into(),
             &cx.editor.theme,
         ));
     }
@@ -867,14 +921,61 @@ pub(super) fn render_preview_content(
         decorations.add_decoration(draw_highlight);
     }
 
-    render_document(
-        surface,
-        doc.into(),
-        &layout,
-        overlay_highlights,
-        &cx.editor.theme,
-        decorations,
-    );
+    match doc {
+        PreviewDocument::Live(doc) => render_document(
+            surface,
+            doc.into(),
+            &layout,
+            overlay_highlights,
+            &cx.editor.theme,
+            decorations,
+        ),
+        PreviewDocument::Cached(text) => {
+            let visible = layout.visible_byte_range();
+            overlay_highlights.insert(
+                0,
+                text.conflict_marker_highlights(
+                    layout.text.byte_to_char_idx(visible.start)
+                        ..layout.text.byte_to_char_idx(visible.end),
+                    &cx.editor.theme,
+                ),
+            );
+            let tab_width = text.tab_width();
+            let settings = crate::ui::document::RenderSettings {
+                whitespace: &config.whitespace,
+                indent_guides: &config.indent_guides,
+                tab_width,
+                indent_width: text.indent_style().indent_width(tab_width),
+            };
+            let mut renderer = TextRenderer::new(
+                surface,
+                settings,
+                &cx.editor.theme,
+                text_layout::DisplayPosition::new(
+                    layout.offset.vertical_offset,
+                    layout.offset.horizontal_offset,
+                ),
+                layout.viewport,
+            );
+            crate::ui::document::render_text(
+                &mut renderer,
+                layout.text,
+                layout.offset.anchor,
+                &layout.format,
+                &layout.annotations,
+                highlights::text_syntax_styles(
+                    text.syntax(),
+                    text.syntax_loader(),
+                    &[],
+                    &layout,
+                    &cx.editor.theme,
+                ),
+                overlay_highlights,
+                &cx.editor.theme,
+                decorations,
+            );
+        }
+    }
     state
         .scroll
         .render(scrollbar_area, surface, &cx.editor.theme);
@@ -983,7 +1084,7 @@ fn highlight_preview<T: 'static + Send + Sync, D: 'static + Send + Sync>(
                 else {
                     return;
                 };
-                let Some(CachedPreview::Document(doc)) = picker
+                let Some(CachedPreview::Text(doc)) = picker
                     .preview
                     .preview_cache
                     .get_mut(&path)
@@ -991,9 +1092,8 @@ fn highlight_preview<T: 'static + Send + Sync, D: 'static + Send + Sync>(
                 else {
                     return;
                 };
-                if request.complete(doc, result) {
-                    let diagnostics = editor.diagnostics_for_document(doc);
-                    doc.replace_diagnostics(diagnostics, &[], None);
+                if doc.complete_syntax(&request, result) {
+                    doc.refresh_diagnostics(editor);
                 }
             })))
         }),

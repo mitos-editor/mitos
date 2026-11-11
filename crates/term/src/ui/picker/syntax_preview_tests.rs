@@ -92,9 +92,8 @@ impl Fixture {
         path
     }
 
-    fn document(&mut self, path: &Path) -> &Document {
-        let CachedPreview::Document(doc) = &self.picker().preview.preview_cache[path].preview
-        else {
+    fn document(&mut self, path: &Path) -> &view::document::PreviewText {
+        let CachedPreview::Text(doc) = &self.picker().preview.preview_cache[path].preview else {
             panic!("expected a document preview");
         };
         doc
@@ -559,5 +558,112 @@ async fn replacement_preserves_highlighted_preview() -> anyhow::Result<()> {
     fixture.app.editor.handle_file_events(&events);
     assert_eq!(fixture.read_preview(&path).as_deref(), Some("{ }\n"));
     assert!(fixture.document(&path).syntax().is_some());
+    Ok(())
+}
+
+#[tokio::test]
+async fn cached_text_matches_document_settings_and_conflict_rendering() -> anyhow::Result<()> {
+    let mut fixture = Fixture::with_config(|config| config.editor.files.editor_config = true)?;
+    let loader = syntax::Loader::new(
+        toml::from_str(
+            r#"
+            [[language]]
+            name = "json"
+            scope = "source.json"
+            file-types = ["json"]
+            indent = { tab-width = 2, unit = "  " }
+            "#,
+        )?,
+        loader::syntax::Resources::default(),
+    )?;
+    fixture
+        .app
+        .editor
+        .apply_language_config(loader, fixture.app.editor.theme.clone())?;
+    std::fs::write(
+        fixture.dir.path().join(".editorconfig"),
+        "root = true\n[encoded.json]\ncharset = latin1\nindent_style = space\nindent_size = 3\ntab_width = 5\n",
+    )?;
+    for (name, bytes, expected) in [
+        (
+            "encoded.json",
+            &b"<<<<<<< HEAD\ncaf\xe9\n=======\nother\n>>>>>>> topic\n"[..],
+            "<<<<<<< HEAD\ncafé\n=======\nother\n>>>>>>> topic\n",
+        ),
+        (
+            "fallback.json",
+            &b"<<<<<<< HEAD\none\n=======\ntwo\n>>>>>>> topic\n"[..],
+            "<<<<<<< HEAD\none\n=======\ntwo\n>>>>>>> topic\n",
+        ),
+    ] {
+        let path = fixture.dir.path().join(name);
+        std::fs::write(&path, bytes)?;
+        let config = fixture.app.editor.config.clone();
+        let loader = fixture.app.editor.syn_loader.load_full();
+        // The old preview opened without language detection, then selected the language.
+        // Compare each stage separately because the latter is private to view.
+        let initial = Document::open(&path, None, false, config.clone(), loader.clone())?;
+        let live = Document::open(&path, None, true, config, loader)?;
+        let path = fixture.preview(name);
+        let mut entry = fixture
+            .picker()
+            .preview
+            .preview_cache
+            .remove(&path)
+            .unwrap();
+        let CachedPreview::Text(text) = &entry.preview else {
+            panic!("expected text preview")
+        };
+        assert_eq!(text.text().to_string(), expected);
+        assert_eq!(text.text(), live.text());
+        assert_eq!(text.indent_style(), initial.indent_style);
+        if name == "fallback.json" {
+            assert_ne!(initial.indent_style, live.indent_style);
+        }
+        assert_eq!(text.tab_width(), live.tab_width());
+        assert_eq!(
+            text.text_format(30, Some(&fixture.app.editor.theme)),
+            live.text_format(30, Some(&fixture.app.editor.theme))
+        );
+        assert!(!live.conflict_presentation().markers.is_empty());
+        let config = Config::default();
+        let updates = tokio::sync::mpsc::unbounded_channel().0;
+        let cx = Context {
+            config: crate::config::Context {
+                current: &config,
+                updates: &updates,
+            },
+            editor: &mut fixture.app.editor,
+            interaction: &mut fixture.app.interaction,
+            jobs: &mut fixture.jobs,
+            scroll: None,
+            image_picker: None,
+            is_cursor_owner: true,
+        };
+        let area = Rect::new(0, 0, 30, 10);
+        let mut cached_surface = Surface::empty(area);
+        let mut live_surface = Surface::empty(area);
+        render_preview_content(
+            Preview::Cached(&mut entry.preview),
+            None,
+            &mut FileScroll::default(),
+            area,
+            &mut cached_surface,
+            &cx.draw_context(),
+        );
+        render_preview_content(
+            Preview::EditorDocument(&live),
+            None,
+            &mut FileScroll::default(),
+            area,
+            &mut live_surface,
+            &cx.draw_context(),
+        );
+        assert_eq!(
+            cached_surface.content(),
+            live_surface.content(),
+            "rendering {name}"
+        );
+    }
     Ok(())
 }

@@ -285,15 +285,6 @@ impl Editor {
         }
     }
 
-    /// Project cached protocol diagnostics onto a supplied document, including
-    /// unregistered picker previews, using this editor's providers and settings.
-    pub fn diagnostics_for_document<'a>(
-        &'a self,
-        document: &Document,
-    ) -> impl Iterator<Item = ::diagnostics::Diagnostic> + 'a + use<'a> {
-        Self::doc_diagnostics(&self.language_servers, &self.diagnostics, document)
-    }
-
     /// Returns all supported diagnostics for the document
     pub(crate) fn doc_diagnostics<'a>(
         language_servers: &'a crate::language_servers::Registry,
@@ -314,11 +305,43 @@ impl Editor {
     where
         F: Fn(&lsp::Diagnostic, &DiagnosticProvider) -> bool + 'a,
     {
-        let text = document.text().clone();
-        let language_config = document.language.clone();
-        document
-            .uri()
-            .and_then(|uri| diagnostics.get(&uri))
+        Self::text_diagnostics(
+            language_servers,
+            diagnostics,
+            document.uri(),
+            document.text(),
+            document.language.clone(),
+            filter,
+        )
+    }
+
+    pub(crate) fn diagnostics_for_preview<'a>(
+        &'a self,
+        preview: &crate::document::PreviewText,
+    ) -> impl Iterator<Item = ::diagnostics::Diagnostic> + 'a + use<'a> {
+        Self::text_diagnostics(
+            &self.language_servers,
+            &self.diagnostics,
+            Some(preview.path().into()),
+            preview.text(),
+            preview.language.clone(),
+            |_, _| true,
+        )
+    }
+
+    fn text_diagnostics<'a, F>(
+        language_servers: &'a crate::language_servers::Registry,
+        diagnostics: &'a LspDiagnostics,
+        uri: Option<editor_core::Uri>,
+        text: &editor_core::Rope,
+        language_config: Option<std::sync::Arc<language_config::LanguageConfiguration>>,
+        filter: F,
+    ) -> impl Iterator<Item = ::diagnostics::Diagnostic> + 'a + use<'a, F>
+    where
+        F: Fn(&lsp::Diagnostic, &DiagnosticProvider) -> bool + 'a,
+    {
+        let text = text.clone();
+        uri.and_then(|uri| diagnostics.get(&uri))
             .map(|diags| {
                 diags.iter().filter_map(move |(diagnostic, provider)| {
                     let server_id = provider.language_server_id()?;

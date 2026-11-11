@@ -54,7 +54,7 @@ impl AppliedChange {
     }
 }
 
-/// Immutable text, version, and committed revision captured from one buffer.
+/// Immutable text captured from a buffer or created without edit history.
 /// Clones share rope storage. Committing an undo group does not invalidate its text;
 /// any non-empty edit or history replay does, even when it restores identical text.
 #[derive(Clone, Debug)]
@@ -66,6 +66,21 @@ pub struct Snapshot {
 }
 
 impl Snapshot {
+    /// Standalone immutable text with independent identity and no edit history.
+    pub fn new(text: Rope) -> Self {
+        Self {
+            text,
+            version: 0,
+            revision: 0,
+            identity: Arc::new(()),
+        }
+    }
+
+    /// Whether two snapshots describe the same text version of the same owner.
+    pub fn is_same_version(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.identity, &other.identity) && self.version == other.version
+    }
+
     pub fn text(&self) -> &Rope {
         &self.text
     }
@@ -394,9 +409,12 @@ mod tests {
         assert_eq!(snapshot.revision(), 0);
         buffer.commit_changes();
         assert!(snapshot.is_current(&buffer));
+        assert!(snapshot.is_same_version(&buffer.snapshot()));
+        assert!(!snapshot.is_same_version(&Snapshot::new(snapshot.text().clone())));
         replace(&mut buffer, 1, 2, "B");
         assert_eq!(snapshot.text(), "Abc");
         assert!(!snapshot.is_current(&buffer));
+        assert!(!snapshot.is_same_version(&buffer.snapshot()));
     }
 
     #[test]

@@ -74,6 +74,30 @@ fn contains_marker_candidate(text: RopeSlice<'_>) -> bool {
 }
 
 impl ConflictPresentation {
+    pub fn marker_highlights(
+        &self,
+        text: &Rope,
+        visible: Range<usize>,
+        theme: &theme::Theme,
+    ) -> OverlayHighlights {
+        let model = self;
+        let first = model
+            .markers
+            .partition_point(|marker| marker.range.end <= visible.start);
+        let highlights = model.markers[first..]
+            .iter()
+            .take_while(|marker| marker.range.start < visible.end)
+            .filter_map(|marker| {
+                let highlight = model
+                    .side_at_line(text, marker.line)
+                    .and_then(|side| side.highlight(theme))
+                    .or_else(|| theme.find_highlight_exact("ui.text"))?;
+                Some((highlight, marker.range.clone()))
+            })
+            .collect();
+        OverlayHighlights::Heterogenous { highlights }
+    }
+
     pub fn new(text: &Rope) -> Self {
         if text.len() > vcs::MAX_REVIEW_BYTES {
             return Self::default();
@@ -303,22 +327,8 @@ impl<'a> crate::document::PresentedDocument<'a> {
         visible: Range<usize>,
         theme: &theme::Theme,
     ) -> OverlayHighlights {
-        let model = self.conflict_presentation();
-        let first = model
-            .markers
-            .partition_point(|marker| marker.range.end <= visible.start);
-        let highlights = model.markers[first..]
-            .iter()
-            .take_while(|marker| marker.range.start < visible.end)
-            .filter_map(|marker| {
-                let highlight = model
-                    .side_at_line(self.text(), marker.line)
-                    .and_then(|side| side.highlight(theme))
-                    .or_else(|| theme.find_highlight_exact("ui.text"))?;
-                Some((highlight, marker.range.clone()))
-            })
-            .collect();
-        OverlayHighlights::Heterogenous { highlights }
+        self.conflict_presentation()
+            .marker_highlights(self.text(), visible, theme)
     }
 
     pub fn annotate_conflicts(

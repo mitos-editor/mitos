@@ -296,6 +296,14 @@ async fn wrapped_unicode_preview_scrolls_visual_rows_and_clamps_after_resize() -
     fixture.draw(100, 1000);
     assert_eq!(fixture.picker.preview_scroll.scroll.offset, 0);
     assert_eq!(fixture.top(), first);
+    // Rewriting cached text at the same viewport width invalidates wrapped metrics.
+    fixture.draw(100, 20);
+    fixture.key("A-j");
+    assert!(fixture.picker.preview_scroll.scroll.offset > 0);
+    std::fs::write(&path, "rewritten")?;
+    assert_eq!(fixture.top(), "rewritten");
+    assert_eq!(fixture.picker.preview_scroll.scroll.offset, 0);
+    assert!(!fixture.preview_text().contains('▐'));
     fixture.app.editor.open(&path, Action::Replace)?;
     let (view, doc) = view::current!(fixture.app.editor);
     let change = editor_core::Transaction::change(

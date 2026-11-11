@@ -17,6 +17,34 @@ pub(super) struct PendingSyntax {
     controller: TaskController,
 }
 
+impl PendingSyntax {
+    pub(super) fn new(
+        config: Option<&language_config::LanguageConfiguration>,
+        loader: Arc<syntax::Loader>,
+    ) -> Option<Self> {
+        let language = loader.language_for_name(config?.language_id.as_str())?;
+        Some(Self {
+            language,
+            loader,
+            controller: TaskController::new(),
+        })
+    }
+    pub(super) fn cancel(&mut self) {
+        self.controller.cancel();
+    }
+    pub(super) fn request(&mut self, snapshot: buffer::Snapshot) -> Option<SyntaxRequest> {
+        if self.controller.is_running() {
+            return None;
+        }
+        Some(SyntaxRequest {
+            snapshot,
+            language: self.language,
+            loader: self.loader.clone(),
+            cancel: self.controller.restart(),
+        })
+    }
+}
+
 /// A cancelable snapshot for background syntax initialization.
 pub struct SyntaxRequest {
     snapshot: buffer::Snapshot,
@@ -45,6 +73,16 @@ fn syntax_or_none(
 }
 
 impl SyntaxRequest {
+    pub(super) fn matches(
+        &self,
+        snapshot: &buffer::Snapshot,
+        loader: &Arc<syntax::Loader>,
+    ) -> bool {
+        !self.cancel.is_canceled()
+            && Arc::ptr_eq(&self.loader, loader)
+            && self.snapshot.is_same_version(snapshot)
+    }
+
     /// Wait until this snapshot is superseded or its document cancels the request.
     pub async fn canceled(&self) {
         self.cancel.canceled().await;
@@ -172,35 +210,21 @@ impl Document {
     /// Cancel the current snapshot, leaving initialization pending for a later request.
     pub fn cancel_syntax_request(&mut self) {
         if let Some(pending) = self.pending_syntax.as_mut() {
-            pending.controller.cancel();
+            pending.cancel();
         }
     }
 
     /// Capture the current text if initialization has not already been scheduled.
     pub fn syntax_request(&mut self) -> Option<SyntaxRequest> {
-        let pending = self.pending_syntax.as_mut()?;
-        if pending.controller.is_running() {
-            return None;
-        }
-        Some(SyntaxRequest {
-            snapshot: self.buffer.snapshot(),
-            language: pending.language,
-            loader: pending.loader.clone(),
-            cancel: pending.controller.restart(),
-        })
+        self.pending_syntax
+            .as_mut()?
+            .request(self.buffer.snapshot())
     }
 
     pub(crate) fn initialize_syntax(&mut self, loader: Arc<syntax::Loader>) {
         self.syntax = None;
         self.syntax_loader = loader.clone();
-        self.pending_syntax = self.language.as_ref().and_then(|config| {
-            let language = loader.language_for_name(config.language_id.as_str())?;
-            Some(PendingSyntax {
-                language,
-                loader,
-                controller: TaskController::new(),
-            })
-        });
+        self.pending_syntax = PendingSyntax::new(self.language.as_deref(), loader);
         if self.pending_syntax.is_some()
             && let Some(handler) = self.syntax_handler.clone()
         {
@@ -240,7 +264,7 @@ impl Document {
         let Some(mut pending) = self.pending_syntax.take() else {
             return false;
         };
-        pending.controller.cancel();
+        pending.cancel();
         // Completing the same language snapshot must preserve view features
         // created while initialization was pending (for example manual folds).
         self.syntax = self.parse_syntax(&pending.loader);

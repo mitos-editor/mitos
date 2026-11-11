@@ -98,19 +98,45 @@ impl Editor {
     }
 }
 
-impl Document {
-    /// Load an unregistered preview and prepare its cancellable syntax request.
-    pub fn open_for_preview(
-        path: &Path,
-        config: Arc<dyn DynAccess<Config>>,
-        syntax_loader: Arc<syntax::Loader>,
-    ) -> Result<Self, DocumentOpenError> {
-        let mut doc = Self::open(path, None, false, config, syntax_loader)?;
-        let loader = doc.syntax_loader.clone();
-        doc.detect_language(&loader);
-        Ok(doc)
+/// Decode a file and resolve its path-based settings before constructing an owner.
+pub(super) fn load_text(
+    path: &Path,
+    mut encoding: Option<&'static Encoding>,
+    config: &Config,
+) -> Result<(DecodedFile, EditorConfig), DocumentOpenError> {
+    // If the path is not a regular file (e.g.: /dev/random) it should not be opened.
+    if path.metadata().is_ok_and(|metadata| !metadata.is_file()) {
+        return Err(DocumentOpenError::IrregularFile);
     }
 
+    let editor_config = if config.files.editor_config {
+        EditorConfig::find(path)
+    } else {
+        EditorConfig::default()
+    };
+    encoding = encoding.or(editor_config.encoding);
+
+    // Open the file if it exists, otherwise assume it is a new file (and thus empty).
+    let decoded = if path.exists() {
+        let mut file = std::fs::File::open(path)?;
+        read_file(&mut file, encoding)?
+    } else {
+        let line_ending = editor_config
+            .line_ending
+            .unwrap_or_else(|| config.files.default_line_ending.into());
+        let encoding = encoding.unwrap_or(encoding::UTF_8);
+        DecodedFile {
+            text: Rope::from(line_ending.as_str()),
+            encoding,
+            has_bom: false,
+            binary: false,
+        }
+    };
+
+    Ok((decoded, editor_config))
+}
+
+impl Document {
     /// Whether editing is forbidden by the origin, binary content, or filesystem permissions.
     pub fn is_readonly(&self) -> bool {
         self.file.readonly || self.is_source_readonly()
@@ -130,44 +156,20 @@ impl Document {
     /// The editor requests syntax initialization after assigning the document an id.
     pub fn open(
         path: &Path,
-        mut encoding: Option<&'static Encoding>,
+        encoding: Option<&'static Encoding>,
         detect_language: bool,
         config: Arc<dyn DynAccess<Config>>,
         syntax_loader: Arc<syntax::Loader>,
     ) -> Result<Self, DocumentOpenError> {
-        // If the path is not a regular file (e.g.: /dev/random) it should not be opened.
-        if path.metadata().is_ok_and(|metadata| !metadata.is_file()) {
-            return Err(DocumentOpenError::IrregularFile);
-        }
-
-        let editor_config = if config.load().files.editor_config {
-            EditorConfig::find(path)
-        } else {
-            EditorConfig::default()
-        };
-        encoding = encoding.or(editor_config.encoding);
-
-        // Open the file if it exists, otherwise assume it is a new file (and thus empty).
-        let DecodedFile {
-            text,
-            encoding,
-            has_bom,
-            binary,
-        } = if path.exists() {
-            let mut file = std::fs::File::open(path)?;
-            read_file(&mut file, encoding)?
-        } else {
-            let line_ending = editor_config
-                .line_ending
-                .unwrap_or_else(|| config.load().files.default_line_ending.into());
-            let encoding = encoding.unwrap_or(encoding::UTF_8);
+        let (
             DecodedFile {
-                text: Rope::from(line_ending.as_str()),
+                text,
                 encoding,
-                has_bom: false,
-                binary: false,
-            }
-        };
+                has_bom,
+                binary,
+            },
+            editor_config,
+        ) = load_text(path, encoding, &config.load())?;
 
         let mut doc = Self::from(text, Some((encoding, has_bom)), config, syntax_loader);
 
