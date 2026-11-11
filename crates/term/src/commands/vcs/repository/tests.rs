@@ -106,6 +106,28 @@ fn footer_hints_follow_remapped_and_unbound_actions() {
     assert_eq!(hints, ["<C-t> create"]);
 }
 
+#[test]
+fn repository_picker_keymaps_omit_loading_controls_and_preserve_other_shared_bindings() {
+    use crate::keymap::component::action_hint;
+    let config = crate::config::Config::default();
+    for keys in [
+        &config.component_keys.branch_picker,
+        &config.component_keys.worktree_picker,
+    ] {
+        assert_eq!(action_hint(keys, &PickerAction::ToggleLoading), "unbound");
+    }
+    let source = "[keys.picker]\nC-l = 'move_end'\nF4 = 'toggle_loading'".to_owned();
+    let config = crate::config::Config::load(Ok(&source), Ok(String::new())).unwrap();
+    for keys in [
+        &config.component_keys.branch_picker,
+        &config.component_keys.worktree_picker,
+    ] {
+        assert_eq!(action_hint(keys, &PickerAction::ToggleLoading), "unbound");
+        assert!(matches!(keys.0.get(&"C-l".parse().unwrap()),
+            Some(ui_core::keymap::Binding::Actions(actions)) if actions == &[PickerAction::MoveEnd]));
+    }
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn pickers_render_divergence_against_main() -> Result<()> {
     let parent = tempfile::tempdir()?;
@@ -332,7 +354,11 @@ async fn branches_load_on_scroll_and_search_beyond_the_first_page() -> Result<()
         all_items(p).count() == BRANCH_PAGE_SIZE
     })
     .await?;
-    assert!(screen(&mut picker, &mut app).contains("More branches available"));
+    let rendered = screen(&mut picker, &mut app);
+    assert!(rendered.contains("More branches available"));
+    assert!(!rendered.contains("<C-l>"));
+    assert!(!rendered.contains("pause"));
+    press(&mut picker, &mut app, "C-l");
     assert!(screen(&mut picker, &mut app).contains("100/?"));
     for _ in 0..5 {
         draw(&mut picker, &mut app);

@@ -229,7 +229,7 @@ fn branches(
             )
         },
     )
-    .with_paged_updates(pager)
+    .with_source_updates(pager)
     .with_item_key(|branch| branch.name.clone())
 }
 
@@ -520,6 +520,7 @@ impl BranchPager {
                     })
                 },
             )
+            .automatic()
             .with_suspend(BranchCursor::suspend),
             changes: WorkspaceChanges::new(
                 editor,

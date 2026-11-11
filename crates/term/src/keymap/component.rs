@@ -318,6 +318,9 @@ impl ComponentKeymaps {
     }
 
     pub fn branch_picker(mut shared: Keymap<PickerAction>) -> Keymap<PickerAction> {
+        shared.0.retain(|_, binding| {
+            !matches!(binding, Binding::Actions(actions) if actions == &[PickerAction::ToggleLoading])
+        });
         shared.merge(bindings(&[
             ("A-n", PickerAction::Item(PickerItemAction::CreateBranch)),
             ("A-d", PickerAction::Item(PickerItemAction::DeleteBranch)),
@@ -326,6 +329,9 @@ impl ComponentKeymaps {
     }
 
     pub fn worktree_picker(mut shared: Keymap<PickerAction>) -> Keymap<PickerAction> {
+        shared.0.retain(|_, binding| {
+            !matches!(binding, Binding::Actions(actions) if actions == &[PickerAction::ToggleLoading])
+        });
         shared.merge(bindings(&[
             ("A-n", PickerAction::Item(PickerItemAction::CreateWorktree)),
             ("A-d", PickerAction::Item(PickerItemAction::RemoveWorktree)),

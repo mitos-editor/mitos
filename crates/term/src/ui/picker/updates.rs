@@ -57,7 +57,7 @@ pub(super) struct EditorUpdates<T> {
     pub status: Option<String>,
     pub incomplete: bool,
     pub toggle_loading: bool,
-    pub paged: bool,
+    pub loading_controls: bool,
 }
 
 impl<T> EditorUpdates<T> {
@@ -126,10 +126,15 @@ impl<T: Send + Sync + 'static, D: Send + Sync + 'static> Picker<T, D> {
     where
         T: PartialEq,
     {
-        self.with_updates(
-            move |cx: UpdateContext<'_, T>| refresh(cx).map(Update::Replace),
-            false,
-        )
+        self.with_source_updates(move |cx: UpdateContext<'_, T>| refresh(cx).map(Update::Replace))
+    }
+
+    /// Attach a source without manual pause, continue, or retry controls.
+    pub(crate) fn with_source_updates(self, source: impl PickerSource<T> + 'static) -> Self
+    where
+        T: PartialEq,
+    {
+        self.with_updates(source, false)
     }
 
     #[cfg(any(feature = "git", test))]
@@ -140,7 +145,11 @@ impl<T: Send + Sync + 'static, D: Send + Sync + 'static> Picker<T, D> {
         self.with_updates(source, true)
     }
 
-    fn with_updates(mut self, source: impl PickerSource<T> + 'static, paged: bool) -> Self
+    fn with_updates(
+        mut self,
+        source: impl PickerSource<T> + 'static,
+        loading_controls: bool,
+    ) -> Self
     where
         T: PartialEq,
     {
@@ -152,7 +161,7 @@ impl<T: Send + Sync + 'static, D: Send + Sync + 'static> Picker<T, D> {
             status: None,
             incomplete: false,
             toggle_loading: false,
-            paged,
+            loading_controls,
         });
         self
     }

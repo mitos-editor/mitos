@@ -196,17 +196,22 @@ Typing a query filters loaded rows immediately and continues loading older or
 remaining entries in the background. Clear the query to stop this extra loading;
 an already requested page can still finish. Scrolling can then load more results.
 
-Press `Ctrl-l` to pause loading. Press it again to continue, or to retry after a
-loading failure. These controls keep your query and loaded results. Remap the
-`toggle_loading` action under `[keys.picker]` or the specific picker table.
+In Git history pickers, press `Ctrl-l` to pause loading. Press it again to
+continue, or to retry after a loading failure. These controls keep your query
+and loaded results. Remap `toggle_loading` under `[keys.picker]` or the specific
+picker table.
 The active shortcut also appears along the bottom border when picker hints are
 enabled.
 
-Automatic loading pauses after an estimated 32 MiB of retained rows and matching
-text. Continuing permits another 32 MiB for that picker session. This is a soft
-budget: a page can cross it, and traversal state, previews, and other editor
-memory are separate. Restoring a cached picker keeps its loaded results
+Git history loading pauses after an estimated 32 MiB of retained rows and
+matching text. Continuing permits another 32 MiB for that picker session. This
+is a soft budget: a page can cross it, and traversal state, previews, and other
+editor memory are separate. Restoring a cached picker keeps its loaded results
 and allowance; opening a new picker starts a fresh session.
+
+Branch and worktree pickers load without pause, continue, or retry controls.
+Branch pages load as you scroll or search, without the history memory budget.
+Loading failures report an error and keep any results already loaded.
 
 The source status distinguishes more results available, loading, complete,
 paused, and failed. A `?` in the result count means results are incomplete.
