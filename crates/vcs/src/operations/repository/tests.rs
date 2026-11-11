@@ -14,6 +14,206 @@ async fn execute(repo: &GitRepository, operation: RepositoryOperation) -> Result
 }
 
 #[tokio::test]
+async fn divergence_matches_git_for_criss_cross_merges_and_detached_worktrees() -> Result<()> {
+    let dir = initial()?;
+    let root = dir.path();
+    exec_git_cmd(&["branch", "behind"], root);
+    exec_git_cmd(&["branch", "right"], root);
+    exec_git_cmd(&["commit", "--allow-empty", "-m", "left"], root);
+    exec_git_cmd(&["branch", "left-tip"], root);
+    exec_git_cmd(&["switch", "right"], root);
+    exec_git_cmd(&["commit", "--allow-empty", "-m", "right"], root);
+    exec_git_cmd(&["branch", "right-tip"], root);
+    exec_git_cmd(&["switch", "main"], root);
+    exec_git_cmd(&["merge", "--no-ff", "right-tip", "-m", "left merge"], root);
+    exec_git_cmd(&["switch", "right"], root);
+    exec_git_cmd(&["merge", "--no-ff", "left-tip", "-m", "right merge"], root);
+    exec_git_cmd(&["switch", "main"], root);
+    let parent = tempfile::tempdir()?;
+    let detached = parent.path().join("detached");
+    exec_git_cmd(
+        &[
+            "worktree",
+            "add",
+            "--detach",
+            detached.to_str().unwrap(),
+            "right",
+        ],
+        root,
+    );
+    exec_git_cmd(
+        &["commit", "--allow-empty", "-m", "detached commit"],
+        &detached,
+    );
+    let repo = GitRepository::discover(root)?;
+    let branches = repo.branches().await?;
+    for branch in &branches {
+        let output = std::process::Command::new("git")
+            .arg("-C")
+            .arg(root)
+            .args([
+                "rev-list",
+                "--left-right",
+                "--count",
+                &format!("{}...main", branch.name),
+            ])
+            .output()?;
+        assert!(output.status.success());
+        let expected: Vec<usize> = String::from_utf8(output.stdout)?
+            .split_whitespace()
+            .map(|count| count.parse().unwrap())
+            .collect();
+        let counts = branch.divergence.as_ref().unwrap();
+        assert_eq!(counts.base.as_ref(), "main");
+        assert_eq!(
+            [counts.ahead, counts.behind],
+            expected.as_slice(),
+            "{}",
+            branch.name
+        );
+    }
+    let right = branches
+        .iter()
+        .find(|branch| branch.name == "right")
+        .unwrap()
+        .divergence
+        .as_ref()
+        .unwrap();
+    assert_eq!((right.ahead, right.behind), (1, 1));
+    let trees = repo.worktrees().await?;
+    let counts = trees
+        .iter()
+        .find(|tree| !tree.main)
+        .unwrap()
+        .divergence
+        .as_ref()
+        .unwrap();
+    assert_eq!((counts.ahead, counts.behind), (2, 1));
+    assert_eq!(
+        GitRepository::discover(&detached)?.worktrees().await?,
+        trees
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn divergence_resolves_custom_default_local_and_remote_fallbacks() -> Result<()> {
+    let dir = initial()?;
+    let root = dir.path();
+    exec_git_cmd(&["branch", "trunk"], root);
+    exec_git_cmd(&["remote", "add", "upstream", "."], root);
+    exec_git_cmd(
+        &[
+            "config",
+            "remote.upstream.fetch",
+            "+refs/heads/*:refs/remotes/upstream/custom/*",
+        ],
+        root,
+    );
+    exec_git_cmd(
+        &["update-ref", "refs/remotes/upstream/custom/trunk", "HEAD"],
+        root,
+    );
+    exec_git_cmd(
+        &[
+            "symbolic-ref",
+            "refs/remotes/upstream/HEAD",
+            "refs/remotes/upstream/custom/trunk",
+        ],
+        root,
+    );
+    exec_git_cmd(&["switch", "trunk"], root);
+    exec_git_cmd(&["commit", "--allow-empty", "-m", "local trunk"], root);
+    exec_git_cmd(&["switch", "main"], root);
+    let repo = GitRepository::discover(root)?;
+    let counts = repo
+        .branches()
+        .await?
+        .into_iter()
+        .find(|branch| branch.current)
+        .unwrap()
+        .divergence
+        .unwrap();
+    assert_eq!(counts.base.as_ref(), "trunk");
+    assert_eq!((counts.ahead, counts.behind), (0, 1));
+    exec_git_cmd(&["branch", "-D", "trunk"], root);
+    let counts = repo.branches().await?[0].divergence.clone().unwrap();
+    assert_eq!(counts.base.as_ref(), "upstream/custom/trunk");
+    assert_eq!((counts.ahead, counts.behind), (0, 0));
+    exec_git_cmd(
+        &["symbolic-ref", "--delete", "refs/remotes/upstream/HEAD"],
+        root,
+    );
+    assert_eq!(
+        repo.branches().await?[0]
+            .divergence
+            .as_ref()
+            .unwrap()
+            .base
+            .as_ref(),
+        "main"
+    );
+    exec_git_cmd(&["branch", "-m", "master"], root);
+    assert_eq!(
+        repo.branches().await?[0]
+            .divergence
+            .as_ref()
+            .unwrap()
+            .base
+            .as_ref(),
+        "master"
+    );
+    exec_git_cmd(&["branch", "-m", "topic"], root);
+    assert!(repo.branches().await?[0].divergence.is_none());
+    exec_git_cmd(&["update-ref", "refs/remotes/upstream/main", "HEAD"], root);
+    assert_eq!(
+        repo.branches().await?[0]
+            .divergence
+            .as_ref()
+            .unwrap()
+            .base
+            .as_ref(),
+        "upstream/main"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn divergence_is_optional_for_unborn_shallow_and_missing_history() -> Result<()> {
+    let dir = empty_git_repo();
+    let repo = GitRepository::discover(dir.path())?;
+    assert!(repo.branches().await?.is_empty());
+    assert!(repo.worktrees().await?[0].divergence.is_none());
+    exec_git_cmd(&["commit", "--allow-empty", "-m", "initial"], dir.path());
+    std::fs::write(
+        dir.path().join(".git/refs/heads/broken"),
+        "1111111111111111111111111111111111111111\n",
+    )?;
+    let branches = repo.branches().await?;
+    assert!(branches
+        .iter()
+        .find(|branch| branch.name == "broken")
+        .unwrap()
+        .divergence
+        .is_none());
+    assert!(branches
+        .iter()
+        .find(|branch| branch.name == "main")
+        .unwrap()
+        .divergence
+        .is_some());
+    let head = repo.open_read(false)?.head_id()?.to_string();
+    std::fs::write(dir.path().join(".git/shallow"), format!("{head}\n"))?;
+    assert!(repo
+        .branches()
+        .await?
+        .iter()
+        .all(|branch| branch.divergence.is_none()));
+    assert!(repo.worktrees().await?[0].divergence.is_none());
+    Ok(())
+}
+
+#[tokio::test]
 async fn branches_switch_without_losing_dirty_work_and_reject_untrusted_or_stale_actions(
 ) -> Result<()> {
     let dir = initial()?;

@@ -11,9 +11,9 @@ use std::{
     path::{Path, PathBuf},
     sync::Arc,
 };
-use tui::text::Span;
+use tui::text::{Line, Span};
 use vcs::operations::{
-    repository::{Branch, BranchCursor, Worktree},
+    repository::{Branch, BranchCursor, Divergence, Worktree},
     GitRepository, RepositoryOperation,
 };
 use view::{features::git_operations::GitAction, Editor};
@@ -121,6 +121,39 @@ impl RepositoryData {
     }
 }
 
+fn divergence_cell(
+    divergence: Option<&Divergence>,
+    data: &RepositoryData,
+) -> tui::widgets::Cell<'static> {
+    let Some(divergence) = divergence else {
+        return Span::styled("—", data.theme.get("ui.text.inactive")).into();
+    };
+    Line::from(vec![
+        Span::styled(
+            format!("↑{}", divergence.ahead),
+            data.theme.get(if divergence.ahead == 0 {
+                "ui.text.inactive"
+            } else {
+                "diff.plus"
+            }),
+        ),
+        Span::raw(" "),
+        Span::styled(
+            format!("↓{}", divergence.behind),
+            data.theme.get(if divergence.behind == 0 {
+                "ui.text.inactive"
+            } else {
+                "diff.minus"
+            }),
+        ),
+        Span::styled(
+            format!(" {}", divergence.base),
+            data.theme.get("ui.text.inactive"),
+        ),
+    ])
+    .into()
+}
+
 fn branches(
     editor: &Editor,
     repo: GitRepository,
@@ -150,6 +183,9 @@ fn branches(
                     data.theme.get("diff.plus"),
                 )
                 .into()
+            }),
+            PickerColumn::new("vs base", |branch: &Arc<Branch>, data| {
+                divergence_cell(branch.divergence.as_ref(), data)
             }),
             PickerColumn::new("upstream", |branch: &Arc<Branch>, data| {
                 Span::styled(branch.upstream.as_str(), data.theme.get("string.special")).into()
@@ -207,14 +243,7 @@ fn worktrees(
     Picker::new_with_callback_result(
         editor.redraw().clone(),
         [
-            PickerColumn::new("path", |tree: &Worktree, data: &RepositoryData| {
-                Span::styled(
-                    tree.path.display().to_string(),
-                    data.theme.get("ui.text.directory"),
-                )
-                .into()
-            }),
-            PickerColumn::new("branch", |tree: &Worktree, data| {
+            PickerColumn::new("branch", |tree: &Worktree, data: &RepositoryData| {
                 Span::styled(
                     tree.branch.as_deref().unwrap_or("(detached)"),
                     data.theme.get(if tree.branch.is_some() {
@@ -224,6 +253,9 @@ fn worktrees(
                     }),
                 )
                 .into()
+            }),
+            PickerColumn::new("vs base", |tree: &Worktree, data| {
+                divergence_cell(tree.divergence.as_ref(), data)
             }),
             PickerColumn::new("state", |tree: &Worktree, data| {
                 let (label, scope) = if tree.locked {
@@ -237,8 +269,15 @@ fn worktrees(
                 };
                 Span::styled(label, data.theme.get(scope)).into()
             }),
+            PickerColumn::new("path", |tree: &Worktree, data| {
+                Span::styled(
+                    tree.path.display().to_string(),
+                    data.theme.get("ui.text.directory"),
+                )
+                .into()
+            }),
         ],
-        0,
+        3,
         Vec::<Worktree>::new(),
         RepositoryData::new(editor, repo),
         move |_, tree, _| {
@@ -464,7 +503,12 @@ impl BranchPager {
                 |branch: &Arc<Branch>| {
                     std::mem::size_of::<Branch>()
                         + 128
-                        + 5 * (branch.name.len() + branch.upstream.len())
+                        + 5 * (branch.name.len()
+                            + branch.upstream.len()
+                            + branch
+                                .divergence
+                                .as_ref()
+                                .map_or(0, |counts| counts.base.len() + 40))
                 },
                 |cursor, _cancel| {
                     Box::pin(async move {
