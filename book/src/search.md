@@ -58,12 +58,12 @@ To search for the current selection, press `*`, then `Space /`, then `Enter`
 without entering another query. Global search follows the
 [file-picker ignore settings](./pickers.md#hidden-and-ignored-files).
 
-Press `Ctrl-x q` in the results to collect their locations in the
+Press `Ctrl-q` in the results to collect their locations in the
 [quicklist](./quicklist.md). After closing the picker, use `]q` and `[q` to
 visit each result and edit it. The selection replacement workflow above
 operates within the current buffer.
 
-To replace across files directly, press `Ctrl-x r` in global search and enter a
+To replace across files directly, press `Alt-r` in global search and enter a
 replacement. `Enter` replaces one match; `Ctrl-Enter` replaces all occurrences
 in the files matching the current path filter. Global replacement expands regex
 captures. Existing buffers stay unsaved; unopened files are updated directly on

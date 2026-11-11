@@ -19,8 +19,12 @@ The title in the top border identifies the picker.
 
 Use `Ctrl-n` and `Ctrl-p` or the arrow keys to move between results. `Enter`
 opens the selected item; `Alt-Enter` opens it in the background while keeping
-the picker open. `Ctrl-x v` opens a vertical split and `Ctrl-x s` a horizontal one.
-`Ctrl-x p` toggles the preview. `Esc` closes the picker.
+the picker open. `Ctrl-v` opens a vertical split and `Ctrl-s` a horizontal one.
+`Ctrl-t` toggles the preview. `Esc` closes the picker.
+
+Press `Ctrl-x` to see the full action menu, including equivalent split and
+preview commands. The footer shows useful direct shortcuts and keeps the menu
+hint visible when space is limited.
 
 Scroll the preview with `Alt-j` / `Alt-k` or `Alt-Down` / `Alt-Up`. Each press
 moves half a page without changing the selected result or query. These keys
@@ -33,7 +37,7 @@ Images fit the preview pane and do not scroll.
 Remap `preview_scroll_down` and `preview_scroll_up` under `[keys.picker]`, or
 under a specific picker's component keymap.
 
-Press `Ctrl-x q` to copy matched file locations into the [quicklist](./quicklist.md)
+Press `Ctrl-q` to copy matched file locations into the [quicklist](./quicklist.md)
 for navigation after closing the picker. To customize keys, see
 [Component keys](./remapping.md#component-keys).
 
@@ -74,10 +78,10 @@ See [Search and replacement](./search.md) for project-search examples.
 
 ## Replacing global search results
 
-Global search uses smart case by default. Press `Ctrl-x f` to toggle between
+Global search uses smart case by default. Press `Alt-c` to toggle between
 smart case and case-sensitive matching. The input bar shows the current mode.
 
-Press `Ctrl-x r` to reveal the replacement input. Press it again to switch focus
+Press `Alt-r` to reveal the replacement input. Press it again to switch focus
 between the search and replacement inputs. While the replacement input is
 visible, `Enter` replaces the selected match; `Ctrl-x R`, `Ctrl-Enter`, `Cmd-Enter`, or
 `Win-Enter` replaces every occurrence in the files matching the current path
@@ -107,8 +111,8 @@ Manage files without leaving the explorer:
 
 | Key | Action |
 | --- | --- |
-| `Ctrl-x n` | Create a file in the shown directory. End the path with `/` to create a directory. |
-| `Ctrl-x r` | Move or rename the selected entry. The cursor starts before the file extension. Open buffers follow the move. |
+| `Alt-n` | Create a file in the shown directory. End the path with `/` to create a directory. |
+| `Alt-m` | Move or rename the selected entry. The cursor starts before the file extension. Open buffers follow the move. |
 | `Ctrl-x c` | Copy the selected file's saved contents. Copying directories is not supported. |
 | `Ctrl-x d` | Delete the selected entry after you type `y` and press `Enter`. Directories are deleted with their contents. |
 | `Ctrl-x y` | Yank the selected path to the default yank register. |
@@ -137,6 +141,7 @@ directories and your selection.
 | `Enter` while searching | Confirm the search and navigate the filtered tree |
 | `Esc` with a search | Clear the search and keep the sidebar focused |
 | `Esc` without a search | Return to the editor |
+| `n` / `r` / `c` / `d` / `y` while navigating | Create / move / copy / delete / yank path |
 | `q` while navigating | Hide the sidebar |
 | `Ctrl-w r` while navigating | Resize the sidebar |
 
@@ -156,7 +161,7 @@ After confirming a search, press `Enter` again to open the selected file.
 Opening a file returns focus to the editor. The sidebar keeps your search and
 selection when you return. Press `/` to start a new search or `Esc` to clear it.
 
-[File actions](#file-explorer), such as `Ctrl-x n` to create a file and `Ctrl-x r` to
+[File actions](#file-explorer), such as `Alt-n` to create a file and `Alt-m` to
 move it, also work in the sidebar. Remap navigation keys under `keys.sidebar`
 and search keys under `keys.sidebar-filter`; see [component keys](./remapping.md#component-keys).
 For moving between the sidebar and editor splits, see [window navigation](./files.md#work-in-splits).

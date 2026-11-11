@@ -224,7 +224,7 @@ async fn direct_git_shortcuts_clip_to_one_row_follow_remaps_and_preserve_paging(
     for remapped in [false, true] {
         let config = crate::config::Config::load(
             Ok(&if remapped {
-                "[keys.git-picker]\nC-j = 'stage'\n[keys.git-picker.C-x.a]\ns = 'unbound'\nz = 'unbound'".to_owned()
+                "[keys.git-picker]\nC-j = 'stage'\nA-s = 'unbound'\n[keys.git-picker.C-x.a]\ns = 'unbound'\nz = 'unbound'".to_owned()
             } else {
                 String::new()
             }),
@@ -259,20 +259,22 @@ async fn direct_git_shortcuts_clip_to_one_row_follow_remaps_and_preserve_paging(
                     view::graphics::Rect::new(0, 0, width, 12),
                 );
                 let screen = rows.join("\n");
-                assert!(screen.contains("<ret> open"), "{screen}");
-                assert!(screen.contains("<C-x> actions"));
                 if width == 120 {
+                    assert!(screen.contains("<ret> open"), "{screen}");
+                }
+                assert!(screen.contains("<C-x> actions"));
+                {
                     assert!(
                         screen.contains(if remapped {
                             "<C-j> stage"
                         } else {
-                            "<C-x>as stage"
+                            "<A-s> stage"
                         }),
                         "{screen}"
                     );
                 }
                 if width == 120 {
-                    for hint in ["<C-x>au unstage", "<C-x>al stashes"] {
+                    for hint in ["<A-u> unstage", "<C-x>al stashes"] {
                         assert!(screen.contains(hint), "Missing {hint:?}: {screen}");
                     }
                     assert_eq!(screen.contains("<C-x>az stash"), !remapped);

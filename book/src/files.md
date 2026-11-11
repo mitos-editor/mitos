@@ -43,8 +43,8 @@ requires a terminal that supports clickable links.
 | `Ctrl-w o` | Keep only the current view |
 
 Press the keys in sequence, for example `Ctrl-w`, then `v`. To show a different file after splitting, use `Space b`
-or `:open`. In a picker, `Ctrl-x v` opens the selected file vertically and
-`Ctrl-x s` opens it horizontally.
+or `:open`. In a picker, `Ctrl-v` opens the selected file vertically and
+`Ctrl-s` opens it horizontally.
 
 You can also use `:split-vertical <path>` or `:split-horizontal <path>`. To start with files in
 separate views, see [Starting Mitos](./invocation.md).

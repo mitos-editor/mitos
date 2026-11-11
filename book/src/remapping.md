@@ -142,7 +142,7 @@ belong in `keys.normal`, `keys.insert`, and `keys.select`.
 
 | Table | Actions |
 | --- | --- |
-| `keys.prompt` | `show_keybindings`, `inspect_key`, `save_hint`, `accept`, `cancel`, `move_left`, `move_right`, `move_word_left`, `move_word_right`, `move_start`, `move_end`, `delete_backward`, `delete_forward`, `delete_word_backward`, `delete_word_forward`, `delete_to_start`, `delete_to_end`, `insert_word`, `insert_register`, `history_previous`, `history_next`, `complete_previous`, `complete_next`, `exit_selection` |
+| `keys.prompt` | `show_keybindings`, `inspect_key`, `accept`, `cancel`, `move_left`, `move_right`, `move_word_left`, `move_word_right`, `move_start`, `move_end`, `delete_backward`, `delete_forward`, `delete_word_backward`, `delete_word_forward`, `delete_to_start`, `delete_to_end`, `insert_word`, `insert_register`, `history_previous`, `history_next`, `complete_previous`, `complete_next`, `exit_selection` |
 | `keys.picker` | `show_keybindings`, `inspect_key`, `history_previous`, `history_next`, `accept`, `accept_keep_open`, `accept_horizontal_split`, `accept_vertical_split`, `cancel`, `move_up`, `move_down`, `move_start`, `move_end`, `page_up`, `page_down`, `toggle_preview`, `toggle_loading`, `populate_quicklist`, `toggle_replacement`, `toggle_case_sensitive`, `replace_all`, `preview_scroll_up`, `preview_scroll_down`, `preview_previous`, `preview_next`, `open_preview` |
 | `keys.buffer-picker` | All `keys.picker` actions, plus `close_buffer` |
 | `keys.quicklist-picker` | All `keys.picker` actions, plus `remove_entry` |
@@ -166,6 +166,8 @@ paging move by half a page. Picker paging moves by a full page.
 `keys.branch-picker`, `keys.worktree-picker`, `keys.stash-picker`,
 `keys.history-picker`, and `keys.file-explorer` inherit
 `keys.picker`.
+Frequently used actions have direct shortcuts; `Ctrl-x` provides the complete
+action menu. `Ctrl-s` opens a horizontal split while a picker is focused.
 Picker-specific bindings take priority over shared picker bindings, including
 ones from project configuration. The buffer picker binds `Ctrl-x d` to `close_buffer`; the quicklist picker
 binds it to `remove_entry`. Other Ctrl-x actions remain inherited.

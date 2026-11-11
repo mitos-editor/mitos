@@ -52,7 +52,7 @@ The picker has separate **staged** and **unstaged** columns. Each path appears
 once, including files with both kinds of changes. New files are labeled `added`
 when staged and `untracked` before they are added to Git.
 
-The preview shows the selected file's diff. Use `Alt-p` / `Ctrl-x n` to choose which
+The preview shows the selected file's diff. Use `Alt-p` / `Alt-n` to choose which
 versions to compare:
 
 | Comparison | Before | After |
@@ -76,11 +76,11 @@ preview shows a diff so you can review the result.
 | `Enter` | Open the file |
 | `Alt-o` | Open the selected diff in a review buffer |
 | `Alt-k` / `Alt-j` or `Alt-Up` / `Alt-Down` | Scroll the preview |
-| `Ctrl-x p` | Hide or show the preview |
+| `Ctrl-t` | Hide or show the preview |
 
 For deleted files, `Enter` opens a review. `Alt-o` also works when the preview is
 hidden. After opening a diff, `Space '` restores the picker, and further
-selections open as reviews. Use `Ctrl-x v` / `Ctrl-x s` to open them in a vertical /
+selections open as reviews. Use `Ctrl-v` / `Ctrl-s` to open them in a vertical /
 horizontal split.
 
 Results refresh as files change, keeping the query and selected file. Remap these
@@ -146,7 +146,7 @@ To review two files side by side:
 
 1. Press `Space g s`, select a file, and press `Alt-o`.
 2. Press `Space '` to restore the picker and select another file.
-3. Press `Ctrl-x v` to open the second diff in a vertical split.
+3. Press `Ctrl-v` to open the second diff in a vertical split.
 
 Use `Ctrl-w v` / `Ctrl-w s` to split an existing review. The command palette also
 lists the diff commands.
@@ -244,8 +244,8 @@ workspace.
 
 | Key | Action |
 | --- | --- |
-| `Ctrl-x a s` | Stage the selected file as it exists on disk |
-| `Ctrl-x a u` | Unstage the selected file, keeping its working copy |
+| `Alt-s` | Stage the selected file as it exists on disk |
+| `Alt-u` | Unstage the selected file, keeping its working copy |
 | `Ctrl-x a z` | Stash all repository changes, after confirmation |
 | `Ctrl-x a l` | Browse stashes |
 
@@ -406,10 +406,10 @@ see [loading large collections](./pickers.md#loading-large-collections).
 
 Run `:vcs-file-history` to browse commits that changed the current file, following
 detected renames. The preview shows the selected commit's diff against
-its first parent. `Ctrl-x p` hides or shows the preview; `Alt-k` / `Alt-j` or
+its first parent. `Ctrl-t` hides or shows the preview; `Alt-k` / `Alt-j` or
 `Alt-Up` / `Alt-Down` scroll it.
 
-Press `Enter` to open the diff in a review buffer. `Ctrl-x v` / `Ctrl-x s` open it in a
+Press `Enter` to open the diff in a review buffer. `Ctrl-v` / `Ctrl-s` open it in a
 vertical / horizontal split. `Space '` restores the picker with its query and
 selection, so you can open another comparison alongside it.
 
@@ -431,7 +431,7 @@ switching branches to browse the new branch.
 The preview shows the full commit message followed by all changed files in one
 scrollable patch. `Alt-o` opens the combined preview in a read-only buffer.
 `Alt-k` / `Alt-j` scroll through the message and changes;
-`Ctrl-x p` hides or shows the preview.
+`Ctrl-t` hides or shows the preview.
 Press `Enter` to browse the commit’s changed files. Merges
 compare with their first parent by default; use `Ctrl-x a` to choose another parent.
 `Ctrl-x a` also offers historical versions and comparisons with an open buffer for

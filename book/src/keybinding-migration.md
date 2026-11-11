@@ -63,38 +63,54 @@ and `Zz`. `Esc` or `Ctrl-c` leaves sticky view or debug mode.
 
 ## Picker and prompt changes
 
-Press `Ctrl-x` in a picker to see its available actions. Prefix menus and the
-binding list omit actions the current picker cannot perform. Result navigation
-uses arrows, `Ctrl-n` / `Ctrl-p`, `Tab` / `Shift-Tab`, and Page Up / Page Down.
+Frequent actions keep direct shortcuts. Press `Ctrl-x` for the full action menu,
+including equivalent routes for these actions. The footer prefers direct
+shortcuts from your active bindings and reserves space for the menu hint.
+Result navigation uses arrows, `Ctrl-n` / `Ctrl-p`, `Tab` / `Shift-Tab`, and
+Page Up / Page Down.
+
+| Action | Direct shortcut | Menu route |
+| --- | --- | --- |
+| Open / open while keeping picker | Enter / Alt-Enter | Enter / `Ctrl-x Enter` |
+| Open horizontal / vertical split | `Ctrl-s` / `Ctrl-v` | `Ctrl-x s` / `Ctrl-x v` |
+| Toggle preview | `Ctrl-t` | `Ctrl-x p` |
+| Copy results to quicklist | `Ctrl-q` | `Ctrl-x q` |
+| Focus replacement / toggle search case | `Alt-r` / `Alt-c` | `Ctrl-x r` / `Ctrl-x f` |
+| Replace all, when replacement is visible | `Ctrl-Enter` | `Ctrl-x R` |
+| Git stage / unstage | `Alt-s` / `Alt-u` | `Ctrl-x a s` / `Ctrl-x a u` |
+| Create / move a file in the explorer | `Alt-n` / `Alt-m` | `Ctrl-x n` / `Ctrl-x r` |
+
+`Ctrl-s` saves in the editor's normal, select, and insert modes. A focused picker
+uses it to open the selected result in a horizontal split.
+
+Other picker changes:
 
 | Previous | New |
 | --- | --- |
-| `Ctrl-s` / `Ctrl-v`: split below / right | `Ctrl-x s` / `Ctrl-x v` |
-| `Alt-Enter`: open and keep picker | Also available as `Ctrl-x Enter` |
-| `Ctrl-t`: toggle preview | `Ctrl-x p` |
 | `Ctrl-l`: pause / continue / retry loading | `Ctrl-x l` |
-| `Ctrl-q`: copy results to quicklist | `Ctrl-x q` |
 | Home / End: first / last result | `Ctrl-x g` / `Ctrl-x G` |
-| `Alt-r` / `Alt-c`: replacement input / case toggle | `Ctrl-x r` / `Ctrl-x f` in search pickers |
-| `Ctrl-Enter`: replace all | Also available as `Ctrl-x R` when replacement is visible |
-| `Alt-n` / `Alt-m` / `Alt-c` / `Alt-d` / `Alt-y`: file actions | `Ctrl-x n` / `r` / `c` / `d` / `y`: create / move / copy / delete / yank path |
+| Explorer `Alt-c` / `Alt-d` / `Alt-y`: copy / delete / yank | `Ctrl-x c` / `Ctrl-x d` / `Ctrl-x y` |
 | `Ctrl-x`: remove a quicklist row | `Ctrl-x d`; the buffer picker also uses it to close a buffer |
-| Git `Alt-s` / `Alt-u` / `Alt-z` / `Alt-l` | `Ctrl-x a s` / `u` / `z` / `l`: stage / unstage / stash / browse stashes |
+| Git `Alt-z` / `Alt-l`: stash / browse stashes | `Ctrl-x a z` / `Ctrl-x a l` |
 | Git or stash `Alt-a`: action chooser | `Ctrl-x a ?` |
 | Stash `Alt-s` / `Alt-i`: apply / apply with index | `Ctrl-x a s` / `Ctrl-x a i` |
 | Branch/worktree `Alt-n` / `Alt-d` | `Ctrl-x n` / `Ctrl-x d` |
 | Worktree `Alt-l` / `Alt-u`: lock / unlock | `Ctrl-x a l` / `Ctrl-x a u` |
 | History `Alt-a` / `Alt-h`: actions / back | `Ctrl-x a` / `Ctrl-x b` |
 
-Home and End now edit the query. `Ctrl-d` deletes forward, `Ctrl-u` deletes to
-the start, and `Alt-d` deletes the next word in every picker query. `Ctrl-s`
-shows a reminder to return to the editor to save. `Alt-w` inserts the word under
-the editor cursor. Use `Ctrl-x h` / `Ctrl-x H` for previous / next query history.
+Home and End edit the query. `Ctrl-d` deletes forward, `Ctrl-u` deletes to the
+start, and `Alt-d` deletes the next word in every picker query. `Alt-w` inserts
+the word under the editor cursor. Use `Ctrl-x h` / `Ctrl-x H` for previous / next
+query history.
+
+While navigating the sidebar, `n`, `r`, `c`, `d`, and `y` create, move, copy,
+delete, and yank the selected path. While filtering, those letters enter query
+text. `Ctrl-x` actions work in both states; deletion still asks for confirmation.
 
 Preview scrolling keeps `Alt-j` / `Alt-k` and adds `Ctrl-x j` / `Ctrl-x k`.
 Review previews support `Ctrl-x [` / `Ctrl-x ]` for previous / next comparison
-and `Ctrl-x o` to open it. These sequences provide alternatives to terminal Alt
-and modified Enter encodings.
+and `Ctrl-x o` to open it. Menu sequences also provide alternatives when a
+terminal cannot distinguish modified Enter or transmit an Alt shortcut.
 
 ## Completion, snippets, and Tab
 

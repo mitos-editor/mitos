@@ -8,7 +8,6 @@ use ui_core::keymap::{Binding, Keymap};
 pub enum PromptAction {
     ShowKeybindings,
     InspectKey,
-    SaveHint,
     Cancel,
     Accept,
     MoveWordLeft,
@@ -323,6 +322,26 @@ impl ComponentKeymaps {
             ("/", S::Filter),
             ("j", S::Picker(PickerAction::MoveDown)),
             ("k", S::Picker(PickerAction::MoveUp)),
+            (
+                "n",
+                S::Picker(PickerAction::Item(PickerItemAction::CreatePath)),
+            ),
+            (
+                "r",
+                S::Picker(PickerAction::Item(PickerItemAction::MovePath)),
+            ),
+            (
+                "c",
+                S::Picker(PickerAction::Item(PickerItemAction::CopyPath)),
+            ),
+            (
+                "d",
+                S::Picker(PickerAction::Item(PickerItemAction::DeletePath)),
+            ),
+            (
+                "y",
+                S::Picker(PickerAction::Item(PickerItemAction::YankPath)),
+            ),
             ("q", S::Hide),
         ]));
         let windows = bindings(&[
@@ -344,6 +363,8 @@ impl ComponentKeymaps {
     pub fn git_picker(mut shared: Keymap<PickerAction>) -> Keymap<PickerAction> {
         use PickerItemAction as I;
         shared.merge(bindings(&[
+            ("A-s", PickerAction::Item(I::Stage)),
+            ("A-u", PickerAction::Item(I::Unstage)),
             ("C-x a s", PickerAction::Item(I::Stage)),
             ("C-x a u", PickerAction::Item(I::Unstage)),
             ("C-x a z", PickerAction::Item(I::Stash)),
@@ -363,6 +384,8 @@ impl ComponentKeymaps {
     pub fn file_explorer(mut shared: Keymap<PickerAction>) -> Keymap<PickerAction> {
         use PickerItemAction as I;
         shared.merge(bindings(&[
+            ("A-n", PickerAction::Item(I::CreatePath)),
+            ("A-m", PickerAction::Item(I::MovePath)),
             ("C-x n", PickerAction::Item(I::CreatePath)),
             ("C-x r", PickerAction::Item(I::MovePath)),
             ("C-x c", PickerAction::Item(I::CopyPath)),
@@ -421,6 +444,12 @@ impl Default for ComponentKeymaps {
         use PromptAction as P;
         let pages = bindings(&[("A-p", PageAction::Previous), ("A-n", PageAction::Next)]);
         let picker = bindings(&[
+            ("C-s", K::AcceptHorizontalSplit),
+            ("C-v", K::AcceptVerticalSplit),
+            ("C-t", K::TogglePreview),
+            ("C-q", K::PopulateQuicklist),
+            ("A-r", K::ToggleReplacement),
+            ("A-c", K::ToggleCaseSensitive),
             ("F1", K::ShowKeybindings),
             ("C-x ?", K::ShowKeybindings),
             ("C-x i", K::InspectKey),
@@ -470,7 +499,6 @@ impl Default for ComponentKeymaps {
             prompt: bindings(&[
                 ("F1", P::ShowKeybindings),
                 ("C-x i", P::InspectKey),
-                ("C-s", P::SaveHint),
                 ("esc", P::Cancel),
                 ("C-c", P::Cancel),
                 ("ret", P::Accept),
@@ -561,24 +589,27 @@ impl Default for ComponentKeymaps {
 }
 
 pub(crate) fn action_hint<A: PartialEq>(keys: &Keymap<A>, action: &A) -> String {
-    keys.0
-        .iter()
-        .filter_map(|(key, binding)| {
-            let suffix = match binding {
-                Binding::Actions(actions) if actions.as_slice() == std::slice::from_ref(action) => {
-                    String::new()
-                }
-                Binding::Keys(keys) => {
-                    let hint = action_hint(keys, action);
-                    if hint == "unbound" {
-                        return None;
+    fn best<A: PartialEq>(keys: &Keymap<A>, action: &A) -> Option<(usize, String)> {
+        keys.0
+            .iter()
+            .filter_map(|(key, binding)| {
+                let (count, suffix) = match binding {
+                    Binding::Actions(actions)
+                        if actions.as_slice() == std::slice::from_ref(action) =>
+                    {
+                        (0, String::new())
                     }
-                    hint
-                }
-                _ => return None,
-            };
-            Some(format!("{}{suffix}", key.key_sequence_format()))
-        })
-        .min_by_key(|hint| (hint.len(), hint.clone()))
-        .unwrap_or_else(|| "unbound".into())
+                    Binding::Keys(keys) => best(keys, action)?,
+                    _ => return None,
+                };
+                Some((count + 1, format!("{}{suffix}", key.key_sequence_format())))
+            })
+            .min_by(|(count_a, hint_a), (count_b, hint_b)| {
+                count_a
+                    .cmp(count_b)
+                    .then(hint_a.len().cmp(&hint_b.len()))
+                    .then(hint_a.cmp(hint_b))
+            })
+    }
+    best(keys, action).map_or_else(|| "unbound".into(), |(_, hint)| hint)
 }

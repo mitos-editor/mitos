@@ -155,14 +155,14 @@ async fn replacement_hints_follow_current_bindings_and_picker_state() -> anyhow:
     let dir = tempfile::tempdir()?;
     let mut h = Harness::new(dir.path())?;
     let frame = h.frame_at(200, 24);
-    assert!(frame.contains("<C-x>r replace"));
-    assert!(frame.contains("<C-x>f toggle case"));
+    assert!(frame.contains("<A-r> replace"));
+    assert!(frame.contains("<A-c> toggle case"));
     assert!(!frame.contains("replace all"));
-    h.key("C-x r");
+    h.key("A-r");
     let frame = h.frame_at(200, 24);
-    assert!(frame.contains("<C-x>r switch input"));
+    assert!(frame.contains("<A-r> switch input"));
     assert!(frame.contains("<ret> replace one"));
-    assert!(frame.contains("<C-x>R replace all"));
+    assert!(frame.contains("<C-ret> replace all"));
 
     let keys = &mut h.config.component_keys.picker.0;
     let Binding::Keys(prefix) = keys.get_mut(&"C-x".parse()?).unwrap() else {
@@ -170,6 +170,8 @@ async fn replacement_hints_follow_current_bindings_and_picker_state() -> anyhow:
     };
     prefix.0.insert("r".parse()?, Binding::Unbound);
     prefix.0.insert("f".parse()?, Binding::Unbound);
+    keys.insert("A-r".parse()?, Binding::Unbound);
+    keys.insert("A-c".parse()?, Binding::Unbound);
     keys.insert(
         "F4".parse()?,
         Binding::Actions(vec![PickerAction::ToggleReplacement]),
@@ -187,6 +189,7 @@ async fn replacement_hints_follow_current_bindings_and_picker_state() -> anyhow:
     assert!(frame.contains("<F4> switch input"));
     assert!(frame.contains("<F5>a replace all"));
     assert!(!frame.contains("<C-x>r"));
+    assert!(!frame.contains("<A-r>"));
     assert!(!frame.contains("toggle case"));
     Ok(())
 }
@@ -210,8 +213,8 @@ async fn replacement_footer_keeps_inputs_and_results_visible_on_small_terminals(
     ] {
         assert!(frame.contains(text), "missing {text:?} in {frame}");
     }
-    assert!(!frame.contains("<C-x>R replace all"));
-    assert!(!frame.contains("<C-x>r switch input"));
+    assert!(!frame.contains("<C-ret> replace all"));
+    assert!(!frame.contains("<A-r> switch input"));
     let rows: Vec<_> = frame.lines().collect();
     assert!(rows.last().unwrap().contains("<ret> replace one"));
     assert!(rows[..rows.len() - 1]

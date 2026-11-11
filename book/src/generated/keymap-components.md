@@ -7,9 +7,9 @@ Picker-specific tables inherit `[keys.picker]`. Sidebar tables inherit `[keys.fi
 | Key | Action | Availability |
 | --- | --- | --- |
 | `` <ret> `` | `` accept `` | Within this component |
-| `` <C-x>s `` | `` accept_horizontal_split `` | Pickers that open files or reviews |
+| `` <C-s> ``, `` <C-x>s `` | `` accept_horizontal_split `` | Pickers that open files or reviews |
 | `` <A-ret> ``, `` <C-x><ret> `` | `` accept_keep_open `` | Within this component |
-| `` <C-x>v `` | `` accept_vertical_split `` | Pickers that open files or reviews |
+| `` <C-v> ``, `` <C-x>v `` | `` accept_vertical_split `` | Pickers that open files or reviews |
 | `` <C-c> ``, `` <esc> `` | `` cancel `` | Within this component |
 | `` <C-x>H `` | `` history_next `` | Inputs with query history |
 | `` <C-x>h `` | `` history_previous `` | Inputs with query history |
@@ -21,26 +21,26 @@ Picker-specific tables inherit `[keys.picker]`. Sidebar tables inherit `[keys.fi
 | `` <A-o> ``, `` <C-x>o `` | `` open_preview `` | Pickers with a review preview |
 | `` <pagedown> `` | `` page_down `` | Within this component |
 | `` <pageup> `` | `` page_up `` | Within this component |
-| `` <C-x>q `` | `` populate_quicklist `` | Pickers containing file locations |
+| `` <C-q> ``, `` <C-x>q `` | `` populate_quicklist `` | Pickers containing file locations |
 | `` <A-n> ``, `` <C-x>] ``, `` <A-right> `` | `` preview_next `` | Pickers with a review preview |
 | `` <A-p> ``, `` <C-x>[ ``, `` <A-left> `` | `` preview_previous `` | Pickers with a review preview |
 | `` <A-j> ``, `` <C-x>j ``, `` <A-down> `` | `` preview_scroll_down `` | Pickers with a preview |
 | `` <A-k> ``, `` <A-up> ``, `` <C-x>k `` | `` preview_scroll_up `` | Pickers with a preview |
 | `` <C-x>R ``, `` <C-ret> ``, `` <Meta-ret> `` | `` replace_all `` | Replacement input visible |
 | `` <F1> ``, `` <C-x>? `` | `` show_keybindings `` | Within this component |
-| `` <C-x>f `` | `` toggle_case_sensitive `` | Search pickers with case controls |
+| `` <A-c> ``, `` <C-x>f `` | `` toggle_case_sensitive `` | Search pickers with case controls |
 | `` <C-x>l `` | `` toggle_loading `` | Pickers with paged loading |
-| `` <C-x>p `` | `` toggle_preview `` | Pickers with a preview |
-| `` <C-x>r `` | `` toggle_replacement `` | Search pickers with replacement |
+| `` <C-t> ``, `` <C-x>p `` | `` toggle_preview `` | Pickers with a preview |
+| `` <A-r> ``, `` <C-x>r `` | `` toggle_replacement `` | Search pickers with replacement |
 
 ## Buffer picker
 
 | Key | Action | Availability |
 | --- | --- | --- |
 | `` <ret> `` | `` accept `` | Within this component |
-| `` <C-x>s `` | `` accept_horizontal_split `` | Pickers that open files or reviews |
+| `` <C-s> ``, `` <C-x>s `` | `` accept_horizontal_split `` | Pickers that open files or reviews |
 | `` <A-ret> ``, `` <C-x><ret> `` | `` accept_keep_open `` | Within this component |
-| `` <C-x>v `` | `` accept_vertical_split `` | Pickers that open files or reviews |
+| `` <C-v> ``, `` <C-x>v `` | `` accept_vertical_split `` | Pickers that open files or reviews |
 | `` <C-c> ``, `` <esc> `` | `` cancel `` | Within this component |
 | `` <C-x>d `` | `` close_buffer `` | Buffer picker; refuses to discard unsaved changes |
 | `` <C-x>H `` | `` history_next `` | Inputs with query history |
@@ -53,26 +53,26 @@ Picker-specific tables inherit `[keys.picker]`. Sidebar tables inherit `[keys.fi
 | `` <A-o> ``, `` <C-x>o `` | `` open_preview `` | Pickers with a review preview |
 | `` <pagedown> `` | `` page_down `` | Within this component |
 | `` <pageup> `` | `` page_up `` | Within this component |
-| `` <C-x>q `` | `` populate_quicklist `` | Pickers containing file locations |
+| `` <C-q> ``, `` <C-x>q `` | `` populate_quicklist `` | Pickers containing file locations |
 | `` <A-n> ``, `` <C-x>] ``, `` <A-right> `` | `` preview_next `` | Pickers with a review preview |
 | `` <A-p> ``, `` <C-x>[ ``, `` <A-left> `` | `` preview_previous `` | Pickers with a review preview |
 | `` <A-j> ``, `` <C-x>j ``, `` <A-down> `` | `` preview_scroll_down `` | Pickers with a preview |
 | `` <A-k> ``, `` <A-up> ``, `` <C-x>k `` | `` preview_scroll_up `` | Pickers with a preview |
 | `` <C-x>R ``, `` <C-ret> ``, `` <Meta-ret> `` | `` replace_all `` | Replacement input visible |
 | `` <F1> ``, `` <C-x>? `` | `` show_keybindings `` | Within this component |
-| `` <C-x>f `` | `` toggle_case_sensitive `` | Search pickers with case controls |
+| `` <A-c> ``, `` <C-x>f `` | `` toggle_case_sensitive `` | Search pickers with case controls |
 | `` <C-x>l `` | `` toggle_loading `` | Pickers with paged loading |
-| `` <C-x>p `` | `` toggle_preview `` | Pickers with a preview |
-| `` <C-x>r `` | `` toggle_replacement `` | Search pickers with replacement |
+| `` <C-t> ``, `` <C-x>p `` | `` toggle_preview `` | Pickers with a preview |
+| `` <A-r> ``, `` <C-x>r `` | `` toggle_replacement `` | Search pickers with replacement |
 
 ## Quicklist picker
 
 | Key | Action | Availability |
 | --- | --- | --- |
 | `` <ret> `` | `` accept `` | Within this component |
-| `` <C-x>s `` | `` accept_horizontal_split `` | Pickers that open files or reviews |
+| `` <C-s> ``, `` <C-x>s `` | `` accept_horizontal_split `` | Pickers that open files or reviews |
 | `` <A-ret> ``, `` <C-x><ret> `` | `` accept_keep_open `` | Within this component |
-| `` <C-x>v `` | `` accept_vertical_split `` | Pickers that open files or reviews |
+| `` <C-v> ``, `` <C-x>v `` | `` accept_vertical_split `` | Pickers that open files or reviews |
 | `` <C-c> ``, `` <esc> `` | `` cancel `` | Within this component |
 | `` <C-x>H `` | `` history_next `` | Inputs with query history |
 | `` <C-x>h `` | `` history_previous `` | Inputs with query history |
@@ -84,7 +84,7 @@ Picker-specific tables inherit `[keys.picker]`. Sidebar tables inherit `[keys.fi
 | `` <A-o> ``, `` <C-x>o `` | `` open_preview `` | Pickers with a review preview |
 | `` <pagedown> `` | `` page_down `` | Within this component |
 | `` <pageup> `` | `` page_up `` | Within this component |
-| `` <C-x>q `` | `` populate_quicklist `` | Pickers containing file locations |
+| `` <C-q> ``, `` <C-x>q `` | `` populate_quicklist `` | Pickers containing file locations |
 | `` <A-n> ``, `` <C-x>] ``, `` <A-right> `` | `` preview_next `` | Pickers with a review preview |
 | `` <A-p> ``, `` <C-x>[ ``, `` <A-left> `` | `` preview_previous `` | Pickers with a review preview |
 | `` <A-j> ``, `` <C-x>j ``, `` <A-down> `` | `` preview_scroll_down `` | Pickers with a preview |
@@ -92,19 +92,19 @@ Picker-specific tables inherit `[keys.picker]`. Sidebar tables inherit `[keys.fi
 | `` <C-x>d `` | `` remove_entry `` | Quicklist picker |
 | `` <C-x>R ``, `` <C-ret> ``, `` <Meta-ret> `` | `` replace_all `` | Replacement input visible |
 | `` <F1> ``, `` <C-x>? `` | `` show_keybindings `` | Within this component |
-| `` <C-x>f `` | `` toggle_case_sensitive `` | Search pickers with case controls |
+| `` <A-c> ``, `` <C-x>f `` | `` toggle_case_sensitive `` | Search pickers with case controls |
 | `` <C-x>l `` | `` toggle_loading `` | Pickers with paged loading |
-| `` <C-x>p `` | `` toggle_preview `` | Pickers with a preview |
-| `` <C-x>r `` | `` toggle_replacement `` | Search pickers with replacement |
+| `` <C-t> ``, `` <C-x>p `` | `` toggle_preview `` | Pickers with a preview |
+| `` <A-r> ``, `` <C-x>r `` | `` toggle_replacement `` | Search pickers with replacement |
 
 ## Git picker
 
 | Key | Action | Availability |
 | --- | --- | --- |
 | `` <ret> `` | `` accept `` | Within this component |
-| `` <C-x>s `` | `` accept_horizontal_split `` | Pickers that open files or reviews |
+| `` <C-s> ``, `` <C-x>s `` | `` accept_horizontal_split `` | Pickers that open files or reviews |
 | `` <A-ret> ``, `` <C-x><ret> `` | `` accept_keep_open `` | Within this component |
-| `` <C-x>v `` | `` accept_vertical_split `` | Pickers that open files or reviews |
+| `` <C-v> ``, `` <C-x>v `` | `` accept_vertical_split `` | Pickers that open files or reviews |
 | `` <C-x>a? `` | `` actions `` | Within this component |
 | `` <C-c> ``, `` <esc> `` | `` cancel `` | Within this component |
 | `` <C-x>H `` | `` history_next `` | Inputs with query history |
@@ -117,30 +117,30 @@ Picker-specific tables inherit `[keys.picker]`. Sidebar tables inherit `[keys.fi
 | `` <A-o> ``, `` <C-x>o `` | `` open_preview `` | Pickers with a review preview |
 | `` <pagedown> `` | `` page_down `` | Within this component |
 | `` <pageup> `` | `` page_up `` | Within this component |
-| `` <C-x>q `` | `` populate_quicklist `` | Pickers containing file locations |
+| `` <C-q> ``, `` <C-x>q `` | `` populate_quicklist `` | Pickers containing file locations |
 | `` <A-n> ``, `` <C-x>] ``, `` <A-right> `` | `` preview_next `` | Pickers with a review preview |
 | `` <A-p> ``, `` <C-x>[ ``, `` <A-left> `` | `` preview_previous `` | Pickers with a review preview |
 | `` <A-j> ``, `` <C-x>j ``, `` <A-down> `` | `` preview_scroll_down `` | Pickers with a preview |
 | `` <A-k> ``, `` <A-up> ``, `` <C-x>k `` | `` preview_scroll_up `` | Pickers with a preview |
 | `` <C-x>R ``, `` <C-ret> ``, `` <Meta-ret> `` | `` replace_all `` | Replacement input visible |
 | `` <F1> ``, `` <C-x>? `` | `` show_keybindings `` | Within this component |
-| `` <C-x>as `` | `` stage `` | Git picker |
+| `` <A-s> ``, `` <C-x>as `` | `` stage `` | Git picker |
 | `` <C-x>az `` | `` stash `` | Git picker |
 | `` <C-x>al `` | `` stashes `` | Git picker |
-| `` <C-x>f `` | `` toggle_case_sensitive `` | Search pickers with case controls |
+| `` <A-c> ``, `` <C-x>f `` | `` toggle_case_sensitive `` | Search pickers with case controls |
 | `` <C-x>l `` | `` toggle_loading `` | Pickers with paged loading |
-| `` <C-x>p `` | `` toggle_preview `` | Pickers with a preview |
-| `` <C-x>r `` | `` toggle_replacement `` | Search pickers with replacement |
-| `` <C-x>au `` | `` unstage `` | Git picker |
+| `` <C-t> ``, `` <C-x>p `` | `` toggle_preview `` | Pickers with a preview |
+| `` <A-r> ``, `` <C-x>r `` | `` toggle_replacement `` | Search pickers with replacement |
+| `` <A-u> ``, `` <C-x>au `` | `` unstage `` | Git picker |
 
 ## Branch picker
 
 | Key | Action | Availability |
 | --- | --- | --- |
 | `` <ret> `` | `` accept `` | Within this component |
-| `` <C-x>s `` | `` accept_horizontal_split `` | Pickers that open files or reviews |
+| `` <C-s> ``, `` <C-x>s `` | `` accept_horizontal_split `` | Pickers that open files or reviews |
 | `` <A-ret> ``, `` <C-x><ret> `` | `` accept_keep_open `` | Within this component |
-| `` <C-x>v `` | `` accept_vertical_split `` | Pickers that open files or reviews |
+| `` <C-v> ``, `` <C-x>v `` | `` accept_vertical_split `` | Pickers that open files or reviews |
 | `` <C-c> ``, `` <esc> `` | `` cancel `` | Within this component |
 | `` <C-x>n `` | `` create_branch `` | Branch picker |
 | `` <C-x>d `` | `` delete_branch `` | Branch picker |
@@ -154,26 +154,26 @@ Picker-specific tables inherit `[keys.picker]`. Sidebar tables inherit `[keys.fi
 | `` <A-o> ``, `` <C-x>o `` | `` open_preview `` | Pickers with a review preview |
 | `` <pagedown> `` | `` page_down `` | Within this component |
 | `` <pageup> `` | `` page_up `` | Within this component |
-| `` <C-x>q `` | `` populate_quicklist `` | Pickers containing file locations |
+| `` <C-q> ``, `` <C-x>q `` | `` populate_quicklist `` | Pickers containing file locations |
 | `` <A-n> ``, `` <C-x>] ``, `` <A-right> `` | `` preview_next `` | Pickers with a review preview |
 | `` <A-p> ``, `` <C-x>[ ``, `` <A-left> `` | `` preview_previous `` | Pickers with a review preview |
 | `` <A-j> ``, `` <C-x>j ``, `` <A-down> `` | `` preview_scroll_down `` | Pickers with a preview |
 | `` <A-k> ``, `` <A-up> ``, `` <C-x>k `` | `` preview_scroll_up `` | Pickers with a preview |
 | `` <C-x>R ``, `` <C-ret> ``, `` <Meta-ret> `` | `` replace_all `` | Replacement input visible |
 | `` <F1> ``, `` <C-x>? `` | `` show_keybindings `` | Within this component |
-| `` <C-x>f `` | `` toggle_case_sensitive `` | Search pickers with case controls |
+| `` <A-c> ``, `` <C-x>f `` | `` toggle_case_sensitive `` | Search pickers with case controls |
 | `` <C-x>l `` | `` toggle_loading `` | Pickers with paged loading |
-| `` <C-x>p `` | `` toggle_preview `` | Pickers with a preview |
-| `` <C-x>r `` | `` toggle_replacement `` | Search pickers with replacement |
+| `` <C-t> ``, `` <C-x>p `` | `` toggle_preview `` | Pickers with a preview |
+| `` <A-r> ``, `` <C-x>r `` | `` toggle_replacement `` | Search pickers with replacement |
 
 ## Worktree picker
 
 | Key | Action | Availability |
 | --- | --- | --- |
 | `` <ret> `` | `` accept `` | Within this component |
-| `` <C-x>s `` | `` accept_horizontal_split `` | Pickers that open files or reviews |
+| `` <C-s> ``, `` <C-x>s `` | `` accept_horizontal_split `` | Pickers that open files or reviews |
 | `` <A-ret> ``, `` <C-x><ret> `` | `` accept_keep_open `` | Within this component |
-| `` <C-x>v `` | `` accept_vertical_split `` | Pickers that open files or reviews |
+| `` <C-v> ``, `` <C-x>v `` | `` accept_vertical_split `` | Pickers that open files or reviews |
 | `` <C-c> ``, `` <esc> `` | `` cancel `` | Within this component |
 | `` <C-x>n `` | `` create_worktree `` | Worktree picker |
 | `` <C-x>H `` | `` history_next `` | Inputs with query history |
@@ -187,7 +187,7 @@ Picker-specific tables inherit `[keys.picker]`. Sidebar tables inherit `[keys.fi
 | `` <A-o> ``, `` <C-x>o `` | `` open_preview `` | Pickers with a review preview |
 | `` <pagedown> `` | `` page_down `` | Within this component |
 | `` <pageup> `` | `` page_up `` | Within this component |
-| `` <C-x>q `` | `` populate_quicklist `` | Pickers containing file locations |
+| `` <C-q> ``, `` <C-x>q `` | `` populate_quicklist `` | Pickers containing file locations |
 | `` <A-n> ``, `` <C-x>] ``, `` <A-right> `` | `` preview_next `` | Pickers with a review preview |
 | `` <A-p> ``, `` <C-x>[ ``, `` <A-left> `` | `` preview_previous `` | Pickers with a review preview |
 | `` <A-j> ``, `` <C-x>j ``, `` <A-down> `` | `` preview_scroll_down `` | Pickers with a preview |
@@ -195,10 +195,10 @@ Picker-specific tables inherit `[keys.picker]`. Sidebar tables inherit `[keys.fi
 | `` <C-x>d `` | `` remove_worktree `` | Worktree picker |
 | `` <C-x>R ``, `` <C-ret> ``, `` <Meta-ret> `` | `` replace_all `` | Replacement input visible |
 | `` <F1> ``, `` <C-x>? `` | `` show_keybindings `` | Within this component |
-| `` <C-x>f `` | `` toggle_case_sensitive `` | Search pickers with case controls |
+| `` <A-c> ``, `` <C-x>f `` | `` toggle_case_sensitive `` | Search pickers with case controls |
 | `` <C-x>l `` | `` toggle_loading `` | Pickers with paged loading |
-| `` <C-x>p `` | `` toggle_preview `` | Pickers with a preview |
-| `` <C-x>r `` | `` toggle_replacement `` | Search pickers with replacement |
+| `` <C-t> ``, `` <C-x>p `` | `` toggle_preview `` | Pickers with a preview |
+| `` <A-r> ``, `` <C-x>r `` | `` toggle_replacement `` | Search pickers with replacement |
 | `` <C-x>au `` | `` unlock_worktree `` | Worktree picker |
 
 ## Stash picker
@@ -206,9 +206,9 @@ Picker-specific tables inherit `[keys.picker]`. Sidebar tables inherit `[keys.fi
 | Key | Action | Availability |
 | --- | --- | --- |
 | `` <ret> `` | `` accept `` | Within this component |
-| `` <C-x>s `` | `` accept_horizontal_split `` | Pickers that open files or reviews |
+| `` <C-s> ``, `` <C-x>s `` | `` accept_horizontal_split `` | Pickers that open files or reviews |
 | `` <A-ret> ``, `` <C-x><ret> `` | `` accept_keep_open `` | Within this component |
-| `` <C-x>v `` | `` accept_vertical_split `` | Pickers that open files or reviews |
+| `` <C-v> ``, `` <C-x>v `` | `` accept_vertical_split `` | Pickers that open files or reviews |
 | `` <C-x>a? `` | `` actions `` | Within this component |
 | `` <C-x>as `` | `` apply_stash `` | Stash picker |
 | `` <C-x>ai `` | `` apply_stash_with_index `` | Stash picker |
@@ -223,26 +223,26 @@ Picker-specific tables inherit `[keys.picker]`. Sidebar tables inherit `[keys.fi
 | `` <A-o> ``, `` <C-x>o `` | `` open_preview `` | Pickers with a review preview |
 | `` <pagedown> `` | `` page_down `` | Within this component |
 | `` <pageup> `` | `` page_up `` | Within this component |
-| `` <C-x>q `` | `` populate_quicklist `` | Pickers containing file locations |
+| `` <C-q> ``, `` <C-x>q `` | `` populate_quicklist `` | Pickers containing file locations |
 | `` <A-n> ``, `` <C-x>] ``, `` <A-right> `` | `` preview_next `` | Pickers with a review preview |
 | `` <A-p> ``, `` <C-x>[ ``, `` <A-left> `` | `` preview_previous `` | Pickers with a review preview |
 | `` <A-j> ``, `` <C-x>j ``, `` <A-down> `` | `` preview_scroll_down `` | Pickers with a preview |
 | `` <A-k> ``, `` <A-up> ``, `` <C-x>k `` | `` preview_scroll_up `` | Pickers with a preview |
 | `` <C-x>R ``, `` <C-ret> ``, `` <Meta-ret> `` | `` replace_all `` | Replacement input visible |
 | `` <F1> ``, `` <C-x>? `` | `` show_keybindings `` | Within this component |
-| `` <C-x>f `` | `` toggle_case_sensitive `` | Search pickers with case controls |
+| `` <A-c> ``, `` <C-x>f `` | `` toggle_case_sensitive `` | Search pickers with case controls |
 | `` <C-x>l `` | `` toggle_loading `` | Pickers with paged loading |
-| `` <C-x>p `` | `` toggle_preview `` | Pickers with a preview |
-| `` <C-x>r `` | `` toggle_replacement `` | Search pickers with replacement |
+| `` <C-t> ``, `` <C-x>p `` | `` toggle_preview `` | Pickers with a preview |
+| `` <A-r> ``, `` <C-x>r `` | `` toggle_replacement `` | Search pickers with replacement |
 
 ## History picker
 
 | Key | Action | Availability |
 | --- | --- | --- |
 | `` <ret> `` | `` accept `` | Within this component |
-| `` <C-x>s `` | `` accept_horizontal_split `` | Pickers that open files or reviews |
+| `` <C-s> ``, `` <C-x>s `` | `` accept_horizontal_split `` | Pickers that open files or reviews |
 | `` <A-ret> ``, `` <C-x><ret> `` | `` accept_keep_open `` | Within this component |
-| `` <C-x>v `` | `` accept_vertical_split `` | Pickers that open files or reviews |
+| `` <C-v> ``, `` <C-x>v `` | `` accept_vertical_split `` | Pickers that open files or reviews |
 | `` <C-x>a `` | `` actions `` | Within this component |
 | `` <C-x>b `` | `` back `` | History picker |
 | `` <C-c> ``, `` <esc> `` | `` cancel `` | Within this component |
@@ -256,51 +256,52 @@ Picker-specific tables inherit `[keys.picker]`. Sidebar tables inherit `[keys.fi
 | `` <A-o> ``, `` <C-x>o `` | `` open_preview `` | Pickers with a review preview |
 | `` <pagedown> `` | `` page_down `` | Within this component |
 | `` <pageup> `` | `` page_up `` | Within this component |
-| `` <C-x>q `` | `` populate_quicklist `` | Pickers containing file locations |
+| `` <C-q> ``, `` <C-x>q `` | `` populate_quicklist `` | Pickers containing file locations |
 | `` <A-n> ``, `` <C-x>] ``, `` <A-right> `` | `` preview_next `` | Pickers with a review preview |
 | `` <A-p> ``, `` <C-x>[ ``, `` <A-left> `` | `` preview_previous `` | Pickers with a review preview |
 | `` <A-j> ``, `` <C-x>j ``, `` <A-down> `` | `` preview_scroll_down `` | Pickers with a preview |
 | `` <A-k> ``, `` <A-up> ``, `` <C-x>k `` | `` preview_scroll_up `` | Pickers with a preview |
 | `` <C-x>R ``, `` <C-ret> ``, `` <Meta-ret> `` | `` replace_all `` | Replacement input visible |
 | `` <F1> ``, `` <C-x>? `` | `` show_keybindings `` | Within this component |
-| `` <C-x>f `` | `` toggle_case_sensitive `` | Search pickers with case controls |
+| `` <A-c> ``, `` <C-x>f `` | `` toggle_case_sensitive `` | Search pickers with case controls |
 | `` <C-x>l `` | `` toggle_loading `` | Pickers with paged loading |
-| `` <C-x>p `` | `` toggle_preview `` | Pickers with a preview |
-| `` <C-x>r `` | `` toggle_replacement `` | Search pickers with replacement |
+| `` <C-t> ``, `` <C-x>p `` | `` toggle_preview `` | Pickers with a preview |
+| `` <A-r> ``, `` <C-x>r `` | `` toggle_replacement `` | Search pickers with replacement |
 
 ## File explorer
 
 | Key | Action | Availability |
 | --- | --- | --- |
 | `` <ret> `` | `` accept `` | Within this component |
-| `` <C-x>s `` | `` accept_horizontal_split `` | Pickers that open files or reviews |
+| `` <C-s> ``, `` <C-x>s `` | `` accept_horizontal_split `` | Pickers that open files or reviews |
 | `` <A-ret> ``, `` <C-x><ret> `` | `` accept_keep_open `` | Within this component |
-| `` <C-x>v `` | `` accept_vertical_split `` | Pickers that open files or reviews |
+| `` <C-v> ``, `` <C-x>v `` | `` accept_vertical_split `` | Pickers that open files or reviews |
 | `` <C-c> ``, `` <esc> `` | `` cancel `` | Within this component |
 | `` <C-x>c `` | `` copy_path `` | File explorer and sidebar |
-| `` <C-x>n `` | `` create_path `` | File explorer and sidebar |
+| `` <A-n> ``, `` <C-x>n `` | `` create_path `` | File explorer and sidebar |
 | `` <C-x>d `` | `` delete_path `` | File explorer and sidebar |
 | `` <C-x>H `` | `` history_next `` | Inputs with query history |
 | `` <C-x>h `` | `` history_previous `` | Inputs with query history |
 | `` <C-x>i `` | `` inspect_key `` | Within this component |
 | `` <C-n> ``, `` <tab> ``, `` <down> `` | `` move_down `` | Within this component |
 | `` <C-x>G `` | `` move_end `` | Within this component |
-| `` <C-x>r `` | `` move_path `` | File explorer and sidebar |
+| `` <A-m> ``, `` <C-x>r `` | `` move_path `` | File explorer and sidebar |
 | `` <C-x>g `` | `` move_start `` | Within this component |
 | `` <up> ``, `` <C-p> ``, `` <S-tab> `` | `` move_up `` | Within this component |
 | `` <A-o> ``, `` <C-x>o `` | `` open_preview `` | Pickers with a review preview |
 | `` <pagedown> `` | `` page_down `` | Within this component |
 | `` <pageup> `` | `` page_up `` | Within this component |
-| `` <C-x>q `` | `` populate_quicklist `` | Pickers containing file locations |
-| `` <A-n> ``, `` <C-x>] ``, `` <A-right> `` | `` preview_next `` | Pickers with a review preview |
+| `` <C-q> ``, `` <C-x>q `` | `` populate_quicklist `` | Pickers containing file locations |
+| `` <C-x>] ``, `` <A-right> `` | `` preview_next `` | Pickers with a review preview |
 | `` <A-p> ``, `` <C-x>[ ``, `` <A-left> `` | `` preview_previous `` | Pickers with a review preview |
 | `` <A-j> ``, `` <C-x>j ``, `` <A-down> `` | `` preview_scroll_down `` | Pickers with a preview |
 | `` <A-k> ``, `` <A-up> ``, `` <C-x>k `` | `` preview_scroll_up `` | Pickers with a preview |
 | `` <C-x>R ``, `` <C-ret> ``, `` <Meta-ret> `` | `` replace_all `` | Replacement input visible |
 | `` <F1> ``, `` <C-x>? `` | `` show_keybindings `` | Within this component |
-| `` <C-x>f `` | `` toggle_case_sensitive `` | Search pickers with case controls |
+| `` <A-c> ``, `` <C-x>f `` | `` toggle_case_sensitive `` | Search pickers with case controls |
 | `` <C-x>l `` | `` toggle_loading `` | Pickers with paged loading |
-| `` <C-x>p `` | `` toggle_preview `` | Pickers with a preview |
+| `` <C-t> ``, `` <C-x>p `` | `` toggle_preview `` | Pickers with a preview |
+| `` <A-r> `` | `` toggle_replacement `` | Search pickers with replacement |
 | `` <C-x>y `` | `` yank_path `` | File explorer and sidebar |
 
 ## Sidebar
@@ -308,13 +309,13 @@ Picker-specific tables inherit `[keys.picker]`. Sidebar tables inherit `[keys.fi
 | Key | Action | Availability |
 | --- | --- | --- |
 | `` <ret> `` | `` accept `` | Within this component |
-| `` <C-x>s `` | `` accept_horizontal_split `` | Pickers that open files or reviews |
+| `` <C-s> ``, `` <C-x>s `` | `` accept_horizontal_split `` | Pickers that open files or reviews |
 | `` <A-ret> ``, `` <C-x><ret> `` | `` accept_keep_open `` | Within this component |
-| `` <C-x>v `` | `` accept_vertical_split `` | Pickers that open files or reviews |
+| `` <C-v> ``, `` <C-x>v `` | `` accept_vertical_split `` | Pickers that open files or reviews |
 | `` <C-c> ``, `` <esc> `` | `` cancel `` | Within this component |
-| `` <C-x>c `` | `` copy_path `` | File explorer and sidebar |
-| `` <C-x>n `` | `` create_path `` | File explorer and sidebar |
-| `` <C-x>d `` | `` delete_path `` | File explorer and sidebar |
+| `` c ``, `` <C-x>c `` | `` copy_path `` | File explorer and sidebar |
+| `` n ``, `` <A-n> ``, `` <C-x>n `` | `` create_path `` | File explorer and sidebar |
+| `` d ``, `` <C-x>d `` | `` delete_path `` | File explorer and sidebar |
 | `` / `` | `` filter `` | Within this component |
 | `` <C-e> ``, `` <C-w>l ``, `` <C-w><C-l> ``, `` <C-w><right> `` | `` focus_editor `` | Within this component |
 | `` q ``, `` <C-w>b ``, `` <C-w>q ``, `` <C-w><C-q> `` | `` hide `` | Within this component |
@@ -323,15 +324,15 @@ Picker-specific tables inherit `[keys.picker]`. Sidebar tables inherit `[keys.fi
 | `` <C-x>i `` | `` inspect_key `` | Within this component |
 | `` j ``, `` <C-n> ``, `` <tab> ``, `` <down> `` | `` move_down `` | Within this component |
 | `` <C-x>G `` | `` move_end `` | Within this component |
-| `` <C-x>r `` | `` move_path `` | File explorer and sidebar |
+| `` r ``, `` <A-m> ``, `` <C-x>r `` | `` move_path `` | File explorer and sidebar |
 | `` <C-x>g `` | `` move_start `` | Within this component |
 | `` k ``, `` <up> ``, `` <C-p> ``, `` <S-tab> `` | `` move_up `` | Within this component |
 | `` <C-w>w ``, `` <C-w><C-w> `` | `` next_view `` | Within this component |
 | `` <A-o> ``, `` <C-x>o `` | `` open_preview `` | Pickers with a review preview |
 | `` <pagedown> `` | `` page_down `` | Within this component |
 | `` <pageup> `` | `` page_up `` | Within this component |
-| `` <C-x>q `` | `` populate_quicklist `` | Pickers containing file locations |
-| `` <A-n> ``, `` <C-x>] ``, `` <A-right> `` | `` preview_next `` | Pickers with a review preview |
+| `` <C-q> ``, `` <C-x>q `` | `` populate_quicklist `` | Pickers containing file locations |
+| `` <C-x>] ``, `` <A-right> `` | `` preview_next `` | Pickers with a review preview |
 | `` <A-p> ``, `` <C-x>[ ``, `` <A-left> `` | `` preview_previous `` | Pickers with a review preview |
 | `` <A-j> ``, `` <C-x>j ``, `` <A-down> `` | `` preview_scroll_down `` | Pickers with a preview |
 | `` <A-k> ``, `` <A-up> ``, `` <C-x>k `` | `` preview_scroll_up `` | Pickers with a preview |
@@ -339,22 +340,23 @@ Picker-specific tables inherit `[keys.picker]`. Sidebar tables inherit `[keys.fi
 | `` <C-x>R ``, `` <C-ret> ``, `` <Meta-ret> `` | `` replace_all `` | Replacement input visible |
 | `` <C-w>r `` | `` resize `` | Within this component |
 | `` <F1> ``, `` <C-x>? `` | `` show_keybindings `` | Within this component |
-| `` <C-x>f `` | `` toggle_case_sensitive `` | Search pickers with case controls |
+| `` <A-c> ``, `` <C-x>f `` | `` toggle_case_sensitive `` | Search pickers with case controls |
 | `` <C-x>l `` | `` toggle_loading `` | Pickers with paged loading |
-| `` <C-x>p `` | `` toggle_preview `` | Pickers with a preview |
-| `` <C-x>y `` | `` yank_path `` | File explorer and sidebar |
+| `` <C-t> ``, `` <C-x>p `` | `` toggle_preview `` | Pickers with a preview |
+| `` <A-r> `` | `` toggle_replacement `` | Search pickers with replacement |
+| `` y ``, `` <C-x>y `` | `` yank_path `` | File explorer and sidebar |
 
 ## Sidebar filter
 
 | Key | Action | Availability |
 | --- | --- | --- |
 | `` <ret> `` | `` accept `` | Within this component |
-| `` <C-x>s `` | `` accept_horizontal_split `` | Pickers that open files or reviews |
+| `` <C-s> ``, `` <C-x>s `` | `` accept_horizontal_split `` | Pickers that open files or reviews |
 | `` <A-ret> ``, `` <C-x><ret> `` | `` accept_keep_open `` | Within this component |
-| `` <C-x>v `` | `` accept_vertical_split `` | Pickers that open files or reviews |
+| `` <C-v> ``, `` <C-x>v `` | `` accept_vertical_split `` | Pickers that open files or reviews |
 | `` <C-c> ``, `` <esc> `` | `` cancel `` | Within this component |
 | `` <C-x>c `` | `` copy_path `` | File explorer and sidebar |
-| `` <C-x>n `` | `` create_path `` | File explorer and sidebar |
+| `` <A-n> ``, `` <C-x>n `` | `` create_path `` | File explorer and sidebar |
 | `` <C-x>d `` | `` delete_path `` | File explorer and sidebar |
 | `` <C-e> `` | `` focus_editor `` | Within this component |
 | `` <C-x>H `` | `` history_next `` | Inputs with query history |
@@ -362,22 +364,23 @@ Picker-specific tables inherit `[keys.picker]`. Sidebar tables inherit `[keys.fi
 | `` <C-x>i `` | `` inspect_key `` | Within this component |
 | `` <C-n> ``, `` <tab> ``, `` <down> `` | `` move_down `` | Within this component |
 | `` <C-x>G `` | `` move_end `` | Within this component |
-| `` <C-x>r `` | `` move_path `` | File explorer and sidebar |
+| `` <A-m> ``, `` <C-x>r `` | `` move_path `` | File explorer and sidebar |
 | `` <C-x>g `` | `` move_start `` | Within this component |
 | `` <up> ``, `` <C-p> ``, `` <S-tab> `` | `` move_up `` | Within this component |
 | `` <A-o> ``, `` <C-x>o `` | `` open_preview `` | Pickers with a review preview |
 | `` <pagedown> `` | `` page_down `` | Within this component |
 | `` <pageup> `` | `` page_up `` | Within this component |
-| `` <C-x>q `` | `` populate_quicklist `` | Pickers containing file locations |
-| `` <A-n> ``, `` <C-x>] ``, `` <A-right> `` | `` preview_next `` | Pickers with a review preview |
+| `` <C-q> ``, `` <C-x>q `` | `` populate_quicklist `` | Pickers containing file locations |
+| `` <C-x>] ``, `` <A-right> `` | `` preview_next `` | Pickers with a review preview |
 | `` <A-p> ``, `` <C-x>[ ``, `` <A-left> `` | `` preview_previous `` | Pickers with a review preview |
 | `` <A-j> ``, `` <C-x>j ``, `` <A-down> `` | `` preview_scroll_down `` | Pickers with a preview |
 | `` <A-k> ``, `` <A-up> ``, `` <C-x>k `` | `` preview_scroll_up `` | Pickers with a preview |
 | `` <C-x>R ``, `` <C-ret> ``, `` <Meta-ret> `` | `` replace_all `` | Replacement input visible |
 | `` <F1> ``, `` <C-x>? `` | `` show_keybindings `` | Within this component |
-| `` <C-x>f `` | `` toggle_case_sensitive `` | Search pickers with case controls |
+| `` <A-c> ``, `` <C-x>f `` | `` toggle_case_sensitive `` | Search pickers with case controls |
 | `` <C-x>l `` | `` toggle_loading `` | Pickers with paged loading |
-| `` <C-x>p `` | `` toggle_preview `` | Pickers with a preview |
+| `` <C-t> ``, `` <C-x>p `` | `` toggle_preview `` | Pickers with a preview |
+| `` <A-r> `` | `` toggle_replacement `` | Search pickers with replacement |
 | `` <C-x>y `` | `` yank_path `` | File explorer and sidebar |
 
 ## Prompt
@@ -406,7 +409,6 @@ Picker-specific tables inherit `[keys.picker]`. Sidebar tables inherit `[keys.fi
 | `` <C-a> ``, `` <home> `` | `` move_start `` | Within this component |
 | `` <A-b> ``, `` <C-left> `` | `` move_word_left `` | Within this component |
 | `` <A-f> ``, `` <C-right> `` | `` move_word_right `` | Within this component |
-| `` <C-s> `` | `` save_hint `` | Within this component |
 | `` <F1> `` | `` show_keybindings `` | Within this component |
 
 ## Completion menu

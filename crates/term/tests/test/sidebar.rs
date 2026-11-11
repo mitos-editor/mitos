@@ -919,3 +919,30 @@ async fn shared_resize_records_and_replays_macros() -> anyhow::Result<()> {
     assert!(app.editor.autoinfo.is_none());
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn navigation_letters_act_on_files_and_remain_text_while_filtering() -> anyhow::Result<()> {
+    if super::helpers::isolation::workspace(
+        "test::sidebar::navigation_letters_act_on_files_and_remain_text_while_filtering",
+    )?
+    .is_none()
+    {
+        return Ok(());
+    }
+    let (mut app, _dir, root) = sidebar().await?;
+    keys(&mut app, "nnrcdy.txt<ret>").await?;
+    assert!(root.join("nrcdy.txt").is_file());
+    keys(&mut app, "/nrcdy.txt<ret>y").await?;
+    assert!(app
+        .editor
+        .first_register_value('"')
+        .unwrap()
+        .ends_with("nrcdy.txt"));
+    keys(&mut app, "r-new<ret>").await?;
+    assert!(!root.join("nrcdy.txt").exists());
+    assert!(root.join("nrcdy-new.txt").is_file());
+    assert!(root.join("a.txt").is_file());
+    assert!(root.join("b.txt").is_file());
+    assert!(app.close().await.is_empty());
+    Ok(())
+}

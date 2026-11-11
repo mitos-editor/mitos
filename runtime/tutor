@@ -1560,9 +1560,9 @@ letters! that is not good grammar. you can fix this.
 
  Select any file you like in the file picker. You could open it in
  the current view by pressing enter (do not do this at present).
- But you can also open it in a new split. Press Ctrl-x v to open
+ But you can also open it in a new split. Press Ctrl-v to open
  the selected file in a new vertical split. Press space f again,
- select any file you want, and press Ctrl-x s to open it in a
+ select any file you want, and press Ctrl-s to open it in a
  horizontal split.
 
  Move back to the tutor split, and press Ctrl-w o to close all
@@ -1584,8 +1584,8 @@ letters! that is not good grammar. you can fix this.
  :hs FILENAME commands.
 
  Splits can also be used directly from the file pickers, by using
- Ctrl-x v to open the file selected in a new vertical split, and
- Ctrl-x s in a horizontal split.
+ Ctrl-v to open the file selected in a new vertical split, and
+ Ctrl-s in a horizontal split.
 
 
 
@@ -1654,7 +1654,7 @@ letters! that is not good grammar. you can fix this.
 
 
 =================================================================
- In pickers, Ctrl-x shows available actions. F1 lists bindings.
+ In pickers, Ctrl-shows available actions. F1 lists bindings.
  Ctrl-g k browses editor bindings; Ctrl-g i inspects a key.
 
  This tutorial is still a work-in-progress.

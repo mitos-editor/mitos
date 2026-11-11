@@ -618,3 +618,50 @@ async fn signature_popup_uses_its_border_for_documentation_separators() -> anyho
     assert!(fixture.app.close().await.is_empty());
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn default_picker_split_shortcuts_match_the_action_menu() -> anyhow::Result<()> {
+    let mut fixture = Fixture::new("")?;
+    let picked = Rc::new(RefCell::new(Vec::new()));
+    let recorded = picked.clone();
+    let mut picker = Picker::new(
+        fixture.app.editor.redraw().clone(),
+        [PickerColumn::new("name", |item: &OptionItem, _| {
+            item.0.into()
+        })],
+        0,
+        [OptionItem("one")],
+        (),
+        move |_, _, action| recorded.borrow_mut().push(action),
+    )
+    .with_preview(|_, _| None);
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        loop {
+            let area = Rect::new(0, 0, 80, 24);
+            picker.update_and_render(area, &mut Buffer::empty(area), &mut fixture.context());
+            if picker.selection().is_some() {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await?;
+    for key in ["C-s", "C-v"] {
+        closes(fixture.key(&mut picker, key));
+    }
+    for key in ["s", "v"] {
+        consumed(fixture.key(&mut picker, "C-x"));
+        closes(fixture.key(&mut picker, key));
+    }
+    assert!(matches!(
+        picked.borrow().as_slice(),
+        [
+            view::editor::Action::HorizontalSplit,
+            view::editor::Action::VerticalSplit,
+            view::editor::Action::HorizontalSplit,
+            view::editor::Action::VerticalSplit
+        ]
+    ));
+    assert!(fixture.app.close().await.is_empty());
+    Ok(())
+}

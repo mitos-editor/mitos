@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::compositor::DrawContext;
+use editor_core::unicode::width::UnicodeWidthStr;
 
 impl<T: Send + Sync + 'static, D: Send + Sync + 'static> Picker<T, D> {
     pub(in crate::ui) fn query_contexts(
@@ -132,38 +133,60 @@ impl<T: Send + Sync + 'static, D: Send + Sync + 'static> Picker<T, D> {
                 (PickerAction::Item(PickerItemAction::YankPath), "yank path"),
             ]);
         }
+        actions.extend([
+            (PickerAction::AcceptHorizontalSplit, "split below"),
+            (PickerAction::AcceptVerticalSplit, "split right"),
+            (PickerAction::TogglePreview, "preview"),
+            (PickerAction::PopulateQuicklist, "quicklist"),
+        ]);
         if self.show_preview && self.file_fn.is_some() && self.custom_preview.is_none() {
             actions.extend([
                 (PickerAction::PreviewScrollDown, "scroll preview down"),
                 (PickerAction::PreviewScrollUp, "scroll preview up"),
             ]);
         }
-        let mut prefixes: Vec<_> = keys
+        let menu = keys
             .0
             .iter()
             .filter(|(_, binding)| matches!(binding, ui_core::keymap::Binding::Keys(_)))
-            .map(|(key, _)| format!("{} actions", key.key_sequence_format()))
-            .collect();
-        prefixes.sort();
-        let mut hints = prefixes;
-        hints.extend(
-            self.help
-                .map_or_else(Vec::new, |help| help(&cx.config.component_keys)),
-        );
+            .map(|(key, _)| key.key_sequence_format())
+            .min_by_key(|key| (key != "<C-x>", key.len(), key.clone()))
+            .map(|key| format!("{key} actions"));
+        let mut hints = self
+            .help
+            .map_or_else(Vec::new, |help| help(&cx.config.component_keys));
         hints.extend(actions.into_iter().filter_map(|(action, label)| {
+            if !self.action_available(&cx.config.component_keys, action) {
+                return None;
+            }
             let key = crate::keymap::component::action_hint(keys, &action);
             (key != "unbound").then(|| format!("{key} {label}"))
         }));
-        if hints.is_empty() {
+        if hints.is_empty() && menu.is_none() {
             return;
         }
         let width = area.width.saturating_sub(4) as usize;
+        let mut visible = Vec::new();
+        let mut used = menu.as_deref().map_or(0, UnicodeWidthStr::width);
+        for hint in hints {
+            if visible.contains(&hint) {
+                continue;
+            }
+            let extra = hint.width() + if used == 0 { 0 } else { 3 };
+            if used + extra <= width {
+                used += extra;
+                visible.push(hint);
+            }
+        }
+        if let Some(menu) = menu {
+            visible.push(menu);
+        }
         // Use the existing bottom border so hints never consume result rows.
         let top = area.bottom() - 1;
         surface.set_stringn(
             area.x + 2,
             top,
-            hints.join(" · "),
+            visible.join(" · "),
             width,
             cx.editor.theme.get("ui.text.inactive"),
         );

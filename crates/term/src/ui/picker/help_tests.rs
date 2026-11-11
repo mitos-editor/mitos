@@ -55,7 +55,8 @@ async fn picker_specific_hints_follow_live_visibility_and_use_at_most_one_row() 
 }
 
 #[tokio::test]
-async fn file_pickers_show_scroll_hints_without_losing_result_space() -> anyhow::Result<()> {
+async fn file_pickers_show_direct_actions_and_menu_without_losing_result_space(
+) -> anyhow::Result<()> {
     let mut app = test::application(false)?;
     let config = AppConfig::default();
     let dir = tempfile::tempdir()?;
@@ -66,17 +67,18 @@ async fn file_pickers_show_scroll_hints_without_losing_result_space() -> anyhow:
     })
     .await?;
     let visible = frame(&mut picker, &mut app, &config);
-    for generic in ["<ret> open", "split below", "split right", "quicklist"] {
-        assert!(!visible.contains(generic), "unexpected {generic:?}");
-    }
-    assert!(visible.contains("<A-j> scroll preview down"));
+    assert!(visible.contains("<C-s> split below"), "{visible}");
     assert!(visible.contains("<C-x> actions"));
     let visible_rows = picker.completion_height;
     picker.toggle_preview();
-    assert!(!frame(&mut picker, &mut app, &config).contains("scroll preview"));
+    let hidden_preview = frame(&mut picker, &mut app, &config);
+    assert!(hidden_preview.contains("<C-s> split below"));
+    assert!(hidden_preview.contains("<C-x> actions"));
     picker.toggle_preview();
     set_hints(&mut app, false);
-    assert!(!frame(&mut picker, &mut app, &config).contains("scroll preview"));
+    let hidden_hints = frame(&mut picker, &mut app, &config);
+    assert!(!hidden_hints.contains("split below"));
+    assert!(!hidden_hints.contains("<C-x> actions"));
     assert_eq!(picker.completion_height, visible_rows);
     Ok(())
 }
@@ -179,5 +181,57 @@ async fn picker_specializations_preserve_query_editing_and_show_available_prefix
         picker.handle_event(&Event::Key("x".parse()?), &mut cx);
         assert_eq!(picker.prompt.line(), "x");
     }
+    Ok(())
+}
+
+#[tokio::test]
+async fn git_shortcuts_and_menu_routes_operate_on_the_same_selected_item() -> anyhow::Result<()> {
+    use std::{cell::RefCell, rc::Rc};
+    let mut app = test::application(false)?;
+    let actions = Rc::new(RefCell::new(Vec::new()));
+    let recorded = actions.clone();
+    let mut picker = Picker::new(
+        app.editor.redraw().clone(),
+        [Column::new("item", |_: &u8, _: &()| "file".into())],
+        0,
+        [1],
+        (),
+        |_, _, _| {},
+    )
+    .with_item_actions(
+        |maps| &maps.git_picker,
+        move |_, item, action| {
+            recorded.borrow_mut().push((*item.unwrap(), action));
+            PickerCallbackResult::KeepOpen
+        },
+    );
+    test::until(&mut picker, &mut app, |picker| picker.selection().is_some()).await?;
+    let config = AppConfig::default();
+    let updates = tokio::sync::mpsc::unbounded_channel().0;
+    let mut jobs = crate::job::Jobs::new();
+    let mut cx = Context {
+        config: crate::config::Context {
+            current: &config,
+            updates: &updates,
+        },
+        editor: &mut app.editor,
+        interaction: &mut app.interaction,
+        jobs: &mut jobs,
+        scroll: None,
+        image_picker: None,
+        is_cursor_owner: true,
+    };
+    for key in ["A-s", "A-u", "C-x", "a", "s", "C-x", "a", "u"] {
+        picker.handle_event(&Event::Key(key.parse()?), &mut cx);
+    }
+    assert_eq!(
+        *actions.borrow(),
+        [
+            (1, PickerItemAction::Stage),
+            (1, PickerItemAction::Unstage),
+            (1, PickerItemAction::Stage),
+            (1, PickerItemAction::Unstage)
+        ]
+    );
     Ok(())
 }

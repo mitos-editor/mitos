@@ -874,9 +874,6 @@ impl Prompt {
                 PromptAction::InspectKey => {
                     return EventResult::Consumed(Some(Box::new(ui::keybindings::inspect)))
                 }
-                PromptAction::SaveHint => cx
-                    .editor
-                    .set_status("Return to the editor to save with Ctrl-s"),
                 PromptAction::Cancel => {
                     (self.callback_fn)(cx, &self.line, PromptEvent::Abort);
                     return close_fn();
