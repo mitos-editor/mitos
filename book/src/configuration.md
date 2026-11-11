@@ -787,8 +787,8 @@ breakpoints; the code-action gutter indicates available actions.
 
 | Key | Type | Default | Description |
 | --- | --- | --- | --- |
-| `enable` | boolean | `true` | Move to the end of the parent syntax node when non-whitespace precedes the cursor; otherwise insert indentation. |
-| `supersede-menu` | boolean | `false` | Give smart-tab precedence over completion-menu navigation. |
+| `enable` | boolean | `false` | Move to the end of the parent syntax node when non-whitespace precedes the cursor; otherwise insert indentation. |
+| `supersede-menu` | boolean | `false` | Give smart-tab precedence over remapped completion-menu navigation. Explicit acceptance, including the default Tab binding, takes priority. |
 
 ### `[editor.inline-blame]`
 

@@ -388,7 +388,7 @@ impl Keymaps {
         let keymaps = &*self.map();
         let keymap = &keymaps[&mode];
 
-        if key!(Esc) == key {
+        if key!(Esc) == key || crate::ctrl!('c') == key {
             if !self.state.is_empty() {
                 // Note that Esc is not included here
                 return KeymapResult::Cancelled(self.state.drain(..).collect());

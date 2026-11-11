@@ -451,7 +451,7 @@ impl Default for ComponentKeymaps {
                 ("S-tab", M::MoveUp),
                 ("up", M::MoveUp),
                 ("C-p", M::MoveUp),
-                ("tab", M::MoveDown),
+                ("tab", M::Accept),
                 ("down", M::MoveDown),
                 ("C-n", M::MoveDown),
                 ("pageup", M::PageUp),

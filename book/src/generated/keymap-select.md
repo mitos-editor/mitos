@@ -124,7 +124,7 @@
 | `` <C-k> `` | Move current line selection up | `` move_lines_up `` |
 | `` <C-j> `` | Move current line selection down | `` move_lines_down `` |
 | `` <C-w> `` | Window | Prefix |
-| `` <C-c> `` | Comment/uncomment selections | `` toggle_comments `` |
+| `` <C-c> `` | Enter normal mode | `` normal_mode `` |
 | `` <C-i> `` | Jump forward on jumplist | `` jump_forward `` |
 | `` <tab> `` | Jump forward on jumplist | `` jump_forward `` |
 | `` <C-o> `` | Jump backward on jumplist | `` jump_backward `` |

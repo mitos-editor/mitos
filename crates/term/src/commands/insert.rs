@@ -1,8 +1,6 @@
 //! Character and line insertion, indentation, comment continuation, and insert-mode deletion.
 
-use super::{
-    context::Context, mode::insert_mode, snippets::goto_next_tabstop, syntax::move_parent_node_end,
-};
+use super::{context::Context, mode::insert_mode, syntax::move_parent_node_end};
 use crate::key;
 use editor_config::SmartTabConfig;
 use insert::LineBoundary;
@@ -24,6 +22,10 @@ pub(crate) fn try_insert_char(cx: &mut Context, c: char) -> Result<(), view::edi
 }
 
 pub fn smart_tab(cx: &mut Context) {
+    if doc!(cx.editor).active_snippet().is_some() {
+        super::snippets::goto_next_tabstop(cx);
+        return;
+    }
     let (view, doc) = current_ref!(cx.editor);
     let view_id = view.id;
 
@@ -40,16 +42,20 @@ pub fn smart_tab(cx: &mut Context) {
         });
 
         if !cursors_after_whitespace {
-            if doc.active_snippet().is_some() {
-                goto_next_tabstop(cx);
-            } else {
-                move_parent_node_end(cx);
-            }
+            move_parent_node_end(cx);
             return;
         }
     }
 
     insert_tab(cx);
+}
+
+pub fn smart_backtab(cx: &mut Context) {
+    if doc!(cx.editor).active_snippet().is_some() {
+        super::snippets::goto_prev_tabstop(cx);
+    } else {
+        super::editing::unindent(cx);
+    }
 }
 
 pub fn insert_tab(cx: &mut Context) {

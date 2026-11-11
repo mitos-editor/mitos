@@ -187,13 +187,13 @@ impl Completion {
                     .handlers()
                     .trigger_signature_help(SignatureHelpInvoked::Automatic, editor);
             }
-        });
+        })
+        .with_first_item_acceptance();
 
         let popup = Popup::new(Self::ID, menu)
             .with_border(panel::PopupBorder::Completion)
             .menu_style()
-            .with_scrollbar(false)
-            .ignore_escape_key(true);
+            .with_scrollbar(false);
 
         let (view, doc) = current_ref!(editor);
         let text = doc.text().slice(..);

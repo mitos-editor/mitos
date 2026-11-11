@@ -658,7 +658,7 @@ async fn test_indent_with_spaces() -> anyhow::Result<()> {
                 FROM #(table|)#
                 WHERE #(condition|)#
             "},
-            "i<S-tab>",
+            "i<tab>",
             indoc! {"\
                 SELECT  #[|*]#
                 FROM    #(|table)#

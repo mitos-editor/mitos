@@ -7,17 +7,7 @@ fn definitions() -> Catalog {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn named_snippets_and_choice_commands_work_through_terminal_keymaps() -> anyhow::Result<()> {
-    let source = r#"
-        [keys.insert]
-        A-j = "snippet_next_choice"
-        A-k = "snippet_previous_choice"
-    "#;
-    let source = source.to_owned();
-    let mut config = test_config();
-    config.keys = Config::load(Ok(&source), Err(term::config::ConfigLoadError::default()))
-        .unwrap()
-        .keys;
-    let mut app = AppBuilder::new().with_config(config).build()?;
+    let mut app = AppBuilder::new().build()?;
     app.editor.set_snippet_catalog(definitions());
     test_key_sequences(
         &mut app,
@@ -33,7 +23,7 @@ async fn named_snippets_and_choice_commands_work_through_terminal_keymaps() -> a
                 }),
             ),
             (
-                Some("<A-j>"),
+                Some("<C-g>n"),
                 Some(&|app| {
                     assert!(view::doc!(app.editor)
                         .text()
@@ -42,7 +32,7 @@ async fn named_snippets_and_choice_commands_work_through_terminal_keymaps() -> a
                 }),
             ),
             (
-                Some("<A-k>"),
+                Some("<C-g>p"),
                 Some(&|app| {
                     assert!(view::doc!(app.editor)
                         .text()
@@ -139,7 +129,7 @@ async fn manual_completion_accepts_a_prefix_ending_in_punctuation() -> anyhow::R
                 Some(&|app| assert!(view::features::completion::is_shown(&app.editor))),
             ),
             (
-                Some("<tab><ret>"),
+                Some("<tab>"),
                 Some(&|app| {
                     assert_eq!(
                         view::doc!(app.editor).text().to_string().trim_end(),
@@ -151,4 +141,35 @@ async fn manual_completion_accepts_a_prefix_ending_in_punctuation() -> anyhow::R
         false,
     )
     .await
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn snippet_tabs_navigate_whitespace_with_smart_tab_disabled() -> anyhow::Result<()> {
+    let mut app = AppBuilder::new().build()?;
+    assert!(
+        !app.editor
+            .config()
+            .indent
+            .smart_tab
+            .as_ref()
+            .unwrap()
+            .enable
+    );
+    app.editor.set_snippet_catalog(Catalog::parse(
+        "[[snippet]]\nname='Blank'\nbody='''$1\n$2\n$0''' ",
+    )?);
+    helpers::keys(&mut app, ":snippet-insert Blank<ret>").await?;
+    let cursor = |app: &term::application::TestApplication| {
+        let (view, doc) = view::current_ref!(app.editor);
+        doc.selection(view.id).primary().head
+    };
+    let first = cursor(&app);
+    let text = view::doc!(app.editor).text().to_string();
+    helpers::keys(&mut app, "<tab>").await?;
+    assert!(cursor(&app) > first);
+    helpers::keys(&mut app, "<S-tab>").await?;
+    assert_eq!(cursor(&app), first);
+    assert_eq!(view::doc!(app.editor).text().to_string(), text);
+    assert!(app.close().await.is_empty());
+    Ok(())
 }

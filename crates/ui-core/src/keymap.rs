@@ -143,6 +143,10 @@ pub struct KeymapState {
 }
 
 impl KeymapState {
+    pub fn pending(&self) -> &[KeyEvent] {
+        &self.pending
+    }
+
     pub fn clear(&mut self) {
         self.pending.clear();
     }
@@ -157,7 +161,10 @@ impl KeymapState {
     }
 
     pub fn lookup<'a, A>(&mut self, map: &'a Keymap<A>, mut key: KeyEvent) -> Lookup<'a, A> {
-        if self.is_pending() && key.code == KeyCode::Esc && key.modifiers == KeyModifiers::NONE {
+        if self.is_pending()
+            && ((key.code == KeyCode::Esc && key.modifiers == KeyModifiers::NONE)
+                || (key.code == KeyCode::Char('c') && key.modifiers == KeyModifiers::CONTROL))
+        {
             self.clear();
             return Lookup::Actions(&[]);
         }

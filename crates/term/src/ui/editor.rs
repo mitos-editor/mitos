@@ -581,6 +581,13 @@ impl EditorView {
     }
     fn on_next_key(&mut self, ctx: &mut commands::Context, event: KeyEvent) -> bool {
         if let Some(callback) = self.on_next_key.take() {
+            // Literal-input commands must not interpret cancellation as a
+            // character, delimiter, or register name.
+            let event = if event == crate::ctrl!('c') {
+                key!(Esc)
+            } else {
+                event
+            };
             callback(ctx, event);
             true
         } else {

@@ -1049,8 +1049,8 @@ impl Component for Prompt {
 
         // Register selection reads a literal character before consulting bindings.
         if self.next_char_handler.is_some()
-            && event.code == KeyCode::Esc
-            && event.modifiers.is_empty()
+            && ((event.code == KeyCode::Esc && event.modifiers.is_empty())
+                || (event.code == KeyCode::Char('c') && event.modifiers == KeyModifiers::CONTROL))
         {
             self.next_char_handler = None;
             self.recalculate_completion(cx.editor);
