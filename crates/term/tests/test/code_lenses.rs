@@ -206,6 +206,25 @@ async fn multiple_servers_resolve_and_cache_their_own_lenses() -> anyhow::Result
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn lenses_with_multi_line_ranges_anchor_to_their_first_line() -> anyhow::Result<()> {
+    let mut fixture = Fixture::new(&["alpha"], &["--multi-line"]).await?;
+    let doc = fixture.app.editor.document(fixture.doc).unwrap();
+    assert_eq!(doc.code_lenses().len(), 2);
+    assert!(doc.code_lenses().iter().all(|lens| lens.char_idx == 2));
+    let resolved = fixture.resolve().await;
+    assert_eq!(
+        resolved
+            .commands
+            .iter()
+            .map(|lens| lens.command.title.as_str())
+            .collect::<Vec<_>>(),
+        ["next line", "past end"]
+    );
+    assert!(fixture.app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn unsupported_resolution_is_skipped_and_null_response_clears_cache() -> anyhow::Result<()> {
     let mut fixture = Fixture::new(&["alpha"], &["--no-resolve"]).await?;
     let resolved = fixture.resolve().await;

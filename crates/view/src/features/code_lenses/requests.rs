@@ -78,15 +78,15 @@ fn request_document_code_lenses(
                 let lenses: Vec<_> = lenses
                     .into_iter()
                     .filter_map(|lens| {
+                        // Servers such as haskell-language-server send multi-line ranges (an eval lens spans every `-- >>>` line of its block).
                         if lens.range.start > lens.range.end
-                            || lens.range.start.line != lens.range.end.line
-                            || lens.range.end.line as usize >= text.len_lines(stdx::rope::LINE_TYPE)
+                            || lens.range.start.line as usize
+                                >= text.len_lines(stdx::rope::LINE_TYPE)
                         {
                             return None;
                         }
                         let char_idx =
                             lsp_client::util::lsp_pos_to_pos(&text, lens.range.start, encoding)?;
-                        lsp_client::util::lsp_pos_to_pos(&text, lens.range.end, encoding)?;
                         Some(CodeLens {
                             char_idx,
                             lens,
