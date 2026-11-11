@@ -97,6 +97,8 @@ Press `:` to enter command mode:
 
 ## Where to go next
 
+- Follow [Editing effectively](./editing-effectively.md) for a series of worked
+  examples, from selecting code to reviewing your changes in Git.
 - Read [Files, buffers, and splits](./files.md) to work with several documents.
 - Keep the [Keymap](./keymap.md) open as a reference while learning.
 - Set up [language servers](./lsp.md) for completion, diagnostics, and code actions.

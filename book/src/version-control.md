@@ -2,6 +2,9 @@
 
 Press `Space g` to choose a version-control action.
 
+For a walkthrough from an edit to a staged change, start with
+[Review and stage changes](./editing-effectively/version-control.md).
+
 Version-control commands use the `vcs_` prefix in keybindings and `vcs-` in command mode.
 Commands that open pickers use the `_picker` suffix in keybindings. Git is
 currently the only supported provider.

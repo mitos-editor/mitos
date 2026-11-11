@@ -14,13 +14,22 @@ counting characters:
 | `Alt-a` | Select all siblings |
 | `Alt-I` | Select all children |
 
-For example, select `arg1` in `func(arg1, arg2, arg3)`. `Alt-n` selects
-`arg2`; `Alt-o` expands to the argument list. You can then copy, replace, or
-surround the selected structure using the usual editing commands.
+For example, select `arg1` in `func(arg1, arg2, arg3)`. Sibling motions include
+punctuation: `Alt-n` selects the comma, and pressing it again selects `arg2`.
+`Alt-o` expands to the argument list. You can then copy, replace, or surround
+the selected structure using the usual editing commands.
+
+`Alt-a` and `Alt-I` create separate selections for sibling or child structures.
+In an argument list or array, these commands select the values without commas
+or brackets. Expansion history lets `Alt-i` retrace recent `Alt-o` steps. After
+another selection command or an edit clears that history, shrinking selects a
+child instead.
 
 These motions need a syntax grammar for the current language. Use
 [textobjects](./textobjects.md) when you want a specific kind of structure,
 such as a function or parameter.
+For worked examples of functions, siblings, parents, and children, see
+[Edit code with textobjects](./editing-effectively/textobjects.md#move-between-siblings).
 
 ## How structures relate
 
@@ -32,6 +41,7 @@ func(arg1, arg2, arg3);
 ```
 
 A function call might be parsed by tree-sitter into a tree like the following.
+This simplified view leaves out punctuation nodes such as parentheses and commas.
 
 ```tsq
 (call
@@ -62,8 +72,8 @@ a more intuitive tree format:
    └──────────┘  └──────────┘  └──────────┘
 ```
 
-If you have a selection that wraps `arg1` (see the tree above), and you use
-`Alt-n`, it will select the next sibling in the syntax tree: `arg2`.
+If you have a selection that wraps `arg1` (see the tree above), `Alt-n` first
+selects the comma. Press it a second time to select `arg2`:
 
 ```js
 // before
@@ -79,11 +89,10 @@ arguments node.
 func[(arg1, arg2, arg3)];
 ```
 
-There is also some nuanced behavior that prevents you from getting stuck on a
-node with no sibling. When using `Alt-p` with a selection on `arg1`, the previous
-child node will be selected. In the event that `arg1` does not have a previous
-sibling, the selection will move up the syntax tree and select the previous
-element. As a result, using `Alt-p` with a selection on `arg1` will move the
-selection to the "func" `identifier`.
+When there is no sibling in the requested direction, the motion moves up the
+tree until it finds one. From `arg1`, `Alt-p` first selects the opening
+parenthesis. Pressing `Alt-p` again moves out of the argument list and selects
+`func`. The selected pieces depend on the language grammar; inspect the
+highlight before applying an edit.
 
 [lang-support]: ./lang-support.md

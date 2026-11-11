@@ -18,7 +18,9 @@ ms --tutor
 ```
 
 Or follow [Basics](./basics.md) to open a file, edit text, save, and quit.
-Keep the [keymap](./keymap.md) nearby while learning.
+Then follow [Editing effectively](./editing-effectively.md), a series of
+practical articles on editing code, repeating changes, navigating projects,
+and working with Git. Keep the [keymap](./keymap.md) nearby while learning.
 
 ## What you can do
 
