@@ -29,6 +29,7 @@ pub(crate) struct Paged<T, C> {
     loaded: usize,
     bytes: usize,
     budget: usize,
+    loading_controls: bool,
     replacement: Option<(usize, Vec<T>)>,
     suspend_cursor: Option<fn(&C)>,
 }
@@ -54,9 +55,16 @@ impl<T: Send + 'static, C: Clone + Send + 'static> Paged<T, C> {
             loaded: 0,
             bytes: 0,
             budget: INITIAL_BUDGET,
+            loading_controls: true,
             replacement: None,
             suspend_cursor: None,
         }
+    }
+
+    /// Keep demand-driven paging, but load without a manual stop or memory pause.
+    pub fn automatic(mut self) -> Self {
+        self.loading_controls = false;
+        self
     }
 
     pub fn with_suspend(mut self, suspend: fn(&C)) -> Self {
@@ -97,7 +105,7 @@ impl<T: Send + 'static, C: Clone + Send + 'static> Paged<T, C> {
             }
         }
         let mut force = false;
-        if cx.toggle_loading && self.cursor.is_some() {
+        if self.loading_controls && cx.toggle_loading && self.cursor.is_some() {
             match self.state {
                 State::Paused | State::Failed => {
                     if self.bytes >= self.budget {
@@ -139,7 +147,7 @@ impl<T: Send + 'static, C: Clone + Send + 'static> Paged<T, C> {
                         self.cursor = page.next;
                         self.state = if self.cursor.is_none() {
                             State::Complete
-                        } else if self.bytes >= self.budget {
+                        } else if self.loading_controls && self.bytes >= self.budget {
                             State::Paused
                         } else {
                             State::More
@@ -195,7 +203,8 @@ impl<T: Send + 'static, C: Clone + Send + 'static> Paged<T, C> {
                     "Memory budget reached; continue to load more"
                 }
                 State::Paused => "Loading paused; continue to load more",
-                State::Failed => "Results incomplete; retry loading",
+                State::Failed if self.loading_controls => "Results incomplete; retry loading",
+                State::Failed => "Results incomplete; loading failed",
             }
             .into(),
         );
@@ -308,6 +317,62 @@ mod tests {
         assert!(matches!(h.next(&mut p).await, Update::Append(rows) if rows == [2, 3]));
         assert!(matches!(h.next(&mut p).await, Update::Append(rows) if rows == [4, 5]));
         assert!(!h.incomplete);
+    }
+
+    #[tokio::test]
+    async fn automatic_pages_ignore_manual_controls_and_the_memory_budget() {
+        let mut h = Harness::new();
+        let mut p = pages().automatic();
+        p.budget = 20;
+        h.poll(&mut p, "needle", false, false);
+        h.poll(&mut p, "needle", true, false);
+        assert!(matches!(h.next(&mut p).await, Update::Append(rows) if rows == [0, 1]));
+        assert_eq!(p.state, State::More);
+        assert!(matches!(h.next(&mut p).await, Update::Append(rows) if rows == [2, 3]));
+        assert!(matches!(h.next(&mut p).await, Update::Append(rows) if rows == [4, 5]));
+        assert!(!h.incomplete);
+    }
+
+    #[tokio::test]
+    async fn automatic_page_failure_is_terminal_and_keeps_published_rows() {
+        let mut h = Harness::new();
+        let attempts = Arc::new(AtomicUsize::new(0));
+        let calls = attempts.clone();
+        let mut p = Paged::new(
+            Some(0),
+            ["More", "Loading", "Complete"],
+            |_| 10,
+            move |offset, _cancel| {
+                calls.fetch_add(1, Ordering::Relaxed);
+                Box::pin(async move {
+                    anyhow::ensure!(offset == 0, "page failed");
+                    Ok(Page {
+                        rows: vec![0],
+                        next: Some(1),
+                    })
+                })
+            },
+        )
+        .automatic();
+        assert!(matches!(h.next(&mut p).await, Update::Append(rows) if rows == [0]));
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            while p.state != State::Failed {
+                assert!(h.poll(&mut p, "needle", false, false).is_none());
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        assert!(h.incomplete);
+        assert_eq!(
+            h.status.as_deref(),
+            Some("Results incomplete; loading failed")
+        );
+        assert!(h.poll(&mut p, "needle", true, false).is_none());
+        assert!(h.poll(&mut p, "needle", false, true).is_none());
+        assert_eq!(p.state, State::Failed);
+        assert!(!p.is_pending());
+        assert_eq!(attempts.load(Ordering::Relaxed), 2);
     }
 
     #[tokio::test]

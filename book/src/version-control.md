@@ -404,8 +404,8 @@ back. The status below the search field shows whether more history is available
 or loading.
 
 A `?` in the result count, such as `80/?`, means the full history has not loaded.
-History has no fixed commit-count limit. For loading controls and memory pauses,
-see [loading large collections](./pickers.md#loading-large-collections).
+For loading controls, see
+[loading large collections](./pickers.md#loading-large-collections).
 
 ### File history
 

@@ -1542,7 +1542,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                 }
                 PickerAction::ToggleLoading => {
                     if let Some(updates) = &mut self.editor_updates
-                        && updates.paged
+                        && updates.loading_controls
                     {
                         updates.toggle_loading = true;
                         self.redraw.request();
