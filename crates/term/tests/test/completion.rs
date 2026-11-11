@@ -234,6 +234,23 @@ impl Fixture {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn escape_rejects_completion_before_leaving_insert_mode() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let mut f = Fixture::new(dir.path(), "😀 ap\n", &["alpha"]).await?;
+    f.show().await?;
+    f.key("<C-n>").await?;
+    assert_eq!(f.presentation_text(), "😀 apricot\n");
+    f.key("<esc>").await?;
+    assert_eq!(f.text(), "😀 ap\n");
+    assert_eq!(f.app.editor.mode(), Mode::Insert);
+    assert!(!completion::is_shown(&f.app.editor));
+    f.key("<esc>").await?;
+    assert_eq!(f.app.editor.mode(), Mode::Normal);
+    assert!(f.app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn shared_providers_preserve_protocol_ordering_and_incomplete_refresh() -> anyhow::Result<()>
 {
     let dir = tempfile::tempdir()?;
@@ -815,12 +832,12 @@ async fn postfix_snippet_previews_switch_cancel_accept_and_undo() -> anyhow::Res
     let original = "// postfix\n/* 😀 */ x.f\n";
     let mut f = Fixture::new(dir.path(), original, &["alpha"]).await?;
     f.show().await?;
-    f.key("<tab>").await?;
+    f.key("<C-n>").await?;
     assert_eq!(
         f.presentation_text(),
         "// postfix\n/* 😀 */ for i := range x {\n\t\n}\n"
     );
-    f.key("<tab>").await?;
+    f.key("<C-n>").await?;
     let expanded = "// postfix\n/* 😀 */ for i, v := range x {\n\t\n}\n";
     assert_eq!(f.presentation_text(), expanded);
     assert_eq!(f.text(), original);
@@ -829,8 +846,8 @@ async fn postfix_snippet_previews_switch_cancel_accept_and_undo() -> anyhow::Res
     assert!(current_ref!(f.app.editor).1.active_snippet().is_none());
 
     f.show().await?;
-    f.key("<tab>").await?;
-    f.key("<tab>").await?;
+    f.key("<C-n>").await?;
+    f.key("<C-n>").await?;
     f.key("<ret>").await?;
     assert_eq!(f.text(), expanded);
     // The receiver deletion must move snippet placeholders along with the text.
@@ -865,11 +882,11 @@ async fn postfix_snippets_accept_without_preview_and_preserve_typing_on_cancel(
         f.show().await?;
         // Preserve input typed since the completion request when dismissing a preview.
         f.key("o").await?;
-        f.key("<tab>").await?;
+        f.key("<C-n>").await?;
         f.key("<C-c>").await?;
         assert_eq!(f.text(), "// postfix\nx.fo\n");
         f.show().await?;
-        f.key("<tab>").await?;
+        f.key("<C-n>").await?;
         f.key("<ret>").await?;
         assert_eq!(f.text(), "// postfix\nfor i := range x {\n\t\n}\n");
         f.key("<esc>").await?;
@@ -899,8 +916,8 @@ async fn repeating_postfix_snippets_preserves_receiver_edits_tabstops_and_undo(
         );
         f.key("a").await?;
         f.show().await?;
-        f.key("<tab>").await?;
-        f.key("<tab>").await?;
+        f.key("<C-n>").await?;
+        f.key("<C-n>").await?;
         f.key("<ret>").await?;
         for key in ["i", "d", "x", "<tab>", "v", "a", "l", "u", "e"] {
             f.key(key).await?;

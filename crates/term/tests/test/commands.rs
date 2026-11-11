@@ -1213,7 +1213,7 @@ async fn test_toggle_comments_inside_comment_injection() -> anyhow::Result<()> {
         indoc! {"\
             // #[a|]#bc
         "},
-        ":lang rust<ret><C-c>",
+        ":lang rust<ret><space>c",
         indoc! {"\
             #[a|]#bc
         "},
@@ -1227,7 +1227,7 @@ async fn test_toggle_comments_inside_comment_injection() -> anyhow::Result<()> {
         indoc! {"\
             /// #[a|]#bc
         "},
-        ":lang rust<ret><C-c>",
+        ":lang rust<ret><space>c",
         indoc! {"\
             #[a|]#bc
         "},
@@ -1239,7 +1239,7 @@ async fn test_toggle_comments_inside_comment_injection() -> anyhow::Result<()> {
         indoc! {"\
             //! #[a|]#bc
         "},
-        ":lang rust<ret><C-c>",
+        ":lang rust<ret><space>c",
         indoc! {"\
             #[a|]#bc
         "},
@@ -1252,7 +1252,7 @@ async fn test_toggle_comments_inside_comment_injection() -> anyhow::Result<()> {
         indoc! {"\
             #[l|]#et x = 5;
         "},
-        ":lang rust<ret><C-c>",
+        ":lang rust<ret><space>c",
         indoc! {"\
             // #[l|]#et x = 5;
         "},

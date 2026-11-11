@@ -77,7 +77,7 @@ impl EditorView {
         cx.editor.reset_idle_timer();
         cx.editor.status_msg = None;
         match key {
-            key!(Enter) | key!(Esc) | key!(Null) => {
+            key!(Enter) | key!(Esc) | key!(Null) | crate::ctrl!('c') => {
                 self.finish_resize(cx.editor, key != key!(Enter));
                 cx.interaction.count = None;
                 return true;

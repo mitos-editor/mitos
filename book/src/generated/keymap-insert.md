@@ -3,6 +3,7 @@
 | Key | Description | Command |
 | --- | --- | --- |
 | `` <esc> `` | Enter normal mode | `` normal_mode `` |
+| `` <C-c> `` | Enter normal mode | `` normal_mode `` |
 | `` <C-s> `` | Write changes to disk. Accepts an optional path (`:write some/path.txt`). | `` :write `` |
 | `` <C-g> `` | Insert tools | Prefix |
 | `` <C-x> `` | Invoke completion popup | `` completion `` |
@@ -21,8 +22,8 @@
 | `` <del> `` | Delete next char | `` delete_char_forward `` |
 | `` <C-j> `` | Insert newline char | `` insert_newline `` |
 | `` <ret> `` | Insert newline char | `` insert_newline `` |
-| `` <tab> `` | Insert tab if all cursors have all whitespace to their left; otherwise, run a separate command. | `` smart_tab `` |
-| `` <S-tab> `` | Insert tab char | `` insert_tab `` |
+| `` <tab> `` | Move to the next snippet placeholder, otherwise indent; optionally move to a syntax node's end | `` smart_tab `` |
+| `` <S-tab> `` | Move to the previous snippet placeholder, otherwise unindent | `` smart_backtab `` |
 | `` <up> `` | Move up | `` move_visual_line_up `` |
 | `` <down> `` | Move down | `` move_visual_line_down `` |
 | `` <left> `` | Move left | `` move_char_left `` |
@@ -37,3 +38,6 @@
 | Key | Description | Command |
 | --- | --- | --- |
 | `` <C-g>u `` | Start a new undo step without leaving insert mode | `` commit_undo_checkpoint `` |
+| `` <C-g>s `` | Show signature help | `` signature_help `` |
+| `` <C-g>n `` | Choose the next snippet placeholder value | `` snippet_next_choice `` |
+| `` <C-g>p `` | Choose the previous snippet placeholder value | `` snippet_previous_choice `` |

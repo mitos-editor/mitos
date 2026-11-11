@@ -51,7 +51,7 @@ Project-local configuration in `.mitos/languages.toml` is subject to
 
 Press the keys in sequence. `Space x` runs one debug command. To keep the
 debug menu active, enter it with `Space X`, then use suffix keys such as `n`
-or `c` directly. Press `Esc` to leave the sticky menu.
+or `c` directly. Press `Esc` or `Ctrl-c` to leave the sticky menu.
 
 Function-key aliases are also available: `F5` continues, `F9` toggles a
 breakpoint, `F10` steps over, `F11` steps in, and `Shift-F11` steps out.

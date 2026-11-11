@@ -294,7 +294,7 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
 
         "C-w" => (window),
 
-        "C-c" => toggle_comments,
+        "C-c" => normal_mode,
 
         // z family for save/restore/combine from/to sels from register
 
@@ -410,11 +410,14 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
         },
     }));
     let insert = keymap!({ "Insert mode"
-        "esc" => normal_mode,
+        "esc" | "C-c" => normal_mode,
 
         "C-s" => ":write",
         "C-g" => { "Insert tools"
             "u" => commit_undo_checkpoint,
+            "s" => signature_help,
+            "n" => snippet_next_choice,
+            "p" => snippet_previous_choice,
         },
         "C-x" => completion,
         "F1" => command_palette,
@@ -428,7 +431,7 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
         "C-d" | "del" => delete_char_forward,
         "C-j" | "ret" => insert_newline,
         "tab" => smart_tab,
-        "S-tab" => insert_tab,
+        "S-tab" => smart_backtab,
 
         "up" => move_visual_line_up,
         "down" => move_visual_line_down,

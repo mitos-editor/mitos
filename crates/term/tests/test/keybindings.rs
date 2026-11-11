@@ -26,7 +26,7 @@ async fn view_search_aliases_add_matches_in_select_mode() -> anyhow::Result<()> 
 async fn cancelling_insert_prefixes_does_not_insert_control_keys_or_restart_them(
 ) -> anyhow::Result<()> {
     use super::helpers::{self, AppBuilder};
-    for sequence in ["i<C-g><esc>x", "i<C-g>!x"] {
+    for sequence in ["i<C-g><esc>x", "i<C-g><C-c>x", "i<C-g>!x"] {
         let mut app = AppBuilder::new().build()?;
         helpers::keys(&mut app, sequence).await?;
         let expected = if sequence.contains('!') {

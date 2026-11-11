@@ -361,9 +361,9 @@
 
 | Key | Action |
 | --- | --- |
-| `` <ret> `` | `` accept `` |
+| `` <ret> ``, `` <tab> `` | `` accept `` |
 | `` <C-c> ``, `` <esc> `` | `` cancel `` |
-| `` <C-n> ``, `` <tab> ``, `` <down> `` | `` move_down `` |
+| `` <C-n> ``, `` <down> `` | `` move_down `` |
 | `` <up> ``, `` <C-p> ``, `` <S-tab> `` | `` move_up `` |
 | `` <C-d> ``, `` <pagedown> `` | `` page_down `` |
 | `` <C-u> ``, `` <pageup> `` | `` page_up `` |

@@ -120,7 +120,7 @@ Use `no_op` to consume a key without doing anything. Use `unbound` to remove
 its action and let the usual fallback handle it. For example, a key unbound in
 `keys.picker` can edit the picker's query through `keys.prompt`.
 
-Nested maps wait for another key. `Esc` or an invalid continuation cancels the
+Nested maps wait for another key. `Esc`, `Ctrl-c`, or an invalid continuation cancels the
 sequence and consumes that key. Pasting into a prompt cancels a pending sequence
 and inserts the pasted text. Action lists run in order and stop when an action
 closes the component or starts another interaction.
@@ -128,8 +128,8 @@ closes the component or starts another interaction.
 Picker actions take priority over prompt actions. Menu actions take priority
 over popup actions. To pass `Ctrl-d` through a completion menu and its popup to
 an editor binding, set `C-d = "unbound"` in both `keys.menu` and `keys.popup`.
-To remap `Esc` inside an insert-mode menu, also set `esc = "unbound"` in
-`keys.popup` so the popup passes it to the menu.
+An active menu receives keys before its popup. A pending popup prefix takes
+priority until its sequence completes or is cancelled.
 
 Component bindings accept only the actions below. Editor commands and macros
 belong in `keys.normal`, `keys.insert`, and `keys.select`.

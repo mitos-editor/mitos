@@ -599,20 +599,11 @@ impl PickerStartPosition {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize, Serialize, Eq, PartialOrd, Ord)]
+#[derive(Debug, Default, Clone, PartialEq, Deserialize, Serialize, Eq, PartialOrd, Ord)]
 #[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
 pub struct SmartTabConfig {
     pub enable: bool,
     pub supersede_menu: bool,
-}
-
-impl Default for SmartTabConfig {
-    fn default() -> Self {
-        SmartTabConfig {
-            enable: true,
-            supersede_menu: false,
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

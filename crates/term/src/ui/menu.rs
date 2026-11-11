@@ -52,6 +52,7 @@ pub struct Menu<T: Item> {
     viewport: (u16, u16),
     recalculate: bool,
     auto_close: bool,
+    select_first_on_accept: bool,
     show_selection_marker: bool,
 }
 
@@ -79,6 +80,7 @@ impl<T: Item> Menu<T> {
             viewport: (0, 0),
             recalculate: true,
             auto_close: false,
+            select_first_on_accept: false,
             show_selection_marker: false,
         }
     }
@@ -165,6 +167,29 @@ impl<T: Item> Menu<T> {
     pub fn auto_close(mut self, auto_close: bool) -> Self {
         self.auto_close = auto_close;
         self
+    }
+
+    /// Explicit acceptance can choose the first item without previewing it first.
+    pub(crate) fn with_first_item_acceptance(mut self) -> Self {
+        self.select_first_on_accept = true;
+        self
+    }
+
+    fn smart_tab_supersedes(
+        event: ui_core::input::KeyEvent,
+        actions: &[MenuAction],
+        editor: &Editor,
+    ) -> bool {
+        (event == key!(Tab) || event == shift!(Tab))
+            && matches!(actions, [MenuAction::MoveUp | MenuAction::MoveDown])
+            && editor.config().completion.auto_trigger
+            && matches!(
+                editor.config().indent.smart_tab,
+                Some(SmartTabConfig {
+                    enable: true,
+                    supersede_menu: true
+                })
+            )
     }
 
     /// Show a selection arrow in addition to the row highlight.
@@ -302,22 +327,15 @@ impl<T: Item + 'static> Component for Menu<T> {
 
         // Smart tab supersedes the default tab navigation, but explicit actions
         // such as accept or no_op still belong to the menu.
-        if !pending
-            && (event == key!(Tab) || event == shift!(Tab))
-            && matches!(actions, [MenuAction::MoveUp | MenuAction::MoveDown])
-            && cx.editor.config().completion.auto_trigger
-            && matches!(
-                cx.editor.config().indent.smart_tab,
-                Some(SmartTabConfig {
-                    enable: true,
-                    supersede_menu: true,
-                })
-            )
-        {
+        if !pending && Self::smart_tab_supersedes(event, actions, cx.editor) {
             return EventResult::Ignored(None);
         }
 
         for &action in actions {
+            if action == MenuAction::Accept && self.select_first_on_accept && self.cursor.is_none()
+            {
+                self.move_down();
+            }
             match self.execute_action(action, cx) {
                 EventResult::Consumed(None) => (),
                 result => return result,

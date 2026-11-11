@@ -258,7 +258,7 @@ async fn test_smart_tab_move_parent_node_end() -> anyhow::Result<()> {
                 }
             "},
         ),
-        // Ctrl-tab always inserts a tab
+        // A custom insert_tab binding bypasses syntax-aware navigation
         (
             indoc! {"\
                 fn foo() {
@@ -269,7 +269,7 @@ async fn test_smart_tab_move_parent_node_end() -> anyhow::Result<()> {
                     }
                 }
             "},
-            "i<S-tab>",
+            "i<C-t>",
             indoc! {"\
                 fn foo() {
                     let result = if true {
@@ -283,7 +283,21 @@ async fn test_smart_tab_move_parent_node_end() -> anyhow::Result<()> {
     ];
 
     for test in tests {
-        test_with_config(AppBuilder::new().with_file("foo.rs", None), test).await?;
+        test_with_config(
+            AppBuilder::new().with_file("foo.rs", None).with_config({
+                let mut config = test_config();
+                config.editor.indent.smart_tab.as_mut().unwrap().enable = true;
+                config.keys = Config::load(
+                    Ok(&"[keys.insert]\nC-t = 'insert_tab'".to_owned()),
+                    Err(term::config::ConfigLoadError::default()),
+                )
+                .unwrap()
+                .keys;
+                config
+            }),
+            test,
+        )
+        .await?;
     }
 
     Ok(())

@@ -146,7 +146,7 @@
 | `insert_at_line_end` | Insert at end of line | normal: `` A ``, select: `` A `` |
 | `open_below` | Open new line below selection | normal: `` o ``, select: `` o `` |
 | `open_above` | Open new line above selection | normal: `` O ``, select: `` O `` |
-| `normal_mode` | Enter normal mode | normal: `` <esc> ``, select: `` v ``, insert: `` <esc> `` |
+| `normal_mode` | Enter normal mode | normal: `` <C-c> ``, `` <esc> ``, select: `` v ``, `` <C-c> ``, insert: `` <C-c> ``, `` <esc> `` |
 | `select_mode` | Enter selection extend mode | normal: `` v `` |
 | `exit_select_mode` | Exit selection mode | select: `` <esc> `` |
 | `goto_definition` | Go to definition | normal: `` gd ``, `` <F12> ``, select: `` gd ``, `` <F12> `` |
@@ -218,9 +218,10 @@
 | `extend_to_first_nonwhitespace` | Extend to first non-blank in line |  |
 | `extend_to_line_end` | Extend to line end | select: `` <end> `` |
 | `extend_to_line_end_newline` | Extend to line end |  |
-| `signature_help` | Show signature help |  |
-| `smart_tab` | Insert tab if all cursors have all whitespace to their left; otherwise, run a separate command. | insert: `` <tab> `` |
-| `insert_tab` | Insert tab char | insert: `` <S-tab> `` |
+| `signature_help` | Show signature help | insert: `` <C-g>s `` |
+| `smart_tab` | Move to the next snippet placeholder, otherwise indent; optionally move to a syntax node's end | insert: `` <tab> `` |
+| `smart_backtab` | Move to the previous snippet placeholder, otherwise unindent | insert: `` <S-tab> `` |
+| `insert_tab` | Insert tab char |  |
 | `insert_newline` | Insert newline char | insert: `` <C-j> ``, `` <ret> `` |
 | `insert_char_interactive` | Insert an interactively-chosen char |  |
 | `append_char_interactive` | Append an interactively-chosen char |  |
@@ -273,7 +274,7 @@
 | `inline_completion_previous` | Cycle to previous inline completion |  |
 | `inline_completion_trigger` | Trigger inline completion |  |
 | `hover` | Show docs for item under cursor | normal: `` <space>k ``, select: `` <space>k `` |
-| `toggle_comments` | Comment/uncomment selections | normal: `` <C-c> ``, `` <space>c ``, select: `` <C-c> ``, `` <space>c `` |
+| `toggle_comments` | Comment/uncomment selections | normal: `` <space>c ``, select: `` <space>c `` |
 | `toggle_line_comments` | Line comment/uncomment selections | normal: `` <space><A-c> ``, select: `` <space><A-c> `` |
 | `toggle_block_comments` | Block comment/uncomment selections | normal: `` <space>C ``, select: `` <space>C `` |
 | `cycle_primary_selection_forward` | Make the next selection primary | normal: `` ) ``, select: `` ) `` |
@@ -385,8 +386,8 @@
 | `goto_word` | Jump to a two-character label | normal: `` gw `` |
 | `extend_to_word` | Extend to a two-character label | select: `` gw `` |
 | `snippet_picker` | Choose and insert a user-defined snippet |  |
-| `snippet_next_choice` | Choose the next snippet placeholder value |  |
-| `snippet_previous_choice` | Choose the previous snippet placeholder value |  |
+| `snippet_next_choice` | Choose the next snippet placeholder value | insert: `` <C-g>n `` |
+| `snippet_previous_choice` | Choose the previous snippet placeholder value | insert: `` <C-g>p `` |
 | `snippet_next_tabstop` | Go to next snippet placeholder |  |
 | `snippet_previous_tabstop` | Go to previous snippet placeholder |  |
 | `make_first_selection_primary` | Make the first selection your primary one |  |

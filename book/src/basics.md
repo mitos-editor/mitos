@@ -16,7 +16,7 @@ ms README.md
 ms .
 ```
 
-Mitos starts in **normal mode**. Press `Esc` to cancel a pending key sequence or return to normal mode.
+Mitos starts in **normal mode**. Press `Esc` to cancel the innermost menu or input state, then press it again to return to normal mode.
 
 Key combinations such as `Ctrl-x` are pressed together. Sequences such as
 `Space f` are pressed one key after another. Uppercase letters require Shift.

@@ -237,3 +237,5 @@ Dates use local time. Month and weekday names are English.
 Each cursor gets its own random values. Repeated references within one snippet
 use the same value. For user snippet completions, the preview shows the values
 that will be inserted when you accept the suggestion.
+
+Within a snippet, `Tab` and `Shift-Tab` move forward and backward between placeholders, including placeholders on whitespace-only lines. Use `Ctrl-g n` / `Ctrl-g p` to cycle placeholder choices. These defaults do not require smart Tab.
