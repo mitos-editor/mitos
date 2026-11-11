@@ -276,7 +276,12 @@ Selection edits and interactive history in `view::editing` take a document and a
 `ViewId`; committing text uses `Document::commit_changes`. These operations do not
 need a concrete view or synchronize its navigation state. `Editor` coordinates
 focused replacement, literal/register paste, history replay, and checkpoints,
-then synchronizes the view's jump history after a successful operation. Callers
+then synchronizes the view's jump history after a successful operation. `JumpList`
+owns both stored selections and their committed document revisions. Pushes,
+traversal, and picker entries resolve through that owner; readonly review refresh
+supplies its explicit delta because derived buffers have no editable history.
+Edit-boundary synchronization remains necessary to preserve anchors across
+deletion and undo, even when no jump is visited between them. Callers
 working with another view explicitly synchronize it at the coordination boundary.
 Viewport layout and scrolling continue to require a concrete view.
 `Editor::scroll_view` targets a split by ID without temporarily changing focus.

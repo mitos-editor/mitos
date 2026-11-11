@@ -64,7 +64,6 @@ impl Editor {
 
                 // Append any outstanding changes to history in the old document.
                 doc.commit_changes();
-                view.sync_changes(doc);
 
                 let closed = if remove_empty_scratch {
                     // Copy `doc.id` into a variable before calling `self.documents.remove`, which requires a mutable

@@ -103,7 +103,6 @@ fn goto_file_end_impl(cx: &mut Context, movement: Movement) {
 // Store a jump on the jumplist.
 pub(super) fn push_jump(view: &mut View, doc: &mut Document) {
     doc.commit_changes();
-    view.sync_changes(doc);
     let jump = (doc.id(), doc.selection(view.id).clone());
     view.push_jump(doc, jump);
 }
@@ -272,15 +271,9 @@ pub(super) fn jumplist_picker(cx: &mut Context) {
         is_current: bool,
     }
 
-    for (view, _) in cx.editor.tree.views_mut() {
-        for doc_id in view.jumps.iter().map(|e| e.0).collect::<Vec<_>>().iter() {
-            let doc = doc_mut!(cx.editor, doc_id);
-            view.sync_changes(doc);
-        }
-    }
-
-    let new_meta = |view: &View, doc_id: DocumentId, selection: Selection| {
-        let doc = doc!(cx.editor, &doc_id);
+    let documents = &cx.editor.documents;
+    let new_meta = |current: DocumentId, doc_id: DocumentId, selection: Selection| {
+        let doc = &documents[&doc_id];
         let text = doc.text().slice(..);
         let contents = selection
             .fragments(text)
@@ -298,9 +291,23 @@ pub(super) fn jumplist_picker(cx: &mut Context) {
             selection,
             line_start,
             text: contents,
-            is_current: view.document_id() == doc_id,
+            is_current: current == doc_id,
         }
     };
+
+    let options: Vec<_> = cx
+        .editor
+        .tree
+        .views_mut()
+        .flat_map(|(view, _)| {
+            let current = view.document_id();
+            let new_meta = &new_meta;
+            view.jumps
+                .entries(documents)
+                .rev()
+                .map(move |(doc_id, selection)| new_meta(current, *doc_id, selection.clone()))
+        })
+        .collect();
 
     let columns = [
         ui::PickerColumn::new("id", |item: &JumpMeta, _| item.id.to_string().into()),
@@ -327,12 +334,7 @@ pub(super) fn jumplist_picker(cx: &mut Context) {
         cx.editor.redraw().clone(),
         columns,
         1, // path
-        cx.editor.tree.views().flat_map(|(view, _)| {
-            view.jumps
-                .iter()
-                .rev()
-                .map(|(doc_id, selection)| new_meta(view, *doc_id, selection.clone()))
-        }),
+        options,
         PathStyleConfig::new(cx.editor),
         |cx, meta, action| {
             cx.editor.switch(meta.id, action);

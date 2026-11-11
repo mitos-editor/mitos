@@ -190,7 +190,7 @@ mod tests {
             assert_eq!(doc.text(), text.as_str());
             assert_eq!(doc.selection(view.id), &selection);
             doc.commit_changes();
-            view.sync_changes(&mut doc);
+            view.sync_changes(&doc);
             assert!(undo(&mut doc, view.id));
             assert_eq!(doc.selection(view.id), &original);
         }
@@ -207,7 +207,7 @@ mod tests {
         replacement.apply(&mut doc, view.id, '[').unwrap();
         assert_eq!(doc.text(), "[é]\n");
         doc.commit_changes();
-        view.sync_changes(&mut doc);
+        view.sync_changes(&doc);
         assert!(undo(&mut doc, view.id));
         assert_eq!(doc.text(), "(é)\n");
         assert_eq!(doc.selection(view.id), &original);

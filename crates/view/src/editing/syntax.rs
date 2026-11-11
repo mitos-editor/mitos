@@ -131,7 +131,6 @@ pub fn goto_object(
         }
     });
     doc.commit_changes();
-    view.sync_changes(doc);
     let jump = (doc.id(), doc.selection(view.id).clone());
     view.push_jump(doc, jump);
     doc.set_selection(view.id, selection);
