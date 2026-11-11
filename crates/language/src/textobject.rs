@@ -164,6 +164,148 @@ mod tests {
     use editor_core::textobject::TextObject::*;
     use editor_core::Rope;
     #[test]
+    fn closest_pair_surround() {
+        use editor_core::test;
+
+        // The first case records the current behavior on the opening pair at buffer start.
+        let cases = [
+            (
+                "#[(|]#something)",
+                1,
+                "#[(|]#something)",
+                "#[(|]#something)",
+            ),
+            (
+                "some (#[t|]#ext) here",
+                1,
+                "some (#[text|]#) here",
+                "some #[(text)|]# here",
+            ),
+            (
+                "some (text#[)|]# here",
+                1,
+                "some (#[text|]#) here",
+                "some #[(text)|]# here",
+            ),
+            (
+                "so#[m|]#e (text) here",
+                1,
+                "so#[m|]#e (text) here",
+                "so#[m|]#e (text) here",
+            ),
+            (
+                "(so (many (go#[o|]#d) text) here)",
+                1,
+                "(so (many (#[good|]#) text) here)",
+                "(so (many #[(good)|]# text) here)",
+            ),
+            (
+                "(so (many (go#[o|]#d) text) here)",
+                2,
+                "(so (#[many (good) text|]#) here)",
+                "(so #[(many (good) text)|]# here)",
+            ),
+            (
+                "(so (many (go#[o|]#d) text) here)",
+                3,
+                "(#[so (many (good) text) here|]#)",
+                "#[(so (many (good) text) here)|]#",
+            ),
+            (
+                "((so)((many) go#[o|]#d (text))(here))",
+                1,
+                "((so)(#[(many) good (text)|]#)(here))",
+                "((so)#[((many) good (text))|]#(here))",
+            ),
+            (
+                "((so)((many) go#[o|]#d (text))(here))",
+                2,
+                "(#[(so)((many) good (text))(here)|]#)",
+                "#[((so)((many) good (text))(here))|]#",
+            ),
+            (
+                "(so [many {go#[o|]#d} text] here)",
+                1,
+                "(so [many {#[good|]#} text] here)",
+                "(so [many #[{good}|]# text] here)",
+            ),
+            (
+                "(so [many {go#[o|]#d} text] here)",
+                2,
+                "(so [#[many {good} text|]#] here)",
+                "(so #[[many {good} text]|]# here)",
+            ),
+            (
+                "(so [many {go#[o|]#d} text] here)",
+                3,
+                "(#[so [many {good} text] here|]#)",
+                "#[(so [many {good} text] here)|]#",
+            ),
+            (
+                "(so [many {go#[|od]#} text] here)",
+                1,
+                "(so [many {#[|good]#} text] here)",
+                "(so [many #[|{good}]# text] here)",
+            ),
+            (
+                "(so [many {go#[|od]#} text] here)",
+                2,
+                "(so [#[|many {good} text]#] here)",
+                "(so #[|[many {good} text]]# here)",
+            ),
+            (
+                "(so [many {go#[|od]#} text] here)",
+                3,
+                "(#[|so [many {good} text] here]#)",
+                "#[|(so [many {good} text] here)]#",
+            ),
+            (
+                "(so (many (go#[od) |]#text) here)",
+                1,
+                "(so (#[many (good) text|]#) here)",
+                "(so #[(many (good) text)|]# here)",
+            ),
+            (
+                "(so (many#[ (go|]#od) text) here)",
+                1,
+                "(so (#[many (good) text|]#) here)",
+                "(so #[(many (good) text)|]# here)",
+            ),
+            (
+                "(so#[ (many (go|]#od) text) here)",
+                1,
+                "(#[so (many (good) text) here|]#)",
+                "#[(so (many (good) text) here)|]#",
+            ),
+            (
+                "(so (many (go#[od) text) |]#here)",
+                1,
+                "(#[so (many (good) text) here|]#)",
+                "#[(so (many (good) text) here)|]#",
+            ),
+        ];
+        for (input, count, inside, around) in cases {
+            let (text, selection) = test::print(input);
+            let doc = Rope::from(text);
+            for (object, expected) in [(Inside, inside), (Around, around)] {
+                let (expected_text, expected_selection) = test::print(expected);
+                assert_eq!(doc.to_string(), expected_text);
+                assert_eq!(
+                    textobject_pair_surround_closest(
+                        None,
+                        doc.slice(..),
+                        selection.primary(),
+                        object,
+                        count,
+                    ),
+                    expected_selection.primary(),
+                    "input: {input}, count: {count}, object: {object:?}",
+                );
+            }
+        }
+    }
+
+    #[test]
     fn test_textobject_surround() {
         // (text, [(cursor position, textobject, final range, surround char, count), ...])
         let tests = &[
