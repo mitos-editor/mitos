@@ -280,22 +280,27 @@ impl PreparedOperation {
             !changed.contains(path)
                 && path.rsplit(|byte| *byte == b'/').next() != Some(b".gitattributes")
         });
-        let mut options =
-            repo.checkout_options(gix::worktree::stack::state::attributes::Source::IdMapping)?;
-        options.destination_is_initially_empty = true;
-        let outcome = gix::worktree::state::checkout(
-            &mut target,
-            &prepared,
-            repo.objects.clone().into_arc()?,
-            &gix::progress::Discard,
-            &gix::progress::Discard,
-            &AtomicBool::new(false),
-            options,
-        )?;
-        ensure!(
-            outcome.errors.is_empty() && outcome.collisions.is_empty(),
-            "Checkout reported errors or path collisions"
-        );
+        // Removing every unchanged entry leaves path storage in the index. Gix
+        // cannot check out that empty entry list; refs and the index still need
+        // to be committed below when switching between identical trees.
+        if !target.entries().is_empty() {
+            let mut options =
+                repo.checkout_options(gix::worktree::stack::state::attributes::Source::IdMapping)?;
+            options.destination_is_initially_empty = true;
+            let outcome = gix::worktree::state::checkout(
+                &mut target,
+                &prepared,
+                repo.objects.clone().into_arc()?,
+                &gix::progress::Discard,
+                &gix::progress::Discard,
+                &AtomicBool::new(false),
+                options,
+            )?;
+            ensure!(
+                outcome.errors.is_empty() && outcome.collisions.is_empty(),
+                "Checkout reported errors or path collisions"
+            );
+        }
         for (path, expected) in &snapshots {
             ensure!(
                 &fingerprint(

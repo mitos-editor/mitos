@@ -161,6 +161,11 @@ impl PreparedOperation {
             {
                 return Ok(None);
             }
+            if let Operation::Repository(operation) = &self.operation
+                && operation.requires_git_hooks(&self.repository)?
+            {
+                return Ok(Some(self));
+            }
             match &self.operation {
                 Operation::Repository(RepositoryOperation::CreateBranch { name }) => {
                     self.create_branch(name)?;
