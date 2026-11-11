@@ -492,6 +492,11 @@ impl Prompt {
         self.cursor = self.line.len();
     }
 
+    fn delete(&mut self, cx: &mut Context, delete: fn(&mut Self, &Editor)) {
+        delete(self, cx.editor);
+        (self.callback_fn)(cx, &self.line, PromptEvent::Update);
+    }
+
     pub fn delete_char_backwards(&mut self, editor: &Editor) {
         let pos = self.eval_movement(Movement::BackwardChar(1));
         self.line.replace_range(pos..self.cursor, "");
@@ -883,30 +888,12 @@ impl Prompt {
                 }
                 PromptAction::MoveEnd => self.move_end(),
                 PromptAction::MoveStart => self.move_start(),
-                PromptAction::DeleteWordBackward => {
-                    self.delete_word_backwards(cx.editor);
-                    (self.callback_fn)(cx, &self.line, PromptEvent::Update);
-                }
-                PromptAction::DeleteWordForward => {
-                    self.delete_word_forwards(cx.editor);
-                    (self.callback_fn)(cx, &self.line, PromptEvent::Update);
-                }
-                PromptAction::DeleteToEnd => {
-                    self.kill_to_end_of_line(cx.editor);
-                    (self.callback_fn)(cx, &self.line, PromptEvent::Update);
-                }
-                PromptAction::DeleteToStart => {
-                    self.kill_to_start_of_line(cx.editor);
-                    (self.callback_fn)(cx, &self.line, PromptEvent::Update);
-                }
-                PromptAction::DeleteBackward => {
-                    self.delete_char_backwards(cx.editor);
-                    (self.callback_fn)(cx, &self.line, PromptEvent::Update);
-                }
-                PromptAction::DeleteForward => {
-                    self.delete_char_forwards(cx.editor);
-                    (self.callback_fn)(cx, &self.line, PromptEvent::Update);
-                }
+                PromptAction::DeleteWordBackward => self.delete(cx, Self::delete_word_backwards),
+                PromptAction::DeleteWordForward => self.delete(cx, Self::delete_word_forwards),
+                PromptAction::DeleteToEnd => self.delete(cx, Self::kill_to_end_of_line),
+                PromptAction::DeleteToStart => self.delete(cx, Self::kill_to_start_of_line),
+                PromptAction::DeleteBackward => self.delete(cx, Self::delete_char_backwards),
+                PromptAction::DeleteForward => self.delete(cx, Self::delete_char_forwards),
                 PromptAction::InsertWord => {
                     let (view, doc) = current!(cx.editor);
                     let text = doc.text().slice(..);
@@ -1049,6 +1036,7 @@ impl Component for Prompt {
                 self.keys.clear();
                 self.next_char_handler = None;
                 self.insert_str(data, cx.editor);
+                (self.callback_fn)(cx, &self.line, PromptEvent::Update);
                 return EventResult::Consumed(None);
             }
             Event::Key(event) => *event,
