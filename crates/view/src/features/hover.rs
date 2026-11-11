@@ -10,8 +10,9 @@ use lsp_client::lsp;
 use super::request::SelectionRequest;
 use crate::{
     callbacks::EditorCallbackSender,
+    editor::Action,
     events::{ConfigDidChange, DocumentFocusLost, LanguageServerExited, SelectionDidChange},
-    DocumentId, Editor, ViewId,
+    Document, DocumentId, Editor, ViewId,
 };
 
 /// One editor's result destination. Request lifetimes are owned by its documents.
@@ -34,8 +35,31 @@ impl HoverHandler {
 pub enum HoverDisplay {
     /// A popup at the cursor.
     Popup,
-    /// A new scratch buffer in the requesting view, like `goto_definition`.
+    /// A new read-only buffer in the requesting view, like `goto_definition`.
     Buffer,
+}
+
+/// Open named, read-only Markdown docs in the current view, retaining the source
+/// position in the jump list. The buffer remains available until explicitly closed.
+pub fn open_buffer(editor: &mut Editor, text: String) -> DocumentId {
+    let source = crate::current_ref!(editor).1;
+    let name = source
+        .path()
+        .and_then(|path| path.file_name())
+        .map_or_else(|| source.display_name(), |name| name.to_string_lossy());
+    let doc = Document::from(
+        text.into(),
+        None,
+        editor.config.clone(),
+        editor.syn_loader.load_full(),
+    )
+    .with_readonly_name(format!("[hover: {name}]"));
+    let id = editor.new_file_from_document(Action::Replace, doc);
+    // If Markdown isn't configured, retain plain text.
+    if let Err(err) = editor.set_document_language(id, Some("markdown")) {
+        log::debug!("goto_hover buffer stays plain text: {err}");
+    }
+    id
 }
 
 struct Request {

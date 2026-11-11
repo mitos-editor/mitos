@@ -1,4 +1,4 @@
-//! `goto_hover` writes hover docs into a Markdown buffer, while `hover` keeps the popup.
+//! `goto_hover` opens read-only Markdown docs, while `hover` keeps the popup.
 use std::{path::Path, time::Duration};
 
 use term::application::TestApplication as Application;
@@ -39,7 +39,7 @@ fn current_path(app: &Application) -> Option<std::path::PathBuf> {
 }
 
 /// Settle the event loop until the focused document is the hover buffer.
-async fn wait_for_scratch(app: &mut Application) -> anyhow::Result<()> {
+async fn wait_for_hover_buffer(app: &mut Application) -> anyhow::Result<()> {
     tokio::time::timeout(Duration::from_secs(10), async {
         while current_path(app).is_some() {
             keys(app, "").await?;
@@ -69,13 +69,20 @@ async fn goto_hover_opens_the_docs_in_a_markdown_buffer_and_jumps_back() -> anyh
     let source = current_path(&app).expect("source file is open");
 
     keys(&mut app, "<space>K").await?;
-    wait_for_scratch(&mut app).await?;
+    wait_for_hover_buffer(&mut app).await?;
     {
         let (_, doc) = current_ref!(app.editor);
         assert_eq!(doc.text().to_string(), "alpha: fn original() {}\n");
         assert_eq!(doc.language_name(), Some("markdown"));
+        assert_eq!(doc.display_name(), "[hover: document.hover-test]");
+        assert!(doc.is_readonly());
         assert!(!doc.is_modified(), "the hover buffer is not a pending edit");
     }
+    keys(&mut app, "d").await?;
+    assert_eq!(
+        current_ref!(app.editor).1.text().to_string(),
+        "alpha: fn original() {}\n"
+    );
     keys(&mut app, "<C-o>").await?;
     assert_eq!(current_path(&app), Some(source.clone()));
 
@@ -110,6 +117,32 @@ async fn goto_hover_without_results_reports_and_stays_in_place() -> anyhow::Resu
         anyhow::Ok(())
     })
     .await??;
+    assert_eq!(current_path(&app), source);
+    assert_eq!(app.editor.documents().count(), 1);
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn goto_hover_survives_buffer_switches_and_jump_navigation() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    std::fs::write(dir.path().join("document.hover-test"), "fn original() {}\n")?;
+    let mut app = app(dir.path()).await?;
+    let source = current_path(&app);
+
+    keys(&mut app, "<space>K").await?;
+    wait_for_hover_buffer(&mut app).await?;
+    let hover_id = current_ref!(app.editor).1.id();
+
+    keys(&mut app, "ga").await?;
+    assert_eq!(current_path(&app), source);
+    assert!(app.editor.document(hover_id).is_some());
+
+    keys(&mut app, "ga<C-o>").await?;
+    assert_eq!(current_path(&app), source);
+    keys(&mut app, "<C-i>").await?;
+    assert_eq!(current_ref!(app.editor).1.id(), hover_id);
+
+    keys(&mut app, ":buffer-close<ret>").await?;
     assert_eq!(current_path(&app), source);
     assert_eq!(app.editor.documents().count(), 1);
     Ok(())
