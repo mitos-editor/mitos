@@ -294,15 +294,6 @@ See [Component keys](./remapping.md#component-keys).
 Run `:vcs-branches` to browse local branches. Select a branch and press `Enter`
 to switch to it. Save edited files in that repository first.
 
-The branch and worktree pickers show a `vs base` column, for example
-`↑3 ↓2 main`: three commits ahead of `main` and two behind. The base is the
-remote's recorded default branch, using its local branch when available or its
-remote-tracking branch otherwise. Without a recorded default, Mitos looks for
-local `main`, then `master`, then those branches on the default remote.
-Counts use locally available commits; fetch first to update remote-tracking
-branches. Detached worktrees compare their checked-out commit. `—` means the
-base or history is unavailable, including shallow repositories.
-
 Press `Alt-n` to create a branch at `HEAD` without switching. Press `Alt-d`
 to confirm deletion of the selected branch. Deletion fails if the branch is
 unmerged or checked out in any worktree. The picker stays open and refreshes after
