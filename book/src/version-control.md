@@ -313,7 +313,8 @@ the current directory. Actions that change the repository require
 | `:vcs-branch-create <name>` | Create a branch at the current commit without switching |
 | `:vcs-branch-switch <name>` | Switch to an existing local branch |
 
-Branch and worktree actions do not require a Git executable. Switching keeps
+Branch and worktree actions use Git when repository hooks must run; otherwise
+they do not require a Git executable. Switching keeps
 unrelated staged and unstaged edits and refuses to overwrite modified,
 untracked, or ignored files. Save edited buffers first. Conflicted or sparse
 indexes and switches that change submodules require a terminal checkout.

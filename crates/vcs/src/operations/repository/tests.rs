@@ -14,6 +14,124 @@ async fn execute(repo: &GitRepository, operation: RepositoryOperation) -> Result
 }
 
 #[tokio::test]
+async fn branch_switch_without_attributes_preserves_identical_trees_and_local_edits() -> Result<()>
+{
+    let dir = empty_git_repo();
+    std::fs::write(dir.path().join("file.txt"), "initial\n")?;
+    create_commit_with_message(dir.path(), true, "initial");
+    exec_git_cmd(&["branch", "topic"], dir.path());
+    let repo = GitRepository::discover(dir.path())?;
+    for branch in ["topic", "main"] {
+        std::fs::write(dir.path().join("file.txt"), "local edit\n")?;
+        execute(
+            &repo,
+            RepositoryOperation::SwitchBranch {
+                name: branch.into(),
+            },
+        )
+        .await?;
+        assert_eq!(
+            repo.open_read(true)?.head_name()?.unwrap().shorten(),
+            branch
+        );
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("file.txt"))?,
+            "local edit\n"
+        );
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn write_hook(path: &Path, body: &str) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::write(path, format!("#!/bin/sh\n{body}\n"))?;
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755))?;
+    Ok(())
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn branch_actions_honor_reference_transaction_and_post_checkout_hooks() -> Result<()> {
+    for custom in [false, true] {
+        let dir = initial()?;
+        let root = dir.path();
+        exec_git_cmd(&["branch", "topic"], root);
+        let hooks = root.join(if custom { "custom-hooks" } else { ".git/hooks" });
+        std::fs::create_dir_all(&hooks)?;
+        if custom {
+            exec_git_cmd(&["config", "core.hooksPath", hooks.to_str().unwrap()], root);
+        }
+        write_hook(
+            &hooks.join("reference-transaction"),
+            "test \"$1\" != prepared",
+        )?;
+        let repo = GitRepository::discover(root)?;
+        for action in [
+            RepositoryOperation::CreateBranch {
+                name: "rejected".into(),
+            },
+            RepositoryOperation::DeleteBranch {
+                name: "topic".into(),
+            },
+            RepositoryOperation::SwitchBranch {
+                name: "topic".into(),
+            },
+        ] {
+            assert!(execute(&repo, action).await.is_err());
+        }
+        assert!(repo
+            .open_read(true)?
+            .try_find_reference("refs/heads/rejected")?
+            .is_none());
+        assert!(repo
+            .open_read(true)?
+            .try_find_reference("refs/heads/topic")?
+            .is_some());
+        assert_eq!(
+            repo.open_read(true)?.head_name()?.unwrap().shorten(),
+            "main"
+        );
+        std::fs::remove_file(hooks.join("reference-transaction"))?;
+        write_hook(
+            &hooks.join("post-checkout"),
+            "printf '%s\\n' \"$3\" > \"$(git rev-parse --git-common-dir)/post-checkout-ran\"",
+        )?;
+        execute(
+            &repo,
+            RepositoryOperation::SwitchBranch {
+                name: "topic".into(),
+            },
+        )
+        .await?;
+        assert_eq!(
+            std::fs::read_to_string(root.join(".git/post-checkout-ran"))?,
+            "1\n"
+        );
+        std::fs::remove_file(root.join(".git/post-checkout-ran"))?;
+        let parent = tempfile::tempdir()?;
+        let linked = parent.path().join("linked");
+        execute(
+            &repo,
+            RepositoryOperation::CreateWorktree {
+                path: linked.clone(),
+                branch: Some("main".into()),
+            },
+        )
+        .await?;
+        assert_eq!(
+            std::fs::read_to_string(linked.join("file.txt"))?,
+            "initial\n"
+        );
+        assert_eq!(
+            std::fs::read_to_string(root.join(".git/post-checkout-ran"))?,
+            "1\n"
+        );
+    }
+    Ok(())
+}
+
+#[tokio::test]
 async fn divergence_matches_git_for_criss_cross_merges_and_detached_worktrees() -> Result<()> {
     let dir = initial()?;
     let root = dir.path();

@@ -40,6 +40,23 @@ pub enum RepositoryOperation {
 }
 
 impl RepositoryOperation {
+    /// Native ref and checkout APIs do not execute porcelain hooks. Decline
+    /// before mutation so Git retains hook arguments, ordering and rejection.
+    pub(super) fn requires_git_hooks(&self, repository: &GitRepository) -> Result<bool> {
+        let hooks: &[&str] = match self {
+            Self::CreateBranch { .. } | Self::DeleteBranch { .. } => &["reference-transaction"],
+            Self::SwitchBranch { .. } | Self::CreateWorktree { .. } => {
+                &["reference-transaction", "post-checkout"]
+            }
+            _ => return Ok(false),
+        };
+        let repo = repository.open_read(true)?;
+        Ok(repo.config_snapshot().string("core.hooksPath").is_some()
+            || hooks
+                .iter()
+                .any(|name| repo.common_dir().join("hooks").join(name).exists()))
+    }
+
     pub fn label(&self) -> &'static str {
         match self {
             Self::CreateBranch { .. } => "Create branch",
@@ -74,11 +91,33 @@ impl RepositoryOperation {
     pub(super) async fn execute(&self, repo: &GitRepository) -> Result<()> {
         let mut command = repo.command();
         match self {
-            Self::CreateBranch { .. } => unreachable!("branch creation runs in the native worker"),
-            Self::DeleteBranch { .. } => unreachable!("branch deletion runs in the native worker"),
-            Self::SwitchBranch { .. }
-            | Self::CreateWorktree { .. }
-            | Self::RemoveWorktree { .. }
+            Self::CreateBranch { name } => {
+                command.args(["branch", "--", name]);
+            }
+            Self::DeleteBranch { name } => {
+                command.args(["branch", "--delete", "--", name]);
+            }
+            Self::SwitchBranch { name } => {
+                command.args([
+                    "switch",
+                    "--no-guess",
+                    "--no-recurse-submodules",
+                    "--no-overwrite-ignore",
+                    "--",
+                    name,
+                ]);
+            }
+            Self::CreateWorktree { path, branch } => {
+                command.args(["worktree", "add"]);
+                if branch.is_none() {
+                    command.arg("--detach");
+                }
+                command
+                    .arg("--")
+                    .arg(path)
+                    .arg(branch.as_deref().unwrap_or("HEAD"));
+            }
+            Self::RemoveWorktree { .. }
             | Self::LockWorktree { .. }
             | Self::UnlockWorktree { .. } => {
                 unreachable!("branch and worktree mutations run in the native worker")
@@ -123,14 +162,7 @@ impl RepositoryOperation {
                 ]);
             }
         }
-        if matches!(
-            self,
-            Self::Fetch { .. } | Self::Pull { .. } | Self::Push { .. }
-        ) {
-            run_private(command, self.label()).await.map(|_| ())
-        } else {
-            run(command).await.map(|_| ())
-        }
+        run_private(command, self.label()).await.map(|_| ())
     }
 }
 
