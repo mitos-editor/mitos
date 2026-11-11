@@ -8,6 +8,10 @@
 - [Installation](./install.md)
   - [Building from source](./building-from-source.md)
 - [Editing effectively](./editing-effectively.md)
+  - [Edit code with textobjects](./editing-effectively/textobjects.md)
+  - [Repeat and combine edits](./editing-effectively/repeated-edits.md)
+  - [Navigate a project](./editing-effectively/project-navigation.md)
+  - [Review and stage changes](./editing-effectively/version-control.md)
 
 # Editing with Mitos
 

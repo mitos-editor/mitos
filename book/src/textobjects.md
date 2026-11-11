@@ -5,8 +5,8 @@
 Textobjects select a whole word, paragraph, function, or other piece of text
 without counting characters or moving to its start. Select the object, check
 the highlighted text, then apply an action such as `c`, `d`, or `y`.
-Try the [word and quote example](./editing-effectively.md#change-a-word-or-the-text-inside-quotes)
-for a first exercise.
+Try [Edit code with textobjects](./editing-effectively/textobjects.md) for
+exercises with words, quotes, function navigation, and scoped changes.
 
 ![Textobject demo](https://user-images.githubusercontent.com/23398472/124231131-81a4bb00-db2d-11eb-9d10-8e577ca7b177.gif)
 ![Textobject tree-sitter demo](https://user-images.githubusercontent.com/23398472/132537398-2a2e0a54-582b-44ab-a77f-eb818942203d.gif)

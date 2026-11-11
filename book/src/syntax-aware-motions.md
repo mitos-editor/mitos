@@ -21,6 +21,8 @@ surround the selected structure using the usual editing commands.
 These motions need a syntax grammar for the current language. Use
 [textobjects](./textobjects.md) when you want a specific kind of structure,
 such as a function or parameter.
+For a worked example of navigating functions and changing code inside one,
+see [Edit code with textobjects](./editing-effectively/textobjects.md).
 
 ## How structures relate
 

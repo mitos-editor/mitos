@@ -10,7 +10,7 @@ Use a macro when you want to repeat several commands together.
 Use multiple selections when the same edit should apply to every match in a
 region. If each match needs a decision, search with `/` or `*`, use `n` to review
 matches, and repeat the edit with `.` only where you want it. See the
-[worked examples](./editing-effectively.md#review-repeated-matches-one-at-a-time).
+[worked examples](./editing-effectively/repeated-edits.md#review-repeated-matches-one-at-a-time).
 
 ## Record and replay a macro
 
