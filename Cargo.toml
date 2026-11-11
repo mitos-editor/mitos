@@ -135,7 +135,8 @@ chardetng = "1.0"
 encoding_rs = "0.8"
 memchr = "2.8"
 ropey = { version = "2.0.0-beta.1", default-features = false, features = ["simd", "metric_chars", "metric_utf16", "metric_lines_lf"] }
-textwrap = "0.16.2"
+# Reflow uses AsciiSpace; keep Unicode widths and optimal wrapping without ICU segmentation.
+textwrap = { version = "0.16.4", default-features = false, features = ["std", "unicode-width", "smawk"] }
 unicode-general-category = "1.1"
 unicode-segmentation = "1.13"
 unicode-width = "=0.2.3"

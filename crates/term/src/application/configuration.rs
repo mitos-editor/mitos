@@ -158,7 +158,49 @@ pub(super) fn terminal_config(config: &Config) -> tui::terminal::Config {
 #[cfg(test)]
 mod tests {
     use crate::application::TestApplication;
+    use crate::compositor::{Component, Context, Event, EventResult};
     use crate::ui::picker::test::application;
+
+    #[tokio::test]
+    async fn idle_pump_applies_config_queued_by_idle_handlers() -> anyhow::Result<()> {
+        struct UpdateOnIdle(bool);
+
+        impl Component for UpdateOnIdle {
+            fn render(
+                &mut self,
+                _area: view::graphics::Rect,
+                _frame: &mut tui::buffer::Buffer,
+                _cx: &mut crate::compositor::DrawContext,
+            ) {
+            }
+
+            fn handle_event(&mut self, event: &Event, cx: &mut Context) -> EventResult {
+                if matches!(event, Event::IdleTimeout) && !self.0 {
+                    self.0 = true;
+                    let mut settings = cx.config.current.editor_settings();
+                    settings.editor.inline_blame.show = editor_config::InlineBlameShow::AllLines;
+                    cx.config
+                        .updates
+                        .send(crate::config::ConfigEvent::Update(Box::new(settings)))
+                        .unwrap();
+                }
+                EventResult::Ignored(None)
+            }
+        }
+
+        let mut app = application(false)?;
+        app.compositor.push(Box::new(UpdateOnIdle(false)));
+        tokio::time::pause();
+        let mut input = futures_util::stream::pending();
+        assert!(app.event_loop_until_idle(&mut input).await);
+        assert_eq!(
+            app.editor.config().inline_blame.show,
+            editor_config::InlineBlameShow::AllLines
+        );
+        assert!(app.take_config_request().is_none());
+        assert!(app.close().await.is_empty());
+        Ok(())
+    }
 
     async fn keys(app: &mut TestApplication, input: &str) -> anyhow::Result<()> {
         for key in ui_core::input::parse_macro(input)? {
