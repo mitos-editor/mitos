@@ -206,17 +206,18 @@ impl EditorView {
         if let Some(keyresult) = self.handle_keymap_event(Mode::Insert, cx, event) {
             match keyresult {
                 KeymapResult::NotFound => {
-                    if let Some(ch) = event.char() {
+                    if let Some(ch) = event.text_char() {
                         commands::insert::try_insert_char(cx, ch)?
                     }
                 }
                 KeymapResult::Cancelled(pending) => {
                     for ev in pending {
-                        match ev.char() {
+                        match ev.text_char() {
                             Some(ch) => commands::insert::try_insert_char(cx, ch)?,
                             None => {
-                                if let KeymapResult::Matched(command) =
-                                    self.keymaps.get(Mode::Insert, ev)
+                                let maps = self.keymaps.map();
+                                if let Some(crate::keymap::KeyTrie::Action(command)) =
+                                    maps[&Mode::Insert].search(&[ev])
                                 {
                                     command.execute(cx);
                                 }
@@ -718,10 +719,18 @@ impl Component for EditorView {
                                             Some(callback)
                                         }
                                         _ if preserves_completion => None,
-                                        _ => match completion.accept(&mut cx) {
-                                            EventResult::Consumed(callback) => Some(callback),
-                                            _ => None,
-                                        },
+                                        // Only typed text may implicitly accept a
+                                        // suggestion. Other commands operate on real text.
+                                        _ if key.text_char().is_some() => {
+                                            match completion.accept(&mut cx) {
+                                                EventResult::Consumed(callback) => Some(callback),
+                                                _ => None,
+                                            }
+                                        }
+                                        _ => {
+                                            self.clear_completion(cx.editor);
+                                            None
+                                        }
                                     }
                                 };
 

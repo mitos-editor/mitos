@@ -30,7 +30,15 @@
 | `` B `` | Move to start of previous long word | `` move_previous_long_word_start `` |
 | `` E `` | Move to end of next long word | `` move_next_long_word_end `` |
 | `` v `` | Enter selection extend mode | `` select_mode `` |
-| `` G `` | Go to line | `` goto_line `` |
+| `` G `` | Go to the counted line, or the last line without a count; extend in select mode | `` goto_line `` |
+| `` <F1> `` | Open command palette | `` command_palette `` |
+| `` <F2> `` | Rename symbol | `` rename_symbol `` |
+| `` <F5> `` | Continue program execution | `` debug_continue `` |
+| `` <F9> `` | Toggle breakpoints | `` debug_toggle_breakpoints `` |
+| `` <F10> `` | Step over the current statement | `` debug_step_over `` |
+| `` <F11> `` | Step in | `` debug_step_in `` |
+| `` <S-F11> `` | Step out | `` debug_step_out `` |
+| `` <F12> `` | Go to definition | `` goto_definition `` |
 | `` g `` | Goto | Prefix |
 | `` : `` | Enter command mode | `` command_mode `` |
 | `` <A-q> `` | Add current location to quicklist | `` add_to_quicklist `` |
@@ -120,7 +128,7 @@
 | `` <C-i> `` | Jump forward on jumplist | `` jump_forward `` |
 | `` <tab> `` | Jump forward on jumplist | `` jump_forward `` |
 | `` <C-o> `` | Jump backward on jumplist | `` jump_backward `` |
-| `` <C-s> `` | Record current selections in the jumplist | `` save_selection `` |
+| `` <C-s> `` | Write changes to disk. Accepts an optional path (`:write some/path.txt`). | `` :write `` |
 | `` <space> `` | Space | Prefix |
 | `` z `` | View | Prefix |
 | `` Z `` | View (sticky; Escape to exit) | Prefix |
@@ -284,7 +292,7 @@
 | `` <space>e `` | Open file explorer in workspace root | `` file_explorer `` |
 | `` <space>E `` | Open file explorer at current buffer's directory | `` file_explorer_in_current_buffer_directory `` |
 | `` <space>b `` | Open buffer picker | `` buffer_picker `` |
-| `` <space>j `` | Open jumplist picker | `` jumplist_picker `` |
+| `` <space>j `` | Jumps | Prefix |
 | `` <space>q `` | Open quicklist picker | `` quicklist_picker `` |
 | `` <space>s `` | Open symbol picker from LSP or syntax information | `` lsp_or_syntax_symbol_picker `` |
 | `` <space>S `` | Open workspace symbol picker from LSP or syntax information | `` lsp_or_syntax_workspace_symbol_picker `` |
@@ -296,13 +304,14 @@
 | `` <space>' `` | Open last picker | `` last_picker `` |
 | `` <space>x `` | Debug | Prefix |
 | `` <space>X `` | Debug (sticky; Escape to exit) | Prefix |
-| `` <space>w `` | Window | Prefix |
+| `` <space>w `` | Write changes to disk. Accepts an optional path (`:write some/path.txt`). | `` :write `` |
+| `` <space>W `` | Write changes from all buffers to disk. | `` :write-all `` |
 | `` <space>y `` | Yank selections to clipboard | `` yank_to_clipboard `` |
 | `` <space>Y `` | Yank primary selection to clipboard | `` yank_primary_selection_to_clipboard `` |
 | `` <space>p `` | Paste clipboard after selections | `` paste_clipboard_after `` |
 | `` <space>P `` | Paste clipboard before selections | `` paste_clipboard_before `` |
 | `` <space>R `` | Replace selections by clipboard content | `` replace_selections_with_clipboard `` |
-| `` <space>/ `` | Search text in the current working directory | `` search_picker_in_current_working_directory `` |
+| `` <space>/ `` | Search text in the workspace | `` search_picker `` |
 | `` <space>k `` | Show docs for item under cursor | `` hover `` |
 | `` <space>K `` | Show docs for item under cursor in a new buffer | `` goto_hover `` |
 | `` <space>r `` | Rename symbol | `` rename_symbol `` |
@@ -311,8 +320,13 @@
 | `` <space>C `` | Block comment/uncomment selections | `` toggle_block_comments `` |
 | `` <space><A-c> `` | Line comment/uncomment selections | `` toggle_line_comments `` |
 | `` <space>? `` | Open command palette | `` command_palette `` |
-| `` <space>B `` | Toggle inline blame | `` vcs_toggle_inline_blame `` |
-| `` <space>i `` | Show hunk diff | `` vcs_show_change `` |
+
+#### `` <space>j `` — Jumps
+
+| Key | Description | Command |
+| --- | --- | --- |
+| `` <space>jj `` | Open jumplist picker | `` jumplist_picker `` |
+| `` <space>js `` | Record current selections in the jumplist | `` save_selection `` |
 
 #### `` <space>g `` — Version control
 
@@ -394,60 +408,6 @@
 | `` <space>Xss `` | Open debug session picker | `` debug_session_picker `` |
 | `` <space>Xst `` | Choose the current debug thread | `` debug_thread_picker `` |
 | `` <space>Xsf `` | Open debug stack frame picker | `` debug_stack_frame_picker `` |
-
-#### `` <space>w `` — Window
-
-| Key | Description | Command |
-| --- | --- | --- |
-| `` <space>wb `` | Toggle file explorer sidebar | `` toggle_sidebar `` |
-| `` <space>we `` | Open and focus file explorer sidebar | `` focus_sidebar `` |
-| `` <space>w<C-w> `` | Go to next window | `` rotate_view `` |
-| `` <space>ww `` | Go to next window | `` rotate_view `` |
-| `` <space>wW `` | Go to previous window | `` rotate_view_reverse `` |
-| `` <space>w<C-s> `` | Horizontal bottom split | `` split_horizontal `` |
-| `` <space>ws `` | Horizontal bottom split | `` split_horizontal `` |
-| `` <space>w<C-v> `` | Vertical right split | `` split_vertical `` |
-| `` <space>wv `` | Vertical right split | `` split_vertical `` |
-| `` <space>w<C-t> `` | Transpose splits | `` transpose_view `` |
-| `` <space>wt `` | Transpose splits | `` transpose_view `` |
-| `` <space>wr `` | Resize windows (Enter to confirm, Escape to cancel) | `` resize_mode `` |
-| `` <space>w= `` | Make all splits the same size | `` equalize_views `` |
-| `` <space>wf `` | Open files in selections in a horizontal split | `` goto_file_in_horizontal_split `` |
-| `` <space>wF `` | Open files in selections in a vertical split | `` goto_file_in_vertical_split `` |
-| `` <space>w<C-q> `` | Close current view | `` close_view `` |
-| `` <space>wq `` | Close current view | `` close_view `` |
-| `` <space>w<C-o> `` | Close views except current | `` close_other_views `` |
-| `` <space>wo `` | Close views except current | `` close_other_views `` |
-| `` <space>w<C-h> `` | Jump to left split | `` jump_view_left `` |
-| `` <space>wh `` | Jump to left split | `` jump_view_left `` |
-| `` <space>w<left> `` | Jump to left split | `` jump_view_left `` |
-| `` <space>w<C-j> `` | Jump to split below | `` jump_view_down `` |
-| `` <space>wj `` | Jump to split below | `` jump_view_down `` |
-| `` <space>w<down> `` | Jump to split below | `` jump_view_down `` |
-| `` <space>w<C-k> `` | Jump to split above | `` jump_view_up `` |
-| `` <space>wk `` | Jump to split above | `` jump_view_up `` |
-| `` <space>w<up> `` | Jump to split above | `` jump_view_up `` |
-| `` <space>w<C-l> `` | Jump to right split | `` jump_view_right `` |
-| `` <space>wl `` | Jump to right split | `` jump_view_right `` |
-| `` <space>w<right> `` | Jump to right split | `` jump_view_right `` |
-| `` <space>wL `` | Swap with right split | `` swap_view_right `` |
-| `` <space>w<S-right> `` | Swap with right split | `` swap_view_right `` |
-| `` <space>wK `` | Swap with split above | `` swap_view_up `` |
-| `` <space>w<S-up> `` | Swap with split above | `` swap_view_up `` |
-| `` <space>wH `` | Swap with left split | `` swap_view_left `` |
-| `` <space>w<S-left> `` | Swap with left split | `` swap_view_left `` |
-| `` <space>wJ `` | Swap with split below | `` swap_view_down `` |
-| `` <space>w<S-down> `` | Swap with split below | `` swap_view_down `` |
-| `` <space>wn `` | New split scratch buffer | Prefix |
-
-##### `` <space>wn `` — New split scratch buffer
-
-| Key | Description | Command |
-| --- | --- | --- |
-| `` <space>wn<C-s> `` | Horizontal bottom split scratch buffer | `` split_horizontal_new `` |
-| `` <space>wns `` | Horizontal bottom split scratch buffer | `` split_horizontal_new `` |
-| `` <space>wn<C-v> `` | Vertical right split scratch buffer | `` split_vertical_new `` |
-| `` <space>wnv `` | Vertical right split scratch buffer | `` split_vertical_new `` |
 
 ### `` z `` — View
 

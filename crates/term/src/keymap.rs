@@ -505,11 +505,6 @@ mod tests {
         let keymaps = Keymaps::default().map();
         let root = keymaps.get(&Mode::Normal).unwrap();
         assert_eq!(
-            root.search(&[key!(' '), key!('w')]).unwrap(),
-            root.search(&["C-w".parse::<KeyEvent>().unwrap()]).unwrap(),
-            "Mismatch for window mode on `Space-w` and `Ctrl-w`"
-        );
-        assert_eq!(
             root.search(&[key!('z')]).unwrap(),
             root.search(&[key!('Z')]).unwrap(),
             "Mismatch for view mode on `z` and `Z`"

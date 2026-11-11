@@ -551,7 +551,7 @@ async fn dismissing_the_completion_menu_cancels_its_queued_inline_result() -> an
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn ordinary_insert_prefixes_still_accept_the_selected_menu_item() -> anyhow::Result<()> {
+async fn insert_prefixes_accept_menu_items_only_for_text_keys() -> anyhow::Result<()> {
     for (prefix, command) in [("z", "h"), ("g", "<C-p>")] {
         let dir = tempfile::tempdir()?;
         let mut f = Fixture::new(dir.path(), false, "🙂 pr!\nnext\n").await?;
@@ -584,13 +584,19 @@ async fn ordinary_insert_prefixes_still_accept_the_selected_menu_item() -> anyho
         }
         f.key(command).await?;
         let (view, doc) = current_ref!(f.app.editor);
+        let (expected, cursor) = if prefix == "g" {
+            ("🙂 pr!\nnext\n".to_owned(), 3)
+        } else {
+            (expected, 2 + selected.chars().count() - 1)
+        };
         assert_eq!(doc.text().to_string(), expected);
         assert_eq!(
             doc.selection(view.id)
                 .primary()
                 .cursor(doc.text().slice(..)),
-            2 + selected.chars().count() - 1
+            cursor
         );
+        assert!(!view::features::completion::is_shown(&f.app.editor));
         assert!(f.app.close().await.is_empty());
     }
     Ok(())
