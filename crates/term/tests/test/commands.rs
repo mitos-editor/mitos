@@ -411,7 +411,7 @@ async fn test_picker_quicklist_navigation() -> anyhow::Result<()> {
             .with_file(&alpha, None)
             .with_file(&beta, None)
             .build()?,
-        Some("<space>balpha<C-q><esc>]q"),
+        Some("<space>balpha<C-x>q<esc>]q"),
         Some(&|app| {
             let doc = doc!(app.editor);
             let expected = path::normalize(&alpha);
@@ -501,7 +501,7 @@ async fn test_quicklist_picker_navigation() -> anyhow::Result<()> {
             .with_file(&alpha, None)
             .with_file(&beta, None)
             .build()?,
-        Some("<space>balpha<C-q><esc><space>q<ret>"),
+        Some("<space>balpha<C-x>q<esc><space>q<ret>"),
         Some(&|app| {
             let doc = doc!(app.editor);
             let expected = path::normalize(&alpha);
@@ -518,7 +518,7 @@ async fn test_quicklist_picker_navigation() -> anyhow::Result<()> {
 async fn test_picker_quicklist_preserves_unsaved_buffer_entries() -> anyhow::Result<()> {
     test_key_sequence(
         &mut AppBuilder::new().with_input_text("#[hello|]#").build()?,
-        Some("<space>b<C-q><esc>]q"),
+        Some("<space>b<C-x>q<esc>]q"),
         Some(&|app| {
             let doc = doc!(app.editor);
             assert_eq!(doc.path(), None);
@@ -564,7 +564,7 @@ async fn test_jumplist_picker_quicklist_preserves_exact_selection() -> anyhow::R
 
     test_key_sequence(
         &mut app,
-        Some("<space>jj<C-q><esc>]q"),
+        Some("<space>jj<C-x>q<esc>]q"),
         Some(&|app| {
             let (view, doc) = view::current_ref!(app.editor);
             assert_eq!(doc.selection(view.id), &selection);
@@ -585,7 +585,7 @@ async fn test_syntax_symbol_quicklist_preserves_exact_declaration_selection() ->
 
     test_key_sequence(
         &mut AppBuilder::new().with_file(&file, None).build()?,
-        Some("<space>sbanana<C-q><esc>]q"),
+        Some("<space>sbanana<C-x>q<esc>]q"),
         Some(&|app| {
             let (view, doc) = view::current_ref!(app.editor);
             let text = doc.text().slice(..);

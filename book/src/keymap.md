@@ -78,7 +78,12 @@ The tables below use the action names accepted by
 [Prompt](#prompt) bindings also work in [pickers](./pickers.md), except where
 they conflict with picker bindings. Buffer pickers use their own binding table.
 Popups use the popup bindings together with their specific hover,
-signature-help, or blame bindings. In the completion menu, other typing
-accepts the completion and continues inserting text.
+signature-help, or blame bindings. In the completion menu, ordinary typing
+accepts the completion and continues inserting text; command keys do not.
+`Esc` and `Ctrl-c` cancel the innermost interaction before changing editor mode.
+
+Press `Ctrl-x` in a picker to see its available actions. The menu follows your
+remaps and shows only actions supported by the picker. The generated tables
+include inherited bindings; the availability column explains conditional ones.
 
 {{#include ./generated/keymap-components.md}}

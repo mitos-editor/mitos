@@ -49,7 +49,7 @@ async fn wait_for(app: &mut TestApplication, done: impl Fn(&str) -> bool) -> any
 
 /// Filter the explorer to one entry, so the following action applies to it.
 async fn select(app: &mut TestApplication, name: &str) -> anyhow::Result<()> {
-    // `C-u` pages the picker; `C-w` clears a query without path separators.
+    // Clear the query without changing the selected directory.
     keys(app, &format!("<C-w><C-w>{name}")).await
 }
 
@@ -63,12 +63,13 @@ fn names(root: &Path) -> Vec<String> {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn alt_n_creates_files_and_directories_in_the_shown_directory() -> anyhow::Result<()> {
+async fn action_menu_create_creates_files_and_directories_in_the_shown_directory(
+) -> anyhow::Result<()> {
     let (mut app, _dir, root) = explorer().await?;
-    keys(&mut app, "<A-n>new.txt<ret>").await?;
+    keys(&mut app, "<C-x>nnew.txt<ret>").await?;
     assert!(root.join("new.txt").is_file());
     // A trailing separator creates a directory, with missing parents.
-    keys(&mut app, "<A-n>deep/er/<ret>").await?;
+    keys(&mut app, "<C-x>ndeep/er/<ret>").await?;
     assert!(root.join("deep/er").is_dir());
     // The explorer lists the new entries without a file watcher event.
     wait_for(&mut app, |screen| {
@@ -76,24 +77,25 @@ async fn alt_n_creates_files_and_directories_in_the_shown_directory() -> anyhow:
     })
     .await?;
     // An existing path is never replaced.
-    keys(&mut app, "<A-n>b.txt<ret>").await?;
+    keys(&mut app, "<C-x>nb.txt<ret>").await?;
     assert_eq!(std::fs::read_to_string(root.join("b.txt"))?, "b\n");
     assert!(screen(&app).contains("already exists"), "{}", screen(&app));
     Ok(())
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn alt_m_renames_before_the_extension_and_retargets_open_buffers() -> anyhow::Result<()> {
+async fn action_menu_move_renames_before_the_extension_and_retargets_open_buffers(
+) -> anyhow::Result<()> {
     let (mut app, _dir, root) = explorer().await?;
     select(&mut app, "a.txt").await?;
     // The prompt holds the path with the cursor before `.txt`.
-    keys(&mut app, "<A-m>-renamed<ret>").await?;
+    keys(&mut app, "<C-x>r-renamed<ret>").await?;
     assert_eq!(names(&root), ["a-renamed.txt", "b.txt", "sub"]);
     let (_, doc) = current_ref!(app.editor);
     assert_eq!(doc.path(), Some(root.join("a-renamed.txt").as_path()));
     // An existing destination is never overwritten by a move.
     select(&mut app, "b.txt").await?;
-    keys(&mut app, "<A-m><C-e><C-u>").await?;
+    keys(&mut app, "<C-x>r<C-e><C-u>").await?;
     keys(
         &mut app,
         &format!("{}<ret>", root.join("a-renamed.txt").display()),
@@ -104,7 +106,7 @@ async fn alt_m_renames_before_the_extension_and_retargets_open_buffers() -> anyh
     assert!(screen(&app).contains("already exists"), "{}", screen(&app));
     // Moving onto a directory moves into it.
     select(&mut app, "b.txt").await?;
-    keys(&mut app, "<A-m><C-e><C-u>").await?;
+    keys(&mut app, "<C-x>r<C-e><C-u>").await?;
     keys(&mut app, &format!("{}<ret>", root.join("sub").display())).await?;
     assert!(
         root.join("sub/b.txt").is_file(),
@@ -123,7 +125,7 @@ async fn rename_preserves_unicode_extensions() -> anyhow::Result<()> {
         std::fs::write(root.join(&source), "contents\n")?;
         keys(&mut app, "<esc><space>E").await?;
         select(&mut app, &source).await?;
-        keys(&mut app, "<A-m>-renamed<ret>").await?;
+        keys(&mut app, "<C-x>r-renamed<ret>").await?;
         assert_eq!(
             std::fs::read_to_string(root.join(format!("file{index}-renamed.{extension}")))?,
             "contents\n"
@@ -137,10 +139,10 @@ async fn rename_preserves_unicode_extensions() -> anyhow::Result<()> {
 #[tokio::test(flavor = "multi_thread")]
 async fn path_prompts_preserve_spaces_in_filenames() -> anyhow::Result<()> {
     let (mut app, _dir, root) = explorer().await?;
-    keys(&mut app, "<A-n> padded.txt <ret>").await?;
+    keys(&mut app, "<C-x>n padded.txt <ret>").await?;
     assert!(root.join(" padded.txt ").is_file());
     select(&mut app, "a.txt").await?;
-    keys(&mut app, "<A-m><C-e><C-u>").await?;
+    keys(&mut app, "<C-x>r<C-e><C-u>").await?;
     keys(
         &mut app,
         &format!("{}<ret>", root.join(" renamed.txt ").display()),
@@ -158,30 +160,30 @@ async fn create_uses_the_directory_after_navigation_even_without_a_selection() -
     select(&mut app, "sub").await?;
     keys(&mut app, "<ret>").await?;
     select(&mut app, "no-matches").await?;
-    keys(&mut app, "<A-n>new.txt<ret>").await?;
+    keys(&mut app, "<C-x>nnew.txt<ret>").await?;
     assert!(root.join("sub/new.txt").is_file());
     assert!(!root.join("new.txt").exists());
     Ok(())
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn alt_c_copies_files_but_not_directories() -> anyhow::Result<()> {
+async fn action_menu_copy_copies_files_but_not_directories() -> anyhow::Result<()> {
     let (mut app, _dir, root) = explorer().await?;
     select(&mut app, "b.txt").await?;
-    keys(&mut app, "<A-c>-copy<ret>").await?;
+    keys(&mut app, "<C-x>c-copy<ret>").await?;
     assert_eq!(std::fs::read_to_string(root.join("b-copy.txt"))?, "b\n");
     assert!(root.join("b.txt").is_file());
     wait_for(&mut app, |screen| screen.contains("b-copy.txt")).await?;
 
     // Copying onto an existing file is refused and leaves it alone.
     select(&mut app, "b.txt").await?;
-    keys(&mut app, "<A-c><C-e><C-u>").await?;
+    keys(&mut app, "<C-x>c<C-e><C-u>").await?;
     keys(&mut app, &format!("{}<ret>", root.join("a.txt").display())).await?;
     assert_eq!(std::fs::read_to_string(root.join("a.txt"))?, "a\n");
     assert!(screen(&app).contains("already exists"), "{}", screen(&app));
 
     select(&mut app, "sub").await?;
-    keys(&mut app, "<A-c>").await?;
+    keys(&mut app, "<C-x>c").await?;
     assert!(
         screen(&app).contains("Copying directories is not supported"),
         "{}",
@@ -191,19 +193,19 @@ async fn alt_c_copies_files_but_not_directories() -> anyhow::Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn alt_d_deletes_only_after_yes_and_removes_directories_with_their_contents(
+async fn action_menu_delete_deletes_only_after_yes_and_removes_directories_with_their_contents(
 ) -> anyhow::Result<()> {
     let (mut app, _dir, root) = explorer().await?;
     select(&mut app, "b.txt").await?;
-    keys(&mut app, "<A-d>n<ret>").await?;
+    keys(&mut app, "<C-x>dn<ret>").await?;
     assert!(root.join("b.txt").exists());
-    keys(&mut app, "<A-d><esc>").await?;
+    keys(&mut app, "<C-x>d<esc>").await?;
     assert!(root.join("b.txt").exists());
-    keys(&mut app, "<A-d>y<ret>").await?;
+    keys(&mut app, "<C-x>dy<ret>").await?;
     assert!(!root.join("b.txt").exists());
 
     select(&mut app, "sub").await?;
-    keys(&mut app, "<A-d>").await?;
+    keys(&mut app, "<C-x>d").await?;
     assert!(
         screen(&app).contains("and its contents?"),
         "{}",
@@ -216,17 +218,18 @@ async fn alt_d_deletes_only_after_yes_and_removes_directories_with_their_content
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn parent_entry_cannot_be_moved_or_deleted_and_alt_y_yanks_paths() -> anyhow::Result<()> {
+async fn parent_entry_cannot_be_moved_or_deleted_and_action_menu_yank_yanks_paths(
+) -> anyhow::Result<()> {
     let (mut app, _dir, root) = explorer().await?;
     select(&mut app, "..").await?;
-    for action in ["<A-m>", "<A-c>", "<A-d>"] {
+    for action in ["<C-x>r", "<C-x>c", "<C-x>d"] {
         keys(&mut app, action).await?;
         assert!(screen(&app).contains("Select a file or directory first"));
     }
     assert_eq!(names(&root), ["a.txt", "b.txt", "sub"]);
 
     select(&mut app, "b.txt").await?;
-    keys(&mut app, "<A-y>").await?;
+    keys(&mut app, "<C-x>y").await?;
     let yanked: Vec<_> = app
         .editor
         .registers

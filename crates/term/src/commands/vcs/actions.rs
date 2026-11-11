@@ -301,9 +301,9 @@ pub(super) fn file_help(
     action_hints(
         keys,
         &[
-            (P::Accept, "open"),
             (P::Item(PickerItemAction::Stage), "stage"),
             (P::Item(PickerItemAction::Unstage), "unstage"),
+            (P::Accept, "open"),
             (P::Item(PickerItemAction::Stash), "stash"),
             (P::Item(PickerItemAction::Stashes), "stashes"),
             (P::Item(PickerItemAction::Actions), "actions"),

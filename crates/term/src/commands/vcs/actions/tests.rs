@@ -35,7 +35,7 @@ async fn stash_application_confirms_and_finishes_after_the_picker_closes() -> an
     );
     until(&mut picker, &mut app, |picker| picker.selection().is_some()).await?;
     compositor.push(Box::new(overlaid(picker)));
-    key(&mut app, &mut compositor, &mut jobs, "A-s");
+    key(&mut app, &mut compositor, &mut jobs, "C-x a s");
     assert!(compositor.find::<ActionMenu>().is_some());
     key(&mut app, &mut compositor, &mut jobs, "ret"); // Cancel is selected initially.
     assert!(!app.editor.handlers().git_operations.busy());
@@ -43,7 +43,7 @@ async fn stash_application_confirms_and_finishes_after_the_picker_closes() -> an
         std::fs::read_to_string(dir.path().join("file.txt"))?,
         "head\n"
     );
-    key(&mut app, &mut compositor, &mut jobs, "A-s");
+    key(&mut app, &mut compositor, &mut jobs, "C-x a s");
     key(&mut app, &mut compositor, &mut jobs, "down");
     key(&mut app, &mut compositor, &mut jobs, "ret");
     assert!(app.editor.handlers().git_operations.busy());
@@ -94,7 +94,7 @@ async fn git_actions_are_available_without_a_selected_file() -> anyhow::Result<(
     );
     until(&mut picker, &mut app, |_| true).await?;
     compositor.push(Box::new(overlaid(picker)));
-    key(&mut app, &mut compositor, &mut jobs, "A-a");
+    key(&mut app, &mut compositor, &mut jobs, "C-x a ?");
     assert!(compositor.find::<ActionMenu>().is_some());
     key(&mut app, &mut compositor, &mut jobs, "esc");
     assert!(compositor.find::<ActionMenu>().is_none());
@@ -224,7 +224,7 @@ async fn direct_git_shortcuts_clip_to_one_row_follow_remaps_and_preserve_paging(
     for remapped in [false, true] {
         let config = crate::config::Config::load(
             Ok(&if remapped {
-                "[keys.git-picker]\nA-s = 'unbound'\nC-j = 'stage'\nA-z = 'unbound'".to_owned()
+                "[keys.git-picker]\nC-j = 'stage'\nA-s = 'unbound'\n[keys.git-picker.C-x.a]\ns = 'unbound'\nz = 'unbound'".to_owned()
             } else {
                 String::new()
             }),
@@ -259,19 +259,25 @@ async fn direct_git_shortcuts_clip_to_one_row_follow_remaps_and_preserve_paging(
                     view::graphics::Rect::new(0, 0, width, 12),
                 );
                 let screen = rows.join("\n");
-                assert!(screen.contains("<ret> open"), "{screen}");
-                assert!(screen.contains(if remapped {
-                    "<C-j> stage"
-                } else {
-                    "<A-s> stage"
-                }));
                 if width == 120 {
-                    for hint in ["<A-u> unstage", "<A-l> stashes", "<A-a> actions"] {
+                    assert!(screen.contains("<ret> open"), "{screen}");
+                }
+                assert!(screen.contains("<C-x> actions"));
+                {
+                    assert!(
+                        screen.contains(if remapped {
+                            "<C-j> stage"
+                        } else {
+                            "<A-s> stage"
+                        }),
+                        "{screen}"
+                    );
+                }
+                if width == 120 {
+                    for hint in ["<A-u> unstage", "<C-x>al stashes"] {
                         assert!(screen.contains(hint), "Missing {hint:?}: {screen}");
                     }
-                    assert_eq!(screen.contains("<A-z> stash"), !remapped);
-                } else {
-                    assert!(!screen.contains("actions"), "{screen}");
+                    assert_eq!(screen.contains("<C-x>az stash"), !remapped);
                 }
                 assert!(rows[..rows.len() - 1]
                     .iter()

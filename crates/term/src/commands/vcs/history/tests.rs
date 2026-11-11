@@ -189,7 +189,7 @@ async fn history_loading_can_be_paused_and_continued_with_the_shared_action() ->
     let mut app = application(false)?;
     let mut picker = browser(&app.editor, repo, None, None)?;
     until(&mut picker, &mut app, |p| all_items(p).count() == 100).await?;
-    press(&mut picker, &mut app, "C-l");
+    press(&mut picker, &mut app, "C-x l");
     assert!(screen(&mut picker, &mut app).contains("Loading paused"));
     for ch in "oldest-needle".chars() {
         press(&mut picker, &mut app, &ch.to_string());
@@ -198,7 +198,7 @@ async fn history_loading_can_be_paused_and_continued_with_the_shared_action() ->
         draw(&mut picker, &mut app);
     }
     assert_eq!(all_items(&picker).count(), 100);
-    press(&mut picker, &mut app, "C-l");
+    press(&mut picker, &mut app, "C-x l");
     until(&mut picker, &mut app, |p| all_items(p).count() == 305).await?;
     assert!(screen(&mut picker, &mut app).contains("Complete history"));
     Ok(())
@@ -229,7 +229,7 @@ async fn history_scaling() -> Result<()> {
                     .is_some_and(|status| status.starts_with("Memory budget reached"))
                 {
                     pauses += 1;
-                    press(&mut picker, &mut app, "C-l");
+                    press(&mut picker, &mut app, "C-x l");
                 }
                 app.editor.redraw().requested().await;
             }
@@ -252,7 +252,7 @@ async fn history_scrolling_reaches_past_five_thousand_without_losing_selection()
     let mut picker = browser(&app.editor, repo, None, None)?;
     until(&mut picker, &mut app, |p| all_items(p).count() == 100).await?;
     for expected in (200..=5_000).step_by(100).chain([5_005]) {
-        press(&mut picker, &mut app, "end");
+        press(&mut picker, &mut app, "C-x G");
         let selected = picker.selection().unwrap().id.clone();
         until(&mut picker, &mut app, |p| all_items(p).count() == expected).await?;
         assert_eq!(picker.selection().unwrap().id, selected);

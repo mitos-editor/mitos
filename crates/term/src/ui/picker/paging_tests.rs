@@ -69,7 +69,8 @@ async fn page_down_keeps_a_mid_page_selection_on_its_screen_row() -> anyhow::Res
     assert_eq!(picker.selection(), Some(&3));
     let row = screen_row(&mut picker, &mut app, 3);
 
-    for key in ["pagedown", "C-d"] {
+    {
+        let key = "pagedown";
         let before = *picker.selection().unwrap();
         press(&mut picker, &mut app, key);
         // One press moves a whole page; it never stops at the bottom of the current page.
@@ -80,7 +81,8 @@ async fn page_down_keeps_a_mid_page_selection_on_its_screen_row() -> anyhow::Res
             "{key}"
         );
     }
-    for key in ["pageup", "C-u"] {
+    {
+        let key = "pageup";
         let before = *picker.selection().unwrap();
         press(&mut picker, &mut app, key);
         assert_eq!(picker.selection(), Some(&(before - rows)), "{key}");
@@ -114,7 +116,8 @@ async fn page_down_near_the_end_never_moves_the_selection_up() -> anyhow::Result
         assert_eq!(screen_row(&mut picker, &mut app, after), row);
     }
     // Once scrolling stops, reach the final result and stay there.
-    for key in ["pagedown", "C-d"] {
+    {
+        let key = "pagedown";
         press(&mut picker, &mut app, key);
         assert_eq!(picker.selection(), Some(&39));
         assert_eq!(picker.results.offset, last_page);
@@ -129,7 +132,8 @@ async fn page_down_near_the_end_never_moves_the_selection_up() -> anyhow::Result
         press(&mut picker, &mut app, "pageup");
         assert!(*picker.selection().unwrap() < before);
     }
-    for key in ["pageup", "C-u"] {
+    {
+        let key = "pageup";
         press(&mut picker, &mut app, key);
         assert_eq!(picker.selection(), Some(&0));
         assert_eq!(picker.results.offset, 0);

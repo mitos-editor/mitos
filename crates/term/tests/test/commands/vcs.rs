@@ -823,9 +823,9 @@ async fn syntax_picker_reviews_toggle_comparisons_open_buffers_and_report_fallba
     press_keys(&mut app, "<A-o>").await?;
     wait_for_review_buffer(&mut app, "syntax", "\"value\": 2").await?;
     // A hidden preview also opens a review using the configured engine.
-    press_keys(&mut app, "<space>'<C-t><A-o>").await?;
+    press_keys(&mut app, "<space>'<C-x>p<A-o>").await?;
     wait_for_review_buffer(&mut app, "syntax", "\"value\": 2").await?;
-    press_keys(&mut app, "<space>'<C-t><esc>").await?;
+    press_keys(&mut app, "<space>'<C-x>p<esc>").await?;
     assert_eq!(std::fs::read(repo.join(".git/index"))?, index);
     std::fs::write(&path, "{]\n")?;
     press_keys(&mut app, "<space>gsfile.json").await?;
@@ -875,9 +875,9 @@ async fn changed_file_review_switches_layers_opens_deletions_and_preserves_the_i
     assert!(review_screen(&app).contains("staged contents"));
     press_keys(&mut app, "<A-o>").await?;
     wait_for_review_buffer(&mut app, "line", "working contents").await?;
-    press_keys(&mut app, "<C-o><space>'<C-t><A-o>").await?;
+    press_keys(&mut app, "<C-o><space>'<C-x>p<A-o>").await?;
     wait_for_review_buffer(&mut app, "line", "working contents").await?;
-    press_keys(&mut app, "<C-o><space>'<C-t><esc>").await?;
+    press_keys(&mut app, "<C-o><space>'<C-x>p<esc>").await?;
     assert_eq!(std::fs::read(repo.join(".git/index"))?, index);
     assert_eq!(std::fs::read_to_string(&path)?, "working contents\n");
     // Opening a deleted row creates a pathless review and never recreates the file.

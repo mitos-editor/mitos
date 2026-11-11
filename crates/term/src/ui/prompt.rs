@@ -848,7 +848,11 @@ impl Prompt {
         }
     }
 
-    fn execute_actions(&mut self, actions: &[PromptAction], cx: &mut Context) -> EventResult {
+    pub(super) fn execute_actions(
+        &mut self,
+        actions: &[PromptAction],
+        cx: &mut Context,
+    ) -> EventResult {
         let close_fn = || {
             EventResult::Consumed(Some(Box::new(|compositor: &mut Compositor, _| {
                 compositor.pop();

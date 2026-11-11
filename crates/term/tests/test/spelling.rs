@@ -629,7 +629,7 @@ async fn scratch_buffers_follow_config_and_feed_diagnostics_quicklists() -> anyh
         .build()?;
     wait_for_mistakes(&mut app, &["teh", "quik"]).await?;
     keys(&mut app, "<space>d").await?;
-    keys(&mut app, "<C-q><esc>").await?;
+    keys(&mut app, "<C-x>q<esc>").await?;
     assert_eq!(app.editor.quicklist.entries().len(), 2);
     let id = current_ref!(app.editor).1.id();
     assert!(app

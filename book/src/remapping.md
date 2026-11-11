@@ -80,13 +80,13 @@ C-space = "accept"
 C-n = "unbound" # Release this key to the picker's prompt.
 
 [keys.buffer-picker]
-C-x = "close_buffer" # Close the selected buffer and keep the picker open.
+F3 = "close_buffer" # Add a shortcut without replacing the Ctrl-x action menu.
 
 [keys.git-picker]
-C-x = "actions"
+F3 = "actions"
 
 [keys.stash-picker]
-C-x = "apply_stash"
+F3 = "apply_stash"
 
 [keys.file-explorer]
 F2 = "move_path"
@@ -137,7 +137,7 @@ belong in `keys.normal`, `keys.insert`, and `keys.select`.
 | Table | Actions |
 | --- | --- |
 | `keys.prompt` | `accept`, `cancel`, `move_left`, `move_right`, `move_word_left`, `move_word_right`, `move_start`, `move_end`, `delete_backward`, `delete_forward`, `delete_word_backward`, `delete_word_forward`, `delete_to_start`, `delete_to_end`, `insert_word`, `insert_register`, `history_previous`, `history_next`, `complete_previous`, `complete_next`, `exit_selection` |
-| `keys.picker` | `accept`, `accept_keep_open`, `accept_horizontal_split`, `accept_vertical_split`, `cancel`, `move_up`, `move_down`, `move_start`, `move_end`, `page_up`, `page_down`, `toggle_preview`, `toggle_loading`, `populate_quicklist`, `toggle_replacement`, `toggle_case_sensitive`, `replace_all`, `preview_scroll_up`, `preview_scroll_down`, `preview_previous`, `preview_next`, `open_preview` |
+| `keys.picker` | `history_previous`, `history_next`, `accept`, `accept_keep_open`, `accept_horizontal_split`, `accept_vertical_split`, `cancel`, `move_up`, `move_down`, `move_start`, `move_end`, `page_up`, `page_down`, `toggle_preview`, `toggle_loading`, `populate_quicklist`, `toggle_replacement`, `toggle_case_sensitive`, `replace_all`, `preview_scroll_up`, `preview_scroll_down`, `preview_previous`, `preview_next`, `open_preview` |
 | `keys.buffer-picker` | All `keys.picker` actions, plus `close_buffer` |
 | `keys.quicklist-picker` | All `keys.picker` actions, plus `remove_entry` |
 | `keys.git-picker` | All `keys.picker` actions, plus `stage`, `unstage`, `stash`, `actions`, `stashes` |
@@ -160,14 +160,16 @@ paging move by half a page. Picker paging moves by a full page.
 `keys.branch-picker`, `keys.worktree-picker`, `keys.stash-picker`,
 `keys.history-picker`, and `keys.file-explorer` inherit
 `keys.picker`.
+Frequently used actions have direct shortcuts; `Ctrl-x` provides the complete
+action menu. `Ctrl-s` opens a horizontal split while a picker is focused.
 Picker-specific bindings take priority over shared picker bindings, including
-ones from project configuration. The quicklist picker also binds `Ctrl-x` to
-`remove_entry` by default.
+ones from project configuration. The buffer picker binds `Ctrl-x d` to `close_buffer`; the quicklist picker
+binds it to `remove_entry`. Other Ctrl-x actions remain inherited.
 
 `close_buffer` closes the selected buffer while keeping the picker open. It
 waits for pending saves and refuses to discard unsaved changes. After closing,
 the query is kept and a nearby row becomes selected. The action stops the
-current action list. It has no default binding.
+current action list. Its default binding is `Ctrl-x d`.
 
 `remove_entry` removes the highlighted quicklist entry while keeping the picker
 open, preserving the filter and selecting a nearby row. It stops the current

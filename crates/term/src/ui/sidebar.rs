@@ -145,7 +145,14 @@ impl Sidebar {
     }
 
     pub fn infobox(&self, maps: &ComponentKeymaps) -> Option<Info> {
-        let keys = self.keys.pending_map(self.keymap(maps))?;
+        if !self.keys.is_pending() {
+            return None;
+        }
+        let filtered = crate::keymap::inspect::filter(self.keymap(maps), |action| match action {
+            SidebarAction::Picker(action) => self.picker.action_available(maps, *action),
+            _ => true,
+        });
+        let keys = self.keys.pending_map(&filtered)?;
         let mut body = BTreeMap::<String, BTreeSet<_>>::new();
         for (&key, binding) in &keys.0 {
             let description = match binding {

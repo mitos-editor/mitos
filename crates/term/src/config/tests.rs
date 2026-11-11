@@ -406,13 +406,26 @@ fn picker_keys_inherit_shared_bindings_with_context_specific_overrides() {
         );
         assert_eq!(
             state.lookup(&config.component_keys.picker, "C-x".parse().unwrap()),
-            Lookup::Unbound
+            Lookup::Pending
         );
+        state.clear();
     }
     let defaults = Config::default().component_keys;
-    assert_eq!(defaults.buffer_picker, defaults.picker);
+    let mut state = KeymapState::default();
     assert_eq!(
-        KeymapState::default().lookup(&defaults.quicklist_picker, "C-x".parse().unwrap()),
+        state.lookup(&defaults.buffer_picker, "C-x".parse().unwrap()),
+        Lookup::Pending
+    );
+    assert_eq!(
+        state.lookup(&defaults.buffer_picker, "d".parse().unwrap()),
+        Lookup::Actions(&[P::Item(I::CloseBuffer)])
+    );
+    assert_eq!(
+        state.lookup(&defaults.quicklist_picker, "C-x".parse().unwrap()),
+        Lookup::Pending
+    );
+    assert_eq!(
+        state.lookup(&defaults.quicklist_picker, "d".parse().unwrap()),
         Lookup::Actions(&[P::Item(I::RemoveQuicklistEntry)])
     );
     assert_eq!(serde_json::to_value(P::Item(I::Stage)).unwrap(), "stage");
@@ -428,28 +441,32 @@ fn picker_keys_inherit_shared_bindings_with_context_specific_overrides() {
 }
 
 #[test]
-fn file_explorer_keys_default_to_alt_actions_and_can_be_remapped() {
+fn file_explorer_actions_use_a_prefix_and_can_be_remapped() {
     use crate::keymap::component::{PickerAction as P, PickerItemAction as I};
     use ui_core::keymap::{KeymapState, Lookup};
 
     let mut state = KeymapState::default();
     let defaults = Config::default().component_keys;
     for (key, action) in [
-        ("A-n", I::CreatePath),
-        ("A-m", I::MovePath),
-        ("A-c", I::CopyPath),
-        ("A-d", I::DeletePath),
-        ("A-y", I::YankPath),
+        ("n", I::CreatePath),
+        ("r", I::MovePath),
+        ("c", I::CopyPath),
+        ("d", I::DeletePath),
+        ("y", I::YankPath),
     ] {
+        assert_eq!(
+            state.lookup(&defaults.file_explorer, "C-x".parse().unwrap()),
+            Lookup::Pending
+        );
         assert_eq!(
             state.lookup(&defaults.file_explorer, key.parse().unwrap()),
             Lookup::Actions(&[P::Item(action)])
         );
     }
-    // Other pickers keep their bindings for the same keys.
+    // Unmodified query text remains available outside the prefix.
     assert_eq!(
-        state.lookup(&defaults.picker, "A-c".parse().unwrap()),
-        Lookup::Actions(&[P::ToggleCaseSensitive])
+        state.lookup(&defaults.picker, "c".parse().unwrap()),
+        Lookup::Unbound
     );
 
     let global = r#"
