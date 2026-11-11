@@ -121,6 +121,28 @@ impl RepositoryData {
     }
 }
 
+fn branch_cell(
+    name: Option<&str>,
+    current: bool,
+    data: &RepositoryData,
+) -> tui::widgets::Cell<'static> {
+    Span::styled(
+        format!(
+            "{}{}",
+            if current { "● " } else { "  " },
+            name.unwrap_or("(detached)")
+        ),
+        data.theme.get(if current {
+            "diff.plus"
+        } else if name.is_some() {
+            "string.special.symbol"
+        } else {
+            "ui.text.inactive"
+        }),
+    )
+    .into()
+}
+
 fn divergence_cell(
     divergence: Option<&Divergence>,
     data: &RepositoryData,
@@ -146,10 +168,6 @@ fn divergence_cell(
                 "diff.minus"
             }),
         ),
-        Span::styled(
-            format!(" {}", divergence.base),
-            data.theme.get("ui.text.inactive"),
-        ),
     ])
     .into()
 }
@@ -167,22 +185,7 @@ fn branches(
         editor.redraw().clone(),
         [
             PickerColumn::new("branch", |branch: &Arc<Branch>, data: &RepositoryData| {
-                Span::styled(
-                    branch.name.as_str(),
-                    data.theme.get(if branch.current {
-                        "diff.plus"
-                    } else {
-                        "string.special.symbol"
-                    }),
-                )
-                .into()
-            }),
-            PickerColumn::new("current", |branch: &Arc<Branch>, data| {
-                Span::styled(
-                    if branch.current { "*" } else { "" },
-                    data.theme.get("diff.plus"),
-                )
-                .into()
+                branch_cell(Some(&branch.name), branch.current, data)
             }),
             PickerColumn::new("vs base", |branch: &Arc<Branch>, data| {
                 divergence_cell(branch.divergence.as_ref(), data)
@@ -244,15 +247,7 @@ fn worktrees(
         editor.redraw().clone(),
         [
             PickerColumn::new("branch", |tree: &Worktree, data: &RepositoryData| {
-                Span::styled(
-                    tree.branch.as_deref().unwrap_or("(detached)"),
-                    data.theme.get(if tree.branch.is_some() {
-                        "string.special.symbol"
-                    } else {
-                        "ui.text.inactive"
-                    }),
-                )
-                .into()
+                branch_cell(tree.branch.as_deref(), tree.path == data.repo.root(), data)
             }),
             PickerColumn::new("vs base", |tree: &Worktree, data| {
                 divergence_cell(tree.divergence.as_ref(), data)

@@ -139,8 +139,13 @@ async fn pickers_render_divergence_against_main() -> Result<()> {
     .await?;
     let rendered = screen(&mut picker, &mut app);
     assert!(rendered.contains("vs base"), "{rendered}");
-    assert!(rendered.contains("↑0 ↓0 main"), "{rendered}");
-    assert!(rendered.contains("↑1 ↓1 main"), "{rendered}");
+    assert!(rendered.contains("↑0 ↓0"), "{rendered}");
+    assert!(rendered.contains("↑1 ↓1"), "{rendered}");
+    assert!(!rendered.contains("↓0 main"), "{rendered}");
+    assert!(!rendered.contains("↓1 main"), "{rendered}");
+    assert!(rendered.contains("● main"), "{rendered}");
+    assert!(!rendered.contains("● topic"), "{rendered}");
+    assert!(!rendered.contains("current"), "{rendered}");
     git(&root, &["commit", "--allow-empty", "-m", "advance main"]);
     until(&mut picker, &mut app, |picker| {
         all_items(picker).any(|branch| {
@@ -152,7 +157,7 @@ async fn pickers_render_divergence_against_main() -> Result<()> {
         })
     })
     .await?;
-    assert!(screen(&mut picker, &mut app).contains("↑1 ↓2 main"));
+    assert!(screen(&mut picker, &mut app).contains("↑1 ↓2"));
     let mut picker = worktrees(&app.editor, repo, root);
     until(&mut picker, &mut app, |picker| {
         all_items(picker).count() == 2
@@ -160,9 +165,22 @@ async fn pickers_render_divergence_against_main() -> Result<()> {
     .await?;
     let rendered = screen(&mut picker, &mut app);
     assert!(rendered.contains("vs base"), "{rendered}");
-    assert!(rendered.contains("↑0 ↓0 main"), "{rendered}");
-    assert!(rendered.contains("↑1 ↓2 main"), "{rendered}");
+    assert!(rendered.contains("↑0 ↓0"), "{rendered}");
+    assert!(rendered.contains("↑1 ↓2"), "{rendered}");
+    assert!(!rendered.contains("↓0 main"), "{rendered}");
+    assert!(!rendered.contains("↓2 main"), "{rendered}");
+    assert!(rendered.contains("● main"), "{rendered}");
+    assert!(!rendered.contains("● (detached)"), "{rendered}");
     assert!(rendered.contains("(detached)"), "{rendered}");
+    let repo = GitRepository::discover(&linked)?;
+    let mut picker = worktrees(&app.editor, repo, linked);
+    until(&mut picker, &mut app, |picker| {
+        all_items(picker).count() == 2
+    })
+    .await?;
+    let rendered = screen(&mut picker, &mut app);
+    assert!(rendered.contains("● (detached)"), "{rendered}");
+    assert!(!rendered.contains("● main"), "{rendered}");
     Ok(())
 }
 
@@ -432,7 +450,7 @@ fn assert_colour(surface: &tui::buffer::Buffer, text: &str, colour: Color) {
             .collect();
         if let Some(offset) = row.find(text) {
             let offset = row[..offset].chars().count();
-            for x in offset..offset + text.len() {
+            for x in offset..offset + text.chars().count() {
                 assert_eq!(
                     surface[(x as u16, y)].fg,
                     colour,
@@ -475,11 +493,12 @@ async fn repository_pickers_preserve_semantic_colours_on_selected_rows() -> Resu
     until(&mut branches, &mut app, |p| p.selection().is_some()).await?;
     let surface = frame(&mut branches, &mut app);
     assert_colour(&surface, "main", Color::Green);
-    assert_colour(&surface, "*", Color::Green);
+    assert_colour(&surface, "●", Color::Green);
     assert!(screen(&mut branches, &mut app).contains("—"));
     let mut worktrees = worktrees(&app.editor, repo, dir.path().into());
     until(&mut worktrees, &mut app, |p| p.selection().is_some()).await?;
     let surface = frame(&mut worktrees, &mut app);
+    assert_colour(&surface, "●", Color::Green);
     assert_colour(&surface, std::path::MAIN_SEPARATOR_STR, Color::Blue);
     assert!(screen(&mut worktrees, &mut app).contains("—"));
     Ok(())

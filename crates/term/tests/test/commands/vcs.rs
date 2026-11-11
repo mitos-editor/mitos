@@ -74,7 +74,7 @@ async fn repository_commands_target_the_current_buffer_and_protect_unsaved_edits
     press_keys(&mut app, ":vcs-branches<ret>").await?;
     wait_for_review_screen(&mut app, "Git branches", "main").await?;
     press_keys(&mut app, "main").await?;
-    wait_for_review_screen(&mut app, "Git branches", "> main").await?;
+    wait_for_review_screen(&mut app, "Git branches", ">   main").await?;
     press_keys(&mut app, "<ret>").await?;
     repository_status(&mut app, "Switch branch complete").await?;
     assert!(repo
