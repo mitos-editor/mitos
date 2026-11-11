@@ -33,6 +33,28 @@ pub struct InteractionState {
     pub mouse_down_range: Option<editor_core::Range>,
 }
 
+/// Input held until a component's asynchronous action establishes its target.
+pub(crate) struct DeferredEvent {
+    event: Event,
+    playback: Vec<char>,
+}
+
+impl DeferredEvent {
+    pub(crate) fn capture(event: &Event, interaction: &mut InteractionState) -> Self {
+        // Record deferred keys when they reach their eventual input target.
+        if interaction.macro_replaying.is_empty()
+            && matches!(event, Event::Key(_))
+            && let Some((_, keys)) = &mut interaction.macro_recording
+        {
+            keys.pop();
+        }
+        Self {
+            event: event.clone(),
+            playback: interaction.macro_replaying.clone(),
+        }
+    }
+}
+
 pub struct Context<'a> {
     pub config: crate::config::Context<'a>,
     pub editor: &'a mut Editor,
@@ -150,6 +172,21 @@ pub struct Compositor {
 }
 
 impl Compositor {
+    pub(crate) fn replay_deferred(&mut self, input: Vec<DeferredEvent>, cx: &mut Context) {
+        for DeferredEvent { event, playback } in input {
+            if cx.editor.should_close() {
+                break;
+            }
+            let previous = std::mem::replace(&mut cx.interaction.macro_replaying, playback);
+            if cx.interaction.macro_replaying.is_empty() {
+                self.handle_event(&event, cx);
+            } else {
+                self.replay_event(&event, cx);
+            }
+            cx.interaction.macro_replaying = previous;
+        }
+    }
+
     pub(crate) fn has_pending_render(&self) -> bool {
         self.layers.iter().any(|layer| layer.has_pending_render())
     }
