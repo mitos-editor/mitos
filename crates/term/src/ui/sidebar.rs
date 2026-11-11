@@ -8,7 +8,7 @@ use std::{
 use view::{graphics::Rect, info::Info, Editor};
 
 use crate::{
-    compositor::{Component, Context, Cursor, DrawContext, Event, EventResult},
+    compositor::{Component, Context, Cursor, DeferredEvent, DrawContext, Event, EventResult},
     keymap::component::{ComponentKeymaps, PickerAction, SidebarAction},
 };
 use ui_core::keymap::{Binding, Keymap, KeymapState, Lookup};
@@ -31,7 +31,7 @@ pub(super) struct Sidebar {
     pending_action: Option<PickerAction>,
     action_scheduled: bool,
     pub(super) width: Option<u16>,
-    pending_input: Vec<(Event, Vec<char>)>,
+    pending_input: Vec<DeferredEvent>,
 }
 
 impl Sidebar {
@@ -234,19 +234,7 @@ impl Sidebar {
                 if let Some(EventResult::Consumed(Some(callback))) = result {
                     callback(compositor, cx);
                 }
-                for (event, macro_playback) in input {
-                    if cx.editor.should_close() {
-                        break;
-                    }
-                    if macro_playback.is_empty() {
-                        compositor.handle_event(&event, cx);
-                    } else {
-                        let previous =
-                            std::mem::replace(&mut cx.interaction.macro_replaying, macro_playback);
-                        compositor.replay_event(&event, cx);
-                        cx.interaction.macro_replaying = previous;
-                    }
-                }
+                compositor.replay_deferred(input, cx);
             }));
     }
 
@@ -264,16 +252,8 @@ impl Sidebar {
             || !self.pending_input.is_empty()
             || (self.state == State::Navigating && self.picker.has_pending_render())
         {
-            let macro_playback = cx.interaction.macro_replaying.clone();
-            // Deferred keys are recorded when dispatched, after the accepted
-            // file or prompt has become their input target.
-            if macro_playback.is_empty()
-                && matches!(event, Event::Key(_))
-                && let Some((_, keys)) = &mut cx.interaction.macro_recording
-            {
-                keys.pop();
-            }
-            self.pending_input.push((event.clone(), macro_playback));
+            self.pending_input
+                .push(DeferredEvent::capture(event, cx.interaction));
             return EventResult::Consumed(None);
         }
         let Event::Key(key) = event else {

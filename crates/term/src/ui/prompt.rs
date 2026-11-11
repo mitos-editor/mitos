@@ -1,5 +1,7 @@
 use crate::compositor::DrawContext;
-use crate::compositor::{Component, Compositor, Context, Cursor, Event, EventResult};
+use crate::compositor::{
+    Component, Compositor, Context, Cursor, DeferredEvent, Event, EventResult,
+};
 use crate::keymap::component::PromptAction;
 use crate::ui::{
     self,
@@ -80,7 +82,7 @@ pub struct Prompt {
     pending_completion: Option<DeferredCompletion>,
     /// A completion selection and the input following it resume together once ready.
     pending_actions: Option<(Vec<PromptAction>, Vec<char>)>,
-    pending_input: Vec<(Event, Vec<char>)>,
+    pending_input: Vec<DeferredEvent>,
     action_scheduled: bool,
     callback_fn: CallbackFn,
     pub doc_fn: DocFn,
@@ -351,18 +353,7 @@ impl Prompt {
                     callback(compositor, cx);
                 }
                 cx.interaction.macro_replaying = previous;
-                for (event, playback) in input {
-                    if cx.editor.should_close() {
-                        break;
-                    }
-                    let previous = std::mem::replace(&mut cx.interaction.macro_replaying, playback);
-                    if cx.interaction.macro_replaying.is_empty() {
-                        compositor.handle_event(&event, cx);
-                    } else {
-                        compositor.replay_event(&event, cx);
-                    }
-                    cx.interaction.macro_replaying = previous;
-                }
+                compositor.replay_deferred(input, cx);
             }));
     }
 
@@ -1049,15 +1040,8 @@ impl Component for Prompt {
                 self.pending_input.clear();
                 return self.execute_actions(&[PromptAction::Cancel], cx);
             }
-            // Record deferred keys when they reach their eventual input target.
-            if cx.interaction.macro_replaying.is_empty()
-                && matches!(event, Event::Key(_))
-                && let Some((_, keys)) = &mut cx.interaction.macro_recording
-            {
-                keys.pop();
-            }
             self.pending_input
-                .push((event.clone(), cx.interaction.macro_replaying.clone()));
+                .push(DeferredEvent::capture(event, cx.interaction));
             return EventResult::Consumed(None);
         }
         let event = match event {
