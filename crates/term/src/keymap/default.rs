@@ -5,7 +5,6 @@ use super::{KeyTrie, Mode};
 use editor_core::hashmap;
 
 pub fn default() -> HashMap<Mode, KeyTrie> {
-    // Both Window prefixes share the C-w command order in help output.
     let window = keymap!({ "Window"
         "b" => toggle_sidebar,
         "e" => focus_sidebar,
@@ -33,16 +32,39 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
             "C-v" | "v" => split_vertical_new,
         },
     });
-    let view = keymap!({ "View"
-        "f" => { "Folding"
-            "c" => fold_close,
-            "o" => fold_open,
-            "a" => fold_toggle,
-            "s" => fold_selection,
-            "m" => fold_all,
-            "r" => unfold_all,
+    let debug = keymap!({ "Debug"
+        "l" => debug_launch_picker,
+        "r" => debug_restart,
+        "b" => debug_toggle_breakpoints,
+        "c" => debug_continue,
+        "h" => debug_pause,
+        "i" => debug_step_in,
+        "o" => debug_step_out,
+        "n" => debug_step_over,
+        "v" => debug_variables,
+        "t" => debug_terminate,
+        "B" => { "Breakpoint settings"
+            "c" => debug_edit_breakpoint_condition,
+            "l" => debug_edit_breakpoint_log_message,
         },
-        "z" | "c" => center_view_vertically,
+        "s" => { "Switch"
+            "s" => debug_session_picker,
+            "t" => debug_thread_picker,
+            "f" => debug_stack_frame_picker,
+            // sl, sb
+        },
+        "e" => debug_enable_exception_breakpoints,
+        "E" => debug_disable_exception_breakpoints,
+    });
+    let sticky_debug = sticky(debug.clone());
+    let view = keymap!({ "View"
+        "c" => fold_close,
+        "o" => fold_open,
+        "a" => fold_toggle,
+        "f" => fold_selection,
+        "M" => fold_all,
+        "R" => unfold_all,
+        "z" => center_view_vertically,
         "t" => align_view_top,
         "b" => align_view_bottom,
         "m" => center_view_horizontally,
@@ -58,10 +80,7 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
         "n" => search_next,
         "N" => search_previous,
     });
-    let mut sticky_view = view.clone();
-    if let KeyTrie::Node(node) = &mut sticky_view {
-        node.is_sticky = true;
-    }
+    let sticky_view = sticky(view.clone());
     let normal = keymap!({ "Normal mode"
         "h" | "left" => move_char_left,
         "j" | "down" => move_visual_line_down,
@@ -94,6 +113,14 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
 
         "v" => select_mode,
         "G" => goto_line,
+        "F1" => command_palette,
+        "F2" => rename_symbol,
+        "F5" => debug_continue,
+        "F9" => debug_toggle_breakpoints,
+        "F10" => debug_step_over,
+        "F11" => debug_step_in,
+        "S-F11" => debug_step_out,
+        "F12" => goto_definition,
         "g" => { "Goto"
             "g" => goto_file_start,
             "|" => goto_column,
@@ -265,16 +292,15 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
         "C-k" => move_lines_up,
         "C-j" => move_lines_down,
 
-        "C-w" => (window.clone()),
+        "C-w" => (window),
 
-        // move under <space>c
         "C-c" => toggle_comments,
 
         // z family for save/restore/combine from/to sels from register
 
         "C-i" | "tab" => jump_forward, // tab == <C-i>
         "C-o" => jump_backward,
-        "C-s" => save_selection,
+        "C-s" => ":write",
 
         "space" => { "Space"
             "f" => file_picker,
@@ -282,7 +308,10 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
             "e" => file_explorer,
             "E" => file_explorer_in_current_buffer_directory,
             "b" => buffer_picker,
-            "j" => jumplist_picker,
+            "j" => { "Jumps"
+                "j" => jumplist_picker,
+                "s" => save_selection,
+            },
             "q" => quicklist_picker,
             "s" => lsp_or_syntax_symbol_picker,
             "S" => lsp_or_syntax_workspace_symbol_picker,
@@ -301,35 +330,16 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
             "a" => code_action,
             "l" => show_code_lenses_under_cursor,
             "'" => last_picker,
-            "G" => { "Debug (experimental)" sticky=true
-                "l" => debug_launch_picker,
-                "r" => debug_restart,
-                "b" => debug_toggle_breakpoints,
-                "c" => debug_continue,
-                "h" => debug_pause,
-                "i" => debug_step_in,
-                "o" => debug_step_out,
-                "n" => debug_step_over,
-                "v" => debug_variables,
-                "t" => debug_terminate,
-                "C-c" => debug_edit_breakpoint_condition,
-                "C-l" => debug_edit_breakpoint_log_message,
-                "s" => { "Switch"
-                    "s" => debug_session_picker,
-                    "t" => debug_thread_picker,
-                    "f" => debug_stack_frame_picker,
-                    // sl, sb
-                },
-                "e" => debug_enable_exception_breakpoints,
-                "E" => debug_disable_exception_breakpoints,
-            },
-            "w" => (window),
+            "x" => (debug),
+            "X" => (sticky_debug),
+            "w" => ":write",
+            "W" => ":write-all",
             "y" => yank_to_clipboard,
             "Y" => yank_primary_selection_to_clipboard,
             "p" => paste_clipboard_after,
             "P" => paste_clipboard_before,
             "R" => replace_selections_with_clipboard,
-            "/" => search_picker_in_current_working_directory,
+            "/" => search_picker,
             "k" => hover,
             "r" => rename_symbol,
             "h" => select_references_to_symbol_under_cursor,
@@ -337,8 +347,6 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
             "C" => toggle_block_comments,
             "A-c" => toggle_line_comments,
             "?" => command_palette,
-            "B" => vcs_toggle_inline_blame,
-            "i" => vcs_show_change,
         },
         "z" => (view),
         "Z" => (sticky_view),
@@ -384,6 +392,14 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
         "esc" => exit_select_mode,
 
         "v" => normal_mode,
+        "z" => { "View"
+            "n" => extend_search_next,
+            "N" => extend_search_previous,
+        },
+        "Z" => { "View" sticky=true
+            "n" => extend_search_next,
+            "N" => extend_search_previous,
+        },
         "g" => { "Goto"
             "g" => extend_to_file_start,
             "|" => extend_to_column,
@@ -396,8 +412,12 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
     let insert = keymap!({ "Insert mode"
         "esc" => normal_mode,
 
-        "C-s" => commit_undo_checkpoint,
+        "C-s" => ":write",
+        "C-g" => { "Insert tools"
+            "u" => commit_undo_checkpoint,
+        },
         "C-x" => completion,
+        "F1" => command_palette,
         "C-r" => insert_register,
 
         "C-w" | "A-backspace" => delete_word_backward,
@@ -424,4 +444,9 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
         Mode::Select => select,
         Mode::Insert => insert,
     )
+}
+
+fn sticky(mut keys: KeyTrie) -> KeyTrie {
+    keys.node_mut().unwrap().is_sticky = true;
+    keys
 }

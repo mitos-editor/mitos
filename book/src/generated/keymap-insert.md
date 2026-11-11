@@ -3,8 +3,10 @@
 | Key | Description | Command |
 | --- | --- | --- |
 | `` <esc> `` | Enter normal mode | `` normal_mode `` |
-| `` <C-s> `` | Commit changes to new checkpoint | `` commit_undo_checkpoint `` |
+| `` <C-s> `` | Write changes to disk. Accepts an optional path (`:write some/path.txt`). | `` :write `` |
+| `` <C-g> `` | Insert tools | Prefix |
 | `` <C-x> `` | Invoke completion popup | `` completion `` |
+| `` <F1> `` | Open command palette | `` command_palette `` |
 | `` <C-r> `` | Insert register | `` insert_register `` |
 | `` <C-w> `` | Delete previous word | `` delete_word_backward `` |
 | `` <A-backspace> `` | Delete previous word | `` delete_word_backward `` |
@@ -27,5 +29,11 @@
 | `` <right> `` | Move right | `` move_char_right `` |
 | `` <pageup> `` | Move page up | `` page_up `` |
 | `` <pagedown> `` | Move page down | `` page_down `` |
-| `` <home> `` | Goto line start | `` goto_line_start `` |
-| `` <end> `` | Goto newline at line end | `` goto_line_end_newline `` |
+| `` <home> `` | Go to line start | `` goto_line_start `` |
+| `` <end> `` | Go to newline at line end | `` goto_line_end_newline `` |
+
+### `` <C-g> `` — Insert tools
+
+| Key | Description | Command |
+| --- | --- | --- |
+| `` <C-g>u `` | Start a new undo step without leaving insert mode | `` commit_undo_checkpoint `` |

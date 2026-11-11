@@ -1009,3 +1009,21 @@ async fn completion_popup_and_documentation_share_the_live_border_override() -> 
     assert!(f.app.close().await.is_empty());
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn saving_rejects_completion_preview_and_keeps_insert_mode() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let mut f = Fixture::new(dir.path(), "😀 ap\n", &["alpha"]).await?;
+    f.show().await?;
+    f.key("<C-n>").await?;
+    assert_eq!(f.presentation_text(), "😀 apricot\n");
+    let path = current_ref!(f.app.editor).1.path().unwrap().to_owned();
+    f.key("<C-s>").await?;
+    super::helpers::run_event_loop_until_idle(&mut f.app).await;
+    assert_eq!(f.text(), "😀 ap\n");
+    assert_eq!(std::fs::read_to_string(path)?, "😀 ap\n");
+    assert_eq!(f.app.editor.mode(), Mode::Insert);
+    assert!(!completion::is_shown(&f.app.editor));
+    assert!(f.app.close().await.is_empty());
+    Ok(())
+}

@@ -744,7 +744,7 @@ async fn review_highlighting_follows_visible_rows_after_a_large_fold() -> anyhow
         .document_mut(id)
         .unwrap()
         .set_selection(view_id, selection);
-    keys(&mut app, "zfs").await?;
+    keys(&mut app, "zf").await?;
     let (view, doc) = current_ref!(app.editor);
     assert_eq!(doc.folded_ranges(view.id).len(), 1);
     let area = view.inner_area(doc);

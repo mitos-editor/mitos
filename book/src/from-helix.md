@@ -40,3 +40,5 @@ are Modus Operandi and Modus Vivendi. See [Themes](./themes.md) to choose anothe
 
 Use [Files, buffers, and splits](./files.md) and
 [Language servers](./lsp.md) to set up your day-to-day workflow.
+
+See [Keybinding migration](./keybinding-migration.md) for the current save, jump, picker, completion, and debugger defaults.

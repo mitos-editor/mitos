@@ -31,6 +31,9 @@ See the [completion settings](./configuration.md#editorcompletion) for delays,
 word completion, and path completion. Remap menu keys under
 [`keys.menu`](./remapping.md#component-keys).
 
+Saving and other commands reject completion preview text. For example, `Ctrl-s`
+dismisses the preview and saves the text you entered.
+
 ## Snippet placeholders
 
 Language servers can return snippets with editable placeholders, such as a

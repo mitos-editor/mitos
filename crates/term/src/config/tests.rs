@@ -135,13 +135,12 @@ fn labeled_editor_bindings_preserve_commands_and_descriptions() {
         .infobox()
         .text
         .contains("Reload"));
-    assert_eq!(
-        config.keys[&Mode::Normal].reverse_map()["write"],
-        vec![vec![
+    assert!(
+        config.keys[&Mode::Normal].reverse_map()["write"].contains(&vec![
             "space".parse().unwrap(),
             "f".parse().unwrap(),
             "s".parse().unwrap()
-        ]]
+        ])
     );
     for mode in [Mode::Insert, Mode::Select] {
         let KeyTrie::MappableCommand(cmd) = config.keys[&mode]

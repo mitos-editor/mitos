@@ -274,9 +274,17 @@ fn refresh_global_search(
 }
 
 pub(super) fn global_search(cx: &mut Context) {
+    global_search_at(cx, stdx::env::current_working_dir());
+}
+
+pub(super) fn workspace_search(cx: &mut Context) {
+    global_search_at(cx, workspace::ResolvedWorkspace::current().into_root());
+}
+
+fn global_search_at(cx: &mut Context, root: std::path::PathBuf) {
     let reg = cx.register.unwrap_or('/');
     cx.editor.registers.last_search_register = reg;
-    let picker = global_search_picker(cx.editor, cx.jobs, stdx::env::current_working_dir(), reg);
+    let picker = global_search_picker(cx.editor, cx.jobs, root, reg);
     cx.push_layer(Box::new(overlaid(picker)));
 }
 

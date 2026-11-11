@@ -14,7 +14,7 @@ async fn manual_folds_render_navigate_hit_test_and_reveal_search_results() -> an
             ))
             .with_lang_loader(language::syntax::Loader::default())
             .build()?;
-        keys(&mut app, "zfs").await?;
+        keys(&mut app, "zf").await?;
         let (view, doc) = current_ref!(app.editor);
         assert_eq!(doc.folded_ranges(view.id).len(), 1);
         let area = view.inner_area(doc);
@@ -78,7 +78,7 @@ async fn syntax_highlighting_continues_after_a_fold_larger_than_the_viewport() -
         "function" = { fg = "yellow" }
     "#,
         )?))?;
-    keys(&mut app, ":set-language rust<ret>zfc").await?;
+    keys(&mut app, ":set-language rust<ret>zc").await?;
     let (view, doc) = current_ref!(app.editor);
     assert!(doc.syntax().is_some());
     assert_eq!(doc.folded_ranges(view.id).len(), 1);
@@ -104,7 +104,7 @@ async fn folding_is_independent_between_splits_of_the_same_document() -> anyhow:
         .with_input_text("#[header\nhidden\nend|]#\nnext\n")
         .with_lang_loader(language::syntax::Loader::default())
         .build()?;
-    keys(&mut app, "zfs").await?;
+    keys(&mut app, "zf").await?;
     let (view, doc) = current_ref!(app.editor);
     let (first, id) = (view.id, doc.id());
     app.editor.switch(id, Action::VerticalSplit);
@@ -141,7 +141,7 @@ async fn word_jump_labels_skip_hidden_words_without_exhausting_the_alphabet() ->
         ))
         .with_lang_loader(language::syntax::Loader::default())
         .build()?;
-    keys(&mut app, "zfsgwaa").await?;
+    keys(&mut app, "zfgwaa").await?;
     let (view, doc) = current_ref!(app.editor);
     assert_eq!(doc.cursor_line(view.id), 102);
     assert_eq!(doc.folded_ranges(view.id).len(), 1);
@@ -200,7 +200,7 @@ async fn syntax_folds_keep_closing_tokens_and_suffixes_selectable() -> anyhow::R
             "ui.linenr.selected" = { fg = "magenta" }
         "#,
             )?))?;
-        keys(&mut app, &format!(":set-language {language}<ret>zfc")).await?;
+        keys(&mut app, &format!(":set-language {language}<ret>zc")).await?;
         let (view, doc) = current_ref!(app.editor);
         let view_id = view.id;
         let original = doc.text().clone();
@@ -258,7 +258,7 @@ async fn syntax_folds_keep_closing_tokens_and_suffixes_selectable() -> anyhow::R
         edited.insert(original.char_to_byte_idx(position + 1), 'X');
         assert_eq!(doc.text().to_string(), edited);
         assert_eq!(doc.folded_ranges(view_id).len(), 1);
-        keys(&mut app, "zfo").await?;
+        keys(&mut app, "zo").await?;
         let (view, doc) = current_ref!(app.editor);
         assert!(doc.folded_ranges(view.id).is_empty());
         assert!(app.close().await.is_empty());

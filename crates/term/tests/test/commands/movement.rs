@@ -523,7 +523,7 @@ async fn match_bracket() -> anyhow::Result<()> {
 async fn reflow_preserves_a_saved_jump_in_the_middle_of_a_paragraph() -> anyhow::Result<()> {
     test((
         "aaaa bbbb #[c|]#ccc dddd\n",
-        "<C-s>mip:reflow 9<ret><C-o>",
+        "<space>jsmip:reflow 9<ret><C-o>",
         "aaaa bbbb\n#[c|]#ccc dddd\n",
     ))
     .await
@@ -544,7 +544,7 @@ async fn reflow_preserves_a_saved_jump_in_a_long_unicode_crlf_paragraph() -> any
     );
     test((
         input.clone(),
-        ":line-ending crlf<ret><C-s>mip:reflow 8<ret><C-o>",
+        ":line-ending crlf<ret><space>jsmip:reflow 8<ret><C-o>",
         expected.clone(),
         LineFeedHandling::AsIs,
     ))

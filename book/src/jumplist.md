@@ -6,8 +6,8 @@ To help with quick navigation, Mitos maintains a list of "jumps" called the jump
 Whenever you make a significant movement (see next section), Mitos stores your selections from before the move as a jump.
 A jump serves as a kind of checkpoint, allowing you to jump to a separate location, make edits, and return to where you were with your previous selections.
 This way, the jumplist tracks both your previous location and your selections.
-You can manually save a jump by using `Ctrl-s`.
-To jump backward in the jumplist, use `Ctrl-o`; to go forward, use `Ctrl-i`. To view and select from the full jumplist, use `Space j` to open the jumplist picker.
+You can manually save a jump by using `Space j s`.
+To jump backward in the jumplist, use `Ctrl-o`; to go forward, use `Ctrl-i`. To view and select from the full jumplist, use `Space j j` to open the jumplist picker.
 
 If you want to keep a picker's current matched locations as a separate navigation list, use the [quicklist](./quicklist.md) instead.
 
@@ -35,6 +35,6 @@ The following is a non-exhaustive list of which actions add a jump to the jumpli
   - `goto_type_definition` (`gy`)
   - `goto_reference` (`gr`)
 - Other
-  - `Ctrl-s` manually creates a jump
+  - `Space j s` manually creates a jump
   - Trying to close a modified buffer can switch you to that buffer and create a jump
   - The debugger can create jumps as you jump stack frames
