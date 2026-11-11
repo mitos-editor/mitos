@@ -249,6 +249,8 @@ preference. `:get lsp.hover.border-style` reports the current value, and
 | --- | --- | --- | --- |
 | `padding` | integer | `5` | Minimum screen lines kept above and below the cursor when possible. |
 | `wheel-lines` | integer | `3` | Lines moved by one scroll-wheel step. |
+| `smooth` | boolean | `false` | Animate page and half-page scrolling. |
+| `scroll-speed` | milliseconds | `180` | Duration of one smooth page or half-page scroll. |
 
 ### `[editor.mouse]`
 

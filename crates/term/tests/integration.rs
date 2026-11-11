@@ -62,6 +62,7 @@ mod test {
     mod selection_undo;
     mod semantic_tokens;
     mod signature_help;
+    mod smooth_scroll;
     mod spelling;
     mod splits;
     mod startup;

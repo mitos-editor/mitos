@@ -11,6 +11,7 @@ use crate::Editor;
 pub enum CallbackOutcome {
     None,
     Redraw,
+    Frame,
 }
 impl From<()> for CallbackOutcome {
     fn from(_: ()) -> Self {

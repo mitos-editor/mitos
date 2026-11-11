@@ -80,11 +80,19 @@ pub(crate) struct InteractiveShellRequest {
     pub result: tokio::sync::oneshot::Sender<anyhow::Result<std::process::Output>>,
 }
 
+#[derive(Default)]
+pub(crate) struct SmoothScroll {
+    pub(crate) task: event::TaskController,
+    pub(crate) view: Option<view::ViewId>,
+    pub(crate) remaining: isize,
+}
+
 pub struct Jobs {
     pub(crate) image_cache: crate::ui::image::ImageCache,
     sender: JobSender,
     editor_callbacks: EditorCallbackSender,
     pub(crate) command_expansion: event::TaskController,
+    pub(crate) smooth_scroll: SmoothScroll,
     /// jobs that need to complete before we exit.
     pub wait_futures: FuturesUnordered<JobFuture>,
     pub callbacks: Receiver<Callback>,
@@ -138,6 +146,7 @@ impl Jobs {
             sender,
             editor_callbacks,
             command_expansion: event::TaskController::new(),
+            smooth_scroll: SmoothScroll::default(),
             wait_futures: FuturesUnordered::new(),
             callbacks: rx,
             interactive_executor: interactive_executor(interactive_sender),
