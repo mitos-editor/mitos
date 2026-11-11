@@ -57,7 +57,7 @@ pub fn insert_char(
                 .map(|(change, range)| (change, Some(range)))
                 .unwrap_or_else(|| {
                     let cursor = range.cursor(text.slice(..));
-                    ((cursor, cursor, Some(Tendril::from_iter([c]))), None)
+                    ((cursor, cursor, Some(c.into())), None)
                 })
         })
     };
