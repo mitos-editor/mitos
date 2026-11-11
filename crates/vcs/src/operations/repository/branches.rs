@@ -93,7 +93,9 @@ fn run(
     };
     let mut first = Some(first);
     let result = (|| -> Result<()> {
-        let repo = repository.open_read(false)?;
+        let mut repo = repository.open_read(false)?;
+        repo.object_cache_size(Some(4 * 1024 * 1024));
+        let mut comparison = divergence::Comparison::new(&repo);
         let head = repo.head_name()?;
         let platform = repo.references()?;
         let mut references = platform.local_branches()?;
@@ -132,6 +134,9 @@ fn run(
                         "Branch page exceeds the 1 MiB display limit"
                     );
                     rows.push(Arc::new(Branch {
+                        divergence: reference
+                            .try_id()
+                            .and_then(|tip| comparison.as_mut()?.counts(&repo, tip.detach())),
                         current: head
                             .as_ref()
                             .is_some_and(|head| head.as_ref() == reference.name()),

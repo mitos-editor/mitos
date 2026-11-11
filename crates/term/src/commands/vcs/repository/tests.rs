@@ -68,6 +68,7 @@ fn create_actions_work_without_a_selected_row() -> Result<()> {
             main: true,
             locked: false,
             prunable: false,
+            divergence: None,
         };
         assert!(matches!(
             worktree_action(&repo, dir.path(), Some(&main), action),
@@ -103,6 +104,66 @@ fn footer_hints_follow_remapped_and_unbound_actions() {
         ],
     );
     assert_eq!(hints, ["<C-t> create"]);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn pickers_render_divergence_against_main() -> Result<()> {
+    let parent = tempfile::tempdir()?;
+    let root = parent.path().join("repo");
+    std::fs::create_dir(&root)?;
+    git(&root, &["init", "-b", "main"]);
+    git(&root, &["config", "user.name", "test"]);
+    git(&root, &["config", "user.email", "test@example.com"]);
+    git(&root, &["commit", "--allow-empty", "-m", "initial"]);
+    git(&root, &["switch", "-c", "topic"]);
+    git(&root, &["commit", "--allow-empty", "-m", "topic"]);
+    git(&root, &["switch", "main"]);
+    git(&root, &["commit", "--allow-empty", "-m", "main"]);
+    let linked = parent.path().join("linked");
+    git(
+        &root,
+        &[
+            "worktree",
+            "add",
+            "--detach",
+            linked.to_str().unwrap(),
+            "topic",
+        ],
+    );
+    let repo = GitRepository::discover(&root)?;
+    let mut app = application(true)?;
+    let mut picker = branches(&app.editor, repo.clone(), root.clone());
+    until(&mut picker, &mut app, |picker| {
+        all_items(picker).count() == 2
+    })
+    .await?;
+    let rendered = screen(&mut picker, &mut app);
+    assert!(rendered.contains("vs base"), "{rendered}");
+    assert!(rendered.contains("↑0 ↓0 main"), "{rendered}");
+    assert!(rendered.contains("↑1 ↓1 main"), "{rendered}");
+    git(&root, &["commit", "--allow-empty", "-m", "advance main"]);
+    until(&mut picker, &mut app, |picker| {
+        all_items(picker).any(|branch| {
+            branch.name == "topic"
+                && branch
+                    .divergence
+                    .as_ref()
+                    .is_some_and(|counts| counts.behind == 2)
+        })
+    })
+    .await?;
+    assert!(screen(&mut picker, &mut app).contains("↑1 ↓2 main"));
+    let mut picker = worktrees(&app.editor, repo, root);
+    until(&mut picker, &mut app, |picker| {
+        all_items(picker).count() == 2
+    })
+    .await?;
+    let rendered = screen(&mut picker, &mut app);
+    assert!(rendered.contains("vs base"), "{rendered}");
+    assert!(rendered.contains("↑0 ↓0 main"), "{rendered}");
+    assert!(rendered.contains("↑1 ↓2 main"), "{rendered}");
+    assert!(rendered.contains("(detached)"), "{rendered}");
+    Ok(())
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -415,10 +476,12 @@ async fn repository_pickers_preserve_semantic_colours_on_selected_rows() -> Resu
     let surface = frame(&mut branches, &mut app);
     assert_colour(&surface, "main", Color::Green);
     assert_colour(&surface, "*", Color::Green);
+    assert!(screen(&mut branches, &mut app).contains("—"));
     let mut worktrees = worktrees(&app.editor, repo, dir.path().into());
     until(&mut worktrees, &mut app, |p| p.selection().is_some()).await?;
     let surface = frame(&mut worktrees, &mut app);
     assert_colour(&surface, std::path::MAIN_SEPARATOR_STR, Color::Blue);
+    assert!(screen(&mut worktrees, &mut app).contains("—"));
     Ok(())
 }
 

@@ -244,6 +244,15 @@ pub struct Branch {
     pub name: String,
     pub current: bool,
     pub upstream: String,
+    pub divergence: Option<Divergence>,
+}
+
+/// Commits unique to this tip and to the repository's main branch.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Divergence {
+    pub base: std::sync::Arc<str>,
+    pub ahead: usize,
+    pub behind: usize,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -253,6 +262,7 @@ pub struct Worktree {
     pub main: bool,
     pub locked: bool,
     pub prunable: bool,
+    pub divergence: Option<Divergence>,
 }
 
 impl GitRepository {
@@ -271,7 +281,9 @@ impl GitRepository {
     pub async fn worktrees(&self) -> Result<Vec<Worktree>> {
         let repository = self.clone();
         tokio::task::spawn_blocking(move || {
-            let repo = repository.open_read(false)?;
+            let mut repo = repository.open_read(false)?;
+            repo.object_cache_size(Some(4 * 1024 * 1024));
+            let mut comparison = divergence::Comparison::new(&repo);
             let main = repo.main_repo()?;
             let mut result = vec![Worktree {
                 path: stdx::path::canonicalize_existing(
@@ -285,6 +297,10 @@ impl GitRepository {
                 main: true,
                 locked: false,
                 prunable: false,
+                divergence: current_head(&main)
+                    .ok()
+                    .flatten()
+                    .and_then(|tip| comparison.as_mut()?.counts(&repo, tip)),
             }];
             let mut bytes = 0;
             for worktree in repo.worktrees()? {
@@ -308,6 +324,10 @@ impl GitRepository {
                     main: false,
                     locked,
                     prunable,
+                    divergence: current_head(&linked)
+                        .ok()
+                        .flatten()
+                        .and_then(|tip| comparison.as_mut()?.counts(&repo, tip)),
                 });
             }
             result[1..].sort_by(|a, b| a.path.cmp(&b.path));
@@ -627,6 +647,7 @@ async fn run_private(mut command: Command, label: &'static str) -> Result<Vec<u8
 mod tests;
 
 mod branches;
+mod divergence;
 pub use branches::{BranchCursor, BranchPage, BRANCH_PAGE_SIZE};
 
 impl PreparedOperation {
