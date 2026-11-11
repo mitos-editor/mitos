@@ -12,7 +12,9 @@ use crossterm::event::Event;
 #[cfg(not(windows))]
 use termina::event::Event;
 
-use super::super::helpers::{run_event_loop_until_idle, test_config, AppBuilder};
+use super::super::helpers::{
+    run_event_loop_until_idle, screen as review_screen, test_config, AppBuilder,
+};
 
 async fn press_space_b(app: &mut TestApplication) -> anyhow::Result<()> {
     press_keys(app, "<space>B").await
@@ -891,15 +893,6 @@ async fn changed_file_review_switches_layers_opens_deletions_and_preserves_the_i
     assert!(!path.exists());
     assert!(app.close().await.is_empty());
     Ok(())
-}
-
-fn review_screen(app: &TestApplication) -> String {
-    app.terminal_backend()
-        .buffer()
-        .content
-        .iter()
-        .map(|cell| cell.symbol())
-        .collect()
 }
 
 async fn wait_for_review_buffer(

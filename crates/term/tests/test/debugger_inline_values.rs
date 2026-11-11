@@ -6,7 +6,7 @@ use view::{current_ref, editor::Action};
 
 use super::helpers::{
     lsp::{self, Gate, ServerConfig},
-    run_event_loop_until_idle, test_config, AppBuilder,
+    run_event_loop_until_idle, screen, test_config, AppBuilder,
 };
 
 #[tokio::test(flavor = "multi_thread")]
@@ -69,13 +69,7 @@ async fn inline_debug_values_combine_lsp_ranges_with_dap_values_and_support_serv
     })
     .await
     .context("initial inline values did not arrive")?;
-    let screen: String = app
-        .terminal_backend()
-        .buffer()
-        .content()
-        .iter()
-        .map(|cell| cell.symbol())
-        .collect();
+    let screen = screen(&app);
     assert!(screen.contains(expected), "{screen}");
     let requests = lsp::read_log(&lsp::log_path(dir.path(), "inline"))?;
     let request = requests
