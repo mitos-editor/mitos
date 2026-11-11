@@ -948,6 +948,18 @@ fn main() -> anyhow::Result<()> {
                         .collect(),
                 )
             }
+            "textDocument/codeLens"
+                if code_lenses && args.iter().any(|arg| arg == "--multi-line") =>
+            {
+                json!([
+                    {"range": {"start": {"line": 0, "character": 3},
+                               "end": {"line": 1, "character": 0}},
+                     "command": {"title": "next line", "command": "fixture.lens"}},
+                    {"range": {"start": {"line": 0, "character": 3},
+                               "end": {"line": 99, "character": 0}},
+                     "command": {"title": "past end", "command": "fixture.lens"}}
+                ])
+            }
             "textDocument/codeLens" if code_lenses => json!([
                 {"range": range(3, end), "command": {"title": format!("{} ready", args[1]),
                     "command": "fixture.lens", "arguments": [args[1]]}},
