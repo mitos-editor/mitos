@@ -43,7 +43,9 @@ pub(super) fn key(
         image_picker: None,
         is_cursor_owner: true,
     };
-    assert!(compositor.handle_event(&Event::Key(key.parse().unwrap()), &mut cx));
+    for key in key.split_whitespace() {
+        assert!(compositor.handle_event(&Event::Key(key.parse().unwrap()), &mut cx));
+    }
 }
 
 pub(super) fn screen<T: Send + Sync, D: Send + Sync>(
@@ -61,19 +63,21 @@ pub(super) fn press(component: &mut impl Component, app: &mut TestApplication, k
     let config = crate::config::Config::default();
     let updates = tokio::sync::mpsc::unbounded_channel().0;
     let mut jobs = Jobs::new();
-    component.handle_event(
-        &Event::Key(key.parse().unwrap()),
-        &mut Context {
-            config: crate::config::Context {
-                current: &config,
-                updates: &updates,
+    for key in key.split_whitespace() {
+        component.handle_event(
+            &Event::Key(key.parse().unwrap()),
+            &mut Context {
+                config: crate::config::Context {
+                    current: &config,
+                    updates: &updates,
+                },
+                editor: &mut app.editor,
+                interaction: &mut app.interaction,
+                jobs: &mut jobs,
+                scroll: None,
+                image_picker: None,
+                is_cursor_owner: true,
             },
-            editor: &mut app.editor,
-            interaction: &mut app.interaction,
-            jobs: &mut jobs,
-            scroll: None,
-            image_picker: None,
-            is_cursor_owner: true,
-        },
-    );
+        );
+    }
 }

@@ -6,7 +6,7 @@ The title in the top border identifies the picker.
 
 | Keys | Picker |
 | --- | --- |
-| `Space f` / `Space F` | Files at the workspace root / current working directory |
+| `Space f` / `Space F` | Files at the workspace root / current buffer’s directory |
 | `Space b` | Open buffers |
 | `Space e` / `Space E` | File explorer at the workspace / current file's directory |
 | `Space /` | Project search |
@@ -21,6 +21,10 @@ Use `Ctrl-n` and `Ctrl-p` or the arrow keys to move between results. `Enter`
 opens the selected item; `Alt-Enter` opens it in the background while keeping
 the picker open. `Ctrl-v` opens a vertical split and `Ctrl-s` a horizontal one.
 `Ctrl-t` toggles the preview. `Esc` closes the picker.
+
+Press `Ctrl-x` to see the full action menu, including equivalent split and
+preview commands. The footer shows useful direct shortcuts and keeps the menu
+hint visible when space is limited.
 
 Scroll the preview with `Alt-j` / `Alt-k` or `Alt-Down` / `Alt-Up`. Each press
 moves half a page without changing the selected result or query. These keys
@@ -79,7 +83,7 @@ smart case and case-sensitive matching. The input bar shows the current mode.
 
 Press `Alt-r` to reveal the replacement input. Press it again to switch focus
 between the search and replacement inputs. While the replacement input is
-visible, `Enter` replaces the selected match; `Ctrl-Enter`, `Cmd-Enter`, or
+visible, `Enter` replaces the selected match; `Ctrl-x R`, `Ctrl-Enter`, `Cmd-Enter`, or
 `Win-Enter` replaces every occurrence in the files matching the current path
 filter. Wait for search and result updates to finish before replacing.
 
@@ -109,9 +113,9 @@ Manage files without leaving the explorer:
 | --- | --- |
 | `Alt-n` | Create a file in the shown directory. End the path with `/` to create a directory. |
 | `Alt-m` | Move or rename the selected entry. The cursor starts before the file extension. Open buffers follow the move. |
-| `Alt-c` | Copy the selected file's saved contents. Copying directories is not supported. |
-| `Alt-d` | Delete the selected entry after you type `y` and press `Enter`. Directories are deleted with their contents. |
-| `Alt-y` | Yank the selected path to the default yank register. |
+| `Ctrl-x c` | Copy the selected file's saved contents. Copying directories is not supported. |
+| `Ctrl-x d` | Delete the selected entry after you type `y` and press `Enter`. Directories are deleted with their contents. |
+| `Ctrl-x y` | Yank the selected path to the default yank register. |
 
 Create, move, and copy open a path prompt. Edit the path and press `Enter` to
 apply the change, or press `Esc` to cancel. Paths are relative to the working
@@ -126,7 +130,7 @@ these keys under [`[keys.file-explorer]`](./remapping.md#component-keys).
 
 Press `Ctrl-e` in normal or select mode to open the file explorer sidebar at the
 workspace root. Press it again to return to the editor. In the editor,
-`Ctrl-w b` (or `Space w b`) shows or hides the sidebar, keeping expanded
+`Ctrl-w b` shows or hides the sidebar, keeping expanded
 directories and your selection.
 
 | Key | Action |
@@ -137,6 +141,7 @@ directories and your selection.
 | `Enter` while searching | Confirm the search and navigate the filtered tree |
 | `Esc` with a search | Clear the search and keep the sidebar focused |
 | `Esc` without a search | Return to the editor |
+| `n` / `r` / `c` / `d` / `y` while navigating | Create / move / copy / delete / yank path |
 | `q` while navigating | Hide the sidebar |
 | `Ctrl-w r` while navigating | Resize the sidebar |
 
@@ -195,7 +200,7 @@ Git history and branch pickers load more results as you scroll or search.
 Clear the query to stop searching further. A `?` in the result count means the
 list is incomplete, so an empty list may still gain matches while loading.
 
-In Git history pickers, press `Ctrl-l` to pause loading. Press it again to
+In Git history pickers, press `Ctrl-x l` to pause loading. Press it again to
 continue, or to retry after a loading error. If history loading pauses
 automatically, use the same shortcut to load more. Remap `toggle_loading` under
 `[keys.history-picker]` to change this shortcut.

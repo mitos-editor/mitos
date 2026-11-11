@@ -119,7 +119,7 @@ async fn quicklist_add_unsaved_location_restores_unicode_selection() -> anyhow::
         }]
     );
     f.keys("gg<space>q").await?;
-    f.keys("<C-q>").await?;
+    f.keys("<C-x>q").await?;
     f.keys("<esc>]q").await?;
     let (view, doc) = current_ref!(f.app.editor);
     assert_eq!(doc.id(), id);
@@ -130,7 +130,7 @@ async fn quicklist_add_unsaved_location_restores_unicode_selection() -> anyhow::
 
 #[tokio::test(flavor = "multi_thread")]
 async fn quicklist_delete_filtered_row_preserves_query_and_nearest_row() -> anyhow::Result<()> {
-    for (movement, removed, accepted) in [("<down>", 2, 3), ("<end>", 3, 2)] {
+    for (movement, removed, accepted) in [("<down>", 2, 3), ("<C-x>G", 3, 2)] {
         let mut f = Fixture::new(&[
             "unrelated.txt",
             "pick-aaa.txt",
@@ -142,7 +142,7 @@ async fn quicklist_delete_filtered_row_preserves_query_and_nearest_row() -> anyh
         // Use a literal filename fragment so temporary paths cannot add rows.
         f.keys("'pick-").await?;
         f.keys(movement).await?;
-        f.keys("<C-x>").await?;
+        f.keys("<C-x>d").await?;
         assert_eq!(current_ref!(f.app.editor).1.id(), current);
         assert_eq!(f.app.editor.quicklist.entries().len(), 3);
         assert!(!f
@@ -178,7 +178,7 @@ async fn quicklist_delete_active_entry_continues_navigation_without_moving_curso
         let current = doc.id();
         let selection = doc.selection(view.id).clone();
         f.keys("<space>q").await?;
-        f.keys("<C-x>").await?;
+        f.keys("<C-x>d").await?;
         let (view, doc) = current_ref!(f.app.editor);
         assert_eq!(doc.id(), current);
         assert_eq!(doc.selection(view.id), &selection);
@@ -202,7 +202,7 @@ async fn quicklist_deletion_uses_picker_specific_bindings_and_handles_empty_resu
         "[keys.quicklist-picker]\nC-x = 'unbound'\nC-r = 'remove_entry'",
     )?;
     f.keys("<space>q").await?;
-    f.keys("<C-x>").await?;
+    f.keys("<C-x>d").await?;
     assert_eq!(f.app.editor.quicklist.entries().len(), 1);
     f.keys("missing").await?;
     f.keys("<C-r>").await?;
@@ -228,7 +228,7 @@ async fn quicklist_resumed_picker_refreshes_after_replacement() -> anyhow::Resul
     let replacement = f.app.editor.quicklist.entries()[2].clone();
     f.app.editor.replace_quicklist(vec![replacement]);
     f.keys("<space>'").await?;
-    f.keys("<C-x>").await?;
+    f.keys("<C-x>d").await?;
     assert!(f.app.editor.quicklist.entries().is_empty());
     f.keys("<esc>").await?;
     f.finish().await;
@@ -243,11 +243,11 @@ async fn quicklist_deletion_preserves_remaining_duplicate_rows() -> anyhow::Resu
         .editor
         .replace_quicklist(vec![entry.clone(), entry.clone(), entry]);
     f.keys("<space>q").await?;
-    f.keys("<C-x>").await?;
+    f.keys("<C-x>d").await?;
     assert_eq!(f.app.editor.quicklist.entries().len(), 2);
-    f.keys("<C-q>").await?;
+    f.keys("<C-x>q").await?;
     assert_eq!(f.app.editor.quicklist.entries().len(), 2);
-    f.keys("<C-x>").await?;
+    f.keys("<C-x>d").await?;
     assert_eq!(f.app.editor.quicklist.entries().len(), 1);
     f.keys("<ret>").await?;
     assert_eq!(
@@ -287,9 +287,9 @@ async fn quicklist_resumed_picker_cannot_repopulate_from_stale_rows() -> anyhow:
     let replacement = vec![f.app.editor.quicklist.entries()[1].clone()];
     f.app.editor.replace_quicklist(replacement.clone());
     // Resume and capture before the first redraw can refresh the cached rows.
-    f.keys("<space>'<C-q>").await?;
+    f.keys("<space>'<C-x>q").await?;
     assert_eq!(f.app.editor.quicklist.entries(), replacement.as_slice());
-    f.keys("<C-x>").await?;
+    f.keys("<C-x>d").await?;
     assert!(f.app.editor.quicklist.entries().is_empty());
     f.keys("<esc>").await?;
     f.finish().await;

@@ -2,8 +2,77 @@
 
 use super::*;
 use crate::compositor::DrawContext;
+use editor_core::unicode::width::UnicodeWidthStr;
 
 impl<T: Send + Sync + 'static, D: Send + Sync + 'static> Picker<T, D> {
+    pub(in crate::ui) fn action_available(
+        &self,
+        maps: &ComponentKeymaps,
+        action: PickerAction,
+    ) -> bool {
+        use PickerAction as A;
+        use PickerItemAction as I;
+        let preview = self.file_fn.is_some() || self.custom_preview.is_some();
+        match action {
+            A::ToggleReplacement => self.replacement.is_some(),
+            A::ReplaceAll => self.replacement_visible(),
+            A::ToggleCaseSensitive => self.case_sensitive.is_some(),
+            A::ToggleLoading => self
+                .editor_updates
+                .as_ref()
+                .is_some_and(|updates| updates.loading_controls),
+            A::TogglePreview | A::PreviewScrollUp | A::PreviewScrollDown => preview,
+            A::OpenPreview | A::PreviewPrevious | A::PreviewNext => self.custom_preview.is_some(),
+            A::AcceptHorizontalSplit | A::AcceptVerticalSplit => preview,
+            A::PopulateQuicklist => self.quicklist_fn.is_some() || self.file_fn.is_some(),
+            A::HistoryPrevious | A::HistoryNext => {
+                self.active_prompt().history_register().is_some()
+            }
+            A::Item(item) if self.item_action_fn.is_some() => {
+                match maps.picker_table((self.keymap)(maps)) {
+                    "keys.buffer-picker" => matches!(item, I::CloseBuffer),
+                    "keys.quicklist-picker" => matches!(item, I::RemoveQuicklistEntry),
+                    "keys.git-picker" => matches!(
+                        item,
+                        I::Stage | I::Unstage | I::Stash | I::Stashes | I::Actions
+                    ),
+                    "keys.branch-picker" => matches!(item, I::CreateBranch | I::DeleteBranch),
+                    "keys.worktree-picker" => matches!(
+                        item,
+                        I::CreateWorktree | I::RemoveWorktree | I::LockWorktree | I::UnlockWorktree
+                    ),
+                    "keys.stash-picker" => {
+                        matches!(item, I::ApplyStash | I::ApplyStashWithIndex | I::Actions)
+                    }
+                    "keys.history-picker" => matches!(item, I::HistoryBack | I::Actions),
+                    "keys.file-explorer" => matches!(
+                        item,
+                        I::CreatePath | I::MovePath | I::CopyPath | I::DeletePath | I::YankPath
+                    ),
+                    _ => true,
+                }
+            }
+            A::Item(_) => false,
+            _ => true,
+        }
+    }
+
+    pub(super) fn render_action_menu(&self, area: Rect, surface: &mut Surface, cx: &DrawContext) {
+        if self.on_close.is_some() || !self.keys.is_pending() {
+            return;
+        }
+        let maps = &cx.config.component_keys;
+        let keys = crate::keymap::inspect::filter((self.keymap)(maps), |action| {
+            self.action_available(maps, *action)
+        });
+        if let Some(pending) = self.keys.pending_map(&keys) {
+            let info = crate::keymap::inspect::prefix_info(pending, |action| {
+                action.description().to_owned()
+            });
+            super::super::info::render(&info, area, surface, cx);
+        }
+    }
+
     pub(super) fn render_help(&self, area: Rect, surface: &mut Surface, cx: &DrawContext) {
         if self.on_close.is_some()
             || !cx.editor.config().picker.show_keybindings
@@ -57,29 +126,60 @@ impl<T: Send + Sync + 'static, D: Send + Sync + 'static> Picker<T, D> {
                 (PickerAction::Item(PickerItemAction::YankPath), "yank path"),
             ]);
         }
+        actions.extend([
+            (PickerAction::AcceptHorizontalSplit, "split below"),
+            (PickerAction::AcceptVerticalSplit, "split right"),
+            (PickerAction::TogglePreview, "preview"),
+            (PickerAction::PopulateQuicklist, "quicklist"),
+        ]);
         if self.show_preview && self.file_fn.is_some() && self.custom_preview.is_none() {
             actions.extend([
                 (PickerAction::PreviewScrollDown, "scroll preview down"),
                 (PickerAction::PreviewScrollUp, "scroll preview up"),
             ]);
         }
+        let menu = keys
+            .0
+            .iter()
+            .filter(|(_, binding)| matches!(binding, ui_core::keymap::Binding::Keys(_)))
+            .map(|(key, _)| key.key_sequence_format())
+            .min_by_key(|key| (key != "<C-x>", key.len(), key.clone()))
+            .map(|key| format!("{key} actions"));
         let mut hints = self
             .help
             .map_or_else(Vec::new, |help| help(&cx.config.component_keys));
         hints.extend(actions.into_iter().filter_map(|(action, label)| {
+            if !self.action_available(&cx.config.component_keys, action) {
+                return None;
+            }
             let key = crate::keymap::component::action_hint(keys, &action);
             (key != "unbound").then(|| format!("{key} {label}"))
         }));
-        if hints.is_empty() {
+        if hints.is_empty() && menu.is_none() {
             return;
         }
         let width = area.width.saturating_sub(4) as usize;
+        let mut visible = Vec::new();
+        let mut used = menu.as_deref().map_or(0, UnicodeWidthStr::width);
+        for hint in hints {
+            if visible.contains(&hint) {
+                continue;
+            }
+            let extra = hint.width() + if used == 0 { 0 } else { 3 };
+            if used + extra <= width {
+                used += extra;
+                visible.push(hint);
+            }
+        }
+        if let Some(menu) = menu {
+            visible.push(menu);
+        }
         // Use the existing bottom border so hints never consume result rows.
         let top = area.bottom() - 1;
         surface.set_stringn(
             area.x + 2,
             top,
-            hints.join(" · "),
+            visible.join(" · "),
             width,
             cx.editor.theme.get("ui.text.inactive"),
         );

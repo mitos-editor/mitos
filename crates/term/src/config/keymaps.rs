@@ -246,7 +246,7 @@ pub(super) fn resolve_keymaps(
     }
     // Resolve inheritance after both configuration layers: picker-specific
     // bindings take priority even over workspace changes to shared bindings.
-    components.buffer_picker = components.picker.clone();
+    components.buffer_picker = ComponentKeymaps::buffer_picker(components.picker.clone());
     components.buffer_picker.merge(buffer_overrides);
     components.quicklist_picker = quicklist_picker_keymap(&components.picker);
     components.quicklist_picker.merge(quicklist_overrides);

@@ -44,7 +44,7 @@ Selecting an entry opens it and makes it the current quicklist position.
 
 ## Removing entries
 
-In the quicklist picker (`Space q`), press `Ctrl-x` to remove the highlighted entry.
+In the quicklist picker (`Space q`), press `Ctrl-x d` to remove the highlighted entry.
 The picker stays open, keeps its filter, and selects a nearby row. This removes
 only the list entry; it does not change or close the file or buffer.
 
@@ -56,8 +56,9 @@ To change the deletion binding, use the picker-specific `remove_entry` action:
 
 ```toml
 [keys.quicklist-picker]
-C-x = "unbound"
-C-r = "remove_entry"
+F3 = "remove_entry"
+[keys.quicklist-picker.C-x]
+d = "unbound"
 ```
 
 ## Typical workflow

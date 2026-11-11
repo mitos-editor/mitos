@@ -4,6 +4,8 @@
 
 ## [Unreleased]
 
+- Pickers keep frequent direct shortcuts and add a Ctrl-x action menu. Query editing keys work consistently; sidebar file actions use ordinary letters while navigating. See the [keybinding migration guide](https://mitos.computer/docs/keybinding-migration.html).
+
 - Editor defaults use Ctrl-s to save, Space j for jumps, Ctrl-w for windows, Space x / Space X for debugger commands, and shorter fold bindings. See the [keybinding migration guide](https://mitos.computer/docs/keybinding-migration.html) for breaking changes.
 
 - Completion now accepts with Tab, rejects previews on cancellation or commands, and keeps insert mode when dismissed. Snippet Tab navigation works independently of syntax-aware Tab, which is now opt-in. See the [keybinding migration guide](https://mitos.computer/docs/keybinding-migration.html).

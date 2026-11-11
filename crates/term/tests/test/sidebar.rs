@@ -26,7 +26,7 @@ async fn selection_follows_files_opened_outside_the_sidebar() -> anyhow::Result<
     let nested = root.join("sub").join("deep").join("d.txt");
     assert_eq!(current_ref!(app.editor).1.path(), Some(nested.as_path()));
     for expected in [nested, root.join("b.txt")] {
-        keys(&mut app, "<C-w>e<A-y><C-e>").await?;
+        keys(&mut app, "<C-w>e<C-x>y<C-e>").await?;
         let selected: Vec<_> = app.editor.registers.read('"').unwrap().collect();
         assert_eq!(
             selected,
@@ -147,7 +147,7 @@ async fn opening_files_keeps_the_sidebar_and_returns_focus_to_the_buffer() -> an
         current_ref!(app.editor).1.path(),
         Some(root.join("b.txt").as_path())
     );
-    keys(&mut app, "<C-w>e<C-v>").await?;
+    keys(&mut app, "<C-w>e<C-x>v").await?;
     assert_eq!(app.editor.tree.views().count(), 2);
     assert!(screen(&app).contains("File Explorer"));
     assert!(app.editor.tree.area().x > 0);
@@ -199,11 +199,11 @@ async fn file_operation_prompts_return_to_the_docked_browser() -> anyhow::Result
         return Ok(());
     }
     let (mut app, _dir, root) = sidebar().await?;
-    keys(&mut app, "<A-n>created.txt<ret>").await?;
+    keys(&mut app, "<C-x>ncreated.txt<ret>").await?;
     assert!(root.join("created.txt").is_file());
     assert!(screen(&app).contains("File Explorer"));
     // A cancelled prompt returns to sidebar navigation.
-    keys(&mut app, "<A-n><esc>/created.txt<ret><ret>").await?;
+    keys(&mut app, "<C-x>n<esc>/created.txt<ret><ret>").await?;
     assert_eq!(
         current_ref!(app.editor).1.path(),
         Some(root.join("created.txt").as_path())
@@ -465,7 +465,7 @@ async fn creating_in_the_tree_uses_the_selected_directory_and_refreshes_children
         return Ok(());
     }
     let (mut app, _dir, root) = sidebar().await?;
-    keys(&mut app, "/^sub$<ret><ret><A-n>created.txt<ret>").await?;
+    keys(&mut app, "/^sub$<ret><ret><C-x>ncreated.txt<ret>").await?;
     assert!(root.join("sub/created.txt").is_file(), "{}", screen(&app));
     // File creation can finish before the asynchronous tree refresh is rendered.
     tokio::time::timeout(std::time::Duration::from_secs(10), async {
@@ -908,5 +908,32 @@ async fn shared_resize_records_and_replays_macros() -> anyhow::Result<()> {
     assert_eq!(app.editor.tree.area().x, original + 4);
     assert_eq!(app.interaction.count, None);
     assert!(app.editor.autoinfo.is_none());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn navigation_letters_act_on_files_and_remain_text_while_filtering() -> anyhow::Result<()> {
+    if super::helpers::isolation::workspace(
+        "test::sidebar::navigation_letters_act_on_files_and_remain_text_while_filtering",
+    )?
+    .is_none()
+    {
+        return Ok(());
+    }
+    let (mut app, _dir, root) = sidebar().await?;
+    keys(&mut app, "nnrcdy.txt<ret>").await?;
+    assert!(root.join("nrcdy.txt").is_file());
+    keys(&mut app, "/nrcdy.txt<ret>y").await?;
+    assert!(app
+        .editor
+        .first_register_value('"')
+        .unwrap()
+        .ends_with("nrcdy.txt"));
+    keys(&mut app, "r-new<ret>").await?;
+    assert!(!root.join("nrcdy.txt").exists());
+    assert!(root.join("nrcdy-new.txt").is_file());
+    assert!(root.join("a.txt").is_file());
+    assert!(root.join("b.txt").is_file());
+    assert!(app.close().await.is_empty());
     Ok(())
 }

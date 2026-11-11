@@ -1,5 +1,6 @@
 pub mod component;
 pub mod default;
+pub mod inspect;
 pub mod macros;
 
 pub use crate::commands::MappableCommand;
