@@ -43,12 +43,15 @@ fn parsing_keymaps_config_file() {
         },
     );
 
+    let config = Config::load_test(sample_keymaps);
+    assert_eq!(config.keys, keys);
     assert_eq!(
-        Config::load_test(sample_keymaps),
-        Config {
-            keys,
-            ..Default::default()
-        }
+        config
+            .keybinding_sources
+            .iter()
+            .filter(|(_, binding)| !binding.prefix)
+            .count(),
+        3
     );
 }
 

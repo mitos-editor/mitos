@@ -42,6 +42,12 @@ keep their built-in descriptions; sequences may contain static and typable
 commands and have their own label. Macros cannot be used in command sequences.
 These labels apply to editor mode maps (`normal`, `insert`, and `select`).
 
+Normal and select share built-in defaults, but user remaps are applied to each
+table separately. Add a binding to both `[keys.normal]` and `[keys.select]`
+when you want it in both modes. Insert and component maps are separate too.
+Use the [binding inspector](./keybinding-migration.md#find-and-inspect-bindings) to
+check which definition wins and which keys it shadows.
+
 ## Minor modes
 
 Minor modes are accessed by pressing a key (usually from normal mode), giving access to dedicated bindings. Bindings
@@ -136,8 +142,8 @@ belong in `keys.normal`, `keys.insert`, and `keys.select`.
 
 | Table | Actions |
 | --- | --- |
-| `keys.prompt` | `accept`, `cancel`, `move_left`, `move_right`, `move_word_left`, `move_word_right`, `move_start`, `move_end`, `delete_backward`, `delete_forward`, `delete_word_backward`, `delete_word_forward`, `delete_to_start`, `delete_to_end`, `insert_word`, `insert_register`, `history_previous`, `history_next`, `complete_previous`, `complete_next`, `exit_selection` |
-| `keys.picker` | `history_previous`, `history_next`, `accept`, `accept_keep_open`, `accept_horizontal_split`, `accept_vertical_split`, `cancel`, `move_up`, `move_down`, `move_start`, `move_end`, `page_up`, `page_down`, `toggle_preview`, `toggle_loading`, `populate_quicklist`, `toggle_replacement`, `toggle_case_sensitive`, `replace_all`, `preview_scroll_up`, `preview_scroll_down`, `preview_previous`, `preview_next`, `open_preview` |
+| `keys.prompt` | `show_keybindings`, `inspect_key`, `accept`, `cancel`, `move_left`, `move_right`, `move_word_left`, `move_word_right`, `move_start`, `move_end`, `delete_backward`, `delete_forward`, `delete_word_backward`, `delete_word_forward`, `delete_to_start`, `delete_to_end`, `insert_word`, `insert_register`, `history_previous`, `history_next`, `complete_previous`, `complete_next`, `exit_selection` |
+| `keys.picker` | `show_keybindings`, `inspect_key`, `history_previous`, `history_next`, `accept`, `accept_keep_open`, `accept_horizontal_split`, `accept_vertical_split`, `cancel`, `move_up`, `move_down`, `move_start`, `move_end`, `page_up`, `page_down`, `toggle_preview`, `toggle_loading`, `populate_quicklist`, `toggle_replacement`, `toggle_case_sensitive`, `replace_all`, `preview_scroll_up`, `preview_scroll_down`, `preview_previous`, `preview_next`, `open_preview` |
 | `keys.buffer-picker` | All `keys.picker` actions, plus `close_buffer` |
 | `keys.quicklist-picker` | All `keys.picker` actions, plus `remove_entry` |
 | `keys.git-picker` | All `keys.picker` actions, plus `stage`, `unstage`, `stash`, `actions`, `stashes` |
@@ -147,8 +153,8 @@ belong in `keys.normal`, `keys.insert`, and `keys.select`.
 | `keys.history-picker` | All `keys.picker` actions, plus `actions`, `back` |
 | `keys.file-explorer` | All `keys.picker` actions, plus `create_path`, `move_path`, `copy_path`, `delete_path`, `yank_path` |
 | `keys.sidebar`, `keys.sidebar-filter` | All `keys.file-explorer` actions, plus `filter`, `focus_editor`, `hide`, `next_view`, `previous_view`, `resize` |
-| `keys.menu` | `accept`, `cancel`, `move_up`, `move_down`, `page_up`, `page_down` |
-| `keys.popup` | `cancel`, `scroll_up`, `scroll_down` |
+| `keys.menu` | `show_keybindings`, `accept`, `cancel`, `move_up`, `move_down`, `page_up`, `page_down` |
+| `keys.popup` | `show_keybindings`, `cancel`, `scroll_up`, `scroll_down` |
 | `keys.hover`, `keys.signature-help` | `previous`, `next` |
 | `keys.blame` | `copy_commit_id`, `copy_message` |
 | `keys.diff` | `scroll_left`, `scroll_right`, `restore` (current-change popup only) |

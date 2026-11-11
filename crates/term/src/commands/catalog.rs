@@ -417,6 +417,8 @@ impl MappableCommand {
         record_macro => super::macros::record_macro, "Record macro",
         replay_macro => super::macros::replay_macro, "Replay macro",
         command_palette => super::palette::command_palette, "Open command palette",
+        keybindings => super::palette::keybindings, "Browse active keybindings, sources, and shadowed actions",
+        inspect_key => super::palette::inspect_key, "Inspect a key sequence without executing it",
         goto_word => super::navigation::goto_word, "Jump to a two-character label",
         extend_to_word => super::navigation::extend_to_word, "Extend to a two-character label",
         snippet_picker => super::snippets::snippet_picker, "Choose and insert a user-defined snippet",

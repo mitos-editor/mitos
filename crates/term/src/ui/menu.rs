@@ -90,6 +90,9 @@ impl<T: Item> Menu<T> {
     pub(crate) fn execute_action(&mut self, action: MenuAction, cx: &mut Context) -> EventResult {
         let half_page = (self.size.1 as usize / 2).max(1);
         match action {
+            MenuAction::ShowKeybindings => {
+                return EventResult::Consumed(Some(Box::new(super::keybindings::show)))
+            }
             MenuAction::Cancel => {
                 (self.callback_fn)(cx.editor, self.selection(), MenuEvent::Abort);
                 return EventResult::Consumed(close_callback());
@@ -292,6 +295,17 @@ impl<T: Item + PartialEq> Menu<T> {
 use super::PromptEvent as MenuEvent;
 
 impl<T: Item + 'static> Component for Menu<T> {
+    fn keymap_contexts(&self, cx: &Context) -> Vec<crate::keymap::inspect::Context> {
+        use crate::keymap::inspect;
+        let mut keys = cx.config.current.component_keys.menu.clone();
+        if !self.keys.is_pending() {
+            keys.0.retain(|key, binding| !matches!(binding, ui_core::keymap::Binding::Actions(actions) if Self::smart_tab_supersedes(*key, actions, cx.editor)));
+        }
+        let mut context = inspect::Context::new("Menu", inspect::component("keys.menu", &keys));
+        context.pending = self.keys.pending().to_vec();
+        vec![context]
+    }
+
     fn has_pending_keys(&self) -> bool {
         self.keys.is_pending()
     }

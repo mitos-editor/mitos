@@ -277,6 +277,35 @@ impl<T: Component> Popup<T> {
 }
 
 impl<T: Component> Component for Popup<T> {
+    fn keymap_contexts(&self, cx: &Context) -> Vec<crate::keymap::inspect::Context> {
+        use crate::keymap::inspect;
+        let mut context = inspect::Context::new(
+            "Popup",
+            inspect::component("keys.popup", &cx.config.current.component_keys.popup),
+        );
+        context.pending = self.keys.pending().to_vec();
+        let ignore_escape = self.ignore_escape_key
+            && !self.has_pending_keys()
+            && matches!(cx.config.current.component_keys.popup.0.get(&key!(Esc)), Some(Binding::Actions(actions)) if actions == &[PopupAction::Cancel]);
+        if ignore_escape {
+            context
+                .bindings
+                .retain(|binding| !(binding.keys == [key!(Esc)] && binding.action == "cancel"));
+        }
+        let mut children = self.contents.keymap_contexts(cx);
+        if ignore_escape {
+            for child in &mut children {
+                child.ignored_keys.push(key!(Esc));
+            }
+        }
+        if self.keys.is_pending() {
+            children.insert(0, context);
+        } else {
+            children.push(context);
+        }
+        children
+    }
+
     fn has_pending_render(&self) -> bool {
         self.contents.has_pending_render()
     }
@@ -331,6 +360,9 @@ impl<T: Component> Component for Popup<T> {
             Lookup::Actions(actions) => {
                 for &action in actions {
                     match action {
+                        PopupAction::ShowKeybindings => {
+                            return EventResult::Consumed(Some(Box::new(super::keybindings::show)))
+                        }
                         PopupAction::Cancel => return EventResult::Consumed(Some(close_fn)),
                         PopupAction::ScrollDown => self.scroll_half_page_down(),
                         PopupAction::ScrollUp => self.scroll_half_page_up(),

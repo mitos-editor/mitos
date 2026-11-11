@@ -328,6 +328,10 @@ impl Completion {
 }
 
 impl Component for Completion {
+    fn keymap_contexts(&self, cx: &Context) -> Vec<crate::keymap::inspect::Context> {
+        self.popup.keymap_contexts(cx)
+    }
+
     fn has_pending_keys(&self) -> bool {
         self.popup.has_pending_keys()
     }

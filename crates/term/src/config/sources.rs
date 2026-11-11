@@ -1,5 +1,5 @@
 //! Parse and compose user and workspace layers without filesystem effects.
-use super::{keymaps::resolve_keymaps, Config, ConfigRaw, EditorSettings};
+use super::{keymaps::resolve_keymaps, Config, ConfigRaw, EditorSettings, Keys};
 use loader::config::migration;
 use std::{fmt::Display, io::Error as IOError};
 use toml::de::Error as TomlError;
@@ -100,11 +100,26 @@ impl Config {
             keys.validate_commands(&settings.editor.commands)
                 .map_err(ConfigLoadError::BadConfig)?;
         }
+        let keybinding_sources = [
+            (crate::keymap::inspect::Source::User, global.keys.as_ref()),
+            (
+                crate::keymap::inspect::Source::Workspace,
+                local.keys.as_ref(),
+            ),
+        ]
+        .into_iter()
+        .flat_map(|(source, keys)| {
+            keys.into_iter()
+                .flat_map(Keys::definitions)
+                .map(move |binding| (source, binding))
+        })
+        .collect();
         let (keys, component_keys) = resolve_keymaps(global.keys.into_iter().chain(local.keys));
         Ok(Config {
             theme: local.theme.or(global.theme),
             keys,
             component_keys,
+            keybinding_sources,
             editor: settings.editor,
             terminal: settings.terminal,
         })

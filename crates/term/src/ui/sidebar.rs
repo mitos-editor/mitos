@@ -180,6 +180,38 @@ impl Sidebar {
         self.keys.is_pending() || self.picker.has_pending_keys()
     }
 
+    pub(super) fn keymap_contexts(&self, cx: &Context) -> Vec<crate::keymap::inspect::Context> {
+        use crate::keymap::inspect;
+        let maps = &cx.config.current.component_keys;
+        let table = if self.state == State::Filtering {
+            "keys.sidebar-filter"
+        } else {
+            "keys.sidebar"
+        };
+        let filtered = inspect::filter(self.keymap(maps), |action| match action {
+            SidebarAction::Picker(action) => self.picker.action_available(maps, *action),
+            _ => true,
+        });
+        let mut context = inspect::Context::new(
+            "File explorer sidebar",
+            inspect::component(table, &filtered),
+        );
+        context.pending = self.keys.pending().to_vec();
+        if self.state != State::Filtering {
+            context.fallback = inspect::Fallback::Consume;
+        }
+        let mut contexts = vec![context];
+        if self.state == State::Filtering {
+            let mut query = self.picker.query_contexts(cx);
+            if self.picker.has_pending_keys() {
+                query.extend(contexts);
+                return query;
+            }
+            contexts.extend(query);
+        }
+        contexts
+    }
+
     pub fn has_pending_render(&self) -> bool {
         self.picker.has_pending_render()
     }

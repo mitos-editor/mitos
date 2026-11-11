@@ -1548,6 +1548,12 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                         self.redraw.request();
                     }
                 }
+                PickerAction::ShowKeybindings => {
+                    return EventResult::Consumed(Some(Box::new(ui::keybindings::show)))
+                }
+                PickerAction::InspectKey => {
+                    return EventResult::Consumed(Some(Box::new(ui::keybindings::inspect)))
+                }
                 PickerAction::HistoryPrevious | PickerAction::HistoryNext => {
                     let prompt_action = if action == PickerAction::HistoryPrevious {
                         crate::keymap::component::PromptAction::HistoryPrevious
@@ -1751,6 +1757,25 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
 }
 
 impl<I: 'static + Send + Sync, D: 'static + Send + Sync> Component for Picker<I, D> {
+    fn keymap_contexts(&self, cx: &Context) -> Vec<crate::keymap::inspect::Context> {
+        use crate::keymap::inspect;
+        let maps = &cx.config.current.component_keys;
+        let keys = (self.keymap)(maps);
+        let filtered = inspect::filter(keys, |action| self.action_available(maps, *action));
+        let mut context = inspect::Context::new(
+            "Picker",
+            inspect::component(maps.picker_table(keys), &filtered),
+        );
+        context.pending = self.keys.pending().to_vec();
+        let mut prompt = self.query_contexts(cx);
+        if self.active_prompt().has_pending_keys() {
+            prompt.push(context);
+        } else {
+            prompt.insert(0, context);
+        }
+        prompt
+    }
+
     fn has_pending_render(&self) -> bool {
         self.matching
             || self.query_needs_refresh

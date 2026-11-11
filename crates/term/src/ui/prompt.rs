@@ -873,6 +873,12 @@ impl Prompt {
                 return EventResult::Consumed(None);
             }
             match action {
+                PromptAction::ShowKeybindings => {
+                    return EventResult::Consumed(Some(Box::new(ui::keybindings::show)))
+                }
+                PromptAction::InspectKey => {
+                    return EventResult::Consumed(Some(Box::new(ui::keybindings::inspect)))
+                }
                 PromptAction::Cancel => {
                     (self.callback_fn)(cx, &self.line, PromptEvent::Abort);
                     return close_fn();
@@ -1003,6 +1009,24 @@ impl Prompt {
 }
 
 impl Component for Prompt {
+    fn keymap_contexts(&self, cx: &Context) -> Vec<crate::keymap::inspect::Context> {
+        use crate::keymap::inspect::{self, Fallback};
+        let mut context = inspect::Context::new(
+            "Prompt",
+            inspect::component("keys.prompt", &cx.config.current.component_keys.prompt),
+        );
+        context.pending = self.keys.pending().to_vec();
+        if self.next_char_handler.is_some() {
+            context.fallback = Fallback::Prompt;
+            return vec![
+                inspect::Context::literal("Prompt register input", true),
+                context,
+            ];
+        }
+        context.fallback = Fallback::Prompt;
+        vec![context]
+    }
+
     /// Collect completions computed on a background thread; the task producing them requested
     /// the redraw this update runs in.
     fn update(&mut self, _area: Rect, cx: &mut Context) {

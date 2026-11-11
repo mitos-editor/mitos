@@ -148,6 +148,14 @@ pub fn command_palette(cx: &mut Context) {
     ));
 }
 
+pub(super) fn keybindings(cx: &mut Context) {
+    cx.callback.push(Box::new(ui::keybindings::show));
+}
+
+pub(super) fn inspect_key(cx: &mut Context) {
+    cx.callback.push(Box::new(ui::keybindings::inspect));
+}
+
 pub(super) fn last_picker(cx: &mut Context) {
     // TODO: last picker does not seem to work well with buffer_picker
     cx.callback.push(Box::new(|compositor, cx| {

@@ -196,6 +196,19 @@ impl ReviewView {
 mod tests;
 
 impl Component for ReviewView {
+    fn keymap_contexts(&self, cx: &Context) -> Vec<crate::keymap::inspect::Context> {
+        let keys =
+            crate::keymap::inspect::filter(&cx.config.current.component_keys.diff, |action| {
+                *action != crate::keymap::component::DiffAction::Restore
+            });
+        let mut context = crate::keymap::inspect::Context::new(
+            "Diff review",
+            crate::keymap::inspect::component("keys.diff", &keys),
+        );
+        context.pending = self.keys.pending().to_vec();
+        vec![context]
+    }
+
     fn render(&mut self, area: Rect, surface: &mut Buffer, cx: &mut DrawContext) {
         self.draw(
             panel::content_area(area),

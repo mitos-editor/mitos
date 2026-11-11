@@ -31,6 +31,7 @@
 | `` E `` | Extend to end of next long word | `` extend_next_long_word_end `` |
 | `` v `` | Enter normal mode | `` normal_mode `` |
 | `` G `` | Go to the counted line, or the last line without a count; extend in select mode | `` goto_line `` |
+| `` <C-g> `` | Keybindings | Prefix |
 | `` <F1> `` | Open command palette | `` command_palette `` |
 | `` <F2> `` | Rename symbol | `` rename_symbol `` |
 | `` <F5> `` | Continue program execution | `` debug_continue `` |
@@ -141,6 +142,13 @@
 | `` <C-z> `` | Suspend and return to shell | `` suspend `` |
 | `` <C-a> `` | Increment item under cursor | `` increment `` |
 | `` <C-x> `` | Decrement item under cursor | `` decrement `` |
+
+### `` <C-g> `` — Keybindings
+
+| Key | Description | Command |
+| --- | --- | --- |
+| `` <C-g>k `` | Browse active keybindings, sources, and shadowed actions | `` keybindings `` |
+| `` <C-g>i `` | Inspect a key sequence without executing it | `` inspect_key `` |
 
 ### `` g `` — Goto
 

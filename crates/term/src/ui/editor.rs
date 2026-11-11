@@ -612,6 +612,102 @@ fn editor_layout(editor: &Editor, area: Rect) -> ApplicationLayout {
 }
 
 impl Component for EditorView {
+    fn keymap_contexts(&self, cx: &Context) -> Vec<crate::keymap::inspect::Context> {
+        use crate::keymap::inspect::{self, Definition, Fallback};
+        let mode = cx.editor.mode();
+        let table = format!("keys.{mode}");
+        let mut contexts = Vec::new();
+        if let Some(resize) = &self.resizing {
+            contexts.push(resize.keymap_context());
+            return contexts;
+        }
+        if self.sidebar_focused() {
+            contexts.extend(self.sidebar.as_ref().unwrap().keymap_contexts(cx));
+        }
+        if cx.jobs.command_expansion.is_running() {
+            contexts.push(inspect::Context::new(
+                "Running command",
+                [key!(Esc), crate::ctrl!('c')]
+                    .into_iter()
+                    .map(|key| Definition {
+                        table: "input".into(),
+                        keys: vec![key],
+                        action: "cancel command".into(),
+                        description: "Cancel the running command".into(),
+                        prefix: false,
+                    })
+                    .collect(),
+            ));
+        }
+        if self.on_next_key.is_some() {
+            contexts.push(inspect::Context::literal("Command input", false));
+        }
+        if let Some(completion) = &self.completion {
+            contexts.extend(completion.keymap_contexts(cx));
+        }
+        if mode != Mode::Insert {
+            let mut runtime = Vec::new();
+            for digit in '0'..='9' {
+                let key = KeyEvent {
+                    code: KeyCode::Char(digit),
+                    modifiers: KeyModifiers::NONE,
+                };
+                if cx.interaction.count.is_some()
+                    || (digit != '0' && !self.keymaps.contains_key(mode, key))
+                {
+                    runtime.push(Definition {
+                        table: "input".into(),
+                        keys: vec![key],
+                        action: "count".into(),
+                        description: "Build the command count".into(),
+                        prefix: false,
+                    });
+                }
+            }
+            if self.keymaps.pending().is_empty() {
+                runtime.push(Definition {
+                    table: "input".into(),
+                    keys: vec![key!('.')],
+                    action: "repeat edit".into(),
+                    description: "Repeat the last edit".into(),
+                    prefix: false,
+                });
+            }
+            contexts.push(inspect::Context::new("Counts and edit repeat", runtime));
+        }
+        let maps = self.keymaps.map();
+        let mut context = inspect::Context::new(
+            format!("Editor ({mode})"),
+            inspect::editor(&table, &maps[&mode]),
+        );
+        context.canonicalize_chars = true;
+        context.pending = self.keymaps.pending().to_vec();
+        if let Some(sticky) = self.keymaps.sticky() {
+            context.bindings =
+                inspect::editor(&table, &crate::keymap::KeyTrie::Node(sticky.clone()));
+            context.name = format!("{} (sticky)", sticky.infobox().title);
+            context.origin_prefix = self.keymaps.sticky_path().to_vec();
+            context
+                .bindings
+                .extend(
+                    [key!(Esc), crate::ctrl!('c')]
+                        .into_iter()
+                        .map(|key| Definition {
+                            table: "input".into(),
+                            keys: vec![key],
+                            action: "leave sticky mode".into(),
+                            description: "Cancel sticky mode".into(),
+                            prefix: false,
+                        }),
+                );
+        }
+        if mode == Mode::Insert {
+            context.fallback = Fallback::Text;
+        }
+        contexts.push(context);
+        contexts
+    }
+
     fn handle_event(
         &mut self,
         event: &Event,
@@ -1041,7 +1137,7 @@ impl Component for EditorView {
     }
 }
 
-fn canonicalize_key(key: &mut KeyEvent) {
+pub(crate) fn canonicalize_key(key: &mut KeyEvent) {
     if let KeyEvent {
         code: KeyCode::Char(_),
         modifiers: _,

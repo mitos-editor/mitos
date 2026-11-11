@@ -67,6 +67,18 @@ const HEADER_HEIGHT: u16 = 1;
 const SEPARATOR_HEIGHT: u16 = 1;
 
 impl Component for Hover {
+    fn keymap_contexts(&self, cx: &Context) -> Vec<crate::keymap::inspect::Context> {
+        let mut context = crate::keymap::inspect::Context::new(
+            "Hover",
+            crate::keymap::inspect::component(
+                "keys.hover",
+                &cx.config.current.component_keys.hover,
+            ),
+        );
+        context.pending = self.page.keys.pending().to_vec();
+        vec![context]
+    }
+
     fn render(&mut self, area: Rect, surface: &mut Buffer, cx: &mut DrawContext) {
         let area = panel::content_area(area);
 

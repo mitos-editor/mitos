@@ -228,6 +228,10 @@ impl Variables {
 }
 
 impl Component for Variables {
+    fn keymap_contexts(&self, cx: &Context) -> Vec<crate::keymap::inspect::Context> {
+        self.current.picker.keymap_contexts(cx)
+    }
+
     fn handle_event(&mut self, event: &Event, cx: &mut Context) -> EventResult {
         if !self.current.data.can_refresh(cx.editor) {
             self.load.cancel();

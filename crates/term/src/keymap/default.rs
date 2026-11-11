@@ -113,6 +113,10 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
 
         "v" => select_mode,
         "G" => goto_line,
+        "C-g" => { "Keybindings"
+            "k" => keybindings,
+            "i" => inspect_key,
+        },
         "F1" => command_palette,
         "F2" => rename_symbol,
         "F5" => debug_continue,
@@ -414,6 +418,8 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
 
         "C-s" => ":write",
         "C-g" => { "Insert tools"
+            "k" => keybindings,
+            "i" => inspect_key,
             "u" => commit_undo_checkpoint,
             "s" => signature_help,
             "n" => snippet_next_choice,

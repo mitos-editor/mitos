@@ -3,6 +3,12 @@
 These tables list the built-in bindings. To change them, see
 [Key remapping](./remapping.md).
 
+For a searchable list of the bindings active at the current focus, use
+`Ctrl-g k` in the editor or `F1` in a prompt, picker, menu, or popup.
+`Ctrl-g i` inspects a key sequence without executing it. Both commands are
+available through the command palette (`Space ?` or `F1` in the editor).
+See [Find and inspect bindings](./keybinding-migration.md#find-and-inspect-bindings).
+
 `<space>` means Space, `<ret>` means Enter, `<esc>` means Escape,
 `<C-x>` means Ctrl-x, and `<A-x>` means Alt-x. Adjacent keys form a
 sequence: `<space>f` means press Space, then f.

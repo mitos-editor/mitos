@@ -168,6 +168,8 @@ async fn picker_specializations_preserve_query_editing_and_show_available_prefix
         }
         assert_eq!(picker.prompt.line(), "");
         picker.handle_event(&Event::Key("C-x".parse()?), &mut cx);
+        let contexts = picker.keymap_contexts(&cx);
+        assert_eq!(contexts[0].pending, ["C-x".parse()?]);
         let area = Rect::new(0, 0, 100, 24);
         let mut surface = Surface::empty(area);
         picker.update_and_render(area, &mut surface, &mut cx);

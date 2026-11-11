@@ -119,6 +119,10 @@ impl Frames {
 }
 
 impl Component for Frames {
+    fn keymap_contexts(&self, cx: &Context) -> Vec<crate::keymap::inspect::Context> {
+        self.picker.keymap_contexts(cx)
+    }
+
     fn handle_event(&mut self, event: &Event, cx: &mut Context) -> EventResult {
         if !self.data.context.is_current(cx.editor) {
             self.load.cancel();

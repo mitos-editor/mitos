@@ -37,6 +37,8 @@
 
 | Key | Description | Command |
 | --- | --- | --- |
+| `` <C-g>k `` | Browse active keybindings, sources, and shadowed actions | `` keybindings `` |
+| `` <C-g>i `` | Inspect a key sequence without executing it | `` inspect_key `` |
 | `` <C-g>u `` | Start a new undo step without leaving insert mode | `` commit_undo_checkpoint `` |
 | `` <C-g>s `` | Show signature help | `` signature_help `` |
 | `` <C-g>n `` | Choose the next snippet placeholder value | `` snippet_next_choice `` |

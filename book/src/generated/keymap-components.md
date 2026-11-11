@@ -13,6 +13,7 @@ Picker-specific tables inherit `[keys.picker]`. Sidebar tables inherit `[keys.fi
 | `` <C-c> ``, `` <esc> `` | `` cancel `` | Within this component |
 | `` <C-x>H `` | `` history_next `` | Inputs with query history |
 | `` <C-x>h `` | `` history_previous `` | Inputs with query history |
+| `` <C-x>i `` | `` inspect_key `` | Within this component |
 | `` <C-n> ``, `` <tab> ``, `` <down> `` | `` move_down `` | Within this component |
 | `` <C-x>G `` | `` move_end `` | Within this component |
 | `` <C-x>g `` | `` move_start `` | Within this component |
@@ -26,6 +27,7 @@ Picker-specific tables inherit `[keys.picker]`. Sidebar tables inherit `[keys.fi
 | `` <A-j> ``, `` <C-x>j ``, `` <A-down> `` | `` preview_scroll_down `` | Pickers with a preview |
 | `` <A-k> ``, `` <A-up> ``, `` <C-x>k `` | `` preview_scroll_up `` | Pickers with a preview |
 | `` <C-x>R ``, `` <C-ret> ``, `` <Meta-ret> `` | `` replace_all `` | Replacement input visible |
+| `` <F1> ``, `` <C-x>? `` | `` show_keybindings `` | Within this component |
 | `` <A-c> ``, `` <C-x>f `` | `` toggle_case_sensitive `` | Search pickers with case controls |
 | `` <C-x>l `` | `` toggle_loading `` | Pickers with paged loading |
 | `` <C-t> ``, `` <C-x>p `` | `` toggle_preview `` | Pickers with a preview |
@@ -43,6 +45,7 @@ Picker-specific tables inherit `[keys.picker]`. Sidebar tables inherit `[keys.fi
 | `` <C-x>d `` | `` close_buffer `` | Buffer picker; refuses to discard unsaved changes |
 | `` <C-x>H `` | `` history_next `` | Inputs with query history |
 | `` <C-x>h `` | `` history_previous `` | Inputs with query history |
+| `` <C-x>i `` | `` inspect_key `` | Within this component |
 | `` <C-n> ``, `` <tab> ``, `` <down> `` | `` move_down `` | Within this component |
 | `` <C-x>G `` | `` move_end `` | Within this component |
 | `` <C-x>g `` | `` move_start `` | Within this component |
@@ -56,6 +59,7 @@ Picker-specific tables inherit `[keys.picker]`. Sidebar tables inherit `[keys.fi
 | `` <A-j> ``, `` <C-x>j ``, `` <A-down> `` | `` preview_scroll_down `` | Pickers with a preview |
 | `` <A-k> ``, `` <A-up> ``, `` <C-x>k `` | `` preview_scroll_up `` | Pickers with a preview |
 | `` <C-x>R ``, `` <C-ret> ``, `` <Meta-ret> `` | `` replace_all `` | Replacement input visible |
+| `` <F1> ``, `` <C-x>? `` | `` show_keybindings `` | Within this component |
 | `` <A-c> ``, `` <C-x>f `` | `` toggle_case_sensitive `` | Search pickers with case controls |
 | `` <C-x>l `` | `` toggle_loading `` | Pickers with paged loading |
 | `` <C-t> ``, `` <C-x>p `` | `` toggle_preview `` | Pickers with a preview |
@@ -72,6 +76,7 @@ Picker-specific tables inherit `[keys.picker]`. Sidebar tables inherit `[keys.fi
 | `` <C-c> ``, `` <esc> `` | `` cancel `` | Within this component |
 | `` <C-x>H `` | `` history_next `` | Inputs with query history |
 | `` <C-x>h `` | `` history_previous `` | Inputs with query history |
+| `` <C-x>i `` | `` inspect_key `` | Within this component |
 | `` <C-n> ``, `` <tab> ``, `` <down> `` | `` move_down `` | Within this component |
 | `` <C-x>G `` | `` move_end `` | Within this component |
 | `` <C-x>g `` | `` move_start `` | Within this component |
@@ -86,6 +91,7 @@ Picker-specific tables inherit `[keys.picker]`. Sidebar tables inherit `[keys.fi
 | `` <A-k> ``, `` <A-up> ``, `` <C-x>k `` | `` preview_scroll_up `` | Pickers with a preview |
 | `` <C-x>d `` | `` remove_entry `` | Quicklist picker |
 | `` <C-x>R ``, `` <C-ret> ``, `` <Meta-ret> `` | `` replace_all `` | Replacement input visible |
+| `` <F1> ``, `` <C-x>? `` | `` show_keybindings `` | Within this component |
 | `` <A-c> ``, `` <C-x>f `` | `` toggle_case_sensitive `` | Search pickers with case controls |
 | `` <C-x>l `` | `` toggle_loading `` | Pickers with paged loading |
 | `` <C-t> ``, `` <C-x>p `` | `` toggle_preview `` | Pickers with a preview |
@@ -103,6 +109,7 @@ Picker-specific tables inherit `[keys.picker]`. Sidebar tables inherit `[keys.fi
 | `` <C-c> ``, `` <esc> `` | `` cancel `` | Within this component |
 | `` <C-x>H `` | `` history_next `` | Inputs with query history |
 | `` <C-x>h `` | `` history_previous `` | Inputs with query history |
+| `` <C-x>i `` | `` inspect_key `` | Within this component |
 | `` <C-n> ``, `` <tab> ``, `` <down> `` | `` move_down `` | Within this component |
 | `` <C-x>G `` | `` move_end `` | Within this component |
 | `` <C-x>g `` | `` move_start `` | Within this component |
@@ -116,6 +123,7 @@ Picker-specific tables inherit `[keys.picker]`. Sidebar tables inherit `[keys.fi
 | `` <A-j> ``, `` <C-x>j ``, `` <A-down> `` | `` preview_scroll_down `` | Pickers with a preview |
 | `` <A-k> ``, `` <A-up> ``, `` <C-x>k `` | `` preview_scroll_up `` | Pickers with a preview |
 | `` <C-x>R ``, `` <C-ret> ``, `` <Meta-ret> `` | `` replace_all `` | Replacement input visible |
+| `` <F1> ``, `` <C-x>? `` | `` show_keybindings `` | Within this component |
 | `` <A-s> ``, `` <C-x>as `` | `` stage `` | Git picker |
 | `` <C-x>az `` | `` stash `` | Git picker |
 | `` <C-x>al `` | `` stashes `` | Git picker |
@@ -138,6 +146,7 @@ Picker-specific tables inherit `[keys.picker]`. Sidebar tables inherit `[keys.fi
 | `` <C-x>d `` | `` delete_branch `` | Branch picker |
 | `` <C-x>H `` | `` history_next `` | Inputs with query history |
 | `` <C-x>h `` | `` history_previous `` | Inputs with query history |
+| `` <C-x>i `` | `` inspect_key `` | Within this component |
 | `` <C-n> ``, `` <tab> ``, `` <down> `` | `` move_down `` | Within this component |
 | `` <C-x>G `` | `` move_end `` | Within this component |
 | `` <C-x>g `` | `` move_start `` | Within this component |
@@ -151,6 +160,7 @@ Picker-specific tables inherit `[keys.picker]`. Sidebar tables inherit `[keys.fi
 | `` <A-j> ``, `` <C-x>j ``, `` <A-down> `` | `` preview_scroll_down `` | Pickers with a preview |
 | `` <A-k> ``, `` <A-up> ``, `` <C-x>k `` | `` preview_scroll_up `` | Pickers with a preview |
 | `` <C-x>R ``, `` <C-ret> ``, `` <Meta-ret> `` | `` replace_all `` | Replacement input visible |
+| `` <F1> ``, `` <C-x>? `` | `` show_keybindings `` | Within this component |
 | `` <A-c> ``, `` <C-x>f `` | `` toggle_case_sensitive `` | Search pickers with case controls |
 | `` <C-t> ``, `` <C-x>p `` | `` toggle_preview `` | Pickers with a preview |
 | `` <A-r> ``, `` <C-x>r `` | `` toggle_replacement `` | Search pickers with replacement |
@@ -167,6 +177,7 @@ Picker-specific tables inherit `[keys.picker]`. Sidebar tables inherit `[keys.fi
 | `` <C-x>n `` | `` create_worktree `` | Worktree picker |
 | `` <C-x>H `` | `` history_next `` | Inputs with query history |
 | `` <C-x>h `` | `` history_previous `` | Inputs with query history |
+| `` <C-x>i `` | `` inspect_key `` | Within this component |
 | `` <C-x>al `` | `` lock_worktree `` | Worktree picker |
 | `` <C-n> ``, `` <tab> ``, `` <down> `` | `` move_down `` | Within this component |
 | `` <C-x>G `` | `` move_end `` | Within this component |
@@ -182,6 +193,7 @@ Picker-specific tables inherit `[keys.picker]`. Sidebar tables inherit `[keys.fi
 | `` <A-k> ``, `` <A-up> ``, `` <C-x>k `` | `` preview_scroll_up `` | Pickers with a preview |
 | `` <C-x>d `` | `` remove_worktree `` | Worktree picker |
 | `` <C-x>R ``, `` <C-ret> ``, `` <Meta-ret> `` | `` replace_all `` | Replacement input visible |
+| `` <F1> ``, `` <C-x>? `` | `` show_keybindings `` | Within this component |
 | `` <A-c> ``, `` <C-x>f `` | `` toggle_case_sensitive `` | Search pickers with case controls |
 | `` <C-t> ``, `` <C-x>p `` | `` toggle_preview `` | Pickers with a preview |
 | `` <A-r> ``, `` <C-x>r `` | `` toggle_replacement `` | Search pickers with replacement |
@@ -201,6 +213,7 @@ Picker-specific tables inherit `[keys.picker]`. Sidebar tables inherit `[keys.fi
 | `` <C-c> ``, `` <esc> `` | `` cancel `` | Within this component |
 | `` <C-x>H `` | `` history_next `` | Inputs with query history |
 | `` <C-x>h `` | `` history_previous `` | Inputs with query history |
+| `` <C-x>i `` | `` inspect_key `` | Within this component |
 | `` <C-n> ``, `` <tab> ``, `` <down> `` | `` move_down `` | Within this component |
 | `` <C-x>G `` | `` move_end `` | Within this component |
 | `` <C-x>g `` | `` move_start `` | Within this component |
@@ -214,6 +227,7 @@ Picker-specific tables inherit `[keys.picker]`. Sidebar tables inherit `[keys.fi
 | `` <A-j> ``, `` <C-x>j ``, `` <A-down> `` | `` preview_scroll_down `` | Pickers with a preview |
 | `` <A-k> ``, `` <A-up> ``, `` <C-x>k `` | `` preview_scroll_up `` | Pickers with a preview |
 | `` <C-x>R ``, `` <C-ret> ``, `` <Meta-ret> `` | `` replace_all `` | Replacement input visible |
+| `` <F1> ``, `` <C-x>? `` | `` show_keybindings `` | Within this component |
 | `` <A-c> ``, `` <C-x>f `` | `` toggle_case_sensitive `` | Search pickers with case controls |
 | `` <C-x>l `` | `` toggle_loading `` | Pickers with paged loading |
 | `` <C-t> ``, `` <C-x>p `` | `` toggle_preview `` | Pickers with a preview |
@@ -232,6 +246,7 @@ Picker-specific tables inherit `[keys.picker]`. Sidebar tables inherit `[keys.fi
 | `` <C-c> ``, `` <esc> `` | `` cancel `` | Within this component |
 | `` <C-x>H `` | `` history_next `` | Inputs with query history |
 | `` <C-x>h `` | `` history_previous `` | Inputs with query history |
+| `` <C-x>i `` | `` inspect_key `` | Within this component |
 | `` <C-n> ``, `` <tab> ``, `` <down> `` | `` move_down `` | Within this component |
 | `` <C-x>G `` | `` move_end `` | Within this component |
 | `` <C-x>g `` | `` move_start `` | Within this component |
@@ -245,6 +260,7 @@ Picker-specific tables inherit `[keys.picker]`. Sidebar tables inherit `[keys.fi
 | `` <A-j> ``, `` <C-x>j ``, `` <A-down> `` | `` preview_scroll_down `` | Pickers with a preview |
 | `` <A-k> ``, `` <A-up> ``, `` <C-x>k `` | `` preview_scroll_up `` | Pickers with a preview |
 | `` <C-x>R ``, `` <C-ret> ``, `` <Meta-ret> `` | `` replace_all `` | Replacement input visible |
+| `` <F1> ``, `` <C-x>? `` | `` show_keybindings `` | Within this component |
 | `` <A-c> ``, `` <C-x>f `` | `` toggle_case_sensitive `` | Search pickers with case controls |
 | `` <C-x>l `` | `` toggle_loading `` | Pickers with paged loading |
 | `` <C-t> ``, `` <C-x>p `` | `` toggle_preview `` | Pickers with a preview |
@@ -264,6 +280,7 @@ Picker-specific tables inherit `[keys.picker]`. Sidebar tables inherit `[keys.fi
 | `` <C-x>d `` | `` delete_path `` | File explorer and sidebar |
 | `` <C-x>H `` | `` history_next `` | Inputs with query history |
 | `` <C-x>h `` | `` history_previous `` | Inputs with query history |
+| `` <C-x>i `` | `` inspect_key `` | Within this component |
 | `` <C-n> ``, `` <tab> ``, `` <down> `` | `` move_down `` | Within this component |
 | `` <C-x>G `` | `` move_end `` | Within this component |
 | `` <A-m> ``, `` <C-x>r `` | `` move_path `` | File explorer and sidebar |
@@ -278,6 +295,7 @@ Picker-specific tables inherit `[keys.picker]`. Sidebar tables inherit `[keys.fi
 | `` <A-j> ``, `` <C-x>j ``, `` <A-down> `` | `` preview_scroll_down `` | Pickers with a preview |
 | `` <A-k> ``, `` <A-up> ``, `` <C-x>k `` | `` preview_scroll_up `` | Pickers with a preview |
 | `` <C-x>R ``, `` <C-ret> ``, `` <Meta-ret> `` | `` replace_all `` | Replacement input visible |
+| `` <F1> ``, `` <C-x>? `` | `` show_keybindings `` | Within this component |
 | `` <A-c> ``, `` <C-x>f `` | `` toggle_case_sensitive `` | Search pickers with case controls |
 | `` <C-x>l `` | `` toggle_loading `` | Pickers with paged loading |
 | `` <C-t> ``, `` <C-x>p `` | `` toggle_preview `` | Pickers with a preview |
@@ -301,6 +319,7 @@ Picker-specific tables inherit `[keys.picker]`. Sidebar tables inherit `[keys.fi
 | `` q ``, `` <C-w>b ``, `` <C-w>q ``, `` <C-w><C-q> `` | `` hide `` | Within this component |
 | `` <C-x>H `` | `` history_next `` | Inputs with query history |
 | `` <C-x>h `` | `` history_previous `` | Inputs with query history |
+| `` <C-x>i `` | `` inspect_key `` | Within this component |
 | `` j ``, `` <C-n> ``, `` <tab> ``, `` <down> `` | `` move_down `` | Within this component |
 | `` <C-x>G `` | `` move_end `` | Within this component |
 | `` r ``, `` <A-m> ``, `` <C-x>r `` | `` move_path `` | File explorer and sidebar |
@@ -318,6 +337,7 @@ Picker-specific tables inherit `[keys.picker]`. Sidebar tables inherit `[keys.fi
 | `` <C-w>W `` | `` previous_view `` | Within this component |
 | `` <C-x>R ``, `` <C-ret> ``, `` <Meta-ret> `` | `` replace_all `` | Replacement input visible |
 | `` <C-w>r `` | `` resize `` | Within this component |
+| `` <F1> ``, `` <C-x>? `` | `` show_keybindings `` | Within this component |
 | `` <A-c> ``, `` <C-x>f `` | `` toggle_case_sensitive `` | Search pickers with case controls |
 | `` <C-x>l `` | `` toggle_loading `` | Pickers with paged loading |
 | `` <C-t> ``, `` <C-x>p `` | `` toggle_preview `` | Pickers with a preview |
@@ -339,6 +359,7 @@ Picker-specific tables inherit `[keys.picker]`. Sidebar tables inherit `[keys.fi
 | `` <C-e> `` | `` focus_editor `` | Within this component |
 | `` <C-x>H `` | `` history_next `` | Inputs with query history |
 | `` <C-x>h `` | `` history_previous `` | Inputs with query history |
+| `` <C-x>i `` | `` inspect_key `` | Within this component |
 | `` <C-n> ``, `` <tab> ``, `` <down> `` | `` move_down `` | Within this component |
 | `` <C-x>G `` | `` move_end `` | Within this component |
 | `` <A-m> ``, `` <C-x>r `` | `` move_path `` | File explorer and sidebar |
@@ -353,6 +374,7 @@ Picker-specific tables inherit `[keys.picker]`. Sidebar tables inherit `[keys.fi
 | `` <A-j> ``, `` <C-x>j ``, `` <A-down> `` | `` preview_scroll_down `` | Pickers with a preview |
 | `` <A-k> ``, `` <A-up> ``, `` <C-x>k `` | `` preview_scroll_up `` | Pickers with a preview |
 | `` <C-x>R ``, `` <C-ret> ``, `` <Meta-ret> `` | `` replace_all `` | Replacement input visible |
+| `` <F1> ``, `` <C-x>? `` | `` show_keybindings `` | Within this component |
 | `` <A-c> ``, `` <C-x>f `` | `` toggle_case_sensitive `` | Search pickers with case controls |
 | `` <C-x>l `` | `` toggle_loading `` | Pickers with paged loading |
 | `` <C-t> ``, `` <C-x>p `` | `` toggle_preview `` | Pickers with a preview |
@@ -378,12 +400,14 @@ Picker-specific tables inherit `[keys.picker]`. Sidebar tables inherit `[keys.fi
 | `` <up> ``, `` <C-p> `` | `` history_previous `` | Inputs with query history |
 | `` <C-r> `` | `` insert_register `` | Within this component |
 | `` <A-w> `` | `` insert_word `` | Within this component |
+| `` <C-x>i `` | `` inspect_key `` | Within this component |
 | `` <C-e> ``, `` <end> `` | `` move_end `` | Within this component |
 | `` <C-b> ``, `` <left> `` | `` move_left `` | Within this component |
 | `` <C-f> ``, `` <right> `` | `` move_right `` | Within this component |
 | `` <C-a> ``, `` <home> `` | `` move_start `` | Within this component |
 | `` <A-b> ``, `` <C-left> `` | `` move_word_left `` | Within this component |
 | `` <A-f> ``, `` <C-right> `` | `` move_word_right `` | Within this component |
+| `` <F1> `` | `` show_keybindings `` | Within this component |
 
 ## Completion menu
 
@@ -395,6 +419,7 @@ Picker-specific tables inherit `[keys.picker]`. Sidebar tables inherit `[keys.fi
 | `` <up> ``, `` <C-p> ``, `` <S-tab> `` | `` move_up `` | Within this component |
 | `` <C-d> ``, `` <pagedown> `` | `` page_down `` | Within this component |
 | `` <C-u> ``, `` <pageup> `` | `` page_up `` | Within this component |
+| `` <F1> `` | `` show_keybindings `` | Within this component |
 
 ## Popup
 
@@ -403,6 +428,7 @@ Picker-specific tables inherit `[keys.picker]`. Sidebar tables inherit `[keys.fi
 | `` <C-c> ``, `` <esc> `` | `` cancel `` | Within this component |
 | `` <C-d> ``, `` <pagedown> `` | `` scroll_down `` | Within this component |
 | `` <C-u> ``, `` <pageup> `` | `` scroll_up `` | Within this component |
+| `` <F1> `` | `` show_keybindings `` | Within this component |
 
 ## Hover
 

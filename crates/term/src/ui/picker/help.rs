@@ -5,6 +5,13 @@ use crate::compositor::DrawContext;
 use editor_core::unicode::width::UnicodeWidthStr;
 
 impl<T: Send + Sync + 'static, D: Send + Sync + 'static> Picker<T, D> {
+    pub(in crate::ui) fn query_contexts(
+        &self,
+        cx: &Context,
+    ) -> Vec<crate::keymap::inspect::Context> {
+        self.active_prompt().keymap_contexts(cx)
+    }
+
     pub(in crate::ui) fn action_available(
         &self,
         maps: &ComponentKeymaps,

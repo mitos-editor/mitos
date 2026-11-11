@@ -6,6 +6,8 @@ use ui_core::keymap::{Binding, Keymap};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PromptAction {
+    ShowKeybindings,
+    InspectKey,
     Cancel,
     Accept,
     MoveWordLeft,
@@ -32,6 +34,8 @@ pub enum PromptAction {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PickerAction {
+    ShowKeybindings,
+    InspectKey,
     HistoryPrevious,
     HistoryNext,
     MoveUp,
@@ -119,6 +123,8 @@ impl SidebarAction {
 impl PickerAction {
     pub fn description(self) -> &'static str {
         match self {
+            Self::ShowKeybindings => "Show keybindings",
+            Self::InspectKey => "Inspect a key sequence",
             Self::HistoryPrevious => "Previous query",
             Self::HistoryNext => "Next query",
             Self::MoveUp => "Move up",
@@ -173,6 +179,7 @@ impl PickerAction {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum MenuAction {
+    ShowKeybindings,
     Cancel,
     Accept,
     MoveUp,
@@ -184,6 +191,7 @@ pub enum MenuAction {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PopupAction {
+    ShowKeybindings,
     Cancel,
     ScrollUp,
     ScrollDown,
@@ -444,6 +452,9 @@ impl Default for ComponentKeymaps {
             ("C-q", K::PopulateQuicklist),
             ("A-r", K::ToggleReplacement),
             ("A-c", K::ToggleCaseSensitive),
+            ("F1", K::ShowKeybindings),
+            ("C-x ?", K::ShowKeybindings),
+            ("C-x i", K::InspectKey),
             ("C-x j", K::PreviewScrollDown),
             ("C-x k", K::PreviewScrollUp),
             ("C-x [", K::PreviewPrevious),
@@ -488,6 +499,8 @@ impl Default for ComponentKeymaps {
         ]);
         Self {
             prompt: bindings(&[
+                ("F1", P::ShowKeybindings),
+                ("C-x i", P::InspectKey),
                 ("esc", P::Cancel),
                 ("C-c", P::Cancel),
                 ("ret", P::Accept),
@@ -538,6 +551,7 @@ impl Default for ComponentKeymaps {
             sidebar_filter: Self::sidebar_filter(Self::file_explorer(picker.clone())),
             picker,
             menu: bindings(&[
+                ("F1", M::ShowKeybindings),
                 ("esc", M::Cancel),
                 ("C-c", M::Cancel),
                 ("ret", M::Accept),
@@ -553,6 +567,7 @@ impl Default for ComponentKeymaps {
                 ("C-d", M::PageDown),
             ]),
             popup: bindings(&[
+                ("F1", O::ShowKeybindings),
                 ("esc", O::Cancel),
                 ("C-c", O::Cancel),
                 ("pagedown", O::ScrollDown),

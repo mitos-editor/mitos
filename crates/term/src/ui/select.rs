@@ -46,6 +46,10 @@ impl<T: Item> Select<T> {
 }
 
 impl<T: Item> Component for Select<T> {
+    fn keymap_contexts(&self, cx: &Context) -> Vec<crate::keymap::inspect::Context> {
+        self.options.keymap_contexts(cx)
+    }
+
     fn owns_cursor(&self) -> bool {
         // Selection is shown by the menu highlight; hide the editor's cursor.
         true

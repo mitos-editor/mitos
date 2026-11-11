@@ -76,6 +76,37 @@ async fn insert_checkpoint_splits_undo_without_leaving_insert_mode() -> anyhow::
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn binding_inspector_captures_keys_without_executing_them() -> anyhow::Result<()> {
+    use super::helpers::{self, AppBuilder};
+    let mut app = AppBuilder::new().with_input_text("#[a|]#bc\n").build()?;
+    helpers::keys(&mut app, "<C-g>id").await?;
+    assert_eq!(view::doc!(app.editor).text().to_string(), "abc\n");
+    let screen: String = app
+        .terminal_backend()
+        .buffer()
+        .content
+        .iter()
+        .map(|cell| cell.symbol())
+        .collect();
+    assert!(screen.contains("delete_selection"), "{screen}");
+    assert!(screen.contains("built-in [keys.normal]"), "{screen}");
+    helpers::keys(&mut app, "<esc><C-g>k").await?;
+    let screen: String = app
+        .terminal_backend()
+        .buffer()
+        .content
+        .iter()
+        .map(|cell| cell.symbol())
+        .collect();
+    assert!(screen.contains("Keybindings"), "{screen}");
+    assert!(screen.contains("context"), "{screen}");
+    helpers::keys(&mut app, "<esc>").await?;
+    assert_eq!(view::doc!(app.editor).text().to_string(), "abc\n");
+    assert!(app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn workspace_search_uses_file_picker_root_from_a_nested_directory() -> anyhow::Result<()> {
     use super::helpers::{self, AppBuilder};
     let Some(root) = helpers::isolation::workspace(

@@ -383,6 +383,8 @@
 | `record_macro` | Record macro | normal: `` Q ``, select: `` Q `` |
 | `replay_macro` | Replay macro | normal: `` q ``, select: `` q `` |
 | `command_palette` | Open command palette | normal: `` <F1> ``, `` <space>? ``, select: `` <F1> ``, `` <space>? ``, insert: `` <F1> `` |
+| `keybindings` | Browse active keybindings, sources, and shadowed actions | normal: `` <C-g>k ``, select: `` <C-g>k ``, insert: `` <C-g>k `` |
+| `inspect_key` | Inspect a key sequence without executing it | normal: `` <C-g>i ``, select: `` <C-g>i ``, insert: `` <C-g>i `` |
 | `goto_word` | Jump to a two-character label | normal: `` gw `` |
 | `extend_to_word` | Extend to a two-character label | select: `` gw `` |
 | `snippet_picker` | Choose and insert a user-defined snippet |  |

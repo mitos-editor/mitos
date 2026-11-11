@@ -4,6 +4,25 @@ These defaults contain breaking changes. Update custom bindings and recorded
 macros using the tables below. Configuration loading does not rewrite them.
 The selection-first editing model stays the same.
 
+## Find and inspect bindings
+
+In the editor, `Ctrl-g k` opens a searchable list of active bindings and
+`Ctrl-g i` inspects a key sequence without executing it. Both commands are also
+available as `keybindings` and `inspect_key` in the command palette. In a picker
+or prompt, `F1` opens the list and `Ctrl-x i` opens the inspector. `F1` in the
+editor opens the command palette.
+
+The list includes the focused component and the editor mode beneath it. Each row
+shows its action, source, and whether another context shadows it. Select a row
+to see the winning context, built-in/user/workspace definitions, and pending
+prefix. The inspector captures the context that was active when it opened;
+close and reopen it after changing focus or configuration.
+
+Normal and select maps are initialized separately. A custom normal-mode remap
+does not automatically change select mode. Remap both when appropriate.
+Picker-specific maps inherit `[keys.picker]`; sidebar maps inherit
+`[keys.file-explorer]`. A specific binding overrides an inherited binding.
+
 ## Editor changes
 
 | Previous key or behavior | New default |
@@ -112,3 +131,15 @@ enable = true
 
 Inline completion remains opt-in and has no default acceptance key. See
 [Completion and snippets](./completion.md) for explicit remapping examples.
+
+## Terminal input and runtime states
+
+Terminals may encode `Ctrl-i` as Tab, `Ctrl-m` as Enter, or `Ctrl-[` as Escape.
+The inspector reports the event Mitos receives; it cannot distinguish physical
+keys that the terminal encodes identically. Use the portable prefix sequences
+above if modified keys do not reach the editor.
+
+Some inputs depend on the current operation: digits build a count, `.` repeats
+an edit, register/delimiter prompts take one literal character, and resize mode
+accepts directions and distances. The binding inspector includes these active
+input states. Resize ends with Enter and cancels with Escape or `Ctrl-c`.

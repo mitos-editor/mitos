@@ -4,6 +4,8 @@
 
 ## [Unreleased]
 
+- Browse active bindings with `Ctrl-g k` and inspect a key sequence without executing it with `Ctrl-g i`. The browser and inspector show context precedence, configuration sources, and shadowed definitions.
+
 - Pickers keep frequent direct shortcuts and add a Ctrl-x action menu. Query editing keys work consistently; sidebar file actions use ordinary letters while navigating. See the [keybinding migration guide](https://mitos.computer/docs/keybinding-migration.html).
 
 - Editor defaults use Ctrl-s to save, Space j for jumps, Ctrl-w for windows, Space x / Space X for debugger commands, and shorter fold bindings. See the [keybinding migration guide](https://mitos.computer/docs/keybinding-migration.html) for breaking changes.
