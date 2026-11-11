@@ -477,7 +477,7 @@ impl Document {
     ) -> Result<(), Error> {
         anyhow::ensure!(
             !self.is_content_readonly(),
-            "Use :diff-refresh to refresh a review document"
+            "Use :vcs-diff-refresh to refresh a review document"
         );
         let encoding = self.file.encoding;
         let path = match self.path() {
@@ -545,6 +545,10 @@ impl Document {
     /// Returns the [`Document`]'s current encoding.
     pub fn encoding(&self) -> &'static Encoding {
         self.file.encoding
+    }
+
+    pub fn has_bom(&self) -> bool {
+        self.file.has_bom
     }
 
     /// sets the document path without sending events to various

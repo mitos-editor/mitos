@@ -252,11 +252,9 @@ workspace.
 | `Alt-s` | Stage the selected file as it exists on disk |
 | `Alt-u` | Unstage the selected file, keeping its working copy |
 | `Alt-z` | Stash all repository changes, after confirmation |
-| `Alt-l` | Browse stashes |
 
 The picker shows these shortcuts below the file list, including any remappings.
-`Alt-a` offers the same actions in a menu. Staging and unstaging keep the query
-and selected file.
+Staging and unstaging keep the query and selected file.
 
 Staging does not save unsaved buffer edits. Staging and unstaging affect the
 entire file, including both paths of a rename.
@@ -270,15 +268,65 @@ blocked. Mitos updates open buffers afterwards. Edits you make during the
 operation are kept; saving them may require `:w!` because Git changed the file
 on disk.
 
+### Staging individual changes
+
+Use these commands in a file buffer or a live review to add selected changes to
+Git's staging area or remove them. Neither action changes the saved file or your
+unsaved edits.
+
+| Command | Action |
+| --- | --- |
+| `:vcs-stage-hunk` | Stage each hunk touched by the selections |
+| `:vcs-stage-lines` | Stage only selected lines |
+| `:vcs-unstage-hunk` | Unstage each hunk touched by the selections |
+| `:vcs-unstage-lines` | Unstage only selected lines |
+| `:vcs-stage-and-next` | Stage the selected hunks and select the next unstaged hunk |
+
+Stage commands use the current buffer, including unsaved edits. You can stage an
+edit without saving it. The `:vcs-stage-hunk-disk` and `:vcs-stage-lines-disk`
+commands use the saved file instead; save your buffer before running them.
+
+Unstage commands leave selected changes out of the next commit without changing
+the saved file or your unsaved edits. The gutter and `:show-change` show all
+changes since `HEAD`, so one displayed hunk can include both staged and unstaged
+changes.
+
+For precise line choices, open `:vcs-diff buffer` to include unsaved edits, or
+`:vcs-diff unstaged` to review the saved file. Select added or removed lines and run
+`:vcs-stage-lines`; additions and removals can be staged separately. To leave
+selected staged changes out of the next commit, open `:vcs-diff staged` and use
+`:vcs-unstage-lines`. Reviews of past commits cannot stage or unstage changes.
+If the file or staging area changes after you open a review, run
+`:vcs-diff-refresh` before trying again.
+
+Line and hunk actions require UTF-8 text and support normal line-ending
+conversions. Use whole-file actions in the changed-file picker for binary files,
+other encodings, submodules, and symlinks. Custom Git filter drivers also require
+whole-file actions, because their output can change which source lines are
+selected even when the line count stays the same. Stage the whole file when
+changing its encoding. Stage a
+rename as a whole file before staging individual text changes.
+
+The current-change popup (`Space i`) also offers `s` to stage the cursor's hunk,
+`u` to unstage it, and `S` to stage and select the next unstaged hunk. These actions
+add changes to or remove them from the staging area. The preview shows all
+changes since `HEAD`, including staged and unstaged changes. Actions close the
+popup; press `Space i` again to review the result. If the index action differs
+from the inspected change, Mitos leaves the staging area untouched. Open
+`:vcs-diff buffer` to review and stage changes against the index, or `:vcs-diff staged`
+to review and unstage changes against `HEAD`.
+
+Remap popup actions under `[keys.diff]`
+using `stage`, `unstage`, and `stage_and_next`.
+
 ### Stashes
 
-Press `Alt-l` in the changed-file picker or choose `vcs_stash_picker` from the
+Run `:vcs-stashes`, press `Space g S`, or choose `vcs_stash_picker` from the
 command palette to browse the newest 500 stashes. Press `Enter` to browse a
 stash's saved staged version, working tree, and untracked files, then `Enter` on
 a file to review its saved changes. `Alt-Enter` keeps the picker open.
 
-In the stash picker, use these shortcuts directly or choose an action with
-`Alt-a`:
+In the stash picker, use these shortcuts:
 
 | Key | Action |
 | --- | --- |
@@ -418,9 +466,15 @@ Press `Enter` to open the diff in a review buffer. `Ctrl-v` / `Ctrl-s` open it i
 vertical / horizontal split. `Space '` restores the picker with its query and
 selection, so you can open another comparison alongside it.
 
-Use `Alt-a` to open the file's version at that commit or choose another parent
-of a merge commit. When browsing from an editable file buffer, it also offers a
-comparison with that buffer, including unsaved edits.
+Use these shortcuts directly on the selected commit:
+
+| Key | Action |
+| --- | --- |
+| `Alt-v` | Open the file's historical version |
+| `Alt-e` | Compare the revision with the current buffer, including unsaved edits |
+| `Alt-p` | Choose a parent to compare against |
+
+Comparing with the buffer requires an editable buffer for that file.
 
 File history follows the first parent of a merge: the previous commit on the
 branch that received the merge. Use repository history to see individual commits
@@ -438,9 +492,9 @@ scrollable patch. `Alt-o` opens the combined preview in a read-only buffer.
 `Alt-k` / `Alt-j` scroll through the message and changes;
 `Ctrl-t` hides or shows the preview.
 Press `Enter` to browse the commit’s changed files. Merges
-compare with their first parent by default; use `Alt-a` to choose another parent.
-`Alt-a` also offers historical versions and comparisons with an open buffer for
-that file.
+compare with their first parent by default; use `Alt-p` to choose another parent.
+In the changed-file browser, `Alt-v` opens the historical version and `Alt-e`
+compares it with an open editable buffer for that file, including unsaved edits.
 
 In the changed-file browser, `Alt-h` returns to the commit browser with its query
 and selection. `Space '` restores the last picker after opening a review.

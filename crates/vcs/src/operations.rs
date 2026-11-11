@@ -22,7 +22,9 @@ mod branch;
 mod checkout;
 mod fetch;
 mod index;
+mod partial;
 mod stage;
+pub use partial::{PartialSelection, PartialSource};
 mod stash;
 mod unstage;
 mod worker;
@@ -68,6 +70,12 @@ impl FileOperation {
 #[derive(Clone, Debug)]
 enum Operation {
     Repository(RepositoryOperation),
+    Partial {
+        kind: FileOperation,
+        path: PathBuf,
+        patch: Vec<u8>,
+        next_line: Option<u32>,
+    },
     File {
         kind: FileOperation,
         paths: Vec<PathBuf>,
@@ -88,6 +96,12 @@ pub struct PreparedOperation {
 }
 
 impl PreparedOperation {
+    pub fn next_partial_line(&self) -> Option<u32> {
+        match &self.operation {
+            Operation::Partial { next_line, .. } => *next_line,
+            _ => None,
+        }
+    }
     pub fn repository(&self) -> &GitRepository {
         &self.repository
     }
@@ -98,10 +112,11 @@ impl PreparedOperation {
         }
         !matches!(
             self.operation,
-            Operation::File {
-                kind: FileOperation::Stage | FileOperation::Unstage,
-                ..
-            }
+            Operation::Partial { .. }
+                | Operation::File {
+                    kind: FileOperation::Stage | FileOperation::Unstage,
+                    ..
+                }
         )
     }
 
@@ -109,6 +124,7 @@ impl PreparedOperation {
     pub fn affected_paths(&self) -> Vec<PathBuf> {
         match &self.operation {
             Operation::Repository(operation) => operation.affected_paths(&self.repository),
+            Operation::Partial { path, .. } => vec![self.repository.root.join(path)],
             Operation::File { paths, .. } => paths
                 .iter()
                 .map(|path| self.repository.root.join(path))
@@ -120,6 +136,10 @@ impl PreparedOperation {
     pub fn label(&self) -> &'static str {
         match &self.operation {
             Operation::Repository(operation) => operation.label(),
+            Operation::Partial { kind, .. } => match kind {
+                FileOperation::Stage => "Stage selected changes",
+                FileOperation::Unstage => "Unstage selected changes",
+            },
             Operation::File { kind, .. } => kind.label(),
             Operation::Stash => "Stash all repository changes",
             Operation::Apply { .. } => "Apply stash (keep stash)",
@@ -204,6 +224,37 @@ impl PreparedOperation {
         let mut command = prepared.repository.command();
         match &prepared.operation {
             Operation::Repository(_) => unreachable!(),
+            Operation::Partial { patch, .. } => {
+                use tokio::io::AsyncWriteExt;
+                command
+                    .args(["apply", "--cached", "--whitespace=nowarn", "--recount", "-"])
+                    .stdin(Stdio::piped());
+                let mut child = command.spawn().context("Could not start Git")?;
+                let mut input = child.stdin.take().unwrap();
+                let stdout = child.stdout.take().unwrap();
+                let stderr = child.stderr.take().unwrap();
+                let (write, status, out, err) = tokio::join!(
+                    async {
+                        input.write_all(patch).await?;
+                        input.shutdown().await?;
+                        drop(input);
+                        Ok::<_, std::io::Error>(())
+                    },
+                    child.wait(),
+                    output(stdout),
+                    output(stderr)
+                );
+                let status = status?;
+                let _ = out?;
+                let (err, _) = err?;
+                ensure!(
+                    status.success(),
+                    "Git could not apply selected changes: {}",
+                    literal(&err)
+                );
+                write?;
+                return Ok(());
+            }
             Operation::File {
                 kind: FileOperation::Stage,
                 paths,

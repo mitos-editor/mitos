@@ -30,10 +30,20 @@ pub(super) fn key(
     key: &str,
 ) {
     let config = crate::config::Config::default();
+    key_with_config(app, compositor, jobs, &config, key);
+}
+
+pub(super) fn key_with_config(
+    app: &mut TestApplication,
+    compositor: &mut compositor::Compositor,
+    jobs: &mut Jobs,
+    config: &crate::config::Config,
+    key: &str,
+) {
     let updates = tokio::sync::mpsc::unbounded_channel().0;
     let mut cx = Context {
         config: crate::config::Context {
-            current: &config,
+            current: config,
             updates: &updates,
         },
         editor: &mut app.editor,

@@ -78,7 +78,10 @@ impl ReviewView {
                 .horizontal
                 .saturating_add(8)
                 .min(self.review.max_line_chars()),
-            DiffAction::Restore => return false,
+            DiffAction::Restore
+            | DiffAction::Stage
+            | DiffAction::Unstage
+            | DiffAction::StageAndNext => return false,
         };
         true
     }
