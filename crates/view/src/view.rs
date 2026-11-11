@@ -14,7 +14,7 @@ use editor_config::{GutterConfig, GutterType};
 use text_layout::DisplayPosition;
 use theme::Theme;
 
-use editor_core::{Selection, Transaction};
+use editor_core::Selection;
 use text_layout::{
     char_idx_at_visual_offset, visual_offset_from_anchor, visual_offset_from_block,
     VisualOffsetError::{PosAfterMaxRow, PosBeforeAnchorRow},
@@ -34,13 +34,19 @@ type Jump = (DocumentId, Selection);
 pub struct JumpList {
     jumps: VecDeque<Jump>,
     current: usize,
+    /// Committed revision shared by this document's stored selections.
+    revisions: HashMap<DocumentId, usize>,
 }
 
 impl JumpList {
     pub fn new(initial: Jump) -> Self {
         let mut jumps = VecDeque::with_capacity(JUMP_LIST_CAPACITY);
         jumps.push_back(initial);
-        Self { jumps, current: 0 }
+        Self {
+            jumps,
+            current: 0,
+            revisions: HashMap::new(),
+        }
     }
 
     fn push_impl(&mut self, jump: Jump) -> usize {
@@ -60,14 +66,24 @@ impl JumpList {
         num_removed_from_front
     }
 
-    pub(crate) fn push(&mut self, jump: Jump) {
+    fn push(&mut self, doc: &Document, jump: Jump) {
+        assert_eq!(
+            doc.id(),
+            jump.0,
+            "jump selection belongs to the supplied document"
+        );
+        self.sync(doc);
         self.push_impl(jump);
     }
 
-    pub(crate) fn forward(&mut self, count: usize) -> Option<&Jump> {
+    pub(crate) fn forward(
+        &mut self,
+        count: usize,
+        documents: &crate::editor::Documents,
+    ) -> Option<&Jump> {
         if self.current + count < self.jumps.len() {
             self.current += count;
-            self.jumps.get(self.current)
+            self.resolve_current(documents)
         } else {
             None
         }
@@ -77,9 +93,11 @@ impl JumpList {
     pub(crate) fn backward(
         &mut self,
         view_id: ViewId,
-        doc: &mut Document,
+        doc: &Document,
         count: usize,
+        documents: &crate::editor::Documents,
     ) -> Option<&Jump> {
+        self.sync(doc);
         if let Some(mut current) = self.current.checked_sub(count) {
             if self.current == self.jumps.len() {
                 let jump = (doc.id(), doc.selection(view_id).clone());
@@ -93,13 +111,14 @@ impl JumpList {
             if doc.id() == *doc_id && doc.selection(view_id) == selection {
                 self.current = self.current.checked_sub(1)?;
             }
-            self.jumps.get(self.current)
+            self.resolve_current(documents)
         } else {
             None
         }
     }
 
     pub fn remove(&mut self, doc_id: &DocumentId) {
+        self.revisions.remove(doc_id);
         // Count the entries before the navigation cursor so that, after the
         // matching entries are dropped, `current` keeps pointing at the same
         // logical jump. Without this adjustment the cursor drifts onto an
@@ -118,24 +137,53 @@ impl JumpList {
             .min(self.jumps.len());
     }
 
+    /// Cached positions at the last committed synchronization boundary.
+    /// Use [`Self::entries`] when reading locations across multiple documents.
     pub fn iter(&self) -> impl DoubleEndedIterator<Item = &Jump> {
         self.jumps.iter()
     }
 
-    /// Applies a [`Transaction`] of changes to the jumplist.
-    /// This is necessary to ensure that changes to documents do not leave jump-list
-    /// selections pointing to parts of the text which no longer exist.
-    fn apply(&mut self, transaction: &Transaction, doc: &Document) {
-        let text = doc.text().slice(..);
-
-        for (doc_id, selection) in &mut self.jumps {
-            if doc.id() == *doc_id {
-                *selection = selection
-                    .clone()
-                    .map(transaction.changes())
-                    .ensure_invariants(text);
+    /// Resolve every entry before exposing jump locations to a picker.
+    pub fn entries(
+        &mut self,
+        documents: &crate::editor::Documents,
+    ) -> impl DoubleEndedIterator<Item = &Jump> {
+        let documents_to_sync: Vec<_> = self.jumps.iter().map(|jump| jump.0).collect();
+        for id in documents_to_sync {
+            if let Some(doc) = documents.get(&id) {
+                self.sync(doc);
             }
         }
+        self.jumps.iter()
+    }
+
+    fn resolve_current(&mut self, documents: &crate::editor::Documents) -> Option<&Jump> {
+        let doc = documents.get(&self.jumps.get(self.current)?.0)?;
+        self.sync(doc);
+        self.jumps.get(self.current)
+    }
+
+    /// Keep committed-history mapping at edit boundaries. Deferring all mapping
+    /// until navigation would change anchors after deletion followed by undo.
+    fn sync(&mut self, doc: &Document) {
+        let latest = doc.get_current_revision();
+        let previous = *self.revisions.entry(doc.id()).or_insert(latest);
+        if previous != latest
+            && let Some(transaction) = doc.buffer.changes_since(previous)
+        {
+            self.apply(transaction.changes(), doc);
+        }
+    }
+
+    /// Map an explicit delta for a derived document without editable history.
+    pub(crate) fn apply(&mut self, changes: &editor_core::ChangeSet, doc: &Document) {
+        let text = doc.text().slice(..);
+        for (doc_id, selection) in &mut self.jumps {
+            if doc.id() == *doc_id {
+                *selection = selection.clone().map(changes).ensure_invariants(text);
+            }
+        }
+        self.revisions.insert(doc.id(), doc.get_current_revision());
     }
 }
 
@@ -162,11 +210,6 @@ pub struct View {
     pub last_modified_docs: [Option<DocumentId>; 2],
     /// all gutter-related configuration settings, used primarily for gutter rendering
     pub gutters: GutterConfig,
-    /// A mapping between documents and the last history revision the view was updated at.
-    /// Changes between documents and views are synced lazily when switching windows. This
-    /// mapping keeps track of the last applied history revision so that only new changes
-    /// are applied.
-    doc_revisions: HashMap<DocumentId, usize>,
     // HACKS: there should really only be a global diagnostics handler (the
     // non-focused views should just not have different handling for the cursor
     // line). For that we would need accces to editor everywhere (we want to use
@@ -198,7 +241,6 @@ impl View {
             docs_access_history: Vec::new(),
             last_modified_docs: [None, None],
             gutters,
-            doc_revisions: HashMap::new(),
             diagnostics_handler: DiagnosticsHandler::new(redraw),
         }
     }
@@ -625,41 +667,13 @@ impl View {
     //     }
     // }
 
-    /// Applies a [`Transaction`] to the view.
-    pub fn apply(&mut self, transaction: &Transaction, doc: &mut Document) {
-        self.jumps.apply(transaction, doc);
-        self.doc_revisions
-            .insert(doc.id(), doc.get_current_revision());
+    /// Synchronize jump positions at an existing committed-history boundary.
+    pub fn sync_changes(&mut self, doc: &Document) {
+        self.jumps.sync(doc);
     }
 
-    pub fn sync_changes(&mut self, doc: &mut Document) {
-        if let Some(transaction) = self.changes_to_sync(doc) {
-            self.apply(&transaction, doc);
-        }
-    }
-
-    pub(crate) fn changes_to_sync(&mut self, doc: &mut Document) -> Option<Transaction> {
-        let latest_revision = doc.get_current_revision();
-        let current_revision = *self
-            .doc_revisions
-            .entry(doc.id())
-            .or_insert(latest_revision);
-
-        if current_revision == latest_revision {
-            return None;
-        }
-
-        doc.buffer.changes_since(current_revision)
-    }
-
-    pub fn push_jump(&mut self, doc: &mut Document, jump: (DocumentId, Selection)) {
-        // The pushed selection is valid at the document's *current* revision, so the
-        // view must be synced to that revision first. Otherwise the new entry would
-        // be left ahead of `doc_revisions[doc]`, and the next `sync_changes` would
-        // map it through a changeset whose pre-image predates it, panicking in
-        // `ChangeSet::update_positions` when the document has since grown.
-        self.sync_changes(doc);
-        self.jumps.push(jump);
+    pub fn push_jump(&mut self, doc: &Document, jump: (DocumentId, Selection)) {
+        self.jumps.push(doc, jump);
     }
 }
 
@@ -669,7 +683,7 @@ mod tests {
 
     use super::*;
     use arc_swap::ArcSwap;
-    use editor_core::Rope;
+    use editor_core::{Rope, Transaction};
     use language::syntax;
 
     // 1 diagnostic + 1 spacer + 3 linenr (< 1000 lines) + 1 spacer + 1 diff
@@ -1034,12 +1048,16 @@ mod tests {
             .into_iter()
             .collect();
             jumps.current = current;
+            jumps.revisions.insert(doc_a, 1);
+            jumps.revisions.insert(doc_b, 2);
             jumps
         };
 
         // `current` in the middle: two A entries (indices 0, 2) precede index 3.
         let mut jumps = make(3);
         jumps.remove(&doc_a);
+        assert!(!jumps.revisions.contains_key(&doc_a));
+        assert_eq!(jumps.revisions.get(&doc_b), Some(&2));
         assert_eq!(entries(&jumps), vec![doc_b, doc_b]);
         // The B entry that was at index 3 is now at index 1; `current` follows it.
         assert_eq!(jumps.current, 1);
@@ -1070,22 +1088,8 @@ mod tests {
         assert_eq!(entries(&jumps), vec![doc_b, doc_b]);
     }
 
-    /// `JumpList::push` records a jump using the document's *current* selection
-    /// (i.e. positions valid at the document's current history revision), but it
-    /// never advances the view's `doc_revisions` entry for that document. As a
-    /// result, the next `View::sync_changes` computes `changes_since(old_revision)`
-    /// and maps *every* jump - including the freshly pushed one - through a
-    /// changeset whose pre-image is the *older*, shorter document. A jump that
-    /// points past the end of that older document then runs off the end of the
-    /// changeset and panics in `ChangeSet::update_positions`
-    /// ("Positions ... are out of range for changeset len ...").
-    ///
-    /// To trigger the stale `doc_revisions` window without reaching into private
-    /// fields we use two views over the same document: committing an edit through
-    /// `view2` advances the shared document's history and updates *view2*'s
-    /// `doc_revisions`, while `view1`'s `doc_revisions` is left pointing at the
-    /// pre-edit revision. Pushing a jump into `view1` afterwards reproduces the
-    /// exact situation `push` fails to guard against.
+    /// A new jump must not be mapped through edits that predate its selection.
+    /// Two views exercise a stale history owner while the shared document grows.
     #[tokio::test]
     async fn jumplist_push_keeps_doc_revisions_in_sync() {
         let config = Arc::new(ArcSwap::new(Arc::new(Config::default())));
@@ -1099,12 +1103,12 @@ mod tests {
         doc.ensure_view_init(view1.id);
         doc.ensure_view_init(view2.id);
 
-        // Sync view1 at revision 0 so its `doc_revisions` records the short doc.
-        view1.sync_changes(&mut doc);
+        // Record the short document at revision 0 in the first history owner.
+        view1.sync_changes(&doc);
         assert_eq!(doc.get_current_revision(), 0);
 
         // Commit an insertion *through view2*, growing the document and advancing
-        // its history to revision 1. Only view2's `doc_revisions` is updated here;
+        // its history to revision 1. Only view2's jump history is updated here;
         // view1 still believes the document is at revision 0.
         let insert = Transaction::change(
             doc.text(),
@@ -1112,7 +1116,7 @@ mod tests {
         );
         crate::editing::apply(&mut doc, &insert, view2.id).unwrap();
         doc.commit_changes();
-        view2.sync_changes(&mut doc);
+        view2.sync_changes(&doc);
         assert_eq!(doc.get_current_revision(), 1);
         let len = doc.text().len_chars();
         assert_eq!(len, 12);
@@ -1120,18 +1124,14 @@ mod tests {
         // Push a jump into view1 at the end of the *current* (revision 1) document.
         // This selection is perfectly valid for the document as it stands now.
         //
-        // `View::push_jump` syncs view1 to the document's current revision before
-        // appending, so the new entry and `doc_revisions` agree. The raw
-        // `view1.jumps.push(...)` would instead leave the entry ahead of
-        // `doc_revisions` (still revision 0), and the `sync_changes` below would
-        // map position 12 through the revision 0 -> 1 changeset (pre-image only
-        // 2 chars) and panic in `ChangeSet::update_positions`.
+        // Pushing synchronizes the history owner's existing entries before
+        // appending, so the new entry and its recorded revision agree.
         let jump = (doc.id(), Selection::point(len));
-        view1.push_jump(&mut doc, jump);
+        view1.push_jump(&doc, jump);
 
         // With the fix in place this is a no-op for the freshly pushed entry and
         // the jump remains a valid, in-bounds selection.
-        view1.sync_changes(&mut doc);
+        view1.sync_changes(&doc);
 
         let (_, selection) = view1.jumps.iter().next_back().unwrap();
         assert!(

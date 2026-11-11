@@ -554,7 +554,7 @@ mod tests {
             assert_eq!(doc.version(), version);
             assert!(doc.changes().is_empty());
             doc.commit_changes();
-            view.sync_changes(&mut doc);
+            view.sync_changes(&doc);
             assert!(!editing::undo(&mut doc, view.id));
         }
     }

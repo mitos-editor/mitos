@@ -501,7 +501,7 @@ impl Editor {
         // jump histories now, including views currently displaying another file.
         if !initialize {
             for (view, _) in self.tree.views_mut() {
-                view.apply(&transaction, doc);
+                view.jumps.apply(transaction.changes(), doc);
             }
         }
         self.redraw().request();
@@ -576,7 +576,6 @@ impl Editor {
                 }
             });
             doc.commit_changes();
-            view.sync_changes(doc);
             let jump = (doc.id(), doc.selection(view.id).clone());
             view.push_jump(doc, jump);
             doc.set_selection(view.id, selection);

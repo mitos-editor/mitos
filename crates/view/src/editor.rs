@@ -9,7 +9,7 @@ mod display;
 mod document_settings;
 mod document_store;
 mod documents;
-use document_store::Documents;
+pub use document_store::Documents;
 pub use text_layout::DisplayPosition;
 mod editing;
 mod filesystem;
@@ -917,33 +917,31 @@ impl Editor {
     }
 
     pub fn jump_forward(&mut self, view_id: ViewId, count: usize) {
-        if let Some((doc_id, selection)) = view_mut!(self, view_id).jumps.forward(count).cloned() {
+        if let Some((doc_id, selection)) = view_mut!(self, view_id)
+            .jumps
+            .forward(count, &self.documents)
+            .cloned()
+        {
             self.jump_to(view_id, doc_id, selection);
         }
     }
 
     pub fn jump_backward(&mut self, view_id: ViewId, count: usize) {
         let view = view_mut!(self, view_id);
-        let doc = doc_mut!(self, &view.doc);
-        // `backward` may push the current selection (valid at the document's
-        // current revision) onto the jumplist. Sync first so the view's
-        // `doc_revisions` matches, otherwise that entry would be left ahead of
-        // it and a later sync would map it out of bounds.
-        view.sync_changes(doc);
-        if let Some((doc_id, selection)) = view.jumps.backward(view_id, doc, count).cloned() {
+        let doc = &self.documents[&view.doc];
+        if let Some((doc_id, selection)) = view
+            .jumps
+            .backward(view_id, doc, count, &self.documents)
+            .cloned()
+        {
             self.jump_to(view_id, doc_id, selection);
         }
     }
 
-    fn jump_to(&mut self, view_id: ViewId, dest_doc_id: DocumentId, mut selection: Selection) {
+    fn jump_to(&mut self, view_id: ViewId, dest_doc_id: DocumentId, selection: Selection) {
         let view = view_mut!(self, view_id);
         let old_doc_id = view.doc;
         if old_doc_id != dest_doc_id {
-            let new_doc = doc_mut!(self, &dest_doc_id);
-            if let Some(transaction) = view.changes_to_sync(new_doc) {
-                let text = new_doc.text().slice(..);
-                selection = selection.map(transaction.changes()).ensure_invariants(text);
-            }
             self.replace_document_in_view(view_id, dest_doc_id);
             self.events()
                 .clone()
