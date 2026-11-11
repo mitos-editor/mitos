@@ -49,8 +49,8 @@ impl<T: Send + Sync + 'static, D: Send + Sync + 'static> Picker<T, D> {
             return false;
         };
         let cancel = self.query_task.restart();
-        if let Some(updates) = &mut self.file_updates {
-            updates.query_changed();
+        if let Some(updates) = &mut self.updates {
+            updates.invalidate(super::updates::Invalidation::Query);
         }
         let work = source(
             editor,

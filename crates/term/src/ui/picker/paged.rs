@@ -64,6 +64,16 @@ impl<T: Send + 'static, C: Clone + Send + 'static> Paged<T, C> {
         self
     }
 
+    pub fn suspend(&mut self) {
+        self.pending = None;
+        if self.state == State::Loading {
+            self.state = State::More;
+        }
+        if let (Some(cursor), Some(suspend)) = (&self.cursor, self.suspend_cursor) {
+            suspend(cursor);
+        }
+    }
+
     pub fn is_pending(&self) -> bool {
         self.pending.is_some()
     }
@@ -203,19 +213,17 @@ impl<T: Send + 'static, C: Clone + Send + 'static> Paged<T, C> {
     }
 }
 
-impl<T: Send + 'static, C: Clone + Send + 'static> super::PickerSource<T> for Paged<T, C> {
-    fn update(&mut self, cx: UpdateContext<'_, T>) -> Option<Update<T>> {
+impl<T: Send + 'static, C: Clone + Send + 'static, D> super::PickerSource<T, D> for Paged<T, C> {
+    fn update(
+        &mut self,
+        cx: UpdateContext<'_, T>,
+        _input: super::updates::SourceInput<'_, D>,
+    ) -> Option<Update<T>> {
         Paged::update(self, cx)
     }
 
     fn suspend(&mut self) {
-        self.pending = None;
-        if self.state == State::Loading {
-            self.state = State::More;
-        }
-        if let (Some(cursor), Some(suspend)) = (&self.cursor, self.suspend_cursor) {
-            suspend(cursor);
-        }
+        Paged::suspend(self);
     }
 }
 

@@ -36,31 +36,86 @@ pub(crate) enum Update<T> {
     Replace(Vec<T>),
 }
 
-/// A source owns background activity separately from the picker's visible rows.
-/// Suspension releases source resources; the next update resumes or rebuilds them.
-pub(crate) trait PickerSource<T> {
-    fn update(&mut self, cx: UpdateContext<'_, T>) -> Option<Update<T>>;
-    fn suspend(&mut self) {}
+/// Inputs tied to the current published data and query generation.
+pub(crate) struct SourceInput<'a, D> {
+    pub(super) data: &'a Arc<D>,
+    pub(super) version: usize,
+    pub(super) query: &'a str,
+    pub(super) can_load: bool,
+    pub(super) progress: &'a super::source::Progress,
 }
 
-impl<T, F: FnMut(UpdateContext<'_, T>) -> Option<Update<T>>> PickerSource<T> for F {
-    fn update(&mut self, cx: UpdateContext<'_, T>) -> Option<Update<T>> {
+#[derive(Clone, Copy)]
+pub(crate) enum Invalidation {
+    /// Cancel an obsolete scan, retaining an already requested refresh.
+    Query,
+    /// Request another scan even when the source was idle.
+    Refresh,
+}
+
+/// A source owns background activity separately from the picker's visible rows.
+/// Suspension releases source resources; the next update resumes or rebuilds them.
+pub(crate) trait PickerSource<T, D = ()> {
+    fn update(&mut self, cx: UpdateContext<'_, T>, input: SourceInput<'_, D>) -> Option<Update<T>>;
+    fn suspend(&mut self) {}
+    fn invalidate(&mut self, _reason: Invalidation) {}
+    fn is_pending(&self) -> bool {
+        false
+    }
+    fn documents_refreshed(&mut self, _editor: &Editor) {}
+}
+
+impl<T, D, F: FnMut(UpdateContext<'_, T>) -> Option<Update<T>>> PickerSource<T, D> for F {
+    fn update(
+        &mut self,
+        cx: UpdateContext<'_, T>,
+        _input: SourceInput<'_, D>,
+    ) -> Option<Update<T>> {
         self(cx)
     }
 }
 
-pub(super) struct EditorUpdates<T> {
-    source: Box<dyn PickerSource<T>>,
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum SourceKind {
+    Editor,
+    Files,
+    Paged,
+}
+
+struct Generation {
+    current: fn(&Editor) -> u64,
+    observed: u64,
+}
+
+pub(super) struct SourceUpdates<T, D> {
+    source: Box<dyn PickerSource<T, D>>,
     same: fn(&T, &T) -> bool,
     pub task: event::TaskController,
     pub resumed: bool,
     pub status: Option<String>,
     pub incomplete: bool,
     pub toggle_loading: bool,
-    pub paged: bool,
+    pub kind: SourceKind,
+    generation: Option<Generation>,
 }
 
-impl<T> EditorUpdates<T> {
+impl<T, D> SourceUpdates<T, D> {
+    pub fn is_pending(&self) -> bool {
+        self.source.is_pending()
+    }
+
+    pub fn invalidate(&mut self, reason: Invalidation) {
+        if self.kind != SourceKind::Files {
+            return;
+        }
+        self.task.cancel();
+        self.source.invalidate(reason);
+    }
+
+    pub fn documents_refreshed(&mut self, editor: &Editor) {
+        self.source.documents_refreshed(editor);
+    }
+
     pub fn suspend(&mut self) {
         self.task.cancel();
         self.source.suspend();
@@ -128,23 +183,27 @@ impl<T: Send + Sync + 'static, D: Send + Sync + 'static> Picker<T, D> {
     {
         self.with_updates(
             move |cx: UpdateContext<'_, T>| refresh(cx).map(Update::Replace),
-            false,
+            SourceKind::Editor,
         )
     }
 
     #[cfg(any(feature = "git", test))]
-    pub(crate) fn with_paged_updates(self, source: impl PickerSource<T> + 'static) -> Self
+    pub(crate) fn with_paged_updates(self, source: impl PickerSource<T, D> + 'static) -> Self
     where
         T: PartialEq,
     {
-        self.with_updates(source, true)
+        self.with_updates(source, SourceKind::Paged)
     }
 
-    fn with_updates(mut self, source: impl PickerSource<T> + 'static, paged: bool) -> Self
+    pub(super) fn with_updates(
+        mut self,
+        source: impl PickerSource<T, D> + 'static,
+        kind: SourceKind,
+    ) -> Self
     where
         T: PartialEq,
     {
-        self.editor_updates = Some(EditorUpdates {
+        self.updates = Some(SourceUpdates {
             source: Box::new(source),
             same: T::eq,
             task: event::TaskController::new(),
@@ -152,52 +211,122 @@ impl<T: Send + Sync + 'static, D: Send + Sync + 'static> Picker<T, D> {
             status: None,
             incomplete: false,
             toggle_loading: false,
-            paged,
+            kind,
+            generation: None,
         });
         self
     }
 
-    pub(super) fn refresh_from_editor(&mut self, editor: &mut Editor) {
-        if self.results.pending_options.is_some() || self.results.tick(0).running {
-            // Matching can finish in this frame after consuming its redraw signal.
-            // Resume the deferred source refresh even if no further input arrives.
-            if self.editor_updates.is_some() {
+    pub(super) fn has_file_source(&self) -> bool {
+        self.updates
+            .as_ref()
+            .is_some_and(|updates| updates.kind == SourceKind::Files)
+    }
+
+    pub(super) fn invalidate_source(&mut self, reason: Invalidation) {
+        if let Some(updates) = &mut self.updates {
+            updates.invalidate(reason);
+        }
+    }
+
+    pub(super) fn source_pending(&self) -> bool {
+        self.updates.as_ref().is_some_and(SourceUpdates::is_pending)
+    }
+
+    /// Start an owner-scoped read when the initial rows have not been loaded.
+    #[cfg(feature = "git")]
+    pub(crate) fn refresh_on_open(mut self) -> Self {
+        self.invalidate_source(Invalidation::Refresh);
+        self
+    }
+
+    /// Explicit operations invalidate a source even with watching and polling disabled.
+    pub(crate) fn with_refresh_generation(
+        mut self,
+        editor: &Editor,
+        generation: fn(&Editor) -> u64,
+    ) -> Self {
+        if let Some(updates) = &mut self.updates {
+            updates.generation = Some(Generation {
+                current: generation,
+                observed: generation(editor),
+            });
+        }
+        self
+    }
+
+    pub(super) fn refresh_source(&mut self, editor: &mut Editor) {
+        if self.has_file_source() {
+            if self.replacement_pending() {
+                return;
+            }
+        } else if self.results.pending_options.is_some() || self.results.tick(0).running {
+            // Matching can consume its redraw signal before this deferred refresh runs.
+            if self.updates.is_some() {
                 self.redraw.request();
             }
             return;
         }
-        let Some(mut updates) = self.editor_updates.take() else {
+        let Some(mut updates) = self.updates.take() else {
             return;
         };
+        if let Some(generation) = &mut updates.generation {
+            let current = (generation.current)(editor);
+            if current != generation.observed {
+                generation.observed = current;
+                updates.invalidate(Invalidation::Refresh);
+                if let Some(preview) = &mut self.custom_preview {
+                    preview.invalidate();
+                }
+            }
+        }
+        let query = self.primary_query();
+        let input = SourceInput {
+            data: &self.results.editor_data,
+            version: self
+                .results
+                .version
+                .load(std::sync::atomic::Ordering::Relaxed),
+            query: &query,
+            can_load: self.pending_query.is_none()
+                && !self.dynamic_query_pending()
+                && self.results.matcher.active_injectors() == 0
+                && !self.results.is_refreshing(),
+            progress: &self.results.source,
+        };
         let resumed = std::mem::take(&mut updates.resumed);
-        if let Some(update) = updates.source.update(UpdateContext {
-            editor,
-            query: self.prompt.line(),
-            near_end: {
-                let count = self.results.matcher.snapshot().matched_item_count();
-                let height = u32::from(self.completion_height);
-                count > 0
-                    && self
-                        .results
-                        .cursor
-                        .saturating_add(1)
-                        .max(self.results.offset.saturating_add(height))
-                        .saturating_add(height)
-                        >= count
+        if let Some(update) = updates.source.update(
+            UpdateContext {
+                editor,
+                query: self.prompt.line(),
+                near_end: {
+                    let count = self.results.matcher.snapshot().matched_item_count();
+                    let height = u32::from(self.completion_height);
+                    count > 0
+                        && self
+                            .results
+                            .cursor
+                            .saturating_add(1)
+                            .max(self.results.offset.saturating_add(height))
+                            .saturating_add(height)
+                            >= count
+                },
+                status: &mut updates.status,
+                incomplete: &mut updates.incomplete,
+                selected: self.selection(),
+                task: &mut updates.task,
+                resumed,
+                toggle_loading: std::mem::take(&mut updates.toggle_loading),
             },
-            status: &mut updates.status,
-            incomplete: &mut updates.incomplete,
-            selected: self.selection(),
-            task: &mut updates.task,
-            resumed,
-            toggle_loading: std::mem::take(&mut updates.toggle_loading),
-        }) {
+            input,
+        ) {
+            self.results.tick(0);
             #[cfg(any(feature = "git", test))]
             let options = match update {
                 #[cfg(any(feature = "git", test))]
                 Update::Append(rows) => {
                     self.results.append(rows, &self.columns);
-                    self.editor_updates = Some(updates);
+                    self.updates = Some(updates);
                     return;
                 }
                 Update::Replace(rows) => rows,
@@ -215,7 +344,7 @@ impl<T: Send + Sync + 'static, D: Send + Sync + 'static> Picker<T, D> {
                 self.refresh_options(options, self.results.editor_data.clone());
             }
         }
-        self.editor_updates = Some(updates);
+        self.updates = Some(updates);
     }
 
     /// Load immutable options under this picker's lifecycle. Hidden/cached pickers
@@ -317,15 +446,15 @@ mod initial_options_tests {
             }
         });
         until(&mut picker, &mut app, |p| {
-            p.editor_updates.as_ref().is_some_and(|updates| {
+            p.updates.as_ref().is_some_and(|updates| {
                 updates.status.as_deref() == Some("Results incomplete; retry loading")
             })
         })
         .await?;
-        assert!(picker.editor_updates.as_ref().unwrap().incomplete);
-        picker.editor_updates.as_mut().unwrap().toggle_loading = true;
+        assert!(picker.updates.as_ref().unwrap().incomplete);
+        picker.updates.as_mut().unwrap().toggle_loading = true;
         until(&mut picker, &mut app, |p| p.selection() == Some(&7)).await?;
-        assert!(!picker.editor_updates.as_ref().unwrap().incomplete);
+        assert!(!picker.updates.as_ref().unwrap().incomplete);
         Ok(())
     }
 
@@ -434,7 +563,7 @@ mod deferred_refresh_tests {
         picker.results.spare_matcher = Some(matcher());
         picker.refresh_options(vec![0], Arc::new(()));
         app.editor.redraw().start_frame();
-        picker.refresh_from_editor(&mut app.editor);
+        picker.refresh_source(&mut app.editor);
         assert!(
             app.editor.redraw().requested().now_or_never().is_some(),
             "a deferred source refresh must schedule a follow-up frame"

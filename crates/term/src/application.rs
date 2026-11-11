@@ -147,6 +147,7 @@ where
             if until_idle
                 && idle_seen
                 && self.render_state.requested.is_none()
+                && self.config_updates.1.is_empty()
                 && self.jobs.wait_futures.is_empty()
                 && !self.editor.has_pending_writes()
                 && !self.editor.has_pending_shell_filters()

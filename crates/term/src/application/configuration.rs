@@ -172,6 +172,45 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn idle_pump_applies_config_requested_by_idle_hooks() -> anyhow::Result<()> {
+        use crate::compositor::{Component, Context, DrawContext, Event, EventResult};
+        use view::graphics::Rect;
+
+        struct UpdateOnIdle(bool);
+        impl Component for UpdateOnIdle {
+            fn handle_event(&mut self, event: &Event, cx: &mut Context) -> EventResult {
+                if matches!(event, Event::IdleTimeout) && !self.0 {
+                    self.0 = true;
+                    let mut settings = cx.config.current.editor_settings();
+                    settings.editor.inline_blame.show = editor_config::InlineBlameShow::AllLines;
+                    cx.config
+                        .updates
+                        .send(crate::config::ConfigEvent::Update(Box::new(settings)))
+                        .unwrap();
+                }
+                EventResult::Ignored(None)
+            }
+
+            fn render(&mut self, _: Rect, _: &mut tui::buffer::Buffer, _: &mut DrawContext) {}
+        }
+
+        let mut app = application(false)?;
+        app.compositor = crate::compositor::Compositor::new(app.compositor.size());
+        app.compositor.push(Box::new(UpdateOnIdle(false)));
+        let mut input = futures_util::stream::pending();
+        tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            app.event_loop_until_idle(&mut input),
+        )
+        .await?;
+        assert_eq!(
+            app.editor.config().inline_blame.show,
+            editor_config::InlineBlameShow::AllLines
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn shell_settings_apply_before_the_next_terminal_command() -> anyhow::Result<()> {
         let mut app = application(false)?;
         for (input, expected) in [

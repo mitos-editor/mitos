@@ -108,10 +108,7 @@ pub(crate) fn is_settled<T: Send + Sync, D: Send + Sync>(picker: &mut Picker<T, 
         && !picker.replacement_pending()
         && !picker.dynamic_query_pending()
         && !picker.results.is_refreshing()
-        && picker
-            .file_updates
-            .as_ref()
-            .is_none_or(|updates| !updates.is_pending())
+        && !picker.source_pending()
         && picker.results.matcher.active_injectors() == 0
         && !picker.results.matcher.tick(0).running
 }
@@ -124,7 +121,7 @@ pub(crate) fn loaded_count<T: Send + Sync, D>(picker: &Picker<T, D>) -> usize {
 #[cfg(feature = "git")]
 pub(crate) fn source_status<T: Send + Sync, D>(picker: &Picker<T, D>) -> Option<&str> {
     picker
-        .editor_updates
+        .updates
         .as_ref()
         .and_then(|updates| updates.status.as_deref())
 }

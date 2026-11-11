@@ -183,12 +183,12 @@ impl<T: Send + Sync + 'static, D: Send + Sync + 'static> Picker<T, D> {
                 error,
             }) => {
                 self.refresh_options(options, self.results.editor_data.clone());
-                if let Some(updates) = &mut self.file_updates {
-                    updates.mark_documents_refreshed(cx.editor);
+                if let Some(updates) = &mut self.updates {
+                    updates.documents_refreshed(cx.editor);
                 }
                 if let Some(error) = error {
-                    if let Some(updates) = &mut self.file_updates {
-                        updates.stop();
+                    if let Some(updates) = &mut self.updates {
+                        updates.invalidate(updates::Invalidation::Refresh);
                     }
                     cx.editor.set_error(|| {
                         format!("Replacement stopped after {count} matches: {error:#}")
@@ -249,8 +249,8 @@ impl<T: Send + Sync + 'static, D: Send + Sync + 'static> Picker<T, D> {
         };
         toggle.enabled = !toggle.enabled;
         (toggle.callback)(&self.results.editor_data, toggle.enabled);
-        if let Some(updates) = &mut self.file_updates {
-            updates.stop();
+        if let Some(updates) = &mut self.updates {
+            updates.invalidate(updates::Invalidation::Refresh);
         }
         self.request_dynamic_refresh(true);
         editor.set_status(if self.case_sensitive.as_ref().unwrap().enabled {
@@ -262,16 +262,13 @@ impl<T: Send + Sync + 'static, D: Send + Sync + 'static> Picker<T, D> {
 
     pub(super) fn replace_matches(&mut self, cx: &mut Context, replace_all: bool) {
         // Detect changes even when an action arrives before the next redraw.
-        self.refresh_files(cx.editor);
+        self.refresh_source(cx.editor);
         self.refresh_query_if_changed(cx.editor);
         self.publish_options();
         if self.replacement_pending()
             || self.dynamic_query_pending()
             || self.results.is_refreshing()
-            || self
-                .file_updates
-                .as_ref()
-                .is_some_and(|updates| updates.is_pending())
+            || self.source_pending()
             || self.results.matcher.tick(0).running
             || self.results.matcher.active_injectors() > 0
         {

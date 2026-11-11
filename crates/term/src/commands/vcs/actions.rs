@@ -412,10 +412,13 @@ fn stash_picker(
         editor,
         |data| data.repo.root(),
         |_, _, data, _| Box::pin(async move { data.repo.stashes().await }),
+        view::features::workspace_changes::Policy {
+            vcs: true,
+            ..Default::default()
+        },
     )
     .with_refresh_generation(editor, generation)
     .with_item_key(|entry| entry.id().to_owned())
-    .refresh_on_vcs_changes()
     .with_item_actions(
         |maps| &maps.stash_picker,
         move |_, entry, action| {
@@ -498,6 +501,7 @@ fn stash_files_picker(
                     .unwrap_or_else(|| Err(anyhow::anyhow!("Stash browser closed")))
             })
         },
+        Default::default(),
     )
     .refresh_on_open()
 }

@@ -972,6 +972,19 @@ async fn review_refreshes_after_external_staging_and_edits_without_polling() -> 
         .build()?;
     press_keys(&mut app, "<space>gswatched.txt").await?;
     wait_for_review_screen(&mut app, "Unstaged · index", "first edit").await?;
+    // The initial scan can finish before native watch registration.
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while !app
+            .editor
+            .file_watcher
+            .is_watching(&repo.join(".git/index"))
+            || !app.editor.file_watcher.is_watching(&path)
+        {
+            run_event_loop_until_idle(&mut app).await;
+        }
+    })
+    .await
+    .map_err(|_| anyhow::anyhow!("Git index and reviewed file watches did not become ready"))?;
     git(&repo, &["add", "watched.txt"]);
     wait_for_review_screen(&mut app, "Staged · HEAD", "first edit").await?;
     std::fs::write(&path, "second edit\n")?;

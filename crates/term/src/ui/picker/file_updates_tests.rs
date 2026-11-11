@@ -223,8 +223,11 @@ async fn unsaved_document_changes_refresh_without_filesystem_events_or_polling(
                 .len_chars();
             Box::pin(async move { Ok(vec![length]) })
         },
-    )
-    .refresh_on_document_changes();
+        view::features::workspace_changes::Policy {
+            documents: view::features::workspace_changes::Documents::Workspace,
+            ..Default::default()
+        },
+    );
     until(&mut picker, &mut app, |picker| {
         picker.selection() == Some(&3)
     })
@@ -247,25 +250,63 @@ async fn embedded_directory_navigation_rejects_the_previous_scan() -> anyhow::Re
     let dir = tempfile::tempdir()?;
     let sub = dir.path().join("sub");
     std::fs::create_dir(&sub)?;
-    let mut picker =
-        ui::file_explorer::picker(dir.path().to_owned(), &app.editor, true)?.embedded(|_, _| {});
+    type Scan = (
+        event::TaskHandle,
+        tokio::sync::oneshot::Sender<anyhow::Result<Vec<(PathBuf, bool)>>>,
+    );
+    struct Data {
+        root: PathBuf,
+        started: tokio::sync::mpsc::UnboundedSender<Scan>,
+    }
+    let (started, mut scans) = tokio::sync::mpsc::unbounded_channel();
+    let mut picker = Picker::new(
+        app.editor.redraw().clone(),
+        [Column::new("path", |item: &(PathBuf, bool), _: &Data| {
+            item.0.display().to_string().into()
+        })],
+        0,
+        [(sub.clone(), true)],
+        Data {
+            root: dir.path().to_owned(),
+            started: started.clone(),
+        },
+        |_, _, _| {},
+    )
+    .embedded(|_, _| {})
+    .with_file_updates(
+        &app.editor,
+        |data| &data.root,
+        |_, _, data, cancel| {
+            Box::pin(async move {
+                let (complete, result) = tokio::sync::oneshot::channel();
+                data.started.send((cancel, complete)).unwrap();
+                result.await?
+            })
+        },
+        Default::default(),
+    );
     until(&mut picker, &mut app, |picker| picker.selection().is_some()).await?;
-    let (complete, result) = tokio::sync::oneshot::channel();
-    picker.file_updates.as_mut().unwrap().pending = Some(super::Pending {
-        version: picker.results.version.load(atomic::Ordering::Relaxed),
-        data: picker.results.editor_data.clone(),
-        result,
-    });
-    let mut expanded = picker.editor_data().clone();
-    expanded.tree.as_mut().unwrap().expanded.toggle(sub.clone());
-    picker.replace_options(vec![(sub, true)], expanded, &app.editor);
-    assert!(complete.send(Ok(Vec::new())).is_err());
+    changed(&mut app.editor, &sub, EventType::Create);
+    draw(&mut picker, &mut app);
+    let (cancel, mut complete) = tokio::time::timeout(Duration::from_secs(5), scans.recv())
+        .await?
+        .unwrap();
+    picker.replace_options(
+        vec![(sub.clone(), true)],
+        Data { root: sub, started },
+        &app.editor,
+    );
+    assert!(cancel.is_canceled());
+    tokio::time::timeout(Duration::from_secs(5), complete.closed()).await?;
     Ok(())
 }
 
 #[tokio::test]
 async fn continuous_changes_publish_completed_scans_and_queue_a_followup() -> anyhow::Result<()> {
-    type Scan = tokio::sync::oneshot::Sender<anyhow::Result<Vec<PathBuf>>>;
+    type Scan = (
+        event::TaskHandle,
+        tokio::sync::oneshot::Sender<anyhow::Result<Vec<PathBuf>>>,
+    );
     struct Data {
         root: PathBuf,
         started: tokio::sync::mpsc::UnboundedSender<Scan>,
@@ -289,13 +330,14 @@ async fn continuous_changes_publish_completed_scans_and_queue_a_followup() -> an
     .with_file_updates(
         &app.editor,
         |data| &data.root,
-        |_, _, data, _| {
+        |_, _, data, cancel| {
             Box::pin(async move {
                 let (tx, rx) = tokio::sync::oneshot::channel();
-                data.started.send(tx).unwrap();
+                data.started.send((cancel, tx)).unwrap();
                 rx.await?
             })
         },
+        Default::default(),
     );
     until(&mut picker, &mut app, |picker| {
         picker.results.matcher.snapshot().item_count() == 1
@@ -307,16 +349,32 @@ async fn continuous_changes_publish_completed_scans_and_queue_a_followup() -> an
         EventType::Create,
     );
     draw(&mut picker, &mut app);
-    for index in 0..3 {
-        let complete = tokio::time::timeout(Duration::from_secs(5), scans.recv())
-            .await?
-            .unwrap();
-        let latest = dir.path().join(format!("latest-{index}.txt"));
+    for index in 0..=3 {
+        let (cancel, complete) = tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                draw(&mut picker, &mut app);
+                if let Ok(scan) = scans.try_recv() {
+                    break scan;
+                }
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await?;
+        assert!(
+            !cancel.is_canceled(),
+            "follow-up scan captured an obsolete generation"
+        );
+        drop(cancel);
+        if index == 3 {
+            break;
+        }
+        // The second completed scan has unchanged rows. It must still arrange
+        // its dirty follow-up rather than waiting for more input.
+        let latest = dir.path().join(format!("latest-{}.txt", index / 2));
         changed(&mut app.editor, &latest, EventType::Create);
         complete.send(Ok(vec![latest.clone()])).unwrap();
         until(&mut picker, &mut app, |picker| {
             picker.selection() == Some(&latest)
-                && picker.file_updates.as_ref().unwrap().pending.is_some()
         })
         .await?;
     }
@@ -353,10 +411,7 @@ async fn file_refresh_keeps_the_query_and_selected_path() -> anyhow::Result<()> 
     assert_eq!(picker.results.editor_data.files.lock().unwrap().updates, 1);
     let version = picker.results.version.load(atomic::Ordering::Relaxed);
     changed(&mut app.editor, &root.join("a-keep.txt"), EventType::Create);
-    until(&mut picker, &mut app, |picker| {
-        picker.file_updates.as_ref().unwrap().pending.is_none()
-    })
-    .await?;
+    until(&mut picker, &mut app, |picker| !picker.source_pending()).await?;
     assert_eq!(
         picker.results.version.load(atomic::Ordering::Relaxed),
         version
@@ -442,12 +497,10 @@ async fn stopping_a_refresh_cancels_its_worker_and_rechecks_on_resume() -> anyho
                 std::future::pending().await
             })
         },
+        Default::default(),
     );
     changed(&mut app.editor, &dir.path().join("new"), EventType::Create);
-    until(&mut picker, &mut app, |picker| {
-        picker.file_updates.as_ref().unwrap().pending.is_some()
-    })
-    .await?;
+    until(&mut picker, &mut app, |picker| picker.source_pending()).await?;
     let worker = tokio::time::timeout(Duration::from_secs(5), workers.recv())
         .await?
         .unwrap();
@@ -474,7 +527,7 @@ async fn stopping_a_refresh_cancels_its_worker_and_rechecks_on_resume() -> anyho
     let current_query = tokio::time::timeout(Duration::from_secs(5), workers.recv())
         .await?
         .unwrap();
-    picker.file_updates.as_mut().unwrap().stop();
+    picker.invalidate_source(super::super::updates::Invalidation::Refresh);
     assert!(current_query.is_canceled());
     draw(&mut picker, &mut app);
     let resumed = tokio::time::timeout(Duration::from_secs(5), workers.recv())
@@ -515,8 +568,11 @@ async fn content_refresh_preserves_the_selected_location_within_a_file() -> anyh
                 ])
             })
         },
-    )
-    .refresh_on_content_changes();
+        view::features::workspace_changes::Policy {
+            contents: true,
+            ..Default::default()
+        },
+    );
     until(&mut picker, &mut app, |picker| {
         picker.results.matcher.snapshot().item_count() == 2
     })
@@ -557,8 +613,11 @@ async fn vcs_metadata_outside_the_worktree_refreshes_without_polling() -> anyhow
         &app.editor,
         |root| root,
         |_, _, root, _| Box::pin(async move { Ok(vec![root.join("latest.txt")]) }),
-    )
-    .refresh_on_vcs_changes();
+        view::features::workspace_changes::Policy {
+            vcs: true,
+            ..Default::default()
+        },
+    );
     until(&mut picker, &mut app, |picker| {
         picker.results.matcher.snapshot().item_count() == 1
     })
@@ -595,7 +654,7 @@ async fn benchmark_incremental_file_picker_refresh() -> anyhow::Result<()> {
     let mut picker = ui::file_picker(&app.editor, root.clone());
     until(&mut picker, &mut app, |picker| {
         picker.results.matcher.active_injectors() == 0
-            && picker.file_updates.as_ref().unwrap().pending.is_none()
+            && !picker.source_pending()
             && picker.results.matcher.snapshot().item_count() == initial_count
     })
     .await?;
@@ -613,7 +672,7 @@ async fn benchmark_incremental_file_picker_refresh() -> anyhow::Result<()> {
             changed(&mut app.editor, &path, EventType::Create);
             until(&mut picker, &mut app, |picker| {
                 picker.results.matcher.active_injectors() == 0
-                    && picker.file_updates.as_ref().unwrap().pending.is_none()
+                    && !picker.source_pending()
                     && picker.results.matcher.snapshot().item_count() == count
             })
             .await?;
