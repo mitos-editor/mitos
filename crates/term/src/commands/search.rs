@@ -423,10 +423,17 @@ fn global_search_picker(
     .with_title("Search")
     .with_history_register(Some(reg))
     .with_dynamic_query(query_global_search, Some(275), jobs)
-    .with_file_updates(editor, |config| &config.search.root, refresh_global_search)
+    .with_file_updates(
+        editor,
+        |config| &config.search.root,
+        refresh_global_search,
+        view::features::workspace_changes::Policy {
+            contents: true,
+            documents: view::features::workspace_changes::Documents::Workspace,
+            ..Default::default()
+        },
+    )
     .with_item_key(|item| (item.path.clone(), item.line_start, item.match_start_col))
-    .refresh_on_content_changes()
-    .refresh_on_document_changes()
 }
 
 pub(super) fn selection_for_global_search_match(

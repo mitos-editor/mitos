@@ -338,6 +338,7 @@ pub fn file_picker(editor: &Editor, root: PathBuf) -> FilePicker {
                 .await?)
             })
         },
+        Default::default(),
     )
     .with_item_key(|path| path.clone());
     let injector = picker.injector();

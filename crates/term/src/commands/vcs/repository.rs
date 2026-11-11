@@ -318,10 +318,13 @@ fn worktrees(
         editor,
         |data| data.repo.root(),
         |_, _, data, _| Box::pin(async move { data.repo.worktrees().await }),
+        view::features::workspace_changes::Policy {
+            vcs: true,
+            ..Default::default()
+        },
     )
     .with_refresh_generation(editor, super::actions::generation)
     .with_item_key(|tree| tree.path.display().to_string())
-    .refresh_on_vcs_changes()
     .refresh_on_open()
 }
 
@@ -537,14 +540,15 @@ impl BranchPager {
     }
 }
 
-impl crate::ui::picker::PickerSource<Arc<Branch>> for BranchPager {
+impl crate::ui::picker::PickerSource<Arc<Branch>, RepositoryData> for BranchPager {
     fn suspend(&mut self) {
-        crate::ui::picker::PickerSource::suspend(&mut self.pages);
+        self.pages.suspend();
     }
 
     fn update(
         &mut self,
         cx: crate::ui::picker::UpdateContext<'_, Arc<Branch>>,
+        _input: crate::ui::picker::SourceInput<'_, RepositoryData>,
     ) -> Option<crate::ui::picker::Update<Arc<Branch>>> {
         let generation = super::actions::generation(cx.editor);
         self.dirty |= self.changes.changed(cx.editor, self.repo.root());
