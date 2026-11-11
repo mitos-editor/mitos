@@ -142,6 +142,9 @@
  4. Type : to enter Command mode.
  5. Type w or write, and press Enter to save the file.
 
+ Ctrl-s saves from Normal, Select, or Insert mode. Space w also
+ saves; Space W saves all modified buffers.
+
  You can also type wq or write-quit to save and exit.
 
  Note: You can optionally enter a file path after the w / write
@@ -1025,13 +1028,13 @@ lines.
  searching or jumping to the definition of a function in code. It
  stores these in what's called the jumplist.
 
- Pressing Ctrl-s manually saves your current position to
+ Pressing Space j s manually saves your current position to
  the jumplist.
 
  Pressing Ctrl-i ("in") and Ctrl-o ("out") moves forward and
  backwards in the jumplist respectively.
 
- 1. Press Ctrl-s somewhere.
+ 1. Press Space, j, then s somewhere.
  2. Move far away in the file.
  3. Press Ctrl-o (just once!) to come back to where you saved.
 
@@ -1070,7 +1073,7 @@ lines.
  * Type n / N in Select mode to add selections on each search
    match.
 
- * Press Ctrl-s to save position to the jumplist.
+ * Press Space j s to save position to the jumplist.
    * Press Ctrl-i and Ctrl-o to go forward and backward in the
      jumplist.
 
@@ -1557,9 +1560,9 @@ letters! that is not good grammar. you can fix this.
 
  Select any file you like in the file picker. You could open it in
  the current view by pressing enter (do not do this at present).
- But you can also open it in a new split. Press Ctrl-v to open
+ But you can also open it in a new split. Press Ctrl-x v to open
  the selected file in a new vertical split. Press space f again,
- select any file you want, and press Ctrl-s to open it in a
+ select any file you want, and press Ctrl-x s to open it in a
  horizontal split.
 
  Move back to the tutor split, and press Ctrl-w o to close all
@@ -1581,8 +1584,8 @@ letters! that is not good grammar. you can fix this.
  :hs FILENAME commands.
 
  Splits can also be used directly from the file pickers, by using
- Ctrl-v to open the file selected in a new vertical split, and
- Ctrl-s in a horizontal split.
+ Ctrl-x v to open the file selected in a new vertical split, and
+ Ctrl-x s in a horizontal split.
 
 
 
@@ -1651,5 +1654,8 @@ letters! that is not good grammar. you can fix this.
 
 
 =================================================================
+ In pickers, Ctrl-x shows available actions. F1 lists bindings.
+ Ctrl-g k browses editor bindings; Ctrl-g i inspects a key.
+
  This tutorial is still a work-in-progress.
  More sections are planned.

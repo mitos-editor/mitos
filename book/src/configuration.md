@@ -122,7 +122,7 @@ normal = "block"
 select = "underline"
 
 [keys.normal]
-C-s = ":write"
+F3 = ":write-all"
 
 [commands]
 ":wq" = [":write", ":quit"]
@@ -787,8 +787,8 @@ breakpoints; the code-action gutter indicates available actions.
 
 | Key | Type | Default | Description |
 | --- | --- | --- | --- |
-| `enable` | boolean | `true` | Move to the end of the parent syntax node when non-whitespace precedes the cursor; otherwise insert indentation. |
-| `supersede-menu` | boolean | `false` | Give smart-tab precedence over completion-menu navigation. |
+| `enable` | boolean | `false` | Move to the end of the parent syntax node when non-whitespace precedes the cursor; otherwise insert indentation. |
+| `supersede-menu` | boolean | `false` | Give smart-tab precedence over remapped completion-menu navigation. Explicit acceptance, including the default Tab binding, takes priority. |
 
 ### `[editor.inline-blame]`
 
@@ -798,7 +798,7 @@ breakpoints; the code-action gutter indicates available actions.
 | `show` | string | `"never"` | Display blame on `"cursor-line"`, `"all-lines"`, or hide it with `"never"`. |
 | `format` | string | `"{author}, {time-ago} • {title} • {commit}"` | Blame message format. See [inline blame formatting](./version-control.md#format). |
 
-Press `Space B` to toggle inline blame off and on, preserving your choice of `"all-lines"` or `"cursor-line"`. If you have not chosen a display mode, turning it on uses `"cursor-line"`. Blank lines and lines with uncommitted changes do not show inline blame.
+Press `Space g t` to toggle inline blame off and on, preserving your choice of `"all-lines"` or `"cursor-line"`. If you have not chosen a display mode, turning it on uses `"cursor-line"`. Blank lines and lines with uncommitted changes do not show inline blame.
 
 ### `[editor.diagnostics.inline]`
 

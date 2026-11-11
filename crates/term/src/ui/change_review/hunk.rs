@@ -24,6 +24,15 @@ impl HunkReviewView {
 }
 
 impl Component for HunkReviewView {
+    fn keymap_contexts(&self, cx: &Context) -> Vec<crate::keymap::inspect::Context> {
+        let mut context = crate::keymap::inspect::Context::new(
+            "Current hunk",
+            crate::keymap::inspect::component("keys.diff", &cx.config.current.component_keys.diff),
+        );
+        context.pending = self.view.keys.pending().to_vec();
+        vec![context]
+    }
+
     fn render(&mut self, area: Rect, surface: &mut Buffer, cx: &mut DrawContext) {
         if area.is_empty() {
             return;

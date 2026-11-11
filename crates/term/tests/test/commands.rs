@@ -411,7 +411,7 @@ async fn test_picker_quicklist_navigation() -> anyhow::Result<()> {
             .with_file(&alpha, None)
             .with_file(&beta, None)
             .build()?,
-        Some("<space>balpha<C-q><esc>]q"),
+        Some("<space>balpha<C-x>q<esc>]q"),
         Some(&|app| {
             let doc = doc!(app.editor);
             let expected = path::normalize(&alpha);
@@ -501,7 +501,7 @@ async fn test_quicklist_picker_navigation() -> anyhow::Result<()> {
             .with_file(&alpha, None)
             .with_file(&beta, None)
             .build()?,
-        Some("<space>balpha<C-q><esc><space>q<ret>"),
+        Some("<space>balpha<C-x>q<esc><space>q<ret>"),
         Some(&|app| {
             let doc = doc!(app.editor);
             let expected = path::normalize(&alpha);
@@ -518,7 +518,7 @@ async fn test_quicklist_picker_navigation() -> anyhow::Result<()> {
 async fn test_picker_quicklist_preserves_unsaved_buffer_entries() -> anyhow::Result<()> {
     test_key_sequence(
         &mut AppBuilder::new().with_input_text("#[hello|]#").build()?,
-        Some("<space>b<C-q><esc>]q"),
+        Some("<space>b<C-x>q<esc>]q"),
         Some(&|app| {
             let doc = doc!(app.editor);
             assert_eq!(doc.path(), None);
@@ -564,7 +564,7 @@ async fn test_jumplist_picker_quicklist_preserves_exact_selection() -> anyhow::R
 
     test_key_sequence(
         &mut app,
-        Some("<space>j<C-q><esc>]q"),
+        Some("<space>jj<C-x>q<esc>]q"),
         Some(&|app| {
             let (view, doc) = view::current_ref!(app.editor);
             assert_eq!(doc.selection(view.id), &selection);
@@ -585,7 +585,7 @@ async fn test_syntax_symbol_quicklist_preserves_exact_declaration_selection() ->
 
     test_key_sequence(
         &mut AppBuilder::new().with_file(&file, None).build()?,
-        Some("<space>sbanana<C-q><esc>]q"),
+        Some("<space>sbanana<C-x>q<esc>]q"),
         Some(&|app| {
             let (view, doc) = view::current_ref!(app.editor);
             let text = doc.text().slice(..);
@@ -691,13 +691,13 @@ async fn test_undo_redo() -> anyhow::Result<()> {
     // A jumplist selection is created at a point which is undone.
     //
     // * 2[<space>   Add two newlines at line start. We're now on line 3.
-    // * <C-s>       Save the selection on line 3 in the jumplist.
+    // * <space>js       Save the selection on line 3 in the jumplist.
     // * u           Undo the two newlines. We're now on line 1.
     // * <C-o><C-i>  Jump forward an back again in the jumplist. This would panic
     //               if the jumplist were not being updated correctly.
     test((
         "#[|]#",
-        "2[<space><C-s>u<C-o><C-i>",
+        "2[<space><space>jsu<C-o><C-i>",
         "#[|]#",
         LineFeedHandling::AsIs,
     ))
@@ -706,7 +706,7 @@ async fn test_undo_redo() -> anyhow::Result<()> {
     // A jumplist selection is passed through an edit and then an undo and then a redo.
     //
     // * [<space>    Add a newline at line start. We're now on line 2.
-    // * <C-s>       Save the selection on line 2 in the jumplist.
+    // * <space>js       Save the selection on line 2 in the jumplist.
     // * kd          Delete line 1. The jumplist selection should be adjusted to the new line 1.
     // * uU          Undo and redo the `kd` edit.
     // * <C-o>       Jump back in the jumplist. This would panic if the jumplist were not being
@@ -714,7 +714,7 @@ async fn test_undo_redo() -> anyhow::Result<()> {
     // * <C-i>       Jump forward to line 1.
     test((
         "#[|]#",
-        "[<space><C-s>kduU<C-o><C-i>",
+        "[<space><space>jskduU<C-o><C-i>",
         "#[|]#",
         LineFeedHandling::AsIs,
     ))
@@ -1213,7 +1213,7 @@ async fn test_toggle_comments_inside_comment_injection() -> anyhow::Result<()> {
         indoc! {"\
             // #[a|]#bc
         "},
-        ":lang rust<ret><C-c>",
+        ":lang rust<ret><space>c",
         indoc! {"\
             #[a|]#bc
         "},
@@ -1227,7 +1227,7 @@ async fn test_toggle_comments_inside_comment_injection() -> anyhow::Result<()> {
         indoc! {"\
             /// #[a|]#bc
         "},
-        ":lang rust<ret><C-c>",
+        ":lang rust<ret><space>c",
         indoc! {"\
             #[a|]#bc
         "},
@@ -1239,7 +1239,7 @@ async fn test_toggle_comments_inside_comment_injection() -> anyhow::Result<()> {
         indoc! {"\
             //! #[a|]#bc
         "},
-        ":lang rust<ret><C-c>",
+        ":lang rust<ret><space>c",
         indoc! {"\
             #[a|]#bc
         "},
@@ -1252,7 +1252,7 @@ async fn test_toggle_comments_inside_comment_injection() -> anyhow::Result<()> {
         indoc! {"\
             #[l|]#et x = 5;
         "},
-        ":lang rust<ret><C-c>",
+        ":lang rust<ret><space>c",
         indoc! {"\
             // #[l|]#et x = 5;
         "},

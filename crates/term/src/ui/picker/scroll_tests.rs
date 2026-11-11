@@ -244,10 +244,12 @@ async fn mouse_scrolling_is_limited_to_the_visible_preview_and_keys_can_be_remap
         }));
         assert_eq!(fixture.top(), expected);
     }
-    fixture.key("C-t");
+    fixture.key("C-x");
+    fixture.key("p");
     fixture.draw(100, 20);
     fixture.key("A-j");
-    fixture.key("C-t");
+    fixture.key("C-x");
+    fixture.key("p");
     assert_eq!(fixture.top(), "line-009");
     fixture.draw(60, 20);
     fixture.key("A-j");

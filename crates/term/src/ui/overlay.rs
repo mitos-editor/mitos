@@ -50,6 +50,9 @@ fn clip_rect_relative(rect: Rect, percent_horizontal: u8, percent_vertical: u8) 
 }
 
 impl<T: Component + 'static> Component for Overlay<T> {
+    fn keymap_contexts(&self, cx: &Context) -> Vec<crate::keymap::inspect::Context> {
+        self.content.keymap_contexts(cx)
+    }
     fn has_pending_render(&self) -> bool {
         self.content.has_pending_render()
     }

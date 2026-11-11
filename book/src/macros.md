@@ -31,7 +31,7 @@ keep a sequence in your configuration, use a
 ## Undo and redo
 
 Press `u` to undo and `U` to redo. Text entered during an insert-mode session
-normally forms one undo step when you return to normal mode. Press `Ctrl-s`
+normally forms one undo step when you return to normal mode. Press `Ctrl-g u`
 while inserting to start a new undo step without leaving insert mode.
 
 Mitos also keeps earlier edit branches after an undo followed by a new edit.

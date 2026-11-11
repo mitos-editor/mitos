@@ -54,7 +54,9 @@ impl Harness {
     }
 
     fn key(&mut self, key: &str) {
-        self.event(Event::Key(key.parse().unwrap()));
+        for key in key.split_whitespace() {
+            self.event(Event::Key(key.parse().unwrap()));
+        }
     }
 
     fn picker(&mut self) -> &mut SearchPicker {
@@ -153,22 +155,25 @@ async fn replacement_hints_follow_current_bindings_and_picker_state() -> anyhow:
     let dir = tempfile::tempdir()?;
     let mut h = Harness::new(dir.path())?;
     let frame = h.frame_at(200, 24);
-    assert!(frame.contains("<A-r> replace"));
-    assert!(frame.contains("<A-c> toggle case"));
+    assert!(frame.contains("<C-x>r replace"));
+    assert!(frame.contains("<C-x>f toggle case"));
     assert!(!frame.contains("replace all"));
-    h.key("A-r");
+    h.key("C-x r");
     let frame = h.frame_at(200, 24);
-    assert!(frame.contains("<A-r> switch input"));
+    assert!(frame.contains("<C-x>r switch input"));
     assert!(frame.contains("<ret> replace one"));
-    assert!(frame.contains("<C-ret> replace all"));
+    assert!(frame.contains("<C-x>R replace all"));
 
     let keys = &mut h.config.component_keys.picker.0;
-    keys.insert("A-r".parse()?, Binding::Unbound);
+    let Binding::Keys(prefix) = keys.get_mut(&"C-x".parse()?).unwrap() else {
+        panic!("action prefix")
+    };
+    prefix.0.insert("r".parse()?, Binding::Unbound);
+    prefix.0.insert("f".parse()?, Binding::Unbound);
     keys.insert(
         "F4".parse()?,
         Binding::Actions(vec![PickerAction::ToggleReplacement]),
     );
-    keys.insert("A-c".parse()?, Binding::Unbound);
     keys.insert("C-ret".parse()?, Binding::Unbound);
     keys.insert("Meta-ret".parse()?, Binding::Unbound);
     keys.insert(
@@ -181,7 +186,7 @@ async fn replacement_hints_follow_current_bindings_and_picker_state() -> anyhow:
     let frame = h.frame_at(200, 24);
     assert!(frame.contains("<F4> switch input"));
     assert!(frame.contains("<F5>a replace all"));
-    assert!(!frame.contains("<A-r>"));
+    assert!(!frame.contains("<C-x>r"));
     assert!(!frame.contains("toggle case"));
     Ok(())
 }
@@ -194,7 +199,7 @@ async fn replacement_footer_keeps_inputs_and_results_visible_on_small_terminals(
     let mut h = Harness::new(dir.path())?;
     h.event(Event::Paste("foo".into()));
     h.settle().await?;
-    h.key("A-r");
+    h.key("C-x r");
     h.event(Event::Paste("bar".into()));
     let frame = h.frame_at(40, 12);
     for text in [
@@ -205,8 +210,8 @@ async fn replacement_footer_keeps_inputs_and_results_visible_on_small_terminals(
     ] {
         assert!(frame.contains(text), "missing {text:?} in {frame}");
     }
-    assert!(!frame.contains("<C-ret> replace all"));
-    assert!(!frame.contains("<A-r> switch input"));
+    assert!(!frame.contains("<C-x>R replace all"));
+    assert!(!frame.contains("<C-x>r switch input"));
     let rows: Vec<_> = frame.lines().collect();
     assert!(rows.last().unwrap().contains("<ret> replace one"));
     assert!(rows[..rows.len() - 1]
@@ -246,7 +251,7 @@ async fn single_replace_refreshes_only_its_buffer_and_preserves_all_other_result
     // replacement of another file. An explicit filesystem event refreshes it below.
     let other = dir.path().join(unchanged[0].path.file_name().unwrap());
     std::fs::write(&other, "no matches\n")?;
-    h.key("A-r");
+    h.key("C-x r");
     h.event(Event::Paste("bar\nnew".into()));
     h.key("ret");
     h.settle().await?;
@@ -308,7 +313,7 @@ async fn replace_all_with_no_remaining_matches_still_publishes_the_buffer_refres
     // included match disappeared, without reading the excluded file again.
     std::fs::write(&included, "gone\n")?;
     std::fs::write(&excluded, "gone\n")?;
-    h.key("A-r");
+    h.key("C-x r");
     h.event(Event::Paste("bar".into()));
     h.key("C-ret");
     h.settle().await?;
@@ -343,7 +348,7 @@ async fn bulk_replacement_keeps_navigation_responsive_and_does_not_open_files() 
     h.settle().await?;
     assert_eq!(h.count(), 1024);
     let documents = h.app.editor.documents().count();
-    h.key("A-r");
+    h.key("C-x r");
     h.event(Event::Paste("bar".into()));
     h.key("C-ret");
     assert!(!test::is_settled(h.picker()));
@@ -374,7 +379,7 @@ async fn closing_before_the_apply_step_cancels_without_writing_files() -> anyhow
     h.event(Event::Paste("foo".into()));
     h.settle().await?;
     let documents = h.app.editor.documents().count();
-    h.key("A-r");
+    h.key("C-x r");
     h.event(Event::Paste("bar".into()));
     h.key("ret");
     h.key("esc");
@@ -403,7 +408,7 @@ async fn replacement_refreshes_shifted_matches_and_respects_path_filters() -> an
     h.event(Event::Paste("foo %p 'included.txt".into()));
     h.settle().await?;
     assert_eq!(h.count(), 2);
-    h.key("A-r");
+    h.key("C-x r");
     h.event(Event::Paste("longer".into()));
     h.key("ret");
     h.settle().await?;
@@ -434,7 +439,7 @@ async fn replacement_refreshes_shifted_matches_and_respects_path_filters() -> an
     );
     assert_eq!(std::fs::read_to_string(&path)?, "α foo foo\nfoo\n");
     assert_eq!(std::fs::read_to_string(&excluded)?, "foo\n");
-    h.key("A-r");
+    h.key("C-x r");
     h.key("C-a");
     h.key("C-k");
     h.event(Event::Paste("foo".into()));
@@ -467,8 +472,8 @@ async fn case_toggle_requeries_and_replacement_prompt_owns_register_input() -> a
     h.event(Event::Paste("foo".into()));
     h.settle().await?;
     assert_eq!(h.count(), 2);
-    h.key("A-c");
-    h.key("A-r");
+    h.key("C-x f");
+    h.key("C-x r");
     h.event(Event::Paste("bar".into()));
     h.key("C-ret");
     // Case changes cannot reuse the previous smart-case result generation.
@@ -489,7 +494,7 @@ async fn case_toggle_requeries_and_replacement_prompt_owns_register_input() -> a
     let id = h.app.editor.open(&path, view::editor::Action::Load)?;
     assert_eq!(h.app.editor.document(id).unwrap().text(), "bar!\nFOO\n");
     // Once search has focus again, edits affect the query, not replacement text.
-    h.key("A-r");
+    h.key("C-x r");
     h.key("C-a");
     h.key("C-k");
     h.event(Event::Paste("FOO".into()));
@@ -506,7 +511,7 @@ async fn closing_during_case_refresh_keeps_reopened_replacement_usable() -> anyh
     let mut h = Harness::new(dir.path())?;
     h.event(Event::Paste("foo".into()));
     h.settle().await?;
-    h.key("A-c");
+    h.key("C-x f");
     h.key("esc");
     // Let the queued refresh run while the picker is hidden, as it would
     // while editing a document before reopening the cached picker.
@@ -527,7 +532,7 @@ async fn closing_during_case_refresh_keeps_reopened_replacement_usable() -> anyh
     h.compositor.push(cached);
     h.settle().await?;
     assert_eq!(h.count(), 1);
-    h.key("A-r");
+    h.key("C-x r");
     h.event(Event::Paste("bar".into()));
     h.key("ret");
     h.settle().await?;
@@ -544,7 +549,7 @@ async fn register_replacement_preserves_crlf() -> anyhow::Result<()> {
     let mut h = Harness::new(dir.path())?;
     h.event(Event::Paste("foo".into()));
     h.settle().await?;
-    h.key("A-r");
+    h.key("C-x r");
     h.app.editor.registers.push('r', "one\ntwo".into())?;
     h.key("C-r");
     h.key("r");
@@ -563,7 +568,7 @@ async fn document_anchors_select_replaceable_matches() -> anyhow::Result<()> {
     h.event(Event::Paste(r"\Afoo|bar".into()));
     h.settle().await?;
     assert_eq!(h.count(), 1);
-    h.key("A-r");
+    h.key("C-x r");
     h.event(Event::Paste("x".into()));
     h.key("ret");
     h.settle().await?;
@@ -591,7 +596,7 @@ async fn search_and_replacement_share_unsaved_symlink_buffers() -> anyhow::Resul
         target.file_name()
     );
     assert!(h.frame().contains("αfoo"));
-    h.key("A-r");
+    h.key("C-x r");
     h.event(Event::Paste("bar".into()));
     h.key("ret");
     h.settle().await?;

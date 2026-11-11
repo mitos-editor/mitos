@@ -42,10 +42,9 @@ requires a terminal that supports clickable links.
 | `Ctrl-w q` | Close the current view |
 | `Ctrl-w o` | Keep only the current view |
 
-Press the keys in sequence, for example `Ctrl-w`, then `v`. `Space w` opens
-the same window menu. To show a different file after splitting, use `Space b`
-or `:open`. In a picker, `Ctrl-v` opens the selected file vertically and
-`Ctrl-s` opens it horizontally.
+Press the keys in sequence, for example `Ctrl-w`, then `v`. To show a different file after splitting, use `Space b`
+or `:open`. In a picker, `Ctrl-x v` opens the selected file vertically and
+`Ctrl-x s` opens it horizontally.
 
 You can also use `:split-vertical <path>` or `:split-horizontal <path>`. To start with files in
 separate views, see [Starting Mitos](./invocation.md).
@@ -57,8 +56,7 @@ returns to the last focused editor split; `Ctrl-w q` hides the sidebar.
 
 ### Resize windows
 
-Press `Ctrl-w r` to resize a split or the file explorer sidebar. In the editor,
-you can also use `Space w r`.
+Press `Ctrl-w r` to resize a split or the file explorer sidebar.
 
 Use `h` / `j` / `k` / `l` or the arrow keys to move a border left / down / up /
 right. Each press moves it 5 columns or 2 rows. Type a number before a direction

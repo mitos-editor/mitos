@@ -17,6 +17,55 @@ pub(super) struct Resize {
     count: Option<NonZeroUsize>,
 }
 
+impl Resize {
+    pub(super) fn keymap_context(&self) -> crate::keymap::inspect::Context {
+        use crate::keymap::inspect::{Context, Definition, Fallback};
+        let mut bindings = Vec::new();
+        for (key, action) in [
+            ("h", "resize left"),
+            ("left", "resize left"),
+            ("l", "resize right"),
+            ("right", "resize right"),
+            ("j", "resize down"),
+            ("down", "resize down"),
+            ("k", "resize up"),
+            ("up", "resize up"),
+            ("=", "reset sizes"),
+            ("ret", "confirm resize"),
+            ("esc", "cancel resize"),
+            ("C-c", "cancel resize"),
+        ] {
+            if self.sidebar && matches!(key, "j" | "down" | "k" | "up") {
+                continue;
+            }
+            bindings.push(Definition {
+                table: "resize".into(),
+                keys: vec![key.parse().unwrap()],
+                action: action.into(),
+                description: action.into(),
+                prefix: false,
+            });
+        }
+        for digit in '0'..='9' {
+            if self.count.is_some() || digit != '0' {
+                bindings.push(Definition {
+                    table: "resize".into(),
+                    keys: vec![ui_core::input::KeyEvent {
+                        code: ui_core::keyboard::KeyCode::Char(digit),
+                        modifiers: ui_core::keyboard::KeyModifiers::NONE,
+                    }],
+                    action: "resize count".into(),
+                    description: "Set resize distance".into(),
+                    prefix: false,
+                });
+            }
+        }
+        let mut context = Context::new("Resize", bindings);
+        context.fallback = Fallback::Consume;
+        context
+    }
+}
+
 impl EditorView {
     pub(crate) fn start_resize(&mut self, editor: &mut Editor, count: Option<NonZeroUsize>) {
         self.resizing = Some(Resize {
@@ -77,7 +126,7 @@ impl EditorView {
         cx.editor.reset_idle_timer();
         cx.editor.status_msg = None;
         match key {
-            key!(Enter) | key!(Esc) | key!(Null) => {
+            key!(Enter) | key!(Esc) | key!(Null) | crate::ctrl!('c') => {
                 self.finish_resize(cx.editor, key != key!(Enter));
                 cx.interaction.count = None;
                 return true;

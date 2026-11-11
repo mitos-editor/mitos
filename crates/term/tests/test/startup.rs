@@ -210,7 +210,7 @@ async fn symbol_picker_can_open_before_background_syntax_is_published() -> anyho
 
     // Queue input immediately, without first letting the event loop publish syntax.
     // Each event still passes through production component preparation.
-    super::helpers::keys(&mut app, "<space>sbanana<C-q><esc>]q").await?;
+    super::helpers::keys(&mut app, "<space>sbanana<C-x>q<esc>]q").await?;
 
     let (view, doc) = current!(app.editor);
     assert!(!doc.is_syntax_pending());

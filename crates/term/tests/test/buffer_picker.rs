@@ -24,7 +24,7 @@ impl Fixture {
                 C-j = "move_down"
                 C-space = "accept"
                 [keys.buffer-picker]
-                C-x = "close_buffer"
+                F3 = "close_buffer"
             "#
             .to_owned()),
             Err(ConfigLoadError::default()),
@@ -80,7 +80,7 @@ impl Fixture {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn close_selected_buffer_preserves_query_and_nearest_row() -> anyhow::Result<()> {
-    for (movement, closed_index, accepted_index) in [("<C-j>", 1, 2), ("<end>", 2, 1)] {
+    for (movement, closed_index, accepted_index) in [("<C-j>", 1, 2), ("<C-x>G", 2, 1)] {
         let mut f = Fixture::new(&[
             "pick-aaa.txt",
             "pick-bbb.txt",
@@ -91,7 +91,7 @@ async fn close_selected_buffer_preserves_query_and_nearest_row() -> anyhow::Resu
         f.keys("<space>b").await?;
         f.keys("pick").await?;
         f.keys(movement).await?;
-        f.keys("<C-x>").await?;
+        f.keys("<F3>").await?;
         assert!(
             f.app.editor.document(f.ids[closed_index]).is_none(),
             "movement {movement}, screen: {}",
@@ -122,7 +122,7 @@ async fn modified_selected_buffer_reports_error_and_keeps_picker_open() -> anyho
     f.app.editor.switch(f.ids[1], Action::Replace);
     f.keys("<space>b").await?;
     f.keys("pick").await?;
-    f.keys("<C-x>").await?;
+    f.keys("<F3>").await?;
     assert!(f.app.editor.document(f.ids[0]).unwrap().is_modified());
     assert_eq!(f.current(), f.ids[1]);
     assert!(f
@@ -153,7 +153,7 @@ async fn close_selected_buffer_waits_for_pending_save() -> anyhow::Result<()> {
         .editor
         .save(f.ids[0], None::<std::path::PathBuf>, false)?;
     assert!(f.app.editor.has_pending_writes());
-    f.keys("<C-x>").await?;
+    f.keys("<F3>").await?;
     assert!(!f.app.editor.has_pending_writes());
     assert!(f.app.editor.document(f.ids[0]).is_none());
     assert_eq!(std::fs::read_to_string(path)?, "saved content\n");
@@ -167,12 +167,12 @@ async fn closing_final_buffer_keeps_editor_and_picker_usable() -> anyhow::Result
     let original = f.current();
     assert_eq!(f.app.editor.documents().count(), 1);
     f.keys("<space>b").await?;
-    f.keys("<C-x>").await?;
+    f.keys("<F3>").await?;
     assert!(f.app.editor.document(original).is_none());
     assert_eq!(f.app.editor.documents().count(), 1);
     assert_ne!(f.current(), original);
     let replacement = f.current();
-    f.keys("<C-x>").await?; // Refreshed picker contains the new scratch buffer.
+    f.keys("<F3>").await?; // Refreshed picker contains the new scratch buffer.
     assert!(f.app.editor.document(replacement).is_none());
     assert_eq!(f.app.editor.documents().count(), 1);
     f.keys("<esc>").await?;
@@ -193,9 +193,9 @@ async fn stale_buffer_row_refreshes_and_empty_selection_does_nothing() -> anyhow
     f.keys("pick").await?;
     assert!(f.app.editor.close_document(f.ids[0], false).is_ok());
     let current = f.current();
-    f.keys("<C-x>").await?;
+    f.keys("<F3>").await?;
     assert!(!f.screen().contains("pick-stale.txt"));
-    f.keys("<C-x>").await?;
+    f.keys("<F3>").await?;
     assert_eq!(f.current(), current);
     assert!(f.app.editor.document(f.ids[1]).is_some());
     f.keys("<esc>").await?;
@@ -243,7 +243,7 @@ async fn paging_keeps_the_selected_row_on_screen_row() -> anyhow::Result<()> {
     let (rows, row) = picker_rows(f.app.terminal_backend().buffer());
     let first = selected_name(&rows, row);
     let mut previous = first.clone();
-    for key in ["<pagedown>", "<C-d>", "<pageup>", "<C-u>"] {
+    for key in ["<pagedown>", "<pagedown>", "<pageup>", "<pageup>"] {
         f.keys(key).await?;
         let (rows, now) = picker_rows(f.app.terminal_backend().buffer());
         let name = selected_name(&rows, now);
@@ -255,7 +255,10 @@ async fn paging_keeps_the_selected_row_on_screen_row() -> anyhow::Result<()> {
         previous = name;
     }
     assert_eq!(previous, first);
-    for (boundary, paging) in [("<end>", "<pagedown><C-d>"), ("<home>", "<pageup><C-u>")] {
+    for (boundary, paging) in [
+        ("<C-x>G", "<pagedown><pagedown>"),
+        ("<C-x>g", "<pageup><pageup>"),
+    ] {
         f.keys(boundary).await?;
         let (rows, row) = picker_rows(f.app.terminal_backend().buffer());
         let endpoint = selected_name(&rows, row);

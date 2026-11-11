@@ -12,6 +12,7 @@ pub(crate) mod highlights;
 mod icons;
 pub(crate) mod image;
 mod info;
+pub(crate) mod keybindings;
 mod layout;
 mod list;
 pub mod lsp;

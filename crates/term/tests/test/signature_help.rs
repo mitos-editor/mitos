@@ -376,6 +376,9 @@ async fn terminal_forwards_triggers_and_keeps_popup_navigation_and_dismissal() -
     assert_eq!(f.popup_selection().await?, Some(1));
     f.key("<esc>").await?;
     assert_eq!(f.popup_selection().await?, None);
+    assert_eq!(f.app.editor.mode(), view::document::Mode::Insert);
+    f.key("<esc>").await?;
+    assert_eq!(f.app.editor.mode(), view::document::Mode::Normal);
     for text in ["empty\n", "no-signatures\n"] {
         f.edit(text);
         f.trigger(SignatureHelpInvoked::Manual);

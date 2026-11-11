@@ -3,6 +3,12 @@
 These tables list the built-in bindings. To change them, see
 [Key remapping](./remapping.md).
 
+For a searchable list of the bindings active at the current focus, use
+`Ctrl-g k` in the editor or `F1` in a prompt, picker, menu, or popup.
+`Ctrl-g i` inspects a key sequence without executing it. Both commands are
+available through the command palette (`Space ?` or `F1` in the editor).
+See [Find and inspect bindings](./keybinding-migration.md#find-and-inspect-bindings).
+
 `<space>` means Space, `<ret>` means Enter, `<esc>` means Escape,
 `<C-x>` means Ctrl-x, and `<A-x>` means Alt-x. Adjacent keys form a
 sequence: `<space>f` means press Space, then f.
@@ -27,8 +33,8 @@ register by default; select another register with `"<char>`.
 
 ### Minor modes
 
-Prefix keys open groups of commands. Most return to normal mode after a
-command; sticky groups stay open until Escape. See
+Prefix keys open groups of commands. Most finish the sequence after a
+command while preserving the editor mode; sticky groups stay open until Escape. See
 [remapping minor modes](./remapping.md#minor-modes).
 
 <a id="view-mode"></a>
@@ -42,7 +48,10 @@ command; sticky groups stay open until Escape. See
 - `g` jumps to locations.
 - `m` works with [surround](./surround.md) and [textobjects](./textobjects.md).
 - `Ctrl-w` manages [split views](./files.md).
-- Space opens pickers and project tools. `Space '` reopens global search.
+- `Space w` and `Ctrl-s` save; `Space W` saves all modified buffers.
+- `Space j j` opens the jumplist; `Space j s` records the current selections.
+- `Space x` opens debugging commands; `Space X` keeps that group active.
+- Space opens pickers and project tools. `Space '` reopens the last picker.
 - `[` and `]` move to previous and next items, including syntax textobjects.
 
 ### Bindings
@@ -52,7 +61,7 @@ command; sticky groups stay open until Escape. See
 ## Insert mode
 
 Press `i` in normal mode to enter insert mode. An insert session normally
-forms one undo step when you return to normal mode. `Ctrl-s` starts another
+forms one undo step when you return to normal mode. `Ctrl-g u` starts another
 undo step without leaving insert mode; see [Macros and undo](./macros.md#undo-and-redo).
 
 Tab uses [smart tab](./completion.md#smart-tab). To disable a binding, map
@@ -75,7 +84,12 @@ The tables below use the action names accepted by
 [Prompt](#prompt) bindings also work in [pickers](./pickers.md), except where
 they conflict with picker bindings. Buffer pickers use their own binding table.
 Popups use the popup bindings together with their specific hover,
-signature-help, or blame bindings. In the completion menu, other typing
-accepts the completion and continues inserting text.
+signature-help, or blame bindings. In the completion menu, ordinary typing
+accepts the completion and continues inserting text; command keys do not.
+`Esc` and `Ctrl-c` cancel the innermost interaction before changing editor mode.
+
+Press `Ctrl-x` in a picker to see its available actions. The menu follows your
+remaps and shows only actions supported by the picker. The generated tables
+include inherited bindings; the availability column explains conditional ones.
 
 {{#include ./generated/keymap-components.md}}

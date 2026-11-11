@@ -30,16 +30,16 @@ and add bindings, for example:
 
 ```toml
 [keys.normal]
-A-p = "paste_after_all"
+"+" = "paste_after_all"
 A-P = "paste_before_all"
 
 [keys.select]
-A-p = "paste_after_all"
+"+" = "paste_after_all"
 A-P = "paste_before_all"
 ```
 
 For example, select `name` and `email`, press `y`, then move to the destination
-and keep one selection. Press `Alt-p` to paste both values after it, with a
+and keep one selection. Press `+` to paste both values after it, with a
 newline between them. In normal mode, each pasted value becomes a separate
 selection, so you can continue editing both at once.
 

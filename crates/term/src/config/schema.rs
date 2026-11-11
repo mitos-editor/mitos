@@ -13,6 +13,8 @@ pub struct Config {
     pub theme: Option<theme::Config>,
     pub keys: HashMap<Mode, KeyTrie>,
     pub component_keys: ComponentKeymaps,
+    /// Explicit key definitions retained for binding inspection and shadowing.
+    pub keybinding_sources: Vec<(keymap::inspect::Source, keymap::inspect::Definition)>,
     pub editor: editor_config::Config,
     pub terminal: TerminalConfig,
 }
@@ -148,6 +150,7 @@ impl Default for Config {
             theme: None,
             keys: keymap::default(),
             component_keys: ComponentKeymaps::default(),
+            keybinding_sources: Vec::new(),
             editor: EditorSettings::default().editor,
             terminal: TerminalConfig::default(),
         }

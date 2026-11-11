@@ -100,6 +100,11 @@ impl Context<'_> {
 }
 
 pub trait Component: Any + AnyComponent {
+    /// Active input contexts in dispatch order, for read-only binding inspection.
+    fn keymap_contexts(&self, _cx: &Context) -> Vec<crate::keymap::inspect::Context> {
+        Vec::new()
+    }
+
     /// Prepare state, apply ready results and schedule work before drawing.
     fn update(&mut self, _area: Rect, _cx: &mut Context) {}
 
@@ -185,6 +190,14 @@ impl Compositor {
             }
             cx.interaction.macro_replaying = previous;
         }
+    }
+
+    pub(crate) fn keymap_contexts(&self, cx: &Context) -> Vec<crate::keymap::inspect::Context> {
+        self.layers
+            .iter()
+            .rev()
+            .flat_map(|layer| layer.keymap_contexts(cx))
+            .collect()
     }
 
     pub(crate) fn has_pending_render(&self) -> bool {

@@ -7,7 +7,7 @@ you choose what goes into the quicklist.
 
 ## Populating the quicklist
 
-While a picker containing files or locations is open, press `Ctrl-q` to copy its current matched entries into the quicklist.
+While a picker containing files or locations is open, press `Ctrl-x q` to copy its current matched entries into the quicklist.
 The entries keep their current picker order, and the picker remains open.
 For example, you can filter global-search, diagnostics, or symbol results and capture only those matches.
 
@@ -44,7 +44,7 @@ Selecting an entry opens it and makes it the current quicklist position.
 
 ## Removing entries
 
-In the quicklist picker (`Space q`), press `Ctrl-x` to remove the highlighted entry.
+In the quicklist picker (`Space q`), press `Ctrl-x d` to remove the highlighted entry.
 The picker stays open, keeps its filter, and selects a nearby row. This removes
 only the list entry; it does not change or close the file or buffer.
 
@@ -56,14 +56,15 @@ To change the deletion binding, use the picker-specific `remove_entry` action:
 
 ```toml
 [keys.quicklist-picker]
-C-x = "unbound"
-C-r = "remove_entry"
+F3 = "remove_entry"
+[keys.quicklist-picker.C-x]
+d = "unbound"
 ```
 
 ## Typical workflow
 
 1. Open a picker that shows file locations, such as global search, diagnostics, symbols, or another location-based picker.
 2. Filter the picker until it contains the set of locations you want.
-3. Press `Ctrl-q` to copy the current matched items into the quicklist.
+3. Press `Ctrl-x q` to copy the current matched items into the quicklist.
 4. Close the picker, then move through all collected locations with `]q` and `[q`.
 5. Use `]l` and `[l` to restrict navigation to the current file, or `Space q` to browse the complete list.

@@ -843,7 +843,11 @@ impl Prompt {
         }
     }
 
-    fn execute_actions(&mut self, actions: &[PromptAction], cx: &mut Context) -> EventResult {
+    pub(super) fn execute_actions(
+        &mut self,
+        actions: &[PromptAction],
+        cx: &mut Context,
+    ) -> EventResult {
         let close_fn = || {
             EventResult::Consumed(Some(Box::new(|compositor: &mut Compositor, _| {
                 compositor.pop();
@@ -864,6 +868,15 @@ impl Prompt {
                 return EventResult::Consumed(None);
             }
             match action {
+                PromptAction::ShowKeybindings => {
+                    return EventResult::Consumed(Some(Box::new(ui::keybindings::show)))
+                }
+                PromptAction::InspectKey => {
+                    return EventResult::Consumed(Some(Box::new(ui::keybindings::inspect)))
+                }
+                PromptAction::SaveHint => cx
+                    .editor
+                    .set_status("Return to the editor to save with Ctrl-s"),
                 PromptAction::Cancel => {
                     (self.callback_fn)(cx, &self.line, PromptEvent::Abort);
                     return close_fn();
@@ -1012,6 +1025,24 @@ impl Prompt {
 }
 
 impl Component for Prompt {
+    fn keymap_contexts(&self, cx: &Context) -> Vec<crate::keymap::inspect::Context> {
+        use crate::keymap::inspect::{self, Fallback};
+        let mut context = inspect::Context::new(
+            "Prompt",
+            inspect::component("keys.prompt", &cx.config.current.component_keys.prompt),
+        );
+        context.pending = self.keys.pending().to_vec();
+        if self.next_char_handler.is_some() {
+            context.fallback = Fallback::Prompt;
+            return vec![
+                inspect::Context::literal("Prompt register input", true),
+                context,
+            ];
+        }
+        context.fallback = Fallback::Prompt;
+        vec![context]
+    }
+
     /// Collect completions computed on a background thread; the task producing them requested
     /// the redraw this update runs in.
     fn update(&mut self, _area: Rect, cx: &mut Context) {
@@ -1061,8 +1092,8 @@ impl Component for Prompt {
 
         // Register selection reads a literal character before consulting bindings.
         if self.next_char_handler.is_some()
-            && event.code == KeyCode::Esc
-            && event.modifiers.is_empty()
+            && ((event.code == KeyCode::Esc && event.modifiers.is_empty())
+                || (event.code == KeyCode::Char('c') && event.modifiers == KeyModifiers::CONTROL))
         {
             self.next_char_handler = None;
             self.recalculate_completion(cx.editor);

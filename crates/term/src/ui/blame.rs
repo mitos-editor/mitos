@@ -122,6 +122,18 @@ pub fn show(
 }
 
 impl Component for BlameDetails {
+    fn keymap_contexts(&self, cx: &Context) -> Vec<crate::keymap::inspect::Context> {
+        let mut context = crate::keymap::inspect::Context::new(
+            "Blame",
+            crate::keymap::inspect::component(
+                "keys.blame",
+                &cx.config.current.component_keys.blame,
+            ),
+        );
+        context.pending = self.keys.pending().to_vec();
+        vec![context]
+    }
+
     fn has_pending_keys(&self) -> bool {
         self.keys.is_pending()
     }

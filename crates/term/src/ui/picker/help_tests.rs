@@ -42,14 +42,14 @@ async fn picker_specific_hints_follow_live_visibility_and_use_at_most_one_row() 
         test::items(picker).count() == 40
     })
     .await?;
-    assert!(frame(&mut picker, &mut app, &config).contains("<C-x> remove entry"));
+    assert!(frame(&mut picker, &mut app, &config).contains("<C-x>d remove entry"));
     let visible_rows = picker.completion_height;
     set_hints(&mut app, false);
     assert!(!frame(&mut picker, &mut app, &config).contains("remove entry"));
     assert_eq!(picker.completion_height, visible_rows);
     assert_eq!(test::items(&picker).count(), 40);
     set_hints(&mut app, true);
-    assert!(frame(&mut picker, &mut app, &config).contains("<C-x> remove entry"));
+    assert!(frame(&mut picker, &mut app, &config).contains("<C-x>d remove entry"));
     assert_eq!(picker.completion_height, visible_rows);
     Ok(())
 }
@@ -70,7 +70,7 @@ async fn file_pickers_show_scroll_hints_without_losing_result_space() -> anyhow:
         assert!(!visible.contains(generic), "unexpected {generic:?}");
     }
     assert!(visible.contains("<A-j> scroll preview down"));
-    assert!(visible.contains("<A-k> scroll preview up"));
+    assert!(visible.contains("<C-x> actions"));
     let visible_rows = picker.completion_height;
     picker.toggle_preview();
     assert!(!frame(&mut picker, &mut app, &config).contains("scroll preview"));
@@ -113,5 +113,71 @@ async fn item_hints_use_the_specific_picker_map_and_omit_unbound_actions() -> an
     assert!(text.contains("<F4> remove entry"));
     assert!(!text.contains("<C-x>"));
     assert!(!text.contains("close buffer"));
+    Ok(())
+}
+
+#[tokio::test]
+async fn picker_specializations_preserve_query_editing_and_show_available_prefixes(
+) -> anyhow::Result<()> {
+    type Map = fn(&ComponentKeymaps) -> &ui_core::keymap::Keymap<PickerAction>;
+    let maps: [Map; 9] = [
+        |m| &m.picker,
+        |m| &m.buffer_picker,
+        |m| &m.quicklist_picker,
+        |m| &m.git_picker,
+        |m| &m.branch_picker,
+        |m| &m.worktree_picker,
+        |m| &m.stash_picker,
+        |m| &m.history_picker,
+        |m| &m.file_explorer,
+    ];
+    let mut app = test::application(false)?;
+    let config = AppConfig::default();
+    let updates = tokio::sync::mpsc::unbounded_channel().0;
+    let mut jobs = crate::job::Jobs::new();
+    for map in maps {
+        let mut picker = Picker::new(
+            app.editor.redraw().clone(),
+            [Column::new("item", |_: &u8, _: &()| "item".into())],
+            0,
+            [1],
+            (),
+            |_, _, _| {},
+        )
+        .with_item_actions(map, |_, _, _| PickerCallbackResult::KeepOpen);
+        let mut cx = Context {
+            config: crate::config::Context {
+                current: &config,
+                updates: &updates,
+            },
+            editor: &mut app.editor,
+            interaction: &mut app.interaction,
+            jobs: &mut jobs,
+            scroll: None,
+            image_picker: None,
+            is_cursor_owner: true,
+        };
+        for key in ["a", "b", "c", "home", "C-d"] {
+            picker.handle_event(&Event::Key(key.parse()?), &mut cx);
+        }
+        assert_eq!(picker.prompt.line(), "bc");
+        for key in ["end", "C-u"] {
+            picker.handle_event(&Event::Key(key.parse()?), &mut cx);
+        }
+        assert_eq!(picker.prompt.line(), "");
+        picker.handle_event(&Event::Key("C-x".parse()?), &mut cx);
+        let contexts = picker.keymap_contexts(&cx);
+        assert_eq!(contexts[0].pending, ["C-x".parse()?]);
+        let area = Rect::new(0, 0, 100, 24);
+        let mut surface = Surface::empty(area);
+        picker.update_and_render(area, &mut surface, &mut cx);
+        let screen: String = surface.content.iter().map(|cell| cell.symbol()).collect();
+        assert!(screen.contains("Actions"), "{screen}");
+        assert!(!screen.contains("Open in a vertical split"));
+        picker.handle_event(&Event::Key("C-c".parse()?), &mut cx);
+        assert!(!picker.keys.is_pending());
+        picker.handle_event(&Event::Key("x".parse()?), &mut cx);
+        assert_eq!(picker.prompt.line(), "x");
+    }
     Ok(())
 }

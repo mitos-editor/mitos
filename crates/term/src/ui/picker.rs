@@ -1548,6 +1548,24 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                         self.redraw.request();
                     }
                 }
+                PickerAction::ShowKeybindings => {
+                    return EventResult::Consumed(Some(Box::new(ui::keybindings::show)))
+                }
+                PickerAction::InspectKey => {
+                    return EventResult::Consumed(Some(Box::new(ui::keybindings::inspect)))
+                }
+                PickerAction::HistoryPrevious | PickerAction::HistoryNext => {
+                    let prompt_action = if action == PickerAction::HistoryPrevious {
+                        crate::keymap::component::PromptAction::HistoryPrevious
+                    } else {
+                        crate::keymap::component::PromptAction::HistoryNext
+                    };
+                    self.active_prompt_mut()
+                        .execute_actions(&[prompt_action], ctx);
+                    if self.handle_prompt_change(false) {
+                        self.refresh_query_options(ctx.editor, false);
+                    }
+                }
                 PickerAction::Cancel => {
                     if self.replacement_pending() {
                         ctx.editor.clear_status();
@@ -1739,6 +1757,25 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
 }
 
 impl<I: 'static + Send + Sync, D: 'static + Send + Sync> Component for Picker<I, D> {
+    fn keymap_contexts(&self, cx: &Context) -> Vec<crate::keymap::inspect::Context> {
+        use crate::keymap::inspect;
+        let maps = &cx.config.current.component_keys;
+        let keys = (self.keymap)(maps);
+        let filtered = inspect::filter(keys, |action| self.action_available(maps, *action));
+        let mut context = inspect::Context::new(
+            "Picker",
+            inspect::component(maps.picker_table(keys), &filtered),
+        );
+        context.pending = self.keys.pending().to_vec();
+        let mut prompt = self.query_contexts(cx);
+        if self.active_prompt().has_pending_keys() {
+            prompt.push(context);
+        } else {
+            prompt.insert(0, context);
+        }
+        prompt
+    }
+
     fn has_pending_render(&self) -> bool {
         self.matching
             || self.query_needs_refresh
@@ -1839,6 +1876,7 @@ impl<I: 'static + Send + Sync, D: 'static + Send + Sync> Component for Picker<I,
         if let Some(preview_area) = preview_area {
             self.render_preview(preview_area, surface, cx);
         }
+        self.render_action_menu(area, surface, cx);
     }
 
     fn has_pending_keys(&self) -> bool {
@@ -2222,9 +2260,10 @@ mod tests {
             .injector();
         let area = Rect::new(0, 0, 80, 24);
         picker.update_and_render(area, &mut Surface::empty(area), &mut cx);
-        let remove = Event::Key("C-x".parse().unwrap());
-        let populate = Event::Key("C-q".parse().unwrap());
-        for event in [&accept, &remove, &populate] {
+        let prefix = Event::Key("C-x".parse().unwrap());
+        let remove = Event::Key("d".parse().unwrap());
+        let populate = Event::Key("q".parse().unwrap());
+        for event in [&accept, &prefix, &remove, &prefix, &populate] {
             assert!(matches!(
                 picker.handle_event(event, &mut cx),
                 EventResult::Consumed(None)
@@ -2243,11 +2282,13 @@ mod tests {
         })
         .await?;
         assert_eq!(picker.results.cursor, 1);
+        picker.handle_event(&prefix, &mut cx);
         assert!(matches!(
             picker.handle_event(&remove, &mut cx),
             EventResult::Consumed(None)
         ));
         assert_eq!(*removed.borrow(), [2]);
+        picker.handle_event(&prefix, &mut cx);
         assert!(matches!(
             picker.handle_event(&populate, &mut cx),
             EventResult::Consumed(None)
@@ -2371,7 +2412,7 @@ mod tests {
         block_next.store(true, atomic::Ordering::SeqCst);
         picker.results.matcher.tick(0);
         started_rx.recv_timeout(Duration::from_secs(5))?;
-        for key in ["C-q", "ret", "C-x"] {
+        for key in ["C-x", "q", "ret", "C-x", "d"] {
             assert!(matches!(
                 picker.handle_event(&Event::Key(key.parse().unwrap()), &mut cx),
                 EventResult::Consumed(None)
@@ -2396,7 +2437,7 @@ mod tests {
             }
         })
         .await?;
-        for key in ["C-q", "ret", "C-x"] {
+        for key in ["C-x", "q", "ret", "C-x", "d"] {
             picker.handle_event(&Event::Key(key.parse().unwrap()), &mut cx);
         }
         assert_eq!(cx.editor.quicklist.entries(), expected.as_slice());

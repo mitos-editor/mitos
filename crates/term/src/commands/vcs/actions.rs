@@ -74,6 +74,10 @@ impl ActionMenu {
     }
 }
 impl Component for ActionMenu {
+    fn keymap_contexts(&self, cx: &Context) -> Vec<crate::keymap::inspect::Context> {
+        self.select.keymap_contexts(cx)
+    }
+
     fn owns_cursor(&self) -> bool {
         true
     }

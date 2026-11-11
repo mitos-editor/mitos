@@ -87,6 +87,10 @@ macro_rules! keymap {
         $crate::keymap::KeyTrie::MappableCommand($crate::commands::MappableCommand::$cmd)
     };
 
+    (@trie $cmd:literal) => {
+        $crate::keymap::KeyTrie::MappableCommand($cmd.parse().unwrap())
+    };
+
     (@trie
         { $label:literal $(sticky=$sticky:literal)? $($($key:literal)|+ => $value:tt,)+ }
     ) => {

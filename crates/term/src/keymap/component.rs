@@ -6,6 +6,9 @@ use ui_core::keymap::{Binding, Keymap};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PromptAction {
+    ShowKeybindings,
+    InspectKey,
+    SaveHint,
     Cancel,
     Accept,
     MoveWordLeft,
@@ -32,6 +35,10 @@ pub enum PromptAction {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PickerAction {
+    ShowKeybindings,
+    InspectKey,
+    HistoryPrevious,
+    HistoryNext,
     MoveUp,
     MoveDown,
     PageUp,
@@ -117,6 +124,10 @@ impl SidebarAction {
 impl PickerAction {
     pub fn description(self) -> &'static str {
         match self {
+            Self::ShowKeybindings => "Show keybindings",
+            Self::InspectKey => "Inspect a key sequence",
+            Self::HistoryPrevious => "Previous query",
+            Self::HistoryNext => "Next query",
             Self::MoveUp => "Move up",
             Self::MoveDown => "Move down",
             Self::PageUp => "Page up",
@@ -169,6 +180,7 @@ impl PickerAction {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum MenuAction {
+    ShowKeybindings,
     Cancel,
     Accept,
     MoveUp,
@@ -180,6 +192,7 @@ pub enum MenuAction {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PopupAction {
+    ShowKeybindings,
     Cancel,
     ScrollUp,
     ScrollDown,
@@ -231,13 +244,31 @@ pub struct ComponentKeymaps {
 }
 
 fn bindings<A: Copy>(entries: &[(&str, A)]) -> Keymap<A> {
+    fn insert<A: Copy>(keys: &mut Keymap<A>, path: &[&str], action: A) {
+        let key = path[0].parse().unwrap();
+        if path.len() == 1 {
+            assert!(
+                keys.0.insert(key, Binding::Actions(vec![action])).is_none(),
+                "duplicate default binding: {}",
+                path[0]
+            );
+        } else {
+            let entry = keys
+                .0
+                .entry(key)
+                .or_insert_with(|| Binding::Keys(Keymap::default()));
+            let Binding::Keys(nested) = entry else {
+                panic!("conflicting default prefix")
+            };
+            insert(nested, &path[1..], action);
+        }
+    }
     let mut keys = Keymap::default();
-    for &(key, action) in entries {
-        assert!(
-            keys.0
-                .insert(key.parse().unwrap(), Binding::Actions(vec![action]))
-                .is_none(),
-            "duplicate default binding: {key}"
+    for &(path, action) in entries {
+        insert(
+            &mut keys,
+            &path.split_ascii_whitespace().collect::<Vec<_>>(),
+            action,
         );
     }
     keys
@@ -246,13 +277,39 @@ fn bindings<A: Copy>(entries: &[(&str, A)]) -> Keymap<A> {
 pub(crate) fn quicklist_picker_keymap(picker: &Keymap<PickerAction>) -> Keymap<PickerAction> {
     let mut keys = picker.clone();
     keys.merge(bindings(&[(
-        "C-x",
+        "C-x d",
         PickerAction::Item(PickerItemAction::RemoveQuicklistEntry),
     )]));
     keys
 }
 
 impl ComponentKeymaps {
+    /// Identify the configured table selected by a picker's keymap accessor.
+    pub fn picker_table(&self, keys: &Keymap<PickerAction>) -> &'static str {
+        for (name, candidate) in [
+            ("keys.buffer-picker", &self.buffer_picker),
+            ("keys.quicklist-picker", &self.quicklist_picker),
+            ("keys.git-picker", &self.git_picker),
+            ("keys.branch-picker", &self.branch_picker),
+            ("keys.worktree-picker", &self.worktree_picker),
+            ("keys.stash-picker", &self.stash_picker),
+            ("keys.history-picker", &self.history_picker),
+            ("keys.file-explorer", &self.file_explorer),
+        ] {
+            if std::ptr::eq(keys, candidate) {
+                return name;
+            }
+        }
+        "keys.picker"
+    }
+
+    pub fn buffer_picker(mut shared: Keymap<PickerAction>) -> Keymap<PickerAction> {
+        shared.merge(bindings(&[(
+            "C-x d",
+            PickerAction::Item(PickerItemAction::CloseBuffer),
+        )]));
+        shared
+    }
     pub fn sidebar_filter(explorer: Keymap<PickerAction>) -> Keymap<SidebarAction> {
         let mut keys = explorer.map_actions(SidebarAction::Picker);
         keys.merge(bindings(&[("C-e", SidebarAction::FocusEditor)]));
@@ -287,20 +344,18 @@ impl ComponentKeymaps {
     pub fn git_picker(mut shared: Keymap<PickerAction>) -> Keymap<PickerAction> {
         use PickerItemAction as I;
         shared.merge(bindings(&[
-            ("A-p", PickerAction::PreviewPrevious),
-            ("A-n", PickerAction::PreviewNext),
-            ("A-a", PickerAction::Item(I::Actions)),
-            ("A-s", PickerAction::Item(I::Stage)),
-            ("A-u", PickerAction::Item(I::Unstage)),
-            ("A-z", PickerAction::Item(I::Stash)),
-            ("A-l", PickerAction::Item(I::Stashes)),
+            ("C-x a s", PickerAction::Item(I::Stage)),
+            ("C-x a u", PickerAction::Item(I::Unstage)),
+            ("C-x a z", PickerAction::Item(I::Stash)),
+            ("C-x a l", PickerAction::Item(I::Stashes)),
+            ("C-x a ?", PickerAction::Item(I::Actions)),
         ]));
         shared
     }
     pub fn history_picker(mut shared: Keymap<PickerAction>) -> Keymap<PickerAction> {
         shared.merge(bindings(&[
-            ("A-a", PickerAction::Item(PickerItemAction::Actions)),
-            ("A-h", PickerAction::Item(PickerItemAction::HistoryBack)),
+            ("C-x a", PickerAction::Item(PickerItemAction::Actions)),
+            ("C-x b", PickerAction::Item(PickerItemAction::HistoryBack)),
         ]));
         shared
     }
@@ -308,29 +363,41 @@ impl ComponentKeymaps {
     pub fn file_explorer(mut shared: Keymap<PickerAction>) -> Keymap<PickerAction> {
         use PickerItemAction as I;
         shared.merge(bindings(&[
-            ("A-n", PickerAction::Item(I::CreatePath)),
-            ("A-m", PickerAction::Item(I::MovePath)),
-            ("A-c", PickerAction::Item(I::CopyPath)),
-            ("A-d", PickerAction::Item(I::DeletePath)),
-            ("A-y", PickerAction::Item(I::YankPath)),
+            ("C-x n", PickerAction::Item(I::CreatePath)),
+            ("C-x r", PickerAction::Item(I::MovePath)),
+            ("C-x c", PickerAction::Item(I::CopyPath)),
+            ("C-x d", PickerAction::Item(I::DeletePath)),
+            ("C-x y", PickerAction::Item(I::YankPath)),
         ]));
         shared
     }
 
     pub fn branch_picker(mut shared: Keymap<PickerAction>) -> Keymap<PickerAction> {
         shared.merge(bindings(&[
-            ("A-n", PickerAction::Item(PickerItemAction::CreateBranch)),
-            ("A-d", PickerAction::Item(PickerItemAction::DeleteBranch)),
+            ("C-x n", PickerAction::Item(PickerItemAction::CreateBranch)),
+            ("C-x d", PickerAction::Item(PickerItemAction::DeleteBranch)),
         ]));
         shared
     }
 
     pub fn worktree_picker(mut shared: Keymap<PickerAction>) -> Keymap<PickerAction> {
         shared.merge(bindings(&[
-            ("A-n", PickerAction::Item(PickerItemAction::CreateWorktree)),
-            ("A-d", PickerAction::Item(PickerItemAction::RemoveWorktree)),
-            ("A-l", PickerAction::Item(PickerItemAction::LockWorktree)),
-            ("A-u", PickerAction::Item(PickerItemAction::UnlockWorktree)),
+            (
+                "C-x n",
+                PickerAction::Item(PickerItemAction::CreateWorktree),
+            ),
+            (
+                "C-x d",
+                PickerAction::Item(PickerItemAction::RemoveWorktree),
+            ),
+            (
+                "C-x a l",
+                PickerAction::Item(PickerItemAction::LockWorktree),
+            ),
+            (
+                "C-x a u",
+                PickerAction::Item(PickerItemAction::UnlockWorktree),
+            ),
         ]));
         shared
     }
@@ -338,9 +405,9 @@ impl ComponentKeymaps {
     pub fn stash_picker(mut shared: Keymap<PickerAction>) -> Keymap<PickerAction> {
         use PickerItemAction as I;
         shared.merge(bindings(&[
-            ("A-a", PickerAction::Item(I::Actions)),
-            ("A-s", PickerAction::Item(I::ApplyStash)),
-            ("A-i", PickerAction::Item(I::ApplyStashWithIndex)),
+            ("C-x a s", PickerAction::Item(I::ApplyStash)),
+            ("C-x a i", PickerAction::Item(I::ApplyStashWithIndex)),
+            ("C-x a ?", PickerAction::Item(I::Actions)),
         ]));
         shared
     }
@@ -354,6 +421,29 @@ impl Default for ComponentKeymaps {
         use PromptAction as P;
         let pages = bindings(&[("A-p", PageAction::Previous), ("A-n", PageAction::Next)]);
         let picker = bindings(&[
+            ("F1", K::ShowKeybindings),
+            ("C-x ?", K::ShowKeybindings),
+            ("C-x i", K::InspectKey),
+            ("C-x j", K::PreviewScrollDown),
+            ("C-x k", K::PreviewScrollUp),
+            ("C-x [", K::PreviewPrevious),
+            ("C-x ]", K::PreviewNext),
+            ("C-x s", K::AcceptHorizontalSplit),
+            ("C-x v", K::AcceptVerticalSplit),
+            ("C-x ret", K::AcceptKeepOpen),
+            ("C-x p", K::TogglePreview),
+            ("C-x l", K::ToggleLoading),
+            ("C-x q", K::PopulateQuicklist),
+            ("C-x g", K::MoveStart),
+            ("C-x G", K::MoveEnd),
+            ("C-x h", K::HistoryPrevious),
+            ("C-x H", K::HistoryNext),
+            ("C-x r", K::ToggleReplacement),
+            ("C-x R", K::ReplaceAll),
+            ("C-x f", K::ToggleCaseSensitive),
+            ("C-x o", K::OpenPreview),
+            ("A-n", K::PreviewNext),
+            ("A-p", K::PreviewPrevious),
             ("S-tab", K::MoveUp),
             ("up", K::MoveUp),
             ("C-p", K::MoveUp),
@@ -361,22 +451,11 @@ impl Default for ComponentKeymaps {
             ("down", K::MoveDown),
             ("C-n", K::MoveDown),
             ("pagedown", K::PageDown),
-            ("C-d", K::PageDown),
             ("pageup", K::PageUp),
-            ("C-u", K::PageUp),
-            ("home", K::MoveStart),
-            ("end", K::MoveEnd),
             ("esc", K::Cancel),
             ("C-c", K::Cancel),
-            ("C-q", K::PopulateQuicklist),
             ("A-ret", K::AcceptKeepOpen),
             ("ret", K::Accept),
-            ("C-s", K::AcceptHorizontalSplit),
-            ("C-v", K::AcceptVerticalSplit),
-            ("C-t", K::TogglePreview),
-            ("C-l", K::ToggleLoading),
-            ("A-r", K::ToggleReplacement),
-            ("A-c", K::ToggleCaseSensitive),
             ("C-ret", K::ReplaceAll),
             ("Meta-ret", K::ReplaceAll),
             ("A-k", K::PreviewScrollUp),
@@ -389,6 +468,9 @@ impl Default for ComponentKeymaps {
         ]);
         Self {
             prompt: bindings(&[
+                ("F1", P::ShowKeybindings),
+                ("C-x i", P::InspectKey),
+                ("C-s", P::SaveHint),
                 ("esc", P::Cancel),
                 ("C-c", P::Cancel),
                 ("ret", P::Accept),
@@ -417,7 +499,7 @@ impl Default for ComponentKeymaps {
                 ("S-backspace", P::DeleteBackward),
                 ("C-d", P::DeleteForward),
                 ("del", P::DeleteForward),
-                ("C-s", P::InsertWord),
+                ("A-w", P::InsertWord),
                 ("C-p", P::HistoryPrevious),
                 ("up", P::HistoryPrevious),
                 ("C-n", P::HistoryNext),
@@ -427,7 +509,7 @@ impl Default for ComponentKeymaps {
                 ("C-q", P::ExitSelection),
                 ("C-r", P::InsertRegister),
             ]),
-            buffer_picker: picker.clone(),
+            buffer_picker: Self::buffer_picker(picker.clone()),
             quicklist_picker: quicklist_picker_keymap(&picker),
             git_picker: Self::git_picker(picker.clone()),
             branch_picker: Self::branch_picker(picker.clone()),
@@ -439,13 +521,14 @@ impl Default for ComponentKeymaps {
             sidebar_filter: Self::sidebar_filter(Self::file_explorer(picker.clone())),
             picker,
             menu: bindings(&[
+                ("F1", M::ShowKeybindings),
                 ("esc", M::Cancel),
                 ("C-c", M::Cancel),
                 ("ret", M::Accept),
                 ("S-tab", M::MoveUp),
                 ("up", M::MoveUp),
                 ("C-p", M::MoveUp),
-                ("tab", M::MoveDown),
+                ("tab", M::Accept),
                 ("down", M::MoveDown),
                 ("C-n", M::MoveDown),
                 ("pageup", M::PageUp),
@@ -454,6 +537,7 @@ impl Default for ComponentKeymaps {
                 ("C-d", M::PageDown),
             ]),
             popup: bindings(&[
+                ("F1", O::ShowKeybindings),
                 ("esc", O::Cancel),
                 ("C-c", O::Cancel),
                 ("pagedown", O::ScrollDown),

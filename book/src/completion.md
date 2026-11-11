@@ -11,14 +11,18 @@ is open:
 
 | Key | Action |
 | --- | --- |
-| `Tab`, `Ctrl-n`, `Down` | Select the next suggestion |
+| `Ctrl-n`, `Down` | Select the next suggestion |
 | `Shift-Tab`, `Ctrl-p`, `Up` | Select the previous suggestion |
-| `Enter` | Accept the selected suggestion |
-| `Ctrl-c` | Dismiss the menu and reject the preview |
+| `Enter`, `Tab` | Accept the selected suggestion, or the first match if none is selected |
+| `Esc`, `Ctrl-c` | Dismiss the menu and reject the preview, staying in insert mode |
 
 Typing another character normally accepts the selected suggestion and continues
 typing. Mitos previews the selected suggestion in the document by default.
 Disable this with `editor.completion.preview-insert = false`.
+
+Saving and other commands do not accept preview text. For example, `Ctrl-s`
+dismisses the preview and saves the text you entered. After dismissing the menu,
+press `Esc` again to return to normal mode.
 
 To request suggestions only with `Ctrl-x`:
 
@@ -35,8 +39,10 @@ word completion, and path completion. Remap menu keys under
 
 Language servers can return snippets with editable placeholders, such as a
 function call's arguments. After accepting one, type over the selected
-placeholder and press `Tab` to move to the next one when smart-tab is active
-and non-whitespace precedes the cursor.
+placeholder and press `Tab` to move to the next one, or `Shift-Tab` to move
+backward. This works after whitespace too, with smart-tab enabled or disabled.
+If a completion menu is open, its keys take priority: accept or dismiss it first.
+Use `Ctrl-g n` and `Ctrl-g p` to cycle a placeholder's choices.
 
 You can bind placeholder navigation directly, including backward navigation:
 
@@ -52,20 +58,20 @@ LSP snippets are enabled by default. To disable them, set
 
 ## Smart Tab
 
-Outside a snippet, `Tab` moves to the end of the enclosing syntax node when
-there is non-whitespace text before the cursor. At the start of a line it
-inserts indentation. `Shift-Tab` explicitly inserts indentation with the
-default bindings.
+Outside a snippet or completion menu, `Tab` inserts indentation and `Shift-Tab`
+unindents the selected lines. Syntax-aware Tab is optional: when enabled, `Tab`
+moves to the end of the enclosing syntax node if non-whitespace text precedes
+the cursor, and inserts indentation otherwise.
 
-While the completion menu is open, `Tab` normally selects the next suggestion.
-Set `editor.indent.smart-tab.supersede-menu = true` to give smart-tab priority.
-You can still select suggestions with `Ctrl-n` and `Ctrl-p`.
+While the completion menu is open, `Tab` accepts its selected suggestion.
+The `supersede-menu` option applies to menu bindings that navigate with Tab;
+an explicit accept binding keeps priority. Use `Ctrl-n` and `Ctrl-p` to navigate.
 
-To always insert indentation when the menu is closed:
+To enable syntax-aware Tab:
 
 ```toml
 [editor.indent.smart-tab]
-enable = false
+enable = true
 ```
 
 ## Inline completions
@@ -81,9 +87,11 @@ There are no default keys for inline suggestions. Add these to `config.toml`:
 [keys.insert]
 C-y = "inline_completion_accept"
 C-e = "inline_completion_dismiss"
-C-g = "inline_completion_trigger"
 A-n = "inline_completion_next"
 A-p = "inline_completion_previous"
+
+[keys.insert.C-g]
+t = "inline_completion_trigger"
 ```
 
 To request suggestions only with your trigger binding:

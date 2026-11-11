@@ -1,5 +1,6 @@
 pub mod component;
 pub mod default;
+pub mod inspect;
 pub mod macros;
 
 pub use crate::commands::MappableCommand;
@@ -342,6 +343,7 @@ pub struct Keymaps {
     state: Vec<KeyEvent>,
     /// Stores the sticky node if one is activated.
     pub sticky: Option<KeyTrieNode>,
+    sticky_path: Vec<KeyEvent>,
 }
 
 impl Keymaps {
@@ -350,6 +352,7 @@ impl Keymaps {
             map,
             state: Vec::new(),
             sticky: None,
+            sticky_path: Vec::new(),
         }
     }
 
@@ -365,10 +368,15 @@ impl Keymaps {
     pub(crate) fn reset(&mut self) {
         self.state.clear();
         self.sticky = None;
+        self.sticky_path.clear();
     }
 
     pub fn sticky(&self) -> Option<&KeyTrieNode> {
         self.sticky.as_ref()
+    }
+
+    pub(crate) fn sticky_path(&self) -> &[KeyEvent] {
+        &self.sticky_path
     }
 
     pub fn contains_key(&self, mode: Mode, key: KeyEvent) -> bool {
@@ -388,12 +396,13 @@ impl Keymaps {
         let keymaps = &*self.map();
         let keymap = &keymaps[&mode];
 
-        if key!(Esc) == key {
+        if key!(Esc) == key || crate::ctrl!('c') == key {
             if !self.state.is_empty() {
                 // Note that Esc is not included here
                 return KeymapResult::Cancelled(self.state.drain(..).collect());
             }
             self.sticky = None;
+            self.sticky_path.clear();
         }
 
         let first = self.state.first().unwrap_or(&key);
@@ -417,6 +426,7 @@ impl Keymaps {
         match trie.search(&self.state[1..]) {
             Some(KeyTrie::Node(map)) => {
                 if map.is_sticky {
+                    self.sticky_path.extend(&self.state);
                     self.state.clear();
                     self.sticky = Some(map.clone());
                 }
@@ -581,11 +591,11 @@ mod tests {
     fn aliased_modes_are_same_in_default_keymap() {
         let keymaps = Keymaps::default().map();
         let root = keymaps.get(&Mode::Normal).unwrap();
-        assert_eq!(
-            root.search(&[key!(' '), key!('w')]).unwrap(),
-            root.search(&["C-w".parse::<KeyEvent>().unwrap()]).unwrap(),
-            "Mismatch for window mode on `Space-w` and `Ctrl-w`"
-        );
+        let debug = root.search(&[key!(' '), key!('x')]).unwrap();
+        let sticky_debug = root.search(&[key!(' '), key!('X')]).unwrap();
+        assert_eq!(debug, sticky_debug);
+        assert!(!debug.node().unwrap().is_sticky);
+        assert!(sticky_debug.node().unwrap().is_sticky);
         assert_eq!(
             root.search(&[key!('z')]).unwrap(),
             root.search(&[key!('Z')]).unwrap(),

@@ -16,7 +16,7 @@ ms README.md
 ms .
 ```
 
-Mitos starts in **normal mode**. Press `Esc` whenever you want to return to it.
+Mitos starts in **normal mode**. Press `Esc` to cancel the innermost menu or input state, then press it again to return to normal mode.
 
 Key combinations such as `Ctrl-x` are pressed together. Sequences such as
 `Space f` are pressed one key after another. Uppercase letters require Shift.
@@ -36,7 +36,7 @@ Use the arrow keys or the home-row movement keys:
 | `w` / `b` | Next / previous word start |
 | `e` | Next word end |
 | `Ctrl-u` / `Ctrl-d` | Half a page up / down |
-| `gg` / `ge` | Start / end of the file |
+| `gg` / `G` (or `ge`) | Start / last line of the file |
 
 You can prefix many movements with a count. For example, `5j` moves down five
 visual lines.
@@ -48,6 +48,8 @@ after it. Type normally, then press `Esc` to finish the insertion.
 
 Other useful entry points are `I` and `A` for the start and end of the line,
 and `o` / `O` for a new line below or above.
+
+Save with `Ctrl-s` from normal, select, or insert mode. In normal and select mode, `Space w` also saves; `Space W` saves all modified buffers.
 
 ## Select, then act
 

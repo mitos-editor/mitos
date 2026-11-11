@@ -15,7 +15,7 @@ use `C-` for Ctrl, `A-` for Alt, and `S-` for Shift. For example:
 
 ```toml
 [keys.normal]
-C-s = ":write"
+F3 = ":write-all"
 ret = ["open_below", "normal_mode"]
 A-x = "@x<A-d>" # Select a line and delete it without yanking.
 
@@ -41,6 +41,12 @@ cannot contain both `command` and nested keybindings. Individual static commands
 keep their built-in descriptions; sequences may contain static and typable
 commands and have their own label. Macros cannot be used in command sequences.
 These labels apply to editor mode maps (`normal`, `insert`, and `select`).
+
+Normal and select share built-in defaults, but user remaps are applied to each
+table separately. Add a binding to both `[keys.normal]` and `[keys.select]`
+when you want it in both modes. Insert and component maps are separate too.
+Use the [binding inspector](./keybinding-migration.md#find-and-inspect-bindings) to
+check which definition wins and which keys it shadows.
 
 ## Minor modes
 
@@ -80,13 +86,13 @@ C-space = "accept"
 C-n = "unbound" # Release this key to the picker's prompt.
 
 [keys.buffer-picker]
-C-x = "close_buffer" # Close the selected buffer and keep the picker open.
+F3 = "close_buffer" # Add a shortcut without replacing the Ctrl-x action menu.
 
 [keys.git-picker]
-C-x = "actions"
+F3 = "actions"
 
 [keys.stash-picker]
-C-x = "apply_stash"
+F3 = "apply_stash"
 
 [keys.file-explorer]
 F2 = "move_path"
@@ -120,7 +126,7 @@ Use `no_op` to consume a key without doing anything. Use `unbound` to remove
 its action and let the usual fallback handle it. For example, a key unbound in
 `keys.picker` can edit the picker's query through `keys.prompt`.
 
-Nested maps wait for another key. `Esc` or an invalid continuation cancels the
+Nested maps wait for another key. `Esc`, `Ctrl-c`, or an invalid continuation cancels the
 sequence and consumes that key. Pasting into a prompt cancels a pending sequence
 and inserts the pasted text. Action lists run in order and stop when an action
 closes the component or starts another interaction.
@@ -128,16 +134,16 @@ closes the component or starts another interaction.
 Picker actions take priority over prompt actions. Menu actions take priority
 over popup actions. To pass `Ctrl-d` through a completion menu and its popup to
 an editor binding, set `C-d = "unbound"` in both `keys.menu` and `keys.popup`.
-To remap `Esc` inside an insert-mode menu, also set `esc = "unbound"` in
-`keys.popup` so the popup passes it to the menu.
+An active menu receives keys before its popup. A pending popup prefix takes
+priority until its sequence completes or is cancelled.
 
 Component bindings accept only the actions below. Editor commands and macros
 belong in `keys.normal`, `keys.insert`, and `keys.select`.
 
 | Table | Actions |
 | --- | --- |
-| `keys.prompt` | `accept`, `cancel`, `move_left`, `move_right`, `move_word_left`, `move_word_right`, `move_start`, `move_end`, `delete_backward`, `delete_forward`, `delete_word_backward`, `delete_word_forward`, `delete_to_start`, `delete_to_end`, `insert_word`, `insert_register`, `history_previous`, `history_next`, `complete_previous`, `complete_next`, `exit_selection` |
-| `keys.picker` | `accept`, `accept_keep_open`, `accept_horizontal_split`, `accept_vertical_split`, `cancel`, `move_up`, `move_down`, `move_start`, `move_end`, `page_up`, `page_down`, `toggle_preview`, `toggle_loading`, `populate_quicklist`, `toggle_replacement`, `toggle_case_sensitive`, `replace_all`, `preview_scroll_up`, `preview_scroll_down`, `preview_previous`, `preview_next`, `open_preview` |
+| `keys.prompt` | `show_keybindings`, `inspect_key`, `save_hint`, `accept`, `cancel`, `move_left`, `move_right`, `move_word_left`, `move_word_right`, `move_start`, `move_end`, `delete_backward`, `delete_forward`, `delete_word_backward`, `delete_word_forward`, `delete_to_start`, `delete_to_end`, `insert_word`, `insert_register`, `history_previous`, `history_next`, `complete_previous`, `complete_next`, `exit_selection` |
+| `keys.picker` | `show_keybindings`, `inspect_key`, `history_previous`, `history_next`, `accept`, `accept_keep_open`, `accept_horizontal_split`, `accept_vertical_split`, `cancel`, `move_up`, `move_down`, `move_start`, `move_end`, `page_up`, `page_down`, `toggle_preview`, `toggle_loading`, `populate_quicklist`, `toggle_replacement`, `toggle_case_sensitive`, `replace_all`, `preview_scroll_up`, `preview_scroll_down`, `preview_previous`, `preview_next`, `open_preview` |
 | `keys.buffer-picker` | All `keys.picker` actions, plus `close_buffer` |
 | `keys.quicklist-picker` | All `keys.picker` actions, plus `remove_entry` |
 | `keys.git-picker` | All `keys.picker` actions, plus `stage`, `unstage`, `stash`, `actions`, `stashes` |
@@ -147,8 +153,8 @@ belong in `keys.normal`, `keys.insert`, and `keys.select`.
 | `keys.history-picker` | All `keys.picker` actions, plus `actions`, `back` |
 | `keys.file-explorer` | All `keys.picker` actions, plus `create_path`, `move_path`, `copy_path`, `delete_path`, `yank_path` |
 | `keys.sidebar`, `keys.sidebar-filter` | All `keys.file-explorer` actions, plus `filter`, `focus_editor`, `hide`, `next_view`, `previous_view`, `resize` |
-| `keys.menu` | `accept`, `cancel`, `move_up`, `move_down`, `page_up`, `page_down` |
-| `keys.popup` | `cancel`, `scroll_up`, `scroll_down` |
+| `keys.menu` | `show_keybindings`, `accept`, `cancel`, `move_up`, `move_down`, `page_up`, `page_down` |
+| `keys.popup` | `show_keybindings`, `cancel`, `scroll_up`, `scroll_down` |
 | `keys.hover`, `keys.signature-help` | `previous`, `next` |
 | `keys.blame` | `copy_commit_id`, `copy_message` |
 | `keys.diff` | `scroll_left`, `scroll_right`, `restore` (current-change popup only) |
@@ -161,13 +167,13 @@ paging move by half a page. Picker paging moves by a full page.
 `keys.history-picker`, and `keys.file-explorer` inherit
 `keys.picker`.
 Picker-specific bindings take priority over shared picker bindings, including
-ones from project configuration. The quicklist picker also binds `Ctrl-x` to
-`remove_entry` by default.
+ones from project configuration. The buffer picker binds `Ctrl-x d` to `close_buffer`; the quicklist picker
+binds it to `remove_entry`. Other Ctrl-x actions remain inherited.
 
 `close_buffer` closes the selected buffer while keeping the picker open. It
 waits for pending saves and refuses to discard unsaved changes. After closing,
 the query is kept and a nearby row becomes selected. The action stops the
-current action list. It has no default binding.
+current action list. Its default binding is `Ctrl-x d`.
 
 `remove_entry` removes the highlighted quicklist entry while keeping the picker
 open, preserving the filter and selecting a nearby row. It stops the current
@@ -191,7 +197,7 @@ Windows/Linux key or the Command key.
 
 ```toml
 [keys.normal]
-C-s = ":write" # Ctrl and 's' to write
+F3 = ":write-all" # Save every modified buffer
 Cmd-s = ":write" # Cmd or Win or Meta and 's' to write
 ```
 

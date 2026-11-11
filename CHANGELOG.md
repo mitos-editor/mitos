@@ -4,6 +4,8 @@
 
 ## [Unreleased]
 
+- Keybinding defaults now use `Ctrl-s` to save, `Ctrl-x` for picker actions, predictable completion cancellation, and one-shot debugger commands. The [migration guide](https://mitos.computer/docs/keybinding-migration.html) lists breaking changes. Use `Ctrl-g k` / `Ctrl-g i` to browse or inspect active bindings.
+
 ## [0.2.1](https://github.com/mitos-editor/mitos/compare/v0.2.0...v0.2.1) - 2026-11-09
 
 - Fix release packaging on Windows: omit upstream grammar symlinks that prevented both Windows builds from extracting their sources. The failure also blocked publication of all 0.2.0 downloads; this release includes the [0.2.0 features and upgrade notes](https://github.com/mitos-editor/mitos/blob/v0.2.0/CHANGELOG.md#020---2026-11-08) below.

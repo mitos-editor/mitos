@@ -21,8 +21,6 @@ currently the only supported provider.
 
 Find other version-control commands by searching for `vcs-` in the command palette (`Space ?`).
 
-`Space i` also inspects a change, and `Space B` toggles inline blame.
-
 Previously, `Space g` opened changed files directly; that action is now
 `Space g s`. To open changed files directly again, replace the
 version-control menu with this binding in `config.toml`:
@@ -54,7 +52,7 @@ The picker has separate **staged** and **unstaged** columns. Each path appears
 once, including files with both kinds of changes. New files are labeled `added`
 when staged and `untracked` before they are added to Git.
 
-The preview shows the selected file's diff. Use `Alt-p` / `Alt-n` to choose which
+The preview shows the selected file's diff. Use `Alt-p` / `Ctrl-x n` to choose which
 versions to compare:
 
 | Comparison | Before | After |
@@ -78,11 +76,11 @@ preview shows a diff so you can review the result.
 | `Enter` | Open the file |
 | `Alt-o` | Open the selected diff in a review buffer |
 | `Alt-k` / `Alt-j` or `Alt-Up` / `Alt-Down` | Scroll the preview |
-| `Ctrl-t` | Hide or show the preview |
+| `Ctrl-x p` | Hide or show the preview |
 
 For deleted files, `Enter` opens a review. `Alt-o` also works when the preview is
 hidden. After opening a diff, `Space '` restores the picker, and further
-selections open as reviews. Use `Ctrl-v` / `Ctrl-s` to open them in a vertical /
+selections open as reviews. Use `Ctrl-x v` / `Ctrl-x s` to open them in a vertical /
 horizontal split.
 
 Results refresh as files change, keeping the query and selected file. Remap these
@@ -148,7 +146,7 @@ To review two files side by side:
 
 1. Press `Space g s`, select a file, and press `Alt-o`.
 2. Press `Space '` to restore the picker and select another file.
-3. Press `Ctrl-v` to open the second diff in a vertical split.
+3. Press `Ctrl-x v` to open the second diff in a vertical split.
 
 Use `Ctrl-w v` / `Ctrl-w s` to split an existing review. The command palette also
 lists the diff commands.
@@ -158,7 +156,7 @@ large files may be rejected, or their diffs shortened with a notice.
 
 ### Inspecting the current change
 
-Press `Space i` or run `:vcs-show-change` to inspect the change at the cursor in a
+Press `Space g i` or run `:vcs-show-change` to inspect the change at the cursor in a
 popup. It compares `HEAD` with the current buffer, including unsaved edits, and
 shows added and removed lines with context and line numbers.
 
@@ -238,7 +236,7 @@ Navigation and restoration use line changes with either comparison engine.
 
 ## Git picker actions
 
-Use these shortcuts directly in the changed-file picker (`Space g s`). Actions
+Press `Ctrl-x` to see available actions in the changed-file picker (`Space g s`). Actions
 affect the selected file's repository, or the picker's repository when no file is
 selected. Staging, unstaging, stashing, and applying stashes require
 [workspace trust](./workspace-trust.md). Use `:workspace-trust` to approve the
@@ -246,13 +244,13 @@ workspace.
 
 | Key | Action |
 | --- | --- |
-| `Alt-s` | Stage the selected file as it exists on disk |
-| `Alt-u` | Unstage the selected file, keeping its working copy |
-| `Alt-z` | Stash all repository changes, after confirmation |
-| `Alt-l` | Browse stashes |
+| `Ctrl-x a s` | Stage the selected file as it exists on disk |
+| `Ctrl-x a u` | Unstage the selected file, keeping its working copy |
+| `Ctrl-x a z` | Stash all repository changes, after confirmation |
+| `Ctrl-x a l` | Browse stashes |
 
-The picker shows these shortcuts below the file list, including any remappings.
-`Alt-a` offers the same actions in a menu. Staging and unstaging keep the query
+The action menu shows the current shortcuts, including remappings.
+`Ctrl-x a ?` offers the same actions in a menu. Staging and unstaging keep the query
 and selected file.
 
 Staging does not save unsaved buffer edits. Staging and unstaging affect the
@@ -269,18 +267,18 @@ on disk.
 
 ### Stashes
 
-Press `Alt-l` in the changed-file picker or choose `vcs_stash_picker` from the
+Press `Ctrl-x a l` in the changed-file picker or choose `vcs_stash_picker` from the
 command palette to browse the newest 500 stashes. Press `Enter` to browse a
 stash's saved staged version, working tree, and untracked files, then `Enter` on
 a file to review its saved changes. `Alt-Enter` keeps the picker open.
 
 In the stash picker, use these shortcuts directly or choose an action with
-`Alt-a`:
+`Ctrl-x a ?`:
 
 | Key | Action |
 | --- | --- |
-| `Alt-s` | Apply the stash and keep it |
-| `Alt-i` | Apply the stash, restore its staged changes, and keep it |
+| `Ctrl-x a s` | Apply the stash and keep it |
+| `Ctrl-x a i` | Apply the stash, restore its staged changes, and keep it |
 
 Applying a stash asks for confirmation. Save modified buffers in that repository
 first. Git may leave conflicts to resolve; the stash is kept even if applying it
@@ -294,7 +292,7 @@ See [Component keys](./remapping.md#component-keys).
 Run `:vcs-branches` to browse local branches. Select a branch and press `Enter`
 to switch to it. Save edited files in that repository first.
 
-Press `Alt-n` to create a branch at `HEAD` without switching. Press `Alt-d`
+Press `Ctrl-x n` to create a branch at `HEAD` without switching. Press `Ctrl-x d`
 to confirm deletion of the selected branch. Deletion fails if the branch is
 unmerged or checked out in any worktree. The picker stays open and refreshes after
 the action. Remap these shortcuts under `[keys.branch-picker]`.
@@ -322,10 +320,10 @@ A worktree is a separate folder where you can work on another branch of the same
 repository. Run `:vcs-worktrees` to browse worktrees, then press `Enter` to open
 one in the file picker. Your open buffers and unsaved edits are kept.
 
-Press `Alt-n` to enter a new worktree path, relative to this picker's
+Press `Ctrl-x n` to enter a new worktree path, relative to this picker's
 repository root, then an existing branch name (leave it empty for detached HEAD).
-Press `Alt-d` to confirm removal of the selected worktree.
-Press `Alt-l` to lock a linked worktree against removal and pruning, or `Alt-u`
+Press `Ctrl-x d` to confirm removal of the selected worktree.
+Press `Ctrl-x a l` to lock a linked worktree against removal and pruning, or `Ctrl-x a u`
 to unlock it. Locking an already locked worktree preserves its existing reason.
 The main worktree cannot be locked. These actions require workspace trust and
 work even when a linked worktree folder is temporarily unavailable.
@@ -408,14 +406,14 @@ see [loading large collections](./pickers.md#loading-large-collections).
 
 Run `:vcs-file-history` to browse commits that changed the current file, following
 detected renames. The preview shows the selected commit's diff against
-its first parent. `Ctrl-t` hides or shows the preview; `Alt-k` / `Alt-j` or
+its first parent. `Ctrl-x p` hides or shows the preview; `Alt-k` / `Alt-j` or
 `Alt-Up` / `Alt-Down` scroll it.
 
-Press `Enter` to open the diff in a review buffer. `Ctrl-v` / `Ctrl-s` open it in a
+Press `Enter` to open the diff in a review buffer. `Ctrl-x v` / `Ctrl-x s` open it in a
 vertical / horizontal split. `Space '` restores the picker with its query and
 selection, so you can open another comparison alongside it.
 
-Use `Alt-a` to open the file's version at that commit or choose another parent
+Use `Ctrl-x a` to open the file's version at that commit or choose another parent
 of a merge commit. When browsing from an editable file buffer, it also offers a
 comparison with that buffer, including unsaved edits.
 
@@ -433,13 +431,13 @@ switching branches to browse the new branch.
 The preview shows the full commit message followed by all changed files in one
 scrollable patch. `Alt-o` opens the combined preview in a read-only buffer.
 `Alt-k` / `Alt-j` scroll through the message and changes;
-`Ctrl-t` hides or shows the preview.
+`Ctrl-x p` hides or shows the preview.
 Press `Enter` to browse the commit’s changed files. Merges
-compare with their first parent by default; use `Alt-a` to choose another parent.
-`Alt-a` also offers historical versions and comparisons with an open buffer for
+compare with their first parent by default; use `Ctrl-x a` to choose another parent.
+`Ctrl-x a` also offers historical versions and comparisons with an open buffer for
 that file.
 
-In the changed-file browser, `Alt-h` returns to the commit browser with its query
+In the changed-file browser, `Ctrl-x b` returns to the commit browser with its query
 and selection. `Space '` restores the last picker after opening a review.
 
 ### Older versions and comparisons
@@ -494,7 +492,7 @@ accepts repeated `blame.ignoreRevs` values for individual revisions.
 
 ## Inline blame
 
-Show who last changed the current line with `Space B`. Press it again to hide
+Show who last changed the current line with `Space g t`. Press it again to hide
 annotations. To show them by default, add this to `config.toml`:
 
 ```toml

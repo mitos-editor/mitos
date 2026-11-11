@@ -21,7 +21,7 @@ Replacement text is literal; `$1` does not expand a regex capture. See
 
 | Task | Vim | Mitos |
 | --- | --- | --- |
-| First / last line | `gg` / `G` | `gg` / `ge` |
+| First / last line | `gg` / `G` | `gg` / `G` (or `ge`) |
 | Line start / end | `0` / `$` | `gh` / `gl` |
 | First nonblank character | `^` | `gs` |
 | Matching bracket | `%` | `mm` |
@@ -62,8 +62,8 @@ window menu; see [Files, buffers, and splits](./files.md).
 `:sh <command>` runs a shell command; `!` inserts command output. See
 [Shell commands](./shell.md).
 
-Mitos uses the [jumplist](./jumplist.md) for saved locations: `Ctrl-s` saves
-one, `Ctrl-o` goes back, `Ctrl-i` goes forward, and `Space j` opens the list.
+Mitos uses the [jumplist](./jumplist.md) for saved locations: `Space j s` saves
+one, `Ctrl-o` goes back, `Ctrl-i` goes forward, and `Space j j` opens the list.
 
 See [Textobjects](./textobjects.md), [Surround](./surround.md), and
 [Registers](./registers.md) for other familiar operations with different keys.

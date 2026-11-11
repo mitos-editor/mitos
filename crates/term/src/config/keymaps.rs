@@ -122,6 +122,52 @@ pub struct Keys {
 }
 
 impl Keys {
+    pub(super) fn definitions(&self) -> Vec<keymap::inspect::Definition> {
+        use keymap::inspect::{component, editor};
+        let mut output = Vec::new();
+        for (table, keys) in [
+            ("keys.normal", &self.normal),
+            ("keys.insert", &self.insert),
+            ("keys.select", &self.select),
+        ] {
+            if let Some(keys) = keys {
+                output.extend(editor(table, &KeyTrie::Node(keys.clone())));
+            }
+        }
+        macro_rules! plain {
+            ($name:literal, $field:ident) => {
+                output.extend(component(concat!("keys.", $name), &self.$field));
+            };
+        }
+        macro_rules! wrapped {
+            ($name:literal, $field:ident) => {
+                output.extend(component(
+                    concat!("keys.", $name),
+                    &self.$field.clone().map_actions(|action| action.0),
+                ));
+            };
+        }
+        plain!("prompt", prompt);
+        plain!("picker", picker);
+        wrapped!("buffer-picker", buffer_picker);
+        wrapped!("quicklist-picker", quicklist_picker);
+        wrapped!("git-picker", git_picker);
+        wrapped!("branch-picker", branch_picker);
+        wrapped!("worktree-picker", worktree_picker);
+        wrapped!("stash-picker", stash_picker);
+        wrapped!("history-picker", history_picker);
+        wrapped!("file-explorer", file_explorer);
+        wrapped!("sidebar", sidebar);
+        wrapped!("sidebar-filter", sidebar_filter);
+        plain!("menu", menu);
+        plain!("popup", popup);
+        plain!("hover", hover);
+        plain!("signature-help", signature_help);
+        plain!("blame", blame);
+        plain!("diff", diff);
+        output
+    }
+
     pub(super) fn validate_commands(
         &self,
         custom: &editor_config::CustomCommands,
@@ -246,7 +292,7 @@ pub(super) fn resolve_keymaps(
     }
     // Resolve inheritance after both configuration layers: picker-specific
     // bindings take priority even over workspace changes to shared bindings.
-    components.buffer_picker = components.picker.clone();
+    components.buffer_picker = ComponentKeymaps::buffer_picker(components.picker.clone());
     components.buffer_picker.merge(buffer_overrides);
     components.quicklist_picker = quicklist_picker_keymap(&components.picker);
     components.quicklist_picker.merge(quicklist_overrides);

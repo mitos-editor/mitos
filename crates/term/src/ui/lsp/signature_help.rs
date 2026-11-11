@@ -72,6 +72,18 @@ impl SignatureHelp {
 }
 
 impl Component for SignatureHelp {
+    fn keymap_contexts(&self, cx: &Context) -> Vec<crate::keymap::inspect::Context> {
+        let mut context = crate::keymap::inspect::Context::new(
+            "Signature help",
+            crate::keymap::inspect::component(
+                "keys.signature-help",
+                &cx.config.current.component_keys.signature_help,
+            ),
+        );
+        context.pending = self.page.keys.pending().to_vec();
+        vec![context]
+    }
+
     fn has_pending_keys(&self) -> bool {
         self.page.keys.is_pending()
     }

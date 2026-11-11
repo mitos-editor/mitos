@@ -6,7 +6,7 @@ The title in the top border identifies the picker.
 
 | Keys | Picker |
 | --- | --- |
-| `Space f` / `Space F` | Files at the workspace root / current working directory |
+| `Space f` / `Space F` | Files at the workspace root / current buffer’s directory |
 | `Space b` | Open buffers |
 | `Space e` / `Space E` | File explorer at the workspace / current file's directory |
 | `Space /` | Project search |
@@ -19,8 +19,8 @@ The title in the top border identifies the picker.
 
 Use `Ctrl-n` and `Ctrl-p` or the arrow keys to move between results. `Enter`
 opens the selected item; `Alt-Enter` opens it in the background while keeping
-the picker open. `Ctrl-v` opens a vertical split and `Ctrl-s` a horizontal one.
-`Ctrl-t` toggles the preview. `Esc` closes the picker.
+the picker open. `Ctrl-x v` opens a vertical split and `Ctrl-x s` a horizontal one.
+`Ctrl-x p` toggles the preview. `Esc` closes the picker.
 
 Scroll the preview with `Alt-j` / `Alt-k` or `Alt-Down` / `Alt-Up`. Each press
 moves half a page without changing the selected result or query. These keys
@@ -33,7 +33,7 @@ Images fit the preview pane and do not scroll.
 Remap `preview_scroll_down` and `preview_scroll_up` under `[keys.picker]`, or
 under a specific picker's component keymap.
 
-Press `Ctrl-q` to copy matched file locations into the [quicklist](./quicklist.md)
+Press `Ctrl-x q` to copy matched file locations into the [quicklist](./quicklist.md)
 for navigation after closing the picker. To customize keys, see
 [Component keys](./remapping.md#component-keys).
 
@@ -74,12 +74,12 @@ See [Search and replacement](./search.md) for project-search examples.
 
 ## Replacing global search results
 
-Global search uses smart case by default. Press `Alt-c` to toggle between
+Global search uses smart case by default. Press `Ctrl-x f` to toggle between
 smart case and case-sensitive matching. The input bar shows the current mode.
 
-Press `Alt-r` to reveal the replacement input. Press it again to switch focus
+Press `Ctrl-x r` to reveal the replacement input. Press it again to switch focus
 between the search and replacement inputs. While the replacement input is
-visible, `Enter` replaces the selected match; `Ctrl-Enter`, `Cmd-Enter`, or
+visible, `Enter` replaces the selected match; `Ctrl-x R`, `Ctrl-Enter`, `Cmd-Enter`, or
 `Win-Enter` replaces every occurrence in the files matching the current path
 filter. Wait for search and result updates to finish before replacing.
 
@@ -107,11 +107,11 @@ Manage files without leaving the explorer:
 
 | Key | Action |
 | --- | --- |
-| `Alt-n` | Create a file in the shown directory. End the path with `/` to create a directory. |
-| `Alt-m` | Move or rename the selected entry. The cursor starts before the file extension. Open buffers follow the move. |
-| `Alt-c` | Copy the selected file's saved contents. Copying directories is not supported. |
-| `Alt-d` | Delete the selected entry after you type `y` and press `Enter`. Directories are deleted with their contents. |
-| `Alt-y` | Yank the selected path to the default yank register. |
+| `Ctrl-x n` | Create a file in the shown directory. End the path with `/` to create a directory. |
+| `Ctrl-x r` | Move or rename the selected entry. The cursor starts before the file extension. Open buffers follow the move. |
+| `Ctrl-x c` | Copy the selected file's saved contents. Copying directories is not supported. |
+| `Ctrl-x d` | Delete the selected entry after you type `y` and press `Enter`. Directories are deleted with their contents. |
+| `Ctrl-x y` | Yank the selected path to the default yank register. |
 
 Create, move, and copy open a path prompt. Edit the path and press `Enter` to
 apply the change, or press `Esc` to cancel. Paths are relative to the working
@@ -126,7 +126,7 @@ these keys under [`[keys.file-explorer]`](./remapping.md#component-keys).
 
 Press `Ctrl-e` in normal or select mode to open the file explorer sidebar at the
 workspace root. Press it again to return to the editor. In the editor,
-`Ctrl-w b` (or `Space w b`) shows or hides the sidebar, keeping expanded
+`Ctrl-w b` shows or hides the sidebar, keeping expanded
 directories and your selection.
 
 | Key | Action |
@@ -156,7 +156,7 @@ After confirming a search, press `Enter` again to open the selected file.
 Opening a file returns focus to the editor. The sidebar keeps your search and
 selection when you return. Press `/` to start a new search or `Esc` to clear it.
 
-[File actions](#file-explorer), such as `Alt-n` to create a file and `Alt-m` to
+[File actions](#file-explorer), such as `Ctrl-x n` to create a file and `Ctrl-x r` to
 move it, also work in the sidebar. Remap navigation keys under `keys.sidebar`
 and search keys under `keys.sidebar-filter`; see [component keys](./remapping.md#component-keys).
 For moving between the sidebar and editor splits, see [window navigation](./files.md#work-in-splits).
@@ -196,7 +196,7 @@ Typing a query filters loaded rows immediately and continues loading older or
 remaining entries in the background. Clear the query to stop this extra loading;
 an already requested page can still finish. Scrolling can then load more results.
 
-Press `Ctrl-l` to pause loading. Press it again to continue, or to retry after a
+Press `Ctrl-x l` to pause loading. Press it again to continue, or to retry after a
 loading failure. These controls keep your query and loaded results. Remap the
 `toggle_loading` action under `[keys.picker]` or the specific picker table.
 The active shortcut also appears along the bottom border when picker hints are

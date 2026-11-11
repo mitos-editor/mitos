@@ -114,7 +114,7 @@ async fn native_review_reopens_picker_and_opens_another_diff_in_a_split() -> any
     keys(&mut app, "<space>'<C-a><C-k>b.txt").await?;
     tokio::time::timeout(Duration::from_secs(10), async {
         while current_ref!(app.editor).1.id() == first {
-            keys(&mut app, "<C-v>").await.unwrap();
+            keys(&mut app, "<C-x>v").await.unwrap();
             tokio::time::sleep(Duration::from_millis(5)).await;
         }
     })
@@ -550,7 +550,7 @@ async fn file_history_restores_query_opens_splits_and_historical_syntax() -> any
         .text()
         .to_string()
         .contains("old_version"));
-    keys(&mut app, "<space>'<C-v>").await?;
+    keys(&mut app, "<space>'<C-x>v").await?;
     ready(&mut app).await?;
     assert_ne!(current_ref!(app.editor).1.id(), first);
     assert_eq!(app.editor.tree.views().count(), 2);
@@ -568,7 +568,7 @@ async fn file_history_restores_query_opens_splits_and_historical_syntax() -> any
         "historical source uses the ordinary language syntax tree"
     );
     assert!(doc.path().is_none());
-    keys(&mut app, "<space>'<A-a>Open historical version<ret>").await?;
+    keys(&mut app, "<space>'<C-x>aOpen historical version<ret>").await?;
     tokio::time::timeout(Duration::from_secs(10), async {
         while !current_ref!(app.editor)
             .1
@@ -648,7 +648,7 @@ async fn repository_history_selects_merge_parents_and_retains_nested_browsers() 
 
     tokio::time::timeout(Duration::from_secs(10), async {
         while current_ref!(app.editor).1.review().is_none() {
-            keys(&mut app, "<C-v>").await.unwrap();
+            keys(&mut app, "<C-x>v").await.unwrap();
             tokio::time::sleep(Duration::from_millis(5)).await;
         }
     })
@@ -661,16 +661,16 @@ async fn repository_history_selects_merge_parents_and_retains_nested_browsers() 
         .to_string()
         .contains("fn side()"));
     // Restore the file browser, return to its commit browser, and choose the second parent.
-    keys(&mut app, "<space>'<A-h>").await?;
+    keys(&mut app, "<space>'<C-x>b").await?;
     preview_contains(&mut app, &head[..12]).await?;
-    keys(&mut app, "<A-a>parent 2").await?;
+    keys(&mut app, "<C-x>aparent 2").await?;
     // Let the asynchronous matcher select the requested parent before accepting it.
     preview_contains(&mut app, "Review against parent 2 (").await?;
     keys(&mut app, "<ret>main.rs").await?;
     preview_contains(&mut app, "fn original()").await?;
     tokio::time::timeout(Duration::from_secs(10), async {
         while current_ref!(app.editor).1.id() == first {
-            keys(&mut app, "<C-s>").await.unwrap();
+            keys(&mut app, "<C-x>s").await.unwrap();
             tokio::time::sleep(Duration::from_millis(5)).await;
         }
     })
@@ -744,7 +744,7 @@ async fn review_highlighting_follows_visible_rows_after_a_large_fold() -> anyhow
         .document_mut(id)
         .unwrap()
         .set_selection(view_id, selection);
-    keys(&mut app, "zfs").await?;
+    keys(&mut app, "zf").await?;
     let (view, doc) = current_ref!(app.editor);
     assert_eq!(doc.folded_ranges(view.id).len(), 1);
     let area = view.inner_area(doc);

@@ -52,6 +52,7 @@ pub struct Menu<T: Item> {
     viewport: (u16, u16),
     recalculate: bool,
     auto_close: bool,
+    select_first_on_accept: bool,
     show_selection_marker: bool,
 }
 
@@ -79,6 +80,7 @@ impl<T: Item> Menu<T> {
             viewport: (0, 0),
             recalculate: true,
             auto_close: false,
+            select_first_on_accept: false,
             show_selection_marker: false,
         }
     }
@@ -88,6 +90,9 @@ impl<T: Item> Menu<T> {
     pub(crate) fn execute_action(&mut self, action: MenuAction, cx: &mut Context) -> EventResult {
         let half_page = (self.size.1 as usize / 2).max(1);
         match action {
+            MenuAction::ShowKeybindings => {
+                return EventResult::Consumed(Some(Box::new(super::keybindings::show)))
+            }
             MenuAction::Cancel => {
                 (self.callback_fn)(cx.editor, self.selection(), MenuEvent::Abort);
                 return EventResult::Consumed(close_callback());
@@ -165,6 +170,29 @@ impl<T: Item> Menu<T> {
     pub fn auto_close(mut self, auto_close: bool) -> Self {
         self.auto_close = auto_close;
         self
+    }
+
+    /// Explicit acceptance can choose the first item without previewing it first.
+    pub(crate) fn with_first_item_acceptance(mut self) -> Self {
+        self.select_first_on_accept = true;
+        self
+    }
+
+    fn smart_tab_supersedes(
+        event: ui_core::input::KeyEvent,
+        actions: &[MenuAction],
+        editor: &Editor,
+    ) -> bool {
+        (event == key!(Tab) || event == shift!(Tab))
+            && matches!(actions, [MenuAction::MoveUp | MenuAction::MoveDown])
+            && editor.config().completion.auto_trigger
+            && matches!(
+                editor.config().indent.smart_tab,
+                Some(SmartTabConfig {
+                    enable: true,
+                    supersede_menu: true
+                })
+            )
     }
 
     /// Show a selection arrow in addition to the row highlight.
@@ -267,6 +295,17 @@ impl<T: Item + PartialEq> Menu<T> {
 use super::PromptEvent as MenuEvent;
 
 impl<T: Item + 'static> Component for Menu<T> {
+    fn keymap_contexts(&self, cx: &Context) -> Vec<crate::keymap::inspect::Context> {
+        use crate::keymap::inspect;
+        let mut keys = cx.config.current.component_keys.menu.clone();
+        if !self.keys.is_pending() {
+            keys.0.retain(|key, binding| !matches!(binding, ui_core::keymap::Binding::Actions(actions) if Self::smart_tab_supersedes(*key, actions, cx.editor)));
+        }
+        let mut context = inspect::Context::new("Menu", inspect::component("keys.menu", &keys));
+        context.pending = self.keys.pending().to_vec();
+        vec![context]
+    }
+
     fn has_pending_keys(&self) -> bool {
         self.keys.is_pending()
     }
@@ -302,22 +341,15 @@ impl<T: Item + 'static> Component for Menu<T> {
 
         // Smart tab supersedes the default tab navigation, but explicit actions
         // such as accept or no_op still belong to the menu.
-        if !pending
-            && (event == key!(Tab) || event == shift!(Tab))
-            && matches!(actions, [MenuAction::MoveUp | MenuAction::MoveDown])
-            && cx.editor.config().completion.auto_trigger
-            && matches!(
-                cx.editor.config().indent.smart_tab,
-                Some(SmartTabConfig {
-                    enable: true,
-                    supersede_menu: true,
-                })
-            )
-        {
+        if !pending && Self::smart_tab_supersedes(event, actions, cx.editor) {
             return EventResult::Ignored(None);
         }
 
         for &action in actions {
+            if action == MenuAction::Accept && self.select_first_on_accept && self.cursor.is_none()
+            {
+                self.move_down();
+            }
             match self.execute_action(action, cx) {
                 EventResult::Consumed(None) => (),
                 result => return result,

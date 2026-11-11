@@ -89,7 +89,7 @@ fn create_actions_work_without_a_selected_row() -> Result<()> {
 fn footer_hints_follow_remapped_and_unbound_actions() {
     let config = crate::config::Config::load(
         Ok(
-            &"[keys.branch-picker]\nA-n = 'unbound'\nC-t = 'create_branch'\nA-d = 'unbound'"
+            &"[keys.branch-picker]\nC-t = 'create_branch'\n[keys.branch-picker.C-x]\nn = 'unbound'\nd = 'unbound'"
                 .to_owned(),
         ),
         Ok(String::new()),
@@ -119,7 +119,7 @@ async fn branch_picker_creates_confirms_deletion_and_refreshes() -> Result<()> {
     let mut picker = branches(&app.editor, repo.clone(), dir.path().into());
     until(&mut picker, &mut app, |picker| picker.selection().is_some()).await?;
     compositor.push(Box::new(overlaid(picker)));
-    key(&mut app, &mut compositor, &mut jobs, "A-n");
+    key(&mut app, &mut compositor, &mut jobs, "C-x n");
     assert!(compositor.find::<ui::Prompt>().is_some());
     for letter in ["t", "o", "p", "i", "c", "ret"] {
         key(&mut app, &mut compositor, &mut jobs, letter);
@@ -140,7 +140,7 @@ async fn branch_picker_creates_confirms_deletion_and_refreshes() -> Result<()> {
     .await?;
     picker.to_end();
     assert_eq!(picker.selection().unwrap().name, "topic");
-    key(&mut app, &mut compositor, &mut jobs, "A-d");
+    key(&mut app, &mut compositor, &mut jobs, "C-x d");
     key(&mut app, &mut compositor, &mut jobs, "ret"); // Cancel by default.
     assert!(!app.editor.handlers().git_operations.busy());
     assert!(repo
@@ -148,7 +148,7 @@ async fn branch_picker_creates_confirms_deletion_and_refreshes() -> Result<()> {
         .await?
         .iter()
         .any(|branch| branch.name == "topic"));
-    key(&mut app, &mut compositor, &mut jobs, "A-d");
+    key(&mut app, &mut compositor, &mut jobs, "C-x d");
     key(&mut app, &mut compositor, &mut jobs, "down");
     key(&mut app, &mut compositor, &mut jobs, "ret");
     finish(&mut app, &mut compositor, &mut jobs).await?;
@@ -187,7 +187,7 @@ async fn worktree_picker_creates_on_a_branch_and_confirms_removal() -> Result<()
     let mut picker = worktrees(&app.editor, repo.clone(), root);
     until(&mut picker, &mut app, |picker| picker.selection().is_some()).await?;
     compositor.push(Box::new(overlaid(picker)));
-    key(&mut app, &mut compositor, &mut jobs, "A-n");
+    key(&mut app, &mut compositor, &mut jobs, "C-x n");
     for ch in "../linked".chars() {
         key(&mut app, &mut compositor, &mut jobs, &ch.to_string());
     }
@@ -215,11 +215,11 @@ async fn worktree_picker_creates_on_a_branch_and_confirms_removal() -> Result<()
     .await?;
     picker.to_end();
     assert_eq!(picker.selection().unwrap().path, linked);
-    key(&mut app, &mut compositor, &mut jobs, "A-d");
+    key(&mut app, &mut compositor, &mut jobs, "C-x d");
     key(&mut app, &mut compositor, &mut jobs, "ret");
     assert!(linked.exists());
     assert!(!app.editor.handlers().git_operations.busy());
-    key(&mut app, &mut compositor, &mut jobs, "A-d");
+    key(&mut app, &mut compositor, &mut jobs, "C-x d");
     key(&mut app, &mut compositor, &mut jobs, "down");
     key(&mut app, &mut compositor, &mut jobs, "ret");
     finish(&mut app, &mut compositor, &mut jobs).await?;

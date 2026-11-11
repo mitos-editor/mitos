@@ -187,13 +187,13 @@ impl Completion {
                     .handlers()
                     .trigger_signature_help(SignatureHelpInvoked::Automatic, editor);
             }
-        });
+        })
+        .with_first_item_acceptance();
 
         let popup = Popup::new(Self::ID, menu)
             .with_border(panel::PopupBorder::Completion)
             .menu_style()
-            .with_scrollbar(false)
-            .ignore_escape_key(true);
+            .with_scrollbar(false);
 
         let (view, doc) = current_ref!(editor);
         let text = doc.text().slice(..);
@@ -328,6 +328,10 @@ impl Completion {
 }
 
 impl Component for Completion {
+    fn keymap_contexts(&self, cx: &Context) -> Vec<crate::keymap::inspect::Context> {
+        self.popup.keymap_contexts(cx)
+    }
+
     fn has_pending_keys(&self) -> bool {
         self.popup.has_pending_keys()
     }
