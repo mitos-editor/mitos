@@ -245,6 +245,12 @@
     "url": "https://github.com/gdamore/tree-sitter-d/archive/64f27931b4e6fdd75af1102c79bacbca68a8dacc.tar.gz",
     "hash": "sha256-k5rd3o5jqctS0ko4pvYtX+GlpwrPVuu6NKzMjZ+S1sw="
   },
+  "d2": {
+    "git": "https://github.com/ravsii/tree-sitter-d2",
+    "rev": "7bba28221d8c466d28b725124494bf89219326fd",
+    "url": "https://github.com/ravsii/tree-sitter-d2/archive/7bba28221d8c466d28b725124494bf89219326fd.tar.gz",
+    "hash": "sha256-iRLNRiDc7G5g0SV1LQdxOdN5ePbulGWPX3C5NqxVVoE="
+  },
   "dart": {
     "git": "https://github.com/UserNobody14/tree-sitter-dart",
     "rev": "0038280b774b65c1b89ba7fec50624d8baed9fe1",
