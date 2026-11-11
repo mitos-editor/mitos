@@ -117,6 +117,13 @@
 | `:vcs-diff-refresh` | Reload the current diff. Reviews of past commits keep the versions originally chosen. |
 | `:vcs-diff-open-source` | Open the source at the selected diff line. |
 | `:vcs-diff-open-file` | Open the current file from a diff review. |
+| `:vcs-stage-hunk` | Stage hunks touched by the selections, including unsaved edits. Does not save the file. |
+| `:vcs-stage-lines` | Stage only selected lines, including unsaved edits. Does not save the file. |
+| `:vcs-stage-hunk-disk` | Stage hunks touched by the selections from the saved file. Save the buffer first. |
+| `:vcs-stage-lines-disk` | Stage only selected lines from the saved file. Save the buffer first. |
+| `:vcs-unstage-hunk` | Unstage hunks touched by the selections, keeping saved and unsaved edits. |
+| `:vcs-unstage-lines` | Unstage only selected lines, keeping saved and unsaved edits. |
+| `:vcs-stage-and-next` | Stage the selected hunks and move to the next unstaged hunk. |
 | `:vcs-restore-change` | Restore selected hunks from HEAD in the buffer. Use u to undo; saved files and staged changes stay unchanged. |
 | `:vcs-changes` | Browse changed files in the workspace. |
 | `:vcs-repository-changes` | Browse changed files throughout the current repository. |

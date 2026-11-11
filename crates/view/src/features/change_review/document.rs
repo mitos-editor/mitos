@@ -73,6 +73,24 @@ struct Observed {
 }
 
 impl ReviewDocument {
+    #[cfg(feature = "git")]
+    pub(crate) fn source_is_current(&self, editor: &Editor) -> bool {
+        self.request.is_current(editor)
+            && self.observed.as_ref().is_some_and(|observed| {
+                observed.request.is_current(editor)
+                    && observed.stamp
+                        == super::repository_stamp(
+                            observed.stamp.iter().map(|(path, _)| path.clone()),
+                        )
+            })
+    }
+    #[cfg(feature = "git")]
+    pub(crate) fn source_document(&self) -> Option<DocumentId> {
+        match &self.request {
+            Request::Live(request) => request.document.map(|(id, _)| id),
+            Request::Historical(_) => None,
+        }
+    }
     pub(crate) fn is_live(&self) -> bool {
         matches!(self.request, Request::Live(_))
     }
@@ -409,7 +427,7 @@ impl Editor {
                             return;
                         }
                         Err(anyhow::anyhow!(
-                            "Source changed while loading the diff; use :diff-refresh"
+                            "Source changed while loading the diff; use :vcs-diff-refresh"
                         ))
                     } else {
                         result
@@ -617,7 +635,7 @@ impl Editor {
         );
         let id = self.open(&path, Action::Load)?;
         if let Some((source, _)) = &target {
-            ensure!(self.document(id).is_some_and(|doc| !doc.is_binary() && doc.text() == source.after()), "The file differs from this snapshot. Refresh or use :diff-open-file to view its current contents");
+            ensure!(self.document(id).is_some_and(|doc| !doc.is_binary() && doc.text() == source.after()), "The file differs from this snapshot. Refresh or use :vcs-diff-open-file to view its current contents");
         }
         self.switch(id, action);
         if let Some((_, line)) = target {
