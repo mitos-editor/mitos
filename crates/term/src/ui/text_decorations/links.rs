@@ -5,10 +5,11 @@ use std::{
     hash::{Hash, Hasher},
     ops::Range,
 };
+use view::document::PresentedDocument;
 
 use text_layout::doc_formatter::{FormattedGrapheme, GraphemeSource};
 use ui_core::hyperlinks::{Hyperlink, HyperlinkBuffer};
-use view::{Document, ViewId};
+use view::ViewId;
 
 use super::{Decoration, TextRenderer};
 
@@ -26,9 +27,9 @@ pub struct DocumentLinks<'a> {
 }
 
 impl<'a> DocumentLinks<'a> {
-    pub fn new(doc: &'a Document, view: ViewId, buffer: &'a mut HyperlinkBuffer) -> Self {
+    pub fn new(doc: PresentedDocument<'a>, view: ViewId, buffer: &'a mut HyperlinkBuffer) -> Self {
         let mut ranges: Vec<LinkRange<'a>> = Vec::new();
-        if doc.config.load().lsp.enable {
+        if doc.source().config.load().lsp.enable {
             for link in doc.document_links() {
                 if link.start >= link.end
                     || !doc.supports_language_server(link.language_server_id)
@@ -43,7 +44,7 @@ impl<'a> DocumentLinks<'a> {
                 };
                 let mut identity = DefaultHasher::new();
                 (
-                    doc.id(),
+                    doc.source().id(),
                     view,
                     link.start,
                     link.end,

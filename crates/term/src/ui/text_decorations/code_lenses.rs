@@ -199,7 +199,7 @@ mod tests {
             ..Default::default()
         };
         decorations.add_decoration(InlineDiagnostics::new(
-            doc,
+            doc.into(),
             &theme,
             0,
             config,

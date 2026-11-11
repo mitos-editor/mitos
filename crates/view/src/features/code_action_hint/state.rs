@@ -10,15 +10,6 @@ pub(crate) struct CodeActionHints {
     request: Option<TaskController>,
 }
 
-impl CodeActionHints {
-    pub(crate) fn presentation(&self) -> Self {
-        Self {
-            available: self.available,
-            ..Self::default()
-        }
-    }
-}
-
 impl Document {
     pub(crate) fn set_code_action_hints(&mut self, view_id: ViewId) {
         self.view_state_mut(view_id).code_action_hints.available = true;

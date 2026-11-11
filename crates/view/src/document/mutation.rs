@@ -78,9 +78,6 @@ impl Document {
         selection: Option<&Selection>,
         view_id: Option<ViewId>,
     ) {
-        use editor_core::Assoc;
-
-        let old_doc = change.before();
         let changes = change.changes();
         if !changes.is_empty() {
             self.invalidate_search_counts();
@@ -91,33 +88,22 @@ impl Document {
             state
                 .document_highlights
                 .apply_changes(changes, self.buffer.text().len_chars());
-            state.folds.apply_changes(changes);
-            let selection = &mut state.selection;
-            *selection = selection
-                .clone()
-                // Map through changes
-                .map(changes)
-                // Ensure all selections across all views still adhere to invariants.
-                .ensure_invariants(self.buffer.text().slice(..));
-            state.position.anchor = changes.map_pos(state.position.anchor, Assoc::Before);
-            state.folds.reveal(selection, self.buffer.text().slice(..));
+            super::presentation::map_view(
+                &mut state.selection,
+                &mut state.folds,
+                &mut state.position,
+                changes,
+                self.buffer.text(),
+            );
         }
 
-        // update tree-sitter syntax tree
-        let (old_text, text) = (old_doc.slice(..), self.buffer.text().slice(..));
-        // A first tree published while injected languages still compile must not compile
-        // them here, on the editor thread; the pending initialization reparses the edit.
-        let updated = match &mut self.syntax {
-            Some(syntax) if self.pending_syntax.is_some() => {
-                syntax.update_compiled(old_text, text, changes, &self.syntax_loader)
-            }
-            Some(syntax) => syntax.update(old_text, text, changes, &self.syntax_loader),
-            None => Ok(()),
-        };
-        if let Err(err) = updated {
-            log::error!("TS parser failed, disabling TS for the current buffer: {err}");
-            self.syntax = None;
-        }
+        super::presentation::map_syntax(
+            &mut self.syntax,
+            self.pending_syntax.is_some(),
+            change,
+            self.buffer.text(),
+            &self.syntax_loader,
+        );
 
         self.diagnostics.apply_changes(changes, self.buffer.text());
         self.document_colors.apply_changes(changes);

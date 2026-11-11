@@ -2,7 +2,256 @@
 
 use super::Document;
 use crate::ViewId;
-use editor_core::Transaction;
+use editor_core::{ChangeSet, Rope, Selection, Transaction};
+use std::{collections::HashMap, sync::OnceLock};
+use stdx::rope::RopeExt as _;
+
+/// Proposed text and rendering values, without request controllers, protocol
+/// attachments, or editor services. The buffer retains snapshot identity for
+/// renderer caches, but records no edit history.
+pub(crate) struct Presentation {
+    buffer: buffer::Buffer,
+    syntax: Option<language::Syntax>,
+    views: HashMap<ViewId, ViewPresentation>,
+    diagnostics: diagnostics::DiagnosticStore,
+    colors: Option<super::DocumentColorSwatches>,
+    links: Vec<super::DocumentLink>,
+    lenses: Vec<super::CodeLens>,
+    snippet: Option<super::SnippetSession>,
+    conflicts: OnceLock<crate::features::conflicts::ConflictPresentation>,
+}
+
+struct ViewPresentation {
+    selection: Selection,
+    folds: super::folding::Folds,
+    position: crate::view::ViewPosition,
+    jump_labels: Vec<text_layout::text_annotations::Overlay>,
+    inlay_hints: Option<super::DocumentInlayHints>,
+    highlights: Option<Vec<std::ops::Range<usize>>>,
+    code_action_hints: bool,
+    breadcrumbs: Option<Vec<super::Crumb>>,
+}
+
+/// A rendering borrow combines source metadata with either live or proposed text.
+#[derive(Clone, Copy)]
+pub struct PresentedDocument<'a> {
+    source: &'a Document,
+    presentation: Option<&'a Presentation>,
+}
+
+impl<'a> From<&'a Document> for PresentedDocument<'a> {
+    fn from(source: &'a Document) -> Self {
+        Self {
+            source,
+            presentation: None,
+        }
+    }
+}
+impl<'a> From<&'a mut Document> for PresentedDocument<'a> {
+    fn from(source: &'a mut Document) -> Self {
+        Self::from(&*source)
+    }
+}
+impl<'a> PresentedDocument<'a> {
+    pub(crate) fn proposed(source: &'a Document, presentation: &'a Presentation) -> Self {
+        Self {
+            source,
+            presentation: Some(presentation),
+        }
+    }
+    pub fn source(self) -> &'a Document {
+        self.source
+    }
+    pub fn is_live(self) -> bool {
+        self.presentation.is_none()
+    }
+    pub fn text(self) -> &'a Rope {
+        self.presentation
+            .map_or_else(|| self.source.text(), |p| p.buffer.text())
+    }
+    pub fn snapshot(self) -> buffer::Snapshot {
+        self.presentation
+            .map_or_else(|| self.source.snapshot(), |p| p.buffer.snapshot())
+    }
+    pub fn is_snapshot_current(self, snapshot: &buffer::Snapshot) -> bool {
+        self.presentation.map_or_else(
+            || self.source.is_snapshot_current(snapshot),
+            |p| snapshot.is_current(&p.buffer),
+        )
+    }
+    pub fn syntax(self) -> Option<&'a language::Syntax> {
+        self.presentation
+            .map_or_else(|| self.source.syntax(), |p| p.syntax.as_ref())
+    }
+    pub fn syntax_loader(self) -> &'a language::syntax::Loader {
+        self.source.syntax_loader()
+    }
+    pub fn selection(self, view: ViewId) -> &'a Selection {
+        self.presentation.map_or_else(
+            || self.source.selection(view),
+            |p| &p.views[&view].selection,
+        )
+    }
+    pub fn cursor_line(self, view: ViewId) -> usize {
+        self.text()
+            .char_to_line_idx(self.selection(view).primary().cursor(self.text().slice(..)))
+    }
+    pub fn view_offset(self, view: ViewId) -> crate::view::ViewPosition {
+        self.presentation.map_or_else(
+            || self.source.view_offset(view),
+            |p| p.views[&view].position,
+        )
+    }
+    pub fn folded_ranges(self, view: ViewId) -> &'a [text_layout::text_annotations::Conceal] {
+        self.presentation.map_or_else(
+            || self.source.folded_ranges(view),
+            |p| p.views.get(&view).map_or(&[], |v| v.folds.visible()),
+        )
+    }
+    pub(crate) fn jump_labels(
+        self,
+        view: ViewId,
+    ) -> Option<&'a [text_layout::text_annotations::Overlay]> {
+        self.presentation.map_or_else(
+            || self.source.jump_labels(view),
+            |p| {
+                p.views
+                    .get(&view)
+                    .and_then(|v| (!v.jump_labels.is_empty()).then_some(v.jump_labels.as_slice()))
+            },
+        )
+    }
+    pub fn inlay_hints(self, view: ViewId) -> Option<&'a super::DocumentInlayHints> {
+        self.presentation.map_or_else(
+            || self.source.inlay_hints(view),
+            |p| p.views.get(&view)?.inlay_hints.as_ref(),
+        )
+    }
+    pub fn document_highlights(self, view: ViewId) -> Option<&'a [std::ops::Range<usize>]> {
+        self.presentation.map_or_else(
+            || self.source.document_highlights(view),
+            |p| p.views.get(&view)?.highlights.as_deref(),
+        )
+    }
+    pub fn code_action_hints(self, view: ViewId) -> bool {
+        self.presentation.map_or_else(
+            || self.source.code_action_hints(view),
+            |p| p.views.get(&view).is_some_and(|v| v.code_action_hints),
+        )
+    }
+    pub fn breadcrumbs(self, view: ViewId) -> Option<&'a [super::Crumb]> {
+        self.presentation.map_or_else(
+            || self.source.breadcrumbs(view),
+            |p| p.views.get(&view)?.breadcrumbs.as_deref(),
+        )
+    }
+    pub fn diagnostics(self) -> &'a [diagnostics::Diagnostic] {
+        self.presentation
+            .map_or_else(|| self.source.diagnostics(), |p| p.diagnostics.as_slice())
+    }
+    pub fn color_swatches(self) -> Option<&'a super::DocumentColorSwatches> {
+        self.presentation
+            .map_or_else(|| self.source.color_swatches(), |p| p.colors.as_ref())
+    }
+    pub fn document_links(self) -> &'a [super::DocumentLink] {
+        self.presentation
+            .map_or_else(|| self.source.document_links(), |p| &p.links)
+    }
+    pub fn code_lenses(self) -> &'a [super::CodeLens] {
+        self.presentation
+            .map_or_else(|| self.source.code_lenses(), |p| &p.lenses)
+    }
+    pub fn active_snippet(self) -> Option<&'a snippets::ActiveSnippet> {
+        self.presentation.map_or_else(
+            || self.source.active_snippet(),
+            |p| p.snippet.as_ref().map(|s| &s.active),
+        )
+    }
+    pub fn semantic_tokens(self) -> &'a [crate::features::semantic_tokens::SemanticToken] {
+        if self.is_live() {
+            self.source.semantic_tokens()
+        } else {
+            &[]
+        }
+    }
+    pub fn semantic_tokens_revision(self) -> u64 {
+        if self.is_live() {
+            self.source.semantic_tokens_revision()
+        } else {
+            0
+        }
+    }
+    pub fn inline_completion(self, view: ViewId) -> Option<&'a super::InlineCompletion> {
+        self.is_live()
+            .then(|| self.source.inline_completion(view))
+            .flatten()
+    }
+    pub fn search_highlight(
+        self,
+        view: ViewId,
+    ) -> Option<&'a crate::features::buffer_search::Query> {
+        self.is_live()
+            .then(|| self.source.search_highlight(view))
+            .flatten()
+    }
+    pub fn supports_language_server(self, server: lsp_client::LanguageServerId) -> bool {
+        self.is_live() && self.source.supports_language_server(server)
+    }
+    pub fn conflict_presentation(self) -> &'a crate::features::conflicts::ConflictPresentation {
+        self.presentation.map_or_else(
+            || self.source.conflict_presentation(),
+            |p| {
+                p.conflicts.get_or_init(|| {
+                    crate::features::conflicts::ConflictPresentation::new(p.buffer.text())
+                })
+            },
+        )
+    }
+}
+
+pub(super) fn map_view(
+    selection: &mut Selection,
+    folds: &mut super::folding::Folds,
+    position: &mut crate::view::ViewPosition,
+    changes: &ChangeSet,
+    text: &Rope,
+) {
+    folds.apply_changes(changes);
+    *selection = selection
+        .clone()
+        .map(changes)
+        .ensure_invariants(text.slice(..));
+    position.anchor = changes.map_pos(position.anchor, editor_core::Assoc::Before);
+    folds.reveal(selection, text.slice(..));
+}
+
+pub(super) fn map_syntax(
+    syntax: &mut Option<language::Syntax>,
+    pending: bool,
+    change: &buffer::AppliedChange,
+    text: &Rope,
+    loader: &language::syntax::Loader,
+) {
+    let result = match syntax {
+        Some(syntax) if pending => syntax.update_compiled(
+            change.before().slice(..),
+            text.slice(..),
+            change.changes(),
+            loader,
+        ),
+        Some(syntax) => syntax.update(
+            change.before().slice(..),
+            text.slice(..),
+            change.changes(),
+            loader,
+        ),
+        None => Ok(()),
+    };
+    if let Err(error) = result {
+        log::error!("TS parser failed, disabling TS for the current buffer: {error}");
+        *syntax = None;
+    }
+}
 
 impl Document {
     /// Refresh an unregistered file preview without dropping compatible syntax.
@@ -33,40 +282,94 @@ impl Document {
         *self = refreshed;
     }
 
-    pub(crate) fn presentation(&self, transaction: &Transaction, origin: ViewId) -> Self {
-        let mut doc = Self::from(
-            self.text().clone(),
-            None,
-            self.config.clone(),
-            self.syntax_loader.clone(),
-        );
-        doc.id = self.id;
-        doc.file = self.file.clone();
-        doc.editor_config = self.editor_config.clone();
-        doc.diff_handle = self.diff_handle.clone();
-        doc.version_control_head = self.version_control_head.clone();
-        doc.blame = self.blame.presentation();
-        doc.indent_style = self.indent_style;
-        doc.line_ending = self.line_ending;
-        doc.language = self.language.clone();
-        doc.syntax = self.syntax.clone();
-        doc.view_states = self
-            .view_states
-            .iter()
-            .map(|(&view, state)| (view, state.presentation()))
-            .collect();
-        doc.snippet = self.snippet.clone();
-        doc.diagnostics = self.diagnostics.clone();
-        doc.document_colors = self.document_colors.presentation();
-        doc.document_links = self.document_links.presentation();
-        doc.code_lenses = self.code_lenses.presentation();
-        doc.document_symbols = self.document_symbols.presentation();
-        let change = doc
+    pub(crate) fn presentation(&self, transaction: &Transaction, origin: ViewId) -> Presentation {
+        let mut presentation = Presentation {
+            buffer: buffer::Buffer::new(self.text().clone()),
+            syntax: self.syntax.clone(),
+            views: self
+                .view_states
+                .iter()
+                .map(|(&id, state)| {
+                    (
+                        id,
+                        ViewPresentation {
+                            selection: state.selection.clone(),
+                            folds: state.folds.clone(),
+                            position: state.position,
+                            jump_labels: state.jump_labels.clone(),
+                            inlay_hints: self.inlay_hints(id).cloned(),
+                            highlights: self.document_highlights(id).map(<[_]>::to_vec),
+                            code_action_hints: self.code_action_hints(id),
+                            breadcrumbs: state.breadcrumbs.clone(),
+                        },
+                    )
+                })
+                .collect(),
+            diagnostics: self.diagnostics.clone(),
+            colors: self.color_swatches().cloned(),
+            links: self.document_links().to_vec(),
+            lenses: self.code_lenses().to_vec(),
+            snippet: self.snippet.clone(),
+            conflicts: Default::default(),
+        };
+        let change = presentation
             .buffer
-            .apply(transaction.changes())
+            .apply_without_history(transaction.changes())
             .expect("validated preview");
-        doc.map_presentation(&change, transaction.selection(), Some(origin));
-        doc
+        for state in presentation.views.values_mut() {
+            map_view(
+                &mut state.selection,
+                &mut state.folds,
+                &mut state.position,
+                change.changes(),
+                presentation.buffer.text(),
+            );
+            if let Some(hints) = &mut state.inlay_hints {
+                hints.apply_changes(change.changes());
+            }
+            if let Some(highlights) = &mut state.highlights {
+                crate::features::document_highlight::DocumentHighlightsState::map(
+                    highlights,
+                    change.changes(),
+                    presentation.buffer.text().len_chars(),
+                );
+            }
+        }
+        map_syntax(
+            &mut presentation.syntax,
+            false,
+            &change,
+            presentation.buffer.text(),
+            &self.syntax_loader,
+        );
+        presentation
+            .diagnostics
+            .apply_changes(change.changes(), presentation.buffer.text());
+        if let Some(colors) = &mut presentation.colors {
+            colors.apply_changes(change.changes());
+        }
+        super::DocumentLink::apply_changes(&mut presentation.links, change.changes());
+        super::CodeLens::apply_changes(&mut presentation.lenses, change.changes());
+        super::snippet::map(&mut presentation.snippet, change.changes());
+        if let Some(selection) = transaction.selection() {
+            let state = presentation.views.get_mut(&origin).expect("preview origin");
+            let selection = selection
+                .clone()
+                .ensure_invariants(presentation.buffer.text().slice(..));
+            let changed = state.selection != selection;
+            state.selection = selection;
+            state
+                .folds
+                .reveal(&state.selection, presentation.buffer.text().slice(..));
+            super::snippet::validate(
+                &mut presentation.snippet,
+                origin,
+                state.selection.clone(),
+                presentation.buffer.text(),
+                changed,
+            );
+        }
+        presentation
     }
 }
 
@@ -126,7 +429,8 @@ mod tests {
         let transaction =
             Transaction::change(doc.text(), [(0, 1, Some("é\n\t".into()))].into_iter())
                 .with_selection(Selection::point(3));
-        let presentation = doc.presentation(&transaction, view);
+        let state = doc.presentation(&transaction, view);
+        let presentation = PresentedDocument::proposed(&doc, &state);
         assert_eq!(presentation.text(), "é\n\tabc\n");
         assert_eq!(
             presentation.document_highlights(view),
@@ -142,7 +446,7 @@ mod tests {
         assert_eq!(doc.snapshot().version(), before.version());
         assert_eq!(doc.selection(view), &selection);
         assert_eq!(events.load(Ordering::Relaxed), 0);
-        drop(presentation);
+        drop(state);
         assert!(!request.is_canceled());
         assert!(!highlights.is_canceled());
         assert!(!hints.is_canceled());

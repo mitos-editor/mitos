@@ -16,13 +16,6 @@ pub(crate) struct DocumentLinks {
 }
 
 impl DocumentLinks {
-    pub(crate) fn presentation(&self) -> Self {
-        Self {
-            cache: self.cache.clone(),
-            ..Self::default()
-        }
-    }
-
     pub(crate) fn invalidate(&mut self) {
         self.request.cancel();
         self.cancel_navigation();
@@ -31,10 +24,7 @@ impl DocumentLinks {
 
     pub(crate) fn apply_changes(&mut self, changes: &ChangeSet) {
         self.cancel_navigation();
-        changes.update_positions(self.cache.iter_mut().flat_map(|link| {
-            std::iter::once((&mut link.start, Assoc::After))
-                .chain(std::iter::once((&mut link.end, Assoc::After)))
-        }));
+        DocumentLink::apply_changes(&mut self.cache, changes);
     }
 
     pub(super) fn start_navigation(&mut self, view: ViewId) -> TaskHandle {
@@ -66,6 +56,15 @@ pub struct DocumentLink {
     pub end: usize,
     pub link: lsp::DocumentLink,
     pub language_server_id: LanguageServerId,
+}
+
+impl DocumentLink {
+    pub(crate) fn apply_changes(links: &mut [Self], changes: &ChangeSet) {
+        changes.update_positions(links.iter_mut().flat_map(|link| {
+            std::iter::once((&mut link.start, Assoc::After))
+                .chain(std::iter::once((&mut link.end, Assoc::After)))
+        }));
+    }
 }
 
 impl Document {

@@ -14,6 +14,9 @@ pub(super) struct Folds {
 }
 
 impl Folds {
+    pub(super) fn visible(&self) -> &[Conceal] {
+        &self.visible
+    }
     fn rebuild(&mut self) {
         self.closed
             .sort_unstable_by_key(|c| (c.range.start, std::cmp::Reverse(c.range.end)));
@@ -508,7 +511,8 @@ mod tests {
         let before = doc.folded_ranges(view.id).to_vec();
         let transaction =
             Transaction::change(doc.text(), [(0, 0, Some("prefix ".into()))].into_iter());
-        let presentation = doc.presentation(&transaction, view.id);
+        let state = doc.presentation(&transaction, view.id);
+        let presentation = crate::document::PresentedDocument::proposed(&doc, &state);
         assert_eq!(presentation.folded_ranges(view.id).len(), 1);
         assert_eq!(
             presentation.folded_ranges(view.id)[0].range,

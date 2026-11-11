@@ -12,34 +12,34 @@ pub(crate) struct DocumentHighlightsState {
 }
 
 impl DocumentHighlightsState {
-    pub(crate) fn presentation(&self) -> Self {
-        Self {
-            cache: self.cache.clone(),
-            ..Self::default()
-        }
-    }
-
     pub(crate) fn apply_changes(&mut self, changes: &ChangeSet, text_len: usize) {
         if let Some(highlights) = &mut self.cache {
-            let mut updated = Vec::with_capacity(highlights.len());
-            for mut range in highlights.drain(..) {
-                changes.update_positions(
-                    [
-                        (&mut range.start, Assoc::After),
-                        (&mut range.end, Assoc::After),
-                    ]
-                    .into_iter(),
-                );
-                if range.start >= text_len {
-                    continue;
-                }
-                let end = range.end.min(text_len);
-                if range.start < end {
-                    updated.push(range.start..end);
-                }
-            }
-            *highlights = updated;
+            Self::map(highlights, changes, text_len);
         }
+    }
+    pub(crate) fn map(
+        highlights: &mut Vec<std::ops::Range<usize>>,
+        changes: &ChangeSet,
+        text_len: usize,
+    ) {
+        let mut updated = Vec::with_capacity(highlights.len());
+        for mut range in highlights.drain(..) {
+            changes.update_positions(
+                [
+                    (&mut range.start, Assoc::After),
+                    (&mut range.end, Assoc::After),
+                ]
+                .into_iter(),
+            );
+            if range.start >= text_len {
+                continue;
+            }
+            let end = range.end.min(text_len);
+            if range.start < end {
+                updated.push(range.start..end);
+            }
+        }
+        *highlights = updated;
     }
 }
 

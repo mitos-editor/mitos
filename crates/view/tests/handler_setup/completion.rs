@@ -249,6 +249,6 @@ async fn completion_previews_preserve_split_selections_and_expire_after_real_edi
     f.editor.insert_char('p')?;
     let doc = current_ref!(f.editor).1;
     assert_eq!(doc.text(), "alpha alphabet alp\n");
-    assert!(std::ptr::eq(doc, f.editor.completion_presentation(doc)));
+    assert!(f.editor.completion_presentation(doc).is_live());
     Ok(())
 }

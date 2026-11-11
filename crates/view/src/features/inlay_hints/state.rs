@@ -96,13 +96,6 @@ pub(crate) struct InlayHintsState {
 }
 
 impl InlayHintsState {
-    pub(crate) fn presentation(&self) -> Self {
-        Self {
-            cache: self.cache.clone(),
-            ..Self::default()
-        }
-    }
-
     pub(crate) fn get(&self) -> Option<&DocumentInlayHints> {
         self.cache.as_ref()
     }
@@ -139,19 +132,25 @@ impl InlayHintsState {
     pub(crate) fn apply_changes(&mut self, changes: &ChangeSet) {
         self.request.invalidate();
         if let Some(hints) = &mut self.cache {
-            for annotations in [
-                &mut hints.padding_before_inlay_hints,
-                &mut hints.type_inlay_hints,
-                &mut hints.parameter_inlay_hints,
-                &mut hints.other_inlay_hints,
-                &mut hints.padding_after_inlay_hints,
-            ] {
-                changes.update_positions(
-                    annotations
-                        .iter_mut()
-                        .map(|annotation| (&mut annotation.char_idx, editor_core::Assoc::After)),
-                );
-            }
+            hints.apply_changes(changes);
+        }
+    }
+}
+
+impl DocumentInlayHints {
+    pub(crate) fn apply_changes(&mut self, changes: &ChangeSet) {
+        for annotations in [
+            &mut self.padding_before_inlay_hints,
+            &mut self.type_inlay_hints,
+            &mut self.parameter_inlay_hints,
+            &mut self.other_inlay_hints,
+            &mut self.padding_after_inlay_hints,
+        ] {
+            changes.update_positions(
+                annotations
+                    .iter_mut()
+                    .map(|annotation| (&mut annotation.char_idx, editor_core::Assoc::After)),
+            );
         }
     }
 }

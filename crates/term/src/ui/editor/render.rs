@@ -23,6 +23,7 @@ use tui::{
     text::{Line, Span},
     widgets::{Paragraph, Row, StatefulWidget, Table, TableState, Widget},
 };
+use view::document::PresentedDocument;
 use view::{
     document::Mode,
     graphics::{Color, Modifier, Rect, RectExt as _, Style},
@@ -309,23 +310,23 @@ impl PaneRenderer {
         syntax_cache: &mut syntax_cache::ViewportSyntaxCache,
         editor: &Editor,
         options: PaneOptions,
-        doc: &Document,
+        doc: PresentedDocument<'_>,
         view: &View,
         viewport: Rect,
         surface: &mut Surface,
         is_focused: bool,
         hyperlinks: &mut ui_core::hyperlinks::HyperlinkBuffer,
     ) -> Option<DisplayPosition> {
-        if doc.is_binary() || doc.review().is_some() {
+        if doc.source().is_binary() || doc.source().review().is_some() {
             *syntax_cache = syntax_cache::ViewportSyntaxCache::default();
         }
-        if doc.is_binary() {
+        if doc.source().is_binary() {
             Self::render_view_border(editor, view, viewport, surface);
             return None;
         }
-        let layout = view.layout(doc, Some(&editor.theme));
+        let layout = view.layout_presented(doc, Some(&editor.theme));
         let inner = layout.viewport;
-        let area = view.content_area(doc);
+        let area = view.content_area(doc.source());
         if area.is_empty() {
             return None;
         }
@@ -337,13 +338,13 @@ impl PaneRenderer {
         decorations.add_decoration(text_decorations::links::DocumentLinks::new(
             doc, view.id, hyperlinks,
         ));
-        if doc.review().is_some() {
+        if doc.source().review().is_some() {
             decorations.add_decoration(crate::ui::change_review::document::line_backgrounds(
                 doc, theme,
             ));
         }
 
-        if doc.breadcrumb_enabled() && !area.is_empty() {
+        if doc.source().breadcrumb_enabled() && !area.is_empty() {
             Self::render_breadcrumb(editor, doc, view, area.with_height(1), surface);
         }
 
@@ -356,7 +357,7 @@ impl PaneRenderer {
         }
 
         // Set DAP highlights, if needed.
-        if let Some(frame) = editor.debugger_frame_in_document(doc)
+        if let Some(frame) = editor.debugger_frame_in_document(doc.source())
             && let Some(dap_line) = view::debugger::source::line_index(frame.line)
         {
             let style = theme.get("ui.highlight.frameline");
@@ -378,6 +379,7 @@ impl PaneRenderer {
         }
 
         if doc
+            .source()
             .language_config()
             .and_then(|config| config.rainbow_brackets)
             .unwrap_or(config.rainbow_brackets.enable)
@@ -422,7 +424,7 @@ impl PaneRenderer {
             }
         }
 
-        let gutter_overflow = view.gutter_offset(doc) == 0;
+        let gutter_overflow = view.gutter_offset_presented(doc) == 0;
         if !gutter_overflow {
             Self::render_gutter(
                 editor,
@@ -467,8 +469,11 @@ impl PaneRenderer {
                 ),
             );
         }
-        let width = view.inner_width(doc);
-        let document_config = doc.config.load();
+        let width = view
+            .area
+            .width
+            .saturating_sub(view.gutter_offset_presented(doc));
+        let document_config = doc.source().config.load();
         let enable_cursor_line = view
             .diagnostics_handler
             .show_cursorline_diagnostics(doc, view.id);
@@ -504,7 +509,7 @@ impl PaneRenderer {
         decorations.add_decoration(text_decorations::debug_values::DebugValues::new(
             doc.text(),
             editor
-                .debugger_frame_in_document(doc)
+                .debugger_frame_in_document(doc.source())
                 .map_or(&[], |_| editor.debugger_inline_values(view.id)),
             theme
                 .try_get_exact("ui.virtual.debug-value")
@@ -521,7 +526,7 @@ impl PaneRenderer {
                 hidden_line,
             ));
         }
-        if doc.review().is_some() {
+        if doc.source().review().is_some() {
             render_document(surface, doc, &layout, overlays, theme, decorations);
         } else {
             let styles = syntax_cache.styles(doc, &layout, editor.theme.revision(), || {
@@ -538,7 +543,11 @@ impl PaneRenderer {
             );
         }
 
-        if editor.config().welcome_screen && doc.version() == 0 && doc.is_welcome {
+        if doc.is_live()
+            && editor.config().welcome_screen
+            && doc.source().version() == 0
+            && doc.source().is_welcome
+        {
             Self::render_welcome(theme, inner, surface, options.true_color);
         }
 
@@ -571,7 +580,7 @@ impl PaneRenderer {
 
     fn render_rulers(
         editor: &Editor,
-        doc: &Document,
+        doc: PresentedDocument<'_>,
         view: &View,
         viewport: Rect,
         surface: &mut Surface,
@@ -592,6 +601,7 @@ impl PaneRenderer {
         };
 
         let rulers = doc
+            .source()
             .language_config()
             .and_then(|config| config.rulers.as_ref())
             .unwrap_or(editor_rulers);
@@ -685,7 +695,7 @@ impl PaneRenderer {
     #[allow(clippy::too_many_lines)]
     fn render_breadcrumb(
         editor: &Editor,
-        doc: &Document,
+        doc: PresentedDocument<'_>,
         view: &View,
         viewport: Rect,
         surface: &mut Surface,
@@ -725,7 +735,7 @@ impl PaneRenderer {
         let mut draw_separator = false;
 
         if matches!(config.breadcrumb.path, Full | File) {
-            if let Some(path) = doc.display_path() {
+            if let Some(path) = doc.source().display_path() {
                 let mut components = path.components().peekable();
                 let file_only = matches!(config.breadcrumb.path, File);
 
@@ -761,7 +771,7 @@ impl PaneRenderer {
                 }
             } else {
                 // Handle `[scratch]`
-                x = draw_element(surface, viewport, x, &doc.display_name(), style);
+                x = draw_element(surface, viewport, x, &doc.source().display_name(), style);
             }
         }
 
@@ -785,14 +795,14 @@ impl PaneRenderer {
 
     fn render_gutter<'d>(
         editor: &'d Editor,
-        doc: &'d Document,
+        doc: PresentedDocument<'d>,
         view: &View,
         theme: &Theme,
         layout: &view::view::ViewLayout,
         is_focused: bool,
         decoration_manager: &mut DecorationManager<'d>,
     ) {
-        let viewport = view.content_area(doc);
+        let viewport = view.content_area(doc.source());
         let text = doc.text().slice(..);
         let cursors: Rc<[_]> = doc
             .selection(view.id)
@@ -807,7 +817,7 @@ impl PaneRenderer {
         let gutter_style_virtual = theme.get("ui.gutter.virtual");
         let gutter_selected_style_virtual = theme.get("ui.gutter.selected.virtual");
 
-        for &gutter_type in view.gutters_for(doc) {
+        for &gutter_type in view.gutters_for(doc.source()) {
             let mut gutter =
                 super::super::gutter::style(gutter_type, editor, doc, view, theme, is_focused);
             let width = view::gutter::width(gutter_type, view, doc);
@@ -851,7 +861,7 @@ impl PaneRenderer {
     }
 
     fn render_diagnostics(
-        doc: &Document,
+        doc: PresentedDocument<'_>,
         view: &View,
         viewport: Rect,
         surface: &mut Surface,
@@ -915,7 +925,7 @@ impl PaneRenderer {
 
     /// Apply the highlighting on the lines where a cursor is active
     fn cursorline(
-        doc: &Document,
+        doc: PresentedDocument<'_>,
         view: &View,
         theme: &Theme,
         layout: &view::view::ViewLayout,
@@ -952,7 +962,7 @@ impl PaneRenderer {
 
     /// Apply the highlighting on the columns where a cursor is active
     fn highlight_cursorcolumn(
-        doc: &Document,
+        doc: PresentedDocument<'_>,
         view: &View,
         surface: &mut Surface,
         theme: &Theme,

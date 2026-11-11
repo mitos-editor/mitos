@@ -2,6 +2,7 @@
 //! viewport state lives here; document/view coordinates remain authoritative.
 
 use stdx::rope::RopeExt as _;
+use view::document::PresentedDocument;
 
 use editor_core::highlight::OverlayHighlights;
 use theme::{Style, Theme};
@@ -9,7 +10,6 @@ use view::{
     features::change_review::{ReviewLine, ReviewLineKind, ReviewSource},
     graphics::Rect,
     view::ViewLayout,
-    Document,
 };
 
 use crate::ui::{
@@ -17,9 +17,13 @@ use crate::ui::{
     text_decorations::Decoration,
 };
 
-pub fn line_backgrounds<'a>(doc: &'a Document, theme: &'a Theme) -> impl Decoration + 'a {
+pub fn line_backgrounds<'a>(doc: PresentedDocument<'a>, theme: &'a Theme) -> impl Decoration + 'a {
     move |renderer: &mut TextRenderer, pos: LinePos| {
-        let Some(row) = doc.review().and_then(|review| review.row(pos.doc_line)) else {
+        let Some(row) = doc
+            .source()
+            .review()
+            .and_then(|review| review.row(pos.doc_line))
+        else {
             return;
         };
         if matches!(row.kind, ReviewLineKind::Added | ReviewLineKind::Removed) {
@@ -42,11 +46,11 @@ pub fn line_backgrounds<'a>(doc: &'a Document, theme: &'a Theme) -> impl Decorat
 /// its full multiline/injection context, and only visible source ranges are
 /// queried. Resolving scopes at draw time also supports live theme changes.
 pub fn syntax_styles(
-    doc: &Document,
+    doc: PresentedDocument<'_>,
     layout: &ViewLayout,
     theme: &Theme,
 ) -> Option<Vec<(usize, Style)>> {
-    let review = doc.review()?;
+    let review = doc.source().review()?;
     let source = review.source()?;
     let text = doc.text();
     let mut styles = Vec::new();
@@ -93,8 +97,12 @@ pub(super) fn row_syntax_styles(
     )
 }
 
-pub fn highlights(doc: &Document, layout: &ViewLayout, theme: &Theme) -> Option<OverlayHighlights> {
-    let review = doc.review()?;
+pub fn highlights(
+    doc: PresentedDocument<'_>,
+    layout: &ViewLayout,
+    theme: &Theme,
+) -> Option<OverlayHighlights> {
+    let review = doc.source().review()?;
     let text = doc.text();
     let mut highlights = Vec::new();
     for index in visible_lines(layout) {

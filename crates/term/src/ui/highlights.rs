@@ -10,12 +10,13 @@ use editor_core::{
 use language::syntax;
 use std::ops;
 use theme::Theme;
-use view::{document::Mode, graphics::CursorKind, Document, View};
+use view::document::PresentedDocument;
+use view::{document::Mode, graphics::CursorKind, View};
 
 /// Resolve styles only for visible source ranges. Starting a fresh highlighter
 /// after each fold restores enclosing syntax scopes without visiting its body.
 pub(crate) fn document_syntax_styles<'a>(
-    doc: &'a Document,
+    doc: PresentedDocument<'a>,
     layout: &view::view::ViewLayout,
     theme: &'a Theme,
 ) -> impl Iterator<Item = (usize, theme::Style)> + 'a {
@@ -132,7 +133,7 @@ pub(crate) fn search_highlights(
 }
 
 pub(crate) fn rainbow_highlights(
-    doc: &Document,
+    doc: PresentedDocument<'_>,
     layout: &view::view::ViewLayout,
     theme: &Theme,
 ) -> Option<OverlayHighlights> {
@@ -154,7 +155,7 @@ pub(crate) fn rainbow_highlights(
 
 /// Get highlight spans for document diagnostics
 pub(crate) fn diagnostic_highlights(
-    doc: &Document,
+    doc: PresentedDocument<'_>,
     theme: &Theme,
     overlay_highlights: &mut Vec<OverlayHighlights>,
 ) {
@@ -296,7 +297,7 @@ pub(crate) fn diagnostic_highlights(
 }
 
 pub(crate) fn document_highlights(
-    doc: &Document,
+    doc: PresentedDocument<'_>,
     view: &View,
     theme: &Theme,
 ) -> Option<OverlayHighlights> {
@@ -316,7 +317,10 @@ pub(crate) fn document_highlights(
     })
 }
 
-pub(crate) fn document_link_highlights(doc: &Document, theme: &Theme) -> Option<OverlayHighlights> {
+pub(crate) fn document_link_highlights(
+    doc: PresentedDocument<'_>,
+    theme: &Theme,
+) -> Option<OverlayHighlights> {
     let highlight = theme.find_highlight_exact("ui.link")?;
 
     if doc.document_links().is_empty() {
@@ -347,7 +351,7 @@ pub(crate) fn document_link_highlights(doc: &Document, theme: &Theme) -> Option<
 /// Get highlight spans for selections in a document view.
 pub(crate) fn selection_highlights(
     mode: Mode,
-    doc: &Document,
+    doc: PresentedDocument<'_>,
     view: &View,
     theme: &Theme,
     cursor_config: &CursorConfig,
@@ -457,7 +461,7 @@ pub(crate) fn selection_highlights(
 /// Render brace match, etc (meant for the focused view only)
 pub(crate) fn matching_bracket_highlight(
     view: &View,
-    doc: &Document,
+    doc: PresentedDocument<'_>,
     theme: &Theme,
 ) -> Option<OverlayHighlights> {
     // Highlight matching braces
@@ -469,7 +473,10 @@ pub(crate) fn matching_bracket_highlight(
     Some(OverlayHighlights::single(highlight, pos..pos + 1))
 }
 
-pub(crate) fn tabstop_highlights(doc: &Document, theme: &Theme) -> Option<OverlayHighlights> {
+pub(crate) fn tabstop_highlights(
+    doc: PresentedDocument<'_>,
+    theme: &Theme,
+) -> Option<OverlayHighlights> {
     let snippet = doc.active_snippet()?;
     let highlight = theme.find_highlight_exact("tabstop")?;
     let mut ranges = Vec::new();

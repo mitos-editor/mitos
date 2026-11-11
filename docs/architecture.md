@@ -634,9 +634,12 @@ View and selection snapshots return validated references for feature policy chec
 they also provide the target IDs and cancellation handle used by publication.
 Focus, mode, provider choice, handler ownership, and viewport coverage stay in the
 feature. Ordinary completion retains its savepoint-based session, which remains
-valid across typing. Menu previews own isolated rendering documents: text, syntax,
-selections, and mapped caches are copied without live services. Acceptance alone
-changes the live document.
+valid across typing. Menu previews own `document::Presentation`: proposed text,
+syntax, selections, and mapped display caches, without document services or request
+controllers. `PresentedDocument` borrows either live or proposed values for rendering;
+source metadata is accessed explicitly. Its buffer supplies snapshot identity for
+renderer caches without recording edit history. Acceptance alone changes the live
+document.
 
 Document colors, links, highlights, code-action hints, and symbols/breadcrumbs
 have state modules under `view/src/features/`. Each groups its cache and request
@@ -983,8 +986,9 @@ transaction selection is installed before observers inspect the new state.
 with an explicit selection; selection-only transactions publish only selection changes.
 
 LSP synchronization is a required step on the mutation path. Normal edits queue
-`didChange` before observers may request results. Completion presentation copies
-do not enter the live mutation path or send protocol notifications. Server initialization queues configuration and
+`didChange` before observers may request results. Completion presentations share
+selection, syntax, and annotation mapping with live edits, but do not enter the live
+mutation path or send protocol notifications. Server initialization queues configuration and
 `didOpen` before feature observers run. Closing a document queues `didClose`
 before close observers run. These guarantees do not depend on hook registration order.
 

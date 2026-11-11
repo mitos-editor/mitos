@@ -9,7 +9,7 @@ use snippets::{ActiveSnippet, RenderedSnippet};
 
 #[derive(Clone)]
 pub(super) struct SnippetSession {
-    active: ActiveSnippet,
+    pub(super) active: ActiveSnippet,
     view: ViewId,
     replace_placeholder: bool,
 }
@@ -109,39 +109,64 @@ impl Document {
     }
 
     pub(super) fn validate_snippet_selection(&mut self, view: ViewId, changed: bool) {
-        let selection = self.snippet_selection(view);
-        if let Some(session) = &mut self.snippet
-            && session.view == view
-        {
-            if changed {
-                session.replace_placeholder = false;
-            }
-            if !session.active.is_valid(&selection) {
-                self.snippet = None;
-            }
-        }
+        let selection = self.selection(view).clone();
+        validate(
+            &mut self.snippet,
+            view,
+            selection,
+            self.buffer.text(),
+            changed,
+        );
     }
 
     // Insert cursors are stored as one-grapheme selections. At a snippet's
     // end that grapheme (including a CRLF pair) belongs to the following text.
     fn snippet_selection(&self, view: ViewId) -> editor_core::Selection {
-        let text = self.buffer.text().slice(..);
-        self.selection(view).clone().transform(|range| {
-            if range.is_single_grapheme(text) {
-                editor_core::Range::point(range.cursor(text))
-            } else {
-                range
-            }
-        })
+        snippet_selection(self.selection(view).clone(), self.buffer.text())
     }
 
     pub(super) fn map_snippet(&mut self, changes: &ChangeSet) {
-        if self
-            .snippet
-            .as_mut()
-            .is_some_and(|session| session.active.map(changes))
-        {
-            self.snippet = None;
+        map(&mut self.snippet, changes);
+    }
+}
+
+pub(super) fn validate(
+    snippet: &mut Option<SnippetSession>,
+    view: ViewId,
+    selection: editor_core::Selection,
+    text: &editor_core::Rope,
+    changed: bool,
+) {
+    let selection = snippet_selection(selection, text);
+    if let Some(session) = snippet
+        && session.view == view
+    {
+        if changed {
+            session.replace_placeholder = false;
+        }
+        if !session.active.is_valid(&selection) {
+            *snippet = None;
         }
     }
+}
+pub(super) fn map(snippet: &mut Option<SnippetSession>, changes: &ChangeSet) {
+    if snippet
+        .as_mut()
+        .is_some_and(|session| session.active.map(changes))
+    {
+        *snippet = None;
+    }
+}
+
+fn snippet_selection(
+    selection: editor_core::Selection,
+    text: &editor_core::Rope,
+) -> editor_core::Selection {
+    selection.transform(|range| {
+        if range.is_single_grapheme(text.slice(..)) {
+            editor_core::Range::point(range.cursor(text.slice(..)))
+        } else {
+            range
+        }
+    })
 }
