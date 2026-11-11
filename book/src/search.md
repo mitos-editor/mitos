@@ -26,7 +26,17 @@ result-line highlighting.
 
 ## Browse matches in the current buffer
 
-Press `Space L` to open buffer search. Enter a regular expression to see matching
+Buffer search has no default bind. Bind it in `config.toml`:
+
+```toml
+[keys.normal.space]
+L = "search_picker_in_current_buffer"
+
+[keys.select.space]
+L = "search_picker_in_current_buffer"
+```
+
+Press your bound key (in the example `Space+L`) to open buffer search. Enter a regular expression to see matching
 lines and a preview, then press `Enter` to select a match. Buffer search includes
 unsaved edits and works in scratch buffers and files you have not saved yet.
 

@@ -1,11 +1,19 @@
 use super::helpers::{keys, test_config, AppBuilder};
+use editor_core::hashmap;
 use std::time::Duration;
-use term::application::TestApplication;
-use view::{current_ref, editor::Action, quicklist::QuicklistTarget};
+use term::{application::TestApplication, keymap, keymap::merge_keys};
+use view::{current_ref, document::Mode, editor::Action, quicklist::QuicklistTarget};
 
 fn app() -> anyhow::Result<TestApplication> {
     let mut config = test_config();
     config.editor.idle_timeout = Duration::from_millis(400);
+    // No bind by default, use Space L for tests
+    let bind =
+        || keymap!({"Picker" "space" => { "Space" "L" => search_picker_in_current_buffer } });
+    merge_keys(
+        &mut config.keys,
+        hashmap! { Mode::Normal => bind(), Mode::Select => bind() },
+    );
     AppBuilder::new()
         .with_config(config)
         .with_lang_loader(language::syntax::Loader::default())

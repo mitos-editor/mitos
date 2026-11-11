@@ -302,7 +302,6 @@
 | `` <space>P `` | Paste clipboard before selections | `` paste_clipboard_before `` |
 | `` <space>R `` | Replace selections by clipboard content | `` replace_selections_with_clipboard `` |
 | `` <space>/ `` | Open search picker rooted at the current working directory | `` search_picker_in_current_working_directory `` |
-| `` <space>L `` | Open search picker in current buffer | `` search_picker_in_current_buffer `` |
 | `` <space>k `` | Show docs for item under cursor | `` hover `` |
 | `` <space>r `` | Rename symbol | `` rename_symbol `` |
 | `` <space>h `` | Select symbol references | `` select_references_to_symbol_under_cursor `` |

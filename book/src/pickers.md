@@ -10,7 +10,6 @@ The title in the top border identifies the picker.
 | `Space b` | Open buffers |
 | `Space e` / `Space E` | File explorer at the workspace / current file's directory |
 | `Space /` | Project search |
-| `Space L` | Search the current buffer |
 | `Space s` / `Space S` | File / workspace symbols |
 | `Space d` / `Space D` | File / workspace diagnostics |
 | `Space g s` | [Changed Git files](./version-control.md#changed-files) |
