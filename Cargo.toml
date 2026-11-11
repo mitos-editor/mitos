@@ -128,7 +128,7 @@ hashbrown = "0.17"
 indexmap = "2.14"
 slotmap = "1.1.1"
 smallvec = { version = "1.15", features = ["union"] }
-smartstring = "1.0.1"
+smartstring = "2.0.0"
 
 # Text and Unicode
 chardetng = "1.0"
