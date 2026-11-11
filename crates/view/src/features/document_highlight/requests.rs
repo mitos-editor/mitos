@@ -166,13 +166,17 @@ fn apply_document_highlights(
     doc.set_document_highlights(view_id, ranges);
 }
 
-fn schedule(doc: &mut crate::Document, view: ViewId) {
+fn schedule(doc: &mut crate::Document, view: ViewId, hooks: &crate::handlers::DocumentHooks) {
     if doc.config.load().lsp.document_highlight.auto_trigger
         && doc.has_language_server_with_feature(LanguageServerFeature::DocumentHighlight)
     {
         let doc_id = doc.id();
         let scheduled = doc.document_highlight_controller(view).restart();
-        if let Some(handler) = &doc.document_highlight_handler {
+        if !doc.is_content_readonly()
+            && let Some(services) = hooks.upgrade()
+            && let Some(services) = services.get()
+        {
+            let handler = &services.document_highlight;
             handler.callbacks.send_work_blocking(move |editor| {
                 if !scheduled.is_canceled() {
                     request_document_highlights(editor, doc_id, view);
@@ -182,15 +186,16 @@ fn schedule(doc: &mut crate::Document, view: ViewId) {
     }
 }
 
-pub(crate) fn register_hooks(events: &event::EventHub) {
+pub(crate) fn register_hooks(events: &event::EventHub, hooks: crate::handlers::DocumentHooks) {
     register_hook!(events => move |event: &mut DocumentLanguageDidChange<'_>| {
         let view_id = event.editor.tree.focus();
         request_document_highlights(event.editor, event.doc, view_id);
         Ok(())
     });
 
+    let selection_hooks = hooks.clone();
     register_hook!(events => move |event: &mut SelectionDidChange<'_>| {
-        schedule(event.doc, event.view);
+        schedule(event.doc, event.view, &selection_hooks);
         Ok(())
     });
 
@@ -208,7 +213,7 @@ pub(crate) fn register_hooks(events: &event::EventHub) {
 
     register_hook!(events => move |event: &mut DocumentDidChange<'_>| {
         if let Some(view) = event.view {
-            schedule(event.doc, view);
+            schedule(event.doc, view, &hooks);
         }
         Ok(())
     });

@@ -39,20 +39,22 @@ impl CodeActionHintHandler {
     }
 }
 
-fn schedule(doc: &mut Document, view: ViewId) {
+fn schedule(doc: &mut Document, view: ViewId, hooks: &crate::handlers::DocumentHooks) {
     // Invalidate immediately: an old response may already be queued for publication.
     doc.clear_code_action_hints(view);
     if doc.config.load().code_action_hint()
-        && let Some(handler) = &doc.code_action_hint_handler
+        && !doc.is_content_readonly()
+        && let Some(services) = hooks.upgrade()
+        && let Some(services) = services.get()
     {
-        send_blocking(&handler.events, (doc.id(), view));
+        send_blocking(&services.code_action_hint.events, (doc.id(), view));
     }
 }
 
-fn schedule_document(doc: &mut Document) {
+fn schedule_document(doc: &mut Document, hooks: &crate::handlers::DocumentHooks) {
     let views: Vec<_> = doc.view_ids().collect();
     for view in views {
-        schedule(doc, view);
+        schedule(doc, view, hooks);
     }
 }
 
@@ -140,44 +142,50 @@ fn apply_code_action_hint(doc: &mut Document, view: ViewId, available: bool) {
     }
 }
 
-pub(crate) fn register_hooks(events: &event::EventHub) {
+pub(crate) fn register_hooks(events: &event::EventHub, hooks: crate::handlers::DocumentHooks) {
+    let selection_hooks = hooks.clone();
     register_hook!(events => move |event: &mut SelectionDidChange<'_>| {
-        schedule(event.doc, event.view);
+        schedule(event.doc, event.view, &selection_hooks);
         Ok(())
     });
+    let open_hooks = hooks.clone();
     register_hook!(events => move |event: &mut DocumentDidOpen<'_>| {
         let view = event.editor.tree.focus();
         if let Some(doc) = event.editor.document_mut(event.doc) {
-            schedule(doc, view);
+            schedule(doc, view, &open_hooks);
         }
         Ok(())
     });
+    let change_hooks = hooks.clone();
     register_hook!(events => move |event: &mut DocumentDidChange<'_>| {
-        schedule_document(event.doc);
+        schedule_document(event.doc, &change_hooks);
 
         Ok(())
     });
+    let diagnostics_hooks = hooks.clone();
     register_hook!(events => move |event: &mut DiagnosticsDidChange<'_>| {
         if let Some(doc) = event.editor.document_mut(event.doc) {
-            schedule_document(doc);
+            schedule_document(doc, &diagnostics_hooks);
         }
         Ok(())
     });
+    let initialized_hooks = hooks.clone();
     register_hook!(events => move |event: &mut LanguageServerInitialized<'_>| {
         for doc in event.editor.documents_mut() {
             if doc.supports_language_server(event.server_id) {
-                schedule_document(doc);
+                schedule_document(doc, &initialized_hooks);
             }
         }
         Ok(())
     });
+    let exited_hooks = hooks.clone();
     register_hook!(events => move |event: &mut LanguageServerExited<'_>| {
         for doc in event.editor.documents_mut() {
             if doc.supports_language_server(event.server_id) {
                 doc.clear_all_code_action_hints();
                 // Debounced work runs after removal from the registry and
                 // recomputes availability from the remaining providers.
-                schedule_document(doc);
+                schedule_document(doc, &exited_hooks);
             }
         }
         Ok(())
@@ -192,7 +200,7 @@ pub(crate) fn register_hooks(events: &event::EventHub) {
             if let Some(doc_id) = event.editor.tree.try_get(view).map(|view| view.doc)
                 && let Some(doc) = event.editor.document_mut(doc_id)
             {
-                schedule(doc, view);
+                schedule(doc, view, &hooks);
             }
         }
         Ok(())

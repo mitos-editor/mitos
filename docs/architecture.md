@@ -639,9 +639,10 @@ selections, and mapped caches are copied without live services. Acceptance alone
 changes the live document.
 
 Document colors, links, highlights, code-action hints, and symbols/breadcrumbs
-have state modules under `view/src/features/`. Each groups its cache, request
-controllers, and attached scheduling handle. Pull diagnostics keeps its handle
-with its diagnostic state. Diagnostic collections and edit mapping belong to the `diagnostics` crate;
+have state modules under `view/src/features/`. Each groups its cache and request
+controllers. Hook-only scheduling handles belong to the editor's finalized
+`DocumentServices` binding, including pull diagnostics; their hooks retain only
+weak references. Diagnostic collections and edit mapping belong to the `diagnostics` crate;
 raw LSP caching, both conversion directions, push/pull publication,
 and provider cleanup live in its `protocol` module. Frontends read diagnostics
 through immutable accessors. Removing a view cancels its per-view work; dropping a
@@ -773,8 +774,8 @@ in `term`.
 
 `view::features::code_action_hint` owns debounced code-action availability checks
 for each document/view. `view::action::code_actions_for_range` builds LSP requests
-for hints, interactive actions, and actions on save. Documents retain hint state,
-cancellation controllers, and their editor's scheduling handle. Selection,
+for hints, interactive actions, and actions on save. Documents retain hint state
+and cancellation controllers; the editor owns the scheduling handle. Selection,
 document, diagnostic, and configuration changes invalidate pending results;
 publication also checks the view, document snapshot, and server attachment.
 Spelling findings provide hints even without an LSP server. Statusline and gutter
@@ -1011,10 +1012,12 @@ application manually must apply requests taken with `take_config_request` before
 accepting more input.
 
 Configure a `Handlers` value before passing it to `Editor::new`. The editor owns
-it and exposes `Editor::handlers()` for reading and scheduling work. All new
-documents receive their service bindings through `Handlers::attach_document`
-before syntax initialization or document-open events. A frontend cannot replace
-owned handler fields directly.
+it and exposes `Editor::handlers()` for reading and scheduling work. Construction
+binds document hooks to the final configured services without changing observer
+order. `Handlers::attach_document` installs the event hub, signals, and the direct
+syntax, blame, and inline-completion dependencies before syntax initialization or
+document-open events. Standalone and readonly documents do not schedule editing
+features through these hooks. A frontend cannot replace owned handler fields directly.
 
 Services are configured before the editor opens documents. Terminal fixtures use
 `AppBuilder::with_handler_setup`, which delegates to

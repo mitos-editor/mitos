@@ -163,13 +163,15 @@ pub fn focus_lost(editor: &mut Editor) {
     }
 }
 
-pub(crate) fn register_hooks(events: &event::EventHub) {
+pub(crate) fn register_hooks(events: &event::EventHub, hooks: crate::handlers::DocumentHooks) {
     register_hook!(events => move |event: &mut DocumentDidChange<'_>| {
         let config = event.doc.config.load();
         if config.files.auto_save.after_delay.enable
-            && let Some(trigger) = &event.doc.auto_save_trigger
+            && !event.doc.is_content_readonly()
+            && let Some(services) = hooks.upgrade()
+            && let Some(services) = services.get()
         {
-            trigger.changed(config.files.auto_save.after_delay.timeout);
+            services.auto_save.changed(config.files.auto_save.after_delay.timeout);
         }
         Ok(())
     });

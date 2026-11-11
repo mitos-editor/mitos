@@ -26,7 +26,6 @@ use crate::{
 /// Cancellation and result IDs follow the document and are independent per server.
 #[derive(Default)]
 pub(crate) struct DocumentDiagnostics {
-    handler: Option<PullDiagnosticsHandler>,
     result_ids: HashMap<LanguageServerId, String>,
     requests: HashMap<LanguageServerId, TaskController>,
 }
@@ -35,10 +34,6 @@ impl DocumentDiagnostics {
     pub(crate) fn clear(&mut self) {
         self.requests.clear();
         self.result_ids.clear();
-    }
-
-    pub(crate) fn bind_handler(&mut self, handler: PullDiagnosticsHandler) {
-        self.handler = Some(handler);
     }
 }
 
@@ -241,7 +236,7 @@ pub fn request_document_diagnostics(editor: &mut Editor, doc_id: DocumentId) {
 }
 
 /// Each event routes work through its owning editor or document.
-pub(crate) fn register_hooks(events: &event::EventHub) {
+pub(crate) fn register_hooks(events: &event::EventHub, hooks: crate::handlers::DocumentHooks) {
     register_hook!(events => move |event: &mut DocumentLanguageDidChange<'_>| {
         request_document_diagnostics(event.editor, event.doc);
         Ok(())
@@ -256,9 +251,16 @@ pub(crate) fn register_hooks(events: &event::EventHub) {
         {
             return Ok(());
         }
-        let Some(handler) = &event.doc.pull_diagnostics.handler else {
+        if event.doc.is_content_readonly() {
+            return Ok(());
+        }
+        let Some(services) = hooks.upgrade() else {
             return Ok(());
         };
+        let Some(services) = services.get() else {
+            return Ok(());
+        };
+        let handler = &services.pull_diagnostics;
         send_blocking(&handler.documents, event.doc.id());
         let servers: HashSet<_> = event
             .doc
