@@ -32,6 +32,14 @@ pub(crate) struct DocumentServices {
     pub code_lenses: code_lenses::DocumentCodeLensesHandler,
     pub document_symbols: document_symbols::DocumentSymbolsHandler,
     pub semantic_tokens: semantic_tokens::SemanticTokensHandler,
+    pub document_highlight: document_highlight::DocumentHighlightHandler,
+    pub code_action_hint: code_action_hint::CodeActionHintHandler,
+    pub signature_help: signature_help::SignatureHelpTrigger,
+    pub word_index: word_index::WordIndexTrigger,
+    pub auto_save: auto_save::AutoSaveTrigger,
+    pub review: crate::features::change_review::ReviewTrigger,
+    pub spelling: tokio::sync::mpsc::Sender<spelling::SpellingEvent>,
+    pub pull_diagnostics: diagnostics::pull::PullDiagnosticsHandler,
 }
 
 /// Services configured before an editor takes ownership. Access owned services through
@@ -157,6 +165,14 @@ impl Handlers {
                     code_lenses: self.code_lenses.clone(),
                     document_symbols: self.document_symbols.clone(),
                     semantic_tokens: self.semantic_tokens.clone(),
+                    document_highlight: self.document_highlight.clone(),
+                    code_action_hint: self.code_action_hint.clone(),
+                    signature_help: self.signature_hints.document_trigger(),
+                    word_index: self.word_index.document_trigger(),
+                    auto_save: self.auto_save.trigger(),
+                    review: self.change_review.document_trigger(),
+                    spelling: self.spelling.event_tx.clone(),
+                    pull_diagnostics: self.pull_diagnostics.clone(),
                 })
                 .is_ok(),
             "document hooks already bound"
@@ -174,19 +190,10 @@ impl Handlers {
             return;
         }
         doc.document_links.cancel_navigation();
-        doc.document_highlight_handler = Some(self.document_highlight.clone());
-        doc.pull_diagnostics
-            .bind_handler(self.pull_diagnostics.clone());
-        doc.code_action_hint_handler = Some(self.code_action_hint.clone());
         doc.inline_completions
             .bind_handler(&self.inline_completions);
-        doc.signature_help_trigger = Some(self.signature_hints.document_trigger());
-        doc.auto_save_trigger = Some(self.auto_save.trigger());
-        doc.review_trigger = Some(self.change_review.document_trigger());
-        doc.word_index_trigger = Some(self.word_index.document_trigger());
         doc.syntax_handler = Some(self.syntax.clone());
         doc.blame.bind_handler(self.blame.clone());
-        doc.spelling_events = Some(self.spelling.event_tx.clone());
     }
 
     /// Manually trigger completion (c-x)
@@ -227,10 +234,10 @@ impl Editor {
 // Install shared hooks once when constructing the services owned by an editor.
 fn register_hooks(events: &event::EventHub, document_hooks: DocumentHooks) {
     auto_reload::register_hooks(events);
-    auto_save::register_hooks(events);
+    auto_save::register_hooks(events, document_hooks.clone());
     blame::register_hooks(events);
-    crate::features::change_review::register_hooks(events);
-    signature_help::register_hooks(events);
+    crate::features::change_review::register_hooks(events, document_hooks.clone());
+    signature_help::register_hooks(events, document_hooks.clone());
     hover::register_hooks(events);
     navigation::register_hooks(events);
     crate::features::shell::register_hooks(events);
@@ -241,22 +248,22 @@ fn register_hooks(events: &event::EventHub, document_hooks: DocumentHooks) {
     inlay_hints::register_hooks(events);
     completion::register_hooks(events);
     crate::debugger::register_hooks(events);
-    word_index::register_hooks(events);
+    word_index::register_hooks(events, document_hooks.clone());
     register_hook!(events => move |event: &mut ConfigDidChange<'_>| {
         event.editor.file_watcher.reload(&event.new.files.watch, &event.editor.workspace);
         event.editor.refresh_vcs_watches();
         Ok(())
     });
-    document_highlight::register_hooks(events);
-    code_action_hint::register_hooks(events);
+    document_highlight::register_hooks(events, document_hooks.clone());
+    code_action_hint::register_hooks(events, document_hooks.clone());
     document_symbols::register_hooks(events, document_hooks.clone());
-    diagnostics::pull::register_hooks(events);
+    diagnostics::pull::register_hooks(events, document_hooks.clone());
     snippet::register_hooks(events);
     document_colors::register_hooks(events, document_hooks.clone());
     code_lenses::register_hooks(events, document_hooks.clone());
     semantic_tokens::register_hooks(events, document_hooks.clone());
-    document_links::register_hooks(events, document_hooks);
+    document_links::register_hooks(events, document_hooks.clone());
     inline_completion::register_hooks(events);
-    spelling::register_hooks(events);
+    spelling::register_hooks(events, document_hooks);
     workspace_trust::register_hooks(events);
 }

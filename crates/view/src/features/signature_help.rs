@@ -395,16 +395,23 @@ pub fn post_insert_char(editor: &Editor) {
     }
 }
 
-pub(crate) fn register_hooks(events: &event::EventHub) {
+pub(crate) fn register_hooks(events: &event::EventHub, hooks: crate::handlers::DocumentHooks) {
+    let change_hooks = hooks.clone();
     register_hook!(events => move |event: &mut DocumentDidChange<'_>| {
-        if let Some(trigger) = &event.doc.signature_help_trigger {
-            trigger.retrigger(event.doc, None);
+        if !event.doc.is_content_readonly()
+            && let Some(services) = change_hooks.upgrade()
+            && let Some(services) = services.get()
+        {
+            services.signature_help.retrigger(event.doc, None);
         }
         Ok(())
     });
     register_hook!(events => move |event: &mut SelectionDidChange<'_>| {
-        if let Some(trigger) = &event.doc.signature_help_trigger {
-            trigger.retrigger(event.doc, Some(event.view));
+        if !event.doc.is_content_readonly()
+            && let Some(services) = hooks.upgrade()
+            && let Some(services) = services.get()
+        {
+            services.signature_help.retrigger(event.doc, Some(event.view));
         }
         Ok(())
     });

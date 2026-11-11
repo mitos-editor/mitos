@@ -18,10 +18,7 @@ pub use folding::FoldAction;
 use view_state::DocumentViewState;
 
 pub use crate::features::blame::LineBlameError;
-use crate::features::{
-    blame::DocumentBlame, code_action_hint::CodeActionHintHandler,
-    inline_completion::InlineCompletions,
-};
+use crate::features::{blame::DocumentBlame, inline_completion::InlineCompletions};
 // Retain document-facing annotation types at their established public paths.
 pub use crate::features::inline_completion::InlineCompletion;
 pub use crate::features::{
@@ -68,8 +65,7 @@ use crate::{
     events::SelectionDidChange,
     features::{
         code_lenses::DocumentCodeLenses, document_colors::DocumentColors,
-        document_highlight::DocumentHighlightHandler, document_links::DocumentLinks,
-        document_symbols::DocumentSymbols,
+        document_links::DocumentLinks, document_symbols::DocumentSymbols,
     },
     view::ViewPosition,
     DocumentId, ViewId,
@@ -195,8 +191,6 @@ pub struct Document {
     pub(crate) code_lenses: DocumentCodeLenses,
     pub(crate) semantic_tokens: crate::features::semantic_tokens::SemanticTokens,
     pub(crate) document_links: DocumentLinks,
-    pub(crate) document_highlight_handler: Option<DocumentHighlightHandler>,
-    pub(crate) code_action_hint_handler: Option<CodeActionHintHandler>,
     pub(crate) conflicts:
         std::sync::OnceLock<Arc<crate::features::conflicts::ConflictPresentation>>,
     pub(crate) document_symbols: DocumentSymbols,
@@ -225,14 +219,7 @@ pub struct Document {
     pub(crate) syntax: Option<Syntax>,
     pending_syntax: Option<PendingSyntax>,
     // Assigned when the document joins an editor so its events return to that editor.
-    pub(crate) signature_help_trigger:
-        Option<crate::features::signature_help::SignatureHelpTrigger>,
-    pub(crate) word_index_trigger: Option<crate::features::word_index::WordIndexTrigger>,
-    pub(crate) auto_save_trigger: Option<crate::features::auto_save::AutoSaveTrigger>,
-    pub(crate) review_trigger: Option<crate::features::change_review::ReviewTrigger>,
     pub(crate) syntax_handler: Option<crate::features::syntax::SyntaxHandler>,
-    pub(crate) spelling_events:
-        Option<tokio::sync::mpsc::Sender<crate::features::spelling::SpellingEvent>>,
     /// Corresponding language scope name. Usually `source.<lang>`.
     pub(crate) language: Option<Arc<LanguageConfiguration>>,
 
@@ -316,11 +303,6 @@ impl Document {
             syntax: None,
             pending_syntax: None,
             syntax_handler: None,
-            auto_save_trigger: None,
-            review_trigger: None,
-            word_index_trigger: None,
-            signature_help_trigger: None,
-            spelling_events: None,
             language: None,
             selection_history: Default::default(),
             diagnostics: Default::default(),
@@ -334,8 +316,6 @@ impl Document {
             config,
             version_control_head: None,
             focused_at: std::time::Instant::now(),
-            document_highlight_handler: None,
-            code_action_hint_handler: None,
             conflicts: Default::default(),
             document_links: Default::default(),
             document_colors: Default::default(),

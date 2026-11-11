@@ -619,8 +619,8 @@ async fn run_review<T: Send + 'static>(
         .ok_or_else(|| anyhow::anyhow!("Change inspection canceled"))?
 }
 
-pub(crate) fn register_hooks(events: &event::EventHub) {
-    live::register_hooks(events);
+pub(crate) fn register_hooks(events: &event::EventHub, hooks: crate::handlers::DocumentHooks) {
+    live::register_hooks(events, hooks);
     use crate::events::DocumentFocusLost;
     event::register_hook!(events => move |event: &mut DocumentFocusLost<'_>| {
         event.editor.handlers.change_review.hunk.lock().cancel();
