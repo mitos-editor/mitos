@@ -1411,6 +1411,7 @@ file-types = [
   { glob = ".zimrc" },
   { glob = "APKBUILD" },
   { glob = ".bash_aliases" },
+  { glob = ".bazelrc" },
   { glob = "bash_completion" },
   { glob = "bash-completion/completions/*" },
   { glob = "bash_completion.d/*" },

@@ -185,8 +185,9 @@ impl<'de> Deserialize<'de> for GlobSet {
 
 #[derive(Debug, PartialEq, Eq, Hash)]
 pub enum FileType {
-    /// The extension of the file, either the `Path::extension` or the full
-    /// filename if the file does not have an extension.
+    /// The extension of the file, as returned by `Path::extension`. A file name
+    /// with no extension, or a dotfile such as `.bashrc`, never matches an
+    /// extension, so it needs a glob instead.
     Extension(String),
     /// A Unix-style path glob. This is compared to the file's absolute path, so
     /// it can be used to detect files based on their directories. If the glob
