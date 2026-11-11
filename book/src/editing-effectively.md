@@ -8,7 +8,7 @@ Follow the articles in order, or choose the one that fits your current task:
 
 | Article | What you will practice |
 | --- | --- |
-| 1. [Edit code with textobjects](./editing-effectively/textobjects.md) | Change words and strings, move between functions, and limit edits to one function |
+| 1. [Edit code with textobjects](./editing-effectively/textobjects.md) | Navigate functions and siblings, expand to parent expressions, and edit related structures together |
 | 2. [Repeat and combine edits](./editing-effectively/repeated-edits.md) | Review matches, edit many selections, filter lines, and choose when to use a macro |
 | 3. [Navigate a project](./editing-effectively/project-navigation.md) | Find files and symbols, follow code, compare files in splits, and return to your edit |
 | 4. [Review and stage changes](./editing-effectively/version-control.md) | Review unsaved edits, stage the intended file version, and use Git history |
