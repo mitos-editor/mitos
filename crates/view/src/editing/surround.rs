@@ -26,7 +26,7 @@ pub fn add(doc: &mut Document, view: ViewId, delimiter: Delimiter) -> Result<(),
     let (open, close): (Tendril, Tendril) = match delimiter {
         Delimiter::Character(ch) => {
             let (open, close) = get_pair(ch);
-            (open.to_string().into(), close.to_string().into())
+            (open.into(), close.into())
         }
         Delimiter::LineEnding => (
             doc.line_ending.as_str().into(),
@@ -149,7 +149,7 @@ impl Replacement {
             doc.text(),
             changes
                 .into_iter()
-                .map(|(pos, ch)| (pos, pos + 1, Some(ch.to_string().into()))),
+                .map(|(pos, ch)| (pos, pos + 1, Some(ch.into()))),
         );
         if let Err(error) = doc.validate_changes(transaction.changes()) {
             self.cancel(doc, view);
