@@ -306,10 +306,7 @@ pub(crate) fn document_highlights(
         return None;
     }
 
-    let highlight = theme
-        .find_highlight_exact("ui.highlight")
-        .or_else(|| theme.find_highlight_exact("ui.selection"))
-        .or_else(|| theme.find_highlight_exact("ui.cursor"))?;
+    let highlight = theme.find_highlight_exact("ui.highlight.symbol")?;
 
     Some(OverlayHighlights::Homogeneous {
         highlight,
@@ -611,6 +608,95 @@ mod tests {
     use super::*;
     use BlockCursorRendering::{Native, Software};
     use CursorKind::{Bar, Block, Underline};
+
+    #[tokio::test]
+    async fn symbol_highlights_keep_partial_selections_visible_in_reported_themes() {
+        use std::sync::Arc;
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../runtime");
+        let loader = theme::Loader::new(loader::theme::Resources::new(vec![root]));
+        for name in [
+            "onelight",
+            "acme",
+            "ayu_light",
+            "adwaita-dark",
+            "default",
+            "base16_default_light",
+            "akari-dawn",
+            "modus_operandi",
+            "modus_vivendi_tinted",
+            "catppuccin_mocha",
+            "catppuccin_latte",
+            "kanagawa",
+            "ayu_dark",
+            "ayu_mirage",
+        ] {
+            let theme = loader.load(name).unwrap();
+            let mut doc = view::Document::from(
+                editor_core::Rope::from("aaaaaaaa = 1\naaaaaaaa = 2\naaaaaaaa = 3\n"),
+                None,
+                Arc::new(arc_swap::ArcSwap::from_pointee(
+                    editor_config::Config::default(),
+                )),
+                Arc::new(language::syntax::Loader::default()),
+            );
+            let view = View::new(doc.id(), Default::default(), Default::default());
+            doc.ensure_view_init(view.id);
+            doc.set_document_highlights(view.id, vec![0..8, 13..21, 26..34]);
+            doc.set_selection(
+                view.id,
+                editor_core::Selection::new(
+                    vec![
+                        editor_core::Range::new(14, 18),
+                        editor_core::Range::new(27, 31),
+                    ]
+                    .into(),
+                    0,
+                ),
+            );
+            let base = theme.get("ui.background").patch(theme.get("ui.text"));
+            let references = document_highlights((&doc).into(), &view, &theme).unwrap();
+            let selection = selection_highlights(
+                Mode::Select,
+                (&doc).into(),
+                &view,
+                &theme,
+                &CursorConfig::default(),
+                true,
+                true,
+            );
+            let spans: Vec<_> = styled_spans(
+                None,
+                [references, selection],
+                &theme,
+                base,
+                doc.text().len_chars(),
+            )
+            .collect();
+            let style_at = |pos| {
+                spans
+                    .iter()
+                    .find(|(range, _)| range.contains(&pos))
+                    .unwrap()
+                    .1
+            };
+            assert_ne!(
+                style_at(13),
+                style_at(15),
+                "{name}: selection must be visible"
+            );
+            assert_eq!(
+                style_at(13),
+                base.patch(theme.get("ui.highlight.symbol")),
+                "{name}: reference highlights must preserve source colors"
+            );
+            assert_eq!(style_at(13), style_at(0));
+            assert_eq!(style_at(13), style_at(26));
+            assert_ne!(style_at(26), style_at(28), "{name}: secondary selection");
+            assert_eq!(style_at(13).fg, base.fg, "{name}: syntax foreground");
+            assert_eq!(style_at(8), base);
+        }
+    }
 
     #[test]
     fn semantic_symbol_kinds_preserve_syntactic_call_roles() {

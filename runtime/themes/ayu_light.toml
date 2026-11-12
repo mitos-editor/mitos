@@ -50,6 +50,8 @@
 
 # Interface
 "ui.link" = { modifiers = ["underlined"] }
+# Upstream editor.wordHighlightBackground composited over this theme's background.
+"ui.highlight.symbol" = { bg = "reference" }
 "ui.background"= { bg = "background" }
 "ui.cursor" = { fg = "dark_gray", bg = "yellow" }
 "ui.cursor.primary" = { fg = "dark_gray", bg = "orange" }
@@ -92,6 +94,7 @@
 "special" = "orange"
 
 [palette]
+reference = "#ecf1f6"
 background = "#fafafa"
 foreground = "#5c6166"
 

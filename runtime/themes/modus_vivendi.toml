@@ -133,6 +133,8 @@ punctuation = "fg-dim"
 "ui.cursorline.primary" = { bg = "bg-hl-line" }
 
 "ui.highlight" = { bg = "bg-hl-line" }
+# A nuanced palette background keeps references separate from bg-inactive selections.
+"ui.highlight.symbol" = { bg = "bg-blue-nuanced" }
 "ui.highlight.frameline" = { bg = "bg-paren-match" }
 
 "ui.menu" = { fg = "fg-main", bg = "bg-dim" }
