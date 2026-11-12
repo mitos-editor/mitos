@@ -9,43 +9,57 @@ use view::{
     document::{Document, Mode},
     editing::movement::{move_lines, LineMotion},
     view::ViewPosition,
-    Editor, View, ViewId,
+    DocumentId, Editor, View, ViewId,
 };
 
-use crate::{
-    commands::Context,
-    job::{Callback, Jobs},
-};
+use crate::job::{Callback, Jobs};
 
-const FRAME: Duration = Duration::from_millis(4);
+const FRAME: Duration = Duration::from_millis(8);
 
 type Shown = (ViewPosition, Selection);
+
+type Key = (ViewId, DocumentId);
 
 #[derive(Default)]
 pub(crate) struct SmoothScroll {
     pub(crate) task: event::TaskController,
-    target: Option<(ViewId, Shown)>,
-    shown: Option<(ViewId, Shown)>,
+    target: Option<(Key, Shown)>,
+    pub(crate) shown: Option<(Key, Shown)>,
 }
 
 impl SmoothScroll {
     pub(crate) fn finish(&mut self, editor: &mut Editor) {
         self.task.cancel();
 
-        self.shown = self.target.take().and_then(|(id, target)| {
-            let (_, doc) = view_doc(editor, id)?;
-            let shown = shown(doc, id);
-            set_shown(doc, id, target);
+        self.shown = self.target.take().and_then(|(key, target)| {
+            let (_, doc) = view_doc(editor, key)?;
+            let shown = shown(doc, key.0);
+            set_shown(doc, key.0, target);
 
-            Some((id, shown))
+            Some((key, shown))
         });
+    }
+
+    /// what's on screen right now
+    fn from(&mut self, editor: &mut Editor, key: Key) -> Shown {
+        if self.target.is_some() {
+            self.finish(editor);
+        }
+
+        match self.shown.take() {
+            Some((shown_key, shown)) if shown_key == key => shown,
+            _ => shown(view::doc!(editor), key.0),
+        }
     }
 }
 
-fn view_doc(editor: &mut Editor, id: ViewId) -> Option<(&View, &mut Document)> {
-    let view = editor.tree.try_get(id)?;
+fn view_doc(editor: &mut Editor, (view_id, doc_id): Key) -> Option<(&View, &mut Document)> {
+    let view = editor.tree.try_get(view_id)?;
+    if view.document_id() != doc_id {
+        return None;
+    }
 
-    Some((view, editor.documents.get_mut(&view.document_id())?))
+    Some((view, editor.documents.get_mut(&doc_id)?))
 }
 
 fn shown(doc: &Document, id: ViewId) -> Shown {
@@ -61,24 +75,19 @@ fn ease_out(progress: f32) -> f32 {
     1.0 - (1.0 - progress).powi(2)
 }
 
-pub(crate) fn animated(cx: &mut Context, scroll: impl FnOnce(&mut Context)) {
-    if !cx.editor.config().scroll.smooth {
-        return scroll(cx);
+/// run `scroll`, then glide there
+pub(crate) fn animate(editor: &mut Editor, jobs: &mut Jobs, scroll: impl FnOnce(&mut Editor)) {
+    if !editor.config().scroll.smooth {
+        return scroll(editor);
     }
 
-    let id = cx.editor.tree.focus();
-    let from = match cx.jobs.smooth_scroll.shown.take() {
-        Some((view, shown)) if view == id => shown,
-        _ => shown(view::doc!(cx.editor), id),
-    };
+    let (view, doc) = view::current_ref!(editor);
+    let (id, key) = (view.id, (view.id, doc.id()));
+    let from = jobs.smooth_scroll.from(editor, key);
 
-    scroll(cx);
+    scroll(editor);
+    editor.ensure_cursor_in_view(editor.tree.focus());
 
-    cx.callback
-        .push(Box::new(move |_, cx| start(cx.editor, cx.jobs, id, from)));
-}
-
-fn start(editor: &mut Editor, jobs: &mut Jobs, id: ViewId, from: Shown) {
     let duration = editor.config().scroll.scroll_speed;
     let behaviour = if editor.mode() == Mode::Select {
         Movement::Extend
@@ -86,7 +95,7 @@ fn start(editor: &mut Editor, jobs: &mut Jobs, id: ViewId, from: Shown) {
         Movement::Move
     };
 
-    let Some((view, doc)) = view_doc(editor, id) else {
+    let Some((view, doc)) = view_doc(editor, key) else {
         return;
     };
     let target = shown(doc, id);
@@ -108,7 +117,7 @@ fn start(editor: &mut Editor, jobs: &mut Jobs, id: ViewId, from: Shown) {
     }
 
     set_shown(doc, id, from.clone());
-    jobs.smooth_scroll.target = Some((id, target.clone()));
+    jobs.smooth_scroll.target = Some((key, target.clone()));
     let task = jobs.smooth_scroll.task.restart();
     let sender = jobs.sender();
 
@@ -140,7 +149,7 @@ fn start(editor: &mut Editor, jobs: &mut Jobs, id: ViewId, from: Shown) {
                         return CallbackOutcome::None;
                     }
 
-                    let Some((view, doc)) = view_doc(cx.editor, id) else {
+                    let Some((view, doc)) = view_doc(cx.editor, key) else {
                         return CallbackOutcome::None;
                     };
 

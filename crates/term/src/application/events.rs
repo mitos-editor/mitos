@@ -110,7 +110,12 @@ where
                 );
             }
             EditorEvent::Navigation(update) => {
-                crate::handlers::navigation::show(&mut self.editor, &mut self.compositor, update);
+                crate::handlers::navigation::show(
+                    &mut self.editor,
+                    &mut self.compositor,
+                    &mut self.jobs,
+                    update,
+                );
             }
             EditorEvent::Hover(update) => {
                 crate::handlers::hover::show(&mut self.editor, &mut self.compositor, update);
@@ -249,5 +254,7 @@ where
         if should_redraw && !self.editor.should_close() {
             self.request_frame();
         }
+
+        self.jobs.smooth_scroll.shown = None;
     }
 }

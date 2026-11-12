@@ -9,7 +9,7 @@ use ui_core::keyboard::KeyCode;
 use view::{align_view, document::Mode, editor::Motion, Align, Editor};
 
 use super::context::Context;
-use crate::smooth_scroll::animated;
+use crate::smooth_scroll::animate;
 
 fn move_impl(cx: &mut Context, lines: LineMotion, dir: Direction, behaviour: Movement) {
     let count = cx.count();
@@ -379,7 +379,11 @@ pub fn scroll(cx: &mut Context, offset: usize, direction: Direction, sync_cursor
 fn page(cx: &mut Context, divisor: usize, direction: Direction, sync_cursor: bool) {
     let (view, doc) = current_ref!(cx.editor);
     let offset = view.inner_height(doc) / divisor;
-    animated(cx, |cx| scroll(cx, offset, direction, sync_cursor));
+    let (cursor, behaviour) = scroll_mode(cx.editor, sync_cursor);
+
+    animate(cx.editor, cx.jobs, |editor| {
+        editor.scroll_view(editor.tree.focus(), offset, direction, cursor, behaviour)
+    });
 }
 
 pub(super) fn page_up(cx: &mut Context) {
@@ -415,8 +419,8 @@ pub(super) fn page_cursor_half_down(cx: &mut Context) {
 }
 
 fn align(cx: &mut Context, align: Align) {
-    animated(cx, |cx| {
-        let (view, doc) = current!(cx.editor);
+    animate(cx.editor, cx.jobs, |editor| {
+        let (view, doc) = current!(editor);
         align_view(doc, view, align);
     });
 }

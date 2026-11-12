@@ -16,6 +16,19 @@ fn state(app: &TestApplication) -> State {
 }
 
 fn page_app(smooth: Option<u64>, commands: &[&str]) -> anyhow::Result<TestApplication> {
+    let text = format!(
+        "#[|0]#{}",
+        (1..1000).map(|n| format!("\n{n}")).collect::<String>()
+    );
+
+    app(smooth, commands, AppBuilder::new().with_input_text(text))
+}
+
+fn app(
+    smooth: Option<u64>,
+    commands: &[&str],
+    builder: AppBuilder,
+) -> anyhow::Result<TestApplication> {
     let bindings: String = commands
         .iter()
         .enumerate()
@@ -32,14 +45,17 @@ fn page_app(smooth: Option<u64>, commands: &[&str]) -> anyhow::Result<TestApplic
     )
     .unwrap()
     .keys;
-    let text = format!(
-        "#[|0]#{}",
-        (1..1000).map(|n| format!("\n{n}")).collect::<String>()
-    );
-    AppBuilder::new()
-        .with_config(config)
-        .with_input_text(text)
-        .build()
+
+    builder.with_config(config).build()
+}
+
+async fn press(app: &mut TestApplication, keys: &str) -> anyhow::Result<()> {
+    for key in ui_core::input::parse_macro(keys)? {
+        app.handle_terminal_events(Ok(Event::Key(tui::backend::native::adapt(key))))
+            .await;
+    }
+
+    Ok(())
 }
 
 async fn page_state(smooth: Option<u64>, commands: &[&str], keys: &str) -> anyhow::Result<State> {
@@ -133,10 +149,7 @@ async fn smooth_scrolls_animate_from_the_old_view() -> anyhow::Result<()> {
         let mut app = page_app(SMOOTH, &commands)?;
         helpers::keys(&mut app, start).await?;
         let before = state(&app);
-        for key in ui_core::input::parse_macro(keys)? {
-            app.handle_terminal_events(Ok(Event::Key(tui::backend::native::adapt(key))))
-                .await;
-        }
+        press(&mut app, keys).await?;
         assert_eq!(
             before,
             state(&app),
@@ -182,5 +195,33 @@ async fn smooth_alignment_and_page_scroll_finish_each_other() -> anyhow::Result<
             "{keys}"
         );
     }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn smooth_tree_sitter_goto_animates() -> anyhow::Result<()> {
+    let commands = ["goto_next_function"];
+    let text = format!("#[|f]#n a() {{}}\n{}fn b() {{}}\n", "//\n".repeat(400));
+    let rust = || {
+        AppBuilder::new()
+            .with_file("foo.rs", None)
+            .with_input_text(text.clone())
+    };
+
+    let mut instant = app(None, &commands, rust())?;
+    helpers::run_event_loop_until_idle(&mut instant).await;
+    helpers::keys(&mut instant, "<F1>").await?;
+    let expected = state(&instant);
+
+    let mut app = app(SMOOTH, &commands, rust())?;
+    helpers::run_event_loop_until_idle(&mut app).await;
+    let before = state(&app);
+    press(&mut app, "<F1>").await?;
+    assert_eq!(before, state(&app), "view and cursor must not jump");
+    assert_ne!(before, expected, "goto moved");
+
+    helpers::run_event_loop_until_idle(&mut app).await;
+    assert_eq!(expected, state(&app));
+
     Ok(())
 }
