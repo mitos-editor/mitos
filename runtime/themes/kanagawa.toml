@@ -56,6 +56,8 @@
 "ui.cursor.primary" = { fg = "waveBlue1", bg = "fujiWhite" }
 "ui.cursor.match" = { fg = "waveRed", modifiers = ["bold"] }
 "ui.highlight" = { fg = "fujiWhite", bg = "waveBlue2" }
+# Upstream LspReferenceText uses the diff text background.
+"ui.highlight.symbol" = { bg = "winterYellow" }
 "ui.menu" = { fg = "fujiWhite", bg = "waveBlue1" }
 "ui.menu.selected" = { fg = "fujiWhite", bg = "waveBlue2", modifiers = ["bold"] }
 "ui.menu.scroll" = { fg = "oldWhite", bg = "waveBlue1" }

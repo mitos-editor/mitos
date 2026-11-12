@@ -294,6 +294,18 @@ and `.hint`. Diagnostic underlines in the editing area use `diagnostic.error`,
 To keep syntax colors visible in review buffers, give `diff.plus.word` and
 `diff.minus.word` a background or text modifier without setting a foreground.
 
+Automatic symbol references use `ui.highlight.symbol`. Bundled themes can use a
+subdued background from their palette without changing syntax colors. Otherwise,
+the default is a background halfway between the editor and primary selection
+backgrounds, keeping selections distinct. Themes with terminal palette colors,
+transparent backgrounds, or no distinct tint use bold text instead.
+This style is independent of `ui.highlight`, which highlights picker preview
+lines. Override it in your theme, or set it to `{}` to remove the decoration:
+
+```toml
+"ui.highlight.symbol" = { bg = "#e8edf5" }
+```
+
 ### Inspecting and validating scopes
 
 Run `:highlight-inspect` to see syntax classifications, semantic refinement,

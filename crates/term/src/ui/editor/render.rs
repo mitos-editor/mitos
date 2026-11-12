@@ -394,6 +394,14 @@ impl PaneRenderer {
 
         overlays.push(highlights::overlay_highlights(&layout));
 
+        // Diagnostics and search matches take precedence over symbol references.
+        if is_focused
+            && config.lsp.document_highlight.auto_trigger
+            && let Some(overlay) = highlights::document_highlights(doc, view, theme)
+        {
+            overlays.push(overlay);
+        }
+
         highlights::diagnostic_highlights(doc, theme, &mut overlays);
         if let Some(query) = doc.search_highlight(view.id)
             && let Some(overlay) = highlights::search_highlights(query, &layout, theme)
@@ -402,11 +410,6 @@ impl PaneRenderer {
         }
 
         if is_focused {
-            if config.lsp.document_highlight.auto_trigger
-                && let Some(overlay) = highlights::document_highlights(doc, view, theme)
-            {
-                overlays.push(overlay);
-            }
             if let Some(tabstops) = highlights::tabstop_highlights(doc, theme) {
                 overlays.push(tabstops);
             }

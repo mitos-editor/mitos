@@ -244,6 +244,15 @@ fn build_theme_values(
         highlights.push(style);
     }
 
+    // Reference highlights must remain distinct from selections, including in
+    // custom themes that do not define a dedicated style.
+    if !styles.contains_key("ui.highlight.symbol") {
+        let style = default_symbol_highlight(&styles);
+        styles.insert("ui.highlight.symbol".into(), style);
+        scopes.push("ui.highlight.symbol".into());
+        highlights.push(style);
+    }
+
     // Compile composed syntax styles once, keeping the render loop an indexed
     // lookup. The inventory is generated from bundled queries; custom theme keys
     // are retained and custom scopes still support ordinary prefix fallback.
@@ -265,6 +274,32 @@ fn build_theme_values(
         }
     }
     (styles, scopes, highlights, rainbow_length, warnings)
+}
+
+fn default_symbol_highlight(styles: &HashMap<String, Style>) -> Style {
+    let background = styles.get("ui.background").and_then(|style| style.bg);
+    let selection = styles
+        .get("ui.selection.primary")
+        .and_then(|style| style.bg)
+        .or_else(|| styles.get("ui.selection").and_then(|style| style.bg));
+
+    if let (Some(Color::Rgb(r, g, b)), Some(Color::Rgb(sr, sg, sb))) = (background, selection) {
+        // A weaker version of the theme's selection preserves its palette and
+        // source foregrounds while keeping both kinds of selection distinct.
+        let mix = |base: u8, selected: u8| ((u16::from(base) + u16::from(selected)) / 2) as u8;
+        let tint = Color::Rgb(mix(r, sr), mix(g, sg), mix(b, sb));
+        if Some(tint) != background
+            && ["ui.selection", "ui.selection.primary"]
+                .iter()
+                .all(|scope| styles.get(*scope).and_then(|style| style.bg) != Some(tint))
+        {
+            return Style::default().bg(tint);
+        }
+    }
+
+    // Terminal palette colors and transparent backgrounds cannot be blended
+    // reliably. Weight is portable and does not obscure selections.
+    Style::default().add_modifier(Modifier::BOLD)
 }
 
 /// Resolve syntax selectors from broad to specific, merging individual style
@@ -645,6 +680,77 @@ impl TryFrom<Value> for ThemePalette {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn symbol_highlights_default_to_a_weaker_selection_background() {
+        let theme = Theme::from(Value::Table(toml::toml! {
+            "ui.highlight" = { bg = "blue" }
+            "ui.background" = { bg = "#102030" }
+            "ui.selection" = { bg = "#203040" }
+            "ui.selection.primary" = { bg = "#506070" }
+        }));
+        let highlight = theme.find_highlight_exact("ui.highlight.symbol").unwrap();
+        assert_eq!(
+            theme.highlight(highlight),
+            Style::default().bg(Color::Rgb(48, 64, 80))
+        );
+        assert_eq!(theme.get("ui.highlight").bg, Some(Color::Blue));
+    }
+
+    #[test]
+    fn symbol_highlights_use_weight_when_a_distinct_tint_is_unavailable() {
+        for source in [
+            "",
+            "\"ui.selection\" = { bg = \"blue\" }",
+            "\"ui.background\" = { bg = \"black\" }\n\"ui.selection\" = { bg = \"blue\" }",
+            "\"ui.background\" = { bg = \"#101010\" }\n\"ui.selection\" = { bg = \"#101010\" }",
+            "\"ui.background\" = { bg = \"#101010\" }\n\"ui.selection\" = { bg = \"#111111\" }",
+            "\"ui.background\" = { bg = \"#101010\" }\n\"ui.selection\" = { bg = \"#202020\" }\n\"ui.selection.primary\" = { bg = \"#303030\" }",
+        ] {
+            let theme = Theme::from(toml::from_str::<Value>(source).unwrap());
+            assert_eq!(
+                theme.get("ui.highlight.symbol"),
+                Style::default().add_modifier(Modifier::BOLD),
+                "{source}"
+            );
+        }
+    }
+
+    #[test]
+    fn bundled_symbol_highlights_preserve_syntax_and_differ_from_selections() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../runtime");
+        let loader = Loader::new(Resources::new(vec![root]));
+        for name in loader.resources().names() {
+            let theme = loader.load(&name).unwrap();
+            let style = theme.get("ui.highlight.symbol");
+            assert_eq!(style.fg, None, "{name}: preserve syntax foregrounds");
+            assert!(!style.add_modifier.contains(Modifier::UNDERLINED), "{name}");
+            if let Some(bg) = style.bg {
+                for scope in ["ui.background", "ui.selection", "ui.selection.primary"] {
+                    assert_ne!(Some(bg), theme.get(scope).bg, "{name}: {scope}");
+                }
+            } else {
+                assert!(style.add_modifier.contains(Modifier::BOLD), "{name}");
+            }
+        }
+    }
+
+    #[test]
+    fn symbol_highlight_style_can_be_overridden_or_disabled() {
+        for (style, expected) in [
+            (
+                toml::toml! { bg = "green" },
+                Style::default().bg(Color::Green),
+            ),
+            (toml::Table::new(), Style::default()),
+        ] {
+            let mut values = toml::Table::new();
+            values.insert("ui.highlight.symbol".into(), Value::Table(style));
+            let theme = Theme::from(Value::Table(values));
+            let highlight = theme.find_highlight_exact("ui.highlight.symbol").unwrap();
+            assert_eq!(theme.highlight(highlight), expected);
+        }
+    }
 
     #[test]
     fn background_tint_requires_rgb_colors() {
