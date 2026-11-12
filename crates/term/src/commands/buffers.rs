@@ -182,7 +182,9 @@ pub(super) mod typed {
     //! Typable buffers commands.
 
     use crate::{
-        commands::navigation::{goto_buffer, move_buffer_down, move_buffer_up},
+        commands::navigation::{
+            goto_buffer, move_buffer_down, move_buffer_to_end, move_buffer_to_start, move_buffer_up,
+        },
         compositor,
     };
     use ::command_line::Args;
@@ -357,6 +359,24 @@ pub(super) mod typed {
         _args: Args,
     ) -> anyhow::Result<()> {
         move_buffer_down(cx.editor);
+        Ok(())
+    }
+
+    #[cold]
+    pub(in crate::commands) fn buffer_order_start(
+        cx: &mut compositor::Context,
+        _args: Args,
+    ) -> anyhow::Result<()> {
+        move_buffer_to_start(cx.editor);
+        Ok(())
+    }
+
+    #[cold]
+    pub(in crate::commands) fn buffer_order_end(
+        cx: &mut compositor::Context,
+        _args: Args,
+    ) -> anyhow::Result<()> {
+        move_buffer_to_end(cx.editor);
         Ok(())
     }
 

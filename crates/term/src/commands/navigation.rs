@@ -42,6 +42,16 @@ pub(super) fn move_buffer_down(editor: &mut Editor) {
     editor.move_document_down(current, 1);
 }
 
+pub(super) fn move_buffer_to_start(editor: &mut Editor) {
+    let current = view!(editor).document_id();
+    editor.move_document_to_start(current);
+}
+
+pub(super) fn move_buffer_to_end(editor: &mut Editor) {
+    let current = view!(editor).document_id();
+    editor.move_document_to_end(current);
+}
+
 pub(super) fn goto_buffer(editor: &mut Editor, direction: Direction, count: usize) {
     let current = view!(editor).document_id();
 

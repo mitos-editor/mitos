@@ -26,11 +26,8 @@ impl Documents {
     pub(super) fn insert(&mut self, mut doc: Document) -> DocumentId {
         let id = self.next_id;
         self.next_id = DocumentId(id.0.checked_add(1).expect("document IDs exhausted"));
-
         doc.id = id;
-
-        let previous = self.documents.insert(id, doc);
-        debug_assert!(previous.is_none());
+        self.documents.insert(id, doc);
         self.document_order.push(id);
 
         id
@@ -43,11 +40,6 @@ impl Documents {
             .document_order
             .iter()
             .position(|ordered_id| ordered_id == id);
-
-        debug_assert!(
-            position.is_some(),
-            "registered document missing from document order"
-        );
 
         if let Some(position) = position {
             self.document_order.remove(position);
@@ -76,6 +68,22 @@ impl Documents {
 
         let target = current.saturating_sub(count);
         self.move_to(current, target)
+    }
+
+    pub fn move_to_start(&mut self, id: DocumentId) -> bool {
+        let Some(current) = self.position(id) else {
+            return false;
+        };
+
+        self.move_to(current, 0)
+    }
+
+    pub fn move_to_end(&mut self, id: DocumentId) -> bool {
+        let Some(current) = self.position(id) else {
+            return false;
+        };
+
+        self.move_to(current, self.len() - 1)
     }
 
     fn move_to(&mut self, current: usize, target: usize) -> bool {
@@ -132,6 +140,12 @@ impl Documents {
         self.documents.values()
     }
 
+    pub fn values_mut(
+        &mut self,
+    ) -> impl DoubleEndedIterator<Item = &mut Document> + ExactSizeIterator {
+        self.documents.values_mut()
+    }
+
     pub fn iter(
         &self,
     ) -> impl DoubleEndedIterator<Item = (&DocumentId, &Document)> + ExactSizeIterator {
@@ -143,16 +157,6 @@ impl Documents {
 
             (id, document)
         })
-    }
-
-    pub fn values_mut(
-        &mut self,
-    ) -> impl DoubleEndedIterator<Item = &mut Document> + ExactSizeIterator {
-        // Mutable iteration cannot easily follow `document_order` with a
-        // BTreeMap without unsafe code or repeated lookup restrictions.
-        //
-        // Callers of this method must not rely on iteration order.
-        self.documents.values_mut()
     }
 }
 
