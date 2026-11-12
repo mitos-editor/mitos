@@ -1,5 +1,5 @@
 //! Fixed historical inputs. Repository reads and parsing share the review worker budget.
-use super::{decode, engine::Settings, Review, ReviewSource};
+use super::{decode, source::LanguageContext, Review, ReviewSource};
 use crate::{editor::Action, Document, DocumentId, Editor};
 use anyhow::{ensure, Result};
 use editor_core::Rope;
@@ -31,11 +31,11 @@ pub struct HistoricalReviewRequest {
     pub(super) path: PathBuf,
     pub(super) workspace: PathBuf,
     pub(super) label: String,
-    pub(super) settings: Settings,
+    pub(super) context: LanguageContext,
     before_path: PathBuf,
     before_label: String,
     after_label: String,
-    before_settings: Settings,
+    before_context: LanguageContext,
     trusted: bool,
     input: Input,
     worker: Arc<tokio::sync::Semaphore>,
@@ -58,9 +58,9 @@ impl HistoricalReviewRequest {
         comparison: vcs::Comparison,
     ) -> Self {
         Self {
-            settings: Settings::historical(editor, &path),
+            context: LanguageContext::historical(editor, &path),
             worker: editor.handlers.change_review.worker.clone(),
-            before_settings: Settings::historical(editor, &path),
+            before_context: LanguageContext::historical(editor, &path),
             before_path: path.clone(),
             before_label: label.clone(),
             after_label: label.clone(),
@@ -85,9 +85,9 @@ impl HistoricalReviewRequest {
         let path = repository.root().join(file.path());
         let workspace = repository.root().to_owned();
         Self {
-            settings: Settings::historical(editor, &path),
+            context: LanguageContext::historical(editor, &path),
             worker: editor.handlers.change_review.worker.clone(),
-            before_settings: Settings::historical(editor, &path),
+            before_context: LanguageContext::historical(editor, &path),
             before_path: path.clone(),
             before_label: format!("{}^1", &entry.id()[..12]),
             after_label: format!("{} {}", &entry.id()[..12], file.layer().label()),
@@ -132,9 +132,9 @@ impl HistoricalReviewRequest {
             .to_owned();
         let workspace = repository.root().to_owned();
         Ok(Self {
-            settings: Settings::historical(editor, &path),
+            context: LanguageContext::historical(editor, &path),
             worker: editor.handlers.change_review.worker.clone(),
-            before_settings: Settings::historical(editor, &before_path),
+            before_context: LanguageContext::historical(editor, &before_path),
             before_path,
             trusted: editor
                 .workspace_trust
@@ -175,7 +175,7 @@ impl HistoricalReviewRequest {
         );
         let mut request = Self::revisions(editor, repository.clone(), Some(before.clone()), None)?;
         request.path = stdx::path::canonicalize_existing(&path);
-        request.settings = Settings::capture(editor, &path);
+        request.context = LanguageContext::capture(editor, &path);
         request.after_label = "buffer snapshot".into();
         request.label = format!("{} → buffer", before.revision.short());
         request.input = Input::Revisions {
@@ -187,13 +187,9 @@ impl HistoricalReviewRequest {
         Ok(request)
     }
 
-    pub fn engine(&self) -> super::DiffEngine {
-        self.settings.engine
-    }
-
-    /// Refresh comparison policy without replacing pinned revisions or captured buffer text.
-    pub(super) fn refresh_settings(&mut self, editor: &Editor) {
-        self.settings = Settings::historical(editor, &self.path);
+    /// Refresh source language resources without replacing pinned revisions or captured buffer text.
+    pub(super) fn refresh_context(&mut self, editor: &Editor) {
+        self.context = LanguageContext::historical(editor, &self.path);
         #[cfg(feature = "git")]
         if matches!(
             &self.input,
@@ -202,16 +198,16 @@ impl HistoricalReviewRequest {
                 ..
             }
         ) {
-            self.settings = Settings::capture(editor, &self.path);
+            self.context = LanguageContext::capture(editor, &self.path);
         }
-        self.before_settings = Settings::historical(editor, &self.before_path);
+        self.before_context = LanguageContext::historical(editor, &self.before_path);
     }
 
-    /// Compare configured review policy independently of the immutable source key.
-    pub fn same_policy(&self, other: &Self) -> bool {
+    /// Compare captured trust and language resources independently of the source key.
+    pub fn same_context(&self, other: &Self) -> bool {
         self.trusted == other.trusted
-            && self.settings.current(&other.settings)
-            && self.before_settings.current(&other.before_settings)
+            && self.context.current(&other.context)
+            && self.before_context.current(&other.before_context)
     }
 
     /// Historical previews share the editor's bounded, cancellable review worker.
@@ -251,10 +247,7 @@ impl HistoricalReviewRequest {
         canceled: &dyn Fn() -> bool,
     ) -> Result<(Arc<ReviewSource>, Arc<Review>)> {
         let source = self.source(canceled)?;
-        let review = source.compute(None, canceled);
-        if !review.truncated {
-            source.prepare_syntax(canceled);
-        }
+        let review = source.compute(canceled);
         ensure!(!canceled(), "Historical review canceled");
         Ok((source, review))
     }
@@ -312,9 +305,9 @@ impl HistoricalReviewRequest {
                 decode(&comparison.before, None)?,
                 after,
                 None,
-                self.settings.clone(),
+                self.context.clone(),
             )
-            .with_before_settings(self.before_settings.clone()),
+            .with_before_context(self.before_context.clone()),
         );
         Ok(source)
     }

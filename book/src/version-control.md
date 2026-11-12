@@ -185,44 +185,20 @@ A-r = "restore"
 
 The popup shows the configured restoration shortcut below the change.
 
-### Syntax-aware review
+### Reviewing changes
 
-Line comparison (`engine = "line"`) is the default. Syntax comparison highlights
-changed parts of code while matching code across line breaks, which can make
-reformatted changes easier to read. Review buffers keep syntax highlighting with
-either engine.
+Reviews show the exact added and removed lines, whitespace, line numbers, and
+counts. When source syntax is available, matching code across line breaks helps
+emphasize the parts that changed. Comments, string contents, and literal markup
+whitespace remain significant. A `layout only` label means the syntax matched
+while the text's layout changed.
 
-To enable syntax comparison, add this to `config.toml`:
+Syntax highlighting uses the original source on each side. Files without usable
+syntax, parse errors, and comparisons beyond the syntax limits keep ordinary
+line emphasis. No setup is required.
 
-```toml
-[editor.diff]
-engine = "syntax"
-```
-
-Use `"auto"` to choose syntax comparison for supported languages and line
-comparison for other files. Override the global choice for a language in
-`languages.toml`:
-
-```toml
-[[language]]
-name = "rust"
-diff-engine = "syntax"
-```
-
-Language settings take precedence over `editor.diff.engine`. Run `:config-reload`
-after editing configuration. Open review buffers apply the new setting
-automatically; reopen a popup to update it. The review statusline or popup heading
-shows the active engine.
-
-Both engines show the original added and removed lines, whitespace, line numbers,
-and counts. A `layout only` label means the syntax matched while the text's
-layout changed. Comments and string contents still take part in comparison.
-Syntax comparison does not check whether code behaves the same; moved blocks
-still appear as removed and added text.
-
-If a grammar is missing, code cannot be parsed, or a comparison is too large,
-Mitos falls back to line comparison with a notice. In `auto` mode, unsupported
-languages use line comparison without a notice.
+Comparison does not prove that code behaves the same. Moved blocks still appear
+as removed and added text.
 
 ## Change navigation and restoration
 
@@ -237,7 +213,7 @@ unsaved edits. Use a count such as `3]g` to jump forward three changes.
 
 Restoring replaces each selected hunk in the current buffer. Use `u` to
 undo it. The command does not save the file or change Git's staging area.
-Navigation and restoration use line changes with either comparison engine.
+Navigation and restoration use the exact line changes.
 
 ## Git picker actions
 

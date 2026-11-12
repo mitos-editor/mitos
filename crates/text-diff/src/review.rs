@@ -5,8 +5,9 @@ use std::ops::Range;
 use editor_core::{line_ending::get_line_ending, Rope};
 use stdx::rope::LINE_TYPE;
 
+use crate::syntax::{self, Changes};
 use crate::{Hunk, LineDiff};
-use crate::{ReviewChanges, ReviewProvider, ReviewUnavailable};
+use tree_house::tree_sitter::Tree;
 
 pub const MAX_REVIEW_BYTES: usize = 10 * 1024 * 1024;
 pub const MAX_REVIEW_LINES: usize = 200_000;
@@ -43,10 +44,8 @@ pub struct Review {
     pub additions: usize,
     pub deletions: usize,
     pub truncated: bool,
-    pub provider: Option<&'static str>,
-    pub fallback: Option<ReviewUnavailable>,
-    /// The provider matched every token; exact textual changes may still be present.
-    pub unchanged_by_provider: bool,
+    /// All syntax tokens matched despite exact text changes.
+    pub layout_only: bool,
     bytes: usize,
     largest_line: usize,
     max_line_chars: usize,
@@ -145,58 +144,28 @@ impl Review {
         review
     }
 
-    /// Keep exact textual rows/counts while optionally emphasizing structural changes.
-    pub fn with_provider(
-        base: Rope,
-        current: Rope,
-        line: Option<usize>,
-        provider: &dyn ReviewProvider,
-        canceled: &dyn Fn() -> bool,
-    ) -> Self {
-        Self::new(base.clone(), current.clone(), line)
-            .annotated(&base, &current, provider, canceled)
-    }
-
-    /// Annotate an existing exact review of these snapshots without repeating line matching.
-    /// The original review remains available for switching back to line presentation.
-    pub fn annotated(
-        self,
+    /// Refine changed rows using the trees for these exact source snapshots.
+    /// Missing, incompatible, invalid, or oversized syntax leaves textual emphasis intact.
+    pub fn with_syntax(
+        mut self,
         base: &Rope,
         current: &Rope,
-        provider: &dyn ReviewProvider,
+        before: &Tree,
+        after: &Tree,
         canceled: &dyn Fn() -> bool,
     ) -> Self {
-        let mut review = self;
-        review.provider = None;
-        review.fallback = None;
-        review.unchanged_by_provider = false;
-        for line in &mut review.lines {
-            line.changes = None;
+        if !self.truncated
+            && (self.additions != 0 || self.deletions != 0)
+            && before.root_node().grammar() == after.root_node().grammar()
+            && let Some(changes) = syntax::compare(base, current, before, after, canceled)
+        {
+            self.annotate(base, current, changes);
         }
-        if review.truncated {
-            review.fallback = Some(ReviewUnavailable("review truncated"));
-            return review;
-        }
-        if review.additions == 0 && review.deletions == 0 {
-            review.provider = Some(provider.name());
-            review.unchanged_by_provider = true;
-            return review;
-        }
-        match provider.compare(base, current, canceled) {
-            Ok(changes)
-                if valid_ranges(base, &changes.before) && valid_ranges(current, &changes.after) =>
-            {
-                review.annotate(base, current, changes);
-                review.provider = Some(provider.name());
-            }
-            Ok(_) => review.fallback = Some(ReviewUnavailable("invalid provider source ranges")),
-            Err(reason) => review.fallback = Some(reason),
-        }
-        review
+        self
     }
 
-    fn annotate(&mut self, base: &Rope, current: &Rope, changes: ReviewChanges) {
-        self.unchanged_by_provider = changes.before.is_empty() && changes.after.is_empty();
+    fn annotate(&mut self, base: &Rope, current: &Rope, changes: Changes) {
+        self.layout_only = changes.before.is_empty() && changes.after.is_empty();
         for line in &mut self.lines {
             let (rope, row, ranges) = match line.kind {
                 ReviewLineKind::Removed => (base, line.before.unwrap(), &changes.before),
@@ -351,19 +320,6 @@ impl Review {
     }
 }
 
-fn valid_ranges(text: &Rope, ranges: &[Range<usize>]) -> bool {
-    let mut end = 0;
-    ranges.iter().all(|range| {
-        let valid = range.start >= end
-            && range.start < range.end
-            && range.end <= text.len()
-            && text.char_to_byte_idx(text.byte_to_char_idx(range.start)) == range.start
-            && text.char_to_byte_idx(text.byte_to_char_idx(range.end)) == range.end;
-        end = range.end;
-        valid
-    })
-}
-
 fn line_count(rope: &Rope) -> usize {
     rope.len_lines(LINE_TYPE)
         - usize::from(rope.len() == 0 || get_line_ending(&rope.slice(..)).is_some())
@@ -402,16 +358,17 @@ mod tests {
     }
 
     #[test]
-    fn provider_ranges_do_not_create_empty_emphasis_on_blank_rows() {
-        let review = Review::with_provider(
-            Rope::from(""),
-            Rope::from("a\n\nb\n"),
-            None,
-            &Provider(ReviewChanges {
+    fn syntax_ranges_do_not_create_empty_emphasis_on_blank_rows() {
+        let before = Rope::from("");
+        let after = Rope::from("a\n\nb\n");
+        let mut review = Review::new(before.clone(), after.clone(), None);
+        review.annotate(
+            &before,
+            &after,
+            Changes {
                 before: vec![],
                 after: std::iter::once(0..5).collect(),
-            }),
-            &|| false,
+            },
         );
         assert!(review
             .lines
@@ -449,68 +406,20 @@ mod tests {
         assert_eq!(Review::notice("No text changes").after_line_at(0), None);
     }
 
-    struct Provider(ReviewChanges);
-
-    impl ReviewProvider for Provider {
-        fn name(&self) -> &'static str {
-            "custom"
-        }
-        fn compare(
-            &self,
-            _: &Rope,
-            _: &Rope,
-            _: &dyn Fn() -> bool,
-        ) -> Result<ReviewChanges, ReviewUnavailable> {
-            Ok(ReviewChanges {
-                before: self.0.before.clone(),
-                after: self.0.after.clone(),
-            })
-        }
-    }
-
     #[test]
-    fn identical_text_does_not_invoke_a_provider() {
-        struct Unreachable;
-        impl ReviewProvider for Unreachable {
-            fn name(&self) -> &'static str {
-                "custom"
-            }
-            fn compare(
-                &self,
-                _: &Rope,
-                _: &Rope,
-                _: &dyn Fn() -> bool,
-            ) -> Result<ReviewChanges, ReviewUnavailable> {
-                panic!("identical text does not need structural matching")
-            }
-        }
-        let text = Rope::from("same text\n");
-        let review = Review::with_provider(text.clone(), text, None, &Unreachable, &|| false);
-        assert_eq!(review.provider, Some("custom"));
-        assert!(review.unchanged_by_provider);
-        assert_eq!((review.additions, review.deletions), (0, 0));
-    }
-
-    #[test]
-    fn provider_spans_are_clipped_to_literal_rows_and_do_not_change_hunks() {
+    fn syntax_spans_are_clipped_to_literal_rows_and_keep_exact_hunks() {
         let before = Rope::from("λ old\r\nend\n");
         let after = Rope::from("λ new\r\nend\n");
-        let original = Review::new(before.clone(), after.clone(), None);
-        let review = Review::with_provider(
-            before,
-            after,
-            None,
-            &Provider(ReviewChanges {
+        let mut review = Review::new(before.clone(), after.clone(), None);
+        review.annotate(
+            &before,
+            &after,
+            Changes {
                 before: std::iter::once(3..6).collect(),
                 after: std::iter::once(3..8).collect(),
-            }),
-            &|| false,
+            },
         );
-        assert_eq!(review.provider, Some("custom"));
-        assert_eq!(
-            (review.additions, review.deletions),
-            (original.additions, original.deletions)
-        );
+        assert_eq!((review.additions, review.deletions), (1, 1));
         let line = review
             .lines
             .iter()
@@ -518,33 +427,6 @@ mod tests {
             .unwrap();
         assert_eq!(line.text, "λ new");
         assert_eq!(line.changes.as_deref(), Some(std::slice::from_ref(&(3..6))));
-    }
-
-    #[test]
-    fn invalid_provider_ranges_fall_back_without_panicking_or_losing_text() {
-        for ranges in [
-            std::iter::once(1..2).collect(),
-            std::iter::once(0..50).collect(),
-            vec![3..4, 2..3],
-            std::iter::once(2..2).collect(),
-        ] {
-            let review = Review::with_provider(
-                Rope::from("λ old\n"),
-                Rope::from("λ new\n"),
-                None,
-                &Provider(ReviewChanges {
-                    before: ranges,
-                    after: vec![],
-                }),
-                &|| false,
-            );
-            assert_eq!(review.provider, None);
-            assert_eq!(
-                review.fallback,
-                Some(ReviewUnavailable("invalid provider source ranges"))
-            );
-            assert!(review.lines.iter().any(|line| line.text == "λ old"));
-        }
     }
 
     #[test]

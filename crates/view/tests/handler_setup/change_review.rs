@@ -337,10 +337,8 @@ async fn review_gutters_show_sources_and_navigation_validates_live_text() -> any
     Ok(())
 }
 
-#[cfg(feature = "syntax-diff")]
 #[tokio::test(flavor = "multi_thread")]
-async fn review_refresh_uses_configured_engine_and_cancels_older_work() -> anyhow::Result<()> {
-    use editor_config::DiffEngine;
+async fn review_refresh_reuses_automatic_emphasis_and_keeps_snapshots() -> anyhow::Result<()> {
     let mut f = Fixture::with_languages("{\"λ\": 1}\n", JSON_LANGUAGE)?;
     prepare(&mut f, "initial");
     let path = current_ref!(f.editor).1.path().unwrap().to_owned();
@@ -350,23 +348,24 @@ async fn review_refresh_uses_configured_engine_and_cancels_older_work() -> anyho
         Action::Replace,
         None,
     );
-    f.configure(|config| config.diff.engine = DiffEngine::Syntax);
     f.editor.refresh_review()?;
-    f.configure(|config| config.diff.engine = DiffEngine::Line);
     f.editor.refresh_review()?;
     finish_review(&mut f, id).await?;
     let doc = f.editor.document(id).unwrap();
     let text = doc.text().clone();
     let source = doc.review().unwrap().source().unwrap().clone();
-    assert_eq!(doc.review().unwrap().engine(), DiffEngine::Line);
+    assert!(doc
+        .review()
+        .unwrap()
+        .review()
+        .lines
+        .iter()
+        .any(|row| row.changes.is_some()));
     assert!(!doc.word_completion_enabled());
-    f.configure(|config| config.diff.engine = DiffEngine::Syntax);
     f.editor.refresh_review()?;
     finish_review(&mut f, id).await?;
     let doc = f.editor.document(id).unwrap();
-    assert_eq!(doc.review().unwrap().review().provider, Some("syntax"));
     assert_eq!(doc.text(), &text);
-    assert_eq!(doc.review().unwrap().engine(), DiffEngine::Syntax);
     assert_eq!(
         doc.review().unwrap().source().unwrap().after(),
         source.after()
@@ -440,7 +439,6 @@ async fn full_file_head_review_captures_unsaved_text_and_resolves_staged_renames
     Ok(())
 }
 
-#[cfg(feature = "syntax-diff")]
 const JSON_LANGUAGE: &str = r#"
 [[language]]
 name = "review-json"
@@ -449,11 +447,8 @@ file-types = ["words"]
 grammar = "json"
 "#;
 
-#[cfg(feature = "syntax-diff")]
 #[tokio::test]
-async fn review_engine_policy_cache_and_captured_language_resources_follow_configuration(
-) -> anyhow::Result<()> {
-    use editor_config::DiffEngine;
+async fn review_cache_captures_text_and_language_resources() -> anyhow::Result<()> {
     let mut f = Fixture::with_languages("{\"value\": 1}\n", JSON_LANGUAGE)?;
     prepare(&mut f, "initial");
     f.replace("{\n  \"value\": 2\n}\n");
@@ -462,127 +457,76 @@ async fn review_engine_policy_cache_and_captured_language_resources_follow_confi
         staged: None,
         unstaged: Some(FileChange::Modified { path }),
     };
-    let line = ReviewRequest::new(&f.editor, &status, ReviewComparison::Buffer, f.dir.path());
-    let original = line.compute_cached(None)?;
-    assert_eq!(original.diff()?.provider, None);
-    assert!(original.diff()?.fallback.is_none());
-    let hunk = HunkReviewRequest::capture(&f.editor)?;
-    f.configure(|config| config.diff.engine = DiffEngine::Syntax);
-    assert!(!line.is_current(&f.editor));
-    assert!(!hunk.is_current(&f.editor));
-    let syntax = ReviewRequest::new(&f.editor, &status, ReviewComparison::Buffer, f.dir.path());
-    assert!(!line.same_target(&syntax));
-    let updated = syntax.compute_cached(Some(original.clone()))?;
-    assert!(!Arc::ptr_eq(&updated, &original));
-    assert_eq!(updated.diff()?.provider, Some("syntax"));
-    assert_eq!(
-        updated
-            .source
-            .compute(Some(DiffEngine::Line), &|| false)
-            .provider,
-        None
-    );
-    // A source is immutable even if the live document changes after opening the review.
+    let request = ReviewRequest::new(&f.editor, &status, ReviewComparison::Buffer, f.dir.path());
+    let original = request.compute_cached(None)?;
+    assert!(original
+        .diff()?
+        .lines
+        .iter()
+        .any(|row| row.changes.is_some()));
+    let cached = request.compute_cached(Some(original.clone()))?;
+    assert!(Arc::ptr_eq(&original, &cached));
+    assert!(Arc::ptr_eq(
+        &original.diff()?,
+        &original.source.compute(&|| false)
+    ));
     f.replace("{\"value\": 3}\n");
-    let captured = updated.source.compute(Some(DiffEngine::Syntax), &|| false);
+    let captured = original.source.compute(&|| false);
     assert!(captured.lines.iter().any(|line| line.text.contains('2')));
     assert!(!captured
         .lines
         .iter()
         .any(|line| line.text.contains("\"value\": 3")));
-    let syntax = ReviewRequest::new(&f.editor, &status, ReviewComparison::Buffer, f.dir.path());
-    let original = syntax.compute_cached(None)?;
-    let cached = syntax.compute_cached(Some(original.clone()))?;
-    assert!(Arc::ptr_eq(&original, &cached));
-    f.configure(|config| config.diff.engine = DiffEngine::Line);
-    let line = ReviewRequest::new(&f.editor, &status, ReviewComparison::Buffer, f.dir.path());
-    let updated = line.compute_cached(Some(original.clone()))?;
-    assert_eq!(updated.engine(), DiffEngine::Line);
-    assert_eq!(updated.diff()?.provider, None);
-    assert!(!Arc::ptr_eq(&original.source, &updated.source));
+    assert!(!request.is_current(&f.editor));
+    let current = ReviewRequest::new(&f.editor, &status, ReviewComparison::Buffer, f.dir.path());
+    let changed = current.compute_cached(Some(original))?;
+    assert!(changed
+        .diff()?
+        .lines
+        .iter()
+        .any(|line| line.text.contains('3')));
+    let hunk = HunkReviewRequest::capture(&f.editor)?;
     f.editor.syn_loader.store(Arc::new(language::Loader::new(
         toml::from_str(JSON_LANGUAGE)?,
         loader::syntax::Resources::default(),
     )?));
-    assert!(!syntax.is_current(&f.editor));
+    assert!(!current.is_current(&f.editor));
+    assert!(!hunk.is_current(&f.editor));
     Ok(())
 }
 
-#[cfg(feature = "syntax-diff")]
 #[tokio::test]
-async fn canceled_syntax_comparisons_do_not_poison_cached_presentations() -> anyhow::Result<()> {
-    use editor_config::DiffEngine;
+async fn hunk_and_unopened_file_reviews_refine_syntax_automatically() -> anyhow::Result<()> {
     let mut f = Fixture::with_languages("{\"value\": 1}\n", JSON_LANGUAGE)?;
     prepare(&mut f, "initial");
     f.replace("{\"value\": 2}\n");
-    let (source, line) = HunkReviewRequest::capture(&f.editor)?.compute_review()?;
-    assert!(Arc::ptr_eq(
-        &line,
-        &source.compute(Some(DiffEngine::Line), &|| false)
-    ));
-    // Cancel after exact rows are ready, during the provider comparison.
-    let checks = std::cell::Cell::new(0);
-    source.compute(Some(DiffEngine::Syntax), &|| {
-        checks.set(checks.get() + 1);
-        checks.get() >= 3
-    });
-    let syntax = source.compute(Some(DiffEngine::Syntax), &|| false);
-    assert_eq!(syntax.provider, Some("syntax"));
-    assert!(syntax.fallback.is_none());
-    assert!(Arc::ptr_eq(
-        &syntax,
-        &source.compute(Some(DiffEngine::Auto), &|| false)
-    ));
-    Ok(())
-}
-
-#[cfg(feature = "syntax-diff")]
-#[tokio::test]
-async fn language_policy_overrides_global_defaults_for_hunk_and_unopened_file_reviews(
-) -> anyhow::Result<()> {
-    use editor_config::DiffEngine;
-    let languages = format!("{JSON_LANGUAGE}\ndiff-engine = 'syntax'\n");
-    let mut f = Fixture::with_languages("{\"value\": 1}\n", &languages)?;
-    prepare(&mut f, "initial");
-    f.replace("{\"value\": 2}\n");
     let hunk = HunkReviewRequest::capture(&f.editor)?.compute()?;
-    assert_eq!(hunk.provider, Some("syntax"));
+    assert!(hunk.lines.iter().any(|row| row.changes.is_some()));
     let path = f.dir.path().join("unopened.words");
     std::fs::write(&path, "{\"added\": 3}\n")?;
     let status = FileStatus {
         staged: None,
         unstaged: Some(FileChange::Untracked { path }),
     };
-    let request = ReviewRequest::new(&f.editor, &status, ReviewComparison::Unstaged, f.dir.path());
-    assert_eq!(request.engine(), DiffEngine::Syntax);
-    assert_eq!(request.compute()?.provider, Some("syntax"));
     let index = std::fs::read(f.dir.path().join(".git/index"))?;
-    f.configure(|config| config.diff.engine = DiffEngine::Line);
     let request = ReviewRequest::new(&f.editor, &status, ReviewComparison::Unstaged, f.dir.path());
-    assert_eq!(request.compute()?.provider, Some("syntax"));
+    assert!(request
+        .compute()?
+        .lines
+        .iter()
+        .any(|row| row.changes.is_some()));
     assert_eq!(std::fs::read(f.dir.path().join(".git/index"))?, index);
     Ok(())
 }
 
 #[tokio::test]
-async fn explicit_syntax_failures_keep_textual_review_and_auto_can_choose_line(
-) -> anyhow::Result<()> {
-    use editor_config::DiffEngine;
+async fn reviews_without_source_syntax_keep_literal_text() -> anyhow::Result<()> {
     let mut f = Fixture::new("committed\n")?;
     prepare(&mut f, "initial");
     f.replace("unsaved\n");
-    f.configure(|config| config.diff.engine = DiffEngine::Syntax);
     let review = HunkReviewRequest::capture(&f.editor)?.compute()?;
-    assert_eq!(review.provider, None);
-    assert!(review.fallback.is_some());
+    assert!(review.lines.iter().all(|line| line.changes.is_none()));
     assert!(review.lines.iter().any(|line| line.text == "unsaved"));
-    #[cfg(feature = "syntax-diff")]
-    {
-        f.configure(|config| config.diff.engine = DiffEngine::Auto);
-        let review = HunkReviewRequest::capture(&f.editor)?.compute()?;
-        assert_eq!(review.provider, None);
-        assert_eq!(review.fallback, None);
-    }
     Ok(())
 }
 
@@ -772,7 +716,6 @@ async fn review_labels_are_stable_disambiguate_sources_and_number_independent_sn
         .into_owned();
     assert!(name.ends_with("document.words [diff: HEAD]"));
     finish_review(&mut f, first).await?;
-    f.configure(|config| config.diff.engine = editor_config::DiffEngine::Syntax);
     f.editor.refresh_review()?;
     finish_review(&mut f, first).await?;
     assert_eq!(f.editor.document(first).unwrap().display_name(), name);
@@ -1099,11 +1042,9 @@ async fn historical_buffer_comparisons_keep_captured_unsaved_text_after_refresh(
     });
     settle_review_events(&mut f).await;
     assert_eq!(f.editor.document(id).unwrap().text(), &captured);
-    f.configure(|config| config.diff.engine = editor_config::DiffEngine::Syntax);
-    wait_for_review(&mut f, id, |doc| {
-        doc.review().unwrap().engine() == editor_config::DiffEngine::Syntax
-    })
-    .await?;
+    f.editor.switch(id, Action::Replace);
+    f.editor.refresh_review()?;
+    finish_review(&mut f, id).await?;
     assert!(f
         .editor
         .document(id)
@@ -1111,10 +1052,6 @@ async fn historical_buffer_comparisons_keep_captured_unsaved_text_after_refresh(
         .text()
         .to_string()
         .contains("captured unsaved"));
-    assert_eq!(
-        f.editor.document(id).unwrap().review().unwrap().engine(),
-        editor_config::DiffEngine::Syntax
-    );
     assert_eq!(std::fs::read_to_string(path)?, "committed\n");
     assert_eq!(
         f.editor.document(source).unwrap().text().to_string(),
@@ -1171,7 +1108,6 @@ async fn deleted_historical_rows_open_the_before_version_without_recreating_the_
     Ok(())
 }
 
-#[cfg(feature = "syntax-diff")]
 #[tokio::test(flavor = "multi_thread")]
 async fn historical_sides_detect_their_own_languages_and_open_with_source_syntax(
 ) -> anyhow::Result<()> {
@@ -1197,7 +1133,6 @@ async fn historical_sides_detect_their_own_languages_and_open_with_source_syntax
         .await?
         .commits
         .remove(0);
-    f.configure(|config| config.diff.engine = editor_config::DiffEngine::Syntax);
     let before = RevisionFile::new(
         parent.id.clone(),
         stdx::path::canonicalize_existing(&old_path)
@@ -1208,18 +1143,16 @@ async fn historical_sides_detect_their_own_languages_and_open_with_source_syntax
     let request = HistoricalReviewRequest::revisions(&f.editor, repo, Some(before), Some(after))?;
     let id = f.editor.open_historical_review(request, Action::Replace);
     finish_review(&mut f, id).await?;
-    assert_eq!(
-        f.editor
-            .document(id)
-            .unwrap()
-            .review()
-            .unwrap()
-            .review()
-            .fallback
-            .unwrap()
-            .0,
-        "source languages differ"
-    );
+    assert!(f
+        .editor
+        .document(id)
+        .unwrap()
+        .review()
+        .unwrap()
+        .review()
+        .lines
+        .iter()
+        .all(|row| row.changes.is_none()));
     for (kind, language) in [
         (
             view::features::change_review::ReviewLineKind::Removed,
@@ -1241,10 +1174,7 @@ async fn historical_sides_detect_their_own_languages_and_open_with_source_syntax
             .unwrap()
             .syntax_for_row(&state.review().lines[row])
             .is_some());
-        doc.set_selection(
-            view.id,
-            Selection::point(doc.text().line_to_char_idx(row + state.row_offset())),
-        );
+        doc.set_selection(view.id, Selection::point(doc.text().line_to_char_idx(row)));
         f.editor.open_review_source(true, Action::Replace)?;
         let (_, doc) = current_ref!(f.editor);
         assert_eq!(doc.language_name(), Some(language));
@@ -1269,12 +1199,10 @@ async fn historical_sides_detect_their_own_languages_and_open_with_source_syntax
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn opening_a_historical_preview_reuses_its_sources_and_configured_engine(
-) -> anyhow::Result<()> {
+async fn opening_a_historical_preview_reuses_its_sources_and_comparison() -> anyhow::Result<()> {
     use view::features::change_review::HistoricalReviewRequest;
     let mut f = Fixture::new("current\n")?;
     let path = current_ref!(f.editor).1.path().unwrap().to_owned();
-    f.configure(|config| config.diff.engine = editor_config::DiffEngine::Syntax);
     let request = HistoricalReviewRequest::comparison(
         &f.editor,
         path,
@@ -1294,7 +1222,6 @@ async fn opening_a_historical_preview_reuses_its_sources_and_configured_engine(
     finish_review(&mut f, id).await?;
     let state = f.editor.document(id).unwrap().review().unwrap();
     assert!(Arc::ptr_eq(state.source().unwrap(), &source));
-    assert_eq!(state.engine(), editor_config::DiffEngine::Syntax);
     assert_eq!(source.after().to_string(), "after\n");
     let canceled = task.restart();
     task.cancel();

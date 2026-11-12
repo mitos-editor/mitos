@@ -4887,17 +4887,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "syntax-diff"
-version = "0.2.1"
-dependencies = [
- "core",
- "gix-imara-diff",
- "loader",
- "text-diff",
- "tree-house",
-]
-
-[[package]]
 name = "syntax-symbols"
 version = "0.2.1"
 dependencies = [
@@ -5103,9 +5092,11 @@ version = "0.2.1"
 dependencies = [
  "core",
  "gix-imara-diff",
+ "loader",
  "log",
  "quickcheck",
  "stdx",
+ "tree-house",
 ]
 
 [[package]]
@@ -5708,7 +5699,6 @@ dependencies = [
  "snippets",
  "spelling",
  "stdx",
- "syntax-diff",
  "syntax-symbols",
  "tempfile",
  "text-diff",

@@ -81,7 +81,7 @@ impl<T, K: Eq> HistoricalReviewPreview<T, K> {
         if self
             .selected
             .as_ref()
-            .is_none_or(|(old, policy)| *old != key || !policy.same_policy(&request))
+            .is_none_or(|(old, previous)| *old != key || !previous.same_context(&request))
         {
             self.stop();
             self.selected = Some((key, request));
@@ -159,7 +159,7 @@ impl<T, K: Eq> PickerPreview<T> for HistoricalReviewPreview<T, K> {
     ) {
         let content = Rect::new(area.x, area.y, area.width, area.height.saturating_sub(1));
         if let Some(view) = &mut self.ready {
-            let heading = view.heading_rows() as u16;
+            let heading = 1;
             let rows = content.height.saturating_sub(heading);
             self.scroll.update(rows, view.review.lines.len());
             view.draw(scroll::text_area(content), surface, cx, self.scroll.offset);

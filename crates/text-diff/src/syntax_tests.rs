@@ -28,7 +28,7 @@ fn whitespace_inside_literals_remains_significant() {
             "const x = <pre>  </pre>;",
         ),
     ] {
-        let changes = provider(language)
+        let changes = parsed(language)
             .compare(&Rope::from(before), &Rope::from(after), &|| false)
             .unwrap();
         assert!(
@@ -38,45 +38,57 @@ fn whitespace_inside_literals_remains_significant() {
     }
 }
 
-fn provider(name: &str) -> SyntaxDiff {
-    SyntaxDiff::new(
-        loader::syntax::Resources::default()
+use tree_house::tree_sitter::{Grammar, Parser, RopeInput};
+
+struct ParsedComparison {
+    grammar: Grammar,
+}
+
+fn parsed(name: &str) -> ParsedComparison {
+    ParsedComparison {
+        grammar: loader::syntax::Resources::default()
             .grammar(name)
             .unwrap()
             .unwrap(),
-    )
+    }
 }
 
-#[test]
-fn comparison_resets_a_cached_parsers_included_ranges() {
-    use tree_house::tree_sitter::{Point, Range as SyntaxRange};
-    let provider = provider("json");
-    {
+impl ParsedComparison {
+    fn parse(&self, text: &Rope) -> Tree {
         let mut parser = Parser::new();
-        parser.set_grammar(provider.grammar).unwrap();
-        parser
-            .set_included_ranges(&[SyntaxRange::new(
-                Point::ZERO,
-                Point { row: 0, col: 1 },
-                0,
-                1,
-            )])
-            .unwrap();
+        parser.set_grammar(self.grammar).unwrap();
+        parser.set_included_ranges(&[]).unwrap();
+        parser.parse(RopeInput::new(text.slice(..)), None).unwrap()
     }
-    let before = Rope::from(" \n{\"value\":1}\n");
-    let after = Rope::from(" \n{\"value\":2}\n");
-    let changes = provider.compare(&before, &after, &|| false).unwrap();
-    assert!(!changes.before.is_empty());
-    assert!(!changes.after.is_empty());
+
+    fn compare(&self, before: &Rope, after: &Rope, canceled: &dyn Fn() -> bool) -> Option<Changes> {
+        compare(
+            before,
+            after,
+            &self.parse(before),
+            &self.parse(after),
+            canceled,
+        )
+    }
+
+    fn review(&self, before: Rope, after: Rope) -> crate::Review {
+        let before_tree = self.parse(&before);
+        let after_tree = self.parse(&after);
+        crate::Review::new(before.clone(), after.clone(), None).with_syntax(
+            &before,
+            &after,
+            &before_tree,
+            &after_tree,
+            &|| false,
+        )
+    }
 }
 
 #[test]
 fn reflowed_code_matches_across_lines_and_literal_edits_keep_precise_sources() {
     let before = Rope::from("fn main() { call(1, 2); }\n");
     let after = Rope::from("fn main() {\n    call(\n        1,\n        3\n    );\n}\n");
-    let changes = provider("rust")
-        .compare(&before, &after, &|| false)
-        .unwrap();
+    let changes = parsed("rust").compare(&before, &after, &|| false).unwrap();
     let fragments = |text: &Rope, ranges: Vec<Range<usize>>| {
         ranges
             .into_iter()
@@ -91,9 +103,8 @@ fn reflowed_code_matches_across_lines_and_literal_edits_keep_precise_sources() {
 fn formatting_only_changes_have_no_syntax_changes_but_keep_exact_textual_hunks() {
     let before = Rope::from("{\"a\": [1, 2]}\n");
     let after = Rope::from("{\r\n  \"a\": [\r\n    1,\r\n    2\r\n  ]\r\n}\r\n");
-    let review =
-        text_diff::Review::with_provider(before, after, None, &provider("json"), &|| false);
-    assert_eq!(review.provider, Some("syntax"));
+    let review = parsed("json").review(before, after);
+    assert!(review.layout_only);
     assert!(review.additions > 0 && review.deletions > 0);
     assert!(review
         .lines
@@ -120,7 +131,7 @@ fn unicode_strings_and_comments_keep_literal_changes() {
         ),
     ] {
         let after = Rope::from(after);
-        let changes = provider(language)
+        let changes = parsed(language)
             .compare(&Rope::from(before), &after, &|| false)
             .unwrap();
         assert!(
@@ -137,7 +148,7 @@ fn unicode_strings_and_comments_keep_literal_changes() {
 fn grammar_structure_distinguishes_significant_python_indentation() {
     let before = Rope::from("if ready:\n    first()\n    second()\n");
     let after = Rope::from("if ready:\n    first()\nsecond()\n");
-    let changes = provider("python")
+    let changes = parsed("python")
         .compare(&before, &after, &|| false)
         .unwrap();
     assert!(!changes.before.is_empty() || !changes.after.is_empty());
@@ -152,9 +163,15 @@ fn additions_deletions_and_repeated_delimiters_have_valid_ordered_spans() {
     ] {
         let before = Rope::from(before);
         let after = Rope::from(after);
-        let review =
-            text_diff::Review::with_provider(before, after, None, &provider("json"), &|| false);
-        assert_eq!(review.provider, Some("syntax"), "{:?}", review.fallback);
+        let review = parsed("json").review(before, after);
+        assert!(review
+            .lines
+            .iter()
+            .filter(|line| matches!(
+                line.kind,
+                crate::ReviewLineKind::Removed | crate::ReviewLineKind::Added
+            ))
+            .all(|line| line.changes.is_some()));
         for line in review.lines {
             for range in line.changes.into_iter().flatten() {
                 assert!(line.text.is_char_boundary(range.start));
@@ -166,33 +183,23 @@ fn additions_deletions_and_repeated_delimiters_have_valid_ordered_spans() {
 }
 
 #[test]
-fn unsupported_syntax_cancellation_and_large_inputs_fall_back() {
-    let provider = provider("json");
-    assert_eq!(
-        provider
-            .compare(&Rope::from("{}"), &Rope::from("{]"), &|| false)
-            .unwrap_err(),
-        ReviewUnavailable("syntax contains parse errors")
-    );
-    assert_eq!(
-        provider
-            .compare(&Rope::from("{}"), &Rope::from("[]"), &|| true)
-            .unwrap_err(),
-        ReviewUnavailable("comparison canceled")
-    );
+fn invalid_syntax_cancellation_and_large_inputs_keep_textual_emphasis() {
+    let parsed = parsed("json");
+    assert!(parsed
+        .compare(&Rope::from("{}"), &Rope::from("{]"), &|| false)
+        .is_none());
+    let review = parsed.review(Rope::from("{}"), Rope::from("{]"));
+    assert!(review.lines.iter().any(|line| line.text == "{]"));
+    assert!(review.lines.iter().all(|line| line.changes.is_none()));
+    assert!(parsed
+        .compare(&Rope::from("{}"), &Rope::from("[]"), &|| true)
+        .is_none());
     let large = Rope::from(" ".repeat(MAX_BYTES + 1));
-    assert!(provider
+    assert!(parsed
         .compare(&large, &Rope::from("{}"), &|| false)
-        .unwrap_err()
-        .0
-        .contains("size limit"));
+        .is_none());
     let nodes = Rope::from(format!("[{}0]", "0,".repeat(20_000)));
-    // Busy runners can exhaust the time budget before reaching the event limit.
-    let reason = provider
+    assert!(parsed
         .compare(&nodes, &Rope::from("[]"), &|| false)
-        .unwrap_err()
-        .0;
-    assert!(
-        reason.contains("limit") || reason.contains("budget") || reason.contains("interrupted")
-    );
+        .is_none());
 }
