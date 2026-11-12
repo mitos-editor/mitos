@@ -203,7 +203,7 @@
 | nickel | ✓ |  | ✓ |  |  |  | `nls` |
 | nim | ✓ | ✓ | ✓ |  | ✓ |  | `nimlangserver` |
 | nix | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | first available: `nixd` → `nil` |
-| nu | ✓ | ✓ | ✓ |  |  | ✓ | `nu`, `nu-lint` |
+| nu | ✓ | ✓ | ✓ |  | ✓ | ✓ | `nu`, `nu-lint` |
 | nunjucks | ✓ |  |  |  |  |  |  |
 | ocaml | ✓ | ✓ | ✓ |  | ✓ | ✓ | `ocamllsp` |
 | ocaml-interface | ✓ |  |  |  |  | ✓ | `ocamllsp` |
