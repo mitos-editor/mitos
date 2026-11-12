@@ -1247,8 +1247,8 @@ errors. The command catalog remains static.
 ## Terminal rendering
 
 Native change review uses immutable source-mapped rows from `text-diff`.
-`view::features::change_review` captures Git and buffer inputs, language and
-engine policy, and a shared execution budget. Full reviews are pathless,
+`view::features::change_review` captures Git and buffer inputs, source
+language resources, and a shared execution budget. Full reviews are pathless,
 read-only `Document`s in the ordinary pane tree. Their coordinator owns snapshots,
 cancellation, and publication; callbacks target a document rather than the focused
 view. `buffer::Buffer::apply_without_history` advances text identity without
@@ -1258,17 +1258,20 @@ saves enforce the document's content policy independently of terminal keybinding
 `Document::display_metadata` exposes source paths and buffer kinds independently
 of filesystem identity. Review names contain only the source and comparison;
 independent snapshots have stable instance numbers. The editor disambiguates tab
-labels across its document set, while the terminal renders live comparison counts,
-engine, and loading state in the statusline.
+labels across its document set, while the terminal renders live comparison counts
+and loading state in the statusline.
 
 `term::ui::change_review` retains compact picker/popup presentation and supplies
 review-specific line backgrounds and token overlays to the normal editor renderer.
-Review sources cache separately parsed before/after syntax trees, initialized by
-the owning review worker with the ordinary language loader and parse budgets.
+Review sources cache one comparison and the before/after syntax trees initialized
+by the owning worker with the ordinary language loader and parse budgets.
+`text-diff` reuses those trees for bounded, automatic syntax emphasis, so review
+comparison and highlighting share the same parses. Missing or unusable syntax
+keeps exact textual emphasis without configuration or an engine selector.
 The terminal queries visible source ranges and maps syntax styles onto review
 rows; injected languages and multiline context come from the complete snapshots.
-Highlight scopes resolve against the current theme, independently of diff-engine
-selection. Unified rows never become a source syntax tree or bind source services.
+Highlight scopes resolve against the current theme. Unified rows never become a
+source syntax tree or bind source services.
 Shared gutter layout and drawing use the same projected source rows. Review
 buffers reuse native movement, search, selection, yanking, view navigation, and
 buffer lifecycle. Source navigation validates the captured after-side before

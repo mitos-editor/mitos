@@ -34,8 +34,7 @@ assets = [
 ]
 
 [features]
-default = ["git", "syntax-diff"]
-syntax-diff = ["view/syntax-diff"]
+default = ["git"]
 unicode-lines = ["core/unicode-lines", "view/unicode-lines"]
 # Enables process fixture binaries; application behavior is chosen at construction.
 integration = []

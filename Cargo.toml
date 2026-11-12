@@ -26,7 +26,6 @@ members = [
   "crates/fuzzy",
   "crates/file-watch",
   "crates/text-diff",
-  "crates/syntax-diff",
   "crates/text-io",
   "crates/workspace",
   "crates/theme",
@@ -85,7 +84,6 @@ syntax-symbols = { path = "crates/syntax-symbols" }
 fuzzy = { path = "crates/fuzzy" }
 file-watch = { path = "crates/file-watch" }
 text-diff = { path = "crates/text-diff" }
-syntax-diff = { path = "crates/syntax-diff" }
 text-io = { path = "crates/text-io" }
 lsp = { path = "crates/lsp" }
 lsp-types = { version = "0.97", features = ["proposed"] }
@@ -149,7 +147,8 @@ grep-matcher = "0.1"
 grep-regex = "0.1"
 grep-searcher = "0.1"
 ignore = "0.4"
-imara-diff = "0.2.0"
+# Share the diff implementation already used by gix, without its patch formatter.
+gix-imara-diff = { version = "0.3.3", default-features = false }
 nucleo = "0.5.0"
 nucleo-matcher = "0.3.1"
 percent-encoding = "2.3"

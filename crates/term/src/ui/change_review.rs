@@ -83,26 +83,18 @@ impl ReviewView {
         true
     }
 
-    fn heading_rows(&self) -> usize {
-        1 + usize::from(self.review.fallback.is_some())
-    }
-
     fn draw(&self, area: Rect, surface: &mut Buffer, cx: &DrawContext, scroll: usize) {
         if area.is_empty() {
             return;
         }
         let theme = &cx.editor.theme;
-        let mode = self.review.provider.unwrap_or("line");
-        let layout = if self.review.provider == Some("syntax")
-            && self.review.unchanged_by_provider
-            && (self.review.additions != 0 || self.review.deletions != 0)
-        {
+        let layout = if self.review.layout_only {
             " · layout only"
         } else {
             ""
         };
         let heading = format!(
-            "{mode}{layout} · {}  +{} −{}",
+            "{}{layout}  +{} −{}",
             literal(&self.title),
             self.review.additions,
             self.review.deletions
@@ -114,18 +106,7 @@ impl ReviewView {
             area.width as usize,
             theme.get("ui.text.focus"),
         );
-        if let Some(reason) = self.review.fallback
-            && area.height > 1
-        {
-            surface.set_stringn(
-                area.x,
-                area.y + 1,
-                reason.to_string(),
-                area.width as usize,
-                theme.get("ui.text.inactive"),
-            );
-        }
-        let heading_rows = self.heading_rows() as u16;
+        let heading_rows = 1u16;
         let number_width = self.review.line_number_width();
         for (row, line) in self
             .review
@@ -207,8 +188,8 @@ impl Component for ReviewView {
     fn required_size(&mut self, viewport: (u16, u16)) -> Option<(u16, u16)> {
         Some((
             viewport.0,
-            (self.review.lines.len() + self.heading_rows() + panel::VERTICAL_INSET as usize)
-                .min(u16::MAX as usize) as u16,
+            (self.review.lines.len() + 1 + panel::VERTICAL_INSET as usize).min(u16::MAX as usize)
+                as u16,
         ))
     }
     fn has_pending_keys(&self) -> bool {

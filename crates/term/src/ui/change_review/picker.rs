@@ -29,7 +29,7 @@ struct FilePreview {
 impl FilePreview {
     fn heading_rows(&self) -> usize {
         match &self.content {
-            PreviewContent::Diff(view) => view.heading_rows(),
+            PreviewContent::Diff(_) => 1,
             PreviewContent::Conflict(_) => 1,
         }
     }

@@ -708,13 +708,7 @@ where
             context.editor.theme.get("diff.minus"),
         ),
     );
-    write(
-        context,
-        format!("{} ", review.review().provider.unwrap_or("line")).into(),
-    );
-    if review.review().unchanged_by_provider
-        && (review.review().additions != 0 || review.review().deletions != 0)
-    {
+    if review.review().layout_only {
         write(context, "layout only ".into());
     }
     if review.is_loading() {
