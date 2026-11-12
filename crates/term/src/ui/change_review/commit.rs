@@ -8,24 +8,98 @@ use crate::{
     },
 };
 use event::TaskController;
+use language::{Loader, Syntax};
 use std::{sync::Arc, time::Duration};
-use tokio::sync::oneshot;
+use tokio::sync::{oneshot, Semaphore};
 use tui::{
     buffer::Buffer,
-    text::{Line, Text},
-    widgets::Widget,
+    text::{Line, Span, Text},
+    widgets::{Paragraph, Widget},
 };
 use vcs::operations::{
     history::{CommitEntry, HistoryFile, RevisionId},
     GitRepository,
 };
 use view::{
-    features::change_review::{HistoricalReviewRequest, Review, ReviewLineKind},
+    features::change_review::{HistoricalReviewRequest, Review, ReviewLineKind, ReviewSource},
     graphics::Rect,
 };
 
 type CommitDetails = (String, Vec<HistoryFile>);
-type FileReviews = Vec<(HistoryFile, Arc<Review>)>;
+type FileReviews = Vec<FileReview>;
+
+struct FileReview {
+    file: HistoryFile,
+    review: Arc<Review>,
+    source: Option<Arc<ReviewSource>>,
+}
+
+struct CommitMessage {
+    text: String,
+    syntax: Option<Syntax>,
+    loader: Arc<Loader>,
+}
+
+impl CommitMessage {
+    fn plain(text: String, loader: Arc<Loader>) -> Self {
+        Self {
+            text: text.replace("\r\n", "\n"),
+            syntax: None,
+            loader,
+        }
+    }
+
+    fn new(text: String, loader: Arc<Loader>) -> Self {
+        let mut message = Self::plain(text, loader);
+        message.syntax = message
+            .loader
+            .language_for_name("git-commit")
+            .and_then(|language| {
+                Syntax::new(
+                    editor_core::RopeSlice::from(message.text.as_str()),
+                    language,
+                    &message.loader,
+                )
+                .ok()
+            });
+        message
+    }
+
+    fn lines(&self, theme: &theme::Theme) -> Vec<Line<'static>> {
+        if self.loader.scopes().as_slice() != theme.scopes() {
+            self.loader.set_scopes(theme.scopes().to_vec());
+        }
+        let text = editor_core::RopeSlice::from(self.text.as_str());
+        let highlighter = self
+            .syntax
+            .as_ref()
+            .map(|syntax| syntax.highlighter(text, &self.loader, ..));
+        let mut lines = Vec::new();
+        let mut spans = Vec::new();
+        for (range, style) in crate::ui::highlights::styled_spans(
+            highlighter,
+            None,
+            theme,
+            theme.get("ui.text"),
+            self.text.len(),
+        ) {
+            for fragment in self.text[range].split_inclusive('\n') {
+                let line = fragment.strip_suffix('\n');
+                spans.push(Span::styled(
+                    super::literal(line.unwrap_or(fragment)),
+                    style,
+                ));
+                if line.is_some() {
+                    lines.push(Line::from(std::mem::take(&mut spans)));
+                }
+            }
+        }
+        if !spans.is_empty() {
+            lines.push(Line::from(spans));
+        }
+        lines
+    }
+}
 
 pub struct CommitReviewPreview {
     repository: GitRepository,
@@ -33,11 +107,15 @@ pub struct CommitReviewPreview {
     task: TaskController,
     details: Option<oneshot::Receiver<anyhow::Result<CommitDetails>>>,
     pending: Option<oneshot::Receiver<FileReviews>>,
-    message: Option<String>,
+    message: Option<CommitMessage>,
+    message_worker: Arc<Semaphore>,
+    message_task: TaskController,
+    highlighted_message: Option<oneshot::Receiver<CommitMessage>>,
     reviews: Option<FileReviews>,
     error: Option<String>,
     scroll: PreviewScroll,
     opened: bool,
+    rendered: Option<(u64, Paragraph<'static>)>,
 }
 
 impl CommitReviewPreview {
@@ -49,11 +127,48 @@ impl CommitReviewPreview {
             details: None,
             pending: None,
             message: None,
+            message_worker: Arc::new(Semaphore::new(1)),
+            message_task: TaskController::new(),
+            highlighted_message: None,
             reviews: None,
             error: None,
             scroll: PreviewScroll::default(),
             opened: false,
+            rendered: None,
         }
+    }
+
+    fn highlight_message(&mut self, message: &CommitMessage, cx: &Context) {
+        let text = message.text.clone();
+        let loader = message.loader.clone();
+        let worker = self.message_worker.clone();
+        let cancel = self.message_task.restart();
+        let redraw = cx.editor.redraw().clone();
+        let (tx, rx) = oneshot::channel();
+        self.highlighted_message = Some(rx);
+        tokio::spawn(async move {
+            let work = async {
+                let Ok(permit) = worker.acquire_owned().await else {
+                    return;
+                };
+                let check = cancel.clone();
+                let result = tokio::task::spawn_blocking(move || {
+                    let _permit = permit;
+                    if check.is_canceled() {
+                        return None;
+                    }
+                    Some(CommitMessage::new(text, loader))
+                })
+                .await;
+                if !cancel.is_canceled()
+                    && let Ok(Some(message)) = result
+                {
+                    let _ = tx.send(message);
+                    redraw.request();
+                }
+            };
+            event::cancelable_future(work, &cancel).await;
+        });
     }
 
     fn load_reviews(
@@ -84,10 +199,22 @@ impl CommitReviewPreview {
                 let mut reviews = Vec::new();
                 let mut bytes = 0;
                 let mut rows = 0;
+                let mut source_bytes = 0;
                 for (file, request) in requests {
-                    let review = match request.run(cancel.clone()).await {
-                        Ok(snapshot) => snapshot.review.clone(),
-                        Err(error) => Arc::new(Review::notice(&error.to_string())),
+                    let (review, source) = match request.run(cancel.clone()).await {
+                        Ok(snapshot) => {
+                            let size = snapshot.source.byte_len();
+                            // Full source context can greatly exceed the displayed patch.
+                            // Keep the remaining files readable without retaining their trees.
+                            let source = if source_bytes + size <= vcs::MAX_REVIEW_BYTES {
+                                source_bytes += size;
+                                Some(snapshot.source.clone())
+                            } else {
+                                None
+                            };
+                            (snapshot.review.clone(), source)
+                        }
+                        Err(error) => (Arc::new(Review::notice(&error.to_string())), None),
                     };
                     bytes += review
                         .lines
@@ -97,15 +224,20 @@ impl CommitReviewPreview {
                     rows += review.lines.len() + 4;
                     // Bound the combined patch as well as each individual file.
                     if bytes > vcs::MAX_REVIEW_BYTES || rows > 20_000 {
-                        reviews.push((
+                        reviews.push(FileReview {
                             file,
-                            Arc::new(Review::notice(
+                            review: Arc::new(Review::notice(
                                 "Commit preview truncated (limit 10 MiB or 20,000 rows)",
                             )),
-                        ));
+                            source: None,
+                        });
                         break;
                     }
-                    reviews.push((file, review));
+                    reviews.push(FileReview {
+                        file,
+                        review,
+                        source,
+                    });
                 }
                 if !cancel.is_canceled() {
                     let _ = tx.send(reviews);
@@ -117,7 +249,14 @@ impl CommitReviewPreview {
         Ok(())
     }
 
-    fn text(&self, commit: &CommitEntry, theme: &theme::Theme) -> Text<'static> {
+    fn paragraph(&mut self, commit: &CommitEntry, theme: &theme::Theme) -> Paragraph<'static> {
+        match self.rendered.take() {
+            Some((revision, paragraph)) if revision == theme.revision() => paragraph,
+            _ => crate::ui::text::paragraph(self.build_text(commit, theme)),
+        }
+    }
+
+    fn build_text(&self, commit: &CommitEntry, theme: &theme::Theme) -> Text<'static> {
         let normal = theme.get("ui.text");
         let heading = theme.get("ui.text.focus");
         let mut lines = vec![
@@ -126,19 +265,27 @@ impl CommitReviewPreview {
             Line::styled(format!("Date: {}", commit.date), normal),
             Line::default(),
         ];
-        lines.extend(
-            self.message
-                .as_deref()
-                .unwrap_or(&commit.subject)
-                .lines()
-                .map(|line| Line::styled(super::literal(line), normal)),
-        );
+        if let Some(message) = &self.message {
+            lines.extend(message.lines(theme));
+        } else {
+            lines.extend(
+                commit
+                    .subject
+                    .lines()
+                    .map(|line| Line::styled(super::literal(line), normal)),
+            );
+        }
         lines.push(Line::default());
         if let Some(reviews) = &self.reviews {
             if reviews.is_empty() {
                 lines.push(Line::styled("No changed files", normal));
             }
-            for (file, review) in reviews {
+            for FileReview {
+                file,
+                review,
+                source,
+            } in reviews
+            {
                 let before = file.before.as_ref().map_or_else(
                     || "/dev/null".into(),
                     |path| format!("a/{}", path.display()),
@@ -167,10 +314,28 @@ impl CommitReviewPreview {
                         ReviewLineKind::Header => ("", theme.get("diff.delta")),
                         ReviewLineKind::Notice => ("", theme.get("ui.text.inactive")),
                     };
-                    lines.push(Line::styled(
-                        format!("{prefix}{}", super::literal(&line.text)),
-                        super::line_style(theme, line.kind).patch(style),
+                    let syntax = source
+                        .as_ref()
+                        .and_then(|source| super::document::row_syntax_styles(source, line, theme));
+                    let mut spans = vec![Span::styled(prefix, style)];
+                    spans.extend(super::source_spans(
+                        &line.text,
+                        line.changes.as_deref(),
+                        syntax.as_deref(),
+                        0,
+                        usize::MAX,
+                        if syntax.is_some() || line.changes.is_some() {
+                            normal
+                        } else {
+                            style
+                        },
+                        if syntax.is_some() {
+                            theme::Style::default().add_modifier(theme::Modifier::BOLD)
+                        } else {
+                            style.add_modifier(theme::Modifier::BOLD)
+                        },
                     ));
+                    lines.push(Line::from(spans).style(super::line_style(theme, line.kind)));
                 }
                 lines.push(Line::default());
             }
@@ -190,6 +355,8 @@ impl CommitReviewPreview {
 impl PickerPreview<Arc<CommitEntry>> for CommitReviewPreview {
     fn cancel(&mut self) {
         self.task.cancel();
+        self.message_task.cancel();
+        self.highlighted_message = None;
         self.details = None;
         self.pending = None;
         self.selected = None;
@@ -198,6 +365,7 @@ impl PickerPreview<Arc<CommitEntry>> for CommitReviewPreview {
         self.error = None;
         self.scroll = PreviewScroll::default();
         self.opened = false;
+        self.rendered = None;
     }
 
     fn close_on_open(&self) -> bool {
@@ -236,9 +404,13 @@ impl PickerPreview<Arc<CommitEntry>> for CommitReviewPreview {
         if let Some(pending) = &mut self.details {
             match pending.try_recv() {
                 Ok(result) => {
+                    self.rendered = None;
                     self.details = None;
                     match result {
                         Ok((message, files)) => {
+                            let message =
+                                CommitMessage::plain(message, cx.editor.syn_loader.load_full());
+                            self.highlight_message(&message, cx);
                             self.message = Some(message);
                             if files.is_empty() {
                                 self.reviews = Some(Vec::new());
@@ -250,8 +422,23 @@ impl PickerPreview<Arc<CommitEntry>> for CommitReviewPreview {
                     }
                 }
                 Err(oneshot::error::TryRecvError::Closed) => {
+                    self.rendered = None;
                     self.details = None;
                     self.error = Some("Commit preview unavailable".into());
+                }
+                Err(oneshot::error::TryRecvError::Empty) => {}
+            }
+        }
+        if let Some(pending) = &mut self.highlighted_message {
+            match pending.try_recv() {
+                Ok(message) => {
+                    self.message = Some(message);
+                    self.highlighted_message = None;
+                    self.rendered = None;
+                }
+                Err(oneshot::error::TryRecvError::Closed) => {
+                    // Highlighting is optional; keep the plain message on failure.
+                    self.highlighted_message = None;
                 }
                 Err(oneshot::error::TryRecvError::Empty) => {}
             }
@@ -259,10 +446,12 @@ impl PickerPreview<Arc<CommitEntry>> for CommitReviewPreview {
         if let Some(pending) = &mut self.pending {
             match pending.try_recv() {
                 Ok(reviews) => {
+                    self.rendered = None;
                     self.pending = None;
                     self.reviews = Some(reviews);
                 }
                 Err(oneshot::error::TryRecvError::Closed) => {
+                    self.rendered = None;
                     self.pending = None;
                     self.error = Some("Commit preview unavailable".into());
                 }
@@ -286,11 +475,12 @@ impl PickerPreview<Arc<CommitEntry>> for CommitReviewPreview {
             ..area
         };
         let text_area = scroll::text_area(content);
-        let text = crate::ui::text::paragraph(self.text(commit, &cx.editor.theme));
+        let text = self.paragraph(commit, &cx.editor.theme);
         self.scroll
             .update(content.height, text.line_count(text_area.width));
-        text.scroll((self.scroll.offset.min(u16::MAX as usize) as u16, 0))
-            .render(text_area, surface);
+        let text = text.scroll((self.scroll.offset.min(u16::MAX as usize) as u16, 0));
+        (&text).render(text_area, surface);
+        self.rendered = Some((cx.editor.theme.revision(), text));
         self.scroll.render(content, surface, &cx.editor.theme);
         if area.height > 1 {
             let keys = &cx.config.component_keys.history_picker;
@@ -324,7 +514,7 @@ impl PickerPreview<Arc<CommitEntry>> for CommitReviewPreview {
                 if let Some(commit) = item
                     && self.reviews.is_some()
                 {
-                    let text = self.text(commit, &cx.editor.theme).to_string();
+                    let text = self.build_text(commit, &cx.editor.theme).to_string();
                     cx.editor.open_commit_preview(&commit.id, text, action);
                     self.opened = true;
                 }
@@ -340,6 +530,252 @@ mod tests {
     use super::*;
     use crate::{application::TestApplication, job::Jobs, ui::picker::test::application};
     use std::path::Path;
+
+    #[test]
+    fn messages_without_a_grammar_keep_literal_text_and_blank_lines() -> anyhow::Result<()> {
+        let loader = Arc::new(Loader::new(
+            toml::from_str("language = []")?,
+            Default::default(),
+        )?);
+        let message = CommitMessage::new("Subject λ\r\n\r\nBody\t\u{1b}end\r\n".into(), loader);
+        let lines = message.lines(&theme::Theme::default());
+        assert_eq!(Text::from(lines).to_string(), "Subject λ\n\nBody    �end");
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    #[cfg_attr(
+        not(feature = "runtime-grammars"),
+        ignore = "requires compiled runtime grammars; enable the runtime-grammars feature"
+    )]
+    async fn commit_highlights_messages_and_each_original_source_and_follows_theme_changes(
+    ) -> anyhow::Result<()> {
+        let dir = tempfile::tempdir()?;
+        git(dir.path(), &["init"]);
+        // The opening delimiter is outside the displayed hunk's context.
+        let prefix = format!("/*\n{}", "unchanged\n".repeat(12));
+        std::fs::write(dir.path().join("a.rs"), format!("{prefix}λ old\n*/\n"))?;
+        std::fs::write(dir.path().join("b.rs"), "// second old\n")?;
+        git(dir.path(), &["add", "."]);
+        git(dir.path(), &["commit", "-m", "Initial"]);
+        std::fs::write(
+            dir.path().join("a.rs"),
+            format!("{prefix}*/\nlet value = \"λ new\";\n"),
+        )?;
+        std::fs::write(dir.path().join("b.rs"), "let second = \"second new\";\n")?;
+        git(dir.path(), &["add", "."]);
+        git(
+            dir.path(),
+            &[
+                "commit",
+                "-m",
+                "feat(preview): highlight λ changes",
+                "-m",
+                "Body stays literal.",
+            ],
+        );
+        let repo = GitRepository::discover(dir.path())?;
+        let commit = repo
+            .history_page(repo.history_cursor(None)?.unwrap())
+            .await?
+            .commits[0]
+            .clone();
+        let mut config = crate::config::Config::default();
+        config.editor.lsp.enable = false;
+        config.editor.files.watch.enable = false;
+        config.editor.files.watch.watch_vcs = false;
+        let loader = Loader::new(
+            toml::from_str(
+                r#"
+            [[language]]
+            name = "rust"
+            scope = "source.rust"
+            file-types = ["rs"]
+            [[language]]
+            name = "git-commit"
+            scope = "git.commitmsg"
+            grammar = "gitcommit"
+            file-types = ["COMMIT_EDITMSG"]
+        "#,
+            )?,
+            Default::default(),
+        )?;
+        let mut app = TestApplication::new(
+            crate::args::Args::default(),
+            config,
+            loader,
+            workspace::trust::WorkspaceTrust::fully_trusted(loader::workspace_trust_dir()),
+        )?;
+        app.editor.theme = theme::Theme::from(toml::from_str::<toml::Value>(
+            r##"
+            "ui.text" = "#ffffff"
+            "comment" = "#00ff00"
+            "string" = "#ff00ff"
+            "markup.heading" = "#ffff00"
+            "diff.plus" = "#0000ff"
+            "diff.minus" = "#ff0000"
+            "diff.plus.line" = { bg = "#001100" }
+            "diff.minus.line" = { bg = "#110000" }
+        "##,
+        )?);
+        let mut preview = CommitReviewPreview::new(repo);
+        until_text(&mut preview, &commit, &mut app, "λ new").await?;
+        until_message_highlight(&mut preview, &commit, &mut app).await?;
+        let cell = |surface: &Buffer, needle: &str| {
+            surface
+                .content
+                .chunks(120)
+                .enumerate()
+                .find_map(|(y, row)| {
+                    let text: String = row.iter().map(|cell| cell.symbol()).collect();
+                    text.find(needle).map(|byte| {
+                        surface[(text[..byte].chars().count() as u16, y as u16)].clone()
+                    })
+                })
+                .unwrap_or_else(|| panic!("missing {needle}"))
+        };
+        use view::graphics::Color;
+        let surface = draw_frame(
+            &mut preview,
+            Some(&commit),
+            &mut app,
+            None,
+            Rect::new(0, 0, 120, 80),
+        );
+        assert_eq!(
+            cell(&surface, "highlight λ changes").fg,
+            Color::Rgb(255, 255, 0)
+        );
+        assert_eq!(
+            cell(&surface, "Body stays literal.").fg,
+            Color::Rgb(255, 255, 255)
+        );
+        assert_eq!(cell(&surface, "λ old").fg, Color::Rgb(0, 255, 0));
+        assert_eq!(cell(&surface, "λ new").fg, Color::Rgb(255, 0, 255));
+        assert_eq!(cell(&surface, "second old").fg, Color::Rgb(0, 255, 0));
+        assert_eq!(cell(&surface, "second new").fg, Color::Rgb(255, 0, 255));
+        assert_eq!(cell(&surface, "λ old").bg, Color::Rgb(17, 0, 0));
+        assert_eq!(cell(&surface, "λ new").bg, Color::Rgb(0, 17, 0));
+        assert_eq!(cell(&surface, "-λ old").fg, Color::Rgb(255, 0, 0));
+        assert_eq!(cell(&surface, "+let value").fg, Color::Rgb(0, 0, 255));
+
+        app.editor.theme = theme::Theme::from(toml::from_str::<toml::Value>(
+            r##"
+            "ui.text" = "#ffffff"
+            "comment" = "#0000ff"
+            "constant" = "#ff0000"
+            "string" = "#00ffff"
+            "markup.heading" = "#ff8800"
+        "##,
+        )?);
+        let surface = draw_frame(
+            &mut preview,
+            Some(&commit),
+            &mut app,
+            None,
+            Rect::new(0, 0, 120, 80),
+        );
+        assert_eq!(
+            cell(&surface, "highlight λ changes").fg,
+            Color::Rgb(255, 136, 0)
+        );
+        assert_eq!(cell(&surface, "λ old").fg, Color::Rgb(0, 0, 255));
+        assert_eq!(cell(&surface, "λ new").fg, Color::Rgb(0, 255, 255));
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn source_budget_keeps_later_files_readable() -> anyhow::Result<()> {
+        let dir = tempfile::tempdir()?;
+        git(dir.path(), &["init"]);
+        // Each large comparison fits on its own, but both sources exceed the shared budget.
+        // Keep the padding outside the displayed hunk's context.
+        let padding = format!(
+            "/*{}*/\n\n\n\n\n\n",
+            "x".repeat(vcs::MAX_REVIEW_BYTES / 4 + 1024)
+        );
+        for name in ["a.rs", "b.rs"] {
+            std::fs::write(dir.path().join(name), format!("{padding}let value = 1;\n"))?;
+        }
+        std::fs::write(dir.path().join("c.rs"), "let value = 1;\n")?;
+        git(dir.path(), &["add", "."]);
+        git(dir.path(), &["commit", "-m", "Initial"]);
+        for name in ["a.rs", "b.rs"] {
+            std::fs::write(dir.path().join(name), format!("{padding}let value = 2;\n"))?;
+        }
+        std::fs::write(dir.path().join("c.rs"), "let value = 2;\n")?;
+        git(dir.path(), &["add", "."]);
+        git(dir.path(), &["commit", "-m", "Update"]);
+        let repo = GitRepository::discover(dir.path())?;
+        let commit = repo
+            .history_page(repo.history_cursor(None)?.unwrap())
+            .await?
+            .commits[0]
+            .clone();
+        let mut app = application(false)?;
+        let mut preview = CommitReviewPreview::new(repo);
+        until_text(&mut preview, &commit, &mut app, "let value = 2;").await?;
+        let reviews = preview.reviews.as_ref().unwrap();
+        assert_eq!(reviews.len(), 3);
+        assert!(reviews.iter().all(|file| file
+            .review
+            .lines
+            .iter()
+            .any(|line| line.text == "let value = 2;")));
+        assert_eq!(
+            reviews.iter().filter(|file| file.source.is_none()).count(),
+            1
+        );
+        assert!(reviews
+            .iter()
+            .find(|file| file.file.path() == Path::new("c.rs"))
+            .unwrap()
+            .source
+            .is_some());
+        assert!(
+            reviews
+                .iter()
+                .filter_map(|file| file.source.as_ref())
+                .map(|source| source.byte_len())
+                .sum::<usize>()
+                <= vcs::MAX_REVIEW_BYTES
+        );
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn busy_message_highlighter_does_not_delay_plain_message_or_patch() -> anyhow::Result<()>
+    {
+        let dir = tempfile::tempdir()?;
+        git(dir.path(), &["init"]);
+        std::fs::write(dir.path().join("a.txt"), "patch is ready\n")?;
+        git(dir.path(), &["add", "."]);
+        git(
+            dir.path(),
+            &["commit", "-m", "Subject", "-m", "Full message body"],
+        );
+        let repo = GitRepository::discover(dir.path())?;
+        let commit = repo
+            .history_page(repo.history_cursor(None)?.unwrap())
+            .await?
+            .commits[0]
+            .clone();
+        let mut app = application(false)?;
+        let mut preview = CommitReviewPreview::new(repo);
+        // Model a previous selection's blocking parse still holding the worker.
+        let permit = preview.message_worker.clone().acquire_owned().await?;
+        let text = until_text(&mut preview, &commit, &mut app, "patch is ready").await?;
+        assert!(text.contains("Full message body"));
+        assert!(!text.contains("Loading changes"));
+        assert!(preview.highlighted_message.is_some());
+        assert!(preview.message.as_ref().unwrap().syntax.is_none());
+
+        drop(permit);
+        until_message_highlight(&mut preview, &commit, &mut app).await?;
+        let text = frame(&mut preview, Some(&commit), &mut app, None);
+        assert!(text.contains("Full message body") && text.contains("patch is ready"));
+        Ok(())
+    }
 
     fn git(root: &Path, args: &[&str]) {
         let output = std::process::Command::new("git")
@@ -376,6 +812,20 @@ mod tests {
         action: Option<PreviewAction>,
         area: Rect,
     ) -> String {
+        draw_frame(preview, commit, app, action, area)
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect()
+    }
+
+    fn draw_frame(
+        preview: &mut CommitReviewPreview,
+        commit: Option<&Arc<CommitEntry>>,
+        app: &mut TestApplication,
+        action: Option<PreviewAction>,
+        area: Rect,
+    ) -> Buffer {
         let config = crate::config::Config::default();
         let updates = tokio::sync::mpsc::unbounded_channel().0;
         let mut jobs = Jobs::new();
@@ -397,7 +847,22 @@ mod tests {
             preview.action(commit, action, &mut cx);
         }
         preview.render(commit, area, &mut surface, &mut cx.draw_context());
-        surface.content.iter().map(|cell| cell.symbol()).collect()
+        surface
+    }
+
+    async fn until_message_highlight(
+        preview: &mut CommitReviewPreview,
+        commit: &Arc<CommitEntry>,
+        app: &mut TestApplication,
+    ) -> anyhow::Result<()> {
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while preview.highlighted_message.is_some() {
+                frame(preview, Some(commit), app, None);
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .map_err(Into::into)
     }
 
     async fn until_text(
@@ -606,7 +1071,10 @@ mod tests {
         frame(&mut preview, Some(&commits[0]), &mut app, None);
         frame(&mut preview, None, &mut app, None);
         assert!(
-            preview.details.is_none() && preview.pending.is_none() && preview.selected.is_none()
+            preview.details.is_none()
+                && preview.pending.is_none()
+                && preview.highlighted_message.is_none()
+                && preview.selected.is_none()
         );
         until_text(&mut preview, &commits[1], &mut app, "No changed files").await?;
         Ok(())
