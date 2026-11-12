@@ -12,9 +12,11 @@ repository.workspace = true
 homepage.workspace = true
 
 [features]
+protocol-framing = ["dep:tokio"]
 unicode-lines = ["ropey/metric_lines_unicode"]
 
 [dependencies]
+tokio = { workspace = true, optional = true, features = ["io-util"] }
 dunce.workspace = true
 etcetera.workspace = true
 ropey.workspace = true
@@ -32,5 +34,6 @@ windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_Securit
 rustix = { workspace = true, features = ["fs", "thread"] }
 
 [dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt"] }
 tempfile.workspace = true
 serde_json.workspace = true

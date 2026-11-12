@@ -8,7 +8,7 @@ use std::{
     task::{Context, Poll},
 };
 use tokio::{
-    io::{AsyncWrite, DuplexStream, WriteHalf},
+    io::{AsyncReadExt, AsyncWrite, AsyncWriteExt, DuplexStream, WriteHalf},
     task::JoinHandle,
 };
 

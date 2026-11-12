@@ -9,6 +9,8 @@
 pub mod env;
 pub mod faccess;
 pub mod file;
+#[cfg(feature = "protocol-framing")]
+pub mod framing;
 pub mod path;
 pub mod range;
 pub mod rope;

@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tokio::{
-    io::{AsyncBufRead, AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader, BufWriter},
+    io::{AsyncBufRead, AsyncBufReadExt, BufReader, BufWriter},
     process::{ChildStderr, ChildStdin, ChildStdout},
     sync::{
         mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender},
@@ -118,42 +118,19 @@ impl Transport {
         content: &mut Vec<u8>,
         language_server_name: &str,
     ) -> Result<ServerMessage> {
-        let mut content_length = None;
-        loop {
-            buffer.clear();
-            if reader.read_line(buffer).await? == 0 {
-                return Err(Error::StreamClosed);
-            }
-
-            // debug!("<- header {:?}", buffer);
-
-            if buffer == "\r\n" {
-                // look for an empty CRLF line
-                break;
-            }
-
-            let header = buffer.trim();
-
-            let parts = header.split_once(": ");
-
-            match parts {
-                Some(("Content-Length", value)) => {
-                    content_length = Some(value.parse().context("invalid content length")?);
+        use stdx::framing::ReadError;
+        let received = stdx::framing::read(reader, buffer, content)
+            .await
+            .map_err(|error| match error {
+                ReadError::Io(error) => Error::IO(error),
+                ReadError::InvalidLength(error) => {
+                    Error::Other(anyhow::Error::new(error).context("invalid content length"))
                 }
-                Some((_, _)) => {}
-                None => {
-                    // Workaround: Some non-conformant language servers will output logging and other garbage
-                    // into the same stream as JSON-RPC messages. This can also happen from shell scripts that spawn
-                    // the server. Skip such lines and log a warning.
-
-                    // warn!("Failed to parse header: {:?}", header);
-                }
-            }
+                ReadError::MissingLength => Error::Other(anyhow::anyhow!("missing content length")),
+            })?;
+        if !received {
+            return Err(Error::StreamClosed);
         }
-
-        let content_length = content_length.context("missing content length")?;
-        content.resize(content_length, 0);
-        reader.read_exact(content).await?;
         let msg = std::str::from_utf8(content).context("invalid utf8 from server")?;
 
         info!("{language_server_name} <- {msg}");
@@ -234,15 +211,7 @@ impl Transport {
             std::str::from_utf8(request).expect("JSON is valid UTF-8")
         );
 
-        // send the headers
-        server_stdin
-            .write_all(format!("Content-Length: {}\r\n\r\n", request.len()).as_bytes())
-            .await?;
-
-        // send the body
-        server_stdin.write_all(request).await?;
-
-        server_stdin.flush().await?;
+        stdx::framing::write(server_stdin, request).await?;
 
         Ok(())
     }
