@@ -11,7 +11,7 @@ rust-version.workspace = true
 core.workspace = true
 text-diff.workspace = true
 tree-house.workspace = true
-imara-diff.workspace = true
+gix-imara-diff.workspace = true
 
 [dev-dependencies]
 loader.workspace = true

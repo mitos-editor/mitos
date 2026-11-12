@@ -13,7 +13,7 @@ homepage.workspace = true
 [dependencies]
 stdx.workspace = true
 core.workspace = true
-imara-diff.workspace = true
+gix-imara-diff.workspace = true
 log.workspace = true
 
 [dev-dependencies]

@@ -2,8 +2,8 @@
 
 use std::ops::Range;
 
-use editor_core::Rope;
-use stdx::rope::{RopeExt as _, LINE_TYPE};
+use editor_core::{line_ending::get_line_ending, Rope};
+use stdx::rope::LINE_TYPE;
 
 use crate::{Hunk, LineDiff};
 use crate::{ReviewChanges, ReviewProvider, ReviewUnavailable};
@@ -211,6 +211,7 @@ impl Review {
                     .iter()
                     .take_while(|range| range.start < end)
                     .map(|range| range.start.max(start) - start..range.end.min(end) - start)
+                    .filter(|range| !range.is_empty())
                     .collect(),
             );
         }
@@ -296,11 +297,11 @@ impl Review {
             self.truncated = true;
             return;
         }
+        let ending = get_line_ending(&text);
         let mut text = text.to_string();
-        let has_newline = text.ends_with('\n');
-        text.truncate(text.trim_end_matches(['\r', '\n']).len());
+        text.truncate(text.len() - ending.map_or(0, |ending| ending.as_str().len()));
         self.push(kind, before, after, text);
-        if kind != ReviewLineKind::Context && !has_newline {
+        if kind != ReviewLineKind::Context && ending.is_none() {
             self.push(
                 ReviewLineKind::Notice,
                 None,
@@ -365,7 +366,7 @@ fn valid_ranges(text: &Rope, ranges: &[Range<usize>]) -> bool {
 
 fn line_count(rope: &Rope) -> usize {
     rope.len_lines(LINE_TYPE)
-        - usize::from(rope.len_chars() == 0 || rope.char_at(rope.len_chars() - 1) == '\n')
+        - usize::from(rope.len() == 0 || get_line_ending(&rope.slice(..)).is_some())
 }
 
 fn range_label(range: &Range<usize>) -> String {
@@ -383,6 +384,41 @@ fn range_label(range: &Range<usize>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn review_preserves_carriage_returns_outside_crlf_endings() {
+        let review = Review::new(Rope::from(""), Rope::from("first\r\r\nlast\r"), None);
+        let added: Vec<_> = review
+            .lines
+            .iter()
+            .filter(|line| line.kind == ReviewLineKind::Added)
+            .map(|line| line.text.as_str())
+            .collect();
+        if LINE_TYPE == editor_core::ropey::LineType::LF {
+            assert_eq!(added, ["first\r", "last\r"]);
+        } else {
+            assert_eq!(added, ["first", "", "last"]);
+        }
+    }
+
+    #[test]
+    fn provider_ranges_do_not_create_empty_emphasis_on_blank_rows() {
+        let review = Review::with_provider(
+            Rope::from(""),
+            Rope::from("a\n\nb\n"),
+            None,
+            &Provider(ReviewChanges {
+                before: vec![],
+                after: std::iter::once(0..5).collect(),
+            }),
+            &|| false,
+        );
+        assert!(review
+            .lines
+            .iter()
+            .flat_map(|line| line.changes.iter().flatten())
+            .all(|range| !range.is_empty()));
+    }
 
     #[test]
     fn review_navigation_maps_deletions_without_crossing_hunk_boundaries() {

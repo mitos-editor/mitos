@@ -2,9 +2,12 @@ use std::ops::Range;
 use std::time::Instant;
 
 use editor_core::{ropey, RopeSlice};
-use imara_diff::{Algorithm, Diff, Hunk, IndentHeuristic, IndentLevel, InternedInput};
+use gix_imara_diff::{Algorithm, Diff, Hunk, InternedInput};
 
 use editor_core::{ChangeSet, ChangeSetBuilder as ChangesBuilder, Rope, Tendril, Transaction};
+
+// Line counts alone do not bound refinement for minified or generated text.
+const MAX_CHAR_DIFF_BYTES: usize = 64 * 1024;
 
 struct ChangeSetBuilder<'a> {
     res: ChangesBuilder,
@@ -24,20 +27,26 @@ impl ChangeSetBuilder<'_> {
         self.res.retain(len);
         self.pos = before.end;
 
-        // do not perform diffs on large hunks
         let len_before = before.end - before.start;
         let len_after = after.end - after.start;
+        let before_lines = &self.file.before[before.start as usize..before.end as usize];
+        let after_lines = &self.file.after[after.start as usize..after.end as usize];
 
         // Pure insertions/removals do not require a character diff.
-        // Very large changes are ignored because their character diff is expensive to compute
-        // TODO adjust heuristic to detect large changes?
+        // Replace large or disproportionate hunks directly to bound character refinement.
         if len_before == 0
             || len_after == 0
             || len_after > 5 * len_before
             || 5 * len_after < len_before && len_before > 10
             || len_before + len_after > 200
+            || before_lines
+                .iter()
+                .chain(after_lines)
+                .map(|&token| self.file.interner[token].len())
+                .sum::<usize>()
+                > MAX_CHAR_DIFF_BYTES
         {
-            let remove = self.file.before[before.start as usize..before.end as usize]
+            let remove = before_lines
                 .iter()
                 .map(|&it| self.file.interner[it].len_chars())
                 .sum();
@@ -59,7 +68,7 @@ impl ChangeSetBuilder<'_> {
                     .to_string()
                     .into();
             } else {
-                for &line in &self.file.after[after.start as usize..after.end as usize] {
+                for &line in after_lines {
                     for chunk in self.file.interner[line].chunks() {
                         fragment.push_str(chunk)
                     }
@@ -67,12 +76,11 @@ impl ChangeSetBuilder<'_> {
             };
             self.res.insert(fragment);
         } else {
-            // for reasonably small hunks, generating a ChangeSet from char diff can save memory
-            // TODO use a tokenizer (word diff?) for improved performance
-            let hunk_before = self.file.before[before.start as usize..before.end as usize]
+            // Character granularity preserves positions within surviving text.
+            let hunk_before = before_lines
                 .iter()
                 .flat_map(|&it| self.file.interner[it].chars());
-            let hunk_after = self.file.after[after.start as usize..after.end as usize]
+            let hunk_after = after_lines
                 .iter()
                 .flat_map(|&it| self.file.interner[it].chars());
             self.current_hunk.update_before(hunk_before);
@@ -138,7 +146,7 @@ pub fn compare_fragments(before: RopeSlice<'_>, after: &str) -> Transaction {
 
 struct RopeLines<'a>(RopeSlice<'a>);
 
-impl<'a> imara_diff::TokenSource for RopeLines<'a> {
+impl<'a> gix_imara_diff::TokenSource for RopeLines<'a> {
     type Token = RopeSlice<'a>;
     type Tokenizer = std::iter::Map<ropey::iter::Lines<'a>, fn(RopeSlice<'a>) -> RopeSlice<'a>>;
 
@@ -167,11 +175,8 @@ pub fn compare_ropes(before: &Rope, after: &Rope) -> Transaction {
         current_hunk: InternedInput::default(),
         char_diff: Diff::default(),
     };
-    let mut diff = Diff::compute(Algorithm::Histogram, &file);
-    diff.postprocess_with_heuristic(
-        &file,
-        IndentHeuristic::new(|token| IndentLevel::for_ascii_line(file.interner[token].bytes(), 4)),
-    );
+    let mut diff = Diff::default();
+    super::diff_lines(&mut diff, &file);
     for hunk in diff.hunks() {
         builder.process_hunk(hunk.before, hunk.after)
     }
@@ -193,6 +198,25 @@ mod tests {
         let new = Rope::from(b);
         compare_ropes(&old, &new).apply(&mut old);
         assert_eq!(old, new);
+    }
+
+    #[test]
+    fn large_single_line_edits_skip_character_refinement() {
+        let before = Rope::from(format!(
+            "prefix {} suffix\n",
+            "α".repeat(MAX_CHAR_DIFF_BYTES)
+        ));
+        let after = Rope::from(format!(
+            "prefix {} suffix\n",
+            "β".repeat(MAX_CHAR_DIFF_BYTES)
+        ));
+        let change = compare_ropes(&before, &after);
+        assert_eq!(change.changes().changes().len(), 2);
+        let mut actual = before.clone();
+        assert!(change.apply(&mut actual));
+        assert_eq!(actual, after);
+        assert!(change.invert(&before).apply(&mut actual));
+        assert_eq!(actual, before);
     }
 
     quickcheck::quickcheck! {

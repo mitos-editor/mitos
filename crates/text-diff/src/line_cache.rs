@@ -1,48 +1,45 @@
-//! This modules encapsulates a tiny bit of unsafe code that
-//! makes diffing significantly faster and more ergonomic to implement.
-//! This code is necessary because diffing requires quick random
-//! access to the lines of the text that is being diffed.
+//! Reuse imara's line interning without copying source text.
 //!
-//! Therefore it is best to collect the `Rope::lines` iterator into a vec
-//! first because access to the vec is `O(1)` where `Rope::line` is `O(log N)`.
-//! However this process can allocate a (potentially quite large) vector.
-//!
-//! To avoid reallocation for every diff, the vector is reused.
-//! However the RopeSlice references the original rope and therefore forms a self-referential data structure.
-//! A transmute is used to change the lifetime of the slice to static to circumvent that project.
+//! Interned slices borrow boxed, immutable ropes whose addresses survive moving this cache.
+//! Erase those slices before replacing either rope. Keep the interner private and expose it
+//! only with a lifetime bounded by a borrow of the cache.
 use std::mem::transmute;
 
 use editor_core::{Rope, RopeSlice};
-use imara_diff::{InternedInput, Interner};
+use gix_imara_diff::{InternedInput, Interner};
 
 use super::{MAX_DIFF_BYTES, MAX_DIFF_LINES};
 
 /// A cache that stores the `lines` of a rope as a vector.
 /// It allows safely reusing the allocation of the vec when updating the rope
 pub(super) struct InternedRopeLines {
+    // Drop borrowed slices before their backing ropes.
+    interned: InternedInput<RopeSlice<'static>>,
     diff_base: Box<Rope>,
     doc: Box<Rope>,
-    num_tokens_diff_base: u32,
-    interned: InternedInput<RopeSlice<'static>>,
+    /// None when size limits prevented interning the base.
+    num_tokens_diff_base: Option<u32>,
 }
 
 impl InternedRopeLines {
     pub fn new(diff_base: Rope, doc: Rope) -> InternedRopeLines {
         let mut res = InternedRopeLines {
             interned: InternedInput {
-                before: Vec::with_capacity(diff_base.len_lines(stdx::rope::LINE_TYPE)),
-                after: Vec::with_capacity(doc.len_lines(stdx::rope::LINE_TYPE)),
-                interner: Interner::new(
-                    diff_base.len_lines(stdx::rope::LINE_TYPE)
-                        + doc.len_lines(stdx::rope::LINE_TYPE),
-                ),
+                before: Vec::new(),
+                after: Vec::new(),
+                interner: Interner::new(0),
             },
             diff_base: Box::new(diff_base),
             doc: Box::new(doc),
-            // will be populated by update_diff_base_impl
-            num_tokens_diff_base: 0,
+            num_tokens_diff_base: None,
         };
-        res.update_diff_base_impl();
+        if !res.is_too_large() {
+            res.interned.reserve(
+                res.diff_base.len_lines(stdx::rope::LINE_TYPE) as u32,
+                res.doc.len_lines(stdx::rope::LINE_TYPE) as u32,
+            );
+            res.update_diff_base_impl();
+        }
         res
     }
 
@@ -57,6 +54,7 @@ impl InternedRopeLines {
     /// Updates the `diff_base` and optionally the document if `doc` is not None
     pub fn update_diff_base(&mut self, diff_base: Rope, doc: Option<Rope>) {
         self.interned.clear();
+        self.num_tokens_diff_base = None;
         *self.diff_base = diff_base;
         if let Some(doc) = doc {
             *self.doc = doc
@@ -73,43 +71,39 @@ impl InternedRopeLines {
         // the interning of `self.diff_base` finished so
         // all lines that refer to `self.doc` have been purged.
 
-        self.interned
-            .interner
-            .erase_tokens_after(self.num_tokens_diff_base.into());
+        self.interned.after.clear();
+        if let Some(tokens) = self.num_tokens_diff_base {
+            self.interned.interner.erase_tokens_after(tokens.into());
+        }
 
         *self.doc = doc;
-        if self.is_too_large() {
-            self.interned.after.clear();
-        } else {
-            self.update_doc_impl();
+        if !self.is_too_large() {
+            if self.num_tokens_diff_base.is_none() {
+                self.update_diff_base_impl();
+            } else {
+                self.update_doc_impl();
+            }
         }
     }
 
     fn update_diff_base_impl(&mut self) {
-        // Safety: This transmute is safe because it only transmutes a lifetime, which has no effect.
-        // The backing storage for the RopeSlices referred to by the lifetime is stored in `self.diff_base`.
-        // Therefore as long as `self.diff_base` is not dropped/replaced this memory remains valid.
-        // `self.diff_base` is only changed in `self.update_diff_base`, which clears the interner.
-        // When the interned lines are exposed to consumer in `self.diff_input`, the lifetime is bounded to a reference to self.
-        // That means that on calls to update there exist no references to `self.interned`.
+        // SAFETY: The boxed base stays at a stable address and is never mutated. Its slices are
+        // cleared before replacement and cannot escape the lifetime of a borrow of this cache.
         let before = self.diff_base.lines(stdx::rope::LINE_TYPE).map(
             |line: RopeSlice| -> RopeSlice<'static> {
                 unsafe { transmute(super::line_token(line)) }
             },
         );
         self.interned.update_before(before);
-        self.num_tokens_diff_base = self.interned.interner.num_tokens();
-        // the has to be interned again because the interner was fully cleared
+        self.num_tokens_diff_base = Some(self.interned.interner.num_tokens());
+        // The document must be interned again after clearing the interner.
         self.update_doc_impl()
     }
 
     fn update_doc_impl(&mut self) {
-        // Safety: This transmute is save because it only transmutes a lifetime, which has no effect.
-        // The backing storage for the RopeSlices referred to by the lifetime is stored in `self.doc`.
-        // Therefore as long as `self.doc` is not dropped/replaced this memory remains valid.
-        // `self.doc` is only changed in `self.update_doc`, which clears the interner.
-        // When the interned lines are exposed to consumer in `self.diff_input`, the lifetime is bounded to a reference to self.
-        // That means that on calls to update there exist no references to `self.interned`.
+        // SAFETY: The boxed document stays at a stable address and is never mutated. Before
+        // replacement, update_doc erases all tokens added after base interning, and
+        // update_diff_base clears the whole interner. Slices cannot outlive a cache borrow.
         let after =
             self.doc
                 .lines(stdx::rope::LINE_TYPE)

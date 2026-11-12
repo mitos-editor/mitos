@@ -7,9 +7,9 @@ mod transaction;
 pub use provider::{ReviewChanges, ReviewProvider, ReviewUnavailable};
 pub use review::{Review, ReviewLine, ReviewLineKind, MAX_REVIEW_BYTES, MAX_REVIEW_LINES};
 
-use editor_core::Rope;
-pub use imara_diff::Hunk;
-use imara_diff::{Algorithm, IndentHeuristic, IndentLevel};
+use editor_core::{Rope, RopeSlice};
+pub use gix_imara_diff::Hunk;
+use gix_imara_diff::{Algorithm, Diff, IndentHeuristic, IndentLevel, InternedInput};
 use line_cache::InternedRopeLines;
 pub use transaction::{compare_fragments, compare_ropes};
 
@@ -23,18 +23,32 @@ fn line_token(line: editor_core::RopeSlice<'_>) -> editor_core::RopeSlice<'_> {
     line.as_str().map_or(line, editor_core::RopeSlice::from)
 }
 
+fn diff_lines(diff: &mut Diff, input: &InternedInput<RopeSlice<'_>>) {
+    diff.compute_with(
+        Algorithm::Histogram,
+        &input.before,
+        &input.after,
+        input.interner.num_tokens(),
+    );
+    diff.postprocess_with(
+        &input.before,
+        &input.after,
+        IndentHeuristic::new(|token| IndentLevel::for_ascii_line(input.interner[token].bytes(), 4)),
+    );
+}
+
 /// Reusable line interning and diff allocations for a base and its edited text.
 /// Callers own scheduling, publication, and synchronization.
 pub struct LineDiff {
     lines: InternedRopeLines,
-    diff: imara_diff::Diff,
+    diff: gix_imara_diff::Diff,
 }
 
 impl LineDiff {
     pub fn new(base: Rope, document: Rope) -> Self {
         let mut diff = Self {
             lines: InternedRopeLines::new(base, document),
-            diff: imara_diff::Diff::default(),
+            diff: gix_imara_diff::Diff::default(),
         };
         diff.compute();
         diff
@@ -60,33 +74,52 @@ impl LineDiff {
         self.lines.doc()
     }
 
+    /// Oversized snapshots produce no hunks; updating with smaller text resumes comparison.
     pub fn hunks(&self) -> impl Iterator<Item = Hunk> + '_ {
         self.diff.hunks()
     }
 
     fn compute(&mut self) {
         let Some(input) = self.lines.interned_lines() else {
+            self.diff = gix_imara_diff::Diff::default();
             return;
         };
-        self.diff.compute_with(
-            Algorithm::Histogram,
-            &input.before,
-            &input.after,
-            input.interner.num_tokens(),
-        );
-        self.diff.postprocess_with(
-            &input.before,
-            &input.after,
-            IndentHeuristic::new(|token| {
-                IndentLevel::for_ascii_line(input.interner[token].bytes(), 4)
-            }),
-        );
+        diff_lines(&mut self.diff, input);
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn oversized_updates_clear_hunks_and_recover() {
+        let base = Rope::from("base\n");
+        let document = Rope::from("document\n");
+        let large = Rope::from("\n".repeat(MAX_DIFF_LINES));
+        let mut diff = LineDiff::new(base.clone(), document.clone());
+        assert_eq!(diff.hunks().count(), 1);
+        diff.update(None, Some(large.clone()));
+        assert_eq!(diff.hunks().count(), 0);
+        diff.update(None, Some(document.clone()));
+        assert_eq!(diff.hunks().count(), 1);
+        diff.update(Some(large), None);
+        assert_eq!(diff.hunks().count(), 0);
+        diff.update(None, Some(base.clone()));
+        assert_eq!(diff.hunks().count(), 0);
+        diff.update(Some(base.clone()), Some(document.clone()));
+        assert_eq!(diff.hunks().count(), 1);
+
+        let large = Rope::from("\n".repeat(MAX_DIFF_LINES));
+        let mut diff = LineDiff::new(base.clone(), large.clone());
+        assert_eq!(diff.hunks().count(), 0);
+        diff.update(None, Some(document.clone()));
+        assert_eq!(diff.hunks().count(), 1);
+        let mut diff = LineDiff::new(large, document);
+        assert_eq!(diff.hunks().count(), 0);
+        diff.update(Some(base), None);
+        assert_eq!(diff.hunks().count(), 1);
+    }
 
     #[test]
     fn line_tokens_keep_multichunk_lines_and_survive_base_replacement() {

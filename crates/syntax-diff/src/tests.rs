@@ -1,5 +1,43 @@
 use super::*;
 
+#[test]
+fn whitespace_inside_literals_remains_significant() {
+    for (language, before, after) in [
+        (
+            "rust",
+            "fn f() { let s = r#\" \"#; }",
+            "fn f() { let s = r#\"  \"#; }",
+        ),
+        ("python", "x = f\" \"\n", "x = f\"  \"\n"),
+        ("javascript", "const x = ` `;", "const x = `  `;"),
+        (
+            "yaml",
+            "x: |\n  first\n  \n  last\n",
+            "x: |\n  first\n   \n  last\n",
+        ),
+        ("bash", "cat <<EOF\n \nEOF\n", "cat <<EOF\n  \nEOF\n"),
+        ("html", "<pre> </pre>", "<pre>  </pre>"),
+        (
+            "html",
+            "<span>a</span> <span>b</span>",
+            "<span>a</span>  <span>b</span>",
+        ),
+        (
+            "javascript",
+            "const x = <pre> </pre>;",
+            "const x = <pre>  </pre>;",
+        ),
+    ] {
+        let changes = provider(language)
+            .compare(&Rope::from(before), &Rope::from(after), &|| false)
+            .unwrap();
+        assert!(
+            !changes.before.is_empty() && !changes.after.is_empty(),
+            "{language}: {changes:?}"
+        );
+    }
+}
+
 fn provider(name: &str) -> SyntaxDiff {
     SyntaxDiff::new(
         loader::syntax::Resources::default()

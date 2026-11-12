@@ -1,7 +1,7 @@
 //! Optional syntax comparison using the host's grammar, independent of Git and editor state.
 //!
 //! Compare ordered tree events, including node kinds and literal leaves. Layout between nodes
-//! does not participate in matching; strings and comments keep their literal content. Structural
+//! does not participate in matching; literals, comments, and markup content retain whitespace. Structural
 //! changes emphasize the affected subtree. This is syntactic comparison, not move detection or
 //! semantic equivalence. Exact textual hunks remain the responsibility of `text-diff`.
 
@@ -11,7 +11,7 @@ use std::{
 };
 
 use editor_core::Rope;
-use imara_diff::{Algorithm, Diff, InternedInput};
+use gix_imara_diff::{Algorithm, Diff, InternedInput};
 use text_diff::{ReviewChanges, ReviewProvider, ReviewUnavailable};
 use tree_house::tree_sitter::{Grammar, Node, ParseOptions, ParseState, Parser, RopeInput, Tree};
 
@@ -62,6 +62,28 @@ struct Event<'a> {
     range: Range<usize>,
 }
 
+struct Parent {
+    kind: u16,
+    end: usize,
+    literal_gaps: bool,
+}
+
+fn literal_gaps(node: &Node<'_>) -> bool {
+    // Some grammars leave literal whitespace out of the tree, including HTML content and
+    // all-whitespace shell heredocs. Preserve these gaps even when no content leaf exists.
+    match node.kind() {
+        "element" | "script_element" | "style_element" | "jsx_element" | "jsx_fragment"
+        | "heredoc_redirect" | "heredoc_body" => true,
+        "document" => node.children().any(|child| {
+            matches!(
+                child.kind(),
+                "element" | "script_element" | "style_element" | "doctype"
+            )
+        }),
+        _ => false,
+    }
+}
+
 fn parse(grammar: Grammar, source: &Rope, budget: &Budget<'_>) -> Result<Tree, ReviewUnavailable> {
     budget.check()?;
     let mut parser = Parser::new();
@@ -98,7 +120,7 @@ fn events<'a>(
     // Explicit traversal avoids a Rust call-stack limit on deeply nested input.
     let mut result = Vec::new();
     let mut cursor = tree.walk();
-    let mut previous_child = Vec::new();
+    let mut parents: Vec<Parent> = Vec::new();
     loop {
         budget.check()?;
         if result.len() >= MAX_EVENTS {
@@ -108,14 +130,15 @@ fn events<'a>(
         if node.is_missing() || node.kind() == "ERROR" {
             return Err(ReviewUnavailable("syntax contains parse errors"));
         }
-        if let Some(previous) = previous_child.last_mut() {
+        if let Some(parent) = parents.last_mut() {
             gap(
                 &mut result,
                 source,
-                *previous..node.start_byte() as usize,
-                node.parent().unwrap().kind_id(),
+                parent.end..node.start_byte() as usize,
+                parent.kind,
+                parent.literal_gaps,
             );
-            *previous = node.end_byte() as usize;
+            parent.end = node.end_byte() as usize;
         }
         // Comments may expose only delimiters as children. Whitespace inside a literal leaf
         // is significant; only layout between parsed nodes can be ignored.
@@ -133,7 +156,11 @@ fn events<'a>(
                 key: Key::Enter(node.kind_id()),
                 range: range(&node),
             });
-            previous_child.push(node.start_byte() as usize);
+            parents.push(Parent {
+                kind: node.kind_id(),
+                end: node.start_byte() as usize,
+                literal_gaps: literal_gaps(&node),
+            });
             if cursor.goto_first_child() {
                 continue;
             }
@@ -149,12 +176,13 @@ fn events<'a>(
                 return Ok(result);
             }
             let node = cursor.node();
-            let previous = previous_child.pop().unwrap();
+            let parent = parents.pop().unwrap();
             gap(
                 &mut result,
                 source,
-                previous..node.end_byte() as usize,
-                node.kind_id(),
+                parent.end..node.end_byte() as usize,
+                parent.kind,
+                parent.literal_gaps,
             );
             result.push(Event {
                 key: Key::Leave(node.kind_id()),
@@ -164,9 +192,15 @@ fn events<'a>(
     }
 }
 
-fn gap<'a>(events: &mut Vec<Event<'a>>, source: &'a str, range: Range<usize>, kind: u16) {
+fn gap<'a>(
+    events: &mut Vec<Event<'a>>,
+    source: &'a str,
+    range: Range<usize>,
+    kind: u16,
+    literal: bool,
+) {
     let text = &source[range.clone()];
-    if !text.chars().all(char::is_whitespace) {
+    if !text.is_empty() && (literal || !text.chars().all(char::is_whitespace)) {
         events.push(Event {
             key: Key::Gap(kind, text),
             range,
@@ -221,7 +255,7 @@ impl ReviewProvider for SyntaxDiff {
         let mut input = InternedInput {
             before: Vec::new(),
             after: Vec::new(),
-            interner: imara_diff::Interner::new(before.len() + after.len()),
+            interner: gix_imara_diff::Interner::new(before.len() + after.len()),
         };
         input.update_before(before.iter().map(|event| event.key));
         input.update_after(after.iter().map(|event| event.key));
