@@ -127,6 +127,34 @@ async fn hover_replacement_and_selection_changes_invalidate_queued_updates() -> 
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn hover_display_changes_supersede_requests_and_reject_stale_results() -> anyhow::Result<()> {
+    use hover::HoverDisplay;
+    let dir = tempfile::tempdir()?;
+    let mut f = Fixture::new(dir.path()).await?;
+    hover::request_with(&mut f.app.editor, HoverDisplay::Buffer);
+    f.response().await?(&mut f.app.editor);
+    let buffer_update = hover::next_update(&f.app.editor).unwrap();
+    assert_eq!(buffer_update.display(), HoverDisplay::Buffer);
+    let popup_update = f.hover().await?;
+    assert!(buffer_update.resolve(&f.app.editor).is_none());
+    assert_eq!(popup_update.display(), HoverDisplay::Popup);
+    assert!(popup_update.resolve(&f.app.editor).is_some());
+
+    hover::request_with(&mut f.app.editor, HoverDisplay::Buffer);
+    f.response().await?(&mut f.app.editor);
+    let buffer_update = hover::next_update(&f.app.editor).unwrap();
+    f.edit();
+    assert!(buffer_update.resolve(&f.app.editor).is_none());
+
+    hover::request_with(&mut f.app.editor, HoverDisplay::Buffer);
+    f.response().await?(&mut f.app.editor);
+    let buffer_update = hover::next_update(&f.app.editor).unwrap();
+    f.app.editor.new_file(Action::HorizontalSplit);
+    assert!(buffer_update.resolve(&f.app.editor).is_none());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn hover_rejects_view_switches_and_detached_servers() -> anyhow::Result<()> {
     let dir = tempfile::tempdir()?;
     let mut f = Fixture::new(dir.path()).await?;
