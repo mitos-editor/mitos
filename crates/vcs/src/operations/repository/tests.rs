@@ -2567,6 +2567,43 @@ async fn removing_missing_worktrees_keeps_files_branches_and_other_registrations
 }
 
 #[tokio::test]
+async fn removing_missing_git_created_worktree_accepts_canonical_paths() -> Result<()> {
+    let dir = initial()?;
+    let parent = tempfile::tempdir()?;
+    let path = parent.path().join("missing");
+    exec_git_cmd(
+        &[
+            "worktree",
+            "add",
+            "-b",
+            "topic",
+            dunce::simplified(&path).to_str().unwrap(),
+        ],
+        dir.path(),
+    );
+    std::fs::remove_dir_all(&path)?;
+    let repo = GitRepository::discover(dir.path())?;
+    let canonical = stdx::path::canonicalize_existing(&path);
+    assert!(repo
+        .worktrees()
+        .await?
+        .iter()
+        .any(|tree| tree.path == canonical && tree.prunable));
+    execute(
+        &repo,
+        RepositoryOperation::RemoveWorktree { path: canonical },
+    )
+    .await?;
+    assert_eq!(repo.worktrees().await?.len(), 1);
+    assert!(repo
+        .branches()
+        .await?
+        .iter()
+        .any(|branch| branch.name == "topic"));
+    Ok(())
+}
+
+#[tokio::test]
 async fn removing_missing_worktrees_rejects_locks_and_reappearing_checkouts() -> Result<()> {
     let dir = initial()?;
     let parent = tempfile::tempdir()?;

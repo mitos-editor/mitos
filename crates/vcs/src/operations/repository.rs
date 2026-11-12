@@ -433,7 +433,7 @@ impl GitRepository {
                 *path = stdx::path::canonicalize_existing(path);
                 ensure!(*path != self.root, "Cannot remove the current worktree");
                 watched.extend([path.clone(), path.join(".git")]);
-                let target = repo.prepare_remove_worktree(&*path)?;
+                let target = prepare_worktree_removal(&repo, path)?;
                 let linked = target.repository()?;
                 watched.extend([
                     linked.git_dir().join("HEAD"),
@@ -497,6 +497,21 @@ impl GitRepository {
             operation: Operation::Repository(operation),
         })
     }
+}
+
+fn prepare_worktree_removal<'repo>(
+    repo: &'repo gix::Repository,
+    path: &Path,
+) -> Result<gix::worktree::remove::Target<'repo>> {
+    // Missing Windows paths cannot be canonicalized by gix to reconcile verbatim
+    // and ordinary drive prefixes. Resolve the editor path to its registered form.
+    let registered = repo
+        .worktrees()?
+        .into_iter()
+        .filter_map(|tree| tree.base().ok())
+        .find(|base| stdx::path::canonicalize_existing(base) == path)
+        .context("Selected path is no longer a registered linked worktree")?;
+    Ok(repo.prepare_remove_worktree(registered)?)
 }
 
 // Only read tracking names and refspecs. The high-level remote lookup filters
@@ -737,7 +752,7 @@ impl PreparedOperation {
             stdx::path::canonicalize_existing(path) != self.repository.root,
             "Cannot remove the current worktree"
         );
-        let target = repo.prepare_remove_worktree(path)?;
+        let target = prepare_worktree_removal(&repo, path)?;
         ensure!(
             stdx::path::canonicalize_existing(target.base()) == path,
             "Selected path is no longer a registered worktree"
