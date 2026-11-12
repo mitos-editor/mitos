@@ -3689,6 +3689,20 @@ name = "mermaid"
 source = { git = "https://github.com/monaqa/tree-sitter-mermaid", rev = "90ae195b31933ceb9d079abfa8a3ad0a36fee4cc" }
 
 [[language]]
+name = "d2"
+scope = "source.d2"
+injection-regex = "d2"
+file-types = ["d2"]
+comment-token = "#"
+indent = { tab-width = 2, unit = "  " }
+formatter = { command = "d2", args = ["fmt", "-"] }
+auto-format = true
+
+[[grammar]]
+name = "d2"
+source = { git = "https://github.com/ravsii/tree-sitter-d2", rev = "7bba28221d8c466d28b725124494bf89219326fd" }
+
+[[language]]
 name = "matlab"
 scope = "source.m"
 file-types = ["m"]

@@ -1,0 +1,31 @@
+  api -> db: query
+# ^^^ @variable
+#     ^^ @operator
+#        ^^ @variable
+#          ^ @punctuation.delimiter
+#            ^^^^^ @string
+
+service: {
+  shape: rectangle
+}
+
+  note: |md
+    # Heading
+#     ^^^^^^^ @markup.heading.1
+    **bold**
+  |
+
+  default_markdown: |
+  # Default Markdown
+  |
+#     ^^^^^^ @markup.heading.1
+
+  python: |py
+def answer():
+    return 42
+|
+# ^^ @keyword.function
+#   ^^^^^ @function.definition
+
+  equation: |tex \\alpha |
+#                ^^ @function
