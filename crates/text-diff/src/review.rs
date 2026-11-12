@@ -46,6 +46,7 @@ pub struct Review {
     pub truncated: bool,
     /// All syntax tokens matched despite exact text changes.
     pub layout_only: bool,
+    selected_hunk: Option<Hunk>,
     bytes: usize,
     largest_line: usize,
     max_line_chars: usize,
@@ -140,8 +141,16 @@ impl Review {
                 text: "Diff truncated: review a smaller change".into(),
                 changes: None,
             });
+        } else if let Some(selected) = selected {
+            review.selected_hunk = Some(hunks[selected].clone());
         }
         review
+    }
+
+    /// The exact hunk selected by the requested line, excluding neighboring context hunks.
+    /// Full-file, unchanged, and truncated reviews have no selected hunk.
+    pub fn selected_hunk(&self) -> Option<&Hunk> {
+        self.selected_hunk.as_ref()
     }
 
     /// Refine changed rows using the trees for these exact source snapshots.
@@ -410,7 +419,7 @@ mod tests {
     fn syntax_spans_are_clipped_to_literal_rows_and_keep_exact_hunks() {
         let before = Rope::from("λ old\r\nend\n");
         let after = Rope::from("λ new\r\nend\n");
-        let mut review = Review::new(before.clone(), after.clone(), None);
+        let mut review = Review::new(before.clone(), after.clone(), Some(0));
         review.annotate(
             &before,
             &after,
@@ -420,6 +429,13 @@ mod tests {
             },
         );
         assert_eq!((review.additions, review.deletions), (1, 1));
+        assert_eq!(
+            review.selected_hunk(),
+            Some(&Hunk {
+                before: 0..1,
+                after: 0..1,
+            })
+        );
         let line = review
             .lines
             .iter()
@@ -475,6 +491,13 @@ mod tests {
     fn eof_deletions_remain_inspectable_and_large_models_are_bounded() {
         let review = Review::new(Rope::from("one\ntwo\n"), Rope::from("one\n"), Some(1));
         assert_eq!((review.additions, review.deletions), (0, 1));
+        assert_eq!(
+            review.selected_hunk(),
+            Some(&Hunk {
+                before: 1..2,
+                after: 1..1,
+            })
+        );
         assert!(review
             .lines
             .iter()
@@ -482,13 +505,15 @@ mod tests {
         let review = Review::new(
             Rope::from(""),
             Rope::from("line\n".repeat(MAX_ROWS + 1)),
-            None,
+            Some(0),
         );
         assert!(review.truncated);
+        assert!(review.selected_hunk().is_none());
         assert!(review.lines.len() <= MAX_ROWS + 1);
         assert!(review.lines.last().unwrap().text.contains("truncated"));
         let review = Review::new(Rope::from("\n".repeat(200_001)), Rope::from(""), None);
         assert!(review.truncated);
+        assert!(review.selected_hunk().is_none());
         assert_eq!(review.lines.len(), 1);
         assert!(review.lines[0].text.contains("too large"));
     }
@@ -540,6 +565,7 @@ mod tests {
             Rope::from(changed.as_str()),
             None,
         );
+        assert!(review.selected_hunk().is_none());
         assert_eq!(
             review
                 .lines
@@ -551,9 +577,32 @@ mod tests {
         let review = Review::new(
             Rope::from(base.as_str()),
             Rope::from(changed.as_str()),
+            Some(2),
+        );
+        assert_eq!((review.additions, review.deletions), (2, 2));
+        assert_eq!(
+            review.selected_hunk(),
+            Some(&Hunk {
+                before: 2..3,
+                after: 2..3,
+            })
+        );
+        let review = Review::new(
+            Rope::from(base.as_str()),
+            Rope::from(changed.as_str()),
             Some(25),
         );
         assert_eq!((review.additions, review.deletions), (1, 1));
         assert!(!review.lines.iter().any(|line| line.text == "changed two"));
+        assert_eq!(
+            review.selected_hunk(),
+            Some(&Hunk {
+                before: 25..26,
+                after: 25..26,
+            })
+        );
+        let review = Review::new(Rope::from(base), Rope::from(changed), Some(3));
+        assert!(review.selected_hunk().is_none());
+        assert_eq!(review.lines[0].text, "No text changes");
     }
 }

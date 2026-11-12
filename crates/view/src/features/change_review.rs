@@ -398,7 +398,6 @@ pub struct HunkReviewSnapshot {
     pub review: Arc<Review>,
     request: Arc<HunkReviewRequest>,
     stamp: RepositoryStamp,
-    hunk: Option<vcs::Hunk>,
 }
 
 impl HunkReviewSnapshot {
@@ -411,8 +410,9 @@ impl HunkReviewSnapshot {
             "Change inspection is stale; inspect the change again before restoring"
         );
         let hunk = self
-            .hunk
-            .clone()
+            .review
+            .selected_hunk()
+            .cloned()
             .ok_or_else(|| anyhow::anyhow!("There is no change at the inspected line"))?;
         let scrolloff = editor.config().scroll.padding;
         let (view, doc) = crate::current!(editor);
@@ -524,21 +524,6 @@ impl HunkReviewRequest {
             paths.dedup();
             let stamp = repository_stamp(paths);
             let (source, review) = self.compute_review()?;
-            let hunk = if review.truncated {
-                None
-            } else {
-                text_diff::LineDiff::new(source.text(true).clone(), self.text.clone())
-                    .hunks()
-                    .find(|hunk| {
-                        let start = hunk.after.start as usize;
-                        let end = hunk.after.end as usize;
-                        if start == end {
-                            self.line == start
-                        } else {
-                            (start..end).contains(&self.line)
-                        }
-                    })
-            };
             ensure!(
                 stamp == repository_stamp(stamp.iter().map(|(path, _)| path.clone())),
                 "Repository changed while inspecting the change; try again"
@@ -548,7 +533,6 @@ impl HunkReviewRequest {
                 review,
                 request: self,
                 stamp,
-                hunk,
             }))
         })
         .await
