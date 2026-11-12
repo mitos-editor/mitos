@@ -565,3 +565,55 @@ async fn resumed_branch_picker_replaces_the_live_generation_atomically() -> Resu
     .await?;
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn worktree_picker_opt_d_removes_missing_worktrees_after_confirmation() -> Result<()> {
+    let parent = tempfile::tempdir()?;
+    let root = parent.path().join("repo");
+    let linked = parent.path().join("missing");
+    std::fs::create_dir(&root)?;
+    git(&root, &["init", "-b", "main"]);
+    git(&root, &["config", "user.name", "test"]);
+    git(&root, &["config", "user.email", "test@example.com"]);
+    git(&root, &["commit", "--allow-empty", "-m", "initial"]);
+    git(
+        &root,
+        &["worktree", "add", "-b", "topic", linked.to_str().unwrap()],
+    );
+    std::fs::remove_dir_all(&linked)?;
+    let repo = GitRepository::discover(&root)?;
+    let mut app = application(false)?;
+    let mut compositor = compositor::Compositor::new(view::graphics::Rect::new(0, 0, 80, 24));
+    let mut jobs = Jobs::new();
+    let mut picker = worktrees(&app.editor, repo.clone(), root);
+    until(&mut picker, &mut app, |picker| {
+        crate::ui::picker::test::items(picker).count() == 2
+    })
+    .await?;
+    picker.to_end();
+    assert!(picker.selection().unwrap().prunable);
+    compositor.push(Box::new(overlaid(picker)));
+    key(&mut app, &mut compositor, &mut jobs, "A-d");
+    key(&mut app, &mut compositor, &mut jobs, "ret");
+    assert_eq!(repo.worktrees().await?.len(), 2);
+    assert!(!app.editor.handlers().git_operations.busy());
+    key(&mut app, &mut compositor, &mut jobs, "A-d");
+    key(&mut app, &mut compositor, &mut jobs, "down");
+    key(&mut app, &mut compositor, &mut jobs, "ret");
+    finish(&mut app, &mut compositor, &mut jobs).await?;
+    assert_eq!(repo.worktrees().await?.len(), 1);
+    assert!(repo
+        .branches()
+        .await?
+        .iter()
+        .any(|branch| branch.name == "topic"));
+    let picker = &mut compositor
+        .find::<ui::overlay::Overlay<Picker<Worktree, RepositoryData>>>()
+        .unwrap()
+        .content;
+    until(picker, &mut app, |picker| {
+        crate::ui::picker::test::items(picker).count() == 1
+    })
+    .await?;
+    Ok(())
+}

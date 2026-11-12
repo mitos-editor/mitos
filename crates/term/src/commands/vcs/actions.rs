@@ -134,9 +134,9 @@ pub(super) fn confirm_worktree_removal(
     path: PathBuf,
     workspace: PathBuf,
 ) -> Box<dyn Component> {
-    menu(format!("Remove linked worktree {}?\nModified, untracked, ignored, and locked worktrees are kept. Save or close modified buffers first.", path.display()), vec![
+    menu(format!("Remove linked worktree {}?\nKeeps the branch. For unavailable worktrees, removes only the Git registration and keeps any remaining files. Reconnect or lock worktrees on unmounted drives instead. Modified, untracked, ignored, and locked worktrees are kept. Save or close modified buffers first.", path.display()), vec![
         Choice::new("Cancel", Command::Cancel),
-        Choice::new("Remove clean worktree", Command::Confirmed(GitAction::Repository(repository, vcs::operations::RepositoryOperation::RemoveWorktree { path }))),
+        Choice::new("Remove worktree", Command::Confirmed(GitAction::Repository(repository, vcs::operations::RepositoryOperation::RemoveWorktree { path }))),
     ], workspace)
 }
 

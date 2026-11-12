@@ -2506,3 +2506,103 @@ async fn branch_cursor_suspension_releases_replay_rows_and_can_resume() -> Resul
     assert_eq!(cursor.next_page().await?.branches[0].name, name);
     Ok(())
 }
+
+#[tokio::test]
+async fn removing_missing_worktrees_keeps_files_branches_and_other_registrations() -> Result<()> {
+    let dir = initial()?;
+    let parent = tempfile::tempdir()?;
+    let repo = GitRepository::discover(dir.path())?;
+    exec_git_cmd(&["branch", "topic"], dir.path());
+    let parent_path = stdx::path::canonicalize_existing(parent.path());
+    let missing = parent_path.join("missing");
+    let other = parent_path.join("other");
+    for (path, branch) in [(&missing, Some("topic".into())), (&other, None)] {
+        execute(
+            &repo,
+            RepositoryOperation::CreateWorktree {
+                path: path.clone(),
+                branch,
+            },
+        )
+        .await?;
+    }
+    let remove = || RepositoryOperation::RemoveWorktree {
+        path: missing.clone(),
+    };
+    assert!(repo.prepare_repository(remove(), false).is_err());
+    std::fs::write(missing.join("keep.txt"), "keep me")?;
+    assert!(execute(&repo, remove()).await.is_err());
+    std::fs::remove_file(missing.join(".git"))?;
+    assert!(repo
+        .worktrees()
+        .await?
+        .iter()
+        .any(|tree| tree.path == missing && tree.prunable));
+    let prepared = repo.prepare_repository(remove(), true)?;
+    assert!(prepared.changes_worktree());
+    assert_eq!(prepared.affected_paths(), vec![missing.clone()]);
+    prepared.execute().await?;
+    assert_eq!(
+        std::fs::read_to_string(missing.join("keep.txt"))?,
+        "keep me"
+    );
+    let trees = repo.worktrees().await?;
+    assert_eq!(trees.len(), 2);
+    assert!(trees.iter().any(|tree| tree.path == other));
+    assert!(repo
+        .branches()
+        .await?
+        .iter()
+        .any(|branch| branch.name == "topic"));
+    assert!(execute(&repo, remove()).await.is_err());
+    assert!(execute(
+        &repo,
+        RepositoryOperation::RemoveWorktree {
+            path: dir.path().into()
+        }
+    )
+    .await
+    .is_err());
+    Ok(())
+}
+
+#[tokio::test]
+async fn removing_missing_worktrees_rejects_locks_and_reappearing_checkouts() -> Result<()> {
+    let dir = initial()?;
+    let parent = tempfile::tempdir()?;
+    let path = parent.path().join("missing");
+    let repo = GitRepository::discover(dir.path())?;
+    execute(
+        &repo,
+        RepositoryOperation::CreateWorktree {
+            path: path.clone(),
+            branch: None,
+        },
+    )
+    .await?;
+    let backlink = std::fs::read(path.join(".git"))?;
+    std::fs::remove_dir_all(&path)?;
+    let remove = || RepositoryOperation::RemoveWorktree { path: path.clone() };
+    let prepared = repo.prepare_repository(remove(), true)?;
+    execute(
+        &repo,
+        RepositoryOperation::LockWorktree { path: path.clone() },
+    )
+    .await?;
+    assert!(prepared.execute().await.is_err());
+    assert!(execute(&repo, remove()).await.is_err());
+    execute(
+        &repo,
+        RepositoryOperation::UnlockWorktree { path: path.clone() },
+    )
+    .await?;
+    let prepared = repo.prepare_repository(remove(), true)?;
+    std::fs::create_dir(&path)?;
+    std::fs::write(path.join(".git"), &backlink)?;
+    assert!(prepared.execute().await.is_err());
+    assert!(execute(&repo, remove()).await.is_err());
+    std::fs::remove_dir_all(&path)?;
+    execute(&repo, remove()).await?;
+    assert_eq!(repo.worktrees().await?.len(), 1);
+    Ok(())
+}

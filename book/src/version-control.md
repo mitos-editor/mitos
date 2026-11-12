@@ -304,7 +304,10 @@ one in the file picker. Your open buffers and unsaved edits are kept.
 
 Press `Alt-n` to enter a new worktree path, relative to this picker's
 repository root, then an existing branch name (leave it empty for detached HEAD).
-Press `Alt-d` to confirm removal of the selected worktree.
+Press `Alt-d` to confirm removal of the selected worktree. For an `unavailable`
+worktree, the same action removes only its Git registration, keeping its
+branch and any remaining files. If the worktree is on an unmounted drive, reconnect
+it or lock it instead of removing its registration.
 Press `Alt-l` to lock a linked worktree against removal and pruning, or `Alt-u`
 to unlock it. Locking an already locked worktree preserves its existing reason.
 The main worktree cannot be locked. These actions require workspace trust and
