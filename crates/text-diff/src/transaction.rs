@@ -1,119 +1,15 @@
-use std::ops::Range;
 use std::time::Instant;
 
-use editor_core::{ropey, RopeSlice};
+use editor_core::{ropey, ChangeSetBuilder, Rope, RopeSlice, Transaction};
 use gix_imara_diff::{Algorithm, Diff, Hunk, InternedInput};
-
-use editor_core::{ChangeSet, ChangeSetBuilder as ChangesBuilder, Rope, Tendril, Transaction};
+use stdx::rope::LINE_TYPE;
 
 // Line counts alone do not bound refinement for minified or generated text.
 const MAX_CHAR_DIFF_BYTES: usize = 64 * 1024;
 
-struct ChangeSetBuilder<'a> {
-    res: ChangesBuilder,
-    after: RopeSlice<'a>,
-    file: &'a InternedInput<RopeSlice<'a>>,
-    current_hunk: InternedInput<char>,
-    char_diff: Diff,
-    pos: u32,
-}
-
-impl ChangeSetBuilder<'_> {
-    fn process_hunk(&mut self, before: Range<u32>, after: Range<u32>) {
-        let len = self.file.before[self.pos as usize..before.start as usize]
-            .iter()
-            .map(|&it| self.file.interner[it].len_chars())
-            .sum();
-        self.res.retain(len);
-        self.pos = before.end;
-
-        let len_before = before.end - before.start;
-        let len_after = after.end - after.start;
-        let before_lines = &self.file.before[before.start as usize..before.end as usize];
-        let after_lines = &self.file.after[after.start as usize..after.end as usize];
-
-        // Pure insertions/removals do not require a character diff.
-        // Replace large or disproportionate hunks directly to bound character refinement.
-        if len_before == 0
-            || len_after == 0
-            || len_after > 5 * len_before
-            || 5 * len_after < len_before && len_before > 10
-            || len_before + len_after > 200
-            || before_lines
-                .iter()
-                .chain(after_lines)
-                .map(|&token| self.file.interner[token].len())
-                .sum::<usize>()
-                > MAX_CHAR_DIFF_BYTES
-        {
-            let remove = before_lines
-                .iter()
-                .map(|&it| self.file.interner[it].len_chars())
-                .sum();
-            self.res.delete(remove);
-            let mut fragment = Tendril::new();
-            if len_after > 500 {
-                // copying a rope line by line is slower then copying the entire
-                // rope. Use to_string for very large changes instead..
-                let byte_offset = |line| {
-                    if line == self.file.after.len() {
-                        self.after.len()
-                    } else {
-                        self.after.line_to_byte_idx(line, stdx::rope::LINE_TYPE)
-                    }
-                };
-                fragment = self
-                    .after
-                    .slice(byte_offset(after.start as usize)..byte_offset(after.end as usize))
-                    .to_string()
-                    .into();
-            } else {
-                for &line in after_lines {
-                    for chunk in self.file.interner[line].chunks() {
-                        fragment.push_str(chunk)
-                    }
-                }
-            };
-            self.res.insert(fragment);
-        } else {
-            // Character granularity preserves positions within surviving text.
-            let hunk_before = before_lines
-                .iter()
-                .flat_map(|&it| self.file.interner[it].chars());
-            let hunk_after = after_lines
-                .iter()
-                .flat_map(|&it| self.file.interner[it].chars());
-            self.current_hunk.update_before(hunk_before);
-            self.current_hunk.update_after(hunk_after);
-            // the histogram heuristic does not work as well
-            // for characters because the same characters often reoccur
-            // use myer diff instead
-            self.char_diff.compute_with(
-                Algorithm::Myers,
-                &self.current_hunk.before,
-                &self.current_hunk.after,
-                self.current_hunk.interner.num_tokens(),
-            );
-            append_character_changes(&mut self.res, &self.current_hunk, &self.char_diff);
-            // reuse allocations
-            self.current_hunk.clear();
-        }
-    }
-
-    fn finish(mut self) -> ChangeSet {
-        let len = self.file.before[self.pos as usize..]
-            .iter()
-            .map(|&it| self.file.interner[it].len_chars())
-            .sum();
-
-        self.res.retain(len);
-        self.res.finish()
-    }
-}
-
 // Shared by bounded document diffs and precise edits of selected fragments.
 fn append_character_changes(
-    changes: &mut ChangesBuilder,
+    changes: &mut ChangeSetBuilder,
     input: &InternedInput<char>,
     diff: &Diff,
 ) {
@@ -139,7 +35,7 @@ pub fn compare_fragments(before: RopeSlice<'_>, after: &str) -> Transaction {
     input.update_before(before.chars());
     input.update_after(after.chars());
     let diff = Diff::compute(Algorithm::Myers, &input);
-    let mut changes = ChangesBuilder::with_capacity(32);
+    let mut changes = ChangeSetBuilder::with_capacity(32);
     append_character_changes(&mut changes, &input, &diff);
     changes.finish().into()
 }
@@ -151,42 +47,73 @@ impl<'a> gix_imara_diff::TokenSource for RopeLines<'a> {
     type Tokenizer = std::iter::Map<ropey::iter::Lines<'a>, fn(RopeSlice<'a>) -> RopeSlice<'a>>;
 
     fn tokenize(&self) -> Self::Tokenizer {
-        self.0.lines(stdx::rope::LINE_TYPE).map(super::line_token)
+        self.0.lines(LINE_TYPE).map(super::line_token)
     }
 
     fn estimate_tokens(&self) -> u32 {
         // we can provide a perfect estimate which is very nice for performance
-        self.0.len_lines(stdx::rope::LINE_TYPE) as u32
+        self.0.len_lines(LINE_TYPE) as u32
     }
 }
 
-/// Compares `old` and `new` to generate a [`Transaction`] describing
-/// the steps required to get from `old` to `new`.
+/// Build an undoable transaction that transforms `before` into `after`.
 pub fn compare_ropes(before: &Rope, after: &Rope) -> Transaction {
     let start = Instant::now();
-    let res = ChangesBuilder::with_capacity(32);
+    let before = before.slice(..);
     let after = after.slice(..);
-    let file = InternedInput::new(RopeLines(before.slice(..)), RopeLines(after));
-    let mut builder = ChangeSetBuilder {
-        res,
-        file: &file,
-        after,
-        pos: 0,
-        current_hunk: InternedInput::default(),
-        char_diff: Diff::default(),
-    };
+    let file = InternedInput::new(RopeLines(before), RopeLines(after));
     let mut diff = Diff::default();
     super::diff_lines(&mut diff, &file);
+    let mut changes = ChangeSetBuilder::with_capacity(32);
+    let mut current_hunk = InternedInput::default();
+    let mut char_diff = Diff::default();
+    let mut pos = 0;
     for hunk in diff.hunks() {
-        builder.process_hunk(hunk.before, hunk.after)
-    }
-    let res = builder.finish().into();
+        let before_start = before.line_to_byte_idx(hunk.before.start as usize, LINE_TYPE);
+        let before_text = before
+            .slice(before_start..before.line_to_byte_idx(hunk.before.end as usize, LINE_TYPE));
+        let after_text = after.slice(
+            after.line_to_byte_idx(hunk.after.start as usize, LINE_TYPE)
+                ..after.line_to_byte_idx(hunk.after.end as usize, LINE_TYPE),
+        );
+        let char_start = before.byte_to_char_idx(before_start);
+        changes.retain(char_start - pos);
+        pos = char_start + before_text.len_chars();
 
-    log::debug!(
-        "rope diff took {}s",
-        Instant::now().duration_since(start).as_secs_f64()
-    );
-    res
+        let len_before = hunk.before.len();
+        let len_after = hunk.after.len();
+        // Pure insertions/removals do not require a character diff.
+        // Replace large or disproportionate hunks directly to bound character refinement.
+        if len_before == 0
+            || len_after == 0
+            || len_after > 5 * len_before
+            || 5 * len_after < len_before && len_before > 10
+            || len_before + len_after > 200
+            || before_text.len() + after_text.len() > MAX_CHAR_DIFF_BYTES
+        {
+            changes.delete(before_text.len_chars());
+            changes.insert(after_text.chunks().collect());
+        } else {
+            // Character granularity preserves positions within surviving text.
+            current_hunk.update_before(before_text.chars());
+            current_hunk.update_after(after_text.chars());
+            // Small, repeated character tokens favor Myers over Histogram.
+            char_diff.compute_with(
+                Algorithm::Myers,
+                &current_hunk.before,
+                &current_hunk.after,
+                current_hunk.interner.num_tokens(),
+            );
+            append_character_changes(&mut changes, &current_hunk, &char_diff);
+            // Reuse allocations between hunks.
+            current_hunk.clear();
+        }
+    }
+    changes.retain(before.len_chars() - pos);
+    let transaction = changes.finish().into();
+
+    log::debug!("rope diff took {}s", start.elapsed().as_secs_f64());
+    transaction
 }
 
 #[cfg(test)]
@@ -194,10 +121,14 @@ mod tests {
     use super::*;
 
     fn test_identity(a: &str, b: &str) {
-        let mut old = Rope::from(a);
+        let before = Rope::from(a);
+        let mut old = before.clone();
         let new = Rope::from(b);
-        compare_ropes(&old, &new).apply(&mut old);
+        let change = compare_ropes(&before, &new);
+        assert!(change.apply(&mut old));
         assert_eq!(old, new);
+        assert!(change.invert(&before).apply(&mut old));
+        assert_eq!(old, before);
     }
 
     #[test]
@@ -221,10 +152,12 @@ mod tests {
 
     quickcheck::quickcheck! {
         fn test_compare_ropes(a: String, b: String) -> bool {
-            let mut old = Rope::from(a);
+            let before = Rope::from(a);
+            let mut actual = before.clone();
             let new = Rope::from(b);
-            compare_ropes(&old, &new).apply(&mut old);
-            old == new
+            let change = compare_ropes(&before, &new);
+            change.apply(&mut actual) && actual == new
+                && change.invert(&before).apply(&mut actual) && actual == before
         }
 
         fn test_compare_fragments(a: String, b: String) -> bool {
@@ -243,11 +176,36 @@ mod tests {
         let original = lines.concat();
         let inserted = "inserted 界👩🏽‍💻\r\n".repeat(1024);
         test_identity("", &inserted);
+        test_identity(&inserted, "");
         for line in [0, 600, 1200] {
             let prefix = lines[..line].concat();
             let suffix = lines[line..].concat();
-            test_identity(&original, &format!("{prefix}{inserted}{suffix}"));
+            let changed = format!("{prefix}{inserted}{suffix}");
+            test_identity(&original, &changed);
+            test_identity(&changed, &original);
         }
+    }
+
+    #[test]
+    fn document_edits_preserve_unicode_positions_across_separate_hunks() {
+        let before = Rope::from("prefix α😀 old suffix\r\nkeep 界\r\nlast");
+        let after = Rope::from("prefix α😀 replacement suffix\r\nkeep 界\r\nchanged");
+        let change = compare_ropes(&before, &after);
+        let suffix = "prefix α😀 old ".chars().count();
+        for (from, to) in [(8, 8), (suffix, suffix + 8)] {
+            assert_eq!(
+                editor_core::Selection::point(from)
+                    .map(change.changes())
+                    .primary()
+                    .head,
+                to
+            );
+        }
+        let mut actual = before.clone();
+        assert!(change.apply(&mut actual));
+        assert_eq!(actual, after);
+        assert!(change.invert(&before).apply(&mut actual));
+        assert_eq!(actual, before);
     }
 
     #[test]
