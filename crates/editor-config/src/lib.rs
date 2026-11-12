@@ -1422,7 +1422,7 @@ pub struct ScrollConfig {
     pub padding: usize,
     /// Number of lines to scroll at once. Defaults to 3
     pub wheel_lines: isize,
-    /// Animate page scrolling (default false)
+    /// animate scrolling (default false)
     pub smooth: bool,
     /// Smooth scroll milliseconds (default 180)
     #[serde(

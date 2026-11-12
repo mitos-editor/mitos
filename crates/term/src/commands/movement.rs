@@ -1,17 +1,15 @@
 //! Cursor movement, selection extension, and viewport positioning commands.
 
-use std::time::Duration;
-
 use view::editing::movement::{
     self as shared, LineBoundary, LineMotion, ScrollCursor, TextMotion, WordMotionTarget,
 };
 
 use editor_core::movement::{self, Direction, Movement};
 use ui_core::keyboard::KeyCode;
-use view::{align_view, callbacks::CallbackOutcome, document::Mode, editor::Motion, Align, Editor};
+use view::{align_view, document::Mode, editor::Motion, Align, Editor};
 
 use super::context::Context;
-use crate::job::Callback;
+use crate::smooth_scroll::animated;
 
 fn move_impl(cx: &mut Context, lines: LineMotion, dir: Direction, behaviour: Movement) {
     let count = cx.count();
@@ -378,84 +376,10 @@ pub fn scroll(cx: &mut Context, offset: usize, direction: Direction, sync_cursor
         .scroll_view(cx.editor.tree.focus(), offset, direction, cursor, behaviour);
 }
 
-const SMOOTH_SCROLL_FRAME: Duration = Duration::from_millis(16);
-
-fn ease_out(progress: f32) -> f32 {
-    1.0 - (1.0 - progress).powi(2)
-}
-
-fn scroll_amount(lines: usize, direction: Direction) -> isize {
-    let lines = lines as isize;
-    match direction {
-        Direction::Forward => lines,
-        Direction::Backward => -lines,
-    }
-}
-
-fn smooth_scroll(cx: &mut Context, offset: usize, direction: Direction, sync_cursor: bool) {
-    let (cursor, behaviour) = scroll_mode(cx.editor, sync_cursor);
-    let duration = cx.editor.config().scroll.scroll_speed;
-    let view = cx.editor.tree.focus();
-    let state = &mut cx.jobs.smooth_scroll;
-    let task = state.task.restart();
-
-    let carried = if state.view == Some(view) {
-        state.remaining
-    } else {
-        0
-    };
-    let total = carried + scroll_amount(offset, direction);
-    state.view = Some(view);
-    state.remaining = total;
-    let direction = if total < 0 {
-        Direction::Backward
-    } else {
-        Direction::Forward
-    };
-    let offset = total.unsigned_abs();
-    let sender = cx.jobs.sender();
-    tokio::spawn(async move {
-        let start = tokio::time::Instant::now();
-        let mut frames = tokio::time::interval(SMOOTH_SCROLL_FRAME);
-        frames.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-        let mut scrolled = 0;
-        while scrolled < offset && !task.is_canceled() {
-            frames.tick().await;
-
-            let elapsed = start.elapsed() + SMOOTH_SCROLL_FRAME;
-            let progress = (elapsed.as_secs_f32() / duration.as_secs_f32()).min(1.0);
-            let target = (offset as f32 * ease_out(progress)).round() as usize;
-            if target <= scrolled {
-                continue;
-            }
-            let count = target - scrolled;
-            scrolled = target;
-            let task = task.clone();
-            sender
-                .send_callback(Callback::ui(move |_, cx| {
-                    if task.is_canceled() || !cx.editor.tree.contains(view) {
-                        return CallbackOutcome::None;
-                    }
-                    cx.jobs.smooth_scroll.remaining -= scroll_amount(count, direction);
-                    cx.editor
-                        .scroll_view(view, count, direction, cursor, behaviour);
-
-                    cx.editor.ensure_cursor_in_view(view);
-                    CallbackOutcome::Frame
-                }))
-                .await;
-        }
-    });
-}
-
 fn page(cx: &mut Context, divisor: usize, direction: Direction, sync_cursor: bool) {
     let (view, doc) = current_ref!(cx.editor);
     let offset = view.inner_height(doc) / divisor;
-    if cx.editor.config().scroll.smooth {
-        smooth_scroll(cx, offset, direction, sync_cursor);
-    } else {
-        scroll(cx, offset, direction, sync_cursor);
-    }
+    animated(cx, |cx| scroll(cx, offset, direction, sync_cursor));
 }
 
 pub(super) fn page_up(cx: &mut Context) {
@@ -490,19 +414,23 @@ pub(super) fn page_cursor_half_down(cx: &mut Context) {
     page(cx, 2, Direction::Forward, true);
 }
 
+fn align(cx: &mut Context, align: Align) {
+    animated(cx, |cx| {
+        let (view, doc) = current!(cx.editor);
+        align_view(doc, view, align);
+    });
+}
+
 pub(super) fn align_view_top(cx: &mut Context) {
-    let (view, doc) = current!(cx.editor);
-    align_view(doc, view, Align::Top);
+    align(cx, Align::Top);
 }
 
 pub(super) fn align_view_center(cx: &mut Context) {
-    let (view, doc) = current!(cx.editor);
-    align_view(doc, view, Align::Center);
+    align(cx, Align::Center);
 }
 
 pub(super) fn align_view_bottom(cx: &mut Context) {
-    let (view, doc) = current!(cx.editor);
-    align_view(doc, view, Align::Bottom);
+    align(cx, Align::Bottom);
 }
 
 pub(super) fn align_view_middle(cx: &mut Context) {

@@ -156,6 +156,7 @@ where
     }
 
     pub async fn handle_terminal_events(&mut self, event: std::io::Result<TerminalEvent>) {
+        self.jobs.smooth_scroll.finish(&mut self.editor);
         #[cfg(not(windows))]
         use termina::escape::csi;
 

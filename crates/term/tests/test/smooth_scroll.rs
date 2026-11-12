@@ -1,12 +1,21 @@
 use super::*;
+use term::application::TestApplication;
+
+#[cfg(windows)]
+use crossterm::event::Event;
+#[cfg(not(windows))]
+use termina::event::Event;
 
 const SMOOTH: Option<u64> = Some(180);
 
-async fn page_state(
-    smooth: Option<u64>,
-    commands: &[&str],
-    keys: &str,
-) -> anyhow::Result<(Selection, view::view::ViewPosition)> {
+type State = (Selection, view::view::ViewPosition);
+
+fn state(app: &TestApplication) -> State {
+    let (view, doc) = view::current_ref!(app.editor);
+    (doc.selection(view.id).clone(), doc.view_offset(view.id))
+}
+
+fn page_app(smooth: Option<u64>, commands: &[&str]) -> anyhow::Result<TestApplication> {
     let bindings: String = commands
         .iter()
         .enumerate()
@@ -25,15 +34,18 @@ async fn page_state(
     .keys;
     let text = format!(
         "#[|0]#{}",
-        (1..300).map(|n| format!("\n{n}")).collect::<String>()
+        (1..1000).map(|n| format!("\n{n}")).collect::<String>()
     );
-    let mut app = AppBuilder::new()
+    AppBuilder::new()
         .with_config(config)
         .with_input_text(text)
-        .build()?;
+        .build()
+}
+
+async fn page_state(smooth: Option<u64>, commands: &[&str], keys: &str) -> anyhow::Result<State> {
+    let mut app = page_app(smooth, commands)?;
     helpers::keys(&mut app, keys).await?;
-    let (view, doc) = view::current_ref!(app.editor);
-    Ok((doc.selection(view.id).clone(), doc.view_offset(view.id)))
+    Ok(state(&app))
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -104,6 +116,71 @@ async fn smooth_scroll_leftover_stays_with_its_view() -> anyhow::Result<()> {
         let expected = page_state(None, &commands, keys).await?;
         let actual = page_state(SMOOTH, &commands, keys).await?;
         assert_eq!(expected, actual, "{keys}");
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn smooth_scrolls_animate_from_the_old_view() -> anyhow::Result<()> {
+    for (command, start, keys) in [
+        ("align_view_top", "40gg", "<F1>"),
+        ("page_down", "", "<F1>"),
+        ("page_cursor_half_down", "", "<F1>"),
+        ("page_down", "", "<F1><F1><F1>"),
+    ] {
+        let commands = [command];
+        let expected = page_state(None, &commands, &format!("{start}{keys}")).await?;
+        let mut app = page_app(SMOOTH, &commands)?;
+        helpers::keys(&mut app, start).await?;
+        let before = state(&app);
+        for key in ui_core::input::parse_macro(keys)? {
+            app.handle_terminal_events(Ok(Event::Key(tui::backend::native::adapt(key))))
+                .await;
+        }
+        assert_eq!(
+            before,
+            state(&app),
+            "{command}: view and cursor must not jump"
+        );
+        helpers::run_event_loop_until_idle(&mut app).await;
+        assert_eq!(expected, state(&app), "{command}");
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn smooth_view_alignment_matches_instant_alignment() -> anyhow::Result<()> {
+    for (command, start) in [
+        ("align_view_top", "40gg"),
+        ("center_view_vertically", "200ggzt"),
+        ("align_view_bottom", "200ggzt"),
+    ] {
+        let keys = format!("{start}<F1>");
+        let expected = page_state(None, &[command], &keys).await?;
+        assert_ne!(
+            expected,
+            page_state(None, &[], start).await?,
+            "{command} moved"
+        );
+        assert_eq!(
+            expected,
+            page_state(SMOOTH, &[command], &keys).await?,
+            "smooth {command}"
+        );
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn smooth_alignment_and_page_scroll_finish_each_other() -> anyhow::Result<()> {
+    let commands = ["page_cursor_half_down", "center_view_vertically"];
+    for keys in ["<F1><F2>", "200gg<F2><F1>"] {
+        let expected = page_state(None, &commands, keys).await?;
+        assert_eq!(
+            expected,
+            page_state(SMOOTH, &commands, keys).await?,
+            "{keys}"
+        );
     }
     Ok(())
 }

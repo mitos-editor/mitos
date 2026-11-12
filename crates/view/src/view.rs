@@ -452,6 +452,54 @@ impl View {
         }
     }
 
+    /// rows between two offsets
+    pub fn rows_between(
+        &self,
+        doc: &Document,
+        from: ViewPosition,
+        to: ViewPosition,
+    ) -> Option<isize> {
+        let layout = self.layout(doc, None);
+
+        let down = |top: ViewPosition, bottom: ViewPosition| {
+            let (pos, _) = visual_offset_from_anchor(
+                layout.text,
+                top.anchor,
+                bottom.anchor,
+                &layout.format,
+                &layout.annotations,
+                usize::MAX,
+            )
+            .ok()?;
+
+            Some((pos.row + bottom.vertical_offset) as isize - top.vertical_offset as isize)
+        };
+
+        if from.anchor <= to.anchor {
+            down(from, to)
+        } else {
+            down(to, from).map(|rows| -rows)
+        }
+    }
+
+    pub fn offset_by_rows(&self, doc: &Document, from: ViewPosition, rows: isize) -> ViewPosition {
+        let layout = self.layout(doc, None);
+        let (anchor, vertical_offset) = char_idx_at_visual_offset(
+            layout.text,
+            from.anchor,
+            from.vertical_offset as isize + rows,
+            0,
+            &layout.format,
+            &layout.annotations,
+        );
+
+        ViewPosition {
+            anchor,
+            vertical_offset,
+            ..from
+        }
+    }
+
     fn prepare_text_annotations<'a>(
         &self,
         doc: &'a Document,
