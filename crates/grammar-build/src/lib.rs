@@ -109,7 +109,7 @@ pub fn build_grammars(
 fn report_failures(errors: Vec<(String, anyhow::Error)>, strict: bool, action: &str) -> Result<()> {
     let len = errors.len();
     for (i, (grammar, error)) in errors.into_iter().enumerate() {
-        println!("Failure {}/{len}: {grammar} {error}", i + 1);
+        println!("Failure {}/{len}: {grammar} {error:#}", i + 1);
     }
     if strict && len != 0 {
         bail!("{len} grammars failed to {action}");
@@ -231,26 +231,45 @@ impl VendoredGrammar {
         )?
         .to_thread_local();
         repo.committer_or_set_generic_fallback()?;
-        let refspec = format!("{rev}:refs/mitos/grammar");
-        let mut upstream = repo.remote_at(remote)?;
-        let mut url = upstream
-            .url(gix::remote::Direction::Fetch)
-            .context("Grammar remote has no URL")?
-            .clone();
-        if url.scheme == gix::url::Scheme::File {
-            let path = gix::path::from_bstr(&url.path)?;
-            if !path.is_absolute() {
-                url.path = gix::path::into_bstr(self.dir.join(path))?.into_owned();
-                upstream = upstream.with_url_without_url_rewrite(url)?;
+        let fetch = |repo: &gix::Repository| -> Result<()> {
+            let refspec = format!("{rev}:refs/mitos/grammar");
+            let mut upstream = repo.remote_at(remote)?;
+            let mut url = upstream
+                .url(gix::remote::Direction::Fetch)
+                .context("Grammar remote has no URL")?
+                .clone();
+            if url.scheme == gix::url::Scheme::File {
+                let path = gix::path::from_bstr(&url.path)?;
+                if !path.is_absolute() {
+                    url.path = gix::path::into_bstr(self.dir.join(path))?.into_owned();
+                    upstream = upstream.with_url_without_url_rewrite(url)?;
+                }
             }
+            upstream
+                .with_refspecs([refspec.as_str()], gix::remote::Direction::Fetch)?
+                .with_fetch_tags(gix::remote::fetch::Tags::None)
+                .connect(gix::remote::Direction::Fetch)?
+                .prepare_fetch(gix::progress::Discard, Default::default())?
+                .with_shallow(gix::remote::fetch::Shallow::DepthAtRemote(1.try_into()?))
+                .receive(gix::progress::Discard, &AtomicBool::new(false))?;
+            Ok(())
+        };
+        if let Err(error) = fetch(&repo) {
+            // Some servers fail the v2 ls-refs exchange even though ordinary
+            // upload-pack works. Retry the same pin without that exchange.
+            if repo
+                .config_snapshot()
+                .integer("protocol.version")
+                .is_some_and(|version| version < 2)
+            {
+                return Err(error);
+            }
+            eprintln!("Retrying grammar fetch with Git protocol v1 after: {error:#}");
+            let mut config = repo.config_snapshot_mut();
+            config.set_value(&gix::config::tree::Protocol::VERSION, "1")?;
+            config.commit()?;
+            fetch(&repo).with_context(|| format!("Initial grammar fetch failed: {error:#}"))?;
         }
-        upstream
-            .with_refspecs([refspec.as_str()], gix::remote::Direction::Fetch)?
-            .with_fetch_tags(gix::remote::fetch::Tags::None)
-            .connect(gix::remote::Direction::Fetch)?
-            .prepare_fetch(gix::progress::Discard, Default::default())?
-            .with_shallow(gix::remote::fetch::Shallow::DepthAtRemote(1.try_into()?))
-            .receive(gix::progress::Discard, &AtomicBool::new(false))?;
         let commit = repo
             .find_reference("refs/mitos/grammar")?
             .peel_to_commit()?;
@@ -556,6 +575,148 @@ mod tests {
                 String::from_utf8_lossy(&output.stderr),
             ))
         }
+    }
+
+    #[test]
+    fn retries_failed_v2_reference_listing_with_v1_and_checks_out_the_pin() {
+        use std::{
+            io::{Read, Write},
+            net::{Shutdown, TcpListener, TcpStream},
+            process::Stdio,
+            thread,
+            time::Duration,
+        };
+
+        fn packet(stream: &mut TcpStream) -> Vec<u8> {
+            let mut header = [0; 4];
+            stream.read_exact(&mut header).unwrap();
+            let len = usize::from_str_radix(std::str::from_utf8(&header).unwrap(), 16).unwrap();
+            let mut data = vec![0; len.saturating_sub(4)];
+            stream.read_exact(&mut data).unwrap();
+            data
+        }
+
+        let source = tempfile::tempdir().unwrap();
+        let runtime = tempfile::tempdir().unwrap();
+        git(source.path(), ["init"]).unwrap();
+        git(
+            source.path(),
+            ["config", "uploadpack.allowReachableSHA1InWant", "true"],
+        )
+        .unwrap();
+        fs::write(source.path().join(".gitattributes"), "* text eol=lf\n").unwrap();
+        fs::write(source.path().join("parser.c"), "pinned parser\n").unwrap();
+        git(source.path(), ["add", ".gitattributes", "parser.c"]).unwrap();
+        git(
+            source.path(),
+            [
+                "-c",
+                "user.name=fixture",
+                "-c",
+                "user.email=fixture@example.com",
+                "-c",
+                "commit.gpgsign=false",
+                "commit",
+                "-m",
+                "pinned",
+            ],
+        )
+        .unwrap();
+        let expected = git(source.path(), ["rev-parse", "HEAD"]).unwrap();
+        git(
+            source.path(),
+            [
+                "-c",
+                "user.name=fixture",
+                "-c",
+                "user.email=fixture@example.com",
+                "-c",
+                "commit.gpgsign=false",
+                "commit",
+                "--allow-empty",
+                "-m",
+                "newer",
+            ],
+        )
+        .unwrap();
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let remote = format!("git://{}/fixture", listener.local_addr().unwrap());
+        let source_path = source.path().to_owned();
+        let server = thread::spawn(move || {
+            let (mut connection, _) = listener.accept().unwrap();
+            connection
+                .set_read_timeout(Some(Duration::from_secs(10)))
+                .unwrap();
+            let first = packet(&mut connection);
+            assert!(first.windows(9).any(|part| part == b"version=2"));
+            for capability in [
+                "version 2\n",
+                "ls-refs\n",
+                "fetch=shallow\n",
+                "object-format=sha1\n",
+            ] {
+                write!(connection, "{:04x}{capability}", capability.len() + 4).unwrap();
+            }
+            connection.write_all(b"0000").unwrap();
+            let command = packet(&mut connection);
+            assert!(command.starts_with(b"command=ls-refs"));
+            let error = "ERR reference listing unavailable\n";
+            write!(connection, "{:04x}{error}", error.len() + 4).unwrap();
+            connection.shutdown(Shutdown::Both).unwrap();
+
+            // Serve a real upload-pack response on the fallback connection.
+            listener.set_nonblocking(true).unwrap();
+            let deadline = std::time::Instant::now() + Duration::from_secs(10);
+            let (mut connection, _) = loop {
+                match listener.accept() {
+                    Ok(connection) => break connection,
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        assert!(
+                            std::time::Instant::now() < deadline,
+                            "no fallback connection"
+                        );
+                        thread::sleep(Duration::from_millis(10));
+                    }
+                    Err(error) => panic!("{error}"),
+                }
+            };
+            connection.set_nonblocking(false).unwrap();
+            connection
+                .set_read_timeout(Some(Duration::from_secs(10)))
+                .unwrap();
+            let fallback = packet(&mut connection);
+            assert!(!fallback.windows(9).any(|part| part == b"version=2"));
+            let mut child = Command::new("git")
+                .arg("upload-pack")
+                .arg(source_path)
+                .env_remove("GIT_PROTOCOL")
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::inherit())
+                .spawn()
+                .unwrap();
+            let mut input = child.stdin.take().unwrap();
+            let mut output = child.stdout.take().unwrap();
+            let mut reader = connection.try_clone().unwrap();
+            let sender = thread::spawn(move || std::io::copy(&mut reader, &mut input));
+            std::io::copy(&mut output, &mut connection).unwrap();
+            assert!(child.wait().unwrap().success());
+            let _ = connection.shutdown(Shutdown::Both);
+            let _ = sender.join().unwrap();
+        });
+
+        let grammar = VendoredGrammar::new("fixture", runtime.path());
+        let result = grammar.fetch(&remote, &expected, GitObjectFormat::Sha1);
+        if result.is_ok() {
+            server.join().unwrap();
+        }
+        result.unwrap();
+        assert_eq!(grammar.revision().unwrap(), expected);
+        assert_eq!(
+            fs::read_to_string(grammar.dir.join("parser.c")).unwrap(),
+            "pinned parser\n"
+        );
     }
 
     #[test]
