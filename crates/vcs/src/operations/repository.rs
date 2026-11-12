@@ -432,7 +432,15 @@ impl GitRepository {
             RepositoryOperation::RemoveWorktree { path } => {
                 *path = stdx::path::canonicalize_existing(path);
                 ensure!(*path != self.root, "Cannot remove the current worktree");
-                watched.push(path.clone());
+                watched.extend([path.clone(), path.join(".git")]);
+                let target = prepare_worktree_removal(&repo, path)?;
+                let linked = target.repository()?;
+                watched.extend([
+                    linked.git_dir().join("HEAD"),
+                    linked.git_dir().join("locked"),
+                    linked.git_dir().join("gitdir"),
+                    linked.git_dir().join("commondir"),
+                ]);
             }
             RepositoryOperation::LockWorktree { path }
             | RepositoryOperation::UnlockWorktree { path } => {
@@ -489,6 +497,21 @@ impl GitRepository {
             operation: Operation::Repository(operation),
         })
     }
+}
+
+fn prepare_worktree_removal<'repo>(
+    repo: &'repo gix::Repository,
+    path: &Path,
+) -> Result<gix::worktree::remove::Target<'repo>> {
+    // Missing Windows paths cannot be canonicalized by gix to reconcile verbatim
+    // and ordinary drive prefixes. Resolve the editor path to its registered form.
+    let registered = repo
+        .worktrees()?
+        .into_iter()
+        .filter_map(|tree| tree.base().ok())
+        .find(|base| stdx::path::canonicalize_existing(base) == path)
+        .context("Selected path is no longer a registered linked worktree")?;
+    Ok(repo.prepare_remove_worktree(registered)?)
 }
 
 // Only read tracking names and refspecs. The high-level remote lookup filters
@@ -729,14 +752,41 @@ impl PreparedOperation {
             stdx::path::canonicalize_existing(path) != self.repository.root,
             "Cannot remove the current worktree"
         );
-        let target = repo.prepare_remove_worktree(path)?;
+        let target = prepare_worktree_removal(&repo, path)?;
         ensure!(
             stdx::path::canonicalize_existing(target.base()) == path,
             "Selected path is no longer a registered worktree"
         );
-        ensure_clean_worktree(path, &self.repository)?;
-        self.ensure_current()?;
-        target.remove(gix::worktree::remove::Force::Never, gix::progress::Discard)?;
+        match std::fs::symlink_metadata(path.join(".git")) {
+            Ok(_) => {
+                ensure_clean_worktree(path, &self.repository)?;
+                self.ensure_current()?;
+                target.remove(gix::worktree::remove::Force::Never, gix::progress::Discard)?;
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                let linked = target.repository()?;
+                let git_dir = linked.git_dir();
+                let _lock = gix::lock::File::acquire_to_update_resource(
+                    git_dir.join("locked"),
+                    gix::lock::acquire::Fail::Immediately,
+                    None,
+                    0,
+                )?;
+                ensure!(
+                    !git_dir.join("locked").try_exists()?,
+                    "Unlock the worktree before removing it"
+                );
+                ensure!(
+                    std::fs::symlink_metadata(git_dir)?.file_type().is_dir(),
+                    "Worktree registration is not a directory"
+                );
+                self.ensure_current()?;
+                // An unavailable checkout may still contain files or be on an unmounted
+                // drive. Only remove its selected registration, never the checkout path.
+                std::fs::remove_dir_all(git_dir)?;
+            }
+            Err(error) => return Err(error.into()),
+        }
         Ok(())
     }
 
