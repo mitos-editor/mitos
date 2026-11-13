@@ -124,7 +124,7 @@ mod tests {
                 assert_eq!(surface[(x, y + 3)].bg, Color::Rgb(48, 48, 16));
             }
             // Selection overlays must override the tint across the whole wide glyph.
-            let current = &doc.conflict_presentation().regions[0].current;
+            let current = &doc.conflict_presentation().regions[0].sections[0].content;
             let selected = editor_core::highlight::OverlayHighlights::single(
                 theme.find_highlight_exact("ui.selection").unwrap(),
                 doc.text().byte_to_char_idx(current.start)

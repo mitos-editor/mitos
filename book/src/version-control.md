@@ -508,6 +508,7 @@ conflict or `[m` to move to the previous one.
 
 Place the cursor inside a conflict and press `Space a`. Choose **Accept current**,
 **Accept incoming**, or **Accept both (current then incoming)** to keep that text.
+When the conflict includes the original text, **Accept base** restores it.
 The menu also includes other available code actions.
 
 Press `u` to undo a choice. If you keep both sides, review and edit the combined
@@ -520,6 +521,18 @@ You can also resolve conflicts with commands:
 | `:vcs-conflict-resolve current` | Keep the current side |
 | `:vcs-conflict-resolve incoming` | Keep the incoming side |
 | `:vcs-conflict-resolve both` | Keep current followed by incoming |
+| `:vcs-conflict-resolve base` | Keep the original text, when the conflict includes it |
+| `:vcs-conflict-resolve cursor` | Keep the section under the cursor |
+
+Bind the choices you use most, for example under `Space m`, which matches the
+`[m` and `]m` conflict navigation:
+
+```toml
+[keys.normal.space.m]
+c = ":vcs-conflict-resolve current"
+i = ":vcs-conflict-resolve incoming"
+x = ":vcs-conflict-resolve cursor"
+```
 
 During a merge, **current** is the branch you have checked out and **incoming** is
 the branch you are merging. During a rebase, **current** is the branch you are
@@ -529,6 +542,29 @@ applied.
 To see the whole file for either side, run `:vcs-conflict-source current` or
 `:vcs-conflict-source incoming`. Use `:vcs-conflict-source base` to see the original
 version. Each version opens in a read-only split. Close it with `:q`.
+
+### Jujutsu conflicts
+
+Mitos also reads conflicts written by Jujutsu's `snapshot` marker style, which
+can have more than two sides:
+
+```text
+<<<<<<< conflict 1 of 1
++++++++ side #1
+first side
+------- base
+original text
++++++++ side #2
+second side
+>>>>>>> conflict 1 of 1 ends
+```
+
+**Current** is the first side and **incoming** the last one; keeping both keeps
+every side in order. Use `:vcs-conflict-resolve cursor` to keep any other
+section. Jujutsu's default `diff` style describes sides as changes rather than
+text, so Mitos leaves those conflicts for you to edit. To get snapshots, set
+`ui.conflict-marker-style = "snapshot"` in your Jujutsu configuration.
+`:vcs-conflict-source` reads Git's index and is unavailable for these conflicts.
 
 If Mitos cannot recognize a conflict, edit the file and remove the marker lines
 yourself.

@@ -29,7 +29,6 @@ fn regions(editor: &Editor) -> Result<&[conflict::Conflict]> {
 pub fn navigate(editor: &mut Editor, forward: bool, count: usize) -> Result<()> {
     let conflicts = regions(editor)?;
     ensure!(!conflicts.is_empty(), "No conflict markers in this buffer");
-    let scrolloff = editor.config().scroll.padding;
     let (view, doc) = crate::current_ref!(editor);
     let cursor = doc.text().char_to_byte_idx(
         doc.selection(view.id)
@@ -56,13 +55,18 @@ pub fn navigate(editor: &mut Editor, forward: bool, count: usize) -> Result<()> 
     let pos = doc.text().byte_to_char_idx(conflicts[index].whole.start);
     let total = conflicts.len();
     let (view, doc) = crate::current!(editor);
+    let jump = (doc.id(), doc.selection(view.id).clone());
+    view.push_jump(doc, jump);
     doc.set_selection(view.id, Selection::point(pos));
-    view.ensure_cursor_in_view(doc, scrolloff);
+    // Show as much of the conflict as fits below its opening marker.
+    crate::align_view(doc, view, crate::Align::Top);
     editor.set_status(format!("Conflict {} of {}", index + 1, total));
     Ok(())
 }
 
-pub fn resolve(editor: &mut Editor, choice: Resolution) -> Result<()> {
+/// Replace the conflict at the cursor with `choice`, or with the section under
+/// the cursor when no choice is given.
+pub fn resolve(editor: &mut Editor, choice: Option<Resolution>) -> Result<()> {
     let conflicts = regions(editor)?;
     let (view, doc) = crate::current_ref!(editor);
     let cursor = doc.text().char_to_byte_idx(
@@ -74,18 +78,23 @@ pub fn resolve(editor: &mut Editor, choice: Resolution) -> Result<()> {
         .iter()
         .find(|c| c.whole.contains(&cursor))
         .ok_or_else(|| anyhow::anyhow!("Place the cursor inside a conflict first"))?;
+    let choice = match choice {
+        Some(choice) => choice,
+        None => Resolution::Section(
+            conflict
+                .section_at(cursor)
+                .ok_or_else(|| anyhow::anyhow!("Place the cursor on the section to keep"))?,
+        ),
+    };
     let start = doc.text().byte_to_char_idx(conflict.whole.start);
     let end = doc.text().byte_to_char_idx(conflict.whole.end);
     let text = doc.text();
-    let replacement = match choice {
-        Resolution::Current => text.slice(conflict.current.clone()).to_string(),
-        Resolution::Incoming => text.slice(conflict.incoming.clone()).to_string(),
-        Resolution::Both => format!(
-            "{}{}",
-            text.slice(conflict.current.clone()),
-            text.slice(conflict.incoming.clone())
-        ),
-    };
+    let replacement: String = conflict
+        .resolution(choice)
+        .ok_or_else(|| anyhow::anyhow!("This conflict has no base"))?
+        .into_iter()
+        .map(|range| text.slice(range).to_string())
+        .collect();
     let remaining = conflicts.len() - 1;
     let transaction = Transaction::change(
         doc.text(),
@@ -120,18 +129,25 @@ pub(crate) fn actions(editor: &Editor, target: Arc<SelectionRequest>) -> Vec<act
             .primary()
             .cursor(doc.text().slice(..)),
     );
-    if !conflicts
+    let Some(conflict) = conflicts
         .iter()
-        .any(|conflict| conflict.whole.contains(&cursor))
-    {
+        .find(|conflict| conflict.whole.contains(&cursor))
+    else {
         return Vec::new();
-    }
+    };
+    let both = if conflict.sides().count() > 2 {
+        "Accept all sides"
+    } else {
+        "Accept both (current then incoming)"
+    };
     [
         ("Accept current", Resolution::Current),
         ("Accept incoming", Resolution::Incoming),
-        ("Accept both (current then incoming)", Resolution::Both),
+        (both, Resolution::Both),
+        ("Accept base", Resolution::Base),
     ]
     .into_iter()
+    .filter(|(_, choice)| conflict.resolution(*choice).is_some())
     .map(|(title, choice)| {
         let target = target.clone();
         action::Action::new(title, 100, move |editor| {
@@ -142,7 +158,7 @@ pub(crate) fn actions(editor: &Editor, target: Arc<SelectionRequest>) -> Vec<act
                 editor.set_error(|| "Conflict action is no longer current");
                 return;
             }
-            if let Err(error) = resolve(editor, choice) {
+            if let Err(error) = resolve(editor, Some(choice)) {
                 editor.set_error(|| error.to_string());
             }
         })

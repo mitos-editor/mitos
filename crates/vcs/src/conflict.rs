@@ -1,34 +1,101 @@
 //! Text conflict markers. Ranges are UTF-8 byte offsets in the captured input.
+//!
+//! Git writes two sides around a `=======` separator, with an optional `|||||||`
+//! base between them. Jujutsu's snapshot style writes any number of `+++++++`
+//! sides alternating with `-------` bases.
 
 use std::ops::Range;
 
 use anyhow::{bail, ensure, Result};
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SectionKind {
+    Side,
+    Base,
+}
+
+/// One version of the conflicted text and the marker line that introduces it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Section {
+    pub kind: SectionKind,
+    /// Exact marker line, including its original line ending. Git introduces
+    /// its first side with the opening marker.
+    pub marker: Range<usize>,
+    pub content: Range<usize>,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Conflict {
     pub whole: Range<usize>,
-    pub markers: MarkerRanges,
-    pub current: Range<usize>,
-    pub base: Option<Range<usize>>,
-    pub incoming: Range<usize>,
-    pub current_label: String,
-    pub incoming_label: String,
-}
-
-/// Exact marker lines, including their original line endings, in UTF-8 bytes.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct MarkerRanges {
-    pub current: Range<usize>,
-    pub base: Option<Range<usize>>,
-    pub incoming: Range<usize>,
-    pub end: Range<usize>,
+    /// The `<<<<<<<` line, including its original line ending.
+    pub opening: Range<usize>,
+    /// The `>>>>>>>` line, including its original line ending.
+    pub closing: Range<usize>,
+    /// In file order. At least one is a side.
+    pub sections: Vec<Section>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Resolution {
+    /// The first side.
     Current,
+    /// The last side.
     Incoming,
+    Base,
+    /// Every side, in file order.
     Both,
+    Section(usize),
+}
+
+impl Conflict {
+    pub fn sides(&self) -> impl DoubleEndedIterator<Item = &Section> {
+        self.sections
+            .iter()
+            .filter(|section| section.kind == SectionKind::Side)
+    }
+
+    pub fn base(&self) -> Option<&Section> {
+        self.sections
+            .iter()
+            .find(|section| section.kind == SectionKind::Base)
+    }
+
+    /// Git's first side starts at the opening marker; Jujutsu gives every section its own.
+    fn separator(&self) -> Option<&Range<usize>> {
+        let (last, first) = (self.sections.last()?, self.sections.first()?);
+        (self.sections.len() > 1 && first.marker == self.opening).then_some(&last.marker)
+    }
+
+    /// The section whose text or marker contains `position`. The closing marker
+    /// belongs to the last section; Git's separator belongs to neither side.
+    pub fn section_at(&self, position: usize) -> Option<usize> {
+        if self.closing.contains(&position) {
+            return Some(self.sections.len() - 1);
+        }
+        if self
+            .separator()
+            .is_some_and(|marker| marker.contains(&position))
+        {
+            return None;
+        }
+        self.sections.iter().position(|section| {
+            section.marker.contains(&position) || section.content.contains(&position)
+        })
+    }
+
+    /// Content ranges that replace the conflict, or `None` if the choice is absent.
+    pub fn resolution(&self, choice: Resolution) -> Option<Vec<Range<usize>>> {
+        let section = match choice {
+            Resolution::Current => self.sides().next(),
+            Resolution::Incoming => self.sides().next_back(),
+            Resolution::Base => self.base(),
+            Resolution::Section(index) => self.sections.get(index),
+            Resolution::Both => {
+                return Some(self.sides().map(|side| side.content.clone()).collect())
+            }
+        };
+        Some(vec![section?.content.clone()])
+    }
 }
 
 /// Read an index conflict stage on a blocking worker. Missing stages are meaningful
@@ -100,12 +167,25 @@ pub fn read_source(path: &std::path::Path, side: &str, trusted: bool) -> Result<
 /// ambiguous region. Marker widths follow Git's configurable conflict-marker-size.
 pub fn parse(text: &str) -> Result<Vec<Conflict>> {
     struct Open {
-        start: usize,
-        current: Range<usize>,
-        base: Option<Range<usize>>,
-        incoming: Option<usize>,
+        opening: Range<usize>,
         width: usize,
-        label: String,
+        /// Decided by the line after the opening marker, so that `+++++++` and
+        /// `-------` lines remain ordinary text in Git's format.
+        jujutsu: bool,
+        separated: bool,
+        sections: Vec<Section>,
+        section: Option<(SectionKind, Range<usize>)>,
+    }
+    impl Open {
+        fn start(&mut self, kind: SectionKind, marker: Range<usize>) {
+            if let Some((kind, previous)) = self.section.replace((kind, marker.clone())) {
+                self.sections.push(Section {
+                    kind,
+                    content: previous.end..marker.start,
+                    marker: previous,
+                });
+            }
+        }
     }
     let mut result = Vec::new();
     let mut open: Option<Open> = None;
@@ -116,85 +196,107 @@ pub fn parse(text: &str) -> Result<Vec<Conflict>> {
             .as_bytes()
             .first()
             .copied()
-            .filter(|c| matches!(c, b'<' | b'|' | b'=' | b'>'));
+            .filter(|c| matches!(c, b'<' | b'|' | b'=' | b'>' | b'+' | b'-' | b'%'));
         let width = marker.map_or(0, |c| content.bytes().take_while(|b| *b == c).count());
         let suffix = &content[width..];
-        let is_marker = width >= 7
-            && (suffix.is_empty() || suffix.starts_with(' '))
-            && (marker != Some(b'=') || suffix.is_empty());
-        if is_marker {
-            match marker.unwrap() {
+        let marker = marker.filter(|marker| {
+            width >= 7
+                && (suffix.is_empty() || suffix.starts_with(' '))
+                && (*marker != b'=' || suffix.is_empty())
+        });
+        let range = offset..offset + line.len();
+        offset = range.end;
+        let Some(marker) = marker else {
+            continue;
+        };
+        let Some(region) = open.as_mut() else {
+            match marker {
                 b'<' => {
-                    ensure!(
-                        open.is_none(),
-                        "Nested conflict markers; resolve this region manually"
-                    );
                     open = Some(Open {
-                        start: offset,
-                        current: offset + line.len()..0,
-                        base: None,
-                        incoming: None,
+                        opening: range.clone(),
                         width,
-                        label: suffix.trim().into(),
-                    });
+                        jujutsu: false,
+                        separated: false,
+                        sections: Vec::new(),
+                        section: Some((SectionKind::Side, range)),
+                    })
                 }
                 b'|' | b'=' | b'>' => {
-                    let Some(region) = open.as_mut() else {
-                        bail!("Unmatched conflict marker; resolve this region manually")
-                    };
-                    ensure!(width == region.width, "Mismatched conflict marker widths");
-                    match marker.unwrap() {
-                        b'|' => {
-                            ensure!(
-                                region.base.is_none() && region.incoming.is_none(),
-                                "Invalid base conflict marker"
-                            );
-                            region.current.end = offset;
-                            region.base = Some(offset + line.len()..0);
-                        }
-                        b'=' => {
-                            ensure!(region.incoming.is_none(), "Duplicate conflict separator");
-                            if let Some(base) = &mut region.base {
-                                base.end = offset;
-                            } else {
-                                region.current.end = offset;
-                            }
-                            region.incoming = Some(offset + line.len());
-                        }
-                        b'>' => {
-                            let region = open.take().unwrap();
-                            let incoming = region
-                                .incoming
-                                .ok_or_else(|| anyhow::anyhow!("Conflict has no separator"))?;
-                            result.push(Conflict {
-                                whole: region.start..offset + line.len(),
-                                markers: MarkerRanges {
-                                    current: region.start..region.current.start,
-                                    base: region
-                                        .base
-                                        .as_ref()
-                                        .map(|base| region.current.end..base.start),
-                                    incoming: region
-                                        .base
-                                        .as_ref()
-                                        .map_or(region.current.end, |base| base.end)
-                                        ..incoming,
-                                    end: offset..offset + line.len(),
-                                },
-                                current: region.current,
-                                base: region.base,
-                                incoming: incoming..offset,
-                                current_label: region.label,
-                                incoming_label: suffix.trim().into(),
-                            });
-                        }
-                        _ => unreachable!(),
-                    }
+                    bail!("Unmatched conflict marker; resolve this region manually")
                 }
-                _ => unreachable!(),
+                _ => {}
+            }
+            continue;
+        };
+        if matches!(marker, b'+' | b'-' | b'%') {
+            if width != region.width {
+                continue;
+            }
+            if range.start == region.opening.end {
+                region.jujutsu = true;
+                region.section = None;
+            }
+            if !region.jujutsu {
+                continue;
+            }
+            ensure!(
+                marker != b'%',
+                "Jujutsu diff-style conflict; resolve it manually or set \
+                 ui.conflict-marker-style to \"snapshot\""
+            );
+            let kind = if marker == b'+' {
+                SectionKind::Side
+            } else {
+                SectionKind::Base
+            };
+            region.start(kind, range);
+            continue;
+        }
+        ensure!(
+            marker != b'<',
+            "Nested conflict markers; resolve this region manually"
+        );
+        // Jujutsu separates sections with its own markers only.
+        if region.jujutsu && matches!(marker, b'|' | b'=') {
+            continue;
+        }
+        ensure!(width == region.width, "Mismatched conflict marker widths");
+        match marker {
+            b'|' => {
+                ensure!(
+                    !region.separated && region.sections.is_empty(),
+                    "Invalid base conflict marker"
+                );
+                region.start(SectionKind::Base, range);
+            }
+            b'=' => {
+                ensure!(!region.separated, "Duplicate conflict separator");
+                region.separated = true;
+                region.start(SectionKind::Side, range);
+            }
+            _ => {
+                let mut region = open.take().unwrap();
+                ensure!(
+                    region.jujutsu || region.separated,
+                    "Conflict has no separator"
+                );
+                // The closing marker ends the last section without starting another.
+                region.start(SectionKind::Side, range.clone());
+                ensure!(
+                    region
+                        .sections
+                        .iter()
+                        .any(|section| section.kind == SectionKind::Side),
+                    "Conflict has no side; resolve this region manually"
+                );
+                result.push(Conflict {
+                    whole: region.opening.start..range.end,
+                    opening: region.opening,
+                    closing: range,
+                    sections: region.sections,
+                });
             }
         }
-        offset += line.len();
     }
     ensure!(
         open.is_none(),
@@ -277,17 +379,30 @@ mod tests {
         Ok(())
     }
 
+    fn sections<'a>(text: &'a str, conflict: &Conflict) -> Vec<(SectionKind, &'a str, &'a str)> {
+        conflict
+            .sections
+            .iter()
+            .map(|s| (s.kind, &text[s.marker.clone()], &text[s.content.clone()]))
+            .collect()
+    }
+
     #[test]
     fn parses_diff3_unicode_crlf_and_custom_width_without_changing_text() -> Result<()> {
         let text = "prefix\r\n<<<<<<<< HEAD\r\nžluť\r\n|||||||| base\r\nold\r\n========\r\nblue\r\n>>>>>>>> feature";
         let conflicts = parse(text)?;
         let c = &conflicts[0];
         assert_eq!(&text[c.whole.clone()], &text[8..]);
-        assert_eq!(&text[c.base.clone().unwrap()], "old\r\n");
-        assert_eq!(&text[c.current.clone()], "žluť\r\n");
-        assert_eq!(&text[c.incoming.clone()], "blue\r\n");
-        assert_eq!(c.current_label, "HEAD");
-        assert_eq!(c.incoming_label, "feature");
+        assert_eq!(&text[c.opening.clone()], "<<<<<<<< HEAD\r\n");
+        assert_eq!(&text[c.closing.clone()], ">>>>>>>> feature");
+        assert_eq!(
+            sections(text, c),
+            [
+                (SectionKind::Side, "<<<<<<<< HEAD\r\n", "žluť\r\n"),
+                (SectionKind::Base, "|||||||| base\r\n", "old\r\n"),
+                (SectionKind::Side, "========\r\n", "blue\r\n"),
+            ]
+        );
         Ok(())
     }
 
@@ -298,14 +413,118 @@ mod tests {
             "=======\n",
             "<<<<<<< a\n<<<<<<< b\n",
             "<<<<<<< a\n=======\n>>>>>>>> b\n",
+            "<<<<<<< a\n=======\n=======\n>>>>>>> b\n",
+            "<<<<<<< a\n=======\n||||||| base\n>>>>>>> b\n",
+            "<<<<<<< a\nkept\n>>>>>>> b\n",
+            "<<<<<<< a\nours\n||||||| base\nold\n>>>>>>> b\n",
         ] {
             assert!(parse(text).is_err(), "{text}");
         }
         let text = "<<<<<<< a\n=======\n>>>>>>> b\n";
         let conflicts = parse(text)?;
-        assert!(conflicts[0].current.is_empty());
-        assert!(conflicts[0].incoming.is_empty());
+        assert!(conflicts[0].sections.iter().all(|s| s.content.is_empty()));
         assert!(parse("<<<<<<<<comparison\n=======not a marker\n")?.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn parses_jujutsu_snapshots_with_any_number_of_sides() -> Result<()> {
+        let text = "\
+<<<<<<< conflict 1 of 1
++++++++ side #1
+one
+------- base #1
+=======
++++++++ side #2
+------- base #2
+two
++++++++ side #3
+three
+>>>>>>> conflict 1 of 1 ends
+";
+        let conflict = &parse(text)?[0];
+        assert_eq!(&text[conflict.opening.clone()], "<<<<<<< conflict 1 of 1\n");
+        assert_eq!(
+            sections(text, conflict),
+            [
+                (SectionKind::Side, "+++++++ side #1\n", "one\n"),
+                // Git's markers are ordinary text between Jujutsu's.
+                (SectionKind::Base, "------- base #1\n", "=======\n"),
+                (SectionKind::Side, "+++++++ side #2\n", ""),
+                (SectionKind::Base, "------- base #2\n", "two\n"),
+                (SectionKind::Side, "+++++++ side #3\n", "three\n"),
+            ]
+        );
+        let contents = |choice| {
+            conflict.resolution(choice).map(|ranges| {
+                ranges
+                    .into_iter()
+                    .map(|range| &text[range])
+                    .collect::<String>()
+            })
+        };
+        assert_eq!(contents(Resolution::Current).unwrap(), "one\n");
+        assert_eq!(contents(Resolution::Incoming).unwrap(), "three\n");
+        assert_eq!(contents(Resolution::Base).unwrap(), "=======\n");
+        assert_eq!(contents(Resolution::Both).unwrap(), "one\nthree\n");
+        assert_eq!(contents(Resolution::Section(3)).unwrap(), "two\n");
+        assert_eq!(contents(Resolution::Section(5)), None);
+        Ok(())
+    }
+
+    #[test]
+    fn jujutsu_markers_are_text_in_git_conflicts_and_diff_style_is_rejected() -> Result<()> {
+        let text = "<<<<<<< HEAD\nTitle\n-------\n+++++++ added\n=======\ntheirs\n>>>>>>> topic\n";
+        let conflict = &parse(text)?[0];
+        assert_eq!(
+            sections(text, conflict),
+            [
+                (
+                    SectionKind::Side,
+                    "<<<<<<< HEAD\n",
+                    "Title\n-------\n+++++++ added\n"
+                ),
+                (SectionKind::Side, "=======\n", "theirs\n"),
+            ]
+        );
+        assert_eq!(conflict.resolution(Resolution::Base), None);
+        // A longer or shorter run is not one of this conflict's markers.
+        let text = "<<<<<<< c\n+++++++ one\n--------\n>>>>>>> end\n";
+        assert_eq!(parse(text)?[0].sections.len(), 1);
+        let conflict = &parse(text)?[0];
+        assert_eq!(&text[conflict.sections[0].content.clone()], "--------\n");
+        for text in [
+            "<<<<<<< c\n%%%%%%% diff\n-a\n+b\n+++++++ side\nc\n>>>>>>> end\n",
+            "<<<<<<< c\n+++++++ side\nc\n%%%%%%% diff\n-a\n+b\n>>>>>>> end\n",
+            "<<<<<<< c\n------- base\nold\n>>>>>>> end\n",
+        ] {
+            assert!(parse(text).is_err(), "{text}");
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn positions_map_to_sections_except_on_the_git_separator() -> Result<()> {
+        let text = "<<<<<<< HEAD\nours\n||||||| base\nold\n=======\ntheirs\n>>>>>>> topic\nafter\n";
+        let conflict = &parse(text)?[0];
+        let at = |needle: &str| conflict.section_at(text.find(needle).unwrap());
+        assert_eq!(at("<<<<<<<"), Some(0));
+        assert_eq!(at("ours"), Some(0));
+        assert_eq!(at("|||||||"), Some(1));
+        assert_eq!(at("old"), Some(1));
+        assert_eq!(at("======="), None);
+        assert_eq!(at("theirs"), Some(2));
+        assert_eq!(at(">>>>>>>"), Some(2));
+        assert_eq!(at("after"), None);
+
+        let text = "<<<<<<< c\n+++++++ one\na\n------- base\nb\n+++++++ two\nc\n>>>>>>> end\n";
+        let conflict = &parse(text)?[0];
+        let at = |needle: &str| conflict.section_at(text.find(needle).unwrap());
+        assert_eq!(at("<<<<<<<"), None);
+        assert_eq!(at("+++++++ one"), Some(0));
+        assert_eq!(at("------- base"), Some(1));
+        assert_eq!(at("+++++++ two"), Some(2));
+        assert_eq!(at(">>>>>>>"), Some(2));
         Ok(())
     }
 }
