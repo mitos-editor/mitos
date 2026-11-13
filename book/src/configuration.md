@@ -175,6 +175,7 @@ For common examples, see [Configure Mitos](./editor.md).
 | `indent` | table | See below | See [`[editor.indent]`](#editorindent). |
 | `inline-completion` | table | See below | See [`[editor.inline-completion]`](#editorinline-completion). |
 | `mouse` | table | See below | See [`[editor.mouse]`](#editormouse). |
+| `persistence` | table | See below | See [`[editor.persistence]`](#editorpersistence). |
 | `rainbow-brackets` | table | See below | See [`[editor.rainbow-brackets]`](#editorrainbow-brackets). |
 | `scroll` | table | See below | See [`[editor.scroll]`](#editorscroll). |
 
@@ -359,6 +360,30 @@ The `smart-tab` subsection controls syntax-aware Tab behavior.
 | Key | Type / accepted values | Default | Description |
 | --- | --- | --- | --- |
 | `severity` | `"disable"`, `"hint"`, `"info"`, `"warning"`, or `"error"` | `"hint"` | Minimum severity shown at the end of a line. |
+
+### `[editor.persistence]`
+
+State kept between sessions. Everything is off by default. Mitos reads the state
+when it starts and writes it when it exits, as JSON files in its state directory
+(`~/.local/state/mitos` on Linux). Delete those files to forget the state.
+
+| Key | Type / accepted values | Default | Description |
+| --- | --- | --- | --- |
+| `old-files` | boolean | `false` | Reopen a file at the selection and scroll position it was closed at. A position given on the command line or to `:open` wins. |
+| `commands` | boolean | `false` | Keep `:` command history. |
+| `search` | boolean | `false` | Keep search history. |
+| `clipboard` | boolean | `false` | Keep the `"` register, the default target of yanks and deletes. |
+| `old-files-exclusions` | glob array | `["**/.git/**", "**/COMMIT_EDITMSG"]` | Files whose positions are never saved or restored. |
+| `old-files-trim` | integer | `100` | Number of file positions to keep. |
+| `commands-trim` | integer | `100` | Number of commands to keep. |
+| `search-trim` | integer | `100` | Number of searches to keep. |
+
+```toml
+[editor.persistence]
+old-files = true
+commands = true
+search = true
+```
 
 ### `[editor.rainbow-brackets]`
 

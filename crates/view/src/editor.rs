@@ -18,6 +18,7 @@ pub use filesystem::FileOperation;
 mod input;
 mod language_servers;
 mod mode;
+mod persistence;
 mod saves;
 mod search;
 mod snippet;
@@ -96,6 +97,8 @@ pub struct Editor {
     file_operation_revision: u64,
 
     pub registers: Registers,
+    /// State kept between sessions; empty until [`Editor::load_persistent_state`].
+    pub persistence: crate::persistence::Persistence,
     pub(crate) language_servers: crate::language_servers::Registry,
     pub(crate) diagnostics: LspDiagnostics,
     pub diff_providers: DiffProviderRegistry,
@@ -250,6 +253,7 @@ impl Editor {
                     &config.clipboard.provider
                 }),
             ))),
+            persistence: Default::default(),
             status_msg: None,
             autoinfo: None,
             idle_timer: Box::pin(sleep(conf.idle_timeout)),

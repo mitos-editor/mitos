@@ -193,6 +193,8 @@ where
         editor
             .registers
             .set_clipboard_backend(Box::new(crate::clipboard::TerminalClipboard));
+        // Before opening files, so they reopen where they were left.
+        editor.load_persistent_state();
         let theme = Self::configured_theme(&editor, &config.load(), &terminal, theme_mode);
         let _ = editor.set_theme(theme);
         editor.debugger_mut().set_terminal_launcher(
@@ -220,6 +222,7 @@ where
             // If there are any more files specified, open them
             if files_it.peek().is_some() {
                 let mut nr_of_files = 0;
+                let mut positioned = false;
                 let mut first_view = None;
                 for (file, pos) in files_it {
                     nr_of_files += 1;
@@ -257,14 +260,18 @@ where
                         // with Action::Load all documents have the same view
                         let view_id = current_ref!(editor).0.id;
                         first_view.get_or_insert(view_id);
-                        let doc = doc_mut!(editor, &doc_id);
-                        let selection = pos
-                            .into_iter()
-                            .map(|coords| {
-                                Range::point(pos_at_coords(doc.text().slice(..), coords, true))
-                            })
-                            .collect();
-                        doc.set_selection(view_id, selection);
+                        // Without a position, keep the one restored by `open`.
+                        if !pos.is_empty() {
+                            positioned = true;
+                            let doc = doc_mut!(editor, &doc_id);
+                            let selection = pos
+                                .into_iter()
+                                .map(|coords| {
+                                    Range::point(pos_at_coords(doc.text().slice(..), coords, true))
+                                })
+                                .collect();
+                            doc.set_selection(view_id, selection);
+                        }
                     }
                 }
 
@@ -281,10 +288,11 @@ where
                         nr_of_files,
                         if nr_of_files == 1 { "" } else { "s" } // avoid "Loaded 1 files." grammo
                     ));
-                    // align the view to center after all files are loaded,
-                    // does not affect views without pos since it is at the top
-                    let (view, doc) = current!(editor);
-                    align_view(doc, view, Align::Center);
+                    // Center a requested position; a restored one keeps its saved scroll.
+                    if positioned {
+                        let (view, doc) = current!(editor);
+                        align_view(doc, view, Align::Center);
+                    }
                 }
             } else {
                 editor.new_file(Action::VerticalSplit);

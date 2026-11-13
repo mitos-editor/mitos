@@ -257,8 +257,8 @@ impl Editor {
         let path = stdx::path::canonicalize(path);
         let id = self.document_id_by_path(&path);
 
-        let id = if let Some(id) = id {
-            id
+        let (id, opened) = if let Some(id) = id {
+            (id, false)
         } else {
             self.ensure_path_not_writing(&path)?;
             let mut doc = Document::open(
@@ -296,15 +296,23 @@ impl Editor {
                 })
                 .report_to(self.status_sender());
 
-            id
+            (id, true)
         };
 
         self.switch(id, action);
+        // After `switch`, which initializes the view; callers with an explicit
+        // position replace it afterwards.
+        if opened {
+            self.restore_position(id, action);
+        }
 
         Ok(id)
     }
 
     pub fn close(&mut self, id: ViewId) {
+        if let Some(doc) = self.tree.try_get(id).map(|view| view.doc) {
+            self.remember_position(doc, id);
+        }
         // Remove selections for the closed view on all documents.
         for doc in self.documents_mut() {
             doc.remove_view(id);
@@ -324,6 +332,9 @@ impl Editor {
 
         // This will also disallow any follow-up writes
         self.writes.close_document(doc_id);
+        if let Some(view) = self.position_view(doc_id) {
+            self.remember_position(doc_id, view);
+        }
 
         enum Action {
             Close(ViewId),

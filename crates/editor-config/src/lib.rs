@@ -446,6 +446,45 @@ pub struct Config {
     pub indent: IndentConfig,
     pub bufferline: BufferLineConfig,
     pub rainbow_brackets: RainbowBracketsConfig,
+    /// State kept between sessions. Everything is off by default.
+    pub persistence: PersistenceConfig,
+}
+
+/// User-facing configuration for `[editor.persistence]`.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
+pub struct PersistenceConfig {
+    /// Reopen files at the cursor position and scroll position they were closed at.
+    pub old_files: bool,
+    /// Keep `:` command history.
+    pub commands: bool,
+    /// Keep search history.
+    pub search: bool,
+    /// Keep the `"` register, the default target of yanks and deletes.
+    pub clipboard: bool,
+    /// Glob patterns for files whose positions are never saved or restored.
+    pub old_files_exclusions: Vec<String>,
+    /// Number of file positions to keep.
+    pub old_files_trim: usize,
+    /// Number of commands to keep.
+    pub commands_trim: usize,
+    /// Number of searches to keep.
+    pub search_trim: usize,
+}
+
+impl Default for PersistenceConfig {
+    fn default() -> Self {
+        Self {
+            old_files: false,
+            commands: false,
+            search: false,
+            clipboard: false,
+            old_files_exclusions: vec!["**/.git/**".into(), "**/COMMIT_EDITMSG".into()],
+            old_files_trim: 100,
+            commands_trim: 100,
+            search_trim: 100,
+        }
+    }
 }
 
 /// User-facing configuration for `[editor.workspace-trust]`.
@@ -1332,6 +1371,7 @@ impl Default for Config {
             format: FormatConfig::default(),
             clipboard: ClipboardConfig::default(),
             files: FilesConfig::default(),
+            persistence: PersistenceConfig::default(),
             diagnostics: DiagnosticsConfig::default(),
             indent: IndentConfig::default(),
             bufferline: BufferLineConfig::default(),

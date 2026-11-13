@@ -312,6 +312,10 @@ where
             }
         }
 
+        if let Err(error) = self.editor.save_persistent_state() {
+            errs.push(anyhow::anyhow!("Could not save editor state: {error}"));
+        }
+
         self.editor.close_language_servers(None).await;
 
         errs
