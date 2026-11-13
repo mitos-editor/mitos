@@ -16,7 +16,7 @@ use termina::{
     Event, OneBased, PlatformTerminal, Terminal as _, WindowSize as TerminaWindowSize,
 };
 use ui_core::{
-    graphics::{CursorKind, Rect, UnderlineStyle},
+    graphics::{CursorKind, UnderlineStyle},
     terminal::KittyKeyboardProtocolConfig,
     theme::{self, Color},
 };
@@ -391,101 +391,18 @@ impl TerminaBackend {
 
         Ok(())
     }
-
-    // See <https://gist.github.com/christianparpart/d8a62cc1ab659194337d73e399004036>.
-    // Synchronized output sequences tell the terminal when we are "starting to render" and
-    // stopping, enabling to make better choices about when it draws a frame. This avoids all
-    // kinds of ugly visual artifacts like tearing and flashing (i.e. the background color
-    // after clearing the terminal).
-
-    fn start_synchronized_render(&mut self) -> io::Result<()> {
-        if self.capabilities.synchronized_output && !self.is_synchronized_output_set {
-            write!(self.terminal, "{}", decset!(SynchronizedOutput))?;
-            self.is_synchronized_output_set = true;
-        }
-        Ok(())
-    }
-
-    fn end_sychronized_render(&mut self) -> io::Result<()> {
-        if self.is_synchronized_output_set {
-            write!(self.terminal, "{}", decreset!(SynchronizedOutput))?;
-            self.is_synchronized_output_set = false;
-        }
-        Ok(())
-    }
 }
 
-impl TerminaBackend {
-    fn claim(&mut self) -> io::Result<()> {
-        self.hyperlinks = Default::default();
-        self.terminal.enter_raw_mode()?;
-        self.claimed = true;
+fn write_reset_background_color<W: Write>(writer: &mut W) -> io::Result<()> {
+    write!(
+        writer,
+        "{}",
+        Osc::ResetDynamicColor(osc::DynamicColorNumber::TextBackgroundColor)
+    )
+}
 
-        write!(
-            self.terminal,
-            "{}{}{}{}",
-            // Enter an alternate screen.
-            decset!(ClearAndEnableAlternateScreen),
-            decset!(BracketedPaste),
-            decset!(FocusTracking),
-            // Clear the buffer. `ClearAndEnableAlternateScreen` **should** do this but some
-            // things like mosh are buggy. See <https://github.com/helix-editor/helix/pull/1944>.
-            Csi::Edit(csi::Edit::EraseInDisplay(csi::EraseInDisplay::EraseDisplay)),
-        )?;
-        if let Some(color) = self.background_color {
-            write!(
-                self.terminal,
-                "{}",
-                Osc::ChangeDynamicColors(
-                    osc::DynamicColorNumber::TextBackgroundColor,
-                    vec![color.into()]
-                )
-            )?;
-            self.background_color_is_set = true;
-        }
-        self.enable_mouse_capture()?;
-        self.enable_extensions()?;
-
-        Ok(())
-    }
-
-    fn reconfigure(&mut self, mut config: Config) -> io::Result<()> {
-        std::mem::swap(&mut self.config, &mut config);
-        if self.config.enable_mouse_capture != config.enable_mouse_capture {
-            if self.config.enable_mouse_capture {
-                self.enable_mouse_capture()?;
-            } else {
-                self.disable_mouse_capture()?;
-            }
-        }
-        self.capabilities.extended_underlines |= self.config.force_enable_extended_underlines;
-        Ok(())
-    }
-
-    fn restore(&mut self) -> io::Result<()> {
-        if !self.claimed {
-            return Ok(());
-        }
-        self.terminal.write_all(b"\x1b]8;;\x1b\\")?;
-        self.disable_extensions()?;
-        self.disable_mouse_capture()?;
-        write!(
-            self.terminal,
-            "{}{}{}{}",
-            self.reset_cursor_command,
-            decreset!(BracketedPaste),
-            decreset!(FocusTracking),
-            decreset!(ClearAndEnableAlternateScreen),
-        )?;
-        if self.background_color_is_set {
-            self.reset_background_color()?;
-            self.background_color_is_set = false;
-        }
-        self.terminal.flush()?;
-        self.terminal.enter_cooked_mode()?;
-        self.claimed = false;
-        Ok(())
-    }
+impl Backend for TerminaBackend {
+    type Error = io::Error;
 
     fn draw<'a, I>(&mut self, content: I) -> io::Result<()>
     where
@@ -583,20 +500,31 @@ impl TerminaBackend {
         write!(self.terminal, "{}", decreset!(ShowCursor))
     }
 
-    fn set_cursor_kind(&mut self, kind: CursorKind) -> io::Result<()> {
-        let style = match kind {
-            CursorKind::Block => CursorStyle::SteadyBlock,
-            CursorKind::Bar => CursorStyle::SteadyBar,
-            CursorKind::Underline => CursorStyle::SteadyUnderline,
-        };
+    fn show_cursor(&mut self) -> io::Result<()> {
+        write!(self.terminal, "{}", decset!(ShowCursor))
+    }
+
+    fn get_cursor_position(&mut self) -> io::Result<Position> {
         write!(
             self.terminal,
             "{}",
-            Csi::Cursor(csi::Cursor::CursorStyle(style)),
-        )
+            Csi::Cursor(csi::Cursor::RequestActivePositionReport)
+        )?;
+        self.terminal.flush()?;
+        let event = self.terminal.read(|event| {
+            matches!(
+                event,
+                Event::Csi(Csi::Cursor(csi::Cursor::ActivePositionReport { .. }))
+            )
+        })?;
+        let Event::Csi(Csi::Cursor(csi::Cursor::ActivePositionReport { line, col })) = event else {
+            return Err(io::Error::other("unexpected cursor-position response"));
+        };
+        Ok(Position::new(col.get_zero_based(), line.get_zero_based()))
     }
 
-    fn set_cursor(&mut self, x: u16, y: u16) -> io::Result<()> {
+    fn set_cursor_position<P: Into<Position>>(&mut self, position: P) -> io::Result<()> {
+        let Position { x, y } = position.into();
         let col = OneBased::from_zero_based(x);
         let line = OneBased::from_zero_based(y);
         write!(
@@ -614,21 +542,154 @@ impl TerminaBackend {
         )
     }
 
-    fn start_sync(&mut self) -> io::Result<()> {
-        self.start_synchronized_render()
+    fn clear_region(&mut self, clear_type: ClearType) -> io::Result<()> {
+        let edit = match clear_type {
+            ClearType::All => csi::Edit::EraseInDisplay(csi::EraseInDisplay::EraseDisplay),
+            ClearType::AfterCursor => {
+                csi::Edit::EraseInDisplay(csi::EraseInDisplay::EraseToEndOfDisplay)
+            }
+            ClearType::BeforeCursor => {
+                csi::Edit::EraseInDisplay(csi::EraseInDisplay::EraseToStartOfDisplay)
+            }
+            ClearType::CurrentLine => csi::Edit::EraseInLine(csi::EraseInLine::EraseLine),
+            ClearType::UntilNewLine => csi::Edit::EraseInLine(csi::EraseInLine::EraseToEndOfLine),
+        };
+        write!(self.terminal, "{}", Csi::Edit(edit))
     }
 
-    fn end_sync(&mut self) -> io::Result<()> {
-        self.end_sychronized_render()
-    }
-
-    fn size(&self) -> io::Result<Rect> {
+    fn size(&self) -> io::Result<Size> {
         let TerminaWindowSize { rows, cols, .. } = self.terminal.get_dimensions()?;
-        Ok(Rect::new(0, 0, cols, rows))
+        Ok(Size::new(cols, rows))
+    }
+
+    fn window_size(&mut self) -> io::Result<RatatuiWindowSize> {
+        let size = self.terminal.get_dimensions()?;
+        Ok(RatatuiWindowSize {
+            columns_rows: Size::new(size.cols, size.rows),
+            pixels: Size::new(
+                size.pixel_width.unwrap_or_default(),
+                size.pixel_height.unwrap_or_default(),
+            ),
+        })
     }
 
     fn flush(&mut self) -> io::Result<()> {
         self.terminal.flush()
+    }
+}
+
+impl BackendExt for TerminaBackend {
+    fn set_hyperlinks(
+        &mut self,
+        links: ui_core::hyperlinks::HyperlinkBuffer,
+        buffer: &ratatui::buffer::Buffer,
+    ) {
+        self.hyperlinks.prepare(links, buffer);
+    }
+
+    fn claim(&mut self) -> io::Result<()> {
+        self.hyperlinks = Default::default();
+        self.terminal.enter_raw_mode()?;
+        self.claimed = true;
+
+        write!(
+            self.terminal,
+            "{}{}{}{}",
+            // Enter an alternate screen.
+            decset!(ClearAndEnableAlternateScreen),
+            decset!(BracketedPaste),
+            decset!(FocusTracking),
+            // Clear the buffer. `ClearAndEnableAlternateScreen` **should** do this but some
+            // things like mosh are buggy. See <https://github.com/helix-editor/helix/pull/1944>.
+            Csi::Edit(csi::Edit::EraseInDisplay(csi::EraseInDisplay::EraseDisplay)),
+        )?;
+        if let Some(color) = self.background_color {
+            write!(
+                self.terminal,
+                "{}",
+                Osc::ChangeDynamicColors(
+                    osc::DynamicColorNumber::TextBackgroundColor,
+                    vec![color.into()]
+                )
+            )?;
+            self.background_color_is_set = true;
+        }
+        self.enable_mouse_capture()?;
+        self.enable_extensions()?;
+
+        Ok(())
+    }
+
+    fn reconfigure(&mut self, mut config: Config) -> io::Result<()> {
+        std::mem::swap(&mut self.config, &mut config);
+        if self.config.enable_mouse_capture != config.enable_mouse_capture {
+            if self.config.enable_mouse_capture {
+                self.enable_mouse_capture()?;
+            } else {
+                self.disable_mouse_capture()?;
+            }
+        }
+        self.capabilities.extended_underlines |= self.config.force_enable_extended_underlines;
+        Ok(())
+    }
+
+    fn restore(&mut self) -> io::Result<()> {
+        if !self.claimed {
+            return Ok(());
+        }
+        self.terminal.write_all(b"\x1b]8;;\x1b\\")?;
+        self.disable_extensions()?;
+        self.disable_mouse_capture()?;
+        write!(
+            self.terminal,
+            "{}{}{}{}",
+            self.reset_cursor_command,
+            decreset!(BracketedPaste),
+            decreset!(FocusTracking),
+            decreset!(ClearAndEnableAlternateScreen),
+        )?;
+        if self.background_color_is_set {
+            self.reset_background_color()?;
+            self.background_color_is_set = false;
+        }
+        self.terminal.flush()?;
+        self.terminal.enter_cooked_mode()?;
+        self.claimed = false;
+        Ok(())
+    }
+
+    fn set_cursor_kind(&mut self, kind: CursorKind) -> io::Result<()> {
+        let style = match kind {
+            CursorKind::Block => CursorStyle::SteadyBlock,
+            CursorKind::Bar => CursorStyle::SteadyBar,
+            CursorKind::Underline => CursorStyle::SteadyUnderline,
+        };
+        write!(
+            self.terminal,
+            "{}",
+            Csi::Cursor(csi::Cursor::CursorStyle(style)),
+        )
+    }
+
+    // See <https://gist.github.com/christianparpart/d8a62cc1ab659194337d73e399004036>.
+    // Synchronized output sequences tell the terminal when we are "starting to render" and
+    // stopping, enabling to make better choices about when it draws a frame. This avoids all
+    // kinds of ugly visual artifacts like tearing and flashing (i.e. the background color
+    // after clearing the terminal).
+    fn start_sync(&mut self) -> io::Result<()> {
+        if self.capabilities.synchronized_output && !self.is_synchronized_output_set {
+            write!(self.terminal, "{}", decset!(SynchronizedOutput))?;
+            self.is_synchronized_output_set = true;
+        }
+        Ok(())
+    }
+
+    fn end_sync(&mut self) -> io::Result<()> {
+        if self.is_synchronized_output_set {
+            write!(self.terminal, "{}", decreset!(SynchronizedOutput))?;
+            self.is_synchronized_output_set = false;
+        }
+        Ok(())
     }
 
     fn supports_true_color(&self) -> bool {
@@ -665,141 +726,6 @@ impl TerminaBackend {
             _ => {}
         }
         Ok(())
-    }
-}
-
-fn write_reset_background_color<W: Write>(writer: &mut W) -> io::Result<()> {
-    write!(
-        writer,
-        "{}",
-        Osc::ResetDynamicColor(osc::DynamicColorNumber::TextBackgroundColor)
-    )
-}
-
-impl Backend for TerminaBackend {
-    type Error = io::Error;
-
-    fn draw<'a, I>(&mut self, content: I) -> io::Result<()>
-    where
-        I: Iterator<Item = (u16, u16, &'a Cell)>,
-    {
-        TerminaBackend::draw(self, content)
-    }
-
-    fn hide_cursor(&mut self) -> io::Result<()> {
-        TerminaBackend::hide_cursor(self)
-    }
-
-    fn show_cursor(&mut self) -> io::Result<()> {
-        write!(self.terminal, "{}", decset!(ShowCursor))
-    }
-
-    fn get_cursor_position(&mut self) -> io::Result<Position> {
-        write!(
-            self.terminal,
-            "{}",
-            Csi::Cursor(csi::Cursor::RequestActivePositionReport)
-        )?;
-        self.terminal.flush()?;
-        let event = self.terminal.read(|event| {
-            matches!(
-                event,
-                Event::Csi(Csi::Cursor(csi::Cursor::ActivePositionReport { .. }))
-            )
-        })?;
-        let Event::Csi(Csi::Cursor(csi::Cursor::ActivePositionReport { line, col })) = event else {
-            return Err(io::Error::other("unexpected cursor-position response"));
-        };
-        Ok(Position::new(col.get_zero_based(), line.get_zero_based()))
-    }
-
-    fn set_cursor_position<P: Into<Position>>(&mut self, position: P) -> io::Result<()> {
-        let Position { x, y } = position.into();
-        TerminaBackend::set_cursor(self, x, y)
-    }
-
-    fn clear(&mut self) -> io::Result<()> {
-        TerminaBackend::clear(self)
-    }
-
-    fn clear_region(&mut self, clear_type: ClearType) -> io::Result<()> {
-        let edit = match clear_type {
-            ClearType::All => csi::Edit::EraseInDisplay(csi::EraseInDisplay::EraseDisplay),
-            ClearType::AfterCursor => {
-                csi::Edit::EraseInDisplay(csi::EraseInDisplay::EraseToEndOfDisplay)
-            }
-            ClearType::BeforeCursor => {
-                csi::Edit::EraseInDisplay(csi::EraseInDisplay::EraseToStartOfDisplay)
-            }
-            ClearType::CurrentLine => csi::Edit::EraseInLine(csi::EraseInLine::EraseLine),
-            ClearType::UntilNewLine => csi::Edit::EraseInLine(csi::EraseInLine::EraseToEndOfLine),
-        };
-        write!(self.terminal, "{}", Csi::Edit(edit))
-    }
-
-    fn size(&self) -> io::Result<Size> {
-        Ok(TerminaBackend::size(self)?.as_size())
-    }
-
-    fn window_size(&mut self) -> io::Result<RatatuiWindowSize> {
-        let size = self.terminal.get_dimensions()?;
-        Ok(RatatuiWindowSize {
-            columns_rows: Size::new(size.cols, size.rows),
-            pixels: Size::new(
-                size.pixel_width.unwrap_or_default(),
-                size.pixel_height.unwrap_or_default(),
-            ),
-        })
-    }
-
-    fn flush(&mut self) -> io::Result<()> {
-        TerminaBackend::flush(self)
-    }
-}
-
-impl BackendExt for TerminaBackend {
-    fn set_hyperlinks(
-        &mut self,
-        links: ui_core::hyperlinks::HyperlinkBuffer,
-        buffer: &ratatui::buffer::Buffer,
-    ) {
-        self.hyperlinks.prepare(links, buffer);
-    }
-
-    fn claim(&mut self) -> io::Result<()> {
-        TerminaBackend::claim(self)
-    }
-
-    fn reconfigure(&mut self, config: Config) -> io::Result<()> {
-        TerminaBackend::reconfigure(self, config)
-    }
-
-    fn restore(&mut self) -> io::Result<()> {
-        TerminaBackend::restore(self)
-    }
-
-    fn set_cursor_kind(&mut self, kind: CursorKind) -> io::Result<()> {
-        TerminaBackend::set_cursor_kind(self, kind)
-    }
-
-    fn start_sync(&mut self) -> io::Result<()> {
-        TerminaBackend::start_sync(self)
-    }
-
-    fn end_sync(&mut self) -> io::Result<()> {
-        TerminaBackend::end_sync(self)
-    }
-
-    fn supports_true_color(&self) -> bool {
-        TerminaBackend::supports_true_color(self)
-    }
-
-    fn get_theme_mode(&self) -> Option<theme::Mode> {
-        TerminaBackend::get_theme_mode(self)
-    }
-
-    fn set_background_color(&mut self, color: Option<Color>) -> io::Result<()> {
-        TerminaBackend::set_background_color(self, color)
     }
 }
 
