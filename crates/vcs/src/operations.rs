@@ -3,15 +3,12 @@
 
 use std::{
     path::{Path, PathBuf},
-    process::Stdio,
     time::SystemTime,
 };
 
+use crate::command::{run, run_private};
 use anyhow::{bail, ensure, Context, Result};
-use tokio::{
-    io::{AsyncRead, AsyncReadExt},
-    process::Command,
-};
+use tokio::process::Command;
 
 use crate::{FileChange, FileStatus};
 
@@ -418,65 +415,11 @@ impl GitRepository {
     }
 
     fn command(&self) -> Command {
-        let mut command = Command::new("git");
-        // Git for Windows rejects Rust's verbatim paths (\\?\C:\...). Keep native
-        // canonical paths for identity checks, but simplify them at the CLI boundary.
-        command
-            .current_dir(dunce::simplified(&self.root))
-            .arg("--no-pager")
-            .arg("--git-dir")
-            .arg(dunce::simplified(&self.git_dir))
-            .arg("--work-tree")
-            .arg(dunce::simplified(&self.root))
-            .args([
-                "-c",
-                "core.fsmonitor=false",
-                "-c",
-                "log.showSignature=false",
-            ])
-            .env("GIT_TERMINAL_PROMPT", "0")
-            .env("GIT_OPTIONAL_LOCKS", "0")
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .kill_on_drop(true);
-        // git rev-parse --local-env-vars: never inherit an index/worktree from the launching shell.
-        for name in [
-            "GIT_ALTERNATE_OBJECT_DIRECTORIES",
-            "GIT_CONFIG",
-            "GIT_CONFIG_PARAMETERS",
-            "GIT_CONFIG_COUNT",
-            "GIT_OBJECT_DIRECTORY",
-            "GIT_DIR",
-            "GIT_WORK_TREE",
-            "GIT_IMPLICIT_WORK_TREE",
-            "GIT_GRAFT_FILE",
-            "GIT_INDEX_FILE",
-            "GIT_NO_REPLACE_OBJECTS",
-            "GIT_REPLACE_REF_BASE",
-            "GIT_PREFIX",
-            "GIT_SHALLOW_FILE",
-            "GIT_COMMON_DIR",
-        ] {
-            command.env_remove(name);
-        }
-        // Remove pathspec modes too: literal filenames must remain literal under inherited options.
-        for (name, _) in std::env::vars_os() {
-            if name.to_string_lossy().starts_with("GIT_CONFIG_KEY_")
-                || name.to_string_lossy().starts_with("GIT_CONFIG_VALUE_")
-            {
-                command.env_remove(name);
-            }
-        }
-        for name in [
-            "GIT_GLOB_PATHSPECS",
-            "GIT_NOGLOB_PATHSPECS",
-            "GIT_ICASE_PATHSPECS",
-            "GIT_LITERAL_PATHSPECS",
-        ] {
-            command.env_remove(name);
-        }
-        command
+        Command::from(crate::command::repository(
+            &self.root,
+            &self.git_dir,
+            crate::command::Access::Mutation,
+        ))
     }
 }
 
@@ -486,55 +429,6 @@ fn literal_pathspec(path: &PathBuf) -> std::ffi::OsString {
     let mut argument = std::ffi::OsString::from(":(literal)");
     argument.push(path);
     argument
-}
-
-/// Bounded retained output, while continuing to drain both pipes so Git never blocks on them.
-async fn output(mut reader: impl AsyncRead + Unpin) -> std::io::Result<(Vec<u8>, bool)> {
-    const LIMIT: usize = 1024 * 1024;
-    let mut result = Vec::new();
-    let mut truncated = false;
-    let mut buffer = [0; 8192];
-    loop {
-        let read = reader.read(&mut buffer).await?;
-        if read == 0 {
-            break;
-        }
-        let retained = read.min(LIMIT - result.len());
-        result.extend_from_slice(&buffer[..retained]);
-        truncated |= retained < read;
-    }
-    Ok((result, truncated))
-}
-
-async fn run(mut command: Command) -> Result<Vec<u8>> {
-    let mut child = command
-        .spawn()
-        .context("Could not start Git; install git and ensure it is on PATH")?;
-    let stdout = child.stdout.take().unwrap();
-    let stderr = child.stderr.take().unwrap();
-    let (status, stdout, stderr) = tokio::join!(child.wait(), output(stdout), output(stderr));
-    let status = status?;
-    let (stdout, out_truncated) = stdout?;
-    let (stderr, err_truncated) = stderr?;
-    if !status.success() {
-        let message = if stderr.is_empty() { &stdout } else { &stderr };
-        let message: String = String::from_utf8_lossy(message)
-            .chars()
-            .take(2000)
-            .map(|c| if c.is_control() { ' ' } else { c })
-            .collect();
-        bail!(
-            "Git failed ({status}): {}{}",
-            message.trim(),
-            if out_truncated || err_truncated {
-                " (output truncated)"
-            } else {
-                ""
-            }
-        );
-    }
-    ensure!(!out_truncated, "Git output exceeds the 1 MiB display limit");
-    Ok(stdout)
 }
 
 fn literal(text: &[u8]) -> String {

@@ -19,6 +19,8 @@ use std::{
 };
 
 #[cfg(feature = "git")]
+mod command;
+#[cfg(feature = "git")]
 mod git;
 #[cfg(feature = "git")]
 pub mod repository;

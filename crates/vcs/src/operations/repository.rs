@@ -682,22 +682,6 @@ fn ensure_clean_worktree(path: &Path, owner: &GitRepository) -> Result<()> {
     Ok(())
 }
 
-/// Discard error output from Git, credential helpers, and hooks. It can contain remote URLs.
-async fn run_private(mut command: Command, label: &'static str) -> Result<Vec<u8>> {
-    let mut child = command
-        .spawn()
-        .context("Could not start Git; install git and ensure it is on PATH")?;
-    let stdout = child.stdout.take().unwrap();
-    let stderr = child.stderr.take().unwrap();
-    let (status, stdout, stderr) = tokio::join!(child.wait(), output(stdout), output(stderr));
-    let status = status?;
-    let (stdout, truncated) = stdout?;
-    let _ = stderr?;
-    ensure!(status.success(), "{label} failed ({status}). Check repository state and Git authentication in your terminal; command output is hidden because it can contain credentials");
-    ensure!(!truncated, "Git listing exceeds the 1 MiB display limit");
-    Ok(stdout)
-}
-
 #[cfg(test)]
 mod tests;
 
