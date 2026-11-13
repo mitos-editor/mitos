@@ -154,6 +154,43 @@ async fn stale_or_newly_opened_buffers_reject_the_plan_before_writes() -> anyhow
 }
 
 #[tokio::test]
+async fn stale_disk_target_rejects_the_plan_before_buffer_edits_or_writes() -> anyhow::Result<()> {
+    let (mut editor, _store) = editor("#[|]#\n");
+    let dir = tempfile::tempdir()?;
+    let paths = ["buffer.txt", "unchanged.txt", "stale.txt"].map(|name| dir.path().join(name));
+    for path in &paths {
+        std::fs::write(path, "foo\n")?;
+    }
+    let id = editor.open(&paths[0], Action::Replace)?;
+    editor.enter_insert_mode();
+    editor.insert_char('x')?;
+    let plan = prepare(
+        &editor,
+        &[
+            &matched(&paths[0], 1, 4),
+            &matched(&paths[1], 0, 3),
+            &matched(&paths[2], 0, 3),
+        ],
+        "bar",
+        true,
+    )
+    .await?;
+    std::fs::write(&paths[2], "external changes\n")?;
+
+    assert!(plan.apply(&mut editor).is_err());
+    assert_eq!(editor.document(id).unwrap().text(), "xfoo\n");
+    assert_eq!(std::fs::read_to_string(&paths[0])?, "foo\n");
+    assert_eq!(std::fs::read_to_string(&paths[1])?, "foo\n");
+    assert_eq!(std::fs::read_to_string(&paths[2])?, "external changes\n");
+
+    editor.insert_char('y')?;
+    assert!(editor.change_history(buffer::HistoryAction::Undo));
+    assert_eq!(editor.document(id).unwrap().text(), "foo\n");
+    assert!(!editor.change_history(buffer::HistoryAction::Undo));
+    Ok(())
+}
+
+#[tokio::test]
 async fn pending_writes_prevent_opening_the_target_and_preserve_external_changes(
 ) -> anyhow::Result<()> {
     let (mut editor, _store) = editor("#[|]#\n");
