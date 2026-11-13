@@ -28,6 +28,42 @@ impl Editor {
         view.ensure_cursor_in_view(doc, scrolloff)
     }
 
+    /// Move a document toward the beginning of the buffer order.
+    pub fn move_document_up(&mut self, id: DocumentId, count: usize) {
+        let changed = self.documents.move_up(id, count);
+
+        if changed {
+            self.redraw().request();
+        }
+    }
+
+    /// Move a document toward the end of the buffer order.
+    pub fn move_document_down(&mut self, id: DocumentId, count: usize) {
+        let changed = self.documents.move_down(id, count);
+
+        if changed {
+            self.redraw().request();
+        }
+    }
+
+    /// Move a document to the beginning of the buffer order.
+    pub fn move_document_to_start(&mut self, id: DocumentId) {
+        let changed = self.documents.move_to_start(id);
+
+        if changed {
+            self.redraw().request();
+        }
+    }
+
+    /// Move a document to the end of the buffer order.
+    pub fn move_document_to_end(&mut self, id: DocumentId) {
+        let changed = self.documents.move_to_end(id);
+
+        if changed {
+            self.redraw().request();
+        }
+    }
+
     pub fn switch(&mut self, id: DocumentId, action: Action) {
         use crate::tree::Layout;
 
