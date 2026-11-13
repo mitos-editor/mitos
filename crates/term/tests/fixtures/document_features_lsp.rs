@@ -315,7 +315,7 @@ fn main() -> anyhow::Result<()> {
                 continue;
             }
             let result_id = format!("{label}:{version}");
-            let result = if params["previousResultId"].as_str() == Some(&result_id) {
+            let mut result = if params["previousResultId"].as_str() == Some(&result_id) {
                 json!({"kind": "unchanged", "resultId": result_id})
             } else {
                 let mut report = json!({"kind": "full", "items": [{
@@ -326,6 +326,10 @@ fn main() -> anyhow::Result<()> {
                 }
                 report
             };
+            if let Some(index) = args.iter().position(|arg| arg == "--related-diagnostics") {
+                result["relatedDocuments"] =
+                    serde_json::from_reader(std::fs::File::open(&args[index + 1])?)?;
+            }
             respond(
                 &mut output,
                 json!({"jsonrpc": "2.0", "id": id, "result": result}),
