@@ -40,7 +40,7 @@
 use std::{
     collections::HashMap,
     fmt::Write,
-    fs,
+    fs, io,
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -293,8 +293,8 @@ impl WorkspaceTrust {
             || !self.query(workspace, TrustQuery::Dap).is_trusted()
     }
 
-    /// Mark `workspace` trusted. Snapshots the current `.mitos/` hash.
-    pub fn trust(&self, workspace: &Path) {
+    /// Persist trust with the current `.mitos/` hash before updating the cache.
+    pub fn trust(&self, workspace: &Path) -> io::Result<()> {
         let hash = compute_workspace_hash(workspace);
         let has_local_config = has_local_config(workspace);
         write_entry(
@@ -304,7 +304,7 @@ impl WorkspaceTrust {
                 hash,
                 excluded: false,
             },
-        );
+        )?;
         self.inner.lock().insert(
             workspace.to_path_buf(),
             CacheEntry {
@@ -312,6 +312,7 @@ impl WorkspaceTrust {
                 has_local_config,
             },
         );
+        Ok(())
     }
 
     /// Preserve an existing grant only when known configuration rewrites and
@@ -372,7 +373,8 @@ impl WorkspaceTrust {
             hash: Some(format!("sha256:{}", hex_encode(&current.finalize()))),
             excluded: false,
         };
-        if !write_entry(&self.store, workspace, &entry) {
+        if let Err(err) = write_entry(&self.store, workspace, &entry) {
+            log::error!("{err}");
             return false;
         }
         self.inner.lock().remove(workspace);
@@ -385,13 +387,14 @@ impl WorkspaceTrust {
     }
 
     /// Revoke any persisted trust grant or exclusion for `workspace`.
-    pub fn untrust(&self, workspace: &Path) {
-        remove_entry(&self.store, workspace);
+    pub fn untrust(&self, workspace: &Path) -> io::Result<()> {
+        remove_entry(&self.store, workspace)?;
         self.inner.lock().remove(workspace);
+        Ok(())
     }
 
-    /// Mark `workspace` excluded — never prompts again.
-    pub fn exclude(&self, workspace: &Path) {
+    /// Persist an exclusion before updating the cache — never prompts again.
+    pub fn exclude(&self, workspace: &Path) -> io::Result<()> {
         let has_local_config = has_local_config(workspace);
         write_entry(
             &self.store,
@@ -400,7 +403,7 @@ impl WorkspaceTrust {
                 hash: None,
                 excluded: true,
             },
-        );
+        )?;
         self.inner.lock().insert(
             workspace.to_path_buf(),
             CacheEntry {
@@ -408,6 +411,7 @@ impl WorkspaceTrust {
                 has_local_config,
             },
         );
+        Ok(())
     }
 
     /// Cache an untrusted decision for the current session.
@@ -537,12 +541,16 @@ fn read_entry(store: &Path, workspace: &Path) -> Option<DiskEntry> {
     Some(DiskEntry { hash, excluded })
 }
 
-fn write_entry(store: &Path, workspace: &Path, entry: &DiskEntry) -> bool {
-    let dir = store;
-    if let Err(err) = fs::create_dir_all(dir) {
-        log::error!("Couldn't create workspace trust dir {dir:?}: {err:?}");
-        return false;
-    }
+fn write_entry(store: &Path, workspace: &Path, entry: &DiskEntry) -> io::Result<()> {
+    fs::create_dir_all(store).map_err(|err| {
+        io::Error::new(
+            err.kind(),
+            format!(
+                "could not create workspace trust directory {}: {err}",
+                store.display()
+            ),
+        )
+    })?;
     let path = entry_path(store, workspace);
 
     let mut contents = String::new();
@@ -552,19 +560,29 @@ fn write_entry(store: &Path, workspace: &Path, entry: &DiskEntry) -> bool {
     }
     let _ = writeln!(contents, "excluded = {}", entry.excluded);
 
-    if let Err(err) = fs::write(&path, contents) {
-        log::error!("Error writing workspace trust file {path:?}: {err:?}");
-        return false;
-    }
-    true
+    fs::write(&path, contents).map_err(|err| {
+        io::Error::new(
+            err.kind(),
+            format!(
+                "could not write workspace trust file {}: {err}",
+                path.display()
+            ),
+        )
+    })
 }
 
-fn remove_entry(store: &Path, workspace: &Path) {
+fn remove_entry(store: &Path, workspace: &Path) -> io::Result<()> {
     let path = entry_path(store, workspace);
     match fs::remove_file(&path) {
-        Ok(()) => {}
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
-        Err(err) => log::error!("Error removing workspace trust file {path:?}: {err:?}"),
+        Ok(()) => Ok(()),
+        Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(err) => Err(io::Error::new(
+            err.kind(),
+            format!(
+                "could not remove workspace trust file {}: {err}",
+                path.display()
+            ),
+        )),
     }
 }
 
@@ -657,14 +675,66 @@ mod test {
         let first_store = directory.path().join("first");
         let second_store = directory.path().join("second");
         let first = WorkspaceTrust::new(Config::default(), first_store.clone());
-        first.trust(&workspace);
+        first.trust(&workspace).unwrap();
         let restored = WorkspaceTrust::new(Config::default(), first_store);
         let independent = WorkspaceTrust::new(Config::default(), second_store);
         assert_eq!(restored.status(&workspace), TrustStatus::Trusted);
         assert_eq!(independent.status(&workspace), TrustStatus::Untrusted);
-        restored.exclude(&workspace);
+        restored.exclude(&workspace).unwrap();
         assert_eq!(restored.status(&workspace), TrustStatus::Excluded);
         assert_eq!(independent.status(&workspace), TrustStatus::Untrusted);
+        let restarted = WorkspaceTrust::new(Config::default(), restored.store.clone());
+        assert_eq!(restarted.status(&workspace), TrustStatus::Excluded);
+        restored.deny_once(&workspace);
+        assert_eq!(restored.status(&workspace), TrustStatus::Untrusted);
+        assert_eq!(restarted.status(&workspace), TrustStatus::Excluded);
+        restored.untrust(&workspace).unwrap();
+        restored.untrust(&workspace).unwrap(); // Already absent is a successful revocation.
+        restarted.invalidate(&workspace);
+        assert_eq!(restarted.status(&workspace), TrustStatus::Untrusted);
+    }
+
+    #[test]
+    fn failed_trust_preserves_the_cached_decision() {
+        let directory = tempfile::tempdir().unwrap();
+        let workspace = directory.path().join("project");
+        let store = directory.path().join("trust-store");
+        fs::write(&store, "not a directory").unwrap();
+        let trust = WorkspaceTrust::new(Config::default(), store);
+        trust.deny_once(&workspace);
+        let error = trust.trust(&workspace).unwrap_err();
+        assert!(error.to_string().contains("workspace trust directory"));
+        assert_eq!(trust.status(&workspace), TrustStatus::Untrusted);
+    }
+
+    #[test]
+    fn failed_exclusion_preserves_the_cached_decision() {
+        let directory = tempfile::tempdir().unwrap();
+        let workspace = directory.path().join("project");
+        let store = directory.path().join("trust-store");
+        let trust = WorkspaceTrust::new(Config::default(), store.clone());
+        trust.trust(&workspace).unwrap();
+        let entry = entry_path(&store, &workspace);
+        fs::remove_file(&entry).unwrap();
+        fs::create_dir(&entry).unwrap();
+        let error = trust.exclude(&workspace).unwrap_err();
+        assert!(error.to_string().contains(&entry.display().to_string()));
+        assert_eq!(trust.status(&workspace), TrustStatus::Trusted);
+    }
+
+    #[test]
+    fn failed_revocation_preserves_the_cached_decision() {
+        let directory = tempfile::tempdir().unwrap();
+        let workspace = directory.path().join("project");
+        let store = directory.path().join("trust-store");
+        let trust = WorkspaceTrust::new(Config::default(), store.clone());
+        trust.trust(&workspace).unwrap();
+        let entry = entry_path(&store, &workspace);
+        fs::remove_file(&entry).unwrap();
+        fs::create_dir(&entry).unwrap();
+        let error = trust.untrust(&workspace).unwrap_err();
+        assert!(error.to_string().contains(&entry.display().to_string()));
+        assert_eq!(trust.status(&workspace), TrustStatus::Trusted);
     }
 
     #[test]
@@ -717,11 +787,11 @@ mod test {
         // Untrusted + .mitos/config.toml exists → indicator should show.
         write_file(&workspace.join(".mitos").join("config.toml"), "a = 1");
         // Bust the cache so the new file is picked up.
-        trust.untrust(workspace);
+        trust.untrust(workspace).unwrap();
         assert!(trust.workspace_restricted(workspace));
 
         // After explicit trust, indicator hides.
-        trust.trust(workspace);
+        trust.trust(workspace).unwrap();
         assert!(!trust.workspace_restricted(workspace));
 
         // After mutation (and revoking the cached entry to simulate fresh load), workspace becomes
@@ -743,7 +813,7 @@ mod test {
         write_file(&workspace.join(".mitos").join("config.toml"), "a = 1");
 
         let mut trust = WorkspaceTrust::new(Config::default(), dir.path().join("trust-store"));
-        trust.trust(workspace);
+        trust.trust(workspace).unwrap();
         assert_eq!(trust.status(workspace), TrustStatus::Trusted);
 
         // External mutation while mitos is running.
@@ -822,7 +892,7 @@ mod test {
 
         // Seed an excluded entry via a level=None trust state.
         let bootstrap = WorkspaceTrust::new(Config::default(), dir.path().join("trust-store"));
-        bootstrap.exclude(workspace);
+        bootstrap.exclude(workspace).unwrap();
 
         // Fresh state (cold cache) under level=Insecure.
         let trust = WorkspaceTrust::new(
@@ -877,7 +947,7 @@ mod test {
         );
 
         // Explicit excludes beat a matching glob.
-        trust.exclude(&trusted);
+        trust.exclude(&trusted).unwrap();
         assert_eq!(
             trust.query(&trusted, TrustQuery::LocalConfig),
             TrustStatus::Excluded
@@ -899,7 +969,7 @@ mod test {
         write_file(&workspace.join(".mitos").join("config.toml"), "a = 1");
 
         let trust = WorkspaceTrust::new(Config::default(), dir.path().join("trust-store"));
-        trust.trust(workspace);
+        trust.trust(workspace).unwrap();
         assert!(!trust.workspace_restricted(workspace));
         assert_eq!(trust.status(workspace), TrustStatus::Trusted);
 

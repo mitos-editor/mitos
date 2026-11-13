@@ -130,13 +130,18 @@ pub fn dismiss_request(editor: &mut Editor, request: &TrustRequest) {
     }
 }
 
-fn record_decision(editor: &mut Editor, workspace: &Path, decision: TrustDecision) {
-    editor.handlers.workspace_trust.pending.remove(workspace);
+fn record_decision(
+    editor: &mut Editor,
+    workspace: &Path,
+    decision: TrustDecision,
+) -> std::io::Result<()> {
     match decision {
         TrustDecision::Trust => editor.workspace_trust.trust(workspace),
         TrustDecision::Untrust => editor.workspace_trust.untrust(workspace),
         TrustDecision::Exclude => editor.workspace_trust.exclude(workspace),
-    }
+    }?;
+    editor.handlers.workspace_trust.pending.remove(workspace);
+    Ok(())
 }
 
 /// Apply an explicit decision and reload configuration. Revocation and exclusion
@@ -146,7 +151,7 @@ pub fn apply_decision(
     workspace: &Path,
     decision: TrustDecision,
 ) -> anyhow::Result<()> {
-    record_decision(editor, workspace, decision);
+    record_decision(editor, workspace, decision)?;
     editor.config_requests().send(ConfigEvent::Refresh)?;
     Ok(())
 }
@@ -177,7 +182,7 @@ pub fn resolve_request(
         dismiss_request(editor, request);
         return Ok(false);
     }
-    record_decision(editor, &request.workspace, decision);
+    record_decision(editor, &request.workspace, decision)?;
     if matches!(decision, TrustDecision::Trust) {
         let documents: Vec<_> = editor.documents.keys().copied().collect();
         for document in documents {
