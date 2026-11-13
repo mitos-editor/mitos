@@ -498,7 +498,7 @@ impl View {
             .content_area(doc.source())
             .clip_top(self.breadcrumb_offset(doc.source()))
             .clip_left(self.gutter_offset_presented(doc));
-        let format = doc.source().text_format(viewport.width, theme);
+        let format = doc.source().text_format(viewport.width);
         let annotations = self.prepare_text_annotations(doc, theme, &format, viewport.width);
         ViewLayout {
             text: doc.text().slice(..),

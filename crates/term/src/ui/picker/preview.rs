@@ -731,7 +731,7 @@ pub(super) fn render_preview_content(
     if inner.is_empty() {
         return;
     }
-    let format = doc.text_format(inner.width, Some(&cx.editor.theme));
+    let format = doc.text_format(inner.width);
     let content_height = state.document_height(doc, &format);
     let mut offset = ViewPosition::default();
     if !state.initialized

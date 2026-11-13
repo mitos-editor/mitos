@@ -161,7 +161,7 @@ mod tests {
                 text: doc.text().slice(..),
                 viewport: area,
                 offset,
-                format: doc.text_format(area.width, Some(&theme)),
+                format: doc.text_format(area.width),
                 annotations: Default::default(),
             },
             vec![],

@@ -154,7 +154,7 @@ mod tests {
             &mut renderer,
             doc.text().slice(..),
             0,
-            &doc.text_format(width, Some(&theme)),
+            &doc.text_format(width),
             &Default::default(),
             std::iter::empty(),
             vec![],
