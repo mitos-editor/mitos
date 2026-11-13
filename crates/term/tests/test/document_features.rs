@@ -417,6 +417,24 @@ async fn queued_results_are_discarded_after_edits_and_document_closure() -> anyh
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn document_symbols_are_requested_again_after_a_null_answer() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let mut fixture = Fixture::new(&dir.path().join("late.feature-test"), "😀 late symbols\n")?;
+    // The server is not ready for the first symbol request: its place in the batch is
+    // taken by the callback that asks again.
+    let responses = fixture.initialize().await?;
+    fixture.apply(responses);
+    let (view, doc) = current_ref!(fixture.app.editor);
+    assert!(doc.breadcrumbs(view.id).is_none());
+
+    let symbols = fixture.batch(&[Feature::Symbols]).await?;
+    fixture.apply(symbols);
+    fixture.assert_features("😀 late symbols");
+    assert!(fixture.app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn queued_highlights_follow_the_selection_and_view_document() -> anyhow::Result<()> {
     let dir = tempfile::tempdir()?;
     let mut fixture = Fixture::new(&dir.path().join("selection.feature-test"), "😀 original\n")?;

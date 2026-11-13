@@ -1,5 +1,7 @@
 //! Shared coordination for LSP document symbols results.
 
+use std::time::Duration;
+
 use event::{cancelable_future, register_hook};
 use language_config::LanguageServerFeature;
 use lsp_client::lsp::DocumentSymbolResponse;
@@ -26,7 +28,18 @@ impl DocumentSymbolsHandler {
     }
 }
 
+/// Waits before asking again when a server answers `null`, as some do while still loading.
+const RETRY_DELAYS: [Duration; 3] = [
+    Duration::from_millis(100),
+    Duration::from_millis(500),
+    Duration::from_secs(2),
+];
+
 fn request_document_symbols(editor: &mut Editor, doc_id: DocumentId) {
+    request_document_symbols_attempt(editor, doc_id, 0);
+}
+
+fn request_document_symbols_attempt(editor: &mut Editor, doc_id: DocumentId, attempt: usize) {
     if !editor.config().lsp.enable {
         return;
     }
@@ -56,7 +69,23 @@ fn request_document_symbols(editor: &mut Editor, doc_id: DocumentId) {
     let request = DocumentRequest::new(doc, cancel, vec![server_id]);
 
     tokio::spawn(async move {
-        let Some(Ok(Some(response))) = cancelable_future(future, &request.cancel).await else {
+        let Some(Ok(response)) = cancelable_future(future, &request.cancel).await else {
+            return;
+        };
+        let Some(response) = response else {
+            if let Some(&delay) = RETRY_DELAYS.get(attempt)
+                && cancelable_future(tokio::time::sleep(delay), &request.cancel)
+                    .await
+                    .is_some()
+            {
+                callbacks
+                    .send(move |editor| {
+                        if request.is_current(editor) {
+                            request_document_symbols_attempt(editor, doc_id, attempt + 1);
+                        }
+                    })
+                    .await;
+            }
             return;
         };
 

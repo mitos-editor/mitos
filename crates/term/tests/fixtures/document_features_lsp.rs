@@ -68,6 +68,7 @@ fn main() -> anyhow::Result<()> {
     let inline_values = args.first().is_some_and(|arg| arg == "--inline-values");
     let mut hold_lenses = args.iter().any(|arg| arg == "--hold-resolves");
     let mut held_lenses = Vec::<Value>::new();
+    let mut symbols_requested = false;
     let navigation = args.first().is_some_and(|arg| arg == "--navigation");
     let language_features = args.first().is_some_and(|arg| arg == "--language-features");
     let signature_help = args.first().is_some_and(|arg| arg == "--signature-help");
@@ -1247,6 +1248,12 @@ fn main() -> anyhow::Result<()> {
                 "documentSymbolProvider": true, "documentHighlightProvider": true,
                 "colorProvider": true, "documentLinkProvider": {"resolveProvider": args.iter().any(|arg| arg == "--resolve-links")}, "codeLensProvider": {}
             }}),
+            "textDocument/documentSymbol"
+                if text.contains("late symbols")
+                    && !std::mem::replace(&mut symbols_requested, true) =>
+            {
+                Value::Null
+            }
             "textDocument/documentSymbol" => json!([{
                 "name": text, "kind": 12, "range": range(0, end), "selectionRange": range(3, end)
             }]),
