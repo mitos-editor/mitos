@@ -7,7 +7,7 @@ use super::{
     Document, EditorConfig, SCRATCH_BUFFER_NAME,
 };
 use crate::{DocumentId, Editor};
-use anyhow::{anyhow, bail, Error};
+use anyhow::{anyhow, bail, Context, Error};
 use arc_swap::access::DynAccess;
 use editor_config::Config;
 use editor_core::{encoding, encoding::Encoding, Rope};
@@ -314,32 +314,36 @@ impl Document {
             let must_copy = is_hardlink || is_symlink;
             let backup = if path.exists() && atomic_save {
                 let path_ = write_path.clone();
-                // hacks: we use tempfile to handle the complex task of creating
-                // non clobbered temporary path for us we don't want
-                // the whole automatically delete path on drop thing
-                // since the path doesn't exist yet, we just want
-                // the path
-                tokio::task::spawn_blocking(move || -> Option<PathBuf> {
+                // Keep backups until the write or restoration finishes. A failed
+                // restoration must leave the backup available for recovery.
+                let backup = tokio::task::spawn_blocking(move || -> anyhow::Result<PathBuf> {
+                    let name = path_
+                        .file_name()
+                        .ok_or_else(|| anyhow!("backup path has no filename"))?;
+                    let parent = path_
+                        .parent()
+                        .ok_or_else(|| anyhow!("backup path has no parent directory"))?;
                     let mut builder = tempfile::Builder::new();
-                    builder.prefix(path_.file_name()?).suffix(".bck");
+                    builder.prefix(name).suffix(".bck").disable_cleanup(true);
 
                     let backup_path = if must_copy {
                         builder
-                            .make_in(path_.parent()?, |backup| std::fs::copy(&path_, backup))
-                            .ok()?
+                            .make_in(parent, |backup| std::fs::copy(&path_, backup))?
                             .into_temp_path()
                     } else {
                         builder
-                            .make_in(path_.parent()?, |backup| std::fs::rename(&path_, backup))
-                            .ok()?
+                            .make_in(parent, |backup| std::fs::rename(&path_, backup))?
                             .into_temp_path()
                     };
 
-                    backup_path.keep().ok()
+                    Ok(backup_path.to_path_buf())
                 })
                 .await
-                .ok()
-                .flatten()
+                .context("backup task failed")?
+                .with_context(|| {
+                    format!("failed to back up {} before saving", write_path.display())
+                })?;
+                Some(backup)
             } else {
                 None
             };

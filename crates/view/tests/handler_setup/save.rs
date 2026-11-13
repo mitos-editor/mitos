@@ -29,6 +29,38 @@ fn formatting_save(fixture: &mut Fixture) -> anyhow::Result<SaveTask> {
     Ok(task)
 }
 
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn atomic_save_preserves_the_original_when_backup_creation_fails() -> anyhow::Result<()> {
+    // Linux and macOS accept this name, but appending the backup suffix exceeds
+    // their filename limit. Exercise both rename and hardlink-preserving copy.
+    for hardlink in [false, true] {
+        let mut fixture = Fixture::new("replacement\n")?;
+        let path = fixture.dir.path().join("a".repeat(255));
+        let alias = fixture.dir.path().join("alias");
+        std::fs::write(&path, "original\n")?;
+        if hardlink {
+            std::fs::hard_link(&path, &alias)?;
+        }
+        let (_, doc) = current!(fixture.editor);
+        let result = doc.save(Some(path.clone()), true)?.await;
+        assert!(result.is_err(), "atomic save must require a backup");
+        assert_eq!(std::fs::read_to_string(&path)?, "original\n");
+        if hardlink {
+            assert_eq!(std::fs::read_to_string(&alias)?, "original\n");
+        }
+
+        fixture.configure(|config| config.files.save.atomic = false);
+        let (_, doc) = current!(fixture.editor);
+        doc.save(Some(path.clone()), true)?.await?;
+        assert_eq!(std::fs::read_to_string(&path)?, "replacement\n");
+        if hardlink {
+            assert_eq!(std::fs::read_to_string(&alias)?, "replacement\n");
+        }
+    }
+    Ok(())
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn formatted_saves_follow_the_document_when_its_origin_view_switches_or_closes(
 ) -> anyhow::Result<()> {
