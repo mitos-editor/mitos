@@ -162,7 +162,8 @@ impl ReviewView {
                     style
                 },
                 if syntax.is_some() {
-                    theme::Style::default().add_modifier(view::graphics::Modifier::BOLD)
+                    // Source styles already include changed-word emphasis.
+                    theme::Style::default()
                 } else {
                     style.add_modifier(view::graphics::Modifier::BOLD)
                 },

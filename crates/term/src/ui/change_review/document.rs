@@ -89,10 +89,54 @@ pub(super) fn row_syntax_styles(
     let char_start = original.byte_to_char_idx(byte);
     let char_end = original.byte_to_char_idx(end);
     let highlighter = syntax.highlighter(original.slice(..), loader, byte as u32..end as u32);
-    Some(
+    let styles: Vec<_> =
         super::super::highlights::syntax_styles(original.slice(..), Some(highlighter), theme)
             .take_while(|(position, _)| *position <= char_end)
             .map(|(position, style)| (position.saturating_sub(char_start), style))
+            .collect();
+    let Some(changes) = &row.changes else {
+        return Some(styles);
+    };
+    let changes: Vec<_> = changes
+        .iter()
+        .map(|range| {
+            original.byte_to_char_idx(byte + range.start) - char_start
+                ..original.byte_to_char_idx(byte + range.end) - char_start
+        })
+        .collect();
+    // Apply word emphasis here so previews and native documents share it.
+    // Falling back to diff.plus/minus would overwrite the source syntax color.
+    let scope = match row.kind {
+        ReviewLineKind::Added => "diff.plus.word",
+        ReviewLineKind::Removed => "diff.minus.word",
+        _ => return Some(styles),
+    };
+    let emphasis = theme
+        .try_get_exact(scope)
+        .unwrap_or_else(|| Style::default().add_modifier(theme::Modifier::BOLD));
+    let mut positions: Vec<_> = styles.iter().map(|(position, _)| *position).collect();
+    positions.extend(changes.iter().flat_map(|range| [range.start, range.end]));
+    positions.sort_unstable();
+    positions.dedup();
+    let mut syntax = styles.into_iter().peekable();
+    let mut style = theme.get("ui.text");
+    Some(
+        positions
+            .into_iter()
+            .map(|position| {
+                while syntax.peek().is_some_and(|(start, _)| *start <= position) {
+                    style = syntax.next().unwrap().1;
+                }
+                let changed = changes.iter().any(|range| range.contains(&position));
+                (
+                    position,
+                    if changed {
+                        style.patch(emphasis)
+                    } else {
+                        style
+                    },
+                )
+            })
             .collect(),
     )
 }
@@ -121,6 +165,9 @@ pub fn highlights(
             ReviewLineKind::Context => continue,
         };
         if let Some(ranges) = review.changes(index) {
+            if has_syntax {
+                continue;
+            }
             let Some(highlight) = theme.find_highlight(&format!("{scope}.word")) else {
                 continue;
             };
