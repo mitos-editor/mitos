@@ -157,8 +157,8 @@ pub struct WorkspaceTrust {
 #[derive(Clone, Copy)]
 struct CacheEntry {
     status: TrustStatus,
-    /// Whether a supported workspace-local configuration file exists in the workspace at the time
-    /// of the first uncached query. Snapshotted to keep [`WorkspaceTrust::workspace_restricted`]
+    /// Whether a supported workspace-local configuration file or a Jujutsu repository exists in
+    /// the workspace at the time of the first uncached query. Snapshotted to keep [`WorkspaceTrust::workspace_restricted`]
     /// off the syscall path on repeat calls (statusline indicator runs per render).
     has_local_config: bool,
 }
@@ -433,6 +433,8 @@ fn has_local_config(workspace: &Path) -> bool {
         || workspace.join(".mitos").join("snippets.toml").exists()
         || std::fs::symlink_metadata(workspace.join(".mitos/snippets"))
             .is_ok_and(|metadata| metadata.is_dir())
+        // Jujutsu has no reduced-trust mode: the repository is not read at all until trusted.
+        || workspace.join(".jj").is_dir()
 }
 
 fn demote_for_query(status: TrustStatus, query: TrustQuery) -> TrustStatus {
@@ -735,6 +737,17 @@ mod test {
         let error = trust.untrust(&workspace).unwrap_err();
         assert!(error.to_string().contains(&entry.display().to_string()));
         assert_eq!(trust.status(&workspace), TrustStatus::Trusted);
+    }
+
+    #[test]
+    fn untrusted_jujutsu_workspaces_are_restricted() {
+        let directory = tempfile::tempdir().unwrap();
+        let workspace = directory.path().join("project");
+        fs::create_dir_all(workspace.join(".jj")).unwrap();
+        let trust = WorkspaceTrust::new(Config::default(), directory.path().join("store"));
+        assert!(trust.workspace_restricted(&workspace));
+        trust.trust(&workspace).unwrap();
+        assert!(!trust.workspace_restricted(&workspace));
     }
 
     #[test]

@@ -17,6 +17,7 @@ bench = false
 [features]
 default = []
 git = ["vcs/git"]
+jj = ["vcs/jj"]
 unicode-lines = ["editor-config/unicode-lines"]
 
 [dependencies]

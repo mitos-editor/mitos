@@ -16,8 +16,9 @@ pub(crate) fn prompt(editor: &view::Editor, compositor: &mut Compositor, request
 
 const TRUST_MESSAGE: &str = "Trust this workspace?
 
-Trusted workspaces may load local Mitos config files (`.mitos/*`) and auto-start language servers. \
-Both can execute arbitrary code. Only trust workspaces whose contents you have inspected.";
+Trusted workspaces may load local Mitos config files (`.mitos/*`), read Jujutsu repositories \
+and auto-start language servers. All of these can execute arbitrary code. Only trust workspaces \
+whose contents you have inspected.";
 
 #[derive(Default, Clone, Copy, Debug)]
 pub enum TrustChoice {

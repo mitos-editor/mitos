@@ -1,6 +1,6 @@
 //! Bounded repository snapshots. Reading a comparison never writes the index or worktree.
 
-#[cfg(feature = "git")]
+#[cfg(any(feature = "git", feature = "jj"))]
 use anyhow::Result;
 
 #[cfg(feature = "git")]
@@ -171,8 +171,8 @@ pub(crate) fn read_blob(
     crate::blob::to_worktree(repo, &object.data, path, Some(MAX_REVIEW_BYTES))
 }
 
-#[cfg(feature = "git")]
-fn bounded_read(reader: &mut impl std::io::Read) -> Result<Vec<u8>> {
+#[cfg(any(feature = "git", feature = "jj"))]
+pub(crate) fn bounded_read(reader: &mut impl std::io::Read) -> Result<Vec<u8>> {
     use std::io::Read;
     let mut bytes = Vec::new();
     reader

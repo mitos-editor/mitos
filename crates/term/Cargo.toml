@@ -34,13 +34,14 @@ assets = [
 ]
 
 [features]
-default = ["git"]
+default = ["git", "jj"]
 unicode-lines = ["core/unicode-lines", "view/unicode-lines"]
 # Enables process fixture binaries; application behavior is chosen at construction.
 integration = []
 # Runs tests that require compiled grammars in the runtime directories.
 runtime-grammars = []
 git = ["view/git"]
+jj = ["view/jj"]
 
 [[bin]]
 name = "ms"

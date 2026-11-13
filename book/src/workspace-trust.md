@@ -11,14 +11,15 @@ read project files and run programs of their own.
 
 ## Granting trust
 
-When opening a file whose project settings need trust, Mitos offers:
+When opening a file whose project settings or Jujutsu workspace need trust, Mitos offers:
 
 - **Trust** to remember approval for the workspace.
 - **Never** to exclude it and stop future prompts.
 - `Esc` to leave it untrusted for this session. Mitos may ask again next session.
 
 A `[⚠]` indicator appears in the bottom-right when the workspace is restricted
-and granting trust would enable project settings or a blocked language server.
+and granting trust would enable project settings, a blocked language server, or
+a [Jujutsu workspace](#jujutsu).
 Run `:workspace-trust` to approve a workspace after reviewing its settings.
 
 [Git actions](./version-control.md#git-picker-actions) that change files or the
@@ -84,6 +85,14 @@ change detection. An explicit `:workspace-exclude` overrides a path pattern.
 Git change tracking still works in untrusted workspaces, including built-in
 line-ending conversion. Repository-local settings that could launch external
 filter programs are ignored until you trust the workspace.
+
+### Jujutsu
+
+Jujutsu has no equivalent restricted mode: its repository configuration can name
+external programs, and Mitos cannot ask `jj` to ignore them. Jujutsu workspaces
+are therefore only read once you trust the workspace. Until then, a workspace
+that is also a Git repository is read as a Git repository, and any other
+Jujutsu workspace shows no change markers, status line revision, or changed files.
 
 ## Storage
 

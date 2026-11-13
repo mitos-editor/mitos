@@ -29,6 +29,7 @@ log.workspace = true
 
 [features]
 git = ["gix", "dep:dunce", "dep:tempfile"]
+jj = []
 
 [dev-dependencies]
 tempfile.workspace = true

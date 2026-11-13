@@ -7,9 +7,10 @@
 //! decoration. Changed-file enumeration reports a terminal error through its
 //! callback when no provider can serve the query.
 //!
-//! Git is currently the only compiled provider. The `trust_full` argument on
-//! registry operations controls whether repository-local configuration and the
-//! features it enables may be trusted; preserve it when adding new entry points.
+//! Jujutsu is tried before Git so that it serves colocated repositories. The
+//! `trust_full` argument on registry operations controls whether repository-local
+//! configuration and the features it enables may be trusted; preserve it when
+//! adding new entry points.
 
 use anyhow::{anyhow, Result};
 use arc_swap::ArcSwap;
@@ -20,6 +21,8 @@ use std::{
 
 #[cfg(feature = "git")]
 mod git;
+#[cfg(feature = "jj")]
+mod jj;
 #[cfg(feature = "git")]
 pub mod repository;
 
@@ -78,6 +81,8 @@ impl Default for DiffProviderRegistry {
     fn default() -> Self {
         Self {
             providers: vec![
+                #[cfg(feature = "jj")]
+                DiffProvider::Jj,
                 #[cfg(feature = "git")]
                 DiffProvider::Git,
             ]
