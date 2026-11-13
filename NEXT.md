@@ -14,7 +14,7 @@ Follow-up changes that reduce duplicated logic, redundant state, or unused API. 
 
 - [ ] **Unify line-ending detection.** The feature-specific implementations of `get_line_ending_of_str` in [`crates/core/src/line_ending.rs`](crates/core/src/line_ending.rs) can share one path: detect CRLF first, then use `LineEnding::from_char`. Retain the CR, LF, CRLF, and no-ending cases covered by the existing tests.
 
-- [ ] **Simplify native clipboard command results.** In [`crates/clipboard/src/native.rs`](crates/clipboard/src/native.rs), replace the `execute_command` boolean plus `Option` return with the result shapes required by its fixed read and write callers. `MissingStdout` is unreachable for the current read command. Preserve custom-provider selection and the native provider's read/write behavior.
+- [ ] **Simplify native clipboard command results.** In [`crates/clipboard/src/native.rs`](crates/clipboard/src/native.rs), replace the `execute_command` boolean plus `Option` return with result shapes suited to its read, write, and provider-probe callers. `MissingStdout` remains unreachable for successful reads. Preserve custom-provider selection, the five-second timeout, concurrent pipe I/O, cancellation, and process reaping, including Windows pipe handling. Retain the timeout and duplex-I/O regression tests.
 
 - [ ] **Remove unused debugger breakpoint wrappers.** In [`crates/debugger/src/breakpoints.rs`](crates/debugger/src/breakpoints.rs), remove `handle_event` and the test-only file-level `apply_response` wrapper if callers can use `handle_source_event` and `apply_source_response` directly. Keep source association and stale-revision coverage in the existing breakpoint tests.
 
