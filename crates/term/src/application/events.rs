@@ -110,7 +110,12 @@ where
                 );
             }
             EditorEvent::Navigation(update) => {
-                crate::handlers::navigation::show(&mut self.editor, &mut self.compositor, update);
+                crate::handlers::navigation::show(
+                    &mut self.editor,
+                    &mut self.compositor,
+                    &mut self.jobs,
+                    update,
+                );
             }
             EditorEvent::Hover(update) => {
                 crate::handlers::hover::show(&mut self.editor, &mut self.compositor, update);
@@ -156,6 +161,7 @@ where
     }
 
     pub async fn handle_terminal_events(&mut self, event: std::io::Result<TerminalEvent>) {
+        self.jobs.smooth_scroll.finish(&mut self.editor);
         #[cfg(not(windows))]
         use termina::escape::csi;
 
@@ -248,5 +254,7 @@ where
         if should_redraw && !self.editor.should_close() {
             self.request_frame();
         }
+
+        self.jobs.smooth_scroll.shown = None;
     }
 }

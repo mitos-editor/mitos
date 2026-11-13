@@ -594,6 +594,25 @@ async fn work_callbacks_keep_fifo_order_and_legacy_callbacks_still_redraw() -> a
 }
 
 #[tokio::test]
+async fn frame_callbacks_draw_immediately_and_redraws_wait() -> anyhow::Result<()> {
+    let (mut app, _) = application(Args::default())?;
+    app.drain_ready_callbacks();
+    draw_now(&mut app);
+    let sender = app.jobs.editor_callback_sender();
+    sender.send_blocking(|_| view::callbacks::CallbackOutcome::Frame);
+    app.drain_ready_callbacks();
+    let now = tokio::time::Instant::now();
+    assert!(app.render_state.requested.is_some_and(|due| due <= now));
+    draw_now(&mut app);
+    sender.send_blocking(|_| ());
+    app.drain_ready_callbacks();
+    let now = tokio::time::Instant::now();
+    assert!(app.render_state.requested.is_some_and(|due| due > now));
+    assert!(app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test]
 async fn a_new_request_after_a_direct_frame_still_draws() -> anyhow::Result<()> {
     let (mut app, _) = application(Args::default())?;
     for _ in 0..16 {

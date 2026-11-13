@@ -159,8 +159,10 @@ where
             &mut self.compositor,
             callback,
         );
-        if outcome.needs_redraw() {
-            self.request_redraw();
+        match outcome {
+            view::callbacks::CallbackOutcome::Redraw => self.request_redraw(),
+            view::callbacks::CallbackOutcome::Frame => self.request_frame(),
+            view::callbacks::CallbackOutcome::None => {}
         }
     }
 }

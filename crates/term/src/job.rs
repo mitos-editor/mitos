@@ -85,6 +85,7 @@ pub struct Jobs {
     sender: JobSender,
     editor_callbacks: EditorCallbackSender,
     pub(crate) command_expansion: event::TaskController,
+    pub(crate) smooth_scroll: crate::smooth_scroll::SmoothScroll,
     /// jobs that need to complete before we exit.
     pub wait_futures: FuturesUnordered<JobFuture>,
     pub callbacks: Receiver<Callback>,
@@ -138,6 +139,7 @@ impl Jobs {
             sender,
             editor_callbacks,
             command_expansion: event::TaskController::new(),
+            smooth_scroll: Default::default(),
             wait_futures: FuturesUnordered::new(),
             callbacks: rx,
             interactive_executor: interactive_executor(interactive_sender),

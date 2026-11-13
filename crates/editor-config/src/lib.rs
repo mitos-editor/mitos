@@ -1413,6 +1413,14 @@ pub struct ScrollConfig {
     pub padding: usize,
     /// Number of lines to scroll at once. Defaults to 3
     pub wheel_lines: isize,
+    /// animate scrolling (default false)
+    pub smooth: bool,
+    /// Duration of a smooth scroll animation in milliseconds. Defaults to 180; 0 jumps immediately.
+    #[serde(
+        serialize_with = "serialize_duration_millis",
+        deserialize_with = "deserialize_duration_millis"
+    )]
+    pub animation_duration: Duration,
 }
 
 impl Default for ScrollConfig {
@@ -1420,6 +1428,8 @@ impl Default for ScrollConfig {
         Self {
             padding: 5,
             wheel_lines: 3,
+            smooth: false,
+            animation_duration: Duration::from_millis(180),
         }
     }
 }

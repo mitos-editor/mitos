@@ -244,16 +244,18 @@ pub(super) fn match_brackets(cx: &mut Context) {
 
 fn goto_ts_object_impl(cx: &mut Context, object: &'static str, direction: Direction) {
     let count = cx.count();
-    cx.editor.apply_motion(move |editor: &mut Editor| {
-        let movement = if editor.mode() == Mode::Select {
-            Movement::Extend
-        } else {
-            Movement::Move
-        };
-        let (view, doc) = current!(editor);
-        if !view::editing::syntax::goto_object(doc, view, object, direction, count, movement) {
-            editor.set_status("Syntax-tree is not available in current buffer");
-        }
+    crate::smooth_scroll::animate(cx.editor, cx.jobs, |editor| {
+        editor.apply_motion(move |editor: &mut Editor| {
+            let movement = if editor.mode() == Mode::Select {
+                Movement::Extend
+            } else {
+                Movement::Move
+            };
+            let (view, doc) = current!(editor);
+            if !view::editing::syntax::goto_object(doc, view, object, direction, count, movement) {
+                editor.set_status("Syntax-tree is not available in current buffer");
+            }
+        })
     });
 }
 

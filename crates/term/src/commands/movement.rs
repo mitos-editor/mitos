@@ -9,6 +9,7 @@ use ui_core::keyboard::KeyCode;
 use view::{align_view, document::Mode, editor::Motion, Align, Editor};
 
 use super::context::Context;
+use crate::smooth_scroll::animate;
 
 fn move_impl(cx: &mut Context, lines: LineMotion, dir: Direction, behaviour: Movement) {
     let count = cx.count();
@@ -354,82 +355,86 @@ pub(super) fn repeat_last_motion(cx: &mut Context) {
     cx.editor.repeat_last_motion(cx.count())
 }
 
-pub fn scroll(cx: &mut Context, offset: usize, direction: Direction, sync_cursor: bool) {
-    let behaviour = if cx.editor.mode() == Mode::Select {
-        Movement::Extend
-    } else {
-        Movement::Move
-    };
+/// How scrolling moves the cursor in the current mode
+fn scroll_mode(editor: &Editor, sync_cursor: bool) -> (ScrollCursor, Movement) {
     let cursor = if sync_cursor {
         ScrollCursor::Follow
     } else {
         ScrollCursor::KeepVisible
     };
+    let behaviour = if editor.mode() == Mode::Select {
+        Movement::Extend
+    } else {
+        Movement::Move
+    };
+    (cursor, behaviour)
+}
+
+pub fn scroll(cx: &mut Context, offset: usize, direction: Direction, sync_cursor: bool) {
+    let (cursor, behaviour) = scroll_mode(cx.editor, sync_cursor);
     cx.editor
         .scroll_view(cx.editor.tree.focus(), offset, direction, cursor, behaviour);
 }
 
-pub(super) fn page_up(cx: &mut Context) {
+fn page(cx: &mut Context, divisor: usize, direction: Direction, sync_cursor: bool) {
     let (view, doc) = current_ref!(cx.editor);
-    let offset = view.inner_height(doc);
-    scroll(cx, offset, Direction::Backward, false);
+    let offset = view.inner_height(doc) / divisor;
+    let (cursor, behaviour) = scroll_mode(cx.editor, sync_cursor);
+
+    animate(cx.editor, cx.jobs, |editor| {
+        editor.scroll_view(editor.tree.focus(), offset, direction, cursor, behaviour)
+    });
+}
+
+pub(super) fn page_up(cx: &mut Context) {
+    page(cx, 1, Direction::Backward, false);
 }
 
 pub(super) fn page_down(cx: &mut Context) {
-    let (view, doc) = current_ref!(cx.editor);
-    let offset = view.inner_height(doc);
-    scroll(cx, offset, Direction::Forward, false);
+    page(cx, 1, Direction::Forward, false);
 }
 
 pub(super) fn half_page_up(cx: &mut Context) {
-    let (view, doc) = current_ref!(cx.editor);
-    let offset = view.inner_height(doc) / 2;
-    scroll(cx, offset, Direction::Backward, false);
+    page(cx, 2, Direction::Backward, false);
 }
 
 pub(super) fn half_page_down(cx: &mut Context) {
-    let (view, doc) = current_ref!(cx.editor);
-    let offset = view.inner_height(doc) / 2;
-    scroll(cx, offset, Direction::Forward, false);
+    page(cx, 2, Direction::Forward, false);
 }
 
 pub(super) fn page_cursor_up(cx: &mut Context) {
-    let (view, doc) = current_ref!(cx.editor);
-    let offset = view.inner_height(doc);
-    scroll(cx, offset, Direction::Backward, true);
+    page(cx, 1, Direction::Backward, true);
 }
 
 pub(super) fn page_cursor_down(cx: &mut Context) {
-    let (view, doc) = current_ref!(cx.editor);
-    let offset = view.inner_height(doc);
-    scroll(cx, offset, Direction::Forward, true);
+    page(cx, 1, Direction::Forward, true);
 }
 
 pub(super) fn page_cursor_half_up(cx: &mut Context) {
-    let (view, doc) = current_ref!(cx.editor);
-    let offset = view.inner_height(doc) / 2;
-    scroll(cx, offset, Direction::Backward, true);
+    page(cx, 2, Direction::Backward, true);
 }
 
 pub(super) fn page_cursor_half_down(cx: &mut Context) {
-    let (view, doc) = current_ref!(cx.editor);
-    let offset = view.inner_height(doc) / 2;
-    scroll(cx, offset, Direction::Forward, true);
+    page(cx, 2, Direction::Forward, true);
+}
+
+fn align(cx: &mut Context, align: Align) {
+    animate(cx.editor, cx.jobs, |editor| {
+        let (view, doc) = current!(editor);
+        align_view(doc, view, align);
+    });
 }
 
 pub(super) fn align_view_top(cx: &mut Context) {
-    let (view, doc) = current!(cx.editor);
-    align_view(doc, view, Align::Top);
+    align(cx, Align::Top);
 }
 
 pub(super) fn align_view_center(cx: &mut Context) {
-    let (view, doc) = current!(cx.editor);
-    align_view(doc, view, Align::Center);
+    align(cx, Align::Center);
 }
 
 pub(super) fn align_view_bottom(cx: &mut Context) {
-    let (view, doc) = current!(cx.editor);
-    align_view(doc, view, Align::Bottom);
+    align(cx, Align::Bottom);
 }
 
 pub(super) fn align_view_middle(cx: &mut Context) {

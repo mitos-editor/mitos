@@ -152,6 +152,7 @@ where
                 && !self.editor.has_pending_writes()
                 && !self.editor.has_pending_shell_filters()
                 && !self.jobs.command_expansion.is_running()
+                && !self.jobs.smooth_scroll.task.is_running()
                 && !self.editor.documents().any(|doc| doc.is_syntax_pending())
                 && !self.compositor.has_pending_render()
             {
