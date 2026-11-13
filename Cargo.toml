@@ -154,6 +154,7 @@ nucleo-matcher = "0.3.1"
 percent-encoding = "2.3"
 pulldown-cmark = { version = "0.13", default-features = false }
 regex = "1"
+regex-syntax = "0.8"
 regex-automata = "0.4.14"
 # Match tree-house's cursor revision so both forks share one implementation.
 regex-cursor = { git = "https://github.com/mitos-editor/regex-cursor", rev = "4db0a68e0c518af353126f0528f0db52c85bc6a0" }

@@ -158,6 +158,59 @@ async fn select_all_word_textobjects_inside_selection() -> anyhow::Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn word_bounded_search_scopes_every_alternative() -> anyhow::Result<()> {
+    use stdx::rope::RopeSliceExt;
+    use view::features::buffer_search::Query;
+
+    let mut config = test_config();
+    config.keys = term::config::Config::load(
+        Ok(&"[keys.normal]\nF7 = 'make_search_word_bounded'".to_owned()),
+        Err(term::config::ConfigLoadError::default()),
+    )
+    .unwrap()
+    .keys;
+    let mut app = AppBuilder::new().with_config(config).build()?;
+    for pattern in [
+        "foo|bar",
+        r"\bfoo|bar\b",
+        r"\bfoo|bar",
+        r"(?i:foo|bar)",
+        r"(?i)foo|bar",
+        r"f\x{6f}o|bar",
+        "(?x)foo | bar # trailing comment",
+        "(?x)foo | bar # UPPERCASE comment",
+        r"\b(?:foo|bar)\b",
+    ] {
+        app.editor.registers.push('/', pattern.to_owned())?;
+        helpers::keys(&mut app, "<F7>").await?;
+        let bounded = app.editor.first_register_value('/').unwrap().into_owned();
+        let regex = editor_core::regex::Regex::new(&bounded)?;
+        assert_eq!(
+            regex
+                .find_iter("foo foobar xbar bar")
+                .map(|matched| matched.as_str())
+                .collect::<Vec<_>>(),
+            ["foo", "bar"],
+            "pattern: {pattern}"
+        );
+        for sample in ["FOO", "BAR"] {
+            let text = editor_core::Rope::from(sample);
+            let before = Query::new(pattern, true, false)?;
+            let after = Query::new(&bounded, true, false)?;
+            assert_eq!(
+                before.regex().is_match(text.slice(..).regex_input()),
+                after.regex().is_match(text.slice(..).regex_input()),
+                "smart-case changed for {pattern}"
+            );
+        }
+        helpers::keys(&mut app, "<F7>").await?;
+        assert_eq!(app.editor.first_register_value('/').unwrap(), bounded);
+    }
+    assert!(app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn search_selection_detect_word_boundaries_at_eof() -> anyhow::Result<()> {
     // <https://github.com/helix-editor/helix/issues/12609>
     test((
