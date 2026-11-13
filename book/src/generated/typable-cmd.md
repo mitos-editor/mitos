@@ -97,7 +97,7 @@
 | `:pipe-to` | Pipe each selection to the shell command, ignoring output. |
 | `:run-shell-command`, `:sh`, `:!` | Run a shell command |
 | `:vcs-conflict-next` | Move to the next conflict; pass previous to move backwards. |
-| `:vcs-conflict-resolve` | Keep the current side, incoming side, or both sides of the conflict at the cursor. |
+| `:vcs-conflict-resolve` | Resolve the conflict at the cursor by keeping its current side, incoming side, base, both sides, or the section under the cursor. |
 | `:vcs-conflict-source` | Open the base, current, or incoming version of a conflicted file in a read-only split. |
 | `:vcs-blame` | Show commit details for the current line, with actions to copy the commit ID or message. |
 | `:vcs-branches` | Browse local branches. Press Enter to switch to the selected branch. |

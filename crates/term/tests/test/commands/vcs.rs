@@ -1031,6 +1031,7 @@ async fn conflict_actions_resolve_each_choice_without_a_language_server() -> any
         ("Accept current", "ours\r\n"),
         ("Accept incoming", "theirs\r\n"),
         ("Accept both (current then incoming)", "ours\r\ntheirs\r\n"),
+        ("Accept base", "old\r\n"),
     ] {
         let mut config = test_config();
         config.editor.lsp.enable = false;
@@ -1040,7 +1041,7 @@ async fn conflict_actions_resolve_each_choice_without_a_language_server() -> any
             .build()?;
         press_keys(&mut app, "]m").await?;
         let actions = requested_actions(&mut app).await?;
-        assert_eq!(actions.len(), 3);
+        assert_eq!(actions.len(), 4);
         actions
             .iter()
             .find(|action| action.title() == title)
@@ -1054,6 +1055,93 @@ async fn conflict_actions_resolve_each_choice_without_a_language_server() -> any
         assert_eq!(current_ref!(app.editor).1.text().to_string(), original);
         assert!(app.close().await.is_empty());
     }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn conflict_commands_resolve_jujutsu_sections_and_the_section_at_the_cursor(
+) -> anyhow::Result<()> {
+    let conflict = "\
+<<<<<<< conflict 1 of 1
++++++++ side #1
+one
+------- base #1
+old
++++++++ side #2
+two
+------- base #2
+older
++++++++ side #3
+three
+>>>>>>> conflict 1 of 1 ends
+";
+    let original = format!("prefix\n{conflict}suffix\n");
+    let mut app = AppBuilder::new()
+        .with_input_text(format!("#[|]#{original}"))
+        .build()?;
+    press_keys(&mut app, "]m").await?;
+    let titles: Vec<_> = requested_actions(&mut app)
+        .await?
+        .iter()
+        .map(|action| action.title().to_owned())
+        .collect();
+    assert_eq!(
+        titles,
+        [
+            "Accept current",
+            "Accept incoming",
+            "Accept all sides",
+            "Accept base"
+        ]
+    );
+    // The cursor starts on the opening marker, which belongs to no section.
+    for (keys, replacement) in [
+        (":vcs-conflict-resolve cursor<ret>", None),
+        (":vcs-conflict-resolve current<ret>", Some("one\n")),
+        (":vcs-conflict-resolve incoming<ret>", Some("three\n")),
+        (":vcs-conflict-resolve base<ret>", Some("old\n")),
+        (":vcs-conflict-resolve both<ret>", Some("one\ntwo\nthree\n")),
+        ("6j:vcs-conflict-resolve cursor<ret>", Some("two\n")),
+        ("7j:vcs-conflict-resolve cursor<ret>", Some("older\n")),
+        ("11j:vcs-conflict-resolve cursor<ret>", Some("three\n")),
+    ] {
+        press_keys(&mut app, keys).await?;
+        let expected = replacement.map_or_else(
+            || original.clone(),
+            |replacement| format!("prefix\n{replacement}suffix\n"),
+        );
+        assert_eq!(
+            current_ref!(app.editor).1.text().to_string(),
+            expected,
+            "{keys}"
+        );
+        if replacement.is_some() {
+            press_keys(&mut app, "u").await?;
+        }
+        press_keys(&mut app, "gg]m").await?;
+    }
+    assert!(app.close().await.is_empty());
+
+    // Without a base there is none to keep, and the separator is on neither side.
+    let original = "<<<<<<< HEAD\nours\n=======\ntheirs\n>>>>>>> topic\n";
+    let mut app = AppBuilder::new()
+        .with_input_text(format!("#[|]#{original}"))
+        .build()?;
+    assert_eq!(requested_actions(&mut app).await?.len(), 3);
+    for keys in [
+        ":vcs-conflict-resolve base<ret>",
+        "2j:vcs-conflict-resolve cursor<ret>",
+    ] {
+        press_keys(&mut app, keys).await?;
+        assert_eq!(current_ref!(app.editor).1.text().to_string(), original);
+        assert!(app
+            .editor
+            .get_status()
+            .is_some_and(|(_, severity)| { *severity == ::diagnostics::Severity::Error }));
+    }
+    press_keys(&mut app, "j:vcs-conflict-resolve cursor<ret>").await?;
+    assert_eq!(current_ref!(app.editor).1.text().to_string(), "theirs\n");
+    assert!(app.close().await.is_empty());
     Ok(())
 }
 
@@ -1210,7 +1298,7 @@ async fn conflict_actions_ignore_malformed_and_immutable_documents() -> anyhow::
     assert!(requested_actions(&mut app).await?.is_empty());
     assert!(view::features::conflicts::resolve(
         &mut app.editor,
-        vcs::conflict::Resolution::Current
+        Some(vcs::conflict::Resolution::Current)
     )
     .is_err());
     assert_eq!(current_ref!(app.editor).1.text().to_string(), original);
