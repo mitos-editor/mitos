@@ -5,6 +5,8 @@
   runCommand,
   installShellFiles,
   git,
+  pkg-config,
+  aws-lc,
   gitRev ? null,
   grammarOverlays ? [ ],
   includeGrammarIf ? _: true,
@@ -47,7 +49,7 @@ rustPlatform.buildRustPackage (self: {
     substituteInPlace crates/loader/src/theme.rs \
       --replace-fail '../../../runtime/themes/base16_terminal.toml' '${./runtime/themes/base16_terminal.toml}'    
   '';
-  
+
   cargoLock = {
     lockFile = ./Cargo.lock;
     # This is not allowed in nixpkgs but is very convenient here: it allows us to
@@ -61,7 +63,10 @@ rustPlatform.buildRustPackage (self: {
   nativeBuildInputs = [
     installShellFiles
     git
+    pkg-config
   ];
+
+  buildInputs = [ aws-lc ];
 
   buildType = "release";
 
