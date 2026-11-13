@@ -69,6 +69,19 @@ impl Fixture {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn quicklist_picker_and_activation_handle_a_shortened_buffer() -> anyhow::Result<()> {
+    let mut f = Fixture::new(&[])?;
+    f.keys("ialpha<ret>beta<ret>gamma<esc><A-q>").await?;
+    let entry = f.app.editor.quicklist.entries()[0].clone();
+    f.keys("%d<space>q<ret>").await?;
+    let (view, doc) = current_ref!(f.app.editor);
+    assert!(doc.selection(view.id).primary().to() <= doc.text().len_chars());
+    assert_eq!(f.app.editor.quicklist.entries(), &[entry]);
+    f.finish().await;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn quicklist_add_saved_location_preserves_selection_and_existing_entries(
 ) -> anyhow::Result<()> {
     let mut f = Fixture::new(&["first.txt", "second.txt"])?;

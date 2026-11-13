@@ -1029,7 +1029,7 @@ impl Editor {
         let selection = match &entry.position {
             QuicklistPosition::None => return true,
             QuicklistPosition::Selection(selection) => {
-                selection.clone().ensure_invariants(text.slice(..))
+                crate::quicklist::clamp_selection(selection, text.slice(..))
             }
             QuicklistPosition::LineRange { start, end } => {
                 if *start >= text.len_lines(stdx::rope::LINE_TYPE) {
