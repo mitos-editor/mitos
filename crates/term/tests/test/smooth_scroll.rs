@@ -8,6 +8,64 @@ use termina::event::Event;
 
 const SMOOTH: Option<u64> = Some(180);
 
+#[tokio::test(flavor = "multi_thread")]
+async fn smooth_selection_undo_matches_instant() -> anyhow::Result<()> {
+    let mut instant = page_app(None, &["page_cursor_half_down"])?;
+    helpers::keys(&mut instant, "j").await?;
+    helpers::keys(&mut instant, "<F1>").await?;
+    helpers::keys(&mut instant, "<A-u><A-u>").await?;
+    let expected = state(&instant).0;
+    let mut smooth = page_app(SMOOTH, &["page_cursor_half_down"])?;
+    helpers::keys(&mut smooth, "j").await?;
+    helpers::keys(&mut smooth, "<F1>").await?;
+    helpers::keys(&mut smooth, "<A-u><A-u>").await?;
+    assert_eq!(expected, state(&smooth).0);
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn rows_between_wrapped_positions() -> anyhow::Result<()> {
+    let mut config = test_config();
+    config.editor.soft_wrap.enable = Some(true);
+    let app = AppBuilder::new()
+        .with_config(config)
+        .with_input_text(format!("#[|a]#{}", "a".repeat(10000)))
+        .build()?;
+    let (view, doc) = view::current_ref!(app.editor);
+    let from = view::view::ViewPosition {
+        anchor: 200,
+        ..Default::default()
+    };
+    let to = view::view::ViewPosition {
+        anchor: 1000,
+        ..Default::default()
+    };
+    assert!(view.rows_between(doc, from, to).unwrap() > 0);
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn smooth_scroll_cancels_after_background_edits() -> anyhow::Result<()> {
+    for interrupt in [false, true] {
+        let mut app = page_app(SMOOTH, &["page_cursor_half_down"])?;
+        press(&mut app, "<F1>").await?;
+        let (view, doc) = view::current!(app.editor);
+        let change = editor_core::Transaction::change(
+            doc.text(),
+            [(0, 0, Some("\n".repeat(100).into()))].into_iter(),
+        );
+        view::editing::apply(doc, &change, view.id).unwrap();
+        let expected = state(&app).0;
+        if interrupt {
+            // Finishing for input must also reject the old target.
+            press(&mut app, "<esc>").await?;
+        }
+        helpers::run_event_loop_until_idle(&mut app).await;
+        assert_eq!(expected, state(&app).0, "interrupt={interrupt}");
+    }
+    Ok(())
+}
+
 type State = (Selection, view::view::ViewPosition);
 
 fn state(app: &TestApplication) -> State {

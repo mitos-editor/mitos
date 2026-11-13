@@ -105,7 +105,7 @@ pub fn visual_offset_from_anchor(
         }
 
         if let Some(anchor_line) = anchor_line
-            && grapheme.visual_pos.row >= anchor_line + max_rows
+            && grapheme.visual_pos.row >= anchor_line.saturating_add(max_rows)
         {
             return Err(VisualOffsetError::PosAfterMaxRow);
         }

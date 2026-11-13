@@ -23,7 +23,7 @@ type Key = (ViewId, DocumentId);
 #[derive(Default)]
 pub(crate) struct SmoothScroll {
     pub(crate) task: event::TaskController,
-    target: Option<(Key, Shown)>,
+    target: Option<(Key, i32, Shown)>,
     pub(crate) shown: Option<(Key, Shown)>,
 }
 
@@ -31,12 +31,21 @@ impl SmoothScroll {
     pub(crate) fn finish(&mut self, editor: &mut Editor) {
         self.task.cancel();
 
-        self.shown = self.target.take().and_then(|(key, target)| {
-            let (_, doc) = view_doc(editor, key)?;
-            let shown = shown(doc, key.0);
-            set_shown(doc, key.0, target);
-
-            Some((key, shown))
+        self.shown = self.target.take().and_then(|(key, version, target)| {
+            let bound = editor
+                .tree
+                .try_get(key.0)
+                .is_some_and(|view| view.document_id() == key.1);
+            let doc = editor.documents.get_mut(&key.1)?;
+            let shown = if bound && doc.version() == version {
+                let shown = shown(doc, key.0);
+                set_shown(doc, key.0, target);
+                Some((key, shown))
+            } else {
+                None
+            };
+            doc.finish_selection_preview(key.0);
+            shown
         });
     }
 
@@ -116,8 +125,12 @@ pub(crate) fn animate(editor: &mut Editor, jobs: &mut Jobs, scroll: impl FnOnce(
         return;
     }
 
+    // The command already recorded its final selection. Presentation frames
+    // must not add intermediate positions to selection undo history.
+    doc.begin_selection_preview(id);
     set_shown(doc, id, from.clone());
-    jobs.smooth_scroll.target = Some((key, target.clone()));
+    let version = doc.version();
+    jobs.smooth_scroll.target = Some((key, version, target.clone()));
     let task = jobs.smooth_scroll.task.restart();
     let sender = jobs.sender();
 
@@ -150,11 +163,20 @@ pub(crate) fn animate(editor: &mut Editor, jobs: &mut Jobs, scroll: impl FnOnce(
                     }
 
                     let Some((view, doc)) = view_doc(cx.editor, key) else {
-                        return CallbackOutcome::None;
+                        cx.jobs.smooth_scroll.finish(cx.editor);
+                        return CallbackOutcome::Frame;
                     };
+
+                    // Edits map the live selection and offset. Keep that mapped
+                    // state instead of restoring positions from an older text.
+                    if doc.version() != version {
+                        cx.jobs.smooth_scroll.finish(cx.editor);
+                        return CallbackOutcome::Frame;
+                    }
 
                     if done {
                         set_shown(doc, id, target);
+                        doc.finish_selection_preview(id);
                         cx.jobs.smooth_scroll.target = None;
                         return CallbackOutcome::Frame;
                     }
