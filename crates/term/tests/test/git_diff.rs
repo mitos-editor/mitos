@@ -365,8 +365,6 @@ async fn review_syntax_uses_each_source_context_and_follows_theme_changes() -> a
                 "constant.numeric" = "yellow"
                 "diff.plus" = "green"
                 "diff.minus" = "red"
-                "diff.plus.word" = {{ modifiers = ["bold"] }}
-                "diff.minus.word" = {{ modifiers = ["bold"] }}
                 "diff.plus.line" = {{ bg = "#103010" }}
                 "diff.minus.line" = {{ bg = "#301010" }}
             "##
@@ -395,6 +393,16 @@ async fn review_syntax_uses_each_source_context_and_follows_theme_changes() -> a
                 let cell = &buffer[row];
                 assert_eq!(cell.fg, color, "{contents:?}, {extension:?}");
                 assert_eq!(cell.bg, background, "{contents:?}, {extension:?}");
+                let identifier = &buffer[(row.0 + 4, row.1)];
+                assert_eq!(
+                    identifier.fg,
+                    if contents == "let old" {
+                        comment
+                    } else {
+                        Color::Cyan
+                    }
+                );
+                assert!(identifier.modifier.contains(tui::style::Modifier::BOLD));
             }
         };
         assert_colors(&app, Color::Blue, Color::Magenta);
@@ -427,6 +435,21 @@ async fn review_syntax_uses_each_source_context_and_follows_theme_changes() -> a
                 .source()
                 .unwrap()
         ));
+        // Opening the same committed change from history must keep the
+        // preview's source colors and changed-word emphasis.
+        git(dir.path(), &["add", "."]);
+        git(dir.path(), &["commit", "-m", "highlighting regression"]);
+        let live_review = current_ref!(app.editor).1.id();
+        keys(&mut app, ":vcs-history<ret>highlighting regression").await?;
+        preview_contains(&mut app, "highlighting regression").await?;
+        keys(&mut app, &format!("<ret>source.{extension}")).await?;
+        preview_contains(&mut app, "let old").await?;
+        assert_colors(&app, Color::Red, Color::Green);
+        keys(&mut app, "<C-s>").await?;
+        assert_ne!(current_ref!(app.editor).1.id(), live_review);
+        ready(&mut app).await?;
+        keys(&mut app, "").await?;
+        assert_colors(&app, Color::Red, Color::Green);
         assert!(app.close().await.is_empty());
     }
     Ok(())
