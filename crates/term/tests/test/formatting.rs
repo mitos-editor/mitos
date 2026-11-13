@@ -62,6 +62,63 @@ async fn application_with_args(
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn range_formatting_converts_utf16_positions_and_preserves_surrounding_text(
+) -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let mut app = application(dir.path()).await?;
+    let (view, doc) = current!(app.editor);
+    doc.indent_style = editor_core::indent::IndentStyle::Spaces(2);
+    assert_ne!(doc.tab_width(), doc.indent_width());
+    let view = view.id;
+    let update = formatting::prepare_selections(&app.editor, view)?
+        .run()
+        .await;
+    assert!(update.apply(&mut app.editor)?);
+    assert_eq!(
+        current_ref!(app.editor).1.text().to_string(),
+        "😀 formatted bar\n"
+    );
+    let log = std::fs::read_to_string(lsp::log_path(dir.path(), "alpha"))?;
+    let request = log
+        .lines()
+        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+        .find(|message| message["method"] == "textDocument/rangeFormatting")
+        .unwrap();
+    assert_eq!(request["params"]["options"]["tabSize"], 2);
+    assert_eq!(request["params"]["range"]["start"]["character"], 3);
+    assert_eq!(request["params"]["range"]["end"]["character"], 6);
+    assert!(app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn range_formatting_rejects_rebound_views_and_detached_servers() -> anyhow::Result<()> {
+    for rebind in [true, false] {
+        let dir = tempfile::tempdir()?;
+        let mut app = application(dir.path()).await?;
+        let (view, doc) = current_ref!(app.editor);
+        let (view, id) = (view.id, doc.id());
+        let server = doc.language_servers().next().unwrap().id();
+        let update = formatting::prepare_selections(&app.editor, view)?
+            .run()
+            .await;
+        if rebind {
+            app.editor.new_file(Action::Replace);
+            app.editor.switch(id, Action::Replace);
+        } else {
+            app.editor.handle_language_server_exit(server);
+        }
+        assert!(!update.apply(&mut app.editor)?);
+        assert_eq!(
+            app.editor.document(id).unwrap().text().to_string(),
+            "😀 foo bar\n"
+        );
+        assert!(app.close().await.is_empty());
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn document_formatting_rejects_detached_and_replaced_servers() -> anyhow::Result<()> {
     for lifecycle in ["current", "detach", "restart"] {
         let dir = tempfile::tempdir()?;
@@ -152,63 +209,6 @@ async fn detached_save_formatter_is_discarded_without_canceling_the_write() -> a
         assert_eq!(std::fs::read_to_string(path)?, expected);
         assert_eq!(app.editor.document(document).unwrap().text(), expected);
         assert!(!app.editor.document(document).unwrap().is_modified());
-        assert!(app.close().await.is_empty());
-    }
-    Ok(())
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn range_formatting_converts_utf16_positions_and_preserves_surrounding_text(
-) -> anyhow::Result<()> {
-    let dir = tempfile::tempdir()?;
-    let mut app = application(dir.path()).await?;
-    let (view, doc) = current!(app.editor);
-    doc.indent_style = editor_core::indent::IndentStyle::Spaces(2);
-    assert_ne!(doc.tab_width(), doc.indent_width());
-    let view = view.id;
-    let update = formatting::prepare_selections(&app.editor, view)?
-        .run()
-        .await;
-    assert!(update.apply(&mut app.editor)?);
-    assert_eq!(
-        current_ref!(app.editor).1.text().to_string(),
-        "😀 formatted bar\n"
-    );
-    let log = std::fs::read_to_string(lsp::log_path(dir.path(), "alpha"))?;
-    let request = log
-        .lines()
-        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
-        .find(|message| message["method"] == "textDocument/rangeFormatting")
-        .unwrap();
-    assert_eq!(request["params"]["options"]["tabSize"], 2);
-    assert_eq!(request["params"]["range"]["start"]["character"], 3);
-    assert_eq!(request["params"]["range"]["end"]["character"], 6);
-    assert!(app.close().await.is_empty());
-    Ok(())
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn range_formatting_rejects_rebound_views_and_detached_servers() -> anyhow::Result<()> {
-    for rebind in [true, false] {
-        let dir = tempfile::tempdir()?;
-        let mut app = application(dir.path()).await?;
-        let (view, doc) = current_ref!(app.editor);
-        let (view, id) = (view.id, doc.id());
-        let server = doc.language_servers().next().unwrap().id();
-        let update = formatting::prepare_selections(&app.editor, view)?
-            .run()
-            .await;
-        if rebind {
-            app.editor.new_file(Action::Replace);
-            app.editor.switch(id, Action::Replace);
-        } else {
-            app.editor.handle_language_server_exit(server);
-        }
-        assert!(!update.apply(&mut app.editor)?);
-        assert_eq!(
-            app.editor.document(id).unwrap().text().to_string(),
-            "😀 foo bar\n"
-        );
         assert!(app.close().await.is_empty());
     }
     Ok(())
