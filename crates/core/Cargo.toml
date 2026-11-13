@@ -35,6 +35,7 @@ unicode-segmentation.workspace = true
 unicode-width.workspace = true
 unicode-general-category.workspace = true
 regex.workspace = true
+regex-syntax.workspace = true
 
 log.workspace = true
 serde.workspace = true

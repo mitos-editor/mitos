@@ -60,6 +60,38 @@ pub fn find_regex(
     })
 }
 
+/// Bound the complete expression while preserving captures and inline flag scopes.
+pub fn word_bounded_pattern(pattern: &str) -> Result<String, Box<regex_syntax::ast::Error>> {
+    use regex_syntax::ast::{AssertionKind, Ast};
+
+    let parsed = regex_syntax::ast::parse::Parser::new()
+        .parse_with_comments(pattern)
+        .map_err(Box::new)?;
+    if let Ast::Concat(concat) = &parsed.ast {
+        let mut parts = concat
+            .asts
+            .iter()
+            .filter(|part| !matches!(part, Ast::Flags(_)));
+        let boundary = |part: Option<&Ast>| matches!(part, Some(Ast::Assertion(assertion)) if assertion.kind == AssertionKind::WordBoundary);
+        if boundary(parts.next()) && boundary(parts.next_back()) {
+            return Ok(pattern.to_owned());
+        }
+    }
+    // Keep the original spelling: smart-case search also inspects escapes and
+    // comments. Terminate a trailing extended-mode comment before closing the group.
+    let newline = if parsed
+        .comments
+        .last()
+        .is_some_and(|comment| comment.span.end.offset == pattern.len())
+        && !pattern.ends_with('\n')
+    {
+        "\n"
+    } else {
+        ""
+    };
+    Ok(format!("\\b(?:{pattern}{newline})\\b"))
+}
+
 /// Build a literal alternation from selections, deduplicated in stable order.
 /// Optional word boundaries follow the surrounding document characters.
 pub fn selection_pattern(text: RopeSlice, selection: &Selection, word_boundaries: bool) -> String {

@@ -173,23 +173,15 @@ pub(super) fn make_search_word_bounded(cx: &mut Context) {
         Some(regex) => regex,
         None => return,
     };
-    let start_anchored = regex.starts_with("\\b");
-    let end_anchored = regex.ends_with("\\b");
-
-    if start_anchored && end_anchored {
+    let new_regex = match editor_core::search::word_bounded_pattern(&regex) {
+        Ok(pattern) => pattern,
+        Err(error) => {
+            cx.editor.set_error(|| format!("Invalid regex: {error}"));
+            return;
+        }
+    };
+    if new_regex == regex {
         return;
-    }
-
-    let mut new_regex = String::with_capacity(
-        regex.len() + if start_anchored { 0 } else { 2 } + if end_anchored { 0 } else { 2 },
-    );
-
-    if !start_anchored {
-        new_regex.push_str("\\b");
-    }
-    new_regex.push_str(&regex);
-    if !end_anchored {
-        new_regex.push_str("\\b");
     }
 
     let msg = format!("register '{}' set to '{}'", register, new_regex);
