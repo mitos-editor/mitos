@@ -60,7 +60,7 @@ impl Client {
         err: Option<Box<dyn AsyncBufRead + Unpin + Send>>,
         id: DebugAdapterId,
         process: Option<Child>,
-    ) -> Result<(Self, UnboundedReceiver<(DebugAdapterId, ClientEvent)>)> {
+    ) -> (Self, UnboundedReceiver<(DebugAdapterId, ClientEvent)>) {
         let (transport, incoming, server_tx) = Transport::start(rx, tx, err, id);
 
         let client = Self {
@@ -71,7 +71,7 @@ impl Client {
             socket: None,
         };
 
-        Ok((client, incoming))
+        (client, incoming)
     }
 
     /// Connects to an already-running TCP debug adapter.
@@ -82,7 +82,7 @@ impl Client {
         let stream = TcpStream::connect(addr).await?;
         let (rx, tx) = stream.into_split();
         let (mut client, incoming) =
-            Self::streams(Box::new(BufReader::new(rx)), Box::new(tx), None, id, None)?;
+            Self::streams(Box::new(BufReader::new(rx)), Box::new(tx), None, id, None);
         client.socket = Some(addr);
         Ok((client, incoming))
     }
@@ -112,13 +112,13 @@ impl Client {
         let reader = BufReader::new(process.stdout.take().expect("Failed to open stdout"));
         let stderr = BufReader::new(process.stderr.take().expect("Failed to open stderr"));
 
-        Self::streams(
+        Ok(Self::streams(
             Box::new(reader),
             Box::new(writer),
             Some(Box::new(stderr)),
             id,
             Some(process),
-        )
+        ))
     }
 
     /// Spawns an adapter that listens on an ephemeral loopback TCP port.
@@ -135,7 +135,7 @@ impl Client {
     ) -> Result<(Self, UnboundedReceiver<(DebugAdapterId, ClientEvent)>)> {
         let (stream, process, socket) = tcp::spawn(cmd, args, port_format).await?;
         let (rx, tx) = stream.into_split();
-        let mut result = Self::streams(
+        let (mut client, incoming) = Self::streams(
             Box::new(BufReader::new(rx)),
             Box::new(tx),
             None,
@@ -143,12 +143,9 @@ impl Client {
             Some(process),
         );
 
-        // Set the socket address for the client
-        if let Ok((client, _)) = &mut result {
-            client.socket = Some(socket);
-        }
+        client.socket = Some(socket);
 
-        result
+        Ok((client, incoming))
     }
 
     /// Returns this client's registry identifier.
@@ -508,8 +505,7 @@ mod tests {
             None,
             DebugAdapterId::default(),
             None,
-        )
-        .unwrap();
+        );
         (client, incoming, adapter)
     }
 
@@ -777,8 +773,7 @@ mod tests {
             Some(Box::new(tokio::io::empty())),
             DebugAdapterId::default(),
             None,
-        )
-        .unwrap();
+        );
         let body = r#"{"type":"event","event":"initialized"}"#;
         adapter
             .write_all(format!("Content-Length: {}\r\n\r\n{body}", body.len()).as_bytes())
