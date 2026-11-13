@@ -78,7 +78,7 @@ async fn empty_or_unavailable_registries_report_one_terminal_error() {
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].as_ref().unwrap_err().to_string(), expected);
     }
-    #[cfg(not(feature = "git"))]
+    #[cfg(not(any(feature = "git", feature = "jj")))]
     assert!(DiffProviderRegistry::default().providers.is_empty());
 }
 

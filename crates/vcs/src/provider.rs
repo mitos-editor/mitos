@@ -14,6 +14,8 @@ use std::sync::Arc;
 pub(super) enum DiffProvider {
     #[cfg(feature = "git")]
     Git,
+    #[cfg(feature = "jj")]
+    Jj,
     #[cfg(test)]
     Test(Option<&'static str>),
 }
@@ -28,6 +30,8 @@ impl DiffProvider {
         match *self {
             #[cfg(feature = "git")]
             Self::Git => crate::git::inspect_file(_file, _trust_full, _read_diff),
+            #[cfg(feature = "jj")]
+            Self::Jj => crate::jj::inspect_file(_file, _trust_full, _read_diff),
             #[cfg(test)]
             Self::Test(name) => {
                 let name = test_name(name)?;
@@ -47,6 +51,8 @@ impl DiffProvider {
         match *self {
             #[cfg(feature = "git")]
             Self::Git => crate::repository::repository_watches(_path, _trust_full),
+            #[cfg(feature = "jj")]
+            Self::Jj => crate::jj::repository_watches(_path, _trust_full),
             #[cfg(test)]
             Self::Test(name) => {
                 let name = test_name(name)?;
@@ -67,6 +73,8 @@ impl DiffProvider {
         match *self {
             #[cfg(feature = "git")]
             Self::Git => crate::git::for_each_file_status(_scope, _trust_full, _f),
+            #[cfg(feature = "jj")]
+            Self::Jj => crate::jj::for_each_file_status(_scope, _trust_full, _f),
             #[cfg(test)]
             Self::Test(name) => {
                 let name = test_name(name)?;
@@ -96,6 +104,8 @@ impl DiffProvider {
         match *self {
             #[cfg(feature = "git")]
             Self::Git => crate::review::read_git_comparison(_status, _kind, _trust_full),
+            #[cfg(feature = "jj")]
+            Self::Jj => crate::jj::read_comparison(_status, _kind, _trust_full),
             #[cfg(test)]
             Self::Test(name) => Ok(Comparison {
                 before: test_name(name)?.as_bytes().to_vec(),
@@ -104,45 +114,40 @@ impl DiffProvider {
         }
     }
 
-    pub(super) fn file_status(
-        &self,
-        _path: &Path,
-        _trust_full: bool,
-    ) -> Result<Option<FileStatus>> {
+    pub(super) fn file_status(&self, path: &Path, trust_full: bool) -> Result<Option<FileStatus>> {
         match *self {
-            #[cfg(feature = "git")]
-            Self::Git => {
-                let directory = _path
-                    .parent()
-                    .and_then(|path| path.ancestors().find(|path| path.is_dir()))
-                    .ok_or_else(|| anyhow::anyhow!("File has no existing parent directory"))?;
-                let result = std::cell::RefCell::new(None);
-                crate::git::for_each_file_status(
-                    &ChangedFileScope::Repository(directory.into()),
-                    _trust_full,
-                    |_, status| match status {
-                        Ok(status) if status.path() == _path => {
-                            *result.borrow_mut() = Some(Ok(status));
-                            false
-                        }
-                        Err(error) => {
-                            *result.borrow_mut() = Some(Err(error));
-                            false
-                        }
-                        _ => true,
-                    },
-                )?;
-                result.into_inner().transpose()
-            }
             #[cfg(test)]
             Self::Test(name) => {
                 let name = test_name(name)?;
-                Ok((!name.is_empty()).then(|| crate::FileStatus {
+                return Ok((!name.is_empty()).then(|| crate::FileStatus {
                     staged: None,
-                    unstaged: Some(crate::FileChange::Modified { path: _path.into() }),
-                }))
+                    unstaged: Some(crate::FileChange::Modified { path: path.into() }),
+                }));
             }
+            #[allow(unreachable_patterns)]
+            _ => {}
         }
+        let directory = path
+            .parent()
+            .and_then(|path| path.ancestors().find(|path| path.is_dir()))
+            .ok_or_else(|| anyhow::anyhow!("File has no existing parent directory"))?;
+        let result = std::cell::RefCell::new(None);
+        self.for_each_file_status(
+            &ChangedFileScope::Repository(directory.into()),
+            trust_full,
+            |_, status| match status {
+                Ok(status) if status.path() == path => {
+                    *result.borrow_mut() = Some(Ok(status));
+                    false
+                }
+                Err(error) => {
+                    *result.borrow_mut() = Some(Err(error));
+                    false
+                }
+                _ => true,
+            },
+        )?;
+        result.into_inner().transpose()
     }
 }
 
