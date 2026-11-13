@@ -188,129 +188,98 @@ impl fmt::Display for KeyEvent {
                 ""
             },
         ))?;
+        match self.key_label() {
+            KeyLabel::Named(label) => f.write_str(label),
+            KeyLabel::Function(number) => write!(f, "F{number}"),
+            KeyLabel::Char(character) => write!(f, "{character}"),
+        }
+    }
+}
+
+// Named labels are ASCII; character labels retain their Unicode display width.
+enum KeyLabel {
+    Named(&'static str),
+    Function(u8),
+    Char(char),
+}
+
+impl KeyEvent {
+    fn key_label(&self) -> KeyLabel {
         match self.code {
-            KeyCode::Backspace => f.write_str(keys::BACKSPACE)?,
-            KeyCode::Enter => f.write_str(keys::ENTER)?,
-            KeyCode::Left => f.write_str(keys::LEFT)?,
-            KeyCode::Right => f.write_str(keys::RIGHT)?,
-            KeyCode::Up => f.write_str(keys::UP)?,
-            KeyCode::Down => f.write_str(keys::DOWN)?,
-            KeyCode::Home => f.write_str(keys::HOME)?,
-            KeyCode::End => f.write_str(keys::END)?,
-            KeyCode::PageUp => f.write_str(keys::PAGEUP)?,
-            KeyCode::PageDown => f.write_str(keys::PAGEDOWN)?,
-            KeyCode::Tab => f.write_str(keys::TAB)?,
-            KeyCode::Delete => f.write_str(keys::DELETE)?,
-            KeyCode::Insert => f.write_str(keys::INSERT)?,
-            KeyCode::Null => f.write_str(keys::NULL)?,
-            KeyCode::Esc => f.write_str(keys::ESC)?,
-            KeyCode::Char(' ') => f.write_str(keys::SPACE)?,
-            KeyCode::Char('-') => f.write_str(keys::MINUS)?,
-            KeyCode::Char('<') => f.write_str(keys::LESS_THAN)?,
-            KeyCode::Char('>') => f.write_str(keys::GREATER_THAN)?,
-            KeyCode::F(i) => f.write_fmt(format_args!("F{}", i))?,
-            KeyCode::Char(c) => f.write_fmt(format_args!("{}", c))?,
-            KeyCode::CapsLock => f.write_str(keys::CAPS_LOCK)?,
-            KeyCode::ScrollLock => f.write_str(keys::SCROLL_LOCK)?,
-            KeyCode::NumLock => f.write_str(keys::NUM_LOCK)?,
-            KeyCode::PrintScreen => f.write_str(keys::PRINT_SCREEN)?,
-            KeyCode::Pause => f.write_str(keys::PAUSE)?,
-            KeyCode::Menu => f.write_str(keys::MENU)?,
-            KeyCode::KeypadBegin => f.write_str(keys::KEYPAD_BEGIN)?,
-            KeyCode::Media(MediaKeyCode::Play) => f.write_str(keys::PLAY)?,
-            KeyCode::Media(MediaKeyCode::Pause) => f.write_str(keys::PAUSE_MEDIA)?,
-            KeyCode::Media(MediaKeyCode::PlayPause) => f.write_str(keys::PLAY_PAUSE)?,
-            KeyCode::Media(MediaKeyCode::Stop) => f.write_str(keys::STOP)?,
-            KeyCode::Media(MediaKeyCode::Reverse) => f.write_str(keys::REVERSE)?,
-            KeyCode::Media(MediaKeyCode::FastForward) => f.write_str(keys::FAST_FORWARD)?,
-            KeyCode::Media(MediaKeyCode::Rewind) => f.write_str(keys::REWIND)?,
-            KeyCode::Media(MediaKeyCode::TrackNext) => f.write_str(keys::TRACK_NEXT)?,
-            KeyCode::Media(MediaKeyCode::TrackPrevious) => f.write_str(keys::TRACK_PREVIOUS)?,
-            KeyCode::Media(MediaKeyCode::Record) => f.write_str(keys::RECORD)?,
-            KeyCode::Media(MediaKeyCode::LowerVolume) => f.write_str(keys::LOWER_VOLUME)?,
-            KeyCode::Media(MediaKeyCode::RaiseVolume) => f.write_str(keys::RAISE_VOLUME)?,
-            KeyCode::Media(MediaKeyCode::MuteVolume) => f.write_str(keys::MUTE_VOLUME)?,
-            KeyCode::Modifier(ModifierKeyCode::LeftShift) => f.write_str(keys::LEFT_SHIFT)?,
-            KeyCode::Modifier(ModifierKeyCode::LeftControl) => f.write_str(keys::LEFT_CONTROL)?,
-            KeyCode::Modifier(ModifierKeyCode::LeftAlt) => f.write_str(keys::LEFT_ALT)?,
-            KeyCode::Modifier(ModifierKeyCode::LeftSuper) => f.write_str(keys::LEFT_SUPER)?,
-            KeyCode::Modifier(ModifierKeyCode::LeftHyper) => f.write_str(keys::LEFT_HYPER)?,
-            KeyCode::Modifier(ModifierKeyCode::LeftMeta) => f.write_str(keys::LEFT_META)?,
-            KeyCode::Modifier(ModifierKeyCode::RightShift) => f.write_str(keys::RIGHT_SHIFT)?,
-            KeyCode::Modifier(ModifierKeyCode::RightControl) => f.write_str(keys::RIGHT_CONTROL)?,
-            KeyCode::Modifier(ModifierKeyCode::RightAlt) => f.write_str(keys::RIGHT_ALT)?,
-            KeyCode::Modifier(ModifierKeyCode::RightSuper) => f.write_str(keys::RIGHT_SUPER)?,
-            KeyCode::Modifier(ModifierKeyCode::RightHyper) => f.write_str(keys::RIGHT_HYPER)?,
-            KeyCode::Modifier(ModifierKeyCode::RightMeta) => f.write_str(keys::RIGHT_META)?,
+            KeyCode::Backspace => KeyLabel::Named(keys::BACKSPACE),
+            KeyCode::Enter => KeyLabel::Named(keys::ENTER),
+            KeyCode::Left => KeyLabel::Named(keys::LEFT),
+            KeyCode::Right => KeyLabel::Named(keys::RIGHT),
+            KeyCode::Up => KeyLabel::Named(keys::UP),
+            KeyCode::Down => KeyLabel::Named(keys::DOWN),
+            KeyCode::Home => KeyLabel::Named(keys::HOME),
+            KeyCode::End => KeyLabel::Named(keys::END),
+            KeyCode::PageUp => KeyLabel::Named(keys::PAGEUP),
+            KeyCode::PageDown => KeyLabel::Named(keys::PAGEDOWN),
+            KeyCode::Tab => KeyLabel::Named(keys::TAB),
+            KeyCode::Delete => KeyLabel::Named(keys::DELETE),
+            KeyCode::Insert => KeyLabel::Named(keys::INSERT),
+            KeyCode::Null => KeyLabel::Named(keys::NULL),
+            KeyCode::Esc => KeyLabel::Named(keys::ESC),
+            KeyCode::Char(' ') => KeyLabel::Named(keys::SPACE),
+            KeyCode::Char('-') => KeyLabel::Named(keys::MINUS),
+            KeyCode::Char('<') => KeyLabel::Named(keys::LESS_THAN),
+            KeyCode::Char('>') => KeyLabel::Named(keys::GREATER_THAN),
+            KeyCode::F(i) => KeyLabel::Function(i),
+            KeyCode::Char(c) => KeyLabel::Char(c),
+            KeyCode::CapsLock => KeyLabel::Named(keys::CAPS_LOCK),
+            KeyCode::ScrollLock => KeyLabel::Named(keys::SCROLL_LOCK),
+            KeyCode::NumLock => KeyLabel::Named(keys::NUM_LOCK),
+            KeyCode::PrintScreen => KeyLabel::Named(keys::PRINT_SCREEN),
+            KeyCode::Pause => KeyLabel::Named(keys::PAUSE),
+            KeyCode::Menu => KeyLabel::Named(keys::MENU),
+            KeyCode::KeypadBegin => KeyLabel::Named(keys::KEYPAD_BEGIN),
+            KeyCode::Media(MediaKeyCode::Play) => KeyLabel::Named(keys::PLAY),
+            KeyCode::Media(MediaKeyCode::Pause) => KeyLabel::Named(keys::PAUSE_MEDIA),
+            KeyCode::Media(MediaKeyCode::PlayPause) => KeyLabel::Named(keys::PLAY_PAUSE),
+            KeyCode::Media(MediaKeyCode::Stop) => KeyLabel::Named(keys::STOP),
+            KeyCode::Media(MediaKeyCode::Reverse) => KeyLabel::Named(keys::REVERSE),
+            KeyCode::Media(MediaKeyCode::FastForward) => KeyLabel::Named(keys::FAST_FORWARD),
+            KeyCode::Media(MediaKeyCode::Rewind) => KeyLabel::Named(keys::REWIND),
+            KeyCode::Media(MediaKeyCode::TrackNext) => KeyLabel::Named(keys::TRACK_NEXT),
+            KeyCode::Media(MediaKeyCode::TrackPrevious) => KeyLabel::Named(keys::TRACK_PREVIOUS),
+            KeyCode::Media(MediaKeyCode::Record) => KeyLabel::Named(keys::RECORD),
+            KeyCode::Media(MediaKeyCode::LowerVolume) => KeyLabel::Named(keys::LOWER_VOLUME),
+            KeyCode::Media(MediaKeyCode::RaiseVolume) => KeyLabel::Named(keys::RAISE_VOLUME),
+            KeyCode::Media(MediaKeyCode::MuteVolume) => KeyLabel::Named(keys::MUTE_VOLUME),
+            KeyCode::Modifier(ModifierKeyCode::LeftShift) => KeyLabel::Named(keys::LEFT_SHIFT),
+            KeyCode::Modifier(ModifierKeyCode::LeftControl) => KeyLabel::Named(keys::LEFT_CONTROL),
+            KeyCode::Modifier(ModifierKeyCode::LeftAlt) => KeyLabel::Named(keys::LEFT_ALT),
+            KeyCode::Modifier(ModifierKeyCode::LeftSuper) => KeyLabel::Named(keys::LEFT_SUPER),
+            KeyCode::Modifier(ModifierKeyCode::LeftHyper) => KeyLabel::Named(keys::LEFT_HYPER),
+            KeyCode::Modifier(ModifierKeyCode::LeftMeta) => KeyLabel::Named(keys::LEFT_META),
+            KeyCode::Modifier(ModifierKeyCode::RightShift) => KeyLabel::Named(keys::RIGHT_SHIFT),
+            KeyCode::Modifier(ModifierKeyCode::RightControl) => {
+                KeyLabel::Named(keys::RIGHT_CONTROL)
+            }
+            KeyCode::Modifier(ModifierKeyCode::RightAlt) => KeyLabel::Named(keys::RIGHT_ALT),
+            KeyCode::Modifier(ModifierKeyCode::RightSuper) => KeyLabel::Named(keys::RIGHT_SUPER),
+            KeyCode::Modifier(ModifierKeyCode::RightHyper) => KeyLabel::Named(keys::RIGHT_HYPER),
+            KeyCode::Modifier(ModifierKeyCode::RightMeta) => KeyLabel::Named(keys::RIGHT_META),
             KeyCode::Modifier(ModifierKeyCode::IsoLevel3Shift) => {
-                f.write_str(keys::ISO_LEVEL_3_SHIFT)?
+                KeyLabel::Named(keys::ISO_LEVEL_3_SHIFT)
             }
             KeyCode::Modifier(ModifierKeyCode::IsoLevel5Shift) => {
-                f.write_str(keys::ISO_LEVEL_5_SHIFT)?
+                KeyLabel::Named(keys::ISO_LEVEL_5_SHIFT)
             }
-        };
-        Ok(())
+        }
     }
 }
 
 impl UnicodeWidthStr for KeyEvent {
     fn width(&self) -> usize {
         use unicode_width::UnicodeWidthChar;
-        let mut width = match self.code {
-            KeyCode::Backspace => keys::BACKSPACE.len(),
-            KeyCode::Enter => keys::ENTER.len(),
-            KeyCode::Left => keys::LEFT.len(),
-            KeyCode::Right => keys::RIGHT.len(),
-            KeyCode::Up => keys::UP.len(),
-            KeyCode::Down => keys::DOWN.len(),
-            KeyCode::Home => keys::HOME.len(),
-            KeyCode::End => keys::END.len(),
-            KeyCode::PageUp => keys::PAGEUP.len(),
-            KeyCode::PageDown => keys::PAGEDOWN.len(),
-            KeyCode::Tab => keys::TAB.len(),
-            KeyCode::Delete => keys::DELETE.len(),
-            KeyCode::Insert => keys::INSERT.len(),
-            KeyCode::Null => keys::NULL.len(),
-            KeyCode::Esc => keys::ESC.len(),
-            KeyCode::Char(' ') => keys::SPACE.len(),
-            KeyCode::Char('-') => keys::MINUS.len(),
-            KeyCode::F(1..=9) => 2,
-            KeyCode::F(_) => 3,
-            KeyCode::Char(c) => c.width().unwrap_or(0),
-            KeyCode::CapsLock => keys::CAPS_LOCK.len(),
-            KeyCode::ScrollLock => keys::SCROLL_LOCK.len(),
-            KeyCode::NumLock => keys::NUM_LOCK.len(),
-            KeyCode::PrintScreen => keys::PRINT_SCREEN.len(),
-            KeyCode::Pause => keys::PAUSE.len(),
-            KeyCode::Menu => keys::MENU.len(),
-            KeyCode::KeypadBegin => keys::KEYPAD_BEGIN.len(),
-            KeyCode::Media(MediaKeyCode::Play) => keys::PLAY.len(),
-            KeyCode::Media(MediaKeyCode::Pause) => keys::PAUSE_MEDIA.len(),
-            KeyCode::Media(MediaKeyCode::PlayPause) => keys::PLAY_PAUSE.len(),
-            KeyCode::Media(MediaKeyCode::Stop) => keys::STOP.len(),
-            KeyCode::Media(MediaKeyCode::Reverse) => keys::REVERSE.len(),
-            KeyCode::Media(MediaKeyCode::FastForward) => keys::FAST_FORWARD.len(),
-            KeyCode::Media(MediaKeyCode::Rewind) => keys::REWIND.len(),
-            KeyCode::Media(MediaKeyCode::TrackNext) => keys::TRACK_NEXT.len(),
-            KeyCode::Media(MediaKeyCode::TrackPrevious) => keys::TRACK_PREVIOUS.len(),
-            KeyCode::Media(MediaKeyCode::Record) => keys::RECORD.len(),
-            KeyCode::Media(MediaKeyCode::LowerVolume) => keys::LOWER_VOLUME.len(),
-            KeyCode::Media(MediaKeyCode::RaiseVolume) => keys::RAISE_VOLUME.len(),
-            KeyCode::Media(MediaKeyCode::MuteVolume) => keys::MUTE_VOLUME.len(),
-            KeyCode::Modifier(ModifierKeyCode::LeftShift) => keys::LEFT_SHIFT.len(),
-            KeyCode::Modifier(ModifierKeyCode::LeftControl) => keys::LEFT_CONTROL.len(),
-            KeyCode::Modifier(ModifierKeyCode::LeftAlt) => keys::LEFT_ALT.len(),
-            KeyCode::Modifier(ModifierKeyCode::LeftSuper) => keys::LEFT_SUPER.len(),
-            KeyCode::Modifier(ModifierKeyCode::LeftHyper) => keys::LEFT_HYPER.len(),
-            KeyCode::Modifier(ModifierKeyCode::LeftMeta) => keys::LEFT_META.len(),
-            KeyCode::Modifier(ModifierKeyCode::RightShift) => keys::RIGHT_SHIFT.len(),
-            KeyCode::Modifier(ModifierKeyCode::RightControl) => keys::RIGHT_CONTROL.len(),
-            KeyCode::Modifier(ModifierKeyCode::RightAlt) => keys::RIGHT_ALT.len(),
-            KeyCode::Modifier(ModifierKeyCode::RightSuper) => keys::RIGHT_SUPER.len(),
-            KeyCode::Modifier(ModifierKeyCode::RightHyper) => keys::RIGHT_HYPER.len(),
-            KeyCode::Modifier(ModifierKeyCode::RightMeta) => keys::RIGHT_META.len(),
-            KeyCode::Modifier(ModifierKeyCode::IsoLevel3Shift) => keys::ISO_LEVEL_3_SHIFT.len(),
-            KeyCode::Modifier(ModifierKeyCode::IsoLevel5Shift) => keys::ISO_LEVEL_5_SHIFT.len(),
+        let mut width = match self.key_label() {
+            KeyLabel::Named(label) => label.len(),
+            KeyLabel::Function(0..=9) => 2,
+            KeyLabel::Function(10..=99) => 3,
+            KeyLabel::Function(_) => 4,
+            KeyLabel::Char(character) => character.width().unwrap_or(0),
         };
         if self.modifiers.contains(KeyModifiers::SHIFT) {
             width += 2;
@@ -502,6 +471,51 @@ pub fn parse_macro(keys_str: &str) -> anyhow::Result<Vec<KeyEvent>> {
 #[cfg(test)]
 mod test {
     use super::*;
+
+    #[test]
+    fn displayed_key_widths_match() {
+        for label in [
+            "lt",
+            "gt",
+            "space",
+            "minus",
+            "backspace",
+            "ret",
+            "pageup",
+            "capslock",
+            "playpause",
+            "trackprevious",
+            "leftshift",
+            "isolevel5shift",
+            "F1",
+            "F9",
+            "F10",
+            "F24",
+            "a",
+            "é",
+            "界",
+            "\u{301}",
+        ] {
+            for prefix in ["", "S-", "A-", "C-", "Meta-", "Meta-S-A-C-"] {
+                let key: KeyEvent = format!("{prefix}{label}").parse().unwrap();
+                let displayed = key.to_string();
+                assert_eq!(key.width(), displayed.width(), "{displayed}");
+                assert_eq!(key.width_cjk(), key.width(), "{displayed}");
+            }
+        }
+
+        let key: KeyEvent = "C-A-S-Meta-lt".parse().unwrap();
+        assert_eq!(key.to_string(), "Meta-S-A-C-lt");
+
+        // Backends can construct function keys outside the parser's F1-F24 range.
+        for number in [0, 99, 100, 255] {
+            let key = KeyEvent {
+                code: KeyCode::F(number),
+                modifiers: KeyModifiers::NONE,
+            };
+            assert_eq!(key.width(), key.to_string().width());
+        }
+    }
 
     #[test]
     fn parsing_unmodified_keys() {
