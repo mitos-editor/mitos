@@ -1424,12 +1424,12 @@ pub struct ScrollConfig {
     pub wheel_lines: isize,
     /// animate scrolling (default false)
     pub smooth: bool,
-    /// Smooth scroll milliseconds (default 180)
+    /// Duration of a smooth scroll animation in milliseconds. Defaults to 180; 0 jumps immediately.
     #[serde(
         serialize_with = "serialize_duration_millis",
         deserialize_with = "deserialize_duration_millis"
     )]
-    pub scroll_speed: Duration,
+    pub animation_duration: Duration,
 }
 
 impl Default for ScrollConfig {
@@ -1438,7 +1438,7 @@ impl Default for ScrollConfig {
             padding: 5,
             wheel_lines: 3,
             smooth: false,
-            scroll_speed: Duration::from_millis(180),
+            animation_duration: Duration::from_millis(180),
         }
     }
 }

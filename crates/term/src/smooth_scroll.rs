@@ -97,7 +97,7 @@ pub(crate) fn animate(editor: &mut Editor, jobs: &mut Jobs, scroll: impl FnOnce(
     scroll(editor);
     editor.ensure_cursor_in_view(editor.tree.focus());
 
-    let duration = editor.config().scroll.scroll_speed;
+    let duration = editor.config().scroll.animation_duration;
     let behaviour = if editor.mode() == Mode::Select {
         Movement::Extend
     } else {

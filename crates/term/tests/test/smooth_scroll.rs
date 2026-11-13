@@ -95,7 +95,7 @@ fn app(
     let mut config = test_config();
     config.editor.scroll.smooth = smooth.is_some();
     if let Some(ms) = smooth {
-        config.editor.scroll.scroll_speed = std::time::Duration::from_millis(ms);
+        config.editor.scroll.animation_duration = std::time::Duration::from_millis(ms);
     }
     config.keys = Config::load(
         Ok(&format!("[keys.normal]\n{bindings}")),
@@ -164,7 +164,7 @@ async fn smooth_scroll_carries_unfinished_distance() -> anyhow::Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn zero_scroll_speed_jumps_to_the_end() -> anyhow::Result<()> {
+async fn zero_animation_duration_jumps_to_the_end() -> anyhow::Result<()> {
     let keys = "<F1>";
     let expected = page_state(None, &["page_cursor_half_down"], keys).await?;
     let actual = page_state(Some(0), &["page_cursor_half_down"], keys).await?;
