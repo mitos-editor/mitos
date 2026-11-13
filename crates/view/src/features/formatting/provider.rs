@@ -1,5 +1,5 @@
 //! Formatter execution and provider selection for explicit formatting and saves.
-use std::path::Path;
+use std::{path::Path, sync::Arc};
 
 use command_line::Token;
 use editor_core::{indent::IndentStyle, Rope, Transaction};
@@ -155,6 +155,7 @@ impl Document {
             .language_servers_with_feature(LanguageServerFeature::Format)
             .next()?;
         let offset_encoding = language_server.offset_encoding();
+        let server = language_server.name().to_owned();
         let request = language_server.text_document_formatting(
             self.identifier(),
             lsp::FormattingOptions {
@@ -168,10 +169,10 @@ impl Document {
         let fut = async move {
             let edits = request
                 .await
-                .unwrap_or_else(|e| {
-                    log::warn!("LSP formatting failed: {}", e);
-                    Default::default()
-                })
+                .map_err(|error| FormatterError::LanguageServer {
+                    server,
+                    error: Arc::new(error),
+                })?
                 .unwrap_or_default();
             crate::language_servers::edits::generate_transaction_from_edits(
                 &text,
@@ -186,6 +187,12 @@ impl Document {
 
 #[derive(Clone, Debug, thiserror::Error)]
 pub enum FormatterError {
+    #[error("Language server '{server}' failed to format: {error}")]
+    LanguageServer {
+        server: String,
+        #[source]
+        error: Arc<lsp_client::Error>,
+    },
     #[error("Failed to expand formatter arguments: {0}")]
     ExpansionFailed(String),
     #[error("Invalid formatter edits: {0}")]
