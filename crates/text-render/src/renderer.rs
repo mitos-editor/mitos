@@ -4,7 +4,7 @@ use text_layout::DisplayPosition;
 
 use editor_config::{IndentGuidesConfig, WhitespaceConfig, WhitespaceRenderValue};
 use editor_core::graphemes::{render_grapheme, Grapheme};
-use editor_core::highlight::{HighlightEvent, OverlayHighlights};
+use editor_core::highlight::OverlayHighlights;
 use editor_core::line_ending::line_without_line_ending;
 use editor_core::str_utils::char_to_byte_idx;
 use editor_core::RopeSlice;
@@ -667,15 +667,12 @@ impl<'t> OverlayHighlighter<'t> {
     }
 
     fn advance(&mut self) {
-        let (event, highlights) = self.inner.advance();
-        let base = match event {
-            HighlightEvent::Refresh => Style::default(),
-            HighlightEvent::Push => self.style,
-        };
-
-        self.style = highlights.fold(base, |acc, highlight| {
-            acc.patch(self.theme.highlight(highlight))
-        });
+        self.style = self
+            .inner
+            .advance()
+            .fold(Style::default(), |acc, highlight| {
+                acc.patch(self.theme.highlight(highlight))
+            });
         self.update_pos();
     }
 }

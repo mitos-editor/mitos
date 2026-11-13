@@ -537,15 +537,11 @@ fn classified_spans(
             }
         }
         while overlays.next_event_offset() <= position {
-            let (event, highlights) = overlays.advance();
-            let previous = if event == HighlightEvent::Refresh {
-                theme::Style::default()
-            } else {
-                overlay_style
-            };
-            overlay_style = highlights.fold(previous, |style, highlight| {
-                style.patch(theme.highlight(highlight))
-            });
+            overlay_style = overlays
+                .advance()
+                .fold(theme::Style::default(), |style, highlight| {
+                    style.patch(theme.highlight(highlight))
+                });
         }
         let end = syntax
             .as_ref()
