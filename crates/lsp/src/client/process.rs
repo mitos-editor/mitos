@@ -324,7 +324,8 @@ impl Client {
                     }),
                     diagnostic: Some(lsp::DiagnosticClientCapabilities {
                         dynamic_registration: Some(false),
-                        related_document_support: Some(true),
+                        // Related-document reports are not yet consumed by the pull handler.
+                        related_document_support: Some(false),
                     }),
                     publish_diagnostics: Some(lsp::PublishDiagnosticsClientCapabilities {
                         version_support: Some(true),
