@@ -581,11 +581,11 @@ mod tests {
     fn aliased_modes_are_same_in_default_keymap() {
         let keymaps = Keymaps::default().map();
         let root = keymaps.get(&Mode::Normal).unwrap();
-        assert_eq!(
-            root.search(&[key!(' '), key!('w')]).unwrap(),
-            root.search(&["C-w".parse::<KeyEvent>().unwrap()]).unwrap(),
-            "Mismatch for window mode on `Space-w` and `Ctrl-w`"
-        );
+        let debug = root.search(&[key!(' '), key!('x')]).unwrap();
+        let sticky_debug = root.search(&[key!(' '), key!('X')]).unwrap();
+        assert_eq!(debug, sticky_debug);
+        assert!(!debug.node().unwrap().is_sticky);
+        assert!(sticky_debug.node().unwrap().is_sticky);
         assert_eq!(
             root.search(&[key!('z')]).unwrap(),
             root.search(&[key!('Z')]).unwrap(),

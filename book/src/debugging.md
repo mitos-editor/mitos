@@ -44,14 +44,17 @@ Project-local configuration in `.mitos/languages.toml` is subject to
 1. Build the program you want to debug, with debug information enabled.
 2. Open a source file in Mitos. Its language determines which adapter and
    templates are used.
-3. Press `Space G b` on a line to toggle a breakpoint.
-4. Press `Space G l`, choose a template, and fill in its prompts.
+3. Press `Space x b` on a line to toggle a breakpoint.
+4. Press `Space x l`, choose a template, and fill in its prompts.
 5. When execution pauses, step through the code or inspect variables using
    the commands below.
 
-`G` is uppercase. Press the keys in sequence. The debug menu stays active
-after a command; while it is active, use the suffix keys such as `n` or `c`
-directly. Press `Esc` to leave the menu.
+Press the keys in sequence. `Space x` runs one debug command. To keep the
+debug menu active, enter it with `Space X`, then use suffix keys such as `n`
+or `c` directly. Press `Esc` to leave the sticky menu.
+
+Function-key aliases are also available: `F5` continues, `F9` toggles a
+breakpoint, `F10` steps over, `F11` steps in, and `Shift-F11` steps out.
 
 You can also start a template from the command line. For a Rust binary built
 with `cargo build`, for example:
@@ -71,22 +74,22 @@ These bindings are available in normal and select mode:
 
 | Keys | Action |
 | --- | --- |
-| `Space G l` | Select a template and start debugging |
-| `Space G b` | Toggle breakpoints on selected lines |
-| `Space G c` | Continue execution |
-| `Space G h` | Pause execution |
-| `Space G n` | Step over |
-| `Space G i` | Step in |
-| `Space G o` | Step out |
-| `Space G v` | Browse variables |
-| `Space G s s` | Switch session |
-| `Space G s t` | Switch thread |
-| `Space G s f` | Switch stack frame |
-| `Space G r` | Restart the session |
-| `Space G t` | End the session |
-| `Space G Ctrl-c` | Edit the breakpoint condition on the current line |
-| `Space G Ctrl-l` | Edit the breakpoint log message on the current line |
-| `Space G e` / `Space G E` | Enable / disable exception breakpoints |
+| `Space x l` | Select a template and start debugging |
+| `Space x b` | Toggle breakpoints on selected lines |
+| `Space x c` | Continue execution |
+| `Space x h` | Pause execution |
+| `Space x n` | Step over |
+| `Space x i` | Step in |
+| `Space x o` | Step out |
+| `Space x v` | Browse variables |
+| `Space x s s` | Switch session |
+| `Space x s t` | Switch thread |
+| `Space x s f` | Switch stack frame |
+| `Space x r` | Restart the session |
+| `Space x t` | End the session |
+| `Space x B c` | Edit the breakpoint condition on the current line |
+| `Space x B l` | Edit the breakpoint log message on the current line |
+| `Space x e` / `Space x E` | Enable / disable exception breakpoints |
 
 Use `:debug-evaluate <expression>` to evaluate an expression in the selected frame.
 Expandable results open in the variable browser. Run the command again for a new
@@ -94,7 +97,7 @@ result. Supported expressions depend on the debug adapter.
 
 ## Inspecting variables
 
-While paused, use `Space G v` to browse the selected frame's variables. Select a
+While paused, use `Space x v` to browse the selected frame's variables. Select a
 scope, such as locals or globals, and press `Enter` to see its values.
 Entries marked `▸` have children; press `Enter` to open them.
 
@@ -103,7 +106,7 @@ or arrays. Select `.. (back)` to return to the parent. Your filter and selection
 are kept when you return or when values refresh.
 
 Press `Esc` to close the browser. After resuming execution or switching the
-session, thread, or frame, use `Space G v` again to inspect the current values.
+session, thread, or frame, use `Space x v` again to inspect the current values.
 
 ## Inline debug values
 
@@ -112,7 +115,7 @@ the code. The values follow the selected frame and disappear when execution
 resumes. Available values depend on your language and debug adapter.
 
 Long values are shortened to fit. Inline values are hidden while the file has
-unsaved changes. Use `Space G v` to browse variables and expand objects.
+unsaved changes. Use `Space x v` to browse variables and expand objects.
 
 Inline values are on by default. To turn them off in `config.toml`:
 
@@ -126,20 +129,20 @@ editor session.
 
 ## Stack frames
 
-Use `Space G s f` to choose a frame in the paused thread. Selecting a frame
-opens its source and updates inline values. Use `Space G v` or `:debug-evaluate`
+Use `Space x s f` to choose a frame in the paused thread. Selecting a frame
+opens its source and updates inline values. Use `Space x v` or `:debug-evaluate`
 to inspect values in that frame. Select `Load more…` to see more frames in a
 deep call stack.
 
 ## Multiple sessions
 
 You can debug several programs at once. Each launch selects the new session;
-use `Space G s s` to switch between them. The picker marks the selected session
+use `Space x s s` to switch between them. The picker marks the selected session
 with `*`, and the statusline shows its name, state, and the total session count.
 Child sessions started by an adapter appear in the picker too.
 
 Stepping, continuing, inspecting variables, and ending a session apply to the
-selected session. Use `Space G t` to end it or cancel a launch that is still
+selected session. Use `Space x t` to end it or cancel a launch that is still
 starting.
 
 File breakpoints are shared across sessions. Save file edits to update

@@ -16,8 +16,8 @@ use super::super::helpers::{
     run_event_loop_until_idle, screen as review_screen, test_config, AppBuilder,
 };
 
-async fn press_space_b(app: &mut TestApplication) -> anyhow::Result<()> {
-    press_keys(app, "<space>B").await
+async fn press_inline_blame_toggle(app: &mut TestApplication) -> anyhow::Result<()> {
+    press_keys(app, "<space>gt").await
 }
 
 async fn repository_status(app: &mut TestApplication, prefix: &str) -> anyhow::Result<()> {
@@ -248,7 +248,7 @@ async fn space_b_toggles_inline_blame_and_reuses_the_cached_snapshot() -> anyhow
     );
     assert!(current_ref!(app.editor).1.file_blame().is_none());
 
-    press_space_b(&mut app).await?;
+    press_inline_blame_toggle(&mut app).await?;
     assert_eq!(
         app.editor.config().inline_blame.show,
         InlineBlameShow::CursorLine
@@ -271,12 +271,12 @@ async fn space_b_toggles_inline_blame_and_reuses_the_cached_snapshot() -> anyhow
         "initial"
     );
 
-    press_space_b(&mut app).await?;
+    press_inline_blame_toggle(&mut app).await?;
     assert_eq!(
         app.editor.config().inline_blame.show,
         InlineBlameShow::Never
     );
-    press_space_b(&mut app).await?;
+    press_inline_blame_toggle(&mut app).await?;
     assert_eq!(
         app.editor.config().inline_blame.show,
         InlineBlameShow::CursorLine
@@ -293,13 +293,13 @@ async fn space_b_toggles_inline_blame_and_reuses_the_cached_snapshot() -> anyhow
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn space_b_restores_the_configured_inline_blame_mode() -> anyhow::Result<()> {
+async fn inline_blame_binding_restores_the_configured_inline_blame_mode() -> anyhow::Result<()> {
     for show in [InlineBlameShow::CursorLine, InlineBlameShow::AllLines] {
         let mut config = test_config();
         config.editor.inline_blame.show = show;
         let mut app = AppBuilder::new().with_config(config).build()?;
 
-        for keys in ["<space>B", "<space>gt", ":vcs-toggle-inline-blame<ret>"] {
+        for keys in ["<space>gt", ":vcs-toggle-inline-blame<ret>"] {
             press_keys(&mut app, keys).await?;
             assert_eq!(
                 app.editor.config().inline_blame.show,
@@ -324,12 +324,12 @@ async fn space_b_restores_the_configured_inline_blame_mode() -> anyhow::Result<(
         };
         let updated_show = config.inline_blame.show;
         app.apply_config_update(term::config::ConfigEvent::UpdateEditor(Box::new(config)));
-        press_space_b(&mut app).await?;
+        press_inline_blame_toggle(&mut app).await?;
         assert_eq!(
             app.editor.config().inline_blame.show,
             InlineBlameShow::Never
         );
-        press_space_b(&mut app).await?;
+        press_inline_blame_toggle(&mut app).await?;
         assert_eq!(app.editor.config().inline_blame.show, updated_show);
         assert!(app.close().await.is_empty());
     }
@@ -687,7 +687,7 @@ async fn show_change_displays_deleted_and_unsaved_text_without_writing() -> anyh
     let (dir, path) = committed_file()?;
     let mut app = AppBuilder::new().with_file(&path, None).build()?;
     press_keys(&mut app, "Iunsaved-<esc>").await?;
-    for keys in [":vcs-show-change<ret>", "<space>i", "<space>gi"] {
+    for keys in [":vcs-show-change<ret>", "<space>gi"] {
         press_keys(&mut app, keys).await?;
         wait_for_review_screen(&mut app, "Current change", "− committed").await?;
         let screen = review_screen(&app);
@@ -726,7 +726,7 @@ async fn change_popup_restores_with_default_and_remapped_shortcuts() -> anyhow::
             .with_config(config)
             .with_file(&path, None)
             .build()?;
-        press_keys(&mut app, "Iunsaved-<esc><space>i").await?;
+        press_keys(&mut app, "Iunsaved-<esc><space>gi").await?;
         wait_for_review_screen(&mut app, "Current change", "restore hunk from HEAD").await?;
         if shortcut == "<A-r>" {
             assert!(review_screen(&app).contains("<A-r> restore"));

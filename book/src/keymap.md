@@ -27,8 +27,8 @@ register by default; select another register with `"<char>`.
 
 ### Minor modes
 
-Prefix keys open groups of commands. Most return to normal mode after a
-command; sticky groups stay open until Escape. See
+Prefix keys open groups of commands. Most finish the sequence after a
+command while preserving the editor mode; sticky groups stay open until Escape. See
 [remapping minor modes](./remapping.md#minor-modes).
 
 <a id="view-mode"></a>
@@ -42,7 +42,10 @@ command; sticky groups stay open until Escape. See
 - `g` jumps to locations.
 - `m` works with [surround](./surround.md) and [textobjects](./textobjects.md).
 - `Ctrl-w` manages [split views](./files.md).
-- Space opens pickers and project tools. `Space '` reopens global search.
+- `Space w` and `Ctrl-s` save; `Space W` saves all modified buffers.
+- `Space j j` opens the jumplist; `Space j s` records the current selections.
+- `Space x` opens debugging commands; `Space X` keeps that group active.
+- Space opens pickers and project tools. `Space '` reopens the last picker.
 - `[` and `]` move to previous and next items, including syntax textobjects.
 
 ### Bindings
@@ -52,7 +55,7 @@ command; sticky groups stay open until Escape. See
 ## Insert mode
 
 Press `i` in normal mode to enter insert mode. An insert session normally
-forms one undo step when you return to normal mode. `Ctrl-s` starts another
+forms one undo step when you return to normal mode. `Ctrl-g u` starts another
 undo step without leaving insert mode; see [Macros and undo](./macros.md#undo-and-redo).
 
 Tab uses [smart tab](./completion.md#smart-tab). To disable a binding, map

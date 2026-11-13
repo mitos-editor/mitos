@@ -47,6 +47,7 @@ mod test {
     mod git_diff;
     mod goto_hover;
     mod inline_completion;
+    mod keybindings;
     mod language_features;
     mod lsp_alternatives;
     mod lsp_lifecycle;

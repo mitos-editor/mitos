@@ -73,6 +73,15 @@ pub struct KeyEvent {
 }
 
 impl KeyEvent {
+    /// A character intended for text entry, rather than a modified command key.
+    pub fn text_char(&self) -> Option<char> {
+        (!self
+            .modifiers
+            .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT | KeyModifiers::SUPER))
+        .then(|| self.char())
+        .flatten()
+    }
+
     /// If a character was pressed, return it.
     pub fn char(&self) -> Option<char> {
         match self.code {
@@ -502,6 +511,15 @@ pub fn parse_macro(keys_str: &str) -> anyhow::Result<Vec<KeyEvent>> {
 #[cfg(test)]
 mod test {
     use super::*;
+
+    #[test]
+    fn text_entry_excludes_command_modifiers() {
+        for key in ["C-g", "A-x", "Meta-x"] {
+            assert_eq!(key.parse::<KeyEvent>().unwrap().text_char(), None);
+        }
+        assert_eq!("S-X".parse::<KeyEvent>().unwrap().text_char(), Some('X'));
+        assert_eq!("😀".parse::<KeyEvent>().unwrap().text_char(), Some('😀'));
+    }
 
     #[test]
     fn parsing_unmodified_keys() {

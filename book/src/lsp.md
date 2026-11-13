@@ -108,3 +108,5 @@ Use `:lsp-restart` afterwards. `:lsp-stop` stops servers for the current file;
 
 If a feature is missing, start with the
 [troubleshooting guide](./troubleshooting.md#language-features-are-missing).
+
+Press `Ctrl-g s` in insert mode to show signature help. Optional function-key shortcuts include `F2` for rename and `F12` for definition; the modal commands remain available from the command palette.

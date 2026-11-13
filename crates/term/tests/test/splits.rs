@@ -140,7 +140,7 @@ async fn test_changes_in_splits_apply_to_all_views() -> anyhow::Result<()> {
     //                Both views look at the same doc.
     // * [<space>     Add a line ending to the beginning of the document.
     //                The cursor is now at line 2 in window 2.
-    // * <C-s>        Save that selection to the jumplist in window 2.
+    // * <space>js        Save that selection to the jumplist in window 2.
     // * <C-w>w       Switch to window 1.
     // * kd           Delete line 1 in window 1.
     // * <C-w>q       Close window 1, focusing window 2.
@@ -150,7 +150,7 @@ async fn test_changes_in_splits_apply_to_all_views() -> anyhow::Result<()> {
     // was not updated and after the `kd` step, pointed outside of the document.
     test((
         "#[|]#",
-        "<C-w>v[<space><C-s><C-w>wkd<C-w>qd",
+        "<C-w>v[<space><space>js<C-w>wkd<C-w>qd",
         "#[|]#",
         LineFeedHandling::AsIs,
     ))
@@ -175,7 +175,7 @@ async fn test_changes_in_splits_apply_to_all_views() -> anyhow::Result<()> {
     // panics.
     // The key sequence:
     // * 3[<space>    Create three empty lines so we are at the end of the document.
-    // * <C-w>v<C-s>  Create a split and save that point at the end of the document
+    // * <C-w>v<space>js  Create a split and save that point at the end of the document
     //                in the jumplist.
     // * <C-w>w       Switch back to the first window.
     // * uu           Undo twice (not three times which would bring us back to the
@@ -187,7 +187,7 @@ async fn test_changes_in_splits_apply_to_all_views() -> anyhow::Result<()> {
     // * %d           Clean up the buffer.
     test((
         "#[|]#",
-        "3[<space><C-w>v<C-s><C-w>wuu3[<space><C-w>q%d",
+        "3[<space><C-w>v<space>js<C-w>wuu3[<space><C-w>q%d",
         "#[|]#",
         LineFeedHandling::AsIs,
     ))
@@ -341,12 +341,7 @@ async fn test_rotate_view_reverse_ctrl_w_binding() -> anyhow::Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_rotate_view_reverse_space_w_binding() -> anyhow::Result<()> {
-    assert_rotate_view_reverse_binding("<C-w>vj<C-w>v<space>wW<C-w>o", 1).await
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn shifted_arrows_swap_splits_in_both_window_prefixes() -> anyhow::Result<()> {
+async fn shifted_arrows_swap_splits_with_window_prefix() -> anyhow::Result<()> {
     let docs_in_screen_order = |app: &term::application::TestApplication| {
         let mut panes: Vec<_> = app
             .editor
@@ -361,12 +356,12 @@ async fn shifted_arrows_swap_splits_in_both_window_prefixes() -> anyhow::Result<
         (
             view::editor::Action::VerticalSplit,
             "<C-w><S-left>",
-            "<space>w<S-right>",
+            "<C-w><S-right>",
         ),
         (
             view::editor::Action::HorizontalSplit,
             "<C-w><S-up>",
-            "<space>w<S-down>",
+            "<C-w><S-down>",
         ),
     ] {
         let mut app = AppBuilder::new().build()?;
@@ -409,7 +404,8 @@ async fn resize_mode_moves_boundaries_with_defaults_and_exact_counts() -> anyhow
             .collect::<Vec<_>>()
     };
 
-    for prefix in ["<C-w>", "<space>w"] {
+    let prefix = "<C-w>";
+    {
         let mut app = AppBuilder::new().build()?;
         app.editor.new_file(view::editor::Action::VerticalSplit);
         let even = widths(&app);
@@ -471,7 +467,8 @@ fn split_areas(
 
 #[tokio::test(flavor = "multi_thread")]
 async fn resize_mode_confirms_or_restores_the_entry_layout() -> anyhow::Result<()> {
-    for prefix in ["<C-w>", "<space>w"] {
+    let prefix = "<C-w>";
+    {
         for select in [false, true] {
             let mut app = AppBuilder::new().build()?;
             app.editor.new_file(view::editor::Action::VerticalSplit);
