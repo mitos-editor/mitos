@@ -5,13 +5,19 @@ use command_line::Token;
 use editor_core::{indent::IndentStyle, Rope, Transaction};
 use futures_util::{future::BoxFuture, FutureExt};
 use language_config::LanguageServerFeature;
-use lsp_client::lsp;
+use lsp_client::{lsp, LanguageServerId};
 
 use crate::{
     expansion,
     features::process::{self, Error as ProcessError},
     Document, Editor, ViewId,
 };
+
+/// The selected provider travels with its request so publication can validate it.
+pub(crate) struct PreparedFormat {
+    pub server: Option<LanguageServerId>,
+    pub future: BoxFuture<'static, Result<Transaction, FormatterError>>,
+}
 
 impl Document {
     /// The same as [`Self::format`], but only returns formatting changes if auto-formatting
@@ -21,13 +27,14 @@ impl Document {
         editor: &Editor,
     ) -> Option<BoxFuture<'static, Result<Transaction, FormatterError>>> {
         self.auto_format_for_view(editor, self.focused_view(editor))
+            .map(|format| format.future)
     }
 
     pub(crate) fn auto_format_for_view(
         &self,
         editor: &Editor,
         origin: Option<ViewId>,
-    ) -> Option<BoxFuture<'static, Result<Transaction, FormatterError>>> {
+    ) -> Option<PreparedFormat> {
         if self
             .language_config()?
             .auto_format
@@ -45,6 +52,7 @@ impl Document {
         editor: &Editor,
     ) -> Option<BoxFuture<'static, Result<Transaction, FormatterError>>> {
         self.format_snapshot(editor, self.snapshot(), self.focused_view(editor))
+            .map(|format| format.future)
     }
 
     fn focused_view(&self, editor: &Editor) -> Option<ViewId> {
@@ -60,7 +68,7 @@ impl Document {
         editor: &Editor,
         snapshot: buffer::Snapshot,
         origin: Option<ViewId>,
-    ) -> Option<BoxFuture<'static, Result<Transaction, FormatterError>>> {
+    ) -> Option<PreparedFormat> {
         if self.is_content_readonly() {
             return None;
         }
@@ -140,14 +148,15 @@ impl Document {
 
                 Ok(text_diff::compare_ropes(&text, &Rope::from(str)))
             };
-            return Some(
-                async move {
+            return Some(PreparedFormat {
+                server: None,
+                future: async move {
                     tokio::time::timeout(std::time::Duration::from_secs(timeout), formatting_future)
                         .await
                         .map_err(|_| FormatterError::Timeout(timeout))?
                 }
                 .boxed(),
-            );
+            });
         };
 
         // finds first language server that supports formatting and then formats
@@ -180,7 +189,10 @@ impl Document {
             )
             .map_err(FormatterError::InvalidEdits)
         };
-        Some(fut.boxed())
+        Some(PreparedFormat {
+            server: Some(language_server.id()),
+            future: fut.boxed(),
+        })
     }
 }
 

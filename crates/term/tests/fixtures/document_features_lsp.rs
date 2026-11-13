@@ -826,8 +826,12 @@ fn main() -> anyhow::Result<()> {
                 json!({"capabilities":{"textDocumentSync":1,"documentSymbolProvider":true}})
             }
             "initialize" if formatting => json!({"capabilities": {
-                "textDocumentSync": 1, "documentRangeFormattingProvider": true
+                "textDocumentSync": 1, "documentRangeFormattingProvider": true,
+                "documentFormattingProvider": args.iter().any(|arg| arg == "--document-formatting")
             }}),
+            "textDocument/formatting" if formatting => json!([{
+                "range": range(3, 6), "newText": "formatted"
+            }]),
             "textDocument/rangeFormatting" if formatting => json!([{
                 "range": params["range"], "newText": "formatted"
             }]),
