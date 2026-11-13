@@ -172,6 +172,13 @@ command = "kitty"
 args = ["--"]
 ```
 
+## Output history
+
+Run `:debug-output` to inspect the selected session's output, including messages
+from logpoints, in a searchable read-only buffer. Output stays available after
+the session ends. Use `:debug-output <session-number>` to open another retained
+session. See [Debugger output](./tasks.md#debugger-output) for retention details.
+
 ## Troubleshooting
 
 - **No debug adapter available for language:** check the current file's

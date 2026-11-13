@@ -5,7 +5,12 @@
 
 use ::clipboard::ClipboardProvider;
 
-use std::{collections::HashSet, num::NonZeroU8, path::PathBuf, time::Duration};
+use std::{
+    collections::{BTreeMap, HashSet},
+    num::NonZeroU8,
+    path::PathBuf,
+    time::Duration,
+};
 
 use ::diagnostics::Severity;
 use editor_core::{LineEnding, NATIVE_LINE_ENDING};
@@ -17,9 +22,11 @@ use ui_core::graphics::CursorKind;
 
 mod commands;
 mod diagnostics;
+mod tasks;
 mod watch;
 pub use commands::{CustomCommand, CustomCommands};
 pub use diagnostics::{DiagnosticFilter, InlineDiagnosticsConfig};
+pub use tasks::TaskConfig;
 pub use watch::WatchConfig;
 
 pub const DEFAULT_AUTO_SAVE_DELAY: u64 = 3000;
@@ -369,6 +376,8 @@ pub struct Config {
     pub welcome_screen: bool,
     /// Shell to use for shell commands. Defaults to ["cmd", "/C"] on Windows and ["sh", "-c"] otherwise.
     pub shell: Vec<String>,
+    /// Named shell tasks available through `:task`. Defaults to an empty table.
+    pub tasks: BTreeMap<String, TaskConfig>,
     /// Line number mode.
     pub line_number: LineNumber,
     #[serde(deserialize_with = "deserialize_gutter_seq_or_struct")]
@@ -1291,6 +1300,7 @@ impl Default for Config {
             } else {
                 vec!["sh".to_owned(), "-c".to_owned()]
             },
+            tasks: BTreeMap::new(),
             line_number: LineNumber::Absolute,
             gutters: GutterConfig::default(),
             auto_pairs: AutoPairConfig::default(),

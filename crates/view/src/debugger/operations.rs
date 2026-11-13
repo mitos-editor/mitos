@@ -66,6 +66,7 @@ impl Editor {
             && let Some(session) = self.debugger.get_active_session()
             && self.debugger.cancel_startup(session.id())
         {
+            self.prune_debugger_output();
             return Ok(());
         }
         let session = self

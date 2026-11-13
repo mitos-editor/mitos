@@ -28,6 +28,8 @@ These examples use Unix shell tools:
 ## Run commands without inserting output
 
 Use `:sh <command>` to run a shell command, for example `:sh make`.
+For repeatable builds and tests with streaming output and navigable failures,
+use [workspace tasks](./tasks.md).
 The command runs in Mitos's current working directory. Use `:pwd` to inspect
 that directory and `:cd <path>` to change it.
 

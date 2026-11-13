@@ -2552,6 +2552,9 @@ mod adapter_breakpoints;
 #[path = "debugger_inline_values.rs"]
 mod inline_values;
 
+#[path = "debugger_output.rs"]
+mod output;
+
 #[tokio::test(flavor = "multi_thread")]
 async fn termination_uses_disconnect_capabilities_when_terminate_is_unsupported(
 ) -> anyhow::Result<()> {

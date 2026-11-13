@@ -98,7 +98,9 @@ impl Document {
             DocumentSource::Revision(source) => {
                 (DocumentKind::Revision, Some(source.label.as_str()))
             }
-            DocumentSource::Virtual { .. } => (DocumentKind::Virtual, None),
+            DocumentSource::Virtual { .. } | DocumentSource::Output { .. } => {
+                (DocumentKind::Virtual, None)
+            }
             DocumentSource::FileOrScratch => (
                 if self.path().is_some() {
                     DocumentKind::File

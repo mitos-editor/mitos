@@ -20,6 +20,8 @@ pub(crate) fn register_hooks(events: &event::EventHub) {
 mod configuration;
 mod navigation;
 mod operations;
+mod output;
+pub use output::DebuggerOutputSession;
 mod requests;
 pub use navigation::DebuggerFrames;
 pub use operations::DebuggerCommand;
@@ -64,6 +66,7 @@ pub struct DebuggerState {
     pub(crate) closed_breakpoint_sources: std::collections::HashMap<PathBuf, editor_core::Rope>,
     terminal_launcher: Option<Box<dyn TerminalLauncher>>,
     inline_values: std::collections::HashMap<crate::ViewId, inline_values::State>,
+    output: output::OutputBuffers,
 }
 
 impl DebuggerState {

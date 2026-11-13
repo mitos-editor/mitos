@@ -30,6 +30,7 @@
 
 - [Pickers](./pickers.md)
 - [Quicklist](./quicklist.md)
+- [Build and test tasks](./tasks.md)
 - [Jumplist](./jumplist.md)
 - [Language servers](./lsp.md)
 - [Completion and snippets](./completion.md)

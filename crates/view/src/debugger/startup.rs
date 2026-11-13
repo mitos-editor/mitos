@@ -95,7 +95,7 @@ impl StartupContext {
                                 .is_trusted()
                         })
                     {
-                        editor.debugger.remove_session(self.id);
+                        editor.remove_debugger_session(self.id);
                         return;
                     }
                     match result {
@@ -117,7 +117,7 @@ impl StartupContext {
             .lifecycle
             .startup_finished();
         if result.is_err() {
-            editor.debugger.remove_session(self.id);
+            editor.remove_debugger_session(self.id);
         }
         match self.origin {
             StartupOrigin::Child { parent, sequence } => {
@@ -318,7 +318,7 @@ pub(crate) fn register_hooks(events: &event::EventHub) {
             matches!(startup.origin, StartupOrigin::Document(document) if document == event.doc.id()).then_some(id)
         }).collect();
         for id in startups {
-            event.editor.debugger.remove_session(id);
+            event.editor.remove_debugger_session(id);
         }
         Ok(())
     });

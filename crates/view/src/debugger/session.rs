@@ -259,6 +259,7 @@ impl DebuggerState {
         let selected = self.sessions.active_id() == Some(id);
         self.clear_sources(id);
         self.sessions.remove(id);
+        self.output.finish(id);
         if selected {
             self.selection_changed();
         }

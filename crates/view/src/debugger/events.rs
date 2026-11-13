@@ -322,7 +322,7 @@ impl Editor {
         self.cancel_debugger_reverse_requests(id);
         let context = self.debugger_lifecycle_context(id);
         context.spawn(future, |editor, context, result| match result {
-            Ok(_) => editor.debugger.remove_session(context.id),
+            Ok(_) => editor.remove_debugger_session(context.id),
             Err(error) => {
                 editor.debugger.sessions[context.id]
                     .lifecycle
@@ -365,12 +365,12 @@ impl Editor {
         context.spawn(disconnect, move |editor, context, result| {
             if let Err(error) = result {
                 context.report_error(editor, "Cannot disconnect terminated debugger", error);
-                editor.debugger.remove_session(id);
+                editor.remove_debugger_session(id);
                 return;
             }
             let Some(restart_data) = restart else {
                 let active = context.is_active(editor);
-                editor.debugger.remove_session(id);
+                editor.remove_debugger_session(id);
                 if active {
                     editor.set_status("Terminated debugging session and disconnected debugger.");
                 }
@@ -382,7 +382,7 @@ impl Editor {
                         "No starting request found to restart the debugging session."
                     });
                 }
-                editor.debugger.remove_session(id);
+                editor.remove_debugger_session(id);
                 return;
             };
             let Value::Object(mut arguments) = launch.arguments else {
@@ -391,7 +391,7 @@ impl Editor {
                         "No launch or attach arguments found to restart the debugging session."
                     });
                 }
-                editor.debugger.remove_session(id);
+                editor.remove_debugger_session(id);
                 return;
             };
             // DAP forwards the adapter's opaque restart data in the original
@@ -412,7 +412,7 @@ impl Editor {
             context.spawn(future, |editor, context, result| {
                 if let Err(error) = result {
                     context.report_error(editor, "Failed to restart debugging session", error);
-                    editor.debugger.remove_session(context.id);
+                    editor.remove_debugger_session(context.id);
                 }
             });
         });

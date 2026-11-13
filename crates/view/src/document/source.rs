@@ -13,6 +13,7 @@ use super::Document;
 pub(super) enum DocumentSource {
     FileOrScratch,
     Virtual { name: String },
+    Output { name: String },
     Revision(HistoricalDocument),
     Review(Box<ReviewDocument>),
 }
@@ -25,18 +26,19 @@ impl Document {
         match &self.source {
             DocumentSource::FileOrScratch => self.path(),
             DocumentSource::Virtual { .. } => self.path(),
+            DocumentSource::Output { .. } => None,
             DocumentSource::Revision(source) => Some(&source.path),
             DocumentSource::Review(review) => Some(review.path()),
         }
     }
 
-    /// Repository-derived content has no edit history, modified state, or insert
+    /// Derived content has no edit history, modified state, or insert
     /// mode. Named virtual sources retain their existing mode and service policy;
     /// [`Self::is_readonly`] still prevents editing and saving their content.
     pub fn is_content_readonly(&self) -> bool {
         matches!(
             self.source,
-            DocumentSource::Revision(_) | DocumentSource::Review(_)
+            DocumentSource::Revision(_) | DocumentSource::Review(_) | DocumentSource::Output { .. }
         )
     }
 
@@ -82,13 +84,29 @@ impl Document {
         self
     }
 
+    pub(crate) fn with_output_name(mut self, name: String) -> Self {
+        self.set_output_name(name);
+        self
+    }
+
+    pub(crate) fn set_output_name(&mut self, name: String) {
+        self.source = DocumentSource::Output { name };
+    }
+
+    pub(crate) fn is_output(&self) -> bool {
+        matches!(self.source, DocumentSource::Output { .. })
+    }
+
     pub(crate) fn is_virtual(&self) -> bool {
-        matches!(self.source, DocumentSource::Virtual { .. })
+        matches!(
+            self.source,
+            DocumentSource::Virtual { .. } | DocumentSource::Output { .. }
+        )
     }
 
     pub(super) fn virtual_name(&self) -> Option<&str> {
         match &self.source {
-            DocumentSource::Virtual { name } => Some(name),
+            DocumentSource::Virtual { name } | DocumentSource::Output { name } => Some(name),
             _ => None,
         }
     }

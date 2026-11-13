@@ -42,7 +42,7 @@ impl Editor {
                     .debugger
                     .get_active_session()
                     .is_some_and(|session| session.id() == id);
-                self.debugger.remove_session(id);
+                self.remove_debugger_session(id);
                 if active {
                     match error {
                         Some(error) => {
@@ -105,20 +105,7 @@ impl Editor {
                     Event::Output(events::OutputBody {
                         category, output, ..
                     }) => {
-                        let prefix = match category {
-                            Some(category) => {
-                                if &category == "telemetry" {
-                                    return false;
-                                }
-                                format!("Debug ({}):", category)
-                            }
-                            None => "Debug:".to_owned(),
-                        };
-
-                        log::info!("Debug session {id}: {output}");
-                        if active {
-                            self.set_status(format!("{} {}", prefix, output));
-                        }
+                        return self.append_debugger_output(id, category.as_deref(), &output);
                     }
                     Event::ProgressStart(body) => {
                         let status = {

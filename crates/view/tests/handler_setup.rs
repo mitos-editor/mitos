@@ -77,6 +77,10 @@ mod document_settings;
 #[path = "handler_setup/shell.rs"]
 mod shell;
 
+#[cfg(unix)]
+#[path = "handler_setup/tasks.rs"]
+mod tasks;
+
 #[path = "handler_setup/syntax_symbols.rs"]
 mod syntax_symbols;
 

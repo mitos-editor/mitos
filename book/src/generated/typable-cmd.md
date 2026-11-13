@@ -96,6 +96,12 @@
 | `:pipe`, `:\|` | Pipe each selection to the shell command. |
 | `:pipe-to` | Pipe each selection to the shell command, ignoring output. |
 | `:run-shell-command`, `:sh`, `:!` | Run a shell command |
+| `:task` | Run a named workspace task, or open the task picker. Define tasks under editor.tasks in config.toml. |
+| `:task-rerun` | Rerun the previous task with its original command, shell, directory, and environment overrides. |
+| `:task-cancel` | Cancel the running task and its child processes. |
+| `:task-output` | Open the latest task's retained searchable output. |
+| `:task-errors` | Replace the quicklist with locations parsed from the latest task's output. |
+| `:debug-output` | Open the selected debug session's retained output, the latest ended session, or a given session number. |
 | `:vcs-conflict-next` | Move to the next conflict; pass previous to move backwards. |
 | `:vcs-conflict-resolve` | Keep the current side, incoming side, or both sides of the conflict at the cursor. |
 | `:vcs-conflict-source` | Open the base, current, or incoming version of a conflicted file in a read-only split. |

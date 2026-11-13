@@ -33,6 +33,7 @@ mod snippets;
 mod spelling;
 mod symbols;
 pub(crate) mod syntax;
+mod tasks;
 mod textobjects;
 mod vcs;
 mod windows;

@@ -114,6 +114,7 @@ pub struct Editor {
     pub(crate) snippets: crate::features::snippets::SnippetStore,
 
     pub quicklist: Quicklist,
+    pub(crate) tasks: crate::features::tasks::Tasks,
 
     pub status_msg: Option<(Cow<'static, str>, Severity)>,
     pub autoinfo: Option<Info>,
@@ -245,6 +246,7 @@ impl Editor {
             last_theme: None,
             snippets: crate::features::snippets::SnippetStore::default(),
             quicklist: Quicklist::default(),
+            tasks: crate::features::tasks::Tasks::default(),
             registers: Registers::new(crate::clipboard::Clipboard::native(Box::new(
                 arc_swap::access::Map::new(Arc::clone(&config), |config: &Config| {
                     &config.clipboard.provider

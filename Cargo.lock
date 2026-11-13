@@ -5692,6 +5692,7 @@ dependencies = [
  "pane-layout",
  "parking_lot",
  "quickcheck",
+ "regex",
  "search",
  "serde",
  "serde_json",
@@ -5712,6 +5713,7 @@ dependencies = [
  "ui-core",
  "uuid",
  "vcs",
+ "windows-sys 0.61.2",
  "word-index",
  "workspace",
 ]
