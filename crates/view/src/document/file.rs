@@ -14,12 +14,14 @@ use editor_core::{encoding, encoding::Encoding, Rope};
 use futures_util::future::BoxFuture;
 use language::syntax;
 use lsp_client::UriExt as _;
+use parking_lot::Mutex;
 use std::{
     borrow::Cow,
+    collections::HashMap,
     future::Future,
     io,
     path::{Path, PathBuf},
-    sync::{Arc, OnceLock},
+    sync::{Arc, OnceLock, Weak},
     time::SystemTime,
 };
 use stdx::faccess::{copy_metadata, readonly};
@@ -60,6 +62,9 @@ pub(super) struct FileState {
     readonly: bool,
     // The last read or successful save, used to detect external changes.
     last_saved_time: SystemTime,
+    // Queued snapshots share successful timestamps before frontend completion.
+    // Only outstanding saves retain a timestamp, independently per destination.
+    pending_write_times: HashMap<PathBuf, Weak<Mutex<SystemTime>>>,
     last_saved_revision: usize,
     // External change already surfaced while the document remains modified.
     auto_reload_seen_mtime: Option<SystemTime>,
@@ -77,6 +82,7 @@ impl FileState {
             binary: false,
             readonly: false,
             last_saved_time: SystemTime::now(),
+            pending_write_times: HashMap::new(),
             last_saved_revision: 0,
             auto_reload_seen_mtime: None,
         }
@@ -261,6 +267,22 @@ impl Document {
 
         let encoding_with_bom_info = (self.file.encoding, self.file.has_bom);
         let last_saved_time = self.file.last_saved_time;
+        let file_identity = stdx::path::canonicalize_existing(&path);
+        self.file
+            .pending_write_times
+            .retain(|_, time| time.strong_count() != 0);
+        let pending_write_time = self
+            .file
+            .pending_write_times
+            .get(&file_identity)
+            .and_then(Weak::upgrade)
+            .unwrap_or_else(|| {
+                let time = Arc::new(Mutex::new(last_saved_time));
+                self.file
+                    .pending_write_times
+                    .insert(file_identity.clone(), Arc::downgrade(&time));
+                time
+            });
 
         // We encode the file according to the `Document`'s encoding.
         let future = async move {
@@ -278,6 +300,12 @@ impl Document {
             }
 
             // Protect against overwriting changes made externally
+            let same_destination = stdx::path::canonicalize_existing(&path) == file_identity;
+            let last_saved_time = if same_destination {
+                (*pending_write_time.lock()).max(last_saved_time)
+            } else {
+                last_saved_time
+            };
             if !force
                 && let Ok(metadata) = fs::metadata(&path).await
                 && let Ok(mtime) = metadata.modified()
@@ -407,6 +435,9 @@ impl Document {
             }
 
             write_result?;
+            if same_destination {
+                *pending_write_time.lock() = save_time;
+            }
 
             let event = DocumentSavedEvent {
                 revision: snapshot.revision(),
