@@ -380,7 +380,9 @@ async fn config_reload_preserves_legacy_user_and_trusted_project_configs() -> an
     let local = "# Project settings\n[editor]\nscrolloff = 17\n";
     std::fs::write(&user, global)?;
     std::fs::write(&project, local)?;
-    WorkspaceTrust::new(TrustConfig::default(), loader::workspace_trust_dir()).trust(&workspace);
+    WorkspaceTrust::new(TrustConfig::default(), loader::workspace_trust_dir())
+        .trust(&workspace)
+        .unwrap();
     let mut app = AppBuilder::new().build()?;
     let check = |app: &term::application::TestApplication| {
         assert_eq!(app.editor.config().scroll.padding, 17);
@@ -450,7 +452,9 @@ async fn migration_dialog_cancels_rechecks_and_migrates_only_the_confirmed_scope
     std::fs::write(&user, global)?;
     std::fs::write(&project, local)?;
     let workspace = root.join("workspace");
-    WorkspaceTrust::new(TrustConfig::default(), loader::workspace_trust_dir()).trust(&workspace);
+    WorkspaceTrust::new(TrustConfig::default(), loader::workspace_trust_dir())
+        .trust(&workspace)
+        .unwrap();
     let mut app = AppBuilder::new().build()?;
     let unchanged = |_: &term::application::TestApplication| {
         assert_eq!(std::fs::read_to_string(&user).unwrap(), global);

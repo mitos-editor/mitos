@@ -4,7 +4,9 @@ use view::{
     current_ref,
     editor::{Action, ConfigEvent, EditorEvent},
     events::DocumentDidOpen,
-    features::workspace_trust::{dismiss_request, next_request, resolve_request, TrustDecision},
+    features::workspace_trust::{
+        apply_decision, dismiss_request, next_request, resolve_request, TrustDecision,
+    },
 };
 use workspace::trust::{Config, TrustStatus};
 
@@ -29,6 +31,77 @@ fn opened(f: &mut Fixture) {
             doc,
         })
         .report_to(f.editor.status_sender());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn failed_explicit_decisions_return_storage_errors_without_refreshing_config(
+) -> anyhow::Result<()> {
+    for decision in [
+        TrustDecision::Trust,
+        TrustDecision::Exclude,
+        TrustDecision::Untrust,
+    ] {
+        let mut f = Fixture::new("")?;
+        let workspace = current_ref!(f.editor).1.workspace_root().to_owned();
+        let store = f.dir.path().join("trust-store");
+        f.editor.workspace_trust =
+            workspace::trust::WorkspaceTrust::new(Config::default(), store.clone());
+        f.editor.workspace_trust.trust(&workspace)?;
+        let entry = std::fs::read_dir(&store)?.next().unwrap()?.path();
+        std::fs::remove_file(&entry)?;
+        std::fs::create_dir(&entry)?;
+        let error = apply_decision(&mut f.editor, &workspace, decision).unwrap_err();
+        assert!(error.downcast_ref::<std::io::Error>().is_some());
+        assert!(error.to_string().contains(&entry.display().to_string()));
+        assert_eq!(
+            f.editor.workspace_trust.status(&workspace),
+            TrustStatus::Trusted
+        );
+        assert!(!matches!(
+            f.editor.config_events.as_mut().unwrap().try_recv(),
+            Ok(ConfigEvent::Refresh)
+        ));
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn failed_prompt_decisions_can_be_retried_without_refreshing_config() -> anyhow::Result<()> {
+    for decision in [TrustDecision::Trust, TrustDecision::Exclude] {
+        let mut f = Fixture::new("")?;
+        let store = f.dir.path().join("trust-store");
+        std::fs::write(&store, "not a directory")?;
+        f.editor.workspace_trust =
+            workspace::trust::WorkspaceTrust::new(Config::default(), store.clone());
+        let workspace = restrict(&mut f)?;
+        let request = next_request(&mut f.editor).unwrap();
+        assert!(resolve_request(&mut f.editor, &request, decision).is_err());
+        assert_eq!(
+            f.editor.workspace_trust.status(&workspace),
+            TrustStatus::Untrusted
+        );
+        assert!(request.is_current(&f.editor));
+        assert!(!matches!(
+            f.editor.config_events.as_mut().unwrap().try_recv(),
+            Ok(ConfigEvent::Refresh)
+        ));
+
+        std::fs::remove_file(&store)?;
+        assert!(resolve_request(&mut f.editor, &request, decision)?);
+        assert_eq!(
+            f.editor.workspace_trust.status(&workspace),
+            if matches!(decision, TrustDecision::Trust) {
+                TrustStatus::Trusted
+            } else {
+                TrustStatus::Excluded
+            }
+        );
+        assert!(matches!(
+            f.editor.config_events.as_mut().unwrap().try_recv(),
+            Ok(ConfigEvent::Refresh)
+        ));
+    }
+    Ok(())
 }
 
 #[tokio::test(flavor = "multi_thread")]

@@ -102,7 +102,7 @@ mod tests {
             .contains(&local.display().to_string()));
         assert!(report.value.is_err());
         std::fs::remove_file(&global).unwrap();
-        trust.trust(workspace.root());
+        trust.trust(workspace.root()).unwrap();
         let report = ConfigSources::new(&workspace, &trust).languages_from(global);
         assert!(report.skipped.is_none());
         assert!(report.value.is_err()); // The same content is rejected when explicitly trusted.
