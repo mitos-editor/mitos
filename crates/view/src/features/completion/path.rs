@@ -67,6 +67,25 @@ pub(crate) fn path_completion(
             }
         })?;
 
+    let typed_file_name = typed_file_name.as_deref().unwrap_or_default();
+    let edit_diff = typed_file_name.chars().count();
+    // Every cursor must be at the same filename prefix. A matching suffix of a
+    // longer filename is insufficient, and an empty prefix still needs a slash.
+    if !selection.iter().all(|range| {
+        let cursor = range.cursor(text.slice(..));
+        let Some(start) = cursor.checked_sub(edit_diff).filter(|&start| start > 0) else {
+            return false;
+        };
+        let separator = text.char_at(start - 1);
+        (separator == '/' || cfg!(windows) && separator == '\\')
+            && text
+                .slice_chars(start..cursor)
+                .chars()
+                .eq(typed_file_name.chars())
+    }) {
+        return None;
+    }
+
     if handle.is_canceled() {
         return None;
     }
@@ -84,11 +103,6 @@ pub(crate) fn path_completion(
                 },
             };
         };
-
-        let edit_diff = typed_file_name
-            .as_ref()
-            .map(|s| s.chars().count())
-            .unwrap_or_default();
 
         let res: Vec<_> = read_dir
             .filter_map(Result::ok)
@@ -187,6 +201,78 @@ fn path_kind(md: &fs::Metadata) -> &'static str {
         } else {
             "file"
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use editor_core::{Range, Rope};
+
+    fn complete(
+        text: &str,
+        cursors: &[usize],
+        primary: usize,
+        filename: &str,
+    ) -> Option<Vec<TextCompletion>> {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join(filename), "").unwrap();
+        let mut doc = crate::document::test_document(text);
+        doc.set_path(Some(&dir.path().join("buffer.txt")));
+        assert!(doc.path_completion_enabled());
+        let view = crate::ViewId::default();
+        doc.ensure_view_init(view);
+        let selection =
+            Selection::new(cursors.iter().copied().map(Range::point).collect(), primary);
+        doc.set_selection(view, selection.clone());
+        let savepoint = doc.savepoint(view);
+        let mut controller = event::TaskController::new();
+        let response = path_completion(selection, &doc, controller.restart(), savepoint)?();
+        let CompletionItems::Path(items) = response.items else {
+            panic!("expected path completions")
+        };
+        Some(items)
+    }
+
+    #[test]
+    fn secondary_cursor_before_prefix_cannot_underflow() {
+        assert!(complete("./ap\n", &[0, 4], 1, "apple.txt").is_none());
+    }
+
+    #[test]
+    fn incompatible_filename_prefixes_are_declined() {
+        for (text, cursors) in [
+            ("./a\n./ap\n", [3, 8]),
+            ("hello\n./ap\n", [5, 10]),
+            ("./map\n./ap\n", [5, 10]),
+        ] {
+            assert!(complete(text, &cursors, 1, "apple.txt").is_none(), "{text}");
+        }
+    }
+
+    #[test]
+    fn empty_prefixes_require_a_path_separator_at_every_cursor() {
+        assert!(complete("./\nplain\n", &[2, 8], 0, "apple.txt").is_none());
+    }
+
+    #[test]
+    fn matching_prefixes_replace_all_cursors() {
+        for (input, cursors) in [("./ap\n./ap\n", [4, 9]), ("./\n./\n", [2, 5])] {
+            let items = complete(input, &cursors, 0, "apple.txt").unwrap();
+            assert_eq!(items.len(), 1);
+            let mut text = Rope::from(input);
+            assert!(items[0].transaction.apply(&mut text));
+            assert_eq!(text, "./apple.txt\n./apple.txt\n");
+        }
+    }
+
+    #[test]
+    fn matching_unicode_prefixes_use_character_offsets() {
+        let input = "😀 ./é亜\n😀 ./é亜\n";
+        let items = complete(input, &[6, 13], 1, "é亜clair.txt").unwrap();
+        let mut text = Rope::from(input);
+        assert!(items[0].transaction.apply(&mut text));
+        assert_eq!(text, "😀 ./é亜clair.txt\n😀 ./é亜clair.txt\n");
     }
 }
 
