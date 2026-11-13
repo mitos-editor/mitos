@@ -8,7 +8,7 @@ Follow-up changes that reduce duplicated logic, redundant state, or unused API. 
 
 - [ ] **Remove the unimplemented `ChangeSet::map`.** See [`crates/core/src/transaction.rs`](crates/core/src/transaction.rs). It is public, so check downstream use and decide whether the API removal needs a compatibility note. Preserve the position-mapping behavior implemented by existing methods; do not replace the stub with a second mapping abstraction.
 
-- [ ] **Simplify case conversion.** Replace the one-use `CaseSwitcher` iterator in [`crates/core/src/transform.rs`](crates/core/src/transform.rs) with a direct output loop. Preserve Unicode case expansions where one character maps to multiple characters; preserve Unicode expansion and selection mapping; add focused behavior coverage if it is missing.
+- [ ] **Simplify case conversion.** Replace the one-use `CaseSwitcher` iterator in [`crates/core/src/transform.rs`](crates/core/src/transform.rs) with a direct output loop. Preserve selection mapping and Unicode case expansions where one character maps to multiple characters; add focused behavior coverage if it is missing.
 
 - [ ] **Share selection line-range handling.** Use [`Selection::line_ranges`](crates/core/src/selection.rs) to remove duplicated line selection logic in [`crates/core/src/transform.rs`](crates/core/src/transform.rs) and [`crates/core/src/comment.rs`](crates/core/src/comment.rs). Preserve reversed and multiple selections and line-end behavior. Keep the selection line-range and comment/transform regression tests.
 
@@ -32,7 +32,7 @@ Follow-up changes that reduce duplicated logic, redundant state, or unused API. 
 
 - [ ] **Share save option parsing.** The save option parsing in [`crates/term/src/commands/files.rs`](crates/term/src/commands/files.rs) and [`crates/term/src/commands/application.rs`](crates/term/src/commands/application.rs) can use one small shared path. Preserve the existing command and application behavior without adding a general parsing framework.
 
-- [ ] **Reuse picker test setup.** In [`crates/term/src/ui/picker/test.rs`](crates/term/src/ui/picker/test.rs), reuse existing helpers where tests repeat full `Context` setup. Keep test intent and failure localization clear; do not create a broader fixture framework.
+- [ ] **Reuse picker test setup.** Build on the shared helpers in [`crates/term/src/ui/picker/test.rs`](crates/term/src/ui/picker/test.rs) to reduce repeated `Context` setup in [`paging_tests.rs`](crates/term/src/ui/picker/paging_tests.rs) and [`scroll_tests.rs`](crates/term/src/ui/picker/scroll_tests.rs). Keep custom configuration, viewport dimensions, and test intent clear; do not create a broader fixture framework.
 
 - [ ] **Flatten branch worker initialization.** In [`crates/vcs/src/operations/repository/branches.rs`](crates/vcs/src/operations/repository/branches.rs), replace nested initialization closures and the `Option::take().unwrap()` pattern with a direct loop modeled on [`crates/vcs/src/operations/history/walk.rs`](crates/vcs/src/operations/history/walk.rs). Preserve the ordering that closes the channel before publishing failure so callers can retry immediately. Separately, make `EventAccumulator::handle_event` synchronous in [`crates/vcs/src/diff/worker.rs`](crates/vcs/src/diff/worker.rs); it has no await point.
 
