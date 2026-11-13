@@ -5,6 +5,9 @@ use super::config::{Command, CommandProvider};
 use super::{ClipboardBackend, ClipboardError, ClipboardProvider, ClipboardType, Result};
 use std::borrow::Cow;
 
+#[cfg(windows)]
+mod windows;
+
 /// Native command and platform clipboard access, without frontend output.
 #[derive(Default)]
 pub struct NativeClipboard;
@@ -37,13 +40,12 @@ pub(super) fn default_provider() -> ClipboardProvider {
 pub(super) fn default_provider() -> ClipboardProvider {
     use stdx::env::{binary_exists, env_var_is_set};
 
-    fn is_exit_success(program: &str, args: &[&str]) -> bool {
-        std::process::Command::new(program)
-            .args(args)
-            .output()
-            .ok()
-            .and_then(|out| out.status.success().then_some(()))
-            .is_some()
+    fn is_exit_success(program: &'static str, args: &[&'static str]) -> bool {
+        let command = Command {
+            command: Cow::Borrowed(program),
+            args: Cow::Owned(args.iter().map(|arg| Cow::Borrowed(*arg)).collect()),
+        };
+        execute_command(&command, None, false).is_ok()
     }
 
     if binary_exists("termux-clipboard-set") && binary_exists("termux-clipboard-get") {
@@ -257,20 +259,74 @@ fn execute_command(
     input: Option<&str>,
     pipe_output: bool,
 ) -> Result<Option<String>> {
-    use std::io::Write;
-    use std::process::{Command, Stdio};
+    execute_command_with_timeout(cmd, input, pipe_output, std::time::Duration::from_secs(5))
+}
 
-    let stdin = input.map(|_| Stdio::piped()).unwrap_or_else(Stdio::null);
-    let stdout = pipe_output.then(Stdio::piped).unwrap_or_else(Stdio::null);
+fn execute_command_with_timeout(
+    cmd: &Command,
+    input: Option<&str>,
+    pipe_output: bool,
+    timeout: std::time::Duration,
+) -> Result<Option<String>> {
+    // This synchronous API is also called inside the editor's Tokio runtime.
+    // A separate thread lets cancellable pipe I/O use its own runtime without
+    // nesting block_on or leaving blocked pipe workers behind on timeout.
+    std::thread::scope(|scope| {
+        std::thread::Builder::new()
+            .name("clipboard".into())
+            .spawn_scoped(scope, || {
+                tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()?
+                    .block_on(execute_command_async(cmd, input, pipe_output, timeout))
+            })?
+            .join()
+            .map_err(|_| ClipboardError::CommandFailed)?
+    })
+}
+
+async fn execute_command_async(
+    cmd: &Command,
+    input: Option<&str>,
+    pipe_output: bool,
+    timeout: std::time::Duration,
+) -> Result<Option<String>> {
+    use std::process::{Command, Stdio};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     let mut command: Command = Command::new(cmd.command.as_ref());
 
-    #[allow(unused_mut)]
-    let mut command_mut: &mut Command = command
+    command
         .args(cmd.args.iter().map(AsRef::as_ref))
-        .stdin(stdin)
-        .stdout(stdout)
         .stderr(Stdio::null());
+
+    #[cfg(not(windows))]
+    command
+        .stdin(input.map(|_| Stdio::piped()).unwrap_or_else(Stdio::null))
+        .stdout(pipe_output.then(Stdio::piped).unwrap_or_else(Stdio::null));
+
+    // Tokio's anonymous Windows pipes use blocking I/O workers. Overlapped
+    // named pipes allow cancellation even when another process inherits an end.
+    #[cfg(windows)]
+    let (mut stdin, mut stdout) = {
+        let stdin = if input.is_some() {
+            let (pipe, child_end) = windows::pipe(true).await?;
+            command.stdin(child_end);
+            Some(pipe)
+        } else {
+            command.stdin(Stdio::null());
+            None
+        };
+        let stdout = if pipe_output {
+            let (pipe, child_end) = windows::pipe(false).await?;
+            command.stdout(child_end);
+            Some(pipe)
+        } else {
+            command.stdout(Stdio::null());
+            None
+        };
+        (stdin, stdout)
+    };
 
     // Fix for https://github.com/helix-editor/helix/issues/5424
     #[cfg(unix)]
@@ -278,44 +334,255 @@ fn execute_command(
         use std::os::unix::process::CommandExt;
 
         unsafe {
-            command_mut = command_mut.pre_exec(|| match libc::setsid() {
+            command.pre_exec(|| match libc::setsid() {
                 -1 => Err(std::io::Error::last_os_error()),
                 _ => Ok(()),
             });
         }
     }
 
-    let mut child = command_mut.spawn()?;
+    let mut child = tokio::process::Command::from(command)
+        .kill_on_drop(true)
+        .spawn()?;
+    #[cfg(not(windows))]
+    let mut stdin = child.stdin.take();
+    #[cfg(not(windows))]
+    let mut stdout = child.stdout.take();
+    let result = tokio::time::timeout(timeout, async {
+        let write = async {
+            if let Some(input) = input {
+                let stdin = stdin.as_mut().ok_or(ClipboardError::StdinWriteFailed)?;
+                stdin
+                    .write_all(input.as_bytes())
+                    .await
+                    .map_err(|_| ClipboardError::StdinWriteFailed)?;
+                #[cfg(windows)]
+                windows::finish_write(stdin)
+                    .await
+                    .map_err(|_| ClipboardError::StdinWriteFailed)?;
+            }
+            drop(stdin.take());
+            Ok::<_, ClipboardError>(())
+        };
+        let read = async {
+            let mut output = Vec::new();
+            if let Some(stdout) = stdout.as_mut() {
+                stdout.read_to_end(&mut output).await?;
+            }
+            Ok::<_, ClipboardError>(output)
+        };
+        let wait = async { child.wait().await.map_err(ClipboardError::from) };
+        let ((), output, status) = tokio::try_join!(write, read, wait)?;
+        if !status.success() {
+            log::error!("clipboard provider {} failed: {status}", cmd.command);
+            return Err(ClipboardError::CommandFailed);
+        }
+        if pipe_output {
+            Ok(Some(String::from_utf8(output)?))
+        } else {
+            Ok(None)
+        }
+    })
+    .await
+    .unwrap_or(Err(ClipboardError::CommandTimedOut));
 
-    if let Some(input) = input {
-        let mut stdin = child.stdin.take().ok_or(ClipboardError::StdinWriteFailed)?;
-        stdin
-            .write_all(input.as_bytes())
-            .map_err(|_| ClipboardError::StdinWriteFailed)?;
+    if result.is_err() {
+        // Cancel Windows writes explicitly: Mio otherwise flushes them on drop.
+        #[cfg(windows)]
+        for pipe in stdin.iter().chain(stdout.iter()) {
+            windows::cancel(pipe);
+        }
+        drop((stdin, stdout));
+        // kill also waits, so the helper is reaped.
+        child.kill().await?;
     }
-
-    // TODO: add timer?
-    let output = child.wait_with_output()?;
-
-    if !output.status.success() {
-        log::error!(
-            "clipboard provider {} failed with stderr: \"{}\"",
-            cmd.command,
-            String::from_utf8_lossy(&output.stderr)
-        );
-        return Err(ClipboardError::CommandFailed);
-    }
-
-    if pipe_output {
-        Ok(Some(String::from_utf8(output.stdout)?))
-    } else {
-        Ok(None)
-    }
+    result
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    fn shell_command(script: &str, path: &std::path::Path) -> Command {
+        serde_json::from_value(serde_json::json!({
+            "command": "/bin/sh", "args": ["-c", script, "clipboard-test", path]
+        }))
+        .unwrap()
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn helper_timeout_terminates_and_reaps_process() {
+        let dir = tempfile::tempdir().unwrap();
+        let pid_path = dir.path().join("pid");
+        let command = shell_command("printf '%s' $$ > \"$1\"; exec sleep 5", &pid_path);
+        let started = std::time::Instant::now();
+        let result = execute_command_with_timeout(
+            &command,
+            None,
+            true,
+            std::time::Duration::from_millis(500),
+        );
+        assert!(
+            matches!(result, Err(ClipboardError::CommandTimedOut)),
+            "{result:?}"
+        );
+        assert!(started.elapsed() < std::time::Duration::from_secs(2));
+        let pid: libc::pid_t = std::fs::read_to_string(pid_path).unwrap().parse().unwrap();
+        assert_eq!(unsafe { libc::kill(pid, 0) }, -1, "helper is still alive");
+        assert_eq!(
+            std::io::Error::last_os_error().raw_os_error(),
+            Some(libc::ESRCH)
+        );
+        assert_eq!(
+            unsafe { libc::waitpid(pid, std::ptr::null_mut(), libc::WNOHANG) },
+            -1
+        );
+        assert_eq!(
+            std::io::Error::last_os_error().raw_os_error(),
+            Some(libc::ECHILD)
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn helper_timeout_covers_blocked_stdin() {
+        let dir = tempfile::tempdir().unwrap();
+        let command = shell_command("exec sleep 5", dir.path());
+        let input = "x".repeat(8 * 1024 * 1024);
+        let started = std::time::Instant::now();
+        let result = execute_command_with_timeout(
+            &command,
+            Some(&input),
+            false,
+            std::time::Duration::from_millis(500),
+        );
+        assert!(
+            matches!(result, Err(ClipboardError::CommandTimedOut)),
+            "{result:?}"
+        );
+        assert!(started.elapsed() < std::time::Duration::from_secs(2));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn helper_timeout_covers_inherited_stdout() {
+        let dir = tempfile::tempdir().unwrap();
+        let command = shell_command("sleep 5 & printf ready", dir.path());
+        let started = std::time::Instant::now();
+        let result = execute_command_with_timeout(
+            &command,
+            None,
+            true,
+            std::time::Duration::from_millis(500),
+        );
+        assert!(
+            matches!(result, Err(ClipboardError::CommandTimedOut)),
+            "{result:?}"
+        );
+        assert!(started.elapsed() < std::time::Duration::from_secs(2));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn large_duplex_io_works_inside_a_runtime() {
+        let dir = tempfile::tempdir().unwrap();
+        let command = shell_command("exec cat", dir.path());
+        let input = "α\n".repeat(512 * 1024);
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        runtime.block_on(async {
+            assert_eq!(
+                execute_command(&command, Some(&input), true).unwrap(),
+                Some(input)
+            );
+        });
+    }
+
+    #[cfg(windows)]
+    fn self_command(helper: &str) -> Command {
+        serde_json::from_value(serde_json::json!({
+            "command": std::env::current_exe().unwrap(),
+            "args": ["--exact", helper, "--ignored", "--nocapture"]
+        }))
+        .unwrap()
+    }
+
+    #[cfg(windows)]
+    #[test]
+    #[ignore = "subprocess fixture"]
+    fn clipboard_helper_wait() {
+        std::thread::sleep(std::time::Duration::from_secs(5));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    #[ignore = "subprocess fixture"]
+    #[allow(clippy::zombie_processes)] // The fixture must exit before its child closes stdout.
+    fn clipboard_helper_inherit_stdout() {
+        std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "native::tests::clipboard_helper_wait",
+                "--ignored",
+                "--nocapture",
+            ])
+            .spawn()
+            .unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    #[ignore = "subprocess fixture"]
+    fn clipboard_helper_echo() {
+        std::io::copy(&mut std::io::stdin().lock(), &mut std::io::stdout().lock()).unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_deadline_covers_blocked_input_output_and_exit() {
+        let input = "x".repeat(8 * 1024 * 1024);
+        for (helper, input, pipe_output) in [
+            ("native::tests::clipboard_helper_wait", None, true),
+            (
+                "native::tests::clipboard_helper_wait",
+                Some(input.as_str()),
+                false,
+            ),
+            ("native::tests::clipboard_helper_inherit_stdout", None, true),
+        ] {
+            let started = std::time::Instant::now();
+            let result = execute_command_with_timeout(
+                &self_command(helper),
+                input,
+                pipe_output,
+                std::time::Duration::from_millis(500),
+            );
+            assert!(
+                matches!(result, Err(ClipboardError::CommandTimedOut)),
+                "{result:?}"
+            );
+            assert!(started.elapsed() < std::time::Duration::from_secs(2));
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_pipes_preserve_large_unicode_input_and_output() {
+        let input = "α\n".repeat(512 * 1024);
+        let output = execute_command(
+            &self_command("native::tests::clipboard_helper_echo"),
+            Some(&input),
+            true,
+        )
+        .unwrap()
+        .unwrap();
+        // The Rust test harness writes its own framing around the helper output.
+        assert!(output.contains(&input));
+    }
 
     #[test]
     fn terminal_output_requires_a_frontend_backend() {

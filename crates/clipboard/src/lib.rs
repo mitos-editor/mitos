@@ -19,6 +19,8 @@ pub enum ClipboardError {
     WinAPI(#[from] clipboard_win::ErrorCode),
     #[error("clipboard provider command failed")]
     CommandFailed,
+    #[error("clipboard provider timed out; check the configured clipboard command")]
+    CommandTimedOut,
     #[error("failed to write to clipboard provider's stdin")]
     StdinWriteFailed,
     #[error("clipboard provider did not return any contents")]
