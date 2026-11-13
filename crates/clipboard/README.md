@@ -8,3 +8,6 @@ terminal output dependency. `view` supplies live settings and register semantics
 Native and terminal defaults share platform detection. A frontend that supports
 OSC 52 uses `ClipboardProvider::default_for_terminal`; the ordinary default never
 requires terminal output.
+
+Native clipboard commands have a five-second deadline covering input, output, and
+process exit. A stalled command is terminated and reported as a clipboard timeout.
