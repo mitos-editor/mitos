@@ -383,6 +383,32 @@ fn main() -> anyhow::Result<()> {
             )?;
             continue;
         }
+        if method == "workspace/diagnostic" && diagnostics {
+            writeln!(request_log.as_mut().unwrap(), "{message}")?;
+            request_log.as_mut().unwrap().flush()?;
+            let index = args
+                .iter()
+                .position(|arg| arg == "--workspace-diagnostics")
+                .unwrap();
+            let reports: Value = serde_json::from_reader(std::fs::File::open(&args[index + 1])?)?;
+            for batch in reports["batches"].as_array().into_iter().flatten() {
+                respond(
+                    &mut output,
+                    json!({"jsonrpc": "2.0", "method": "$/progress",
+                    "params": {"token": params["partialResultToken"], "value": batch}}),
+                )?;
+            }
+            if reports["hold"].as_bool() == Some(true) {
+                continue;
+            }
+            let response = if let Some(error) = reports.get("error") {
+                json!({"jsonrpc": "2.0", "id": id, "error": error})
+            } else {
+                json!({"jsonrpc": "2.0", "id": id, "result": reports["result"]})
+            };
+            respond(&mut output, response)?;
+            continue;
+        }
         if method == "textDocument/diagnostic" && diagnostics {
             let label = &args[1];
             let version = versions.get(uri).copied().unwrap_or_default();
@@ -1180,7 +1206,7 @@ fn main() -> anyhow::Result<()> {
             }}),
             "initialize" if diagnostics => json!({"capabilities": {
                 "positionEncoding": "utf-16", "textDocumentSync": 1,
-                "diagnosticProvider": {"identifier": args[1], "workspaceDiagnostics": false,
+                "diagnosticProvider": {"identifier": args[1], "workspaceDiagnostics": args.iter().any(|arg| arg == "--workspace-diagnostics"),
                     "interFileDependencies": args.iter().any(|arg| arg == "--inter-file")}
             }}),
             "initialize" => json!({"capabilities": {
