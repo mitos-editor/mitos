@@ -1,7 +1,8 @@
 //! Editor and component keymaps, including picker-specific inheritance.
 use crate::keymap::component::{
-    quicklist_picker_keymap, BlameAction, ComponentKeymaps, DiffAction, MenuAction, PageAction,
-    PickerAction, PickerItemAction, PopupAction, PromptAction, SidebarAction,
+    diagnostics_picker_keymap, quicklist_picker_keymap, BlameAction, ComponentKeymaps, DiffAction,
+    MenuAction, PageAction, PickerAction, PickerItemAction, PopupAction, PromptAction,
+    SidebarAction,
 };
 use crate::keymap::{self, KeyTrie};
 use serde::{Deserialize, Deserializer};
@@ -39,6 +40,8 @@ impl<'de> Deserialize<'de> for QuicklistPickerAction {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct DiagnosticsPickerAction(PickerAction);
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct GitPickerAction(PickerAction);
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -87,6 +90,7 @@ macro_rules! picker_actions {
         }
     };
 }
+picker_actions!(DiagnosticsPickerAction, { "diagnostic_details" => DiagnosticDetails, "diagnostic_details_split" => DiagnosticDetailsSplit });
 picker_actions!(GitPickerAction, { "stage" => Stage, "unstage" => Unstage, "stash" => Stash, "actions" => Actions, "stashes" => Stashes });
 picker_actions!(BranchPickerAction, {"create_branch" => CreateBranch, "delete_branch" => DeleteBranch});
 picker_actions!(WorktreePickerAction, {"create_worktree" => CreateWorktree, "remove_worktree" => RemoveWorktree, "lock_worktree" => LockWorktree, "unlock_worktree" => UnlockWorktree});
@@ -105,6 +109,7 @@ pub struct Keys {
     picker: Keymap<PickerAction>,
     buffer_picker: Keymap<BufferPickerAction>,
     quicklist_picker: Keymap<QuicklistPickerAction>,
+    diagnostics_picker: Keymap<DiagnosticsPickerAction>,
     git_picker: Keymap<GitPickerAction>,
     branch_picker: Keymap<BranchPickerAction>,
     worktree_picker: Keymap<WorktreePickerAction>,
@@ -178,7 +183,7 @@ impl Keys {
         self,
         editor: &mut HashMap<Mode, KeyTrie>,
         components: &mut ComponentKeymaps,
-    ) -> ([Keymap<PickerAction>; 8], [Keymap<SidebarAction>; 2]) {
+    ) -> ([Keymap<PickerAction>; 9], [Keymap<SidebarAction>; 2]) {
         for (mode, keys) in [
             (Mode::Normal, self.normal),
             (Mode::Insert, self.insert),
@@ -211,6 +216,7 @@ impl Keys {
                 self.file_explorer.map_actions(|action| action.0),
                 self.branch_picker.map_actions(|action| action.0),
                 self.worktree_picker.map_actions(|action| action.0),
+                self.diagnostics_picker.map_actions(|action| action.0),
             ],
             [
                 self.sidebar.map_actions(|action| action.0),
@@ -225,13 +231,13 @@ pub(super) fn resolve_keymaps(
 ) -> (HashMap<Mode, KeyTrie>, ComponentKeymaps) {
     let mut editor = keymap::default();
     let mut components = ComponentKeymaps::default();
-    let [mut buffer_overrides, mut quicklist_overrides, mut git_overrides, mut stash_overrides, mut history_overrides, mut explorer_overrides, mut branch_overrides, mut worktree_overrides] =
+    let [mut buffer_overrides, mut quicklist_overrides, mut git_overrides, mut stash_overrides, mut history_overrides, mut explorer_overrides, mut branch_overrides, mut worktree_overrides, mut diagnostics_overrides] =
         std::array::from_fn(|_| Keymap::default());
     let mut sidebar_overrides = Keymap::default();
     let mut sidebar_filter_overrides = Keymap::default();
     for keys in configured {
         let (
-            [buffer, quicklist, git, stash, history, explorer, branch, worktree],
+            [buffer, quicklist, git, stash, history, explorer, branch, worktree, diagnostics],
             [sidebar, filter],
         ) = keys.apply(&mut editor, &mut components);
         sidebar_overrides.merge(sidebar);
@@ -244,9 +250,12 @@ pub(super) fn resolve_keymaps(
         explorer_overrides.merge(explorer);
         branch_overrides.merge(branch);
         worktree_overrides.merge(worktree);
+        diagnostics_overrides.merge(diagnostics);
     }
     // Resolve inheritance after both configuration layers: picker-specific
     // bindings take priority even over workspace changes to shared bindings.
+    components.diagnostics_picker = diagnostics_picker_keymap(&components.picker);
+    components.diagnostics_picker.merge(diagnostics_overrides);
     components.buffer_picker = components.picker.clone();
     components.buffer_picker.merge(buffer_overrides);
     components.quicklist_picker = quicklist_picker_keymap(&components.picker);

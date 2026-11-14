@@ -44,6 +44,8 @@ pub struct Diagnostic {
     pub tags: Vec<DiagnosticTag>,
     pub source: Option<Box<str>>,
     pub data: Option<serde_json::Value>,
+    /// Optional information for full diagnostic inspection.
+    pub details: Option<Arc<DiagnosticDetails>>,
 }
 
 /// The source of a diagnostic.
@@ -93,4 +95,24 @@ impl Diagnostic {
     pub fn severity(&self) -> Severity {
         self.severity.unwrap_or(Severity::Warning)
     }
+}
+
+/// Additional diagnostic content retained independently of protocol clients.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct DiagnosticDetails {
+    pub related_information: Vec<RelatedInformation>,
+    pub documentation: Option<stdx::Url>,
+    /// Optional full compiler output supplied in the server's diagnostic data.
+    pub rendered: Option<Box<str>>,
+}
+
+/// A related message at the server's last reported position in another resource.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RelatedInformation {
+    /// Preserve all URI schemes, including resources the editor cannot open.
+    pub uri: stdx::Url,
+    /// Line and encoded-column positions, not offsets in the primary document.
+    pub range: Range<editor_core::Position>,
+    pub offset_encoding: editor_core::OffsetEncoding,
+    pub message: Box<str>,
 }

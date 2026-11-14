@@ -173,6 +173,8 @@ impl MappableCommand {
         workspace_symbol_picker => super::lsp::workspace_symbol_picker, "Open workspace symbol picker",
         syntax_workspace_symbol_picker => super::syntax::syntax_workspace_symbol_picker, "Open workspace symbol picker from syntax information",
         lsp_or_syntax_workspace_symbol_picker => super::symbols::lsp_or_syntax_workspace_symbol_picker, "Open workspace symbol picker from LSP or syntax information",
+        diagnostic_details => super::diagnostics::diagnostic_details, "Read the full diagnostic at the selection in a buffer",
+        diagnostic_details_split => super::diagnostics::diagnostic_details_split, "Read the full diagnostic in a horizontal split",
         diagnostics_picker => super::diagnostics::diagnostics_picker, "Open diagnostic picker",
         workspace_diagnostics_picker => super::diagnostics::workspace_diagnostics_picker, "Open workspace diagnostic picker",
         last_picker => super::palette::last_picker, "Open last picker",

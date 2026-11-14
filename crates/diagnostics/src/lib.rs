@@ -8,7 +8,7 @@ mod model;
 mod store;
 
 pub use model::{
-    Diagnostic, DiagnosticProvider, DiagnosticTag, LanguageServerId, NumberOrString, Range,
-    Severity,
+    Diagnostic, DiagnosticDetails, DiagnosticProvider, DiagnosticTag, LanguageServerId,
+    NumberOrString, Range, RelatedInformation, Severity,
 };
 pub use store::DiagnosticStore;

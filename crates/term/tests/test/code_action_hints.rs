@@ -127,6 +127,7 @@ impl Fixture {
             tags: Vec::new(),
             source: Some("spelling".into()),
             data: None,
+            details: None,
         });
         doc.replace_diagnostics(diagnostics, &[], Some(&provider));
         self.app

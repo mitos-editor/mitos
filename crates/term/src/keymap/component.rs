@@ -62,6 +62,8 @@ pub enum PickerAction {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PickerItemAction {
+    DiagnosticDetails,
+    DiagnosticDetailsSplit,
     CloseBuffer,
     #[serde(rename = "remove_entry")]
     RemoveQuicklistEntry,
@@ -140,6 +142,8 @@ impl PickerAction {
             Self::OpenPreview => "Open preview",
             Self::PopulateQuicklist => "Populate quicklist",
             Self::Item(action) => match action {
+                PickerItemAction::DiagnosticDetails => "Read full diagnostic",
+                PickerItemAction::DiagnosticDetailsSplit => "Read diagnostic in a horizontal split",
                 PickerItemAction::CloseBuffer => "Close buffer",
                 PickerItemAction::RemoveQuicklistEntry => "Remove entry",
                 PickerItemAction::Stage => "Stage",
@@ -214,6 +218,7 @@ pub struct ComponentKeymaps {
     pub picker: Keymap<PickerAction>,
     pub buffer_picker: Keymap<PickerAction>,
     pub quicklist_picker: Keymap<PickerAction>,
+    pub diagnostics_picker: Keymap<PickerAction>,
     pub git_picker: Keymap<PickerAction>,
     pub branch_picker: Keymap<PickerAction>,
     pub worktree_picker: Keymap<PickerAction>,
@@ -249,6 +254,21 @@ pub(crate) fn quicklist_picker_keymap(picker: &Keymap<PickerAction>) -> Keymap<P
         "C-x",
         PickerAction::Item(PickerItemAction::RemoveQuicklistEntry),
     )]));
+    keys
+}
+
+pub(crate) fn diagnostics_picker_keymap(picker: &Keymap<PickerAction>) -> Keymap<PickerAction> {
+    let mut keys = picker.clone();
+    keys.merge(bindings(&[
+        (
+            "A-d",
+            PickerAction::Item(PickerItemAction::DiagnosticDetails),
+        ),
+        (
+            "A-s",
+            PickerAction::Item(PickerItemAction::DiagnosticDetailsSplit),
+        ),
+    ]));
     keys
 }
 
@@ -433,6 +453,7 @@ impl Default for ComponentKeymaps {
                 ("C-q", P::ExitSelection),
                 ("C-r", P::InsertRegister),
             ]),
+            diagnostics_picker: diagnostics_picker_keymap(&picker),
             buffer_picker: picker.clone(),
             quicklist_picker: quicklist_picker_keymap(&picker),
             git_picker: Self::git_picker(picker.clone()),

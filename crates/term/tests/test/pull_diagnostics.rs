@@ -737,3 +737,69 @@ async fn progress_completion_refreshes_diagnostics_while_a_prompt_is_open() -> a
     assert!(f.app.close().await.is_empty());
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn diagnostic_details_preserve_pull_metadata_for_unopened_files() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let mut f = Fixture::new(dir.path(), "original", &["alpha"], false)?;
+    let path = stdx::path::normalize(dir.path().join("closed.pull-test"));
+    std::fs::write(&path, "😀 error\n")?;
+    let uri = Uri::from(path.clone());
+    let mut report = related_report(Some("closed"), Some("closed diagnostic"));
+    report["items"][0]["codeDescription"] = json!({"href": "https://example.com/E1"});
+    report["items"][0]["relatedInformation"] = json!([{
+        "location": {"uri": "untitled:dependency", "range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 1}}},
+        "message": "related dependency"
+    }]);
+    f.related(0, &uri, report)?;
+    f.initialize().await?;
+    f.publish().await?;
+    assert!(f
+        .app
+        .editor
+        .documents()
+        .all(|doc| doc.path() != Some(path.as_path())));
+    assert_eq!(
+        f.app.editor.diagnostics()[&uri][0].0.message,
+        "closed diagnostic"
+    );
+    super::helpers::keys(&mut f.app, "<space>Dclosed").await?;
+    super::helpers::keys(&mut f.app, "<A-d>").await?;
+    let (view, doc) = current_ref!(f.app.editor);
+    let text = doc.text().to_string();
+    assert!(text.contains("closed diagnostic"), "{text}");
+    assert!(text.contains("related dependency"));
+    assert!(text.contains("untitled:dependency"));
+    assert!(text.contains("https://example.com/E1"));
+    let details = doc.id();
+    // Opening details must not open the source file or require its text for conversion.
+    assert!(f
+        .app
+        .editor
+        .documents()
+        .all(|doc| doc.path() != Some(path.as_path())));
+    let link = doc.reference_links()[0].start;
+    let view = view.id;
+    f.app
+        .editor
+        .document_mut(details)
+        .unwrap()
+        .set_selection(view, editor_core::Selection::point(link));
+    super::helpers::keys(&mut f.app, "gf").await?;
+    assert_eq!(current_ref!(f.app.editor).1.path(), Some(path.as_path()));
+    super::helpers::keys(&mut f.app, "<C-o>").await?;
+    assert_eq!(current_ref!(f.app.editor).1.id(), details);
+    let (view, doc) = current!(f.app.editor);
+    doc.set_selection(
+        view.id,
+        editor_core::Selection::point(doc.reference_links()[1].start),
+    );
+    super::helpers::keys(&mut f.app, "gf").await?;
+    assert_eq!(
+        current_ref!(f.app.editor).1.id(),
+        details,
+        "unsupported URI stays readable without external launch"
+    );
+    assert!(f.app.close().await.is_empty());
+    Ok(())
+}

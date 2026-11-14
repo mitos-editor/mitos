@@ -43,6 +43,14 @@ impl<T: Send + Sync + 'static, D: Send + Sync + 'static> Picker<T, D> {
         if self.item_action_fn.is_some() {
             actions.extend([
                 (
+                    PickerAction::Item(PickerItemAction::DiagnosticDetails),
+                    "full diagnostic",
+                ),
+                (
+                    PickerAction::Item(PickerItemAction::DiagnosticDetailsSplit),
+                    "diagnostic split",
+                ),
+                (
                     PickerAction::Item(PickerItemAction::CloseBuffer),
                     "close buffer",
                 ),

@@ -357,8 +357,13 @@ fn picker_keys_inherit_shared_bindings_with_context_specific_overrides() {
     use crate::keymap::component::{PickerAction as P, PickerItemAction as I};
     use ui_core::keymap::{Keymap, KeymapState, Lookup};
     type Map = fn(&ComponentKeymaps) -> &Keymap<P>;
-    let contexts: [(&str, Map, I); 7] = [
+    let contexts: [(&str, Map, I); 8] = [
         ("buffer-picker", |maps| &maps.buffer_picker, I::CloseBuffer),
+        (
+            "diagnostics-picker",
+            |maps| &maps.diagnostics_picker,
+            I::DiagnosticDetails,
+        ),
         (
             "quicklist-picker",
             |maps| &maps.quicklist_picker,

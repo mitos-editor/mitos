@@ -385,7 +385,13 @@ pub(crate) fn code_actions_for_range_filtered(
                     .diagnostics()
                     .iter()
                     .filter(|&diag| {
-                        range.overlaps(&editor_core::Range::new(diag.range.start, diag.range.end))
+                        diag.provider
+                            .language_server_id()
+                            .is_none_or(|id| id == language_server_id)
+                            && range.overlaps(&editor_core::Range::new(
+                                diag.range.start,
+                                diag.range.end,
+                            ))
                     })
                     .map(|diag| diagnostic_to_lsp_diagnostic(doc.text(), diag, offset_encoding))
                     .collect(),

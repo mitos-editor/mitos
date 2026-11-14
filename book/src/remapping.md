@@ -140,6 +140,7 @@ belong in `keys.normal`, `keys.insert`, and `keys.select`.
 | `keys.picker` | `accept`, `accept_keep_open`, `accept_horizontal_split`, `accept_vertical_split`, `cancel`, `move_up`, `move_down`, `move_start`, `move_end`, `page_up`, `page_down`, `toggle_preview`, `toggle_loading`, `populate_quicklist`, `toggle_replacement`, `toggle_case_sensitive`, `replace_all`, `preview_scroll_up`, `preview_scroll_down`, `preview_previous`, `preview_next`, `open_preview` |
 | `keys.buffer-picker` | All `keys.picker` actions, plus `close_buffer` |
 | `keys.quicklist-picker` | All `keys.picker` actions, plus `remove_entry` |
+| `keys.diagnostics-picker` | All `keys.picker` actions, plus `diagnostic_details`, `diagnostic_details_split` |
 | `keys.git-picker` | All `keys.picker` actions, plus `stage`, `unstage`, `stash`, `actions`, `stashes` |
 | `keys.branch-picker` | All `keys.picker` actions, plus `create_branch`, `delete_branch` |
 | `keys.worktree-picker` | All `keys.picker` actions, plus `create_worktree`, `remove_worktree`, `lock_worktree`, `unlock_worktree` |
@@ -156,7 +157,7 @@ belong in `keys.normal`, `keys.insert`, and `keys.select`.
 All component tables also accept `no_op` and `unbound`. Popup scrolling and menu
 paging move by half a page. Picker paging moves by a full page.
 
-`keys.buffer-picker`, `keys.quicklist-picker`, `keys.git-picker`,
+`keys.buffer-picker`, `keys.quicklist-picker`, `keys.diagnostics-picker`, `keys.git-picker`,
 `keys.branch-picker`, `keys.worktree-picker`, `keys.stash-picker`,
 `keys.history-picker`, and `keys.file-explorer` inherit
 `keys.picker`.
