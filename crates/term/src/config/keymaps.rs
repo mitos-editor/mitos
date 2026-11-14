@@ -152,13 +152,14 @@ impl Keys {
         ) -> Result<(), toml::de::Error> {
             for binding in node.values() {
                 match binding {
-                    KeyTrie::MappableCommand(command) => validate(command, custom)?,
+                    KeyTrie::Action(command) => validate(command, custom)?,
                     KeyTrie::Sequence(_, commands) => {
                         for command in commands {
                             validate(command, custom)?;
                         }
                     }
                     KeyTrie::Node(node) => visit(node, custom)?,
+                    KeyTrie::Unbound => {}
                 }
             }
             Ok(())

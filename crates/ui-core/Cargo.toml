@@ -13,6 +13,7 @@ homepage.workspace = true
 [dependencies]
 anyhow.workspace = true
 bitflags.workspace = true
+indexmap.workspace = true
 ratatui-core.workspace = true
 serde.workspace = true
 unicode-segmentation.workspace = true
