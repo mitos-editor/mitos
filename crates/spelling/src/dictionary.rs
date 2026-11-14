@@ -50,15 +50,28 @@ pub fn add_personal_word(
 }
 
 fn append_personal_word(path: &Path, word: &str) -> std::io::Result<()> {
-    use std::io::Write as _;
+    use std::io::{Read as _, Seek as _, SeekFrom, Write as _};
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
     let mut file = std::fs::OpenOptions::new()
         .create(true)
+        .read(true)
         .append(true)
         .open(path)?;
-    writeln!(file, "{word}")
+    let mut entry = String::new();
+    // Hand-edited dictionaries need not end with a newline.
+    if file.metadata()?.len() != 0 {
+        file.seek(SeekFrom::End(-1))?;
+        let mut last = [0];
+        file.read_exact(&mut last)?;
+        if last[0] != b'\n' {
+            entry.push('\n');
+        }
+    }
+    entry.push_str(word);
+    entry.push('\n');
+    file.write_all(entry.as_bytes())
 }
 
 /// Load accepted words from a personal dictionary, allowing the file to be absent.
@@ -99,6 +112,17 @@ mod tests {
         assert!(dictionary.check("Mitos"));
         assert!(dictionary.check("spellbook"));
         assert!(dictionary.check("hello"));
+
+        // Hand-edited dictionaries may have an unterminated final entry.
+        std::fs::write(&path, "Mitos").unwrap();
+        let mut dictionary = Dictionary::new("SET UTF-8\n", "1\nhello\n").unwrap();
+        load_personal_dictionary(&mut dictionary, &path).unwrap();
+        let mut dictionary = Arc::new(dictionary);
+        add_personal_word(&mut dictionary, &path, "spellbook").unwrap();
+        let mut reloaded = Dictionary::new("SET UTF-8\n", "1\nhello\n").unwrap();
+        load_personal_dictionary(&mut reloaded, &path).unwrap();
+        assert!(reloaded.check("Mitos"));
+        assert!(reloaded.check("spellbook"));
     }
 
     #[test]
