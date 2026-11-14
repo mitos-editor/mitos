@@ -4,6 +4,102 @@
 
 ## [Unreleased]
 
+## [0.2.2](https://github.com/mitos-editor/mitos/compare/v0.2.1...v0.2.2) - 2026-11-14
+
+### Added
+
+- *(pane-layout)* add balanced split sizing ([#830](https://github.com/mitos-editor/mitos/pull/830))
+- smooth scrolling ([#1087](https://github.com/mitos-editor/mitos/pull/1087))
+- *(lsp)* add goto_hover to open hover docs in a buffer ([#876](https://github.com/mitos-editor/mitos/pull/876))
+- show branch divergence in Git pickers ([#1078](https://github.com/mitos-editor/mitos/pull/1078))
+- *(vcs)* add worktree locking and batch watch refreshes ([#1004](https://github.com/mitos-editor/mitos/pull/1004))
+- *(theme)* unify highlight scopes and semantic styling ([#1034](https://github.com/mitos-editor/mitos/pull/1034))
+- *(search)* highlight buffer search matches ([#1028](https://github.com/mitos-editor/mitos/pull/1028))
+- *(windows)* share resize mode with the file sidebar ([#1027](https://github.com/mitos-editor/mitos/pull/1027))
+- *(picker)* load large collections incrementally ([#1006](https://github.com/mitos-editor/mitos/pull/1006))
+- *(languages)* add d2 language support ([#1095](https://github.com/mitos-editor/mitos/pull/1095))
+- *(languages)* add Structurizr DSL support ([#1036](https://github.com/mitos-editor/mitos/pull/1036))
+
+### Fixed
+
+- *(quicklist)* clamp stale selections before use ([#1114](https://github.com/mitos-editor/mitos/pull/1114))
+- *(format)* discard results from detached language servers ([#1118](https://github.com/mitos-editor/mitos/pull/1118))
+- *(lsp)* handle related document diagnostics ([#1129](https://github.com/mitos-editor/mitos/pull/1129))
+- *(formatting)* report language-server failures ([#1117](https://github.com/mitos-editor/mitos/pull/1117))
+- *(workspace)* report trust storage failures ([#1115](https://github.com/mitos-editor/mitos/pull/1115))
+- *(health)* explain missing compiled grammars ([#1026](https://github.com/mitos-editor/mitos/pull/1026))
+- *(theme)* distinguish symbol references from selections ([#1103](https://github.com/mitos-editor/mitos/pull/1103))
+- *(vcs)* tolerate unavailable worktrees during removal ([#1100](https://github.com/mitos-editor/mitos/pull/1100))
+- *(textobjects)* find captures across injected syntax layers ([#697](https://github.com/mitos-editor/mitos/pull/697))
+- *(view)* keep code lenses whose range spans several lines ([#1092](https://github.com/mitos-editor/mitos/pull/1092))
+- remove loading controls from branch and worktree pickers ([#1085](https://github.com/mitos-editor/mitos/pull/1085))
+- *(vcs)* share syntax highlighting in changed-file previews ([#1041](https://github.com/mitos-editor/mitos/pull/1041))
+- *(statusline)* preserve file identity in narrow views ([#1033](https://github.com/mitos-editor/mitos/pull/1033))
+- preserve syntax colors for document links ([#1030](https://github.com/mitos-editor/mitos/pull/1030))
+- *(stdx)* provide thread token output storage ([#1131](https://github.com/mitos-editor/mitos/pull/1131))
+- preserve Git checkout hooks and portable release diagnostics ([#1093](https://github.com/mitos-editor/mitos/pull/1093))
+
+### Other
+
+- *(commands)* share save option parsing ([#1143](https://github.com/mitos-editor/mitos/pull/1143))
+- *(picker)* consolidate hierarchical query ownership ([#1145](https://github.com/mitos-editor/mitos/pull/1145))
+- *(theme)* remove unused icon configuration ([#1141](https://github.com/mitos-editor/mitos/pull/1141))
+- *(picker)* reuse event and render test setup ([#1144](https://github.com/mitos-editor/mitos/pull/1144))
+- *(layout)* remove unused wrap indicator fields ([#1124](https://github.com/mitos-editor/mitos/pull/1124))
+- *(highlight)* return the active overlay stack directly ([#1123](https://github.com/mitos-editor/mitos/pull/1123))
+- *(diff)* consolidate reviews and remove engine settings ([#1096](https://github.com/mitos-editor/mitos/pull/1096))
+- *(deps)* bump the rust-dependencies group with 6 updates ([#1076](https://github.com/mitos-editor/mitos/pull/1076))
+- Simplify current indicators and divergence in Git pickers ([#1083](https://github.com/mitos-editor/mitos/pull/1083))
+- reuse terminal screen and debugger fixtures ([#1081](https://github.com/mitos-editor/mitos/pull/1081))
+- keep jump revisions with navigation history ([#1080](https://github.com/mitos-editor/mitos/pull/1080))
+- Fix prompt updates after pasted text ([#1079](https://github.com/mitos-editor/mitos/pull/1079))
+- Share command context and callback adapters ([#1064](https://github.com/mitos-editor/mitos/pull/1064))
+- *(view)* separate completion previews from live documents ([#1065](https://github.com/mitos-editor/mitos/pull/1065))
+- *(term)* share deferred input capture and replay ([#1068](https://github.com/mitos-editor/mitos/pull/1068))
+- consolidate closest pair selection cases ([#1069](https://github.com/mitos-editor/mitos/pull/1069))
+- *(term)* centralize explorer index loading ([#1059](https://github.com/mitos-editor/mitos/pull/1059))
+- *(term)* enqueue ready UI callbacks directly ([#1062](https://github.com/mitos-editor/mitos/pull/1062))
+- Move structural selection and join matrices to owners ([#1063](https://github.com/mitos-editor/mitos/pull/1063))
+- *(picker)* centralize query scheduling and replacement staging ([#1055](https://github.com/mitos-editor/mitos/pull/1055))
+- *(term)* separate picker preview preparation from cached reads ([#1056](https://github.com/mitos-editor/mitos/pull/1056))
+- Consolidate selection reordering tests ([#1057](https://github.com/mitos-editor/mitos/pull/1057))
+- remove unused APIs and finish workspace migration ([#1051](https://github.com/mitos-editor/mitos/pull/1051))
+- consolidate behavior coverage and shared fixtures ([#1052](https://github.com/mitos-editor/mitos/pull/1052))
+- *(view)* consolidate feature ownership and provider selection ([#1054](https://github.com/mitos-editor/mitos/pull/1054))
+- *(ui)* share text rendering and keymap subtrees ([#1053](https://github.com/mitos-editor/mitos/pull/1053))
+- *(render)* skip invisible tails of unwrapped lines ([#1047](https://github.com/mitos-editor/mitos/pull/1047))
+- Resume suspended picker queries before accepting input
+- gate Git-only picker helpers with their feature
+- move sidebar query matching and row preparation to workers
+- Suspend Git picker workers while retaining resumable presentation
+- *(term)* make runtime grammar tests opt-in ([#1011](https://github.com/mitos-editor/mitos/pull/1011))
+- *(clipboard)* separate read and command results ([#1140](https://github.com/mitos-editor/mitos/pull/1140))
+- Fix stalled clipboard helper timeouts ([#1120](https://github.com/mitos-editor/mitos/pull/1120))
+- *(core)* simplify case switching output ([#1135](https://github.com/mitos-editor/mitos/pull/1135))
+- *(core)* share selected line range handling ([#1134](https://github.com/mitos-editor/mitos/pull/1134))
+- *(core)* share string line-ending detection ([#1130](https://github.com/mitos-editor/mitos/pull/1130))
+- *(dap)* separate oneshot replies from wire requests ([#1132](https://github.com/mitos-editor/mitos/pull/1132))
+- *(dap)* make the streams constructor infallible ([#1127](https://github.com/mitos-editor/mitos/pull/1127))
+- *(debugger)* remove unused breakpoint wrappers ([#1137](https://github.com/mitos-editor/mitos/pull/1137))
+- update Cargo.lock dependencies
+- *(language)* simplify resolved indentation state ([#1142](https://github.com/mitos-editor/mitos/pull/1142))
+- *(syntax)* add update attribution and repeatable profiling workloads ([#1046](https://github.com/mitos-editor/mitos/pull/1046))
+- recognize `.bazelrc` files ([#1072](https://github.com/mitos-editor/mitos/pull/1072))
+- *(lsp)* remove unused JSON-RPC batch wrappers ([#1126](https://github.com/mitos-editor/mitos/pull/1126))
+- *(tui)* implement backend traits directly ([#1125](https://github.com/mitos-editor/mitos/pull/1125))
+- *(ui-core)* share key labels between formatting and widths ([#1122](https://github.com/mitos-editor/mitos/pull/1122))
+- Use configured branch mappings when fetching for pull ([#993](https://github.com/mitos-editor/mitos/pull/993))
+- Fix branch pagination retry after worker failure ([#1042](https://github.com/mitos-editor/mitos/pull/1042))
+- Avoid full tree diffs for ordinary file history edits ([#1043](https://github.com/mitos-editor/mitos/pull/1043))
+- *(inlay-hints)* make request lifecycle explicit ([#1146](https://github.com/mitos-editor/mitos/pull/1146))
+- Validate path completion prefixes at every cursor ([#1116](https://github.com/mitos-editor/mitos/pull/1116))
+- *(deps)* bump smartstring from 1.0.1 to 2.0.0 ([#1077](https://github.com/mitos-editor/mitos/pull/1077))
+- bind document hook scheduling to editor services ([#1067](https://github.com/mitos-editor/mitos/pull/1067))
+- *(view)* bind document hooks to editor services ([#1058](https://github.com/mitos-editor/mitos/pull/1058))
+- *(view)* make document origin authoritative ([#1044](https://github.com/mitos-editor/mitos/pull/1044))
+- *(file-watch)* share ignore filtering context ([#1138](https://github.com/mitos-editor/mitos/pull/1138))
+- *(pane-layout)* share child rectangle construction ([#1139](https://github.com/mitos-editor/mitos/pull/1139))
+
 ## [0.2.1](https://github.com/mitos-editor/mitos/compare/v0.2.0...v0.2.1) - 2026-11-09
 
 - Fix release packaging on Windows: omit upstream grammar symlinks that prevented both Windows builds from extracting their sources. The failure also blocked publication of all 0.2.0 downloads; this release includes the [0.2.0 features and upgrade notes](https://github.com/mitos-editor/mitos/blob/v0.2.0/CHANGELOG.md#020---2026-11-08) below.
