@@ -279,6 +279,10 @@ impl Client {
                         completion_item_kind: Some(lsp::CompletionItemKindCapability {
                             ..Default::default()
                         }),
+                        completion_list: Some(lsp::CompletionListCapability {
+                            item_defaults: Some(vec!["editRange".into(), "insertTextFormat".into(), "data".into()]),
+                            apply_kind_support: Some(true),
+                        }),
                         context_support: None, // additional context information Some(true)
                         ..Default::default()
                     }),

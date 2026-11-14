@@ -16,6 +16,7 @@
 //! the upstream `lsp-types` dependency, with editor URI adapters in [`UriExt`].
 
 mod client;
+mod completion;
 pub mod file_event;
 mod file_operations;
 pub mod jsonrpc;

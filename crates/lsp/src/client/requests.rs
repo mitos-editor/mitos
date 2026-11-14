@@ -82,7 +82,8 @@ impl Client {
             },
         };
 
-        Some(self.call::<lsp::request::Completion>(params))
+        let request = self.call::<lsp::request::Completion>(params);
+        Some(async move { Ok(request.await?.map(crate::completion::normalize_response)) })
     }
 
     pub fn resolve_completion_item(
