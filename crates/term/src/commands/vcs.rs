@@ -416,10 +416,13 @@ fn changed_file_picker_for_scope(cx: &mut Context, scope: vcs::ChangedFileScope)
                 cancel,
             )
         },
+        view::features::workspace_changes::Policy {
+            contents: true,
+            vcs: true,
+            ..Default::default()
+        },
     )
-    .with_item_key(|entry| entry.status.path().to_path_buf())
-    .refresh_on_content_changes()
-    .refresh_on_vcs_changes();
+    .with_item_key(|entry| entry.status.path().to_path_buf());
     #[cfg(feature = "git")]
     let picker = {
         let action_scope = scope.clone();
