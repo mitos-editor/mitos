@@ -236,28 +236,11 @@ impl LanguageData {
 
 pub(crate) fn reconfigure_highlights(config: &SyntaxConfig, recognized_names: &[String]) {
     config.configure(move |capture_name| {
-        let capture_parts: Vec<_> = capture_name.split('.').collect();
-
-        let mut best_index = None;
-        let mut best_match_len = 0;
-        for (i, recognized_name) in recognized_names.iter().enumerate() {
-            let mut len = 0;
-            let mut matches = true;
-            for (i, part) in recognized_name.split('.').enumerate() {
-                match capture_parts.get(i) {
-                    Some(capture_part) if *capture_part == part => len += 1,
-                    _ => {
-                        matches = false;
-                        break;
-                    }
-                }
-            }
-            if matches && len > best_match_len {
-                best_index = Some(i);
-                best_match_len = len;
-            }
-        }
-        best_index.map(|idx| highlighter::Highlight::new(idx as u32))
+        iter::successors(Some(capture_name), |scope| {
+            scope.rsplit_once('.').map(|(parent, _)| parent)
+        })
+        .find_map(|scope| recognized_names.iter().position(|name| name == scope))
+        .map(|idx| highlighter::Highlight::new(idx as u32))
     });
 }
 
