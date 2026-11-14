@@ -18,6 +18,41 @@ use view::{
 use super::helpers::lsp::{self, Gate, ServerConfig};
 use super::helpers::{test_config, AppBuilder};
 
+fn write_reports(path: &Path, reports: &Value) -> anyhow::Result<()> {
+    // Lock before truncation: the server may still be reading the previous report.
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(path)?;
+    file.lock()?;
+    file.set_len(0)?;
+    serde_json::to_writer(&mut file, reports)?;
+    Ok(())
+}
+
+#[test]
+fn diagnostic_report_updates_preserve_in_flight_readers() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let path = dir.path().join("workspace.json");
+    let original = json!({"hold": true});
+    write_reports(&path, &original)?;
+    let in_flight = std::fs::File::open(&path)?;
+    in_flight.lock_shared()?;
+    let updated = json!({"result": {"items": []}});
+    std::thread::scope(|scope| -> anyhow::Result<()> {
+        let writer = scope.spawn(|| write_reports(&path, &updated));
+        assert_eq!(serde_json::from_reader::<_, Value>(in_flight)?, original);
+        writer.join().expect("diagnostic report writer panicked")?;
+        Ok(())
+    })?;
+    assert_eq!(
+        serde_json::from_reader::<_, Value>(std::fs::File::open(path)?)?,
+        updated
+    );
+    Ok(())
+}
+
 struct Fixture {
     app: TestApplication,
     callbacks: mpsc::Receiver<(bool, EditorCallback)>,
@@ -164,11 +199,7 @@ impl Fixture {
     }
 
     fn related_reports(&self, server: usize, reports: Value) -> anyhow::Result<()> {
-        std::fs::write(
-            self.logs[server].with_extension("related.json"),
-            serde_json::to_vec(&reports)?,
-        )?;
-        Ok(())
+        write_reports(&self.logs[server].with_extension("related.json"), &reports)
     }
 }
 
@@ -762,11 +793,10 @@ fn workspace_report(uri: &Uri, result_id: &str, message: Option<&str>) -> Value 
 
 impl Fixture {
     fn workspace_reports(&self, server: usize, reports: Value) -> anyhow::Result<()> {
-        std::fs::write(
-            self.logs[server].with_extension("workspace.json"),
-            serde_json::to_vec(&reports)?,
-        )?;
-        Ok(())
+        write_reports(
+            &self.logs[server].with_extension("workspace.json"),
+            &reports,
+        )
     }
 
     fn request_workspace(&mut self, name: &str) {

@@ -15,6 +15,12 @@ fn respond(output: &mut impl Write, message: Value) -> anyhow::Result<()> {
     Ok(())
 }
 
+fn diagnostic_reports(path: &str) -> anyhow::Result<Value> {
+    let file = std::fs::File::open(path)?;
+    file.lock_shared()?;
+    Ok(serde_json::from_reader(file)?)
+}
+
 fn range(start: usize, end: usize) -> Value {
     json!({"start": {"line": 0, "character": start}, "end": {"line": 0, "character": end}})
 }
@@ -406,7 +412,7 @@ fn main() -> anyhow::Result<()> {
                 .iter()
                 .position(|arg| arg == "--workspace-diagnostics")
                 .unwrap();
-            let reports: Value = serde_json::from_reader(std::fs::File::open(&args[index + 1])?)?;
+            let reports = diagnostic_reports(&args[index + 1])?;
             for batch in reports["batches"].as_array().into_iter().flatten() {
                 respond(
                     &mut output,
@@ -469,8 +475,7 @@ fn main() -> anyhow::Result<()> {
                 report
             };
             if let Some(index) = args.iter().position(|arg| arg == "--related-diagnostics") {
-                result["relatedDocuments"] =
-                    serde_json::from_reader(std::fs::File::open(&args[index + 1])?)?;
+                result["relatedDocuments"] = diagnostic_reports(&args[index + 1])?;
             }
             respond(
                 &mut output,

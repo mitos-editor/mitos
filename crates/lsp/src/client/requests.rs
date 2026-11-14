@@ -146,7 +146,10 @@ impl Client {
         match capabilities.inlay_hint_provider {
             Some(
                 lsp::OneOf::Left(true)
-                | lsp::OneOf::Right(lsp::InlayHintServerCapabilities::Options(_)),
+                | lsp::OneOf::Right(
+                    lsp::InlayHintServerCapabilities::Options(_)
+                    | lsp::InlayHintServerCapabilities::RegistrationOptions(_),
+                ),
             ) => (),
             _ => return None,
         }

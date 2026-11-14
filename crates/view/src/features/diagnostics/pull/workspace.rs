@@ -94,7 +94,7 @@ impl WorkspacePull {
                     if doc.id() != target.id
                         || doc.pull_diagnostics.generation != target.generation
                         || !version.map_or(doc.version() == target.version, |version| {
-                            version == i64::from(doc.version())
+                            version == doc.version()
                         })
                     {
                         continue;

@@ -81,20 +81,8 @@ Use [`editor.diagnostics`](./configuration.md#editordiagnostics) to choose
 which severities appear inline or at the end of a line. The diagnostic
 pickers provide a list even when inline display is disabled.
 
-`Space D` also includes diagnostics for unopened files when the server provides
-workspace diagnostics. Mitos updates these in the background while a file using
-that server is open. For open files, individual document requests from the same
-server take priority over its workspace reports.
-
 Code lens labels, such as run or test actions, appear beside code when the
 server provides them. Press `Space l` for the commands on the current line.
-
-## Workspace symbols
-
-`Space S` lists project symbols from the language server. Servers can return
-symbols before computing their exact locations. Mitos fetches a location when
-you preview or open a result; `Ctrl-q` resolves the matched results before adding
-them to the quicklist. Split navigation uses the same resolved location.
 
 ## Symbols without a server
 

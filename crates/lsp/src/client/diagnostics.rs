@@ -7,7 +7,7 @@ use tokio::sync::mpsc::{self, UnboundedReceiver};
 use super::Client;
 use crate::{lsp, Result};
 
-type Response = Pin<Box<dyn Future<Output = Result<lsp::WorkspaceDiagnosticReportResult>> + Send>>;
+type Response = Pin<Box<dyn Future<Output = Result<lsp::WorkspaceDiagnosticReport>> + Send>>;
 
 /// One workspace pull. Dropping the stream cancels its request and subscription.
 pub struct WorkspaceDiagnosticRequest {
@@ -25,10 +25,7 @@ impl WorkspaceDiagnosticRequest {
             Some(value) = self.partial.recv() => Some(serde_json::from_value(value).map_err(Into::into)),
             result = response => {
                 self.response = None;
-                Some(result.map(|result| match result {
-                    lsp::WorkspaceDiagnosticReportResult::Report(report) => report,
-                    lsp::WorkspaceDiagnosticReportResult::Partial(report) => lsp::WorkspaceDiagnosticReport { items: report.items },
-                }))
+                Some(result)
             }
         }
     }
