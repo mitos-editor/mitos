@@ -1,9 +1,9 @@
+mod probes;
+
 use crate::config::{Config, ConfigLoadError};
+use editor_core::unicode::width::UnicodeWidthStr;
+use language::loader::{default_lang_config, parse_lang_config};
 use language::support::LanguageSupport;
-use language::{
-    loader::{default_lang_config, parse_lang_config},
-    queries::QueryFeature,
-};
 use loader::syntax::Resources;
 use std::{
     collections::HashSet,
@@ -13,6 +13,41 @@ use termina::{
     style::{ColorSpec, StyleExt as _, Stylized},
     Terminal as _,
 };
+
+fn use_color() -> bool {
+    std::io::stdout().is_terminal() && std::env::var_os("NO_COLOR").is_none()
+}
+
+fn styled(text: impl Into<String>, color: ColorSpec) -> Stylized<'static> {
+    let text = text.into().stylized();
+    if use_color() {
+        text.foreground(color)
+    } else {
+        text
+    }
+}
+
+fn status_cell(value: &str) -> Stylized<'static> {
+    let color = if let Some((installed, configured)) = value.split_once('/') {
+        if installed == "0" {
+            Some(ColorSpec::BRIGHT_RED)
+        } else if installed == configured {
+            Some(ColorSpec::BRIGHT_GREEN)
+        } else {
+            Some(ColorSpec::BRIGHT_YELLOW)
+        }
+    } else if value.contains('✘') {
+        Some(ColorSpec::BRIGHT_RED)
+    } else if value.contains('✓') {
+        Some(ColorSpec::BRIGHT_GREEN)
+    } else {
+        None
+    };
+    match color {
+        Some(color) => styled(value, color),
+        None => value.to_owned().stylized(),
+    }
+}
 
 fn language_sources() -> std::io::Result<loader::config::LanguageSources> {
     let workspace = workspace::ResolvedWorkspace::current();
@@ -38,6 +73,11 @@ pub fn general() -> std::io::Result<()> {
     let log_file = loader::log_file();
     let rt_dirs = loader::runtime_dirs();
 
+    writeln!(
+        stdout,
+        "Mitos {}\n\nConfiguration",
+        loader::VERSION_AND_GIT_HASH
+    )?;
     if config_file.exists() {
         writeln!(stdout, "Config file: {}", config_file.display())?;
     } else {
@@ -49,15 +89,10 @@ pub fn general() -> std::io::Result<()> {
         writeln!(stdout, "Language file: default")?;
     }
     writeln!(stdout, "Log file: {}", log_file.display())?;
-    writeln!(
-        stdout,
-        "Runtime directories: {}",
-        rt_dirs
-            .iter()
-            .map(|d| d.to_string_lossy())
-            .collect::<Vec<_>>()
-            .join(";")
-    )?;
+    writeln!(stdout, "\nRuntime directories (in search order)")?;
+    for directory in rt_dirs {
+        writeln!(stdout, "  {}", directory.display())?;
+    }
     runtime_warnings(&mut stdout, rt_dirs)
 }
 
@@ -72,14 +107,14 @@ fn runtime_warnings(
                 rt_dir.display(),
                 path.display()
             );
-            writeln!(stdout, "{}", msg.yellow())?;
+            writeln!(stdout, "{}", styled(msg, ColorSpec::BRIGHT_YELLOW))?;
         }
         if !rt_dir.exists() {
             let msg = format!("Runtime directory does not exist: {}", rt_dir.display());
-            writeln!(stdout, "{}", msg.yellow())?;
+            writeln!(stdout, "{}", styled(msg, ColorSpec::BRIGHT_YELLOW))?;
         } else if rt_dir.read_dir().ok().map(|it| it.count()) == Some(0) {
             let msg = format!("Runtime directory is empty: {}", rt_dir.display());
-            writeln!(stdout, "{}", msg.yellow())?;
+            writeln!(stdout, "{}", styled(msg, ColorSpec::BRIGHT_YELLOW))?;
         }
     }
     let has_grammars = rt_dirs.iter().any(|directory| {
@@ -100,8 +135,7 @@ fn runtime_warnings(
         writeln!(
             stdout,
             "{}",
-            "No compiled tree-sitter grammars found. Syntax highlighting requires compiled grammars."
-                .yellow()
+            styled("No compiled tree-sitter grammars found. Syntax highlighting requires compiled grammars.", ColorSpec::BRIGHT_YELLOW)
         )?;
         writeln!(
             stdout,
@@ -122,12 +156,17 @@ pub fn clipboard() -> std::io::Result<()> {
             Config::default()
         }
         Err(err) => {
-            writeln!(stdout, "{}", "Configuration file malformed".red())?;
+            writeln!(
+                stdout,
+                "{}",
+                styled("Configuration file malformed", ColorSpec::BRIGHT_RED)
+            )?;
             writeln!(stdout, "{}", err)?;
             return Ok(());
         }
     };
 
+    writeln!(stdout, "\nClipboard")?;
     use ::clipboard::ClipboardBackend;
     match crate::clipboard::TerminalClipboard
         .name(&config.editor.clipboard.provider)
@@ -137,16 +176,21 @@ pub fn clipboard() -> std::io::Result<()> {
             writeln!(
                 stdout,
                 "{}",
-                "System clipboard provider: Not installed".red()
+                styled(
+                    "System clipboard provider: Not installed",
+                    ColorSpec::BRIGHT_RED
+                )
             )?;
             writeln!(
                 stdout,
                 "    {}",
-                "For troubleshooting system clipboard issues, refer".red()
+                styled(
+                    "For troubleshooting system clipboard issues, refer",
+                    ColorSpec::BRIGHT_RED
+                )
             )?;
             writeln!(stdout, "    {}",
-                "https://github.com/helix-editor/helix/wiki/Troubleshooting#copypaste-fromto-system-clipboard-not-working"
-            .red().underlined())?;
+                styled("https://github.com/helix-editor/helix/wiki/Troubleshooting#copypaste-fromto-system-clipboard-not-working", ColorSpec::BRIGHT_RED))?;
         }
         name => writeln!(stdout, "System clipboard provider: {}", name)?,
     }
@@ -187,59 +231,29 @@ fn languages(
             writeln!(
                 stderr,
                 "{}: {}",
-                "Error parsing user language config".red(),
+                styled("Error parsing user language config", ColorSpec::BRIGHT_RED),
                 err
             )?;
-            writeln!(stderr, "{}", "Using default language config".yellow())?;
+            writeln!(
+                stderr,
+                "{}",
+                styled("Using default language config", ColorSpec::BRIGHT_YELLOW)
+            )?;
             default_lang_config()
         }
     };
 
     let resources = Resources::default();
-    let mut headings = vec!["Language", "Language servers", "Debug adapter", "Formatter"];
-
-    for feat in QueryFeature::all() {
-        headings.push(feat.short_title())
-    }
-
-    let terminal_cols = termina::PlatformTerminal::new()
-        .and_then(|terminal| terminal.get_dimensions())
-        .map(|size| size.cols)
-        .unwrap_or(80);
-    let column_width = terminal_cols as usize / headings.len();
-    let is_terminal = std::io::stdout().is_terminal();
-
-    let fit = |s: &str| -> Stylized<'static> {
-        format!(
-            "{:column_width$}",
-            s.get(..column_width - 2)
-                .map(|s| format!("{}…", s))
-                .unwrap_or_else(|| s.to_string())
-        )
-        .stylized()
-    };
-    let color = |s: Stylized<'static>, c: ColorSpec| if is_terminal { s.foreground(c) } else { s };
-    let bold = |s: Stylized<'static>| if is_terminal { s.bold() } else { s };
-
-    for heading in headings {
-        write!(stdout, "{}", bold(fit(heading)))?;
-    }
-    writeln!(stdout)?;
-
     syn_loader_conf
         .language
-        .sort_unstable_by_key(|l| l.language_id.clone());
-
-    let check_binary_with_name = |cmd: Option<(&str, &str)>| match cmd {
-        Some((name, cmd)) => match stdx::env::which(cmd) {
-            Ok(_) => color(fit(&format!("✓ {}", name)), ColorSpec::BRIGHT_GREEN),
-            Err(_) => color(fit(&format!("✘ {}", name)), ColorSpec::BRIGHT_RED),
-        },
-        None => color(fit("None"), ColorSpec::BRIGHT_YELLOW),
-    };
-
-    let check_binary = |cmd: Option<&str>| check_binary_with_name(cmd.map(|cmd| (cmd, cmd)));
-
+        .sort_unstable_by(|a, b| a.language_id.cmp(&b.language_id));
+    let mut rows = vec![vec![
+        "Language".to_owned(),
+        "LSP".to_owned(),
+        "DAP".to_owned(),
+        "Formatter".to_owned(),
+        "H T I N R F".to_owned(),
+    ]];
     for lang in &syn_loader_conf.language {
         if selection
             .as_ref()
@@ -247,40 +261,65 @@ fn languages(
         {
             continue;
         }
-
-        write!(stdout, "{}", fit(&lang.language_id))?;
-
-        let mut cmds = lang.language_servers.iter().filter_map(|ls| {
-            syn_loader_conf
-                .language_server
-                .get(&ls.name)
-                .map(|config| (ls.name.as_str(), config.command.as_str()))
-        });
-        write!(stdout, "{}", check_binary_with_name(cmds.next()))?;
-
-        let dap = lang.debugger.as_ref().map(|dap| dap.command.as_str());
-        write!(stdout, "{}", check_binary(dap))?;
-
-        let formatter = lang
-            .formatter
-            .as_ref()
-            .map(|formatter| formatter.command.as_str());
-        write!(stdout, "{}", check_binary(formatter))?;
-
-        for (_, source) in LanguageSupport::inspect(&resources, &lang.language_id).queries {
-            match source.is_readable() {
-                true => write!(stdout, "{}", color(fit("✓"), ColorSpec::BRIGHT_GREEN))?,
-                false => write!(stdout, "{}", color(fit("✘"), ColorSpec::BRIGHT_RED))?,
+        let installed = lang
+            .language_servers
+            .iter()
+            .filter(|server| {
+                syn_loader_conf
+                    .language_server
+                    .get(&server.name)
+                    .is_some_and(|definition| stdx::env::which(&definition.command).is_ok())
+            })
+            .count();
+        let lsp = if lang.language_servers.is_empty() {
+            "−".to_owned()
+        } else {
+            format!("{installed}/{}", lang.language_servers.len())
+        };
+        let binary = |command: Option<&str>| {
+            match command {
+                None => "−",
+                Some(command) if stdx::env::which(command).is_ok() => "✓",
+                Some(_) => "✘",
             }
-        }
-
-        writeln!(stdout)?;
-
-        for cmd in cmds {
-            write!(stdout, "{}", fit(""))?;
-            writeln!(stdout, "{}", check_binary_with_name(Some(cmd)))?;
-        }
+            .to_owned()
+        };
+        let queries = LanguageSupport::inspect(&resources, &lang.language_id)
+            .queries
+            .into_iter()
+            .map(|(_, source)| if source.is_readable() { "✓" } else { "✘" })
+            .collect::<Vec<_>>()
+            .join(" ");
+        rows.push(vec![
+            lang.language_id.clone(),
+            lsp,
+            binary(lang.debugger.as_ref().map(|dap| dap.command.as_str())),
+            binary(
+                lang.formatter
+                    .as_ref()
+                    .map(|formatter| formatter.command.as_str()),
+            ),
+            queries,
+        ]);
     }
+    let terminal_cols = termina::PlatformTerminal::new()
+        .and_then(|terminal| terminal.get_dimensions())
+        .map(|size| size.cols as usize)
+        .unwrap_or(80);
+    write_table(&mut stdout, &rows, terminal_cols)?;
+    writeln!(
+        stdout,
+        "\nLSP: installed/configured executables (including alternatives)."
+    )?;
+    writeln!(stdout, "✓ found  ✘ missing  − not configured")?;
+    writeln!(
+        stdout,
+        "Queries: H highlight, T textobject, I indent, N tags, R rainbow, F folding."
+    )?;
+    writeln!(
+        stdout,
+        "Run ms --health <language> for tool paths and live LSP/DAP capabilities."
+    )?;
 
     if selection.is_some() {
         writeln!(
@@ -293,9 +332,69 @@ fn languages(
     Ok(())
 }
 
+/// Keep complete names, falling back to labelled rows on narrow terminals.
+fn write_table(
+    stdout: &mut impl Write,
+    rows: &[Vec<String>],
+    columns: usize,
+) -> std::io::Result<()> {
+    let Some(headings) = rows.first() else {
+        return Ok(());
+    };
+    let widths: Vec<usize> = (0..headings.len())
+        .map(|column| {
+            rows.iter()
+                .map(|row| row[column].width())
+                .max()
+                .unwrap_or(0)
+        })
+        .collect();
+    if widths.iter().sum::<usize>() + 2 * widths.len().saturating_sub(1) > columns {
+        writeln!(stdout, "Languages")?;
+        for row in &rows[1..] {
+            writeln!(stdout, "\n{}", row[0])?;
+            for (heading, value) in headings[1..].iter().zip(&row[1..]) {
+                writeln!(stdout, "  {heading}: {}", status_cell(value))?;
+            }
+        }
+        return Ok(());
+    }
+    for (index, row) in rows.iter().enumerate() {
+        for (column, (value, width)) in row.iter().zip(&widths).enumerate() {
+            if column != 0 {
+                write!(stdout, "  ")?;
+            }
+            let cell = if index == 0 && use_color() {
+                value.clone().bold()
+            } else if column == 0 || index == 0 {
+                value.clone().stylized()
+            } else {
+                status_cell(value)
+            };
+            write!(stdout, "{cell}")?;
+            if column + 1 < row.len() {
+                write!(stdout, "{}", " ".repeat(width - value.width()))?;
+            }
+        }
+        writeln!(stdout)?;
+        if index == 0 {
+            writeln!(
+                stdout,
+                "{}",
+                widths
+                    .iter()
+                    .map(|width| "─".repeat(*width))
+                    .collect::<Vec<_>>()
+                    .join("  ")
+            )?;
+        }
+    }
+    Ok(())
+}
+
 /// Display diagnostics pertaining to a particular language (LSP,
 /// highlight queries, etc).
-pub fn language(lang_str: String) -> std::io::Result<()> {
+pub async fn language(lang_str: String) -> std::io::Result<()> {
     let stdout = std::io::stdout();
     let mut stdout = stdout.lock();
 
@@ -312,10 +411,14 @@ pub fn language(lang_str: String) -> std::io::Result<()> {
             writeln!(
                 stderr,
                 "{}: {}",
-                "Error parsing user language config".red(),
+                styled("Error parsing user language config", ColorSpec::BRIGHT_RED),
                 err
             )?;
-            writeln!(stderr, "{}", "Using default language config".yellow())?;
+            writeln!(
+                stderr,
+                "{}",
+                styled("Using default language config", ColorSpec::BRIGHT_YELLOW)
+            )?;
             default_lang_config()
         }
     };
@@ -328,11 +431,16 @@ pub fn language(lang_str: String) -> std::io::Result<()> {
         Some(l) => l,
         None => {
             let msg = format!("Language '{}' not found", lang_str);
-            writeln!(stdout, "{}", msg.red())?;
+            writeln!(stdout, "{}", styled(msg, ColorSpec::BRIGHT_RED))?;
             let suggestions: Vec<&str> = syn_loader_conf
                 .language
                 .iter()
-                .filter(|l| l.language_id.starts_with(lang_str.chars().next().unwrap()))
+                .filter(|l| {
+                    lang_str
+                        .chars()
+                        .next()
+                        .is_some_and(|first| l.language_id.starts_with(first))
+                })
                 .map(|l| l.language_id.as_str())
                 .collect();
             if !suggestions.is_empty() {
@@ -340,14 +448,16 @@ pub fn language(lang_str: String) -> std::io::Result<()> {
                 writeln!(
                     stdout,
                     "Did you mean one of these: {} ?",
-                    suggestions.yellow()
+                    styled(suggestions, ColorSpec::BRIGHT_YELLOW)
                 )?;
             }
             return Ok(());
         }
     };
 
-    let editor_config = Config::load_default().unwrap_or_default();
+    writeln!(stdout, "Language: {lang_str}\n")?;
+    let editor_config =
+        Config::load_for(&workspace::ResolvedWorkspace::current()).unwrap_or_default();
     probe_language_servers(
         &mut stdout,
         lang,
@@ -355,13 +465,16 @@ pub fn language(lang_str: String) -> std::io::Result<()> {
         &editor_config.editor.lsp.workspace_roots,
     )?;
 
-    probe_protocol(
+    probes::language_servers(
         &mut stdout,
-        "debug adapter",
-        lang.debugger
-            .as_ref()
-            .map(|dap| (dap.command.as_str(), dap.args.as_slice())),
-    )?;
+        lang,
+        &syn_loader_conf.language_server,
+        &editor_config.editor.lsp,
+    )
+    .await?;
+    writeln!(stdout)?;
+    probes::debug_adapter(&mut stdout, lang.debugger.as_ref()).await?;
+    writeln!(stdout)?;
 
     probe_protocol(
         &mut stdout,
@@ -371,15 +484,16 @@ pub fn language(lang_str: String) -> std::io::Result<()> {
             .map(|formatter| (formatter.command.as_str(), formatter.args.as_slice())),
     )?;
 
+    writeln!(stdout, "\nTree-sitter")?;
     probe_parser(lang.grammar.as_ref().unwrap_or(&lang.language_id))?;
 
     for (feature, source) in LanguageSupport::inspect(&Resources::default(), &lang_str).queries {
         let found = if source.is_readable() {
-            "✓".green()
+            styled("✓", ColorSpec::BRIGHT_GREEN)
         } else {
-            "✘".red()
+            styled("✘", ColorSpec::BRIGHT_RED)
         };
-        writeln!(stdout, "{} queries: {}", feature.short_title(), found)?;
+        writeln!(stdout, "  {} queries: {}", feature.short_title(), found)?;
     }
 
     Ok(())
@@ -389,11 +503,11 @@ fn probe_parser(grammar_name: &str) -> std::io::Result<()> {
     let stdout = std::io::stdout();
     let mut stdout = stdout.lock();
 
-    write!(stdout, "Tree-sitter parser: ")?;
+    write!(stdout, "  Parser: ")?;
 
     match loader::grammar::get_language(grammar_name) {
-        Ok(Some(_)) => writeln!(stdout, "{}", "✓".green()),
-        Ok(None) | Err(_) => writeln!(stdout, "{}", "None".yellow()),
+        Ok(Some(_)) => writeln!(stdout, "{}", styled("✓", ColorSpec::BRIGHT_GREEN)),
+        Ok(None) | Err(_) => writeln!(stdout, "{}", styled("None", ColorSpec::BRIGHT_YELLOW)),
     }
 }
 
@@ -485,14 +599,23 @@ fn probe_protocol(
 ) -> std::io::Result<()> {
     write!(stdout, "Configured {}:", protocol_name)?;
     let Some((cmd, args)) = server_cmd else {
-        writeln!(stdout, "{}", " None".yellow())?;
+        writeln!(stdout, "{}", styled(" None", ColorSpec::BRIGHT_YELLOW))?;
         return Ok(());
     };
     writeln!(stdout)?;
 
     let (diag, icon) = match stdx::env::which(cmd) {
-        Ok(path) => (path.display().to_string().green(), "✓".green()),
-        Err(_) => (format!("'{}' not found in $PATH", cmd).red(), "✘".red()),
+        Ok(path) => (
+            styled(path.display().to_string(), ColorSpec::BRIGHT_GREEN),
+            styled("✓", ColorSpec::BRIGHT_GREEN),
+        ),
+        Err(_) => (
+            styled(
+                format!("'{}' not found in $PATH", cmd),
+                ColorSpec::BRIGHT_RED,
+            ),
+            styled("✘", ColorSpec::BRIGHT_RED),
+        ),
     };
     writeln!(stdout, "  {} {}", icon, diag)?;
     if !args.is_empty() {
@@ -502,7 +625,7 @@ fn probe_protocol(
     Ok(())
 }
 
-pub fn print_health(health_arg: Option<String>) -> std::io::Result<()> {
+pub async fn print_health(health_arg: Option<String>) -> std::io::Result<()> {
     match health_arg.as_deref() {
         Some("languages") => languages_selection()?,
         Some("all-languages") => languages_all()?,
@@ -520,7 +643,7 @@ pub fn print_health(health_arg: Option<String>) -> std::io::Result<()> {
             languages_all()?;
         }
         Some(lang) => {
-            language(lang.to_string())?;
+            language(lang.to_string()).await?;
             let mut stdout = std::io::stdout().lock();
             writeln!(stdout)?;
             runtime_warnings(&mut stdout, loader::runtime_dirs())?;
@@ -701,5 +824,42 @@ mod tests {
         .unwrap();
         let output = String::from_utf8(output).unwrap();
         assert!(output.contains("Arguments: [\"run\", \"black\", \"%{buffer_name}\"]"));
+    }
+}
+
+#[cfg(test)]
+mod table_tests {
+    #[test]
+    fn narrow_tables_preserve_full_unicode_names_without_underflow() {
+        let rows = vec![
+            vec!["Language".to_owned(), "LSP".to_owned()],
+            vec!["日本語-language-name".to_owned(), "1/2".to_owned()],
+        ];
+        for width in [0, 1, 15] {
+            let mut output = Vec::new();
+            super::write_table(&mut output, &rows, width).unwrap();
+            let output = String::from_utf8(output).unwrap();
+            assert!(
+                output.contains("日本語-language-name\n  LSP: 1/2"),
+                "{output}"
+            );
+        }
+    }
+
+    #[test]
+    fn tables_align_using_display_width() {
+        use editor_core::unicode::width::UnicodeWidthStr as _;
+        let rows = vec![
+            vec!["Language".to_owned(), "LSP".to_owned()],
+            vec!["日本語".to_owned(), "1/2".to_owned()],
+            vec!["rust".to_owned(), "1/1".to_owned()],
+        ];
+        let mut output = Vec::new();
+        super::write_table(&mut output, &rows, 80).unwrap();
+        let output = String::from_utf8(output).unwrap();
+        for line in output.lines().skip(2) {
+            let start = line.find("1/").unwrap();
+            assert_eq!(line[..start].width(), 10, "{output}");
+        }
     }
 }

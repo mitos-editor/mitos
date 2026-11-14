@@ -3,7 +3,9 @@
 use language_config::LanguageServerFeature;
 use lsp_client::lsp;
 
-pub(crate) fn supports_feature(
+/// Whether the server advertises a feature used by Mitos.
+/// Push diagnostics have no capability flag and are always permitted.
+pub fn supports_feature(
     capabilities: &lsp::ServerCapabilities,
     feature: LanguageServerFeature,
 ) -> bool {
@@ -82,7 +84,7 @@ pub(crate) fn supports_feature(
         ),
         LanguageServerFeature::InlayHints => matches!(
             capabilities.inlay_hint_provider,
-            Some(OneOf::Left(true) | OneOf::Right(InlayHintServerCapabilities::Options(_)))
+            Some(OneOf::Left(true) | OneOf::Right(_))
         ),
         LanguageServerFeature::DocumentColors => matches!(
             capabilities.color_provider,
@@ -137,7 +139,10 @@ pub(crate) fn supports_feature(
             )
         ),
         LanguageServerFeature::CodeLens => capabilities.code_lens_provider.is_some(),
-        LanguageServerFeature::InlineValues => capabilities.inline_value_provider.is_some(),
+        LanguageServerFeature::InlineValues => matches!(
+            capabilities.inline_value_provider,
+            Some(OneOf::Left(true) | OneOf::Right(_))
+        ),
     }
 }
 
@@ -170,6 +175,30 @@ mod tests {
             &capabilities,
             LanguageServerFeature::RenameSymbol
         ));
+    }
+
+    #[test]
+    fn inline_values_and_inlay_hints_respect_false_and_registration_options() {
+        for (value, expected) in [
+            (serde_json::json!(false), false),
+            (serde_json::json!(true), true),
+            (serde_json::json!({}), true),
+            (
+                serde_json::json!({ "documentSelector": [], "id": "registered" }),
+                true,
+            ),
+        ] {
+            let capabilities = serde_json::from_value(serde_json::json!({
+                "inlineValueProvider": value, "inlayHintProvider": value,
+            }))
+            .unwrap();
+            for feature in [
+                LanguageServerFeature::InlineValues,
+                LanguageServerFeature::InlayHints,
+            ] {
+                assert_eq!(supports_feature(&capabilities, feature), expected);
+            }
+        }
     }
 
     #[test]

@@ -279,6 +279,41 @@ pub enum LanguageServerFeature {
     SelectionRanges,
 }
 
+impl LanguageServerFeature {
+    /// Configurable features in health-report order.
+    pub fn all() -> &'static [Self] {
+        &[
+            Self::Format,
+            Self::GotoDeclaration,
+            Self::GotoDefinition,
+            Self::GotoTypeDefinition,
+            Self::GotoReference,
+            Self::GotoImplementation,
+            Self::SignatureHelp,
+            Self::Hover,
+            Self::DocumentHighlight,
+            Self::Completion,
+            Self::CodeAction,
+            Self::DocumentLinks,
+            Self::WorkspaceCommand,
+            Self::DocumentSymbols,
+            Self::WorkspaceSymbols,
+            Self::Diagnostics,
+            Self::PullDiagnostics,
+            Self::RenameSymbol,
+            Self::InlayHints,
+            Self::InlineValues,
+            Self::DocumentColors,
+            Self::InlineCompletion,
+            Self::CallHierarchy,
+            Self::CodeLens,
+            Self::SemanticTokens,
+            Self::FoldingRanges,
+            Self::SelectionRanges,
+        ]
+    }
+}
+
 impl Display for LanguageServerFeature {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         use LanguageServerFeature::*;
