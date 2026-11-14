@@ -238,25 +238,17 @@ impl IndentQuery {
 /// - Successively add indent captures to get the (added) indent from a single line
 /// - Successively add the indent results for each line
 ///   The string that this indentation defines starts with the string contained in the align field (unless it is None), followed by:
-/// - max(0, indent - outdent) tabs, if tabs are used for indentation
-/// - max(0, indent - outdent)*indent_width spaces, if spaces are used for indentation
+/// - max(0, level) tabs, if tabs are used for indentation
+/// - max(0, level)*indent_width spaces, if spaces are used for indentation
 #[derive(Default, Debug, PartialEq, Eq, Clone)]
 pub struct Indentation<'a> {
-    indent: usize,
-    indent_always: usize,
-    outdent: usize,
-    outdent_always: usize,
+    level: isize,
     /// The alignment, as a string containing only tabs & spaces. Storing this as a string instead of e.g.
     /// the (visual) width ensures that the alignment is preserved even if the tab width changes.
     align: Option<RopeSlice<'a>>,
 }
 
 impl<'a> Indentation<'a> {
-    /// Add some other [Indentation] to this.
-    fn net_indent(&self) -> isize {
-        (self.indent + self.indent_always) as isize
-            - ((self.outdent + self.outdent_always) as isize)
-    }
     /// Convert `self` into a string, taking into account the computed and actual indentation of some other line.
     fn relative_indent(
         &self,
@@ -269,7 +261,7 @@ impl<'a> Indentation<'a> {
             // If self and baseline are either not aligned to anything or both aligned the same way,
             // we can simply take `other_leading_whitespace` and add some indent / outdent to it (in the second
             // case, the alignment should already be accounted for in `other_leading_whitespace`).
-            let indent_diff = self.net_indent() - other_computed_indent.net_indent();
+            let indent_diff = self.level - other_computed_indent.level;
             Some(add_indent_level(
                 String::from(other_leading_whitespace),
                 indent_diff,
@@ -286,7 +278,7 @@ impl<'a> Indentation<'a> {
             self.align.map_or_else(String::new, |align| {
                 whitespace_with_same_width(align, indent_style, tab_width)
             }),
-            self.net_indent(),
+            self.level,
             indent_style,
             tab_width,
         )
@@ -841,7 +833,8 @@ pub fn treesitter_indent_for_pos<'a>(
     // embedded code starts at level 0). Shift it by the indent of the injection's
     // first content line so it sits where the host language placed the block.
     if injected.is_some() {
-        result.indent += injection_base_level(syntax, text, byte_pos, tab_width, indent_width);
+        result.level +=
+            injection_base_level(syntax, text, byte_pos, tab_width, indent_width) as isize;
     }
     Some(result)
 }
@@ -994,10 +987,7 @@ fn containment_accounting<'a>(
     }
     Some((
         Indentation {
-            indent: indent_levels,
-            indent_always,
-            outdent,
-            outdent_always,
+            level: (indent_levels + indent_always) as isize - (outdent + outdent_always) as isize,
             align,
         },
         false,
@@ -1213,18 +1203,35 @@ pub fn get_scopes<'a>(syntax: Option<&'a Syntax>, text: RopeSlice, pos: usize) -
 mod tests {
     use super::*;
     #[test]
+    fn negative_levels_dedent_existing_whitespace() {
+        let indent = Indentation {
+            level: -1,
+            ..Default::default()
+        };
+        assert_eq!(indent.to_string(&IndentStyle::Spaces(4), 4), "");
+        assert_eq!(
+            indent.relative_indent(
+                &Indentation::default(),
+                RopeSlice::from("        "),
+                &IndentStyle::Spaces(4),
+                4,
+            ),
+            Some("    ".to_owned()),
+        );
+    }
+
+    #[test]
     fn test_relative_indent() {
         let indent_style = IndentStyle::Spaces(4);
         let tab_width: usize = 4;
         let no_align = [
             Indentation::default(),
             Indentation {
-                indent: 1,
+                level: 1,
                 ..Default::default()
             },
             Indentation {
-                indent: 5,
-                outdent: 1,
+                level: 4,
                 ..Default::default()
             },
         ];
