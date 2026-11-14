@@ -191,7 +191,38 @@ impl Client {
         })
     }
 
-    // will_save / will_save_wait_until
+    pub fn text_document_will_save(&self, params: lsp::WillSaveTextDocumentParams) {
+        if matches!(
+            self.capabilities().text_document_sync,
+            Some(lsp::TextDocumentSyncCapability::Options(
+                lsp::TextDocumentSyncOptions {
+                    will_save: Some(true),
+                    ..
+                }
+            ))
+        ) {
+            self.notify::<lsp::notification::WillSaveTextDocument>(params);
+        }
+    }
+
+    pub fn text_document_will_save_wait_until(
+        &self,
+        params: lsp::WillSaveTextDocumentParams,
+    ) -> Option<impl std::future::Future<Output = crate::Result<Option<Vec<lsp::TextEdit>>>> + use<>>
+    {
+        if !matches!(
+            self.capabilities().text_document_sync,
+            Some(lsp::TextDocumentSyncCapability::Options(
+                lsp::TextDocumentSyncOptions {
+                    will_save_wait_until: Some(true),
+                    ..
+                }
+            ))
+        ) {
+            return None;
+        }
+        Some(self.call::<lsp::request::WillSaveWaitUntil>(params))
+    }
 
     pub fn text_document_did_save(
         &self,
