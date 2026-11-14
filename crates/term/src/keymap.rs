@@ -497,6 +497,64 @@ mod tests {
     }
 
     #[test]
+    fn debug_prefixes_share_commands_in_normal_and_select_modes() {
+        let keymaps = Keymaps::default().map();
+        for mode in [Mode::Normal, Mode::Select] {
+            let root = &keymaps[&mode];
+            let debug = root.search(&[key!(' '), key!('x')]).unwrap();
+            let sticky_debug = root.search(&[key!(' '), key!('X')]).unwrap();
+            assert_eq!(debug, sticky_debug);
+            assert!(!debug.node().unwrap().is_sticky);
+            assert!(sticky_debug.node().unwrap().is_sticky);
+            assert!(root.search(&[key!(' '), key!('G')]).is_none());
+            assert_eq!(
+                debug.search(&[key!('B'), key!('c')]),
+                Some(&KeyTrie::Action(
+                    MappableCommand::debug_edit_breakpoint_condition
+                ))
+            );
+            assert_eq!(
+                debug.search(&[key!('B'), key!('l')]),
+                Some(&KeyTrie::Action(
+                    MappableCommand::debug_edit_breakpoint_log_message
+                ))
+            );
+        }
+    }
+
+    #[test]
+    fn debug_prefixes_exit_or_repeat_after_a_command() {
+        for mode in [Mode::Normal, Mode::Select] {
+            let mut maps = Keymaps::default();
+            for key in [key!(' '), key!('x')] {
+                assert!(matches!(maps.get(mode, key), KeymapResult::Pending(_)));
+            }
+            assert_eq!(
+                maps.get(mode, key!('n')),
+                KeymapResult::Matched(MappableCommand::debug_step_over)
+            );
+            assert_eq!(
+                maps.get(mode, key!('i')),
+                KeymapResult::Matched(MappableCommand::insert_mode)
+            );
+            for key in [key!(' '), key!('X')] {
+                assert!(matches!(maps.get(mode, key), KeymapResult::Pending(_)));
+            }
+            for _ in 0..2 {
+                assert_eq!(
+                    maps.get(mode, key!('n')),
+                    KeymapResult::Matched(MappableCommand::debug_step_over)
+                );
+            }
+            maps.get(mode, key!(Esc));
+            assert_eq!(
+                maps.get(mode, key!('i')),
+                KeymapResult::Matched(MappableCommand::insert_mode)
+            );
+        }
+    }
+
+    #[test]
     fn reverse_map() {
         let normal_mode = keymap!({ "Normal mode"
             "i" => insert_mode,

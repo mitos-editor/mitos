@@ -39,6 +39,7 @@ mod test {
     mod diagnostics;
     mod document_features;
     mod document_symbols;
+    mod editing_hooks;
     mod file_explorer;
     mod file_operations;
     mod folding;
@@ -71,6 +72,7 @@ mod test {
     mod statusline;
     mod structural_ranges;
     mod user_snippets;
+    mod workspace_confirmations;
     mod workspace_symbols;
     mod workspace_trust;
 }

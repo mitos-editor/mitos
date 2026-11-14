@@ -1,6 +1,8 @@
 //! Explicit formatting operations. Frontends drive tasks and apply their validated updates.
 
+mod on_type;
 mod provider;
+pub(crate) use on_type::{register_hooks, request as on_type_input};
 pub use provider::FormatterError;
 
 use std::sync::Arc;
@@ -61,6 +63,7 @@ impl FormatSnapshot {
 enum FormatKind {
     Document,
     Selections,
+    OnType,
 }
 
 /// One explicit formatting operation. Dropping the task abandons its pending result.
@@ -75,6 +78,7 @@ struct FormatTarget {
     view: ViewId,
     binding_revision: u64,
     kind: FormatKind,
+    selection: Option<editor_core::Selection>,
 }
 
 /// A completed formatting operation, including errors bound to its original target.
@@ -102,6 +106,7 @@ impl FormattingUpdate {
             view,
             binding_revision,
             kind,
+            selection,
         } = self.target;
         let Some(doc) = editor.document(snapshot.document) else {
             return Ok(false);
@@ -110,6 +115,14 @@ impl FormattingUpdate {
             || editor.tree.try_get(view).is_none_or(|view| {
                 view.doc != snapshot.document || view.binding_revision() != binding_revision
             })
+            || selection
+                .as_ref()
+                .is_some_and(|selection| doc.try_selection(view) != Some(selection))
+            || matches!(kind, FormatKind::OnType)
+                && (!editor.config().lsp.enable
+                    || !editor.config().format.on_type
+                    || editor.mode() != crate::document::Mode::Insert
+                    || editor.tree.focus() != view)
         {
             return Ok(false);
         }
@@ -149,6 +162,7 @@ fn prepare_target(
         view: view.id,
         binding_revision: view.binding_revision(),
         kind,
+        selection: None,
     };
     Ok((target, doc))
 }

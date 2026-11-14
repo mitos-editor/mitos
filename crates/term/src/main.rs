@@ -97,7 +97,7 @@ FLAGS:
     }
 
     if args.health {
-        if let Err(err) = term::health::print_health(args.health_arg) {
+        if let Err(err) = term::health::print_health(args.health_arg).await {
             // Piping to for example `head -10` requires special handling:
             // https://stackoverflow.com/a/65760807/7115678
             if err.kind() != std::io::ErrorKind::BrokenPipe {

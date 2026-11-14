@@ -45,7 +45,17 @@ impl Fixture {
         dir: &Path,
         text: &str,
         names: &[&str],
+        config: term::config::Config,
+    ) -> anyhow::Result<Self> {
+        Self::uninitialized_with_response(dir, text, names, config, None)
+    }
+
+    fn uninitialized_with_response(
+        dir: &Path,
+        text: &str,
+        names: &[&str],
         mut config: term::config::Config,
+        response_file: Option<&Path>,
     ) -> anyhow::Result<Self> {
         let response_gate = dir.join("alpha-ready");
         std::fs::write(&response_gate, "ready")?;
@@ -63,7 +73,15 @@ impl Fixture {
             names,
             config,
             |name| {
-                ServerConfig::feature(name, "--completion", dir)
+                let server = ServerConfig::feature(name, "--completion", dir)
+                    .arg("--request-log")
+                    .arg(dir.join(format!("{name}-protocol.jsonl")));
+                let server = if let Some(response_file) = response_file {
+                    server.arg("--completion-result").arg(response_file)
+                } else {
+                    server
+                };
+                server
                     .arg("--response-gate")
                     .arg(dir.join(format!("{name}-ready")))
                     .arg("--resolve-gate")
@@ -1007,5 +1025,158 @@ async fn completion_popup_and_documentation_share_the_live_border_override() -> 
         }
     }
     assert!(f.app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn list_defaults_feed_preview_acceptance_and_resolution() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let response = dir.path().join("response.json");
+    std::fs::write(
+        &response,
+        serde_json::to_vec(&serde_json::json!({
+            "isIncomplete":false,
+            "itemDefaults":{"editRange":{"start":{"line":0,"character":3},"end":{"line":0,"character":5}},
+                "insertTextFormat":2,"data":{"provider":"alpha","nested":{"old":1}}},
+            "applyKind":{"data":2},
+            "items":[{"label":"apple", "textEditText":"apple(${1:value})$0", "data":{"nested":{"new":2}}}]
+        }))?,
+    )?;
+    let mut f = Fixture::uninitialized_with_response(
+        dir.path(),
+        "😀 ap\n",
+        &["alpha"],
+        test_config(),
+        Some(&response),
+    )?;
+    f.initialize().await?;
+    f.trigger();
+    let (mut items, session) = f.completion_with_count(1).await?;
+    let CompletionItem::Lsp(item) = &mut items[0] else {
+        panic!("LSP item")
+    };
+    let expected = serde_json::json!({"provider":"alpha","nested":{"new":2}});
+    assert_eq!(item.item.data, Some(expected.clone()));
+    let mut resolver = completion::ResolveHandler::new();
+    resolver.ensure_item_resolved(&mut f.app.editor, item);
+    assert!(matches!(
+        f.update().await?.apply(&mut f.app.editor),
+        Some(CompletionChange::Resolved { .. })
+    ));
+    let resolves = lsp::read_log(&dir.path().join("alpha-resolves.jsonl"))?;
+    assert_eq!(resolves[0]["data"], expected);
+    f.app.editor.preview_completion(&session, &items[0])?;
+    assert_eq!(f.presentation_text(), "😀 apple(value)\n");
+    assert_eq!(f.text(), "😀 ap\n");
+    assert!(f.app.editor.accept_completion(&session, &items[0])?);
+    assert_eq!(f.text(), "😀 apple(value)\n");
+    assert!(current_ref!(f.app.editor).1.active_snippet().is_some());
+    f.key("x").await?;
+    assert_eq!(f.text(), "😀 apple(x)\n");
+    let protocol = lsp::read_log(&dir.path().join("alpha-protocol.jsonl"))?;
+    let caps = &protocol
+        .iter()
+        .find(|m| m["method"] == "initialize")
+        .unwrap()["params"]["capabilities"]["textDocument"]["completion"];
+    assert_eq!(caps["completionList"]["applyKindSupport"], true);
+    assert_eq!(
+        caps["completionList"]["itemDefaults"]
+            .as_array()
+            .unwrap()
+            .len(),
+        5
+    );
+    assert!(f.app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn default_commit_characters_accept_then_type_once() -> anyhow::Result<()> {
+    for (apply, explicit, key, commits) in [
+        (2, serde_json::json!([";"]), ".", true),
+        (2, serde_json::json!([";"]), ";", true),
+    ] {
+        let dir = tempfile::tempdir()?;
+        let response = dir.path().join("response.json");
+        std::fs::write(
+            &response,
+            serde_json::to_vec(&serde_json::json!({
+                "isIncomplete":false,"itemDefaults":{"commitCharacters":["."]},
+                "applyKind":{"commitCharacters":apply},"items":[{"label":"apple","commitCharacters":explicit}]
+            }))?,
+        )?;
+        let mut config = test_config();
+        config.editor.completion.preview_insert = false;
+        let mut f = Fixture::uninitialized_with_response(
+            dir.path(),
+            "ap\n",
+            &["alpha"],
+            config,
+            Some(&response),
+        )?;
+        f.initialize().await?;
+        f.show().await?;
+        f.key("<C-n>").await?;
+        f.key(key).await?;
+        assert_eq!(
+            f.text(),
+            format!("{}{key}\n", if commits { "apple" } else { "ap" })
+        );
+        f.key("<esc>").await?;
+        f.key("u").await?;
+        assert_eq!(f.text(), "ap\n");
+        f.key("U").await?;
+        assert_eq!(f.text(), format!("apple{key}\n"));
+        assert!(f.app.close().await.is_empty());
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn default_insert_text_modes_preserve_or_adjust_multiline_indentation() -> anyhow::Result<()>
+{
+    for format in [1, 2] {
+        for mode in [1, 2] {
+            let dir = tempfile::tempdir()?;
+            let response = dir.path().join("response.json");
+            let body = if format == 2 {
+                "apple(${1:value})\nnext$0"
+            } else {
+                "apple($literal)\nnext"
+            };
+            std::fs::write(
+                &response,
+                serde_json::to_vec(&serde_json::json!({
+                    "isIncomplete":false,"itemDefaults":{"insertTextMode":mode,"insertTextFormat":format},
+                    "items":[{"label":"apple","insertText":body}]
+                }))?,
+            )?;
+            let mut f = Fixture::uninitialized_with_response(
+                dir.path(),
+                "  ap\n",
+                &["alpha"],
+                test_config(),
+                Some(&response),
+            )?;
+            f.initialize().await?;
+            f.show().await?;
+            f.key("<C-n>").await?;
+            f.key("<ret>").await?;
+            let body = if format == 2 {
+                "apple(value)"
+            } else {
+                "apple($literal)"
+            };
+            assert_eq!(
+                f.text(),
+                format!("  {body}\n{}next\n", if mode == 2 { "  " } else { "" })
+            );
+            assert_eq!(
+                current_ref!(f.app.editor).1.active_snippet().is_some(),
+                format == 2
+            );
+            assert!(f.app.close().await.is_empty());
+        }
+    }
     Ok(())
 }

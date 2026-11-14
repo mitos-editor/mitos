@@ -33,6 +33,34 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
             "C-v" | "v" => split_vertical_new,
         },
     });
+    let debug = keymap!({ "Debug"
+        "l" => debug_launch_picker,
+        "r" => debug_restart,
+        "b" => debug_toggle_breakpoints,
+        "c" => debug_continue,
+        "h" => debug_pause,
+        "i" => debug_step_in,
+        "o" => debug_step_out,
+        "n" => debug_step_over,
+        "v" => debug_variables,
+        "t" => debug_terminate,
+        "B" => { "Breakpoint settings"
+            "c" => debug_edit_breakpoint_condition,
+            "l" => debug_edit_breakpoint_log_message,
+        },
+        "s" => { "Switch"
+            "s" => debug_session_picker,
+            "t" => debug_thread_picker,
+            "f" => debug_stack_frame_picker,
+            // sl, sb
+        },
+        "e" => debug_enable_exception_breakpoints,
+        "E" => debug_disable_exception_breakpoints,
+    });
+    let mut sticky_debug = debug.clone();
+    if let KeyTrie::Node(node) = &mut sticky_debug {
+        node.is_sticky = true;
+    }
     let view = keymap!({ "View"
         "f" => { "Folding"
             "c" => fold_close,
@@ -301,28 +329,8 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
             "a" => code_action,
             "l" => show_code_lenses_under_cursor,
             "'" => last_picker,
-            "G" => { "Debug (experimental)" sticky=true
-                "l" => debug_launch_picker,
-                "r" => debug_restart,
-                "b" => debug_toggle_breakpoints,
-                "c" => debug_continue,
-                "h" => debug_pause,
-                "i" => debug_step_in,
-                "o" => debug_step_out,
-                "n" => debug_step_over,
-                "v" => debug_variables,
-                "t" => debug_terminate,
-                "C-c" => debug_edit_breakpoint_condition,
-                "C-l" => debug_edit_breakpoint_log_message,
-                "s" => { "Switch"
-                    "s" => debug_session_picker,
-                    "t" => debug_thread_picker,
-                    "f" => debug_stack_frame_picker,
-                    // sl, sb
-                },
-                "e" => debug_enable_exception_breakpoints,
-                "E" => debug_disable_exception_breakpoints,
-            },
+            "x" => (debug),
+            "X" => (sticky_debug),
             "w" => (window),
             "y" => yank_to_clipboard,
             "Y" => yank_primary_selection_to_clipboard,

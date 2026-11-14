@@ -24,12 +24,16 @@ mod snippets;
 mod word_completion;
 #[path = "handler_setup/workspace_changes.rs"]
 mod workspace_changes;
+#[path = "handler_setup/workspace_confirmations.rs"]
+mod workspace_confirmations;
 #[path = "handler_setup/workspace_edits.rs"]
 mod workspace_edits;
 #[path = "handler_setup/workspace_resources.rs"]
 mod workspace_resources;
 #[path = "handler_setup/workspace_search.rs"]
 mod workspace_search;
+#[path = "handler_setup/workspace_snippets.rs"]
+mod workspace_snippets;
 #[path = "handler_setup/workspace_trust.rs"]
 mod workspace_trust;
 

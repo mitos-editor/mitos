@@ -47,6 +47,7 @@ fn main() -> anyhow::Result<()> {
     let workspace_symbols = args.first().is_some_and(|arg| arg == "--workspace-symbols");
     let document_symbols = args.first().is_some_and(|arg| arg == "--document-symbols");
     let formatting = args.first().is_some_and(|arg| arg == "--formatting");
+    let editing_hooks = args.first().is_some_and(|arg| arg == "--editing-hooks");
     let diagnostics = args.first().is_some_and(|arg| arg == "--diagnostics");
     let action_execution = args.first().is_some_and(|arg| arg == "--action-execution");
     let code_actions = args.first().is_some_and(|arg| arg == "--code-actions");
@@ -74,6 +75,7 @@ fn main() -> anyhow::Result<()> {
         || rename
         || workspace_symbols
         || formatting
+        || editing_hooks
         || diagnostics
         || code_actions
         || lifecycle
@@ -135,6 +137,7 @@ fn main() -> anyhow::Result<()> {
             || rename
             || workspace_symbols
             || formatting
+            || editing_hooks
             || action_execution
             || code_lenses
             || inline_values
@@ -249,6 +252,48 @@ fn main() -> anyhow::Result<()> {
         };
         let text = documents.get(uri).map(|s| s.trim()).unwrap_or_default();
         let end = text.encode_utf16().count();
+        if editing_hooks
+            && matches!(
+                method,
+                "textDocument/willSaveWaitUntil"
+                    | "textDocument/onTypeFormatting"
+                    | "textDocument/formatting"
+            )
+        {
+            if args.iter().any(|arg| arg == "--hooks-ignore") {
+                continue;
+            }
+            if let Some(index) = args.iter().position(|arg| arg == "--hook-response-gate") {
+                while !std::path::Path::new(&args[index + 1]).exists() {
+                    std::thread::sleep(std::time::Duration::from_millis(5));
+                }
+            }
+            let response = if args.iter().any(|arg| arg == "--hooks-error") {
+                json!({"jsonrpc": "2.0", "id": id, "error": {"code": -32603, "message": "hook failed"}})
+            } else {
+                let append = method == "textDocument/willSaveWaitUntil"
+                    && args.iter().any(|arg| arg == "--append-hook-name");
+                let range = if append {
+                    range(0, end)
+                } else if args.iter().any(|arg| arg == "--hooks-invalid") {
+                    range(6, 3)
+                } else if method == "textDocument/willSaveWaitUntil" {
+                    range(3, end)
+                } else {
+                    range(3, 6)
+                };
+                let replacement = if append {
+                    format!("{text} {}", args[1])
+                } else if method == "textDocument/willSaveWaitUntil" {
+                    "saved".into()
+                } else {
+                    "formatted".into()
+                };
+                json!({"jsonrpc": "2.0", "id": id, "result": [{"range": range, "newText": replacement}]})
+            };
+            respond(&mut output, response)?;
+            continue;
+        }
         if structural_ranges
             && matches!(
                 method,
@@ -614,6 +659,14 @@ fn main() -> anyhow::Result<()> {
                     std::thread::sleep(std::time::Duration::from_millis(5));
                 }
             }
+            if let Some(index) = args.iter().position(|arg| arg == "--completion-result") {
+                let result: Value = serde_json::from_slice(&std::fs::read(&args[index + 1])?)?;
+                respond(
+                    &mut output,
+                    json!({"jsonrpc":"2.0","id":id,"result":result}),
+                )?;
+                continue;
+            }
             let end = params["position"]["character"].as_u64().unwrap() as usize;
             let line = params["position"]["line"].as_u64().unwrap();
             let mut edit_range = range(end.saturating_sub(2), end);
@@ -851,6 +904,16 @@ fn main() -> anyhow::Result<()> {
             continue;
         }
         let mut result = match method {
+            "initialize" if editing_hooks => json!({"capabilities": {
+                "positionEncoding": "utf-16",
+                "textDocumentSync": {
+                    "openClose": true, "change": 1, "save": {"includeText": true},
+                    "willSave": !args.iter().any(|arg| arg == "--no-save-hooks"),
+                    "willSaveWaitUntil": !args.iter().any(|arg| arg == "--no-save-hooks" || arg == "--will-save-only")
+                },
+                "documentOnTypeFormattingProvider": {"firstTriggerCharacter": ";", "moreTriggerCharacter": ["\n"]},
+                "documentFormattingProvider": args.iter().any(|arg| arg == "--document-formatting")
+            }}),
             "initialize" if file_operations => json!({"capabilities": {
                 "textDocumentSync": 1, "workspace": {"fileOperations": {
                     "willRename": {"filters": [{"pattern": {"glob": "**"}}]},

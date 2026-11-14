@@ -303,6 +303,7 @@ completion has its own [`[editor.completion.word]`](#editorcompletionword) table
 | Key | Type / accepted values | Default | Description |
 | --- | --- | --- | --- |
 | `on-save` | boolean | `true` | Format on save when the current language also enables `auto-format`. |
+| `on-type` | boolean | `false` | Ask the language server to format after its trigger characters are typed. Uses a single cursor. |
 
 ### `[editor.files]`
 

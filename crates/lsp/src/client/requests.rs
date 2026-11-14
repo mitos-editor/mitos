@@ -82,7 +82,8 @@ impl Client {
             },
         };
 
-        Some(self.call::<lsp::request::Completion>(params))
+        let request = self.call::<lsp::request::Completion>(params);
+        Some(async move { Ok(request.await?.map(crate::completion::normalize_response)) })
     }
 
     pub fn resolve_completion_item(
@@ -267,6 +268,37 @@ impl Client {
     }
 
     // formatting
+
+    pub fn text_document_on_type_formatting(
+        &self,
+        text_document: lsp::TextDocumentIdentifier,
+        position: lsp::Position,
+        ch: String,
+        options: lsp::FormattingOptions,
+    ) -> Option<impl Future<Output = Result<Option<Vec<lsp::TextEdit>>>> + use<>> {
+        let provider = self
+            .capabilities()
+            .document_on_type_formatting_provider
+            .as_ref()?;
+        if provider.first_trigger_character != ch
+            && !provider
+                .more_trigger_character
+                .as_ref()
+                .is_some_and(|chars| chars.contains(&ch))
+        {
+            return None;
+        }
+        Some(
+            self.call::<lsp::request::OnTypeFormatting>(lsp::DocumentOnTypeFormattingParams {
+                text_document_position: lsp::TextDocumentPositionParams {
+                    text_document,
+                    position,
+                },
+                ch,
+                options: self.get_merged_formatting_options(options),
+            }),
+        )
+    }
 
     pub fn text_document_formatting(
         &self,

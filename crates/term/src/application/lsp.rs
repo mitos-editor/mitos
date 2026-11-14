@@ -116,12 +116,24 @@ where
 
                         Ok(serde_json::Value::Null)
                     }
-                    Ok(MethodCall::ApplyWorkspaceEdit(params)) => self
-                        .editor
-                        .handle_workspace_edit(server_id, params)
-                        .map(|response| json!(response)),
+                    Ok(MethodCall::ApplyWorkspaceEdit(params)) => {
+                        let id = id.clone();
+                        self.editor.request_workspace_edit_from_server(
+                            server_id,
+                            params,
+                            move |editor, response| {
+                                if let Some(server) = editor.language_server_by_id(server_id)
+                                    && let Err(error) =
+                                        server.reply(id, response.map(|response| json!(response)))
+                                {
+                                    log::error!("Failed to reply to workspace edit: {error}");
+                                }
+                            },
+                        );
+                        return;
+                    }
                     Ok(MethodCall::WorkspaceFolders) => {
-                        Ok(json!(&*language_server!().workspace_folders().await))
+                        Ok(json!(&*language_server!().workspace_folders()))
                     }
                     Ok(MethodCall::WorkspaceConfiguration(params)) => {
                         Ok(json!(language_server!().configuration(&params)))

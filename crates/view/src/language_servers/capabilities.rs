@@ -3,7 +3,9 @@
 use language_config::LanguageServerFeature;
 use lsp_client::lsp;
 
-pub(crate) fn supports_feature(
+/// Whether the server advertises a feature used by Mitos.
+/// Push diagnostics have no capability flag and are always permitted.
+pub fn supports_feature(
     capabilities: &lsp::ServerCapabilities,
     feature: LanguageServerFeature,
 ) -> bool {
@@ -82,7 +84,7 @@ pub(crate) fn supports_feature(
         ),
         LanguageServerFeature::InlayHints => matches!(
             capabilities.inlay_hint_provider,
-            Some(OneOf::Left(true) | OneOf::Right(InlayHintServerCapabilities::Options(_)))
+            Some(OneOf::Left(true) | OneOf::Right(_))
         ),
         LanguageServerFeature::DocumentColors => matches!(
             capabilities.color_provider,
@@ -145,7 +147,10 @@ pub(crate) fn supports_feature(
             )
         ),
         LanguageServerFeature::CodeLens => capabilities.code_lens_provider.is_some(),
-        LanguageServerFeature::InlineValues => capabilities.inline_value_provider.is_some(),
+        LanguageServerFeature::InlineValues => matches!(
+            capabilities.inline_value_provider,
+            Some(OneOf::Left(true) | OneOf::Right(_))
+        ),
     }
 }
 

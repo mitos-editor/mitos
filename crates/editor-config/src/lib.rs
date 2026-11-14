@@ -1561,11 +1561,16 @@ impl Default for InlineCompletionConfig {
 pub struct FormatConfig {
     /// Automatic formatting on save. Defaults to true.
     pub on_save: bool,
+    /// Format server-provided trigger characters while typing. Defaults to false.
+    pub on_type: bool,
 }
 
 impl Default for FormatConfig {
     fn default() -> Self {
-        Self { on_save: true }
+        Self {
+            on_save: true,
+            on_type: false,
+        }
     }
 }
 

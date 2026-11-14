@@ -382,25 +382,33 @@ fn lsp_item_to_transaction(
         (None, new_text)
     };
 
-    if matches!(item.kind, Some(lsp::CompletionItemKind::SNIPPET))
+    let is_snippet = matches!(item.kind, Some(lsp::CompletionItemKind::SNIPPET))
         || matches!(
             item.insert_text_format,
             Some(lsp::InsertTextFormat::SNIPPET)
-        )
-    {
-        let Ok(snippet) = Snippet::parse(&new_text) else {
+        );
+    let adjust_indentation = item.insert_text_mode != Some(lsp::InsertTextMode::AS_IS);
+    if is_snippet || adjust_indentation {
+        let parsed = if is_snippet {
+            Snippet::parse(&new_text)
+        } else {
+            Ok(Snippet::from_text(&new_text))
+        };
+        let Ok(snippet) = parsed else {
             log::error!("Failed to parse snippet: {new_text:?}",);
             return None;
         };
+        let mut context = snippet_context(&snippet);
+        context.adjust_indentation = adjust_indentation;
         let (transaction, snippet) = crate::editing::completion::generate_transaction_from_snippet(
             rope,
             selection,
             edit_offset,
             replace_mode,
             &snippet,
-            &mut snippet_context(&snippet),
+            &mut context,
         );
-        Some((transaction, Some(snippet)))
+        Some((transaction, is_snippet.then_some(snippet)))
     } else {
         let transaction = crate::editing::completion::generate_transaction_from_completion_edit(
             rope,

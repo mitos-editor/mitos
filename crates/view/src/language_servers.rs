@@ -1,7 +1,7 @@
 //! Language-server integration with editor state and operations.
 
 mod capabilities;
-pub(crate) use capabilities::supports_feature;
+pub use capabilities::supports_feature;
 pub mod edits;
 mod registry;
 pub(crate) use registry::Registry;
