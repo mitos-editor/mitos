@@ -209,9 +209,13 @@ mod imp {
                     return Err(io::Error::last_os_error());
                 }
 
-                let token: *mut HANDLE = std::ptr::null_mut();
-                let err =
-                    OpenThreadToken(GetCurrentThread(), TOKEN_DUPLICATE | TOKEN_QUERY, 0, token);
+                let mut token: HANDLE = std::ptr::null_mut();
+                let err = OpenThreadToken(
+                    GetCurrentThread(),
+                    TOKEN_DUPLICATE | TOKEN_QUERY,
+                    0,
+                    &mut token,
+                );
 
                 RevertToSelf();
 
@@ -219,7 +223,7 @@ mod imp {
                     return Err(io::Error::last_os_error());
                 }
 
-                Ok(Self(*token))
+                Ok(Self(token))
             }
         }
 
@@ -424,4 +428,13 @@ pub fn copy_metadata(from: &Path, to: &Path) -> io::Result<()> {
 
 pub fn hardlink_count(p: &Path) -> io::Result<u64> {
     imp::hardlink_count(p)
+}
+
+#[cfg(all(test, windows))]
+mod tests {
+    #[test]
+    fn writable_directory_passes_acl_check() {
+        let directory = tempfile::tempdir().unwrap();
+        super::imp::write_access(directory.path()).unwrap();
+    }
 }
