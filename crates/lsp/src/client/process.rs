@@ -154,7 +154,7 @@ impl Client {
                         dynamic_registration: Some(false),
                     }),
                     inlay_hint: Some(lsp::InlayHintWorkspaceClientCapabilities {
-                        refresh_support: Some(false),
+                        refresh_support: Some(true),
                     }),
                     inline_value: Some(lsp::InlineValueWorkspaceClientCapabilities {
                         refresh_support: Some(true),

@@ -191,6 +191,14 @@ where
                             .refresh_debugger_inline_values_for_server(server_id);
                         Ok(serde_json::Value::Null)
                     }
+                    Ok(MethodCall::InlayHintRefresh) => {
+                        let server_id = language_server!().id();
+                        view::features::inlay_hints::refresh_for_language_server(
+                            &mut self.editor,
+                            server_id,
+                        );
+                        Ok(serde_json::Value::Null)
+                    }
                     Ok(MethodCall::ShowMessageRequest(params)) => {
                         if let Some(actions) = params.actions.filter(|a| !a.is_empty()) {
                             let id = id.clone();

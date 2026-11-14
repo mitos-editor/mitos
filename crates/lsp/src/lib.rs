@@ -107,6 +107,7 @@ pub enum MethodCall {
     FoldingRangeRefresh,
     SemanticTokensRefresh,
     InlineValueRefresh,
+    InlayHintRefresh,
     ShowMessageRequest(lsp::ShowMessageRequestParams),
 }
 
@@ -144,6 +145,7 @@ impl MethodCall {
             lsp::request::FoldingRangeRefreshRequest::METHOD => Self::FoldingRangeRefresh,
             lsp::request::SemanticTokensRefresh::METHOD => Self::SemanticTokensRefresh,
             lsp::request::InlineValueRefreshRequest::METHOD => Self::InlineValueRefresh,
+            lsp::request::InlayHintRefreshRequest::METHOD => Self::InlayHintRefresh,
             lsp::request::ShowMessageRequest::METHOD => {
                 let params: lsp::ShowMessageRequestParams = params.parse()?;
                 Self::ShowMessageRequest(params)

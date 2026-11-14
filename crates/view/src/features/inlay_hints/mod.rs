@@ -3,6 +3,8 @@
 use std::sync::Arc;
 
 use event::register_hook;
+use language_config::LanguageServerFeature;
+use lsp_client::LanguageServerId;
 
 use crate::{
     callbacks::EditorCallbackSender,
@@ -26,6 +28,23 @@ impl InlayHintsHandler {
             callbacks: Arc::new(callbacks),
         }
     }
+}
+
+/// Invalidate the sender's hints, including caches belonging to hidden buffers.
+/// Only the first configured inlay provider supplies hints for a document.
+pub fn refresh_for_language_server(editor: &mut crate::Editor, server: LanguageServerId) {
+    for doc in editor.documents_mut() {
+        if doc
+            .language_servers_with_feature(LanguageServerFeature::InlayHints)
+            .next()
+            .is_some_and(|provider| provider.id() == server)
+        {
+            // Dropping pending request controllers also invalidates queued responses.
+            doc.reset_all_inlay_hints();
+        }
+    }
+    refresh(editor);
+    editor.redraw().request();
 }
 
 pub(crate) fn register_hooks(events: &event::EventHub) {
