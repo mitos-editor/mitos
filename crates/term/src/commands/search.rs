@@ -94,17 +94,11 @@ fn search_next_or_prev_impl(cx: &mut Context, movement: Movement, direction: Dir
         let is_crlf = doc!(cx.editor).line_ending == LineEnding::Crlf;
         match Query::new(&query, search_config.smart_case, is_crlf) {
             Ok(query) => {
-                match cx
-                    .editor
-                    .search_buffer(&query, movement, direction, count, wrap_around)
+                if let view::editor::SearchOutcome::NotFound =
+                    cx.editor
+                        .search_buffer(&query, movement, direction, count, wrap_around)
                 {
-                    view::editor::SearchOutcome::Found { wrapped: true } => {
-                        cx.editor.set_status("Wrapped around document")
-                    }
-                    view::editor::SearchOutcome::NotFound => {
-                        cx.editor.set_error(|| "No more matches")
-                    }
-                    view::editor::SearchOutcome::Found { wrapped: false } => {}
+                    cx.editor.set_error(|| "No more matches")
                 }
             }
             _ => {
