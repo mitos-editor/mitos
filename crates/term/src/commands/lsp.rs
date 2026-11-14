@@ -28,6 +28,7 @@ use view::{
     quicklist::{QuicklistEntry, QuicklistPosition, QuicklistTarget},
     Align, Editor,
 };
+pub(super) mod hierarchy;
 mod symbol_updates;
 mod workspace_symbols;
 

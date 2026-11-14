@@ -11,6 +11,7 @@ The title in the top border identifies the picker.
 | `Space e` / `Space E` | File explorer at the workspace / current file's directory |
 | `Space /` | Project search |
 | `Space s` / `Space S` | File / workspace symbols |
+| `g T` | LSP type hierarchy |
 | `Space d` / `Space D` | File / workspace diagnostics |
 | `Space g s` | [Changed Git files](./version-control.md#changed-files) |
 | `Space '` | Reopen the last picker |
@@ -94,6 +95,26 @@ writes that have already started.
 
 Results and previews refresh after replacement so subsequent actions use current
 match positions. These bindings can be changed under `[keys.picker]`.
+
+## Call and type hierarchy
+
+Run `incoming_calls` or `outgoing_calls` from the command palette (`Space ?`)
+to browse callers or callees of the symbol under the cursor. Each command
+loads the first level when the picker opens. Both commands are unbound by
+default. Press `g T` (`type_hierarchy`) to browse supertypes and subtypes.
+The language server must support the requested hierarchy.
+
+Use `Tab` and `Shift-Tab` to move through results and `Enter` to open a symbol.
+`Alt-e` expands or collapses the selected branch. In the type hierarchy,
+`Enter` on a section also toggles it. Children load on expansion and stay
+cached while the picker is open. Recursive paths remain visible and stop
+expanding. The usual preview, split, and quicklist keys work here too.
+
+Type to filter loaded symbols while keeping their ancestors visible. Filtering
+also searches cached children of collapsed branches. After editing a source
+buffer or restarting its server, reopen the hierarchy to refresh it.
+
+Remap `expand`, `collapse`, and `toggle_expanded` under `[keys.hierarchy-picker]`.
 
 ## File explorer
 

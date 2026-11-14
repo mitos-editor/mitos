@@ -22,6 +22,7 @@ pub mod document_symbols;
 pub mod formatting;
 #[cfg(feature = "git")]
 pub mod git_operations;
+pub mod hierarchy;
 pub mod hover;
 pub mod inlay_hints;
 pub mod inline_completion;

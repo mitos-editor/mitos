@@ -13,6 +13,7 @@ pub(crate) fn document_selector_method(feature: LanguageServerFeature) -> Option
         LanguageServerFeature::FoldingRanges => request::FoldingRangeRequest::METHOD,
         LanguageServerFeature::SelectionRanges => request::SelectionRangeRequest::METHOD,
         LanguageServerFeature::CallHierarchy => request::CallHierarchyPrepare::METHOD,
+        LanguageServerFeature::TypeHierarchy => request::TypeHierarchyPrepare::METHOD,
         LanguageServerFeature::SemanticTokens => request::SemanticTokensFullRequest::METHOD,
         LanguageServerFeature::InlayHints => request::InlayHintRequest::METHOD,
         LanguageServerFeature::InlineValues => request::InlineValueRequest::METHOD,
@@ -113,6 +114,14 @@ pub fn supports_feature(
                 ColorProviderCapability::Simple(true)
                     | ColorProviderCapability::ColorProvider(_)
                     | ColorProviderCapability::Options(_)
+            )
+        ),
+        LanguageServerFeature::TypeHierarchy => matches!(
+            capabilities.type_hierarchy_provider,
+            Some(
+                TypeHierarchyServerCapabilities::Simple(true)
+                    | TypeHierarchyServerCapabilities::Options(_)
+                    | TypeHierarchyServerCapabilities::RegistrationOptions(_)
             )
         ),
         LanguageServerFeature::CallHierarchy => matches!(

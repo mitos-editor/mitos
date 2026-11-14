@@ -72,7 +72,7 @@ pub struct TypeHierarchyItem {
 
     /// Tags for this item.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub tags: Option<SymbolTag>,
+    pub tags: Option<Vec<SymbolTag>>,
 
     /// More detail for this item, e.g. the signature of a function.
     #[serde(skip_serializing_if = "Option::is_none")]

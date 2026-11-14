@@ -52,6 +52,8 @@ struct WorktreePickerAction(PickerAction);
 struct HistoryPickerAction(PickerAction);
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct FileExplorerAction(PickerAction);
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct HierarchyPickerAction(PickerAction);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct SidebarBinding(SidebarAction);
@@ -94,6 +96,7 @@ macro_rules! picker_actions {
         }
     };
 }
+picker_actions!(HierarchyPickerAction, {"expand" => Expand, "collapse" => Collapse, "toggle_expanded" => ToggleExpanded});
 picker_actions!(GitPickerAction, { "stage" => Stage, "unstage" => Unstage, "stash" => Stash, "actions" => Actions, "stashes" => Stashes });
 picker_actions!(BranchPickerAction, {"create_branch" => CreateBranch, "delete_branch" => DeleteBranch});
 picker_actions!(WorktreePickerAction, {"create_worktree" => CreateWorktree, "remove_worktree" => RemoveWorktree, "lock_worktree" => LockWorktree, "unlock_worktree" => UnlockWorktree});
@@ -118,6 +121,7 @@ pub struct Keys {
     stash_picker: Keymap<StashPickerAction>,
     history_picker: Keymap<HistoryPickerAction>,
     file_explorer: Keymap<FileExplorerAction>,
+    hierarchy_picker: Keymap<HierarchyPickerAction>,
     sidebar: Keymap<SidebarBinding>,
     sidebar_filter: Keymap<SidebarBinding>,
     menu: Keymap<MenuAction>,
@@ -185,7 +189,7 @@ impl Keys {
         self,
         editor: &mut HashMap<Mode, KeyTrie>,
         components: &mut ComponentKeymaps,
-    ) -> ([Keymap<PickerAction>; 8], [Keymap<SidebarAction>; 2]) {
+    ) -> ([Keymap<PickerAction>; 9], [Keymap<SidebarAction>; 2]) {
         for (mode, keys) in [
             (Mode::Normal, self.normal),
             (Mode::Insert, self.insert),
@@ -218,6 +222,7 @@ impl Keys {
                 self.file_explorer.map_actions(|action| action.0),
                 self.branch_picker.map_actions(|action| action.0),
                 self.worktree_picker.map_actions(|action| action.0),
+                self.hierarchy_picker.map_actions(|action| action.0),
             ],
             [
                 self.sidebar.map_actions(|action| action.0),
@@ -232,13 +237,13 @@ pub(super) fn resolve_keymaps(
 ) -> (HashMap<Mode, KeyTrie>, ComponentKeymaps) {
     let mut editor = keymap::default();
     let mut components = ComponentKeymaps::default();
-    let [mut buffer_overrides, mut quicklist_overrides, mut git_overrides, mut stash_overrides, mut history_overrides, mut explorer_overrides, mut branch_overrides, mut worktree_overrides] =
+    let [mut buffer_overrides, mut quicklist_overrides, mut git_overrides, mut stash_overrides, mut history_overrides, mut explorer_overrides, mut branch_overrides, mut worktree_overrides, mut hierarchy_overrides] =
         std::array::from_fn(|_| Keymap::default());
     let mut sidebar_overrides = Keymap::default();
     let mut sidebar_filter_overrides = Keymap::default();
     for keys in configured {
         let (
-            [buffer, quicklist, git, stash, history, explorer, branch, worktree],
+            [buffer, quicklist, git, stash, history, explorer, branch, worktree, hierarchy],
             [sidebar, filter],
         ) = keys.apply(&mut editor, &mut components);
         sidebar_overrides.merge(sidebar);
@@ -251,6 +256,7 @@ pub(super) fn resolve_keymaps(
         explorer_overrides.merge(explorer);
         branch_overrides.merge(branch);
         worktree_overrides.merge(worktree);
+        hierarchy_overrides.merge(hierarchy);
     }
     // Resolve inheritance after both configuration layers: picker-specific
     // bindings take priority even over workspace changes to shared bindings.
@@ -270,6 +276,8 @@ pub(super) fn resolve_keymaps(
     components.history_picker.merge(history_overrides);
     components.file_explorer = ComponentKeymaps::file_explorer(components.picker.clone());
     components.file_explorer.merge(explorer_overrides);
+    components.hierarchy_picker = ComponentKeymaps::hierarchy_picker(components.picker.clone());
+    components.hierarchy_picker.merge(hierarchy_overrides);
     components.sidebar = ComponentKeymaps::sidebar(components.file_explorer.clone());
     components.sidebar.merge(sidebar_overrides);
     components.sidebar_filter = ComponentKeymaps::sidebar_filter(components.file_explorer.clone());

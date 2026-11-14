@@ -435,6 +435,9 @@ impl Client {
                     call_hierarchy: Some(lsp::DynamicRegistrationClientCapabilities {
                         dynamic_registration: Some(false),
                     }),
+                    type_hierarchy: Some(lsp::DynamicRegistrationClientCapabilities {
+                        dynamic_registration: Some(false),
+                    }),
                     linked_editing_range: Some(lsp::LinkedEditingRangeClientCapabilities {
                         dynamic_registration: Some(false),
                     }),
