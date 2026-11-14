@@ -159,35 +159,20 @@ enum FetchStatus {
     GitUpdated { revision: String },
 }
 
-#[derive(Copy, Clone)]
-enum GitObjectFormat {
-    Sha1,
-    Sha256,
-}
-
-impl GitObjectFormat {
-    fn kind(self) -> gix::hash::Kind {
-        match self {
-            Self::Sha1 => gix::hash::Kind::Sha1,
-            Self::Sha256 => gix::hash::Kind::Sha256,
-        }
-    }
-}
-
-fn extract_object_format_from_revision(rev: &str) -> (GitObjectFormat, &str) {
+fn extract_object_format_from_revision(rev: &str) -> (gix::hash::Kind, &str) {
     if let Some(stripped) = rev.strip_prefix("sha1:") {
-        return (GitObjectFormat::Sha1, stripped);
+        return (gix::hash::Kind::Sha1, stripped);
     }
 
     if let Some(stripped) = rev.strip_prefix("sha256:") {
-        return (GitObjectFormat::Sha256, stripped);
+        return (gix::hash::Kind::Sha256, stripped);
     }
 
     if rev.len() == 64 && rev.bytes().all(|b| b.is_ascii_hexdigit()) {
-        return (GitObjectFormat::Sha256, rev);
+        return (gix::hash::Kind::Sha256, rev);
     }
 
-    (GitObjectFormat::Sha1, rev)
+    (gix::hash::Kind::Sha1, rev)
 }
 
 struct VendoredGrammar {
@@ -213,7 +198,7 @@ impl VendoredGrammar {
     }
 
     /// Grammar sources are disposable: populate a fresh worktree at the pinned revision.
-    fn fetch(&self, remote: &str, rev: &str, object_format: GitObjectFormat) -> Result<()> {
+    fn fetch(&self, remote: &str, rev: &str, object_format: gix::hash::Kind) -> Result<()> {
         match fs::remove_dir_all(&self.dir) {
             Ok(()) => {}
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
@@ -224,7 +209,7 @@ impl VendoredGrammar {
             &self.dir,
             gix::create::Kind::WithWorktree,
             gix::create::Options {
-                object_hash: Some(object_format.kind()),
+                object_hash: Some(object_format),
                 ..Default::default()
             },
             gix::open::Options::default(),
@@ -621,7 +606,7 @@ mod tests {
             .fetch(
                 source.path().to_str().unwrap(),
                 "fixture-v1",
-                GitObjectFormat::Sha1,
+                gix::hash::Kind::Sha1,
             )
             .unwrap();
         assert_eq!(grammar.revision().unwrap(), expected);
@@ -636,7 +621,7 @@ mod tests {
             .join("..")
             .join(source.path().file_name().unwrap());
         grammar
-            .fetch(relative.to_str().unwrap(), &expected, GitObjectFormat::Sha1)
+            .fetch(relative.to_str().unwrap(), &expected, gix::hash::Kind::Sha1)
             .unwrap();
         assert_eq!(grammar.revision().unwrap(), expected);
     }
@@ -670,7 +655,7 @@ mod tests {
             .fetch(
                 source.path().to_str().unwrap(),
                 &expected,
-                GitObjectFormat::Sha256,
+                gix::hash::Kind::Sha256,
             )
             .unwrap();
         assert_eq!(grammar.revision().unwrap(), expected);
