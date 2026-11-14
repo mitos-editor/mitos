@@ -135,6 +135,7 @@ impl Client {
             capabilities: lsp::ClientCapabilities {
                 workspace: Some(lsp::WorkspaceClientCapabilities {
                     configuration: Some(true),
+                    folding_range: None,
                     did_change_configuration: Some(lsp::DynamicRegistrationClientCapabilities {
                         dynamic_registration: Some(false),
                     }),
@@ -158,6 +159,7 @@ impl Client {
                     }),
                     workspace_edit: Some(lsp::WorkspaceEditClientCapabilities {
                         document_changes: Some(true),
+                        snippet_edit_support: None,
                         resource_operations: Some(vec![
                             lsp::ResourceOperationKind::Create,
                             lsp::ResourceOperationKind::Rename,

@@ -345,6 +345,7 @@ fn request_completions_from_language_server(
             Some(lsp::CompletionResponse::List(lsp::CompletionList {
                 is_incomplete,
                 items,
+                ..
             })) => (items, is_incomplete),
             None => (Vec::new(), false),
         };
