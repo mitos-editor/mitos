@@ -5,7 +5,15 @@ use lsp_client::lsp;
 
 /// Whether the server advertises a feature used by Mitos.
 /// Push diagnostics have no capability flag and are always permitted.
-pub fn supports_feature(
+pub fn supports_feature(server: &lsp_client::Client, feature: LanguageServerFeature) -> bool {
+    if feature == LanguageServerFeature::TypeHierarchy {
+        server.supports_type_hierarchy()
+    } else {
+        supports_capability(server.capabilities(), feature)
+    }
+}
+
+fn supports_capability(
     capabilities: &lsp::ServerCapabilities,
     feature: LanguageServerFeature,
 ) -> bool {
@@ -94,6 +102,7 @@ pub fn supports_feature(
                     | ColorProviderCapability::Options(_)
             )
         ),
+        LanguageServerFeature::TypeHierarchy => false, // handled by supports_feature
         LanguageServerFeature::CallHierarchy => matches!(
             capabilities.call_hierarchy_provider,
             Some(
@@ -153,17 +162,17 @@ mod tests {
     #[test]
     fn advertised_features_respect_boolean_and_option_capabilities() {
         let mut capabilities = lsp::ServerCapabilities::default();
-        assert!(!supports_feature(
+        assert!(!supports_capability(
             &capabilities,
             LanguageServerFeature::RenameSymbol
         ));
         capabilities.rename_provider = Some(lsp::OneOf::Left(false));
-        assert!(!supports_feature(
+        assert!(!supports_capability(
             &capabilities,
             LanguageServerFeature::RenameSymbol
         ));
         capabilities.rename_provider = Some(lsp::OneOf::Left(true));
-        assert!(supports_feature(
+        assert!(supports_capability(
             &capabilities,
             LanguageServerFeature::RenameSymbol
         ));
@@ -171,7 +180,7 @@ mod tests {
             prepare_provider: Some(true),
             work_done_progress_options: Default::default(),
         }));
-        assert!(supports_feature(
+        assert!(supports_capability(
             &capabilities,
             LanguageServerFeature::RenameSymbol
         ));
@@ -180,11 +189,11 @@ mod tests {
     #[test]
     fn push_diagnostics_need_no_advertised_capability() {
         let capabilities = lsp::ServerCapabilities::default();
-        assert!(supports_feature(
+        assert!(supports_capability(
             &capabilities,
             LanguageServerFeature::Diagnostics
         ));
-        assert!(!supports_feature(
+        assert!(!supports_capability(
             &capabilities,
             LanguageServerFeature::PullDiagnostics
         ));

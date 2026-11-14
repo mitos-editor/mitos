@@ -331,6 +331,7 @@ pub fn component_keymaps() -> Result<String, DynError> {
     section!("Stash picker", stash_picker);
     section!("History picker", history_picker);
     section!("File explorer", file_explorer);
+    section!("Hierarchy picker", hierarchy_picker);
     section!("Sidebar", sidebar);
     section!("Sidebar filter", sidebar_filter);
     section!("Prompt", prompt);

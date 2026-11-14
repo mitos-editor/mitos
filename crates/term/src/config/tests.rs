@@ -1020,3 +1020,46 @@ fn sidebar_specific_bindings_override_inherited_workspace_bindings() {
         Lookup::Actions(&[S::Resize])
     );
 }
+
+#[test]
+fn hierarchy_keys_inherit_picker_bindings_and_allow_branch_actions() {
+    use crate::keymap::component::{PickerAction as P, PickerItemAction as I};
+    use ui_core::keymap::{KeymapState, Lookup};
+    let defaults = Config::default().component_keys;
+    let mut state = KeymapState::default();
+    for (key, action) in [
+        ("tab", I::ToggleExpanded),
+        ("A-right", I::Expand),
+        ("A-left", I::Collapse),
+    ] {
+        assert_eq!(
+            state.lookup(&defaults.hierarchy_picker, key.parse().unwrap()),
+            Lookup::Actions(&[P::Item(action)])
+        );
+    }
+    let config = Config::load_test(
+        "[keys.picker]\nC-j='move_down'\n[keys.hierarchy-picker]\ntab='unbound'\nC-e='expand'",
+    );
+    assert_eq!(
+        state.lookup(
+            &config.component_keys.hierarchy_picker,
+            "C-j".parse().unwrap()
+        ),
+        Lookup::Actions(&[P::MoveDown])
+    );
+    assert_eq!(
+        state.lookup(
+            &config.component_keys.hierarchy_picker,
+            "tab".parse().unwrap()
+        ),
+        Lookup::Unbound
+    );
+    assert_eq!(
+        state.lookup(
+            &config.component_keys.hierarchy_picker,
+            "C-e".parse().unwrap()
+        ),
+        Lookup::Actions(&[P::Item(I::Expand)])
+    );
+    assert!(Config::load_test_result("[keys.picker]\nC-e='expand'").is_err());
+}

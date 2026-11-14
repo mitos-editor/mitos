@@ -78,6 +78,7 @@ impl Client {
             pending_requests: connection.requests,
             request_counter: AtomicU64::new(0),
             capabilities: OnceLock::new(),
+            type_hierarchy: OnceLock::new(),
             initialization: OnceCell::new(),
             file_operation_interest: OnceLock::new(),
             config,
@@ -103,8 +104,14 @@ impl Client {
                 let response = self
                     .initialize_request(enable_snippets, client_info)
                     .await?;
+                self.type_hierarchy
+                    .set(matches!(
+                        response.capabilities.type_hierarchy_provider,
+                        Some(lsp::OneOf::Left(true) | lsp::OneOf::Right(_))
+                    ))
+                    .expect("capabilities are installed by one initialization");
                 self.capabilities
-                    .set(response.capabilities)
+                    .set(response.capabilities.standard)
                     .expect("capabilities are installed by one initialization");
                 self.notify::<lsp::notification::Initialized>(lsp::InitializedParams {});
                 self.initialize_notify.notify_one();
@@ -118,7 +125,7 @@ impl Client {
         &self,
         enable_snippets: bool,
         client_info: lsp::ClientInfo,
-    ) -> Result<lsp::InitializeResult> {
+    ) -> Result<HierarchyInitializeResult> {
         if let Some(config) = &self.config {
             log::info!("Using custom LSP config: {}", config);
         }
@@ -369,6 +376,9 @@ impl Client {
                         dynamic_registration: Some(false),
                         tooltip_support: Some(false),
                     }),
+                    type_hierarchy: Some(lsp::DynamicRegistrationClientCapabilities {
+                        dynamic_registration: Some(false),
+                    }),
                     call_hierarchy: Some(lsp::DynamicRegistrationClientCapabilities {
                         dynamic_registration: Some(false),
                     }),
@@ -407,7 +417,7 @@ impl Client {
             work_done_progress_params: lsp::WorkDoneProgressParams::default(),
         };
 
-        self.call::<lsp::request::Initialize>(params).await
+        self.call::<HierarchyInitialize>(params).await
     }
 
     /// Requests graceful shutdown without sending `exit`.
@@ -448,5 +458,67 @@ impl Client {
     /// is, since it doesn't wait for any server response).
     pub async fn wait_shutdown_flushed(&self) {
         self.shutdown_flushed.notified().await;
+    }
+}
+
+// lsp-types 0.97 has the type-hierarchy requests and client capability, but
+// omits typeHierarchyProvider from ServerCapabilities. Keep this wire adapter
+// private until the dependency includes the field.
+#[derive(serde::Deserialize, serde::Serialize)]
+struct HierarchyInitializeResult {
+    capabilities: HierarchyServerCapabilities,
+}
+
+#[derive(serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct HierarchyServerCapabilities {
+    #[serde(flatten)]
+    standard: lsp::ServerCapabilities,
+    type_hierarchy_provider: Option<lsp::OneOf<bool, lsp::TypeHierarchyOptions>>,
+}
+
+enum HierarchyInitialize {}
+impl lsp::request::Request for HierarchyInitialize {
+    type Params = lsp::InitializeParams;
+    type Result = HierarchyInitializeResult;
+    const METHOD: &'static str = "initialize";
+}
+
+#[cfg(test)]
+mod hierarchy_capability_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn initialize_retains_type_hierarchy_and_standard_capabilities() {
+        for (provider, supported) in [
+            (json!(true), true),
+            (json!({}), true),
+            (json!(false), false),
+            (json!(null), false),
+        ] {
+            let result: HierarchyInitializeResult = serde_json::from_value(json!({"capabilities": {
+                "typeHierarchyProvider": provider, "callHierarchyProvider": true, "positionEncoding":"utf-8"
+            }})).unwrap();
+            assert_eq!(
+                matches!(
+                    result.capabilities.type_hierarchy_provider,
+                    Some(lsp::OneOf::Left(true) | lsp::OneOf::Right(_))
+                ),
+                supported
+            );
+            assert!(result
+                .capabilities
+                .standard
+                .call_hierarchy_provider
+                .is_some());
+            assert_eq!(
+                result.capabilities.standard.position_encoding,
+                Some(lsp::PositionEncodingKind::UTF8)
+            );
+        }
+        let result: HierarchyInitializeResult =
+            serde_json::from_value(json!({"capabilities":{}})).unwrap();
+        assert!(result.capabilities.type_hierarchy_provider.is_none());
     }
 }

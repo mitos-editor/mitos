@@ -28,6 +28,7 @@ use view::{
     quicklist::{QuicklistEntry, QuicklistPosition, QuicklistTarget},
     Align, Editor,
 };
+pub(super) mod hierarchy;
 mod symbol_updates;
 
 /// Gets the first language server that is attached to a document which supports a specific feature.

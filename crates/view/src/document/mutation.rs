@@ -115,6 +115,7 @@ impl Document {
 
         self.cancel_view_requests(|state| &mut state.hover);
         self.cancel_view_requests(|state| &mut state.navigation);
+        self.cancel_view_requests(|state| &mut state.hierarchy);
 
         // Install an explicit transaction selection before observers inspect the new state.
         if let (Some(selection), Some(view_id)) = (selection, view_id) {

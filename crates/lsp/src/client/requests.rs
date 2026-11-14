@@ -57,6 +57,82 @@ impl Client {
         })
     }
 
+    pub fn prepare_call_hierarchy(
+        &self,
+        text_document: lsp::TextDocumentIdentifier,
+        position: lsp::Position,
+    ) -> impl Future<Output = Result<Option<Vec<lsp::CallHierarchyItem>>>> + use<> {
+        self.call::<lsp::request::CallHierarchyPrepare>(lsp::CallHierarchyPrepareParams {
+            text_document_position_params: lsp::TextDocumentPositionParams {
+                text_document,
+                position,
+            },
+            work_done_progress_params: Default::default(),
+        })
+    }
+
+    pub fn prepare_type_hierarchy(
+        &self,
+        text_document: lsp::TextDocumentIdentifier,
+        position: lsp::Position,
+    ) -> impl Future<Output = Result<Option<Vec<crate::TypeHierarchyItem>>>> + use<> {
+        self.call::<TypeHierarchyPrepare>(lsp::TypeHierarchyPrepareParams {
+            text_document_position_params: lsp::TextDocumentPositionParams {
+                text_document,
+                position,
+            },
+            work_done_progress_params: Default::default(),
+        })
+    }
+
+    pub fn incoming_calls(
+        &self,
+        item: lsp::CallHierarchyItem,
+    ) -> impl Future<Output = Result<Option<Vec<lsp::CallHierarchyIncomingCall>>>> + use<> {
+        self.call::<lsp::request::CallHierarchyIncomingCalls>(
+            lsp::CallHierarchyIncomingCallsParams {
+                item,
+                work_done_progress_params: Default::default(),
+                partial_result_params: Default::default(),
+            },
+        )
+    }
+
+    pub fn outgoing_calls(
+        &self,
+        item: lsp::CallHierarchyItem,
+    ) -> impl Future<Output = Result<Option<Vec<lsp::CallHierarchyOutgoingCall>>>> + use<> {
+        self.call::<lsp::request::CallHierarchyOutgoingCalls>(
+            lsp::CallHierarchyOutgoingCallsParams {
+                item,
+                work_done_progress_params: Default::default(),
+                partial_result_params: Default::default(),
+            },
+        )
+    }
+
+    pub fn supertypes(
+        &self,
+        item: crate::TypeHierarchyItem,
+    ) -> impl Future<Output = Result<Option<Vec<crate::TypeHierarchyItem>>>> + use<> {
+        self.call::<TypeHierarchySupertypes>(TypeHierarchyParams {
+            item,
+            work_done_progress_params: Default::default(),
+            partial_result_params: Default::default(),
+        })
+    }
+
+    pub fn subtypes(
+        &self,
+        item: crate::TypeHierarchyItem,
+    ) -> impl Future<Output = Result<Option<Vec<crate::TypeHierarchyItem>>>> + use<> {
+        self.call::<TypeHierarchySubtypes>(TypeHierarchyParams {
+            item,
+            work_done_progress_params: Default::default(),
+            partial_result_params: Default::default(),
+        })
+    }
+
     pub fn completion(
         &self,
         text_document: lsp::TextDocumentIdentifier,
@@ -816,4 +892,36 @@ impl Client {
 
         Some(self.call::<lsp::request::ExecuteCommand>(params))
     }
+}
+
+// The pinned upstream TypeHierarchyItem models tags as a scalar. These requests
+// use the corrected item adapter until the dependency can supply it directly.
+enum TypeHierarchyPrepare {}
+impl lsp::request::Request for TypeHierarchyPrepare {
+    type Params = lsp::TypeHierarchyPrepareParams;
+    type Result = Option<Vec<crate::TypeHierarchyItem>>;
+    const METHOD: &'static str = "textDocument/prepareTypeHierarchy";
+}
+
+#[derive(serde::Deserialize, serde::Serialize)]
+struct TypeHierarchyParams {
+    item: crate::TypeHierarchyItem,
+    #[serde(flatten)]
+    work_done_progress_params: lsp::WorkDoneProgressParams,
+    #[serde(flatten)]
+    partial_result_params: lsp::PartialResultParams,
+}
+
+enum TypeHierarchySupertypes {}
+impl lsp::request::Request for TypeHierarchySupertypes {
+    type Params = TypeHierarchyParams;
+    type Result = Option<Vec<crate::TypeHierarchyItem>>;
+    const METHOD: &'static str = "typeHierarchy/supertypes";
+}
+
+enum TypeHierarchySubtypes {}
+impl lsp::request::Request for TypeHierarchySubtypes {
+    type Params = TypeHierarchyParams;
+    type Result = Option<Vec<crate::TypeHierarchyItem>>;
+    const METHOD: &'static str = "typeHierarchy/subtypes";
 }

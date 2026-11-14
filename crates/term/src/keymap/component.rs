@@ -62,6 +62,9 @@ pub enum PickerAction {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PickerItemAction {
+    Expand,
+    Collapse,
+    ToggleExpanded,
     CloseBuffer,
     #[serde(rename = "remove_entry")]
     RemoveQuicklistEntry,
@@ -140,6 +143,9 @@ impl PickerAction {
             Self::OpenPreview => "Open preview",
             Self::PopulateQuicklist => "Populate quicklist",
             Self::Item(action) => match action {
+                PickerItemAction::Expand => "Expand hierarchy",
+                PickerItemAction::Collapse => "Collapse hierarchy",
+                PickerItemAction::ToggleExpanded => "Toggle hierarchy branch",
                 PickerItemAction::CloseBuffer => "Close buffer",
                 PickerItemAction::RemoveQuicklistEntry => "Remove entry",
                 PickerItemAction::Stage => "Stage",
@@ -220,6 +226,7 @@ pub struct ComponentKeymaps {
     pub stash_picker: Keymap<PickerAction>,
     pub history_picker: Keymap<PickerAction>,
     pub file_explorer: Keymap<PickerAction>,
+    pub hierarchy_picker: Keymap<PickerAction>,
     pub sidebar: Keymap<SidebarAction>,
     pub sidebar_filter: Keymap<SidebarAction>,
     pub menu: Keymap<MenuAction>,
@@ -301,6 +308,15 @@ impl ComponentKeymaps {
         shared.merge(bindings(&[
             ("A-a", PickerAction::Item(PickerItemAction::Actions)),
             ("A-h", PickerAction::Item(PickerItemAction::HistoryBack)),
+        ]));
+        shared
+    }
+
+    pub fn hierarchy_picker(mut shared: Keymap<PickerAction>) -> Keymap<PickerAction> {
+        shared.merge(bindings(&[
+            ("tab", PickerAction::Item(PickerItemAction::ToggleExpanded)),
+            ("A-right", PickerAction::Item(PickerItemAction::Expand)),
+            ("A-left", PickerAction::Item(PickerItemAction::Collapse)),
         ]));
         shared
     }
@@ -441,6 +457,7 @@ impl Default for ComponentKeymaps {
             stash_picker: Self::stash_picker(picker.clone()),
             history_picker: Self::history_picker(picker.clone()),
             file_explorer: Self::file_explorer(picker.clone()),
+            hierarchy_picker: Self::hierarchy_picker(picker.clone()),
             sidebar: Self::sidebar(Self::file_explorer(picker.clone())),
             sidebar_filter: Self::sidebar_filter(Self::file_explorer(picker.clone())),
             picker,

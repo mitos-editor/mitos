@@ -45,6 +45,7 @@ pub struct Client {
     pending_requests: Arc<PendingRequests>,
     request_counter: AtomicU64,
     capabilities: OnceLock<lsp::ServerCapabilities>,
+    type_hierarchy: OnceLock<bool>,
     initialization: OnceCell<()>,
     pub(crate) file_operation_interest: OnceLock<FileOperationsInterest>,
     config: Option<Value>,
@@ -84,6 +85,10 @@ impl Client {
         self.capabilities
             .get()
             .expect("language server not yet initialized!")
+    }
+
+    pub fn supports_type_hierarchy(&self) -> bool {
+        self.type_hierarchy.get().copied().unwrap_or(false)
     }
 
     pub(crate) fn file_operations_interest(&self) -> &FileOperationsInterest {

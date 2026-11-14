@@ -145,6 +145,7 @@ belong in `keys.normal`, `keys.insert`, and `keys.select`.
 | `keys.worktree-picker` | All `keys.picker` actions, plus `create_worktree`, `remove_worktree`, `lock_worktree`, `unlock_worktree` |
 | `keys.stash-picker` | All `keys.picker` actions, plus `apply_stash`, `apply_stash_with_index`, `actions` |
 | `keys.history-picker` | All `keys.picker` actions, plus `actions`, `back` |
+| `keys.hierarchy-picker` | All `keys.picker` actions, plus `expand`, `collapse`, `toggle_expanded` |
 | `keys.file-explorer` | All `keys.picker` actions, plus `create_path`, `move_path`, `copy_path`, `delete_path`, `yank_path` |
 | `keys.sidebar`, `keys.sidebar-filter` | All `keys.file-explorer` actions, plus `filter`, `focus_editor`, `hide`, `next_view`, `previous_view`, `resize` |
 | `keys.menu` | `accept`, `cancel`, `move_up`, `move_down`, `page_up`, `page_down` |
@@ -158,7 +159,7 @@ paging move by half a page. Picker paging moves by a full page.
 
 `keys.buffer-picker`, `keys.quicklist-picker`, `keys.git-picker`,
 `keys.branch-picker`, `keys.worktree-picker`, `keys.stash-picker`,
-`keys.history-picker`, and `keys.file-explorer` inherit
+`keys.history-picker`, `keys.hierarchy-picker`, and `keys.file-explorer` inherit
 `keys.picker`.
 Picker-specific bindings take priority over shared picker bindings, including
 ones from project configuration. The quicklist picker also binds `Ctrl-x` to

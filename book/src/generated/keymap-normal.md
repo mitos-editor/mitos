@@ -149,6 +149,8 @@
 | `` gD `` | Goto declaration | `` goto_declaration `` |
 | `` gy `` | Goto type definition | `` goto_type_definition `` |
 | `` gr `` | Goto references | `` goto_reference `` |
+| `` gH `` | Show call hierarchy | `` call_hierarchy `` |
+| `` gT `` | Show type hierarchy | `` type_hierarchy `` |
 | `` gi `` | Goto implementation | `` goto_implementation `` |
 | `` gt `` | Goto window top | `` goto_window_top `` |
 | `` gc `` | Goto window center | `` goto_window_center `` |
