@@ -3,6 +3,24 @@
 use crate::lsp;
 use std::path::{Path, PathBuf};
 
+/// Parameters shared by LSP 3.18 content requests and refresh requests.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TextDocumentContentParams {
+    pub uri: lsp::Uri,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+pub struct TextDocumentContentResult {
+    pub text: String,
+}
+
+pub(crate) enum TextDocumentContent {}
+impl lsp::request::Request for TextDocumentContent {
+    type Params = TextDocumentContentParams;
+    type Result = TextDocumentContentResult;
+    const METHOD: &'static str = "workspace/textDocumentContent";
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum UriError {
     #[error(transparent)]

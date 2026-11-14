@@ -11,12 +11,39 @@ pub(crate) struct Attachment {
 impl Document {
     /// Maintains the order and feature routing configured in the language-server array.
     pub fn language_servers(&self) -> impl Iterator<Item = &lsp_client::Client> {
-        self.language_config().into_iter().flat_map(move |config| {
-            config.language_servers.iter().filter_map(move |features| {
-                let attachment = self.language_servers.get(&features.name)?;
-                attachment.opened.then_some(&*attachment.client)
+        self.language_config()
+            .filter(|_| self.language_server_source().is_none())
+            .into_iter()
+            .flat_map(move |config| {
+                config.language_servers.iter().filter_map(move |features| {
+                    let attachment = self.language_servers.get(&features.name)?;
+                    attachment.opened.then_some(&*attachment.client)
+                })
             })
-        })
+            .chain(
+                self.language_server_source()
+                    .into_iter()
+                    .filter_map(|source| {
+                        self.language_servers
+                            .values()
+                            .find(|attachment| {
+                                attachment.opened && attachment.client.id() == source.server
+                            })
+                            .map(|attachment| &*attachment.client)
+                    }),
+            )
+    }
+
+    pub(crate) fn attach_content_server(&mut self, client: Arc<Client>) {
+        let id = client.id();
+        self.language_servers.insert(
+            client.name().to_owned(),
+            Attachment {
+                client,
+                opened: false,
+            },
+        );
+        self.open_language_server_document(id);
     }
 
     pub fn remove_language_server_by_name(&mut self, name: &str) -> Option<Arc<Client>> {
@@ -36,6 +63,7 @@ impl Document {
     ) -> impl Iterator<Item = &lsp_client::Client> {
         let mut seen = std::collections::HashSet::new();
         self.language_config()
+            .filter(|_| self.language_server_source().is_none())
             .into_iter()
             .flat_map(move |config| {
                 config.language_servers.iter().filter_map(move |features| {
@@ -50,6 +78,32 @@ impl Document {
                     .then_some(client)
                 })
             })
+            .chain(
+                self.language_server_source()
+                    // The diagnostic store is file-keyed; virtual source providers
+                    // must not publish into another provider's equal URI.
+                    .filter(|_| {
+                        !matches!(
+                            feature,
+                            LanguageServerFeature::Diagnostics
+                                | LanguageServerFeature::PullDiagnostics
+                        )
+                    })
+                    .into_iter()
+                    .filter_map(move |source| {
+                        self.language_servers
+                            .values()
+                            .find(|attachment| {
+                                attachment.opened
+                                    && attachment.client.id() == source.server
+                                    && crate::language_servers::supports_feature(
+                                        attachment.client.capabilities(),
+                                        feature,
+                                    )
+                            })
+                            .map(|attachment| &*attachment.client)
+                    }),
+            )
             .filter(move |client| seen.insert(client.id()))
     }
 

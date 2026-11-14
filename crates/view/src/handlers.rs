@@ -67,6 +67,7 @@ pub struct Handlers {
     pub inline_completions: inline_completion::InlineCompletionHandler,
     pub hover: hover::HoverHandler,
     pub navigation: navigation::NavigationHandler,
+    pub virtual_documents: crate::features::virtual_documents::VirtualDocumentsHandler,
     pub structural_ranges: crate::features::structural_ranges::StructuralRangesHandler,
     pub linked_editing: crate::features::linked_editing::LinkedEditingHandler,
     pub inlay_hints: inlay_hints::InlayHintsHandler,
@@ -137,6 +138,9 @@ impl Handlers {
             inline_completions: inline_completion::InlineCompletionHandler::new(callbacks.clone()),
             hover: hover::HoverHandler::new(callbacks.clone()),
             navigation: navigation::NavigationHandler::new(callbacks.clone()),
+            virtual_documents: crate::features::virtual_documents::VirtualDocumentsHandler::new(
+                callbacks.clone(),
+            ),
             structural_ranges: crate::features::structural_ranges::StructuralRangesHandler::new(
                 callbacks.clone(),
             ),
@@ -193,7 +197,7 @@ impl Handlers {
     pub(crate) fn attach_document(&self, doc: &mut crate::Document) {
         doc.events = self.events.clone();
         doc.bind_signals(self.callbacks.redraw().clone(), self.status.clone());
-        if doc.historical().is_some() {
+        if doc.historical().is_some() || doc.language_server_source().is_some() {
             doc.syntax_handler = Some(self.syntax.clone());
         }
         if doc.is_content_readonly() {
@@ -258,6 +262,7 @@ fn register_hooks(events: &event::EventHub, document_hooks: DocumentHooks) {
     buffer_search::register_hooks(events);
     code_actions::register_hooks(events);
     workspace_symbols::register_hooks(events);
+    crate::features::virtual_documents::register_hooks(events);
     inlay_hints::register_hooks(events);
     completion::register_hooks(events);
     crate::debugger::register_hooks(events);

@@ -32,7 +32,7 @@ pub mod lsp {
 }
 
 mod protocol;
-pub use protocol::{UriError, UriExt};
+pub use protocol::{TextDocumentContentParams, TextDocumentContentResult, UriError, UriExt};
 use std::collections::HashMap;
 
 use thiserror::Error;
@@ -102,6 +102,7 @@ pub enum MethodCall {
     RegisterCapability(lsp::RegistrationParams),
     UnregisterCapability(lsp::UnregistrationParams),
     ShowDocument(lsp::ShowDocumentParams),
+    TextDocumentContentRefresh(TextDocumentContentParams),
     WorkspaceDiagnosticRefresh,
     CodeLensRefresh,
     FoldingRangeRefresh,
@@ -115,6 +116,9 @@ impl MethodCall {
     pub fn parse(method: &str, params: jsonrpc::Params) -> Result<MethodCall> {
         use lsp::request::Request;
         let request = match method {
+            "workspace/textDocumentContent/refresh" => {
+                Self::TextDocumentContentRefresh(params.parse()?)
+            }
             lsp::request::WorkDoneProgressCreate::METHOD => {
                 let params: lsp::WorkDoneProgressCreateParams = params.parse()?;
                 Self::WorkDoneProgressCreate(params)

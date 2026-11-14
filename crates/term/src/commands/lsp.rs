@@ -149,19 +149,35 @@ struct SymbolPickerData {
     theme: Theme,
 }
 
-fn location_to_file_location(location: &Location) -> Option<FileLocation<'_>> {
-    let path = location.uri.as_path()?;
+fn location_to_file_location<'a>(
+    editor: &Editor,
+    location: &'a Location,
+) -> Option<FileLocation<'a>> {
     let line = Some((
         location.range.start.line as usize,
         location.range.end.line as usize,
     ));
-    Some((path.into(), line))
+    if let Some(path) = location.uri.as_path() {
+        return Some((path.into(), line));
+    }
+    let uri = location.uri.to_url().ok()?.as_str().parse().ok()?;
+    Some((
+        editor
+            .language_server_document(location.server_id?, &uri)?
+            .into(),
+        line,
+    ))
 }
 
-fn location_to_quicklist_entry(location: &Location) -> Option<QuicklistEntry> {
-    let path = location.uri.as_path()?;
+fn location_to_quicklist_entry(editor: &Editor, location: &Location) -> Option<QuicklistEntry> {
+    let target = if let Some(path) = location.uri.as_path() {
+        QuicklistTarget::Path(path.to_path_buf())
+    } else {
+        let uri = location.uri.to_url().ok()?.as_str().parse().ok()?;
+        QuicklistTarget::Document(editor.language_server_document(location.server_id?, &uri)?)
+    };
     Some(QuicklistEntry {
-        target: QuicklistTarget::Path(path.to_path_buf()),
+        target,
         position: QuicklistPosition::LspRange {
             range: location.range,
             offset_encoding: location.offset_encoding,
@@ -172,6 +188,30 @@ fn location_to_quicklist_entry(location: &Location) -> Option<QuicklistEntry> {
 fn jump_to_location(editor: &mut Editor, location: &Location, action: Action) {
     let (view, doc) = current!(editor);
     push_jump(view, doc);
+
+    if let Some(server) = location.server_id {
+        let uri = location
+            .uri
+            .to_url()
+            .ok()
+            .and_then(|uri| uri.as_str().parse().ok());
+        if let Some(uri) = uri {
+            editor.request_language_server_document(
+                server,
+                uri,
+                Some(location.range),
+                action,
+                |editor, result| {
+                    if let Err(error) = result
+                        && !error.is::<view::features::virtual_documents::ContentRequestCanceled>()
+                    {
+                        editor.set_error(|| error.to_string());
+                    }
+                },
+            );
+        }
+        return;
+    }
 
     let Some(path) = location.uri.as_path() else {
         editor.set_error(|| format!("unable to convert URI to filepath: {:?}", location.uri));
@@ -391,6 +431,7 @@ mod symbol_picker_tests {
                 kind: lsp::SymbolKind::FUNCTION,
                 container_name: Some("crate".into()),
                 location: Location {
+                    server_id: None,
                     uri: std::path::PathBuf::from("/tmp/main.rs").into(),
                     range: lsp::Range::default(),
                     offset_encoding: OffsetEncoding::Utf16,
@@ -543,8 +584,8 @@ pub fn symbol_picker(cx: &mut Context) {
     .with_item_key(symbol_updates::symbol_key)
     .with_editor_updates(symbol_updates::document_updates(document, view))
     .with_title("Document Symbols")
-    .with_preview(move |_editor, item| location_to_file_location(&item.symbol.location))
-    .with_quicklist(move |_editor, item| location_to_quicklist_entry(&item.symbol.location))
+    .with_preview(|editor, item| location_to_file_location(editor, &item.symbol.location))
+    .with_quicklist(|editor, item| location_to_quicklist_entry(editor, &item.symbol.location))
     .truncate_start(false);
     cx.push_layer(Box::new(overlaid(picker)));
 }
@@ -642,7 +683,8 @@ pub(crate) fn goto_impl(
                 cwdir,
                 |cx, location, action| jump_to_location(cx.editor, location, action),
             )
-            .with_preview(|_editor, location| location_to_file_location(location))
+            .with_preview(location_to_file_location)
+            .with_editor_updates(virtual_document_previews(|location| Some(location)))
             .with_title(title);
             compositor.push(Box::new(overlaid(picker)));
         }
@@ -866,6 +908,35 @@ pub(super) mod typed {
         let document = doc!(cx.editor).id();
         let servers: Vec<_> = args.iter().map(|arg| arg.as_ref()).collect();
         cx.editor.stop_language_servers(document, &servers)
+    }
+}
+
+fn virtual_document_previews<T>(
+    location: impl Fn(&T) -> Option<&Location>,
+) -> impl FnMut(ui::picker::UpdateContext<'_, T>) -> Option<Vec<T>> {
+    let mut selected = None;
+    move |cx| {
+        let next = cx
+            .selected
+            .filter(|_| cx.preview_visible)
+            .and_then(&location);
+        if selected.as_ref() != next || cx.resumed {
+            selected = next.cloned();
+            let cancel = cx.task.restart();
+            if let Some(location) = &selected
+                && let Some(server) = location.server_id
+                && let Some(uri) = location
+                    .uri
+                    .to_url()
+                    .ok()
+                    .and_then(|uri| uri.as_str().parse().ok())
+                && cx.editor.language_server_document(server, &uri).is_none()
+            {
+                cx.editor
+                    .preload_language_server_document(server, uri, cancel);
+            }
+        }
+        None
     }
 }
 

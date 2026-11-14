@@ -175,7 +175,10 @@ pub(super) fn picker(cx: &mut Context) {
             });
         },
     )
-    .with_preview(|editor, item| item.location(editor).and_then(location_to_file_location))
+    .with_preview(|editor, item| {
+        item.location(editor)
+            .and_then(|location| location_to_file_location(editor, location))
+    })
     .with_quicklist_batch(|cx, items, cancel| {
         let requests = items
             .into_iter()
@@ -205,19 +208,7 @@ pub(super) fn picker(cx: &mut Context) {
                 if cancel.is_canceled() {
                     return;
                 }
-                let mut entries = Vec::with_capacity(updates.len());
-                for update in updates {
-                    let Some(item) = update.publish(editor) else {
-                        return;
-                    };
-                    if let Some(entry) = item.location(editor).and_then(location_to_quicklist_entry)
-                    {
-                        entries.push(entry);
-                    }
-                }
-                let count = entries.len();
-                editor.replace_quicklist(entries);
-                editor.set_status(format!("Quicklist populated with {count} entries"));
+                export_quicklist(editor, updates, cancel);
             }))
         });
     })
@@ -247,6 +238,7 @@ fn resolve_selected(
     let mut selected: Option<Item> = None;
     let mut query = String::new();
     let mut preview_visible = false;
+    let mut content: Option<lsp::Uri> = None;
     let mut pending: Option<oneshot::Receiver<anyhow::Result<Option<WorkspaceSymbolResolution>>>> =
         None;
     let mut revision = 0;
@@ -278,6 +270,7 @@ fn resolve_selected(
         if changed || cx.resumed {
             cx.task.cancel();
             pending = None;
+            content = None;
             selected = cx.selected.cloned();
             query = cx.query.into();
             preview_visible = cx.preview_visible;
@@ -314,6 +307,114 @@ fn resolve_selected(
                 Err(oneshot::error::TryRecvError::Empty) => {}
             }
         }
+        if cx.preview_visible
+            && let Some(item) = cx.selected
+            && let Some(location) = item.location(cx.editor)
+            && let Some(server) = location.server_id
+            && let Some(uri) = location
+                .uri
+                .to_url()
+                .ok()
+                .and_then(|uri| uri.as_str().parse::<lsp::Uri>().ok())
+            && cx.editor.language_server_document(server, &uri).is_none()
+            && content.as_ref() != Some(&uri)
+        {
+            let cancel = cx.task.restart();
+            content = Some(uri.clone());
+            cx.editor
+                .preload_language_server_document(server, uri, cancel);
+        }
         replacement
     }
+}
+
+/// Resolve every matched target before replacing the quicklist. Content loads are
+/// background operations, so exporting a cold virtual result never changes focus.
+fn export_quicklist(
+    editor: &mut Editor,
+    updates: Vec<WorkspaceSymbolResolution>,
+    cancel: event::TaskHandle,
+) {
+    let Some(items) = updates
+        .into_iter()
+        .map(|update| update.publish(editor))
+        .collect::<Option<Vec<_>>>()
+    else {
+        return;
+    };
+    let mut entries: Vec<futures_util::future::BoxFuture<'static, anyhow::Result<QuicklistEntry>>> =
+        Vec::with_capacity(items.len());
+    for item in &items {
+        let Some(location) = item.location(editor).cloned() else {
+            return;
+        };
+        if let Some(entry) = location_to_quicklist_entry(editor, &location) {
+            entries.push(futures_util::future::ready(Ok(entry)).boxed());
+            continue;
+        }
+        let Some((server, uri)) = location.server_id.zip(
+            location
+                .uri
+                .to_url()
+                .ok()
+                .and_then(|uri| uri.as_str().parse::<lsp::Uri>().ok()),
+        ) else {
+            editor.set_error(|| "Workspace symbol has no usable document location");
+            return;
+        };
+        let (sender, receiver) = oneshot::channel();
+        editor.load_language_server_document(server, uri, cancel.clone(), move |_, result| {
+            let _ = sender.send(result);
+        });
+        entries.push(
+            async move {
+                let document = receiver
+                    .await
+                    .map_err(|_| anyhow::anyhow!("Symbol document loader stopped"))??;
+                Ok(QuicklistEntry {
+                    target: QuicklistTarget::Document(document),
+                    position: QuicklistPosition::LspRange {
+                        range: location.range,
+                        offset_encoding: location.offset_encoding,
+                    },
+                })
+            }
+            .boxed(),
+        );
+    }
+    let callbacks = editor.callback_sender().clone();
+    tokio::spawn(async move {
+        let Some(result) =
+            event::cancelable_future(futures_util::future::try_join_all(entries), &cancel).await
+        else {
+            return;
+        };
+        callbacks
+            .send(move |editor| {
+                if cancel.is_canceled() || items.iter().any(|item| !item.is_current(editor)) {
+                    return;
+                }
+                match result {
+                    Ok(entries) => {
+                        if entries.iter().any(|entry| {
+                            matches!(entry.target,
+                            QuicklistTarget::Document(id) if editor.document(id).is_none())
+                        }) {
+                            editor.set_error(|| "A workspace symbol document was closed");
+                            return;
+                        }
+                        let count = entries.len();
+                        editor.replace_quicklist(entries);
+                        editor.set_status(format!("Quicklist populated with {count} entries"));
+                    }
+                    Err(error)
+                        if error
+                            .is::<view::features::virtual_documents::ContentRequestCanceled>() => {}
+                    Err(error) => {
+                        editor.set_error(|| format!("Cannot export workspace symbols: {error}"))
+                    }
+                }
+            })
+            .await;
+    });
 }

@@ -39,6 +39,7 @@ pub mod structural_ranges;
 pub mod symbols;
 pub mod syntax;
 pub mod syntax_symbols;
+pub mod virtual_documents;
 pub mod word_index;
 pub mod workspace_changes;
 pub mod workspace_symbols;

@@ -27,6 +27,8 @@ pub struct Location {
     pub uri: Uri,
     pub range: lsp::Range,
     pub offset_encoding: OffsetEncoding,
+    /// The owner of a non-file URI. File locations need no provider identity.
+    pub server_id: Option<lsp_client::LanguageServerId>,
 }
 
 impl Location {
@@ -39,12 +41,33 @@ impl Location {
                 uri,
                 range: location.range,
                 offset_encoding,
+                server_id: None,
             }),
             Err(error) => {
                 log::warn!("discarding invalid or unsupported URI: {error}");
                 None
             }
         }
+    }
+    pub(crate) fn from_server(
+        location: lsp::Location,
+        encoding: OffsetEncoding,
+        server_id: lsp_client::LanguageServerId,
+    ) -> Option<Self> {
+        if location
+            .uri
+            .as_str()
+            .split_once(':')
+            .is_some_and(|(scheme, _)| scheme.eq_ignore_ascii_case("file"))
+        {
+            return Self::from_lsp(location, encoding);
+        }
+        Some(Self {
+            uri: Uri::Virtual(location.uri.to_editor_url().ok()?),
+            range: location.range,
+            offset_encoding: encoding,
+            server_id: Some(server_id),
+        })
     }
 }
 
@@ -223,9 +246,10 @@ pub fn request(editor: &mut Editor, kind: NavigationKind) {
         .inspect(|server| servers.push(server.id()))
         .take(limit)
         .filter_map(|server| {
+            let server_id = server.id();
             let encoding = server.offset_encoding();
             let future = kind.request(server, doc, view.id, include_declaration)?;
-            Some(async move { (encoding, future.await) })
+            Some(async move { (server_id, encoding, future.await) })
         })
         .collect();
     if futures.is_empty() {
@@ -256,15 +280,16 @@ pub fn request(editor: &mut Editor, kind: NavigationKind) {
         let mut highlights = None;
         loop {
             match cancelable_future(futures.next(), request.target.cancel_handle()).await {
-                Some(Some((encoding, Ok(Response::Locations(response))))) => locations.extend(
-                    response
-                        .into_iter()
-                        .filter_map(|location| Location::from_lsp(location, encoding)),
-                ),
-                Some(Some((encoding, Ok(Response::Highlights(response))))) => {
+                Some(Some((server, encoding, Ok(Response::Locations(response))))) => locations
+                    .extend(
+                        response.into_iter().filter_map(|location| {
+                            Location::from_server(location, encoding, server)
+                        }),
+                    ),
+                Some(Some((_, encoding, Ok(Response::Highlights(response))))) => {
                     highlights = Some((encoding, response))
                 }
-                Some(Some((_, Err(error)))) => log::error!("navigation request failed: {error}"),
+                Some(Some((_, _, Err(error)))) => log::error!("navigation request failed: {error}"),
                 Some(None) => break,
                 None => return,
             }
@@ -275,6 +300,20 @@ pub fn request(editor: &mut Editor, kind: NavigationKind) {
                 if !request.is_current(editor) {
                     return;
                 }
+                locations.retain(|location| {
+                    location.server_id.is_none_or(|server| {
+                        location
+                            .uri
+                            .to_url()
+                            .ok()
+                            .and_then(|uri| uri.as_str().parse().ok())
+                            .is_some_and(|uri| {
+                                editor.language_server_by_id(server).is_some_and(|client| {
+                                    client.supports_text_document_content(&uri)
+                                })
+                            })
+                    })
+                });
                 if request.kind == NavigationKind::SelectReferences {
                     if let Some((encoding, highlights)) = highlights {
                         select_highlights(editor, &request, encoding, highlights);

@@ -107,6 +107,19 @@ Use `Space k` on a document link to read its tooltip. `Space K` opens the
 same help in a read-only buffer. This also works when the server provides
 links without general hover documentation.
 
+## Server-provided source
+
+Language servers can return generated source and other non-file documents through
+LSP 3.18 content providers. Go-to navigation opens these documents in read-only
+buffers. Go-to and workspace-symbol pickers load the selected source for preview.
+Servers can also
+open a document directly and refresh its contents without changing focus.
+
+These buffers retain their server URI and support navigation through that server.
+They cannot be edited or saved, including with a forced write or another filename.
+Copy text into a new buffer to save a local version. Support depends on the
+language server advertising a content provider for the URI scheme.
+
 ## Symbols without a server
 
 `Space s` and `Space S` use language-server symbols when available. Otherwise,
