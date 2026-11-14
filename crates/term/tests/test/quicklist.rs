@@ -69,6 +69,61 @@ impl Fixture {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn quicklist_picker_and_activation_handle_a_shortened_buffer() -> anyhow::Result<()> {
+    let mut f = Fixture::new(&[])?;
+    f.keys("ialpha<ret>beta<ret>gamma<esc><A-q>").await?;
+    let entry = f.app.editor.quicklist.entries()[0].clone();
+    f.keys("%d<space>q<ret>").await?;
+    let (view, doc) = current_ref!(f.app.editor);
+    assert!(doc.selection(view.id).primary().to() <= doc.text().len_chars());
+    assert_eq!(f.app.editor.quicklist.entries(), &[entry]);
+    f.finish().await;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn quicklist_activation_keeps_stale_columns_on_their_original_lines() -> anyhow::Result<()> {
+    for (text, expected) in [
+        ("x\n", Selection::single(1, 2)),
+        ("x", Selection::point(1)),
+        ("x\r\n", Selection::single(1, 3)),
+        ("x\nunchanged trailing text\n", Selection::single(1, 2)),
+        ("", Selection::point(0)),
+    ] {
+        let mut f = Fixture::new(&[])?;
+        f.keys("i0123456789abc<esc>").await?;
+        let (view, doc) = current_ref!(f.app.editor);
+        let (view, document) = (view.id, doc.id());
+        let entry = QuicklistEntry {
+            target: QuicklistTarget::Document(document),
+            position: QuicklistPosition::LineColRange {
+                start_line: 0,
+                start_col: 10,
+                end_line: 0,
+                end_col: 13,
+            },
+        };
+        f.app.editor.replace_quicklist(vec![entry.clone()]);
+        let doc = f.app.editor.document_mut(document).unwrap();
+        let transaction = editor_core::Transaction::change(
+            doc.text(),
+            [(0, doc.text().len_chars(), Some(text.into()))].into_iter(),
+        );
+        view::editing::apply(doc, &transaction, view)?;
+        assert!(f
+            .app
+            .editor
+            .activate_quicklist_entry(view, &entry, Action::Replace));
+        let doc = f.app.editor.document(document).unwrap();
+        assert_eq!(doc.text(), text);
+        assert_eq!(doc.selection(view), &expected);
+        assert_eq!(f.app.editor.quicklist.entries(), &[entry]);
+        f.finish().await;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn quicklist_add_saved_location_preserves_selection_and_existing_entries(
 ) -> anyhow::Result<()> {
     let mut f = Fixture::new(&["first.txt", "second.txt"])?;

@@ -1029,7 +1029,7 @@ impl Editor {
         let selection = match &entry.position {
             QuicklistPosition::None => return true,
             QuicklistPosition::Selection(selection) => {
-                selection.clone().ensure_invariants(text.slice(..))
+                crate::quicklist::clamp_selection(selection, text.slice(..))
             }
             QuicklistPosition::LineRange { start, end } => {
                 if *start >= text.len_lines(stdx::rope::LINE_TYPE) {
@@ -1057,12 +1057,16 @@ impl Editor {
                     });
                     return false;
                 }
-                Selection::single(
-                    text.line_to_char_idx(*start_line)
-                        .saturating_add(*start_col),
-                    text.line_to_char_idx(*end_line).saturating_add(*end_col),
-                )
-                .ensure_invariants(text.slice(..))
+                let position = |line, column| {
+                    text.line_to_char_idx(line).saturating_add(column).min(
+                        editor_core::line_ending::line_end_char_index(&text.slice(..), line),
+                    )
+                };
+                let selection = Selection::single(
+                    position(*start_line, *start_col),
+                    position(*end_line, *end_col),
+                );
+                crate::quicklist::clamp_selection(&selection, text.slice(..))
             }
             QuicklistPosition::LspRange {
                 range,
