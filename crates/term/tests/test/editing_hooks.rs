@@ -162,7 +162,16 @@ async fn on_type_handles_newlines_and_skips_disabled_or_multiple_cursors() -> an
 #[tokio::test(flavor = "multi_thread")]
 async fn on_type_rejects_late_results_after_edits_selection_or_view_changes() -> anyhow::Result<()>
 {
-    for change in ["edit", "selection", "view", "server", "mode"] {
+    for change in [
+        "edit",
+        "selection",
+        "view",
+        "server",
+        "mode",
+        "mode-roundtrip",
+        "selection-roundtrip",
+        "focus-roundtrip",
+    ] {
         let dir = tempfile::tempdir()?;
         let gate = Gate::new(dir.path().join("response"));
         let mut f = Fixture::new(
@@ -198,6 +207,35 @@ async fn on_type_rejects_late_results_after_edits_selection_or_view_changes() ->
                 f.app.editor.handle_language_server_exit(server);
             }
             "mode" => f.app.editor.enter_normal_mode(),
+            "mode-roundtrip" => {
+                let (view, doc) = current_ref!(f.app.editor);
+                let (view, selection) = (view.id, doc.selection(view.id).clone());
+                f.app.editor.enter_normal_mode();
+                f.app.editor.enter_insert_mode();
+                f.app
+                    .editor
+                    .document_mut(id)
+                    .unwrap()
+                    .set_selection(view, selection);
+            }
+            "focus-roundtrip" => {
+                let (view, doc) = current_ref!(f.app.editor);
+                let (view, selection) = (view.id, doc.selection(view.id).clone());
+                f.app.editor.new_file(Action::VerticalSplit);
+                f.app.editor.focus(view);
+                f.app.editor.enter_insert_mode();
+                f.app
+                    .editor
+                    .document_mut(id)
+                    .unwrap()
+                    .set_selection(view, selection);
+            }
+            "selection-roundtrip" => {
+                let (view, doc) = current!(f.app.editor);
+                let selection = doc.selection(view.id).clone();
+                doc.set_selection(view.id, Selection::point(0));
+                doc.set_selection(view.id, selection);
+            }
             _ => unreachable!(),
         }
         gate.release()?;

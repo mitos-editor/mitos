@@ -2,7 +2,7 @@
 
 mod on_type;
 mod provider;
-pub(crate) use on_type::request as on_type_input;
+pub(crate) use on_type::{register_hooks, request as on_type_input};
 pub use provider::FormatterError;
 
 use std::sync::Arc;

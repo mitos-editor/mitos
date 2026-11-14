@@ -113,3 +113,39 @@ pub(crate) fn request(editor: &mut Editor, character: Option<char>) {
             .await;
     });
 }
+
+fn cancel(editor: &mut Editor) {
+    for doc in editor.documents_mut() {
+        for state in doc.view_states.values_mut() {
+            if let Some(request) = &mut state.on_type_formatting {
+                request.cancel();
+            }
+        }
+    }
+}
+
+pub(crate) fn register_hooks(events: &event::EventHub) {
+    use crate::events::{ConfigDidChange, DocumentFocusLost, ModeDidChange, SelectionDidChange};
+    use event::register_hook;
+
+    register_hook!(events => move |event: &mut SelectionDidChange<'_>| {
+        event.doc.cancel_view_request(event.view, |state| &mut state.on_type_formatting);
+        Ok(())
+    });
+    register_hook!(events => move |event: &mut DocumentFocusLost<'_>| {
+        if let Some(doc) = event.editor.document_mut(event.doc) {
+            doc.cancel_view_request(event.view, |state| &mut state.on_type_formatting);
+        }
+        Ok(())
+    });
+    register_hook!(events => move |event: &mut ModeDidChange<'_>| {
+        cancel(event.editor);
+        Ok(())
+    });
+    register_hook!(events => move |event: &mut ConfigDidChange<'_>| {
+        if !event.new.lsp.enable || !event.new.format.on_type {
+            cancel(event.editor);
+        }
+        Ok(())
+    });
+}
