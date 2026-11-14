@@ -147,14 +147,15 @@ impl Sidebar {
     pub fn infobox(&self, maps: &ComponentKeymaps) -> Option<Info> {
         let keys = self.keys.pending_map(self.keymap(maps))?;
         let mut body = BTreeMap::<String, BTreeSet<_>>::new();
-        for (&key, binding) in &keys.0 {
+        for (&key, binding) in &keys.bindings {
             let description = match binding {
-                Binding::Actions(actions) if !actions.is_empty() => actions
+                Binding::Action(action) => action.description().to_owned(),
+                Binding::Sequence(_, actions) if !actions.is_empty() => actions
                     .iter()
                     .map(|action| action.description())
                     .collect::<Vec<_>>()
                     .join("; "),
-                Binding::Keys(_) => "More keys".to_owned(),
+                Binding::Node(_) => "More keys".to_owned(),
                 _ => continue,
             };
             body.entry(description).or_default().insert(key);

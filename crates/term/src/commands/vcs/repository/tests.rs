@@ -123,8 +123,11 @@ fn repository_picker_keymaps_omit_loading_controls_and_preserve_other_shared_bin
         &config.component_keys.worktree_picker,
     ] {
         assert_eq!(action_hint(keys, &PickerAction::ToggleLoading), "unbound");
-        assert!(matches!(keys.0.get(&"C-l".parse().unwrap()),
-            Some(ui_core::keymap::Binding::Actions(actions)) if actions == &[PickerAction::MoveEnd]));
+        assert!(matches!(
+            keys.bindings
+                .get(&"C-l".parse::<ui_core::input::KeyEvent>().unwrap()),
+            Some(ui_core::keymap::Binding::Action(PickerAction::MoveEnd))
+        ));
     }
 }
 
