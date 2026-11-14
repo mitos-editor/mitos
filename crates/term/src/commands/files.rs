@@ -260,6 +260,28 @@ pub(super) mod typed {
         Ok(())
     }
 
+    pub(in crate::commands) fn write_options(args: &Args, force: bool) -> WriteOptions {
+        WriteOptions {
+            force,
+            auto_format: !args.has_flag(WRITE_NO_FORMAT_FLAG.name),
+            code_actions: !args.has_flag(WRITE_NO_CODE_ACTIONS_FLAG.name),
+        }
+    }
+
+    pub(in crate::commands) fn write_all_options(
+        args: &Args,
+        force: bool,
+        write_scratch: bool,
+    ) -> WriteAllOptions {
+        let options = write_options(args, force);
+        WriteAllOptions {
+            force: options.force,
+            write_scratch,
+            auto_format: options.auto_format,
+            code_actions: options.code_actions,
+        }
+    }
+
     pub(in crate::commands) fn write_impl(
         cx: &mut compositor::Context,
         path: Option<&str>,
@@ -282,15 +304,7 @@ pub(super) mod typed {
         cx: &mut compositor::Context,
         args: Args,
     ) -> anyhow::Result<()> {
-        write_impl(
-            cx,
-            args.first(),
-            WriteOptions {
-                force: FORCE,
-                auto_format: !args.has_flag(WRITE_NO_FORMAT_FLAG.name),
-                code_actions: !args.has_flag(WRITE_NO_CODE_ACTIONS_FLAG.name),
-            },
-        )
+        write_impl(cx, args.first(), write_options(&args, FORCE))
     }
 
     #[cold]
@@ -298,15 +312,7 @@ pub(super) mod typed {
         cx: &mut compositor::Context,
         args: Args,
     ) -> anyhow::Result<()> {
-        write_impl(
-            cx,
-            args.first(),
-            WriteOptions {
-                force: FORCE,
-                auto_format: !args.has_flag(WRITE_NO_FORMAT_FLAG.name),
-                code_actions: !args.has_flag(WRITE_NO_CODE_ACTIONS_FLAG.name),
-            },
-        )?;
+        write_impl(cx, args.first(), write_options(&args, FORCE))?;
 
         let document_ids = buffer_gather_paths_impl(cx.editor, args);
         buffer_close_by_ids_impl(cx, &document_ids, false)
@@ -421,15 +427,7 @@ pub(super) mod typed {
         cx: &mut compositor::Context,
         args: Args,
     ) -> anyhow::Result<()> {
-        write_all_impl(
-            cx.editor,
-            WriteAllOptions {
-                force: FORCE,
-                write_scratch: true,
-                auto_format: !args.has_flag(WRITE_NO_FORMAT_FLAG.name),
-                code_actions: !args.has_flag(WRITE_NO_CODE_ACTIONS_FLAG.name),
-            },
-        )
+        write_all_impl(cx.editor, write_all_options(&args, FORCE, true))
     }
 
     /// Sets the [`view::Document`]'s encoding..
@@ -645,15 +643,7 @@ pub(super) mod typed {
     ) -> anyhow::Result<()> {
         let (_view, doc) = current!(cx.editor);
         if doc.is_modified() {
-            write_impl(
-                cx,
-                None,
-                WriteOptions {
-                    force: false,
-                    auto_format: !args.has_flag(WRITE_NO_FORMAT_FLAG.name),
-                    code_actions: !args.has_flag(WRITE_NO_CODE_ACTIONS_FLAG.name),
-                },
-            )
+            write_impl(cx, None, write_options(&args, false))
         } else {
             Ok(())
         }
