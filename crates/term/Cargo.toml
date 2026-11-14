@@ -61,11 +61,6 @@ name = "mitos-test-debuggee"
 path = "tests/fixtures/debuggee.rs"
 required-features = ["integration"]
 
-[[bin]]
-name = "mitos-test-health"
-path = "tests/fixtures/health_protocol.rs"
-required-features = ["integration"]
-
 [dependencies]
 diagnostics.workspace = true
 editor-config.workspace = true

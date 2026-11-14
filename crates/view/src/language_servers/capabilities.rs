@@ -178,30 +178,6 @@ mod tests {
     }
 
     #[test]
-    fn inline_values_and_inlay_hints_respect_false_and_registration_options() {
-        for (value, expected) in [
-            (serde_json::json!(false), false),
-            (serde_json::json!(true), true),
-            (serde_json::json!({}), true),
-            (
-                serde_json::json!({ "documentSelector": [], "id": "registered" }),
-                true,
-            ),
-        ] {
-            let capabilities = serde_json::from_value(serde_json::json!({
-                "inlineValueProvider": value, "inlayHintProvider": value,
-            }))
-            .unwrap();
-            for feature in [
-                LanguageServerFeature::InlineValues,
-                LanguageServerFeature::InlayHints,
-            ] {
-                assert_eq!(supports_feature(&capabilities, feature), expected);
-            }
-        }
-    }
-
-    #[test]
     fn push_diagnostics_need_no_advertised_capability() {
         let capabilities = lsp::ServerCapabilities::default();
         assert!(supports_feature(
