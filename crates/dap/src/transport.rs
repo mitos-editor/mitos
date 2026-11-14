@@ -11,7 +11,7 @@ use std::{
 use tokio::{
     io::{AsyncBufRead, AsyncBufReadExt, AsyncReadExt, AsyncWrite, AsyncWriteExt},
     sync::{
-        mpsc::{unbounded_channel, Sender, UnboundedReceiver, UnboundedSender},
+        mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender},
         oneshot, Mutex,
     },
 };
@@ -19,9 +19,6 @@ use tokio::{
 #[derive(Debug, Clone, Deserialize, Serialize)]
 /// DAP request envelope sent in either direction.
 pub struct Request {
-    /// Local response channel; skipped during serialization.
-    #[serde(skip)]
-    pub back_ch: Option<Sender<Result<Response>>>,
     pub seq: u64,
     pub command: String,
     pub arguments: Option<Value>,
@@ -63,7 +60,10 @@ pub enum Payload {
 
 #[derive(Debug)]
 enum Outgoing {
-    Message(Payload),
+    Message {
+        payload: Payload,
+        reply: Option<oneshot::Sender<Result<Response>>>,
+    },
     Forget(u64),
 }
 
@@ -119,7 +119,7 @@ impl Transport {
             // Both IO futures have been dropped. New requests are rejected and all
             // outstanding waits complete before the owner sees the closure event.
             for (_, sender) in state.pending_requests.lock().await.drain() {
-                let _ = sender.try_send(Err(Error::StreamClosed));
+                let _ = sender.send(Err(Error::StreamClosed));
             }
             let error = match result {
                 Ok(()) | Err(Error::StreamClosed) => None,
@@ -149,24 +149,30 @@ pub struct TransportSender {
 
 impl TransportSender {
     pub fn send(&self, payload: Payload) -> Result<()> {
-        self.send_message(payload).map(|_| ())
+        self.send_message(payload, None).map(|_| ())
     }
 
     pub(crate) fn send_request(
         &self,
         command: &str,
         arguments: Option<Value>,
-        back_ch: Sender<Result<Response>>,
+        reply: oneshot::Sender<Result<Response>>,
     ) -> Result<u64> {
-        self.send_message(Payload::Request(Request {
-            back_ch: Some(back_ch),
-            seq: 0,
-            command: command.to_owned(),
-            arguments,
-        }))
+        self.send_message(
+            Payload::Request(Request {
+                seq: 0,
+                command: command.to_owned(),
+                arguments,
+            }),
+            Some(reply),
+        )
     }
 
-    fn send_message(&self, mut payload: Payload) -> Result<u64> {
+    fn send_message(
+        &self,
+        mut payload: Payload,
+        reply: Option<oneshot::Sender<Result<Response>>>,
+    ) -> Result<u64> {
         // Allocate and enqueue together so cloned senders preserve wire order.
         let mut next = self.sequence.lock().unwrap();
         let sequence = *next;
@@ -176,7 +182,7 @@ impl TransportSender {
             Payload::Event(event) => event.seq = Some(sequence),
         }
         self.tx
-            .send(Outgoing::Message(payload))
+            .send(Outgoing::Message { payload, reply })
             .map_err(|_| Error::StreamClosed)?;
         *next += 1;
         Ok(sequence)
@@ -189,7 +195,7 @@ impl TransportSender {
 
 struct TransportState {
     id: DebugAdapterId,
-    pending_requests: Mutex<HashMap<u64, Sender<Result<Response>>>>,
+    pending_requests: Mutex<HashMap<u64, oneshot::Sender<Result<Response>>>>,
 }
 
 impl TransportState {
@@ -262,14 +268,9 @@ impl TransportState {
     async fn send_payload_to_server(
         &self,
         server_stdin: &mut Box<dyn AsyncWrite + Unpin + Send>,
-        mut payload: Payload,
+        payload: Payload,
         json: &mut Vec<u8>,
     ) -> Result<()> {
-        if let Payload::Request(request) = &mut payload
-            && let Some(back) = request.back_ch.take()
-        {
-            self.pending_requests.lock().await.insert(request.seq, back);
-        }
         json.clear();
         sonic_rs::to_writer(&mut *json, &payload)?;
         self.send_bytes_to_server(server_stdin, json).await?;
@@ -339,16 +340,12 @@ impl TransportState {
                 let tx = self.pending_requests.lock().await.remove(&request_seq);
 
                 match tx {
-                    Some(tx) if !tx.is_closed() => {
-                        match tx.send(self.process_response(res)).await {
-                            Ok(_) => (),
-                            Err(_) => {
-                                log::debug!(
-                                    "Discarding response to canceled request #{request_seq}"
-                                )
-                            }
+                    Some(tx) if !tx.is_closed() => match tx.send(self.process_response(res)) {
+                        Ok(_) => (),
+                        Err(_) => {
+                            log::debug!("Discarding response to canceled request #{request_seq}")
                         }
-                    }
+                    },
                     Some(_) | None => {
                         log::debug!(
                             "Discarding response to completed or canceled request #{}",
@@ -405,7 +402,13 @@ impl TransportState {
         let mut json = Vec::new();
         while let Some(command) = client_rx.recv().await {
             match command {
-                Outgoing::Message(payload) => {
+                Outgoing::Message { payload, reply } => {
+                    if let (Payload::Request(request), Some(reply)) = (&payload, reply) {
+                        self.pending_requests
+                            .lock()
+                            .await
+                            .insert(request.seq, reply);
+                    }
                     self.send_payload_to_server(&mut server_stdin, payload, &mut json)
                         .await?
                 }
@@ -496,25 +499,15 @@ mod tests {
             None,
             DebugAdapterId::default(),
         );
-        let (reply, mut response) = tokio::sync::mpsc::channel(1);
-        sender
-            .send(Payload::Request(Request {
-                back_ch: Some(reply),
-                seq: 1,
-                command: "threads".into(),
-                arguments: None,
-            }))
-            .unwrap();
+        let (reply, response) = oneshot::channel();
+        sender.send_request("threads", None, reply).unwrap();
         assert!(matches!(
             tokio::time::timeout(std::time::Duration::from_secs(5), incoming.recv())
                 .await
                 .unwrap(),
             Some((_, ClientEvent::Closed { error: Some(_) }))
         ));
-        assert!(matches!(
-            response.recv().await,
-            Some(Err(Error::StreamClosed))
-        ));
+        assert!(matches!(response.await, Ok(Err(Error::StreamClosed))));
         assert!(incoming.recv().await.is_none());
     }
 }
