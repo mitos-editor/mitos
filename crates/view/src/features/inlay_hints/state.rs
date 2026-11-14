@@ -72,19 +72,22 @@ pub(super) struct CacheKey {
 }
 
 #[derive(Debug, Default)]
-struct RequestState {
-    controller: Option<TaskController>,
-    key: Option<CacheKey>,
-    completed: bool,
+enum RequestState {
+    #[default]
+    Idle,
+    Pending {
+        key: CacheKey,
+        controller: TaskController,
+    },
+    Completed {
+        key: CacheKey,
+    },
 }
 
 impl RequestState {
     fn invalidate(&mut self) {
-        if let Some(controller) = &mut self.controller {
-            controller.cancel();
-        }
-        self.key = None;
-        self.completed = false;
+        // Dropping a pending controller cancels its task handles.
+        *self = Self::Idle;
     }
 }
 
@@ -105,24 +108,28 @@ impl InlayHintsState {
     }
 
     pub(super) fn is_current(&self, key: &CacheKey) -> bool {
-        self.request.key.as_ref() == Some(key)
-            && (self.request.completed
-                || self
-                    .request
-                    .controller
-                    .as_ref()
-                    .is_some_and(TaskController::is_running))
+        match &self.request {
+            RequestState::Idle => false,
+            RequestState::Pending {
+                key: current,
+                controller,
+            } => current == key && controller.is_running(),
+            RequestState::Completed { key: current } => current == key,
+        }
     }
 
     pub(super) fn start(&mut self, key: CacheKey) -> TaskHandle {
-        self.request.key = Some(key);
-        self.request.completed = false;
-        self.request.controller.get_or_insert_default().restart()
+        let mut controller = TaskController::new();
+        let handle = controller.restart();
+        self.request = RequestState::Pending { key, controller };
+        handle
     }
 
     pub(super) fn complete(&mut self, hints: DocumentInlayHints) {
         self.cache = Some(hints);
-        self.request.completed = true;
+        if let RequestState::Pending { key, .. } = std::mem::take(&mut self.request) {
+            self.request = RequestState::Completed { key };
+        }
     }
 
     pub(super) fn retry(&mut self) {
@@ -152,5 +159,43 @@ impl DocumentInlayHints {
                     .map(|annotation| (&mut annotation.char_idx, editor_core::Assoc::After)),
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use slotmap::Key as _;
+
+    #[test]
+    fn failed_and_canceled_requests_can_retry_without_losing_cached_hints() {
+        let key = CacheKey {
+            version: 1,
+            uri: None,
+            server: LanguageServerId::null(),
+            viewport: DocumentInlayHintsId {
+                first_line: 0,
+                last_line: 10,
+            },
+        };
+        let mut state = InlayHintsState::default();
+        let first = state.start(key.clone());
+        assert!(state.is_current(&key));
+        drop(first);
+        assert!(!state.is_current(&key));
+
+        let second = state.start(key.clone());
+        state.complete(DocumentInlayHints::empty_with_id(key.viewport));
+        assert!(second.is_canceled());
+        assert!(state.is_current(&key));
+        state.retry();
+        assert!(!state.is_current(&key));
+        assert!(state.get().is_some());
+
+        let third = state.start(key.clone());
+        state.retry();
+        assert!(third.is_canceled());
+        assert!(!state.is_current(&key));
+        assert!(state.get().is_some());
     }
 }
