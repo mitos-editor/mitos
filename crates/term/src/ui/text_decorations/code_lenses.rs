@@ -216,7 +216,7 @@ mod tests {
             &mut renderer,
             doc.text().slice(..),
             0,
-            &doc.text_format(width, Some(&theme)),
+            &doc.text_format(width),
             &text_layout::text_annotations::TextAnnotations::default(),
             std::iter::empty(),
             vec![],

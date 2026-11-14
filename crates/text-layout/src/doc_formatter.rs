@@ -154,11 +154,6 @@ pub struct TextFormat {
     pub tab_width: u16,
     pub max_wrap: u16,
     pub max_indent_retain: u16,
-    /// Reserved for consumers that render soft-wrap indicators inline.
-    ///
-    /// The editor currently renders them in the gutter instead.
-    pub wrap_indicator: Box<str>,
-    pub wrap_indicator_highlight: Option<Highlight>,
     pub viewport_width: u16,
     pub soft_wrap_at_text_width: bool,
 }
@@ -171,9 +166,7 @@ impl Default for TextFormat {
             tab_width: 4,
             max_wrap: 3,
             max_indent_retain: 4,
-            wrap_indicator: Box::from(""),
             viewport_width: 17,
-            wrap_indicator_highlight: None,
             soft_wrap_at_text_width: false,
         }
     }
