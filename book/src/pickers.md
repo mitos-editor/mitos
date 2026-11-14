@@ -11,6 +11,7 @@ The title in the top border identifies the picker.
 | `Space e` / `Space E` | File explorer at the workspace / current file's directory |
 | `Space /` | Project search |
 | `Space s` / `Space S` | File / workspace symbols |
+| `g H` / `g T` | LSP call / type hierarchy |
 | `Space d` / `Space D` | File / workspace diagnostics |
 | `Space g s` | [Changed Git files](./version-control.md#changed-files) |
 | `Space '` | Reopen the last picker |
@@ -94,6 +95,24 @@ writes that have already started.
 
 Results and previews refresh after replacement so subsequent actions use current
 match positions. These bindings can be changed under `[keys.picker]`.
+
+## Call and type hierarchy
+
+Press `g H` (`call_hierarchy`) to browse incoming and outgoing calls for the
+symbol under the cursor. Press `g T` (`type_hierarchy`) to browse its supertypes
+and subtypes. The language server must support the requested hierarchy.
+
+Use `Tab` to expand or collapse a branch, `Alt-Right` to expand, and `Alt-Left`
+to collapse. Children load when you expand a branch and stay cached while the
+picker is open. `Enter` toggles a section or opens the selected symbol; the
+usual preview, split, and quicklist keys work here too. Recursive paths remain
+visible and stop expanding.
+
+Type to filter loaded symbols while keeping their ancestors visible. Filtering
+also searches cached children of collapsed branches. After editing a source
+buffer or restarting its server, reopen the hierarchy to refresh it.
+
+Remap `expand`, `collapse`, and `toggle_expanded` under `[keys.hierarchy-picker]`.
 
 ## File explorer
 

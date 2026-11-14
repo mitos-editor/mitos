@@ -169,3 +169,37 @@ mod tests {
         );
     }
 }
+
+/// Correct the upstream type's scalar `tags` field without duplicating the
+/// other protocol fields. Type hierarchy uses `SymbolTag[]`, like call hierarchy.
+#[derive(Debug, Clone, PartialEq, serde::Deserialize, serde::Serialize)]
+pub struct TypeHierarchyItem {
+    #[serde(flatten)]
+    pub symbol: lsp::TypeHierarchyItem,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tags: Option<Vec<lsp::SymbolTag>>,
+}
+
+#[cfg(test)]
+mod hierarchy_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn type_hierarchy_tags_and_opaque_data_round_trip() {
+        for tags in [json!([1]), json!([]), json!(null)] {
+            let mut value = json!({
+                "name":"deprecated", "kind":5, "uri":"file:///test.rs",
+                "range":{"start":{"line":0,"character":0},"end":{"line":0,"character":1}},
+                "selectionRange":{"start":{"line":0,"character":0},"end":{"line":0,"character":1}},
+                "data":{"opaque":[1,{"key":"value"}]}
+            });
+            if !tags.is_null() {
+                value["tags"] = tags.clone();
+            }
+            let item: TypeHierarchyItem = serde_json::from_value(value.clone()).unwrap();
+            assert!(item.symbol.tags.is_none());
+            assert_eq!(serde_json::to_value(&item).unwrap(), value);
+        }
+    }
+}

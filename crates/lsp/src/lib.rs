@@ -12,8 +12,8 @@
 //! [`OffsetEncoding`]; hand-written line/column arithmetic is almost always a
 //! bug for non-ASCII text.
 //!
-//! Protocol wire types are available under [`lsp`] and intentionally remain in
-//! the upstream `lsp-types` dependency, with editor URI adapters in [`UriExt`].
+//! Protocol wire types are available under [`lsp`], with editor URI adapters in
+//! [`UriExt`] and a compatibility correction in [`TypeHierarchyItem`].
 
 mod client;
 pub mod file_event;
@@ -31,7 +31,7 @@ pub mod lsp {
 }
 
 mod protocol;
-pub use protocol::{UriError, UriExt};
+pub use protocol::{TypeHierarchyItem, UriError, UriExt};
 use std::collections::HashMap;
 
 use thiserror::Error;

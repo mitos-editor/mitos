@@ -43,6 +43,12 @@ impl<T: Send + Sync + 'static, D: Send + Sync + 'static> Picker<T, D> {
         if self.item_action_fn.is_some() {
             actions.extend([
                 (
+                    PickerAction::Item(PickerItemAction::ToggleExpanded),
+                    "expand / collapse",
+                ),
+                (PickerAction::Item(PickerItemAction::Expand), "expand"),
+                (PickerAction::Item(PickerItemAction::Collapse), "collapse"),
+                (
                     PickerAction::Item(PickerItemAction::CloseBuffer),
                     "close buffer",
                 ),

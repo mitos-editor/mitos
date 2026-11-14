@@ -512,6 +512,7 @@ impl Document {
         if binary {
             self.cancel_view_requests(|state| &mut state.hover);
             self.cancel_view_requests(|state| &mut state.navigation);
+            self.cancel_view_requests(|state| &mut state.hierarchy);
             self.document_links.cancel_navigation();
             self.reset_all_inlay_hints();
             self.language = None;
@@ -557,6 +558,7 @@ impl Document {
         self.invalidate_blame();
         self.cancel_view_requests(|state| &mut state.hover);
         self.cancel_view_requests(|state| &mut state.navigation);
+        self.cancel_view_requests(|state| &mut state.hierarchy);
         self.document_links.cancel_navigation();
         self.reset_all_inlay_hints();
         self.cancel_view_requests(|state| &mut state.shell_filters);

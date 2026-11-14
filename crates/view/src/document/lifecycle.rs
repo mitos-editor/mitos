@@ -15,6 +15,7 @@ impl Document {
         }
         self.cancel_view_requests(|state| &mut state.hover);
         self.cancel_view_requests(|state| &mut state.navigation);
+        self.cancel_view_requests(|state| &mut state.hierarchy);
         self.rename.cancel();
         self.cancel_view_requests(|state| &mut state.code_actions);
         self.workspace_symbols.cancel();

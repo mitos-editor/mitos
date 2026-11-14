@@ -94,7 +94,7 @@ async fn initialize_lsp(
     root: std::path::PathBuf,
     uri: Option<protocol::Url>,
     snippets: bool,
-) -> anyhow::Result<protocol::ServerCapabilities> {
+) -> anyhow::Result<Vec<LanguageServerFeature>> {
     let (client, mut incoming) = lsp::Client::start(
         &definition.command,
         &definition.args,
@@ -124,7 +124,11 @@ async fn initialize_lsp(
             }
         }
     }
-    let capabilities = client.capabilities().clone();
+    let capabilities = LanguageServerFeature::all()
+        .iter()
+        .copied()
+        .filter(|&feature| view::language_servers::supports_feature(&client, feature))
+        .collect();
     // A health check never opens a document or applies workspace edits.
     let _ = timeout(SHUTDOWN_TIMEOUT, client.shutdown()).await;
     client.exit();
@@ -154,7 +158,7 @@ async fn reply_lsp(client: &lsp::Client, call: jsonrpc::MethodCall) -> lsp::Resu
 
 fn lsp_capabilities(
     output: &mut impl Write,
-    capabilities: &protocol::ServerCapabilities,
+    capabilities: &[LanguageServerFeature],
     server: &LanguageServerFeatures,
 ) -> std::io::Result<()> {
     let mut supported = Vec::new();
@@ -166,7 +170,7 @@ fn lsp_capabilities(
             disabled.push(label);
         } else if feature == LanguageServerFeature::Diagnostics {
             // publishDiagnostics has no server capability; initialization cannot prove support.
-        } else if view::language_servers::supports_feature(capabilities, feature) {
+        } else if capabilities.contains(&feature) {
             supported.push(label);
         } else {
             unsupported.push(label);

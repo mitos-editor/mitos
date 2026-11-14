@@ -198,6 +198,8 @@ impl MappableCommand {
         goto_file => super::files::goto_file, "Goto files/URLs in selections",
         goto_file_in_horizontal_split => super::files::goto_file_hsplit, "Open files in selections in a horizontal split",
         goto_file_in_vertical_split => super::files::goto_file_vsplit, "Open files in selections in a vertical split",
+        call_hierarchy => super::lsp::hierarchy::call_hierarchy, "Show call hierarchy",
+        type_hierarchy => super::lsp::hierarchy::type_hierarchy, "Show type hierarchy",
         goto_reference => super::lsp::goto_reference, "Goto references",
         goto_window_top => super::movement::goto_window_top, "Goto window top",
         goto_window_center => super::movement::goto_window_center, "Goto window center",

@@ -46,6 +46,7 @@ mod test {
     #[cfg(feature = "git")]
     mod git_diff;
     mod goto_hover;
+    mod hierarchy;
     mod inline_completion;
     mod language_features;
     mod lsp_alternatives;

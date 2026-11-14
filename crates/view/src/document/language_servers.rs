@@ -23,6 +23,7 @@ impl Document {
         let attachment = self.language_servers.remove(name)?;
         self.cancel_view_requests(|state| &mut state.hover);
         self.cancel_view_requests(|state| &mut state.navigation);
+        self.cancel_view_requests(|state| &mut state.hierarchy);
         self.document_links.cancel_navigation();
         self.reset_all_inlay_hints();
         Some(attachment.client)
@@ -41,10 +42,7 @@ impl Document {
                     let attachment = self.language_servers.get(&features.name)?;
                     let client = &*attachment.client;
                     (attachment.opened
-                        && crate::language_servers::supports_feature(
-                            client.capabilities(),
-                            feature,
-                        )
+                        && crate::language_servers::supports_feature(client, feature)
                         && features.has_feature(feature))
                     .then_some(client)
                 })
