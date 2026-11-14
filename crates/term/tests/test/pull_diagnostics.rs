@@ -2,9 +2,9 @@ use std::{path::Path, time::Duration};
 
 use ::diagnostics::DiagnosticProvider;
 use anyhow::Context as _;
-use editor_core::Transaction;
+use editor_core::{Transaction, Uri};
 use lsp_client::LanguageServerId;
-use serde_json::Value;
+use serde_json::{json, Value};
 use term::application::TestApplication;
 use tokio::sync::mpsc;
 use view::{
@@ -31,8 +31,12 @@ impl Fixture {
         let mut servers = String::new();
         let mut logs = Vec::new();
         for name in names {
-            let mut server =
-                ServerConfig::feature(name, "--diagnostics", directory).initialize_gate(&gate);
+            let related = lsp::log_path(directory, name).with_extension("related.json");
+            std::fs::write(&related, "{}")?;
+            let mut server = ServerConfig::feature(name, "--diagnostics", directory)
+                .initialize_gate(&gate)
+                .arg("--related-diagnostics")
+                .arg(related);
             if inter_file {
                 server = server.arg("--inter-file");
             }
@@ -138,6 +142,353 @@ impl Fixture {
             .map(|line| Ok(serde_json::from_str(line)?))
             .collect()
     }
+
+    fn related(&self, server: usize, uri: &Uri, report: Value) -> anyhow::Result<()> {
+        let uri = uri.to_url().unwrap().to_string();
+        self.related_reports(server, json!({uri: report}))
+    }
+
+    fn related_reports(&self, server: usize, reports: Value) -> anyhow::Result<()> {
+        std::fs::write(
+            self.logs[server].with_extension("related.json"),
+            serde_json::to_vec(&reports)?,
+        )?;
+        Ok(())
+    }
+}
+
+fn related_report(result_id: Option<&str>, message: Option<&str>) -> Value {
+    let items: Vec<_> = message
+        .map(|message| {
+            json!({
+                "range": {"start": {"line": 0, "character": 3},
+                    "end": {"line": 0, "character": 7}},
+                "severity": 2, "message": message
+            })
+        })
+        .into_iter()
+        .collect();
+    let mut report = json!({"kind": "full", "items": items});
+    if let Some(result_id) = result_id {
+        report["resultId"] = json!(result_id);
+    }
+    report
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn related_reports_update_unopened_files_even_when_the_requested_report_is_unchanged(
+) -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let mut f = Fixture::new(dir.path(), "original", &["alpha"], false)?;
+    let uri = Uri::from(stdx::path::normalize(
+        dir.path().join("related file.pull-test"),
+    ));
+    f.related(
+        0,
+        &uri,
+        related_report(Some("related:1"), Some("related error")),
+    )?;
+    f.initialize().await?;
+    f.publish().await?;
+    assert_eq!(
+        f.app.editor.diagnostics()[&uri][0].0.message,
+        "related error"
+    );
+    assert_eq!(f.app.editor.documents().count(), 1);
+
+    f.related(
+        0,
+        &uri,
+        related_report(Some("related:2"), Some("updated error")),
+    )?;
+    f.request();
+    f.publish().await?;
+    assert_eq!(f.messages(), ["alpha: 😀 original"]);
+    assert_eq!(
+        f.app.editor.diagnostics()[&uri][0].0.message,
+        "updated error"
+    );
+
+    f.related(
+        0,
+        &uri,
+        json!({"kind": "unchanged", "resultId": "related:2"}),
+    )?;
+    f.request();
+    f.publish().await?;
+    assert_eq!(
+        f.app.editor.diagnostics()[&uri][0].0.message,
+        "updated error"
+    );
+
+    f.related(0, &uri, related_report(None, None))?;
+    f.request();
+    f.publish().await?;
+    assert!(f.app.editor.diagnostics()[&uri].is_empty());
+    assert!(f.app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn related_result_ids_follow_the_reported_uri_and_are_cleared_when_absent(
+) -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let mut f = Fixture::new(dir.path(), "original", &["alpha"], false)?;
+    let source = current_ref!(f.app.editor).1.id();
+    let path = dir.path().join("related.pull-test");
+    let uri = Uri::from(stdx::path::normalize(&path));
+    // The fake server returns unchanged when this ID is sent for the related file.
+    f.related(
+        0,
+        &uri,
+        related_report(Some("alpha:0"), Some("cached error")),
+    )?;
+    f.initialize().await?;
+    f.publish().await?;
+    f.related_reports(0, json!({}))?;
+    let related = f.open(&path, "other")?;
+    f.publish().await?;
+    assert_eq!(
+        f.requests(0)?.last().unwrap()["previousResultId"],
+        "alpha:0"
+    );
+    assert_eq!(f.messages(), ["cached error"]);
+    let diagnostic = &current_ref!(f.app.editor).1.diagnostics()[0];
+    assert_eq!((diagnostic.range.start, diagnostic.range.end), (2, 6));
+
+    f.app.editor.switch(source, Action::Replace);
+    f.related(0, &uri, related_report(None, Some("no result id")))?;
+    f.request();
+    f.publish().await?;
+    assert_eq!(
+        f.requests(0)?.last().unwrap()["previousResultId"],
+        "alpha:0"
+    );
+    f.app.editor.switch(related, Action::Replace);
+    assert_eq!(f.messages(), ["no result id"]);
+    f.related_reports(0, json!({}))?;
+    f.request();
+    f.publish().await?;
+    assert!(f.requests(0)?.last().unwrap()["previousResultId"].is_null());
+    assert_eq!(f.messages(), ["alpha: 😀 other"]);
+
+    f.app
+        .editor
+        .set_document_language(related, Some("pull-diagnostic-test"))?;
+    f.publish().await?;
+    assert!(f.requests(0)?.last().unwrap()["previousResultId"].is_null());
+    assert!(f.app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn related_reports_preserve_other_providers() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let mut f = Fixture::new(dir.path(), "original", &["alpha", "beta"], false)?;
+    let uri = Uri::from(stdx::path::normalize(dir.path().join("related.pull-test")));
+    for (server, name) in [(0, "alpha"), (1, "beta")] {
+        f.related(server, &uri, related_report(Some(name), Some(name)))?;
+    }
+    f.initialize().await?;
+    f.publish().await?;
+    f.publish().await?;
+    assert_eq!(f.app.editor.diagnostics()[&uri].len(), 2);
+
+    f.related(0, &uri, related_report(None, None))?;
+    f.related(1, &uri, json!({"kind": "unchanged", "resultId": "beta"}))?;
+    f.request();
+    f.publish().await?;
+    f.publish().await?;
+    let diagnostics = &f.app.editor.diagnostics()[&uri];
+    assert_eq!(diagnostics.len(), 1);
+    assert_eq!(diagnostics[0].0.message, "beta");
+    assert!(matches!(&diagnostics[0].1, DiagnosticProvider::Lsp {
+        identifier: Some(id), ..
+    } if id.as_ref() == "beta"));
+    assert!(f.app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn direct_and_related_reports_follow_request_order() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let mut f = Fixture::new(dir.path(), "original", &["alpha"], false)?;
+    f.initialize().await?;
+    f.publish().await?;
+    let source = current_ref!(f.app.editor).1.id();
+    let related = f.open(&dir.path().join("related.pull-test"), "other")?;
+    f.publish().await?;
+    let uri = current_ref!(f.app.editor).1.uri().unwrap();
+
+    f.app.editor.switch(source, Action::Replace);
+    f.related(0, &uri, related_report(Some("stale"), Some("stale error")))?;
+    f.request();
+    let old = f.response().await?;
+    f.related_reports(0, json!({}))?;
+    f.app.editor.switch(related, Action::Replace);
+    f.request();
+    f.publish().await?;
+    old(&mut f.app.editor);
+    assert_eq!(f.messages(), ["alpha: 😀 other"]);
+    f.request();
+    f.publish().await?;
+    assert_eq!(
+        f.requests(0)?.last().unwrap()["previousResultId"],
+        "alpha:0"
+    );
+    // A newer related report must also win over an older direct response.
+    f.request();
+    let old = f.response().await?;
+    f.app.editor.switch(source, Action::Replace);
+    f.related(0, &uri, related_report(Some("newer"), Some("newer error")))?;
+    f.request();
+    f.publish().await?;
+    old(&mut f.app.editor);
+    f.app.editor.switch(related, Action::Replace);
+    assert_eq!(f.messages(), ["newer error"]);
+    f.related_reports(0, json!({}))?;
+    f.request();
+    f.publish().await?;
+    assert_eq!(f.requests(0)?.last().unwrap()["previousResultId"], "newer");
+    assert!(f.app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn related_reports_skip_unsupported_uris_and_uncached_unchanged_reports() -> anyhow::Result<()>
+{
+    let dir = tempfile::tempdir()?;
+    let mut f = Fixture::new(dir.path(), "original", &["alpha"], false)?;
+    let path = dir.path().join("related.pull-test");
+    let uri = Uri::from(stdx::path::normalize(&path));
+    let valid = Uri::from(stdx::path::normalize(dir.path().join("valid.pull-test")));
+    f.related_reports(0, json!({
+        (uri.to_url().unwrap().to_string()): {"kind": "unchanged", "resultId": "alpha:0"},
+        (valid.to_url().unwrap().to_string()): related_report(Some("valid"), Some("valid error")),
+        "https://example.com/unsupported": related_report(None, Some("unsupported"))
+    }))?;
+    f.initialize().await?;
+    f.publish().await?;
+    assert_eq!(
+        f.app.editor.diagnostics()[&valid][0].0.message,
+        "valid error"
+    );
+    assert!(!f.app.editor.diagnostics().contains_key(&uri));
+
+    f.related_reports(0, json!({}))?;
+    f.open(&path, "other")?;
+    f.publish().await?;
+    assert!(f.requests(0)?.last().unwrap()["previousResultId"].is_null());
+    assert_eq!(f.messages(), ["alpha: 😀 other"]);
+    assert!(f.app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn related_unchanged_reports_cannot_reuse_a_discarded_result_id() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let mut f = Fixture::new(dir.path(), "original", &["alpha"], false)?;
+    let source = current_ref!(f.app.editor).1.id();
+    let path = dir.path().join("related.pull-test");
+    let uri = Uri::from(stdx::path::normalize(&path));
+    f.related(0, &uri, related_report(Some("old"), Some("old error")))?;
+    f.initialize().await?;
+    f.publish().await?;
+
+    f.related(
+        0,
+        &uri,
+        related_report(Some("discarded"), Some("discarded error")),
+    )?;
+    f.request();
+    let stale = f.response().await?;
+    f.related_reports(0, json!({}))?;
+    let related = f.open(&path, "other")?;
+    let direct = f.response().await?;
+    stale(&mut f.app.editor);
+    assert_eq!(f.messages(), ["old error"]);
+
+    f.app.editor.switch(source, Action::Replace);
+    f.related(
+        0,
+        &uri,
+        json!({"kind": "unchanged", "resultId": "discarded"}),
+    )?;
+    f.request();
+    f.publish().await?;
+    direct(&mut f.app.editor);
+    f.app.editor.switch(related, Action::Replace);
+    assert_eq!(f.messages(), ["alpha: 😀 other"]);
+    f.related_reports(0, json!({}))?;
+    f.request();
+    f.publish().await?;
+    assert_eq!(
+        f.requests(0)?.last().unwrap()["previousResultId"],
+        "alpha:0"
+    );
+    assert!(f.app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn queued_related_reports_validate_the_target_document_lifecycle() -> anyhow::Result<()> {
+    for mutation in ["edit", "rename", "language", "close"] {
+        let dir = tempfile::tempdir()?;
+        let mut f = Fixture::new(dir.path(), "original", &["alpha"], false)?;
+        f.initialize().await?;
+        f.publish().await?;
+        let source = current_ref!(f.app.editor).1.id();
+        let related = f.open(&dir.path().join("related.pull-test"), "other")?;
+        f.publish().await?;
+        let uri = current_ref!(f.app.editor).1.uri().unwrap();
+        f.app.editor.switch(source, Action::Replace);
+        f.related(0, &uri, related_report(Some("stale"), Some("stale error")))?;
+        f.request();
+        let old = f.response().await?;
+        f.app.editor.switch(related, Action::Replace);
+        match mutation {
+            "edit" => f.edit("edited"),
+            "rename" => f
+                .app
+                .editor
+                .set_doc_path(related, &dir.path().join("renamed.pull-test")),
+            "language" => f
+                .app
+                .editor
+                .set_document_language(related, Some("pull-diagnostic-test"))?,
+            "close" => assert!(f.app.editor.close_document(related, true).is_ok()),
+            _ => unreachable!(),
+        }
+        let before = f.app.editor.diagnostics().get(&uri).cloned();
+        old(&mut f.app.editor);
+        assert_eq!(
+            f.app.editor.diagnostics().get(&uri),
+            before.as_ref(),
+            "{mutation}"
+        );
+        assert!(f.app.close().await.is_empty());
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn queued_related_reports_cannot_publish_into_a_newly_opened_document() -> anyhow::Result<()>
+{
+    let dir = tempfile::tempdir()?;
+    let mut f = Fixture::new(dir.path(), "original", &["alpha"], false)?;
+    let path = dir.path().join("related.pull-test");
+    let uri = Uri::from(stdx::path::normalize(&path));
+    f.related(0, &uri, related_report(Some("stale"), Some("stale error")))?;
+    f.initialize().await?;
+    let old = f.response().await?;
+    f.related_reports(0, json!({}))?;
+    f.open(&path, "other")?;
+    old(&mut f.app.editor);
+    assert!(!f.app.editor.diagnostics().contains_key(&uri));
+    f.publish().await?;
+    assert_eq!(f.messages(), ["alpha: 😀 other"]);
+    assert!(f.app.close().await.is_empty());
+    Ok(())
 }
 
 #[tokio::test(flavor = "multi_thread")]

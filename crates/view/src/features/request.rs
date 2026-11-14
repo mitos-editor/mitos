@@ -34,7 +34,7 @@ impl DocumentRequest {
         self.get(editor).is_some()
     }
 
-    fn get<'a>(&self, editor: &'a Editor) -> Option<&'a Document> {
+    pub(crate) fn get<'a>(&self, editor: &'a Editor) -> Option<&'a Document> {
         if self.cancel.is_canceled() {
             return None;
         }

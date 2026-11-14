@@ -1,7 +1,7 @@
 //! Editor-owned pull diagnostics: scheduling, provider state, retries, and publication.
 
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     mem,
     time::Duration,
 };
@@ -10,7 +10,7 @@ use ::diagnostics::DiagnosticProvider;
 use editor_core::Uri;
 use event::{cancelable_future, register_hook, send_blocking, AsyncHook, TaskController};
 use language_config::LanguageServerFeature;
-use lsp_client::{lsp, LanguageServerId};
+use lsp_client::{lsp, LanguageServerId, UriExt as _};
 use tokio::{sync::mpsc::Sender, time::Instant};
 
 use crate::{
@@ -23,18 +23,63 @@ use crate::{
     DocumentId, Editor,
 };
 
-/// Cancellation and result IDs follow the document and are independent per server.
+/// Cancellation follows the document and is independent per server.
 #[derive(Default)]
 pub(crate) struct DocumentDiagnostics {
-    result_ids: HashMap<LanguageServerId, String>,
     requests: HashMap<LanguageServerId, TaskController>,
+    generation: u64,
 }
 
 impl DocumentDiagnostics {
     pub(crate) fn clear(&mut self) {
         self.requests.clear();
-        self.result_ids.clear();
+        self.generation += 1;
     }
+}
+
+/// Result IDs and request ordering survive while a reported file is unopened.
+#[derive(Default)]
+pub(crate) struct PullDiagnosticResults {
+    next_request: u64,
+    reports: BTreeMap<Uri, HashMap<DiagnosticProvider, DiagnosticReport>>,
+}
+
+#[derive(Default)]
+struct DiagnosticReport {
+    request: u64,
+    result_id: Option<String>,
+    has_report: bool,
+}
+
+impl PullDiagnosticResults {
+    fn begin(&mut self, uri: &Uri, provider: &DiagnosticProvider) -> (u64, Option<String>) {
+        self.next_request += 1;
+        let report = self
+            .reports
+            .entry(uri.clone())
+            .or_default()
+            .entry(provider.clone())
+            .or_default();
+        report.request = self.next_request;
+        (report.request, report.result_id.clone())
+    }
+
+    fn invalidate(&mut self, uri: &Uri) {
+        self.next_request += 1;
+        if let Some(reports) = self.reports.get_mut(uri) {
+            for report in reports.values_mut() {
+                *report = DiagnosticReport {
+                    request: self.next_request,
+                    ..Default::default()
+                };
+            }
+        }
+    }
+}
+
+struct RelatedDocument {
+    request: DocumentRequest,
+    generation: u64,
 }
 
 /// Scheduling destinations shared by documents owned by this editor.
@@ -98,7 +143,7 @@ fn request_document_diagnostics_for_language_servers(
         .copied()
         .filter(|&id| editor.language_server_by_id(id).is_some())
         .collect();
-    let Some(doc) = editor.document_mut(doc_id) else {
+    let Some(doc) = editor.documents.get(&doc_id) else {
         return;
     };
     let Some(uri) = doc.uri() else {
@@ -109,10 +154,6 @@ fn request_document_diagnostics_for_language_servers(
         .filter(|server| servers.remove(&server.id()))
         .filter_map(|server| {
             let id = server.id();
-            let future = server.text_document_diagnostic(
-                doc.identifier(),
-                doc.pull_diagnostics.result_ids.get(&id).cloned(),
-            )?;
             let identifier =
                 server
                     .capabilities()
@@ -128,18 +169,18 @@ fn request_document_diagnostics_for_language_servers(
                             .as_deref()
                             .map(Into::into),
                     });
-            Some((
-                id,
-                DiagnosticProvider::Lsp {
-                    server_id: id,
-                    identifier,
-                },
-                future,
-            ))
+            let provider = DiagnosticProvider::Lsp {
+                server_id: id,
+                identifier,
+            };
+            let (request_id, previous_result_id) = editor.pull_diagnostics.begin(&uri, &provider);
+            let future = server.text_document_diagnostic(doc.identifier(), previous_result_id)?;
+            Some((id, provider, request_id, future))
         })
         .collect();
 
-    for (server_id, provider, future) in requests {
+    for (server_id, provider, request_id, future) in requests {
+        let doc = editor.documents.get_mut(&doc_id).unwrap();
         let cancel = doc
             .pull_diagnostics
             .requests
@@ -147,6 +188,20 @@ fn request_document_diagnostics_for_language_servers(
             .or_default()
             .restart();
         let request = DocumentRequest::new(doc, cancel, vec![server_id]);
+        // Related reports have no document versions. Retain the target sessions
+        // so a queued response cannot publish across edits, renames, or reopening.
+        let related_documents = editor
+            .documents()
+            .filter_map(|doc| {
+                Some((
+                    doc.uri()?,
+                    RelatedDocument {
+                        request: DocumentRequest::new(doc, request.cancel.clone(), vec![server_id]),
+                        generation: doc.pull_diagnostics.generation,
+                    },
+                ))
+            })
+            .collect();
         let callbacks = callbacks.clone();
         let uri = uri.clone();
         tokio::spawn(async move {
@@ -159,7 +214,12 @@ fn request_document_diagnostics_for_language_servers(
                         .send(move |editor| {
                             if request.is_current(editor) {
                                 handle_pull_diagnostics_response(
-                                    editor, result, provider, uri, doc_id,
+                                    editor,
+                                    result,
+                                    provider,
+                                    uri,
+                                    request_id,
+                                    related_documents,
                                 );
                             }
                         })
@@ -238,6 +298,9 @@ pub fn request_document_diagnostics(editor: &mut Editor, doc_id: DocumentId) {
 /// Each event routes work through its owning editor or document.
 pub(crate) fn register_hooks(events: &event::EventHub, hooks: crate::handlers::DocumentHooks) {
     register_hook!(events => move |event: &mut DocumentLanguageDidChange<'_>| {
+        if let Some(uri) = event.editor.document(event.doc).and_then(|doc| doc.uri()) {
+            event.editor.pull_diagnostics.invalidate(&uri);
+        }
         request_document_diagnostics(event.editor, event.doc);
         Ok(())
     });
@@ -297,50 +360,112 @@ pub(crate) fn register_hooks(events: &event::EventHub, hooks: crate::handlers::D
     register_hook!(events => move |event: &mut LanguageServerExited<'_>| {
         for doc in event.editor.documents_mut() {
             doc.pull_diagnostics.requests.remove(&event.server_id);
-            doc.pull_diagnostics.result_ids.remove(&event.server_id);
         }
+        event.editor.pull_diagnostics.reports.retain(|_, reports| {
+            reports.retain(|provider, _| provider.language_server_id() != Some(event.server_id));
+            !reports.is_empty()
+        });
         Ok(())
     });
 }
+
 fn handle_pull_diagnostics_response(
     editor: &mut Editor,
     result: lsp::DocumentDiagnosticReportResult,
     provider: DiagnosticProvider,
     uri: Uri,
-    document_id: DocumentId,
+    request_id: u64,
+    related_documents: BTreeMap<Uri, RelatedDocument>,
 ) {
-    match result {
-        lsp::DocumentDiagnosticReportResult::Report(report) => {
-            let result_id = match report {
-                lsp::DocumentDiagnosticReport::Full(report) => {
-                    editor.handle_lsp_diagnostics(
-                        &provider,
-                        uri,
-                        None,
-                        report.full_document_diagnostic_report.items,
-                    );
-
-                    report.full_document_diagnostic_report.result_id
-                }
-                lsp::DocumentDiagnosticReport::Unchanged(report) => {
-                    Some(report.unchanged_document_diagnostic_report.result_id)
-                }
-            };
-
-            if let Some(doc) = editor.document_mut(document_id) {
-                let server_id = provider
-                    .language_server_id()
-                    .expect("pull diagnostics always originate from an LSP");
-                match result_id {
-                    Some(result_id) => {
-                        doc.pull_diagnostics.result_ids.insert(server_id, result_id);
-                    }
-                    None => {
-                        doc.pull_diagnostics.result_ids.remove(&server_id);
-                    }
-                }
-            };
-        }
-        lsp::DocumentDiagnosticReportResult::Partial(_) => {}
+    let (primary, related) = match result {
+        lsp::DocumentDiagnosticReportResult::Report(lsp::DocumentDiagnosticReport::Full(
+            report,
+        )) => (
+            Some(report.full_document_diagnostic_report.into()),
+            report.related_documents,
+        ),
+        lsp::DocumentDiagnosticReportResult::Report(lsp::DocumentDiagnosticReport::Unchanged(
+            report,
+        )) => (
+            Some(report.unchanged_document_diagnostic_report.into()),
+            report.related_documents,
+        ),
+        lsp::DocumentDiagnosticReportResult::Partial(report) => (None, report.related_documents),
     };
+    if let Some(report) = primary {
+        apply_report(editor, &provider, uri.clone(), request_id, report);
+    }
+
+    for (related_uri, report) in related.into_iter().flatten() {
+        let related_uri = match related_uri.to_editor_uri() {
+            Ok(uri) => uri,
+            Err(error) => {
+                log::warn!("Ignoring related diagnostic report: {error}");
+                continue;
+            }
+        };
+        if related_uri == uri {
+            continue;
+        }
+        // Related reports have no previousResultId parameter. Only reuse an
+        // unchanged result if its full report was actually retained.
+        if let lsp::DocumentDiagnosticReportKind::Unchanged(report) = &report
+            && !editor
+                .pull_diagnostics
+                .reports
+                .get(&related_uri)
+                .and_then(|reports| reports.get(&provider))
+                .is_some_and(|cached| cached.result_id.as_ref() == Some(&report.result_id))
+        {
+            continue;
+        }
+        let current = match related_documents.get(&related_uri) {
+            Some(target) => target
+                .request
+                .get(editor)
+                .is_some_and(|doc| doc.pull_diagnostics.generation == target.generation),
+            None => !editor
+                .documents()
+                .any(|doc| doc.uri().as_ref() == Some(&related_uri)),
+        };
+        if current {
+            apply_report(editor, &provider, related_uri, request_id, report);
+        }
+    }
+}
+
+fn apply_report(
+    editor: &mut Editor,
+    provider: &DiagnosticProvider,
+    uri: Uri,
+    request_id: u64,
+    report: lsp::DocumentDiagnosticReportKind,
+) {
+    let cached = editor
+        .pull_diagnostics
+        .reports
+        .entry(uri.clone())
+        .or_default()
+        .entry(provider.clone())
+        .or_default();
+    // Direct pulls reserve their place when issued. A late related report must
+    // not replace a newer pull, including one whose response is still pending.
+    if cached.request > request_id {
+        return;
+    }
+    match report {
+        lsp::DocumentDiagnosticReportKind::Full(report) => {
+            cached.request = request_id;
+            cached.result_id = report.result_id;
+            cached.has_report = true;
+            editor.handle_lsp_diagnostics(provider, uri, None, report.items);
+        }
+        lsp::DocumentDiagnosticReportKind::Unchanged(report) if cached.has_report => {
+            cached.request = request_id;
+            cached.result_id = Some(report.result_id);
+        }
+        // A previous full report may have been discarded as stale. Without its
+        // diagnostics, retaining this ID could make subsequent pulls skip them.
+        lsp::DocumentDiagnosticReportKind::Unchanged(_) => {}
+    }
 }
