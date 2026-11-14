@@ -18,6 +18,7 @@ pub(super) struct RenderState {
     visible_documents: HashSet<DocumentId>,
     pub(super) requested: Option<Instant>,
     syntax_deadline: Option<Instant>,
+    activity_deadline: Option<Instant>,
 }
 
 impl<B: tui::backend::Backend + tui::backend::BackendExt> App<B>
@@ -35,7 +36,7 @@ where
     }
 
     /// Wake for delayed user activity even when no input or server events arrive.
-    pub(super) fn activity_frame_deadline(&self) -> Option<Instant> {
+    pub(super) fn activity_frame_deadline(&mut self) -> Option<Instant> {
         use crate::ui::{activity_matches, ACTIVITY_DELAY};
         use editor_config::StatusLineElement;
 
@@ -49,10 +50,12 @@ where
                 .right
                 .contains(&StatusLineElement::Activity)
         {
+            self.render_state.activity_deadline = None;
             return None;
         }
         let now = Instant::now();
-        self.editor
+        let next = self
+            .editor
             .activities()
             .filter(|activity| {
                 self.editor.tree.views().any(|(view, focused)| {
@@ -71,7 +74,13 @@ where
                     now + Duration::from_millis(80)
                 }
             })
-            .min()
+            .min();
+        self.render_state.activity_deadline = next.map(|due| {
+            self.render_state
+                .activity_deadline
+                .map_or(due, |old| old.min(due))
+        });
+        self.render_state.activity_deadline
     }
 
     /// The ordinary event pump keeps progressing while a first frame waits for syntax.
@@ -155,6 +164,7 @@ where
         self.terminal.backend_mut().flush().unwrap();
         self.render_state.requested = None;
         self.render_state.syntax_deadline = None;
+        self.render_state.activity_deadline = None;
         self.render_state.visible_documents.clear();
         self.render_state
             .visible_documents

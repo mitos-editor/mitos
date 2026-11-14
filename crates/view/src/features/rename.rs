@@ -8,6 +8,7 @@ use lsp_client::{lsp, util::lsp_range_to_range, LanguageServerId, OffsetEncoding
 
 use crate::{
     action::LspActionContext,
+    activity::ActivityGuard,
     callbacks::EditorCallbackSender,
     events::{ConfigDidChange, DocumentDidChange, LanguageServerExited, SelectionDidChange},
     DocumentId, Editor, ViewId,
@@ -35,6 +36,7 @@ impl RenameContext {
 
 /// Owned preparation; dropping its future cancels transport tracking.
 pub struct RenameTask {
+    _activity: ActivityGuard,
     context: RenameContext,
     view: ViewId,
     selection: editor_core::Selection,
@@ -46,6 +48,7 @@ impl RenameTask {
     pub async fn run(self) -> Option<RenameUpdate> {
         let result = cancelable_future(self.future, &self.context.cancel).await?;
         Some(RenameUpdate {
+            _activity: self._activity,
             context: self.context,
             view: self.view,
             selection: self.selection,
@@ -57,6 +60,7 @@ impl RenameTask {
 
 /// Preparation is validated again after delivery through the frontend queue.
 pub struct RenameUpdate {
+    _activity: ActivityGuard,
     context: RenameContext,
     view: ViewId,
     selection: editor_core::Selection,
@@ -200,6 +204,7 @@ impl Editor {
             encoding,
         };
         Ok(RenameTask {
+            _activity: self.start_activity("Renaming", Some(document)),
             context,
             view,
             selection,
@@ -222,6 +227,7 @@ impl Editor {
             .rename_symbol(context.identifier.clone(), context.position, name)
             .context("Language server no longer supports renaming")?;
         let callbacks = context.owner.clone();
+        let activity = self.start_activity("Renaming", Some(context.document));
         tokio::spawn(async move {
             let Some(result) = cancelable_future(future, &context.cancel).await else {
                 return;
@@ -237,7 +243,8 @@ impl Editor {
                                 context.server,
                                 edit,
                                 Some(context.snapshot.clone()),
-                                |editor, result| {
+                                move |editor, result| {
+                                    let _activity = activity;
                                     if let Err(error) = result {
                                         editor.set_error(|| {
                                             format!("Failed to apply rename: {error}")

@@ -133,6 +133,22 @@ async fn user_activity_wakes_the_pump_without_input_and_stops_when_finished() ->
 }
 
 #[tokio::test]
+async fn user_activity_deadline_is_not_postponed_by_background_callbacks() -> anyhow::Result<()> {
+    let (mut app, _) = application(Args::default())?;
+    let _activity = app.editor.start_activity("Formatting", None);
+    tokio::time::pause();
+    tokio::time::advance(crate::ui::ACTIVITY_DELAY).await;
+    draw_now(&mut app);
+    let deadline = app.activity_frame_deadline().expect("animation deadline");
+    tokio::time::advance(Duration::from_millis(40)).await;
+    app.apply_callback(Ok(Some(crate::job::Callback::editor(|_| {
+        view::callbacks::CallbackOutcome::None
+    }))));
+    assert_eq!(app.activity_frame_deadline(), Some(deadline));
+    Ok(())
+}
+
+#[tokio::test]
 async fn user_activity_deadlines_follow_visible_statuslines_and_configuration() -> anyhow::Result<()>
 {
     let (mut app, _) = application(Args::default())?;
