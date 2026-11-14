@@ -597,6 +597,39 @@ async fn try_restore_indent() -> anyhow::Result<()> {
     Ok(())
 }
 
+#[tokio::test(flavor = "multi_thread")]
+async fn cancelled_insert_prefix_replays_text_and_escape_keeps_insert_mode() -> anyhow::Result<()> {
+    use editor_core::hashmap;
+    use term::keymap;
+    use view::document::Mode;
+
+    let mut config = helpers::test_config();
+    config
+        .keys
+        .get_mut(&Mode::Insert)
+        .unwrap()
+        .merge_nodes(keymap!({ "Insert"
+            "g" => { "Prefix"
+                "j" => { "Nested" "k" => normal_mode, },
+            },
+        }));
+
+    // An invalid suffix inserts every pending character in order.
+    test_with_config(
+        AppBuilder::new().with_config(config.clone()),
+        ("#[|]#", "igjx<esc>", "gjx#[|\n]#\n"),
+    )
+    .await?;
+
+    // Escape replays the prefix without leaving insert mode; the next key is typed.
+    test_with_config(
+        AppBuilder::new().with_config(config),
+        ("#[|]#", "igj<esc>x<esc>", "gjx#[|\n]#\n"),
+    )
+    .await?;
+    Ok(())
+}
+
 // Tests being able to jump in insert mode, then undo the write performed by the jump
 // https://github.com/helix-editor/helix/issues/13480
 #[tokio::test(flavor = "multi_thread")]
