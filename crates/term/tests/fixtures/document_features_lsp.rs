@@ -25,6 +25,7 @@ fn main() -> anyhow::Result<()> {
     let mut documents = HashMap::<String, String>::new();
     let mut versions = HashMap::<String, i64>::new();
     let mut diagnostic_requests = HashMap::<(String, i64), usize>::new();
+    let mut inlay_refresh_sent = false;
     // Optional modes expose only the feature under test.
     let args: Vec<_> = std::env::args().skip(1).collect();
     if args.first().is_some_and(|arg| arg == "--echo") {
@@ -614,6 +615,17 @@ fn main() -> anyhow::Result<()> {
                 &mut output,
                 json!({"jsonrpc": "2.0", "id": id, "result": result}),
             )?;
+            if method == "textDocument/inlayHint"
+                && !inlay_refresh_sent
+                && args.iter().any(|arg| arg == "--inlay-refresh")
+            {
+                inlay_refresh_sent = true;
+                respond(
+                    &mut output,
+                    json!({"jsonrpc": "2.0", "id": "inlay-refresh",
+                        "method": "workspace/inlayHint/refresh", "params": null}),
+                )?;
+            }
             continue;
         }
         if method == "textDocument/signatureHelp" && signature_help {

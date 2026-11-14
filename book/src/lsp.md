@@ -107,6 +107,9 @@ Use `:config-open` to edit `config.toml`. For example, to show type hints:
 enable = true
 ```
 
+When a server requests a hint refresh, Mitos updates visible hints automatically.
+Hints in hidden buffers refresh when those buffers are shown again.
+
 Run `:config-reload` to apply changes. See the
 [language-server settings](./configuration.md#editorlsp) for more options,
 or set `enable = false` under `[editor.lsp]` to disable language servers.
