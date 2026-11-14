@@ -16,6 +16,7 @@ bench = false
 
 [features]
 default = []
+integration = ["lsp/test-support"]
 git = ["vcs/git"]
 unicode-lines = ["editor-config/unicode-lines"]
 
@@ -83,3 +84,7 @@ core = { workspace = true, features = ["integration"] }
 event.workspace = true
 quickcheck.workspace = true
 
+[[bin]]
+name = "mitos-view-test-lsp"
+path = "tests/fixtures/lsp.rs"
+required-features = ["integration"]

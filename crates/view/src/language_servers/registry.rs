@@ -125,6 +125,12 @@ impl Registry {
             .is_some_and(|entry| entry.state == ServerState::Ready)
     }
 
+    pub(crate) fn is_active(&self, id: LanguageServerId) -> bool {
+        self.inner
+            .get(id)
+            .is_some_and(|entry| entry.state != ServerState::Stopping)
+    }
+
     pub(crate) fn begin_stopping(&mut self, id: LanguageServerId) {
         if let Some(entry) = self.inner.get_mut(id) {
             entry.state = ServerState::Stopping;
