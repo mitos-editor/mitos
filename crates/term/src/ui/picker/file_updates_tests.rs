@@ -302,6 +302,63 @@ async fn embedded_directory_navigation_rejects_the_previous_scan() -> anyhow::Re
 }
 
 #[tokio::test]
+async fn embedded_explorer_expansion_cancels_an_in_flight_scan() -> anyhow::Result<()> {
+    let mut app = application(false)?;
+    let dir = tempfile::tempdir()?;
+    let sub = dir.path().join("sub");
+    std::fs::create_dir(&sub)?;
+    let child = sub.join("child.txt");
+    std::fs::write(&child, "child")?;
+    let mut picker =
+        ui::file_explorer::picker(dir.path().to_owned(), &app.editor, true)?.embedded(|_, _| {});
+    until(&mut picker, &mut app, |picker| {
+        picker.selection().is_some_and(|item| item.0 == sub)
+    })
+    .await?;
+
+    let (complete, result) = tokio::sync::oneshot::channel();
+    // Install a scan on the real explorer source and keep it in flight through Enter.
+    // The coordinator owns the source, so use a fresh adapter with this pending read.
+    let pending = super::Pending {
+        version: picker.results.version.load(atomic::Ordering::Relaxed),
+        data: picker.results.editor_data.clone(),
+        result,
+    };
+    picker = picker.with_updates(
+        super::FileUpdates {
+            changes: super::WorkspaceChanges::new(
+                &app.editor,
+                dir.path(),
+                super::Policy::default(),
+            ),
+            root: |data: &ui::file_explorer::ExplorerData| &data.root,
+            refresh: |_, _, _, _| Box::pin(std::future::pending()),
+            dirty: false,
+            pending: Some(pending),
+        },
+        super::SourceKind::Files,
+    );
+    super::super::test::event_with_config(
+        &mut picker,
+        &mut app,
+        &crate::config::Config::default(),
+        Event::Key("ret".parse().unwrap()),
+    );
+    assert!(complete.send(Ok(Vec::new())).is_err());
+    until(&mut picker, &mut app, |picker| {
+        super::super::test::items(picker).any(|item| item.0 == child)
+    })
+    .await?;
+    assert!(picker
+        .editor_data()
+        .tree
+        .as_ref()
+        .unwrap()
+        .is_expanded(&sub));
+    Ok(())
+}
+
+#[tokio::test]
 async fn continuous_changes_publish_completed_scans_and_queue_a_followup() -> anyhow::Result<()> {
     type Scan = (
         event::TaskHandle,
