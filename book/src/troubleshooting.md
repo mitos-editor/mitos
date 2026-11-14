@@ -10,6 +10,15 @@ It reports the runtime paths Mitos searches, clipboard support, configured
 languages, and tools it could not find. For one language, run
 `ms --health <language>`; for example, `ms --health rust`.
 
+Add `--summary` for compact status rows, for example
+`ms --health rust --summary`. Summary mode hides routine paths, arguments, and
+capability names; it keeps feature counts, actionable problems, and capability
+caveats. It runs the same checks as detailed mode, so probe timeouts still apply.
+The overview's language table is already compact and stays visible.
+
+Add `--no-color` to disable all styling. Styling is also disabled when output is
+piped, when `NO_COLOR` is set, or when `TERM=dumb`.
+
 The overview shows installed/configured language-server counts, tool availability,
 and readable Tree-sitter queries. It does not start servers. On narrow terminals
 it uses labeled entries instead of a table.

@@ -15,6 +15,8 @@ def grammar_categories [] { ["fetch", "build"] }
 # A post-modern text editor.
 export extern ms [
     --help(-h),                                 # Prints help information
+    --summary,                                  # Show compact health results (requires --health)
+    --no-color,                                 # Disable health output styling (requires --health)
     --strict,                                   # Bail on error for commands that can fail
     --tutor,                                    # Loads the tutorial
     --health: string@health_categories,         # Checks for potential errors in editor setup

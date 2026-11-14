@@ -4,6 +4,8 @@
 complete -c ms -s h -l help -d "Prints help information"
 complete -c ms -l strict -d "Bail on error for commands that can fail"
 complete -c ms -l tutor -d "Loads the tutorial"
+complete -c ms -l summary -n '__fish_contains_opt health' -d "Show compact health results"
+complete -c ms -l no-color -n '__fish_contains_opt health' -d "Disable health output styling"
 complete -c ms -l health -xa "(__ms_langs_ops)" -d "Checks for errors"
 complete -c ms -l health -xka all -d "Prints all diagnostic informations"
 complete -c ms -l health -xka all-languages -d "Lists all languages"

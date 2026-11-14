@@ -1,6 +1,6 @@
 //! Bounded initialization probes using the editor's protocol clients.
 
-use super::output::{detail, heading, row, Status};
+use super::output::{Output, Status};
 
 use language_config::{
     DebugAdapterConfig, DebugAdapterTransport, LanguageConfiguration, LanguageServerConfiguration,
@@ -15,7 +15,7 @@ const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
 const SHUTDOWN_TIMEOUT: Duration = Duration::from_millis(200);
 
 pub(super) async fn language_servers(
-    output: &mut impl Write,
+    output: &mut Output<impl Write>,
     language: &LanguageConfiguration,
     definitions: &HashMap<String, LanguageServerConfiguration>,
     config: &editor_config::LspConfig,
@@ -24,14 +24,10 @@ pub(super) async fn language_servers(
         return Ok(());
     }
     writeln!(output)?;
-    heading(output, "LSP capabilities (initialize; up to 5s per server)")?;
-    detail(
-        output,
-        "Probes include alternatives; this does not select the active server.",
-    )?;
+    output.heading("LSP capabilities (initialize; up to 5s per server)")?;
+    output.note("Probes include alternatives; this does not select the active server.")?;
     if !config.enable {
-        row(
-            output,
+        output.row(
             Status::Inactive,
             "integration",
             "Editor LSP integration is disabled (editor.lsp.enable = false).",
@@ -41,10 +37,9 @@ pub(super) async fn language_servers(
         view::language_servers::language_server_root(language, None, &config.workspace_roots);
     for server in &language.language_servers {
         writeln!(output)?;
-        heading(output, &format!("  {}", server.name))?;
+        output.heading(&format!("  {}", server.name))?;
         let Some(definition) = definitions.get(&server.name) else {
-            row(
-                output,
+            output.row(
                 Status::Unknown,
                 "capabilities",
                 "unknown: definition missing",
@@ -52,8 +47,7 @@ pub(super) async fn language_servers(
             continue;
         };
         if stdx::env::which(&definition.command).is_err() {
-            row(
-                output,
+            output.row(
                 Status::Unknown,
                 "capabilities",
                 "unknown: executable missing",
@@ -63,8 +57,7 @@ pub(super) async fn language_servers(
         match view::language_servers::has_required_root(definition, &root) {
             Ok(true) => {}
             Ok(false) => {
-                row(
-                    output,
+                output.row(
                     Status::Inactive,
                     "capabilities",
                     "Skipped: project does not match required-root-patterns",
@@ -72,8 +65,7 @@ pub(super) async fn language_servers(
                 continue;
             }
             Err(error) => {
-                row(
-                    output,
+                output.row(
                     Status::Unknown,
                     "capabilities",
                     format_args!("unknown: {error}"),
@@ -95,14 +87,12 @@ pub(super) async fn language_servers(
         .await
         {
             Ok(Ok(capabilities)) => lsp_capabilities(output, &capabilities, server)?,
-            Ok(Err(error)) => row(
-                output,
+            Ok(Err(error)) => output.row(
                 Status::Unknown,
                 "capabilities",
                 format_args!("Initialization failed; capabilities unknown: {error}"),
             )?,
-            Err(_) => row(
-                output,
+            Err(_) => output.row(
                 Status::Unknown,
                 "capabilities",
                 "Initialization timed out after 5s; capabilities unknown",
@@ -177,7 +167,7 @@ async fn reply_lsp(client: &lsp::Client, call: jsonrpc::MethodCall) -> lsp::Resu
 }
 
 fn lsp_capabilities(
-    output: &mut impl Write,
+    output: &mut Output<impl Write>,
     capabilities: &protocol::ServerCapabilities,
     server: &LanguageServerFeatures,
 ) -> std::io::Result<()> {
@@ -205,8 +195,7 @@ fn lsp_capabilities(
         &disabled,
     )?;
     if server.has_feature(LanguageServerFeature::Diagnostics) {
-        row(
-            output,
+        output.row(
             Status::Unknown,
             "diagnostics",
             "Push diagnostics: not advertised by LSP; requires an open document",
@@ -216,12 +205,12 @@ fn lsp_capabilities(
 }
 
 pub(super) async fn debug_adapter(
-    output: &mut impl Write,
+    output: &mut Output<impl Write>,
     config: Option<&DebugAdapterConfig>,
 ) -> std::io::Result<()> {
     let Some(config) = config else {
-        heading(output, "Debug adapter")?;
-        return row(output, Status::Inactive, "adapter", "not configured");
+        output.heading("Debug adapter")?;
+        return output.row(Status::Inactive, "adapter", "not configured");
     };
     let transport = match config.transport {
         DebugAdapterTransport::Stdio => "stdio",
@@ -233,25 +222,22 @@ pub(super) async fn debug_adapter(
         Some((&config.command, &config.args)),
     )?;
     if stdx::env::which(&config.command).is_err() {
-        return row(
-            output,
+        return output.row(
             Status::Unknown,
             "capabilities",
             "unknown: executable missing",
         );
     }
-    detail(output, "Capabilities (initialize; up to 5s)")?;
+    output.detail("Capabilities (initialize; up to 5s)")?;
     output.flush()?;
     match timeout(PROBE_TIMEOUT, initialize_dap(config)).await {
         Ok(Ok(capabilities)) => dap_capabilities(output, &capabilities),
-        Ok(Err(error)) => row(
-            output,
+        Ok(Err(error)) => output.row(
             Status::Unknown,
             "capabilities",
             format_args!("Initialization failed; capabilities unknown: {error}"),
         ),
-        Err(_) => row(
-            output,
+        Err(_) => output.row(
             Status::Unknown,
             "capabilities",
             "Initialization timed out after 5s; capabilities unknown",
@@ -297,7 +283,7 @@ async fn initialize_dap(config: &DebugAdapterConfig) -> anyhow::Result<dap::Debu
 }
 
 fn dap_capabilities(
-    output: &mut impl Write,
+    output: &mut Output<impl Write>,
     capabilities: &dap::DebuggerCapabilities,
 ) -> std::io::Result<()> {
     let mut supported = Vec::new();
@@ -344,19 +330,16 @@ fn dap_capabilities(
         supports_instruction_breakpoints => "instruction-breakpoints",
         supports_exception_filter_options => "exception-filter-options",
     }
-    detail(
-        output,
-        "Adapter-advertised features; Mitos may expose only a subset.",
-    )?;
+    output.note("Adapter-advertised features; Mitos may expose only a subset.")?;
     feature_list(output, Status::Ok, "Supported", &supported)?;
     feature_list(output, Status::Inactive, "Not advertised", &unsupported)
 }
 
 fn feature_list(
-    output: &mut impl Write,
+    output: &mut Output<impl Write>,
     status: Status,
     label: &str,
     features: &[String],
 ) -> std::io::Result<()> {
-    super::output::feature_list(output, status, label, features, super::terminal_columns())
+    output.feature_list(status, label, features, super::terminal_columns())
 }

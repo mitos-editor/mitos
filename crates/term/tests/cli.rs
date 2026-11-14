@@ -76,35 +76,39 @@ templates = []
             ),
         )
         .unwrap();
-        let output = isolated_command(root.path(), true)
-            .args(["--health", "health-test"])
-            .output()
-            .unwrap();
-        assert!(output.status.success(), "{output:?}");
-        let stdout = std::str::from_utf8(&output.stdout).unwrap();
-        assert!(!stdout.contains('\x1b'), "piped health output: {stdout}");
-        for section in [
-            "Configured language servers\n",
-            "LSP capabilities (initialize; up to 5s per server)\n",
-            "Configured debug adapter health-test (stdio)\n",
-            "Configured formatter\n",
-            "Tree-sitter\n",
-        ] {
-            assert!(stdout.contains(section), "missing {section:?}: {stdout}");
-        }
-        if command.as_str().unwrap() == "missing-mitos-health-tool" {
-            assert!(stdout.contains("  ✘ health-test"), "{stdout}");
-            assert!(
-                stdout.contains("  ? capabilities   unknown: executable missing"),
-                "{stdout}"
-            );
-        }
-        for arguments in [
-            r#"Arguments: ["lsp", "--stdio"]"#,
-            r#"Arguments: ["format", "%{buffer_name}"]"#,
-            r#"Arguments: ["debug", "--stdio"]"#,
-        ] {
-            assert!(stdout.contains(arguments), "{stdout}");
+        for summary in [false, true] {
+            let mut command_line = isolated_command(root.path(), true);
+            command_line.args(["--health", "health-test"]);
+            if summary {
+                command_line.args(["--summary", "--no-color"]);
+            }
+            let output = command_line.output().unwrap();
+            assert!(output.status.success(), "{output:?}");
+            let stdout = std::str::from_utf8(&output.stdout).unwrap();
+            assert!(!stdout.contains('\x1b'), "piped health output: {stdout}");
+            for section in [
+                "Configured language servers\n",
+                "LSP capabilities (initialize; up to 5s per server)\n",
+                "Configured debug adapter health-test (stdio)\n",
+                "Configured formatter\n",
+                "Tree-sitter\n",
+            ] {
+                assert!(stdout.contains(section), "missing {section:?}: {stdout}");
+            }
+            if command.as_str().unwrap() == "missing-mitos-health-tool" {
+                assert!(stdout.contains("  ✘ health-test"), "{stdout}");
+                assert!(
+                    stdout.contains("  ? capabilities   unknown: executable missing"),
+                    "{stdout}"
+                );
+            }
+            for arguments in [
+                r#"Arguments: ["lsp", "--stdio"]"#,
+                r#"Arguments: ["format", "%{buffer_name}"]"#,
+                r#"Arguments: ["debug", "--stdio"]"#,
+            ] {
+                assert_eq!(stdout.contains(arguments), !summary, "{stdout}");
+            }
         }
     }
 }

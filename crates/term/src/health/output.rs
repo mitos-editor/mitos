@@ -1,9 +1,21 @@
 //! Shared presentation for health checks; probing stays in the callers.
 
-use std::{fmt::Display, io::Write};
+use std::{
+    fmt::Display,
+    io::{IsTerminal, Write},
+};
+use termina::{
+    escape::csi::{Csi, Sgr},
+    style::{ColorSpec, Intensity, StyleExt as _, Stylized},
+};
 
-use termina::style::{ColorSpec, StyleExt as _};
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Options {
+    pub summary: bool,
+    pub no_color: bool,
+}
 
+#[derive(Clone, Copy)]
 pub(super) enum Status {
     Ok,
     Warning,
@@ -13,86 +25,225 @@ pub(super) enum Status {
     Info,
 }
 
-impl Status {
-    fn marker(&self) -> termina::style::Stylized<'static> {
-        let (marker, color) = match self {
-            Self::Ok => ("✓", ColorSpec::BRIGHT_GREEN),
-            Self::Warning => ("!", ColorSpec::BRIGHT_YELLOW),
-            Self::Error => ("✘", ColorSpec::BRIGHT_RED),
-            Self::Inactive => ("−", ColorSpec::BRIGHT_BLACK),
-            Self::Unknown => ("?", ColorSpec::BRIGHT_YELLOW),
-            Self::Info => ("·", ColorSpec::BRIGHT_BLACK),
+pub(super) struct Output<W> {
+    writer: W,
+    pub options: Options,
+    color: bool,
+}
+
+impl<W: Write> Output<W> {
+    pub fn new(writer: W, options: Options) -> Self {
+        let color = !options.no_color
+            && std::io::stdout().is_terminal()
+            && std::env::var_os("NO_COLOR").is_none()
+            && std::env::var_os("TERM").is_none_or(|term| term != "dumb");
+        Self {
+            writer,
+            options,
+            color,
+        }
+    }
+
+    #[cfg(test)]
+    pub fn into_inner(self) -> W {
+        self.writer
+    }
+
+    pub fn styled(&self, text: impl Into<String>, color: ColorSpec) -> Stylized<'static> {
+        let text = text.into().stylized();
+        if self.color {
+            text.foreground(color)
+        } else {
+            text
+        }
+    }
+
+    pub fn bold(&self, text: &str) -> Stylized<'static> {
+        if self.color {
+            text.to_owned().bold()
+        } else {
+            text.to_owned().stylized()
+        }
+    }
+
+    pub fn dim<T: Display>(&self, text: T) -> Dimmed<T> {
+        Dimmed {
+            text,
+            enabled: self.color,
+        }
+    }
+
+    fn marker(&self, status: Status) -> Stylized<'static> {
+        let (marker, color) = match status {
+            Status::Ok => ("✓", ColorSpec::BRIGHT_GREEN),
+            Status::Warning => ("!", ColorSpec::BRIGHT_YELLOW),
+            Status::Error => ("✘", ColorSpec::BRIGHT_RED),
+            Status::Inactive => ("−", ColorSpec::BRIGHT_BLACK),
+            Status::Unknown => ("?", ColorSpec::BRIGHT_YELLOW),
+            Status::Info => ("·", ColorSpec::BRIGHT_BLACK),
         };
-        super::styled(marker, color)
+        self.styled(marker, color)
     }
-}
 
-pub(super) fn heading(output: &mut impl Write, title: &str) -> std::io::Result<()> {
-    let title = if super::use_color() {
-        title.to_owned().bold()
-    } else {
-        title.to_owned().stylized()
-    };
-    writeln!(output, "{title}")
-}
-
-pub(super) fn row(
-    output: &mut impl Write,
-    status: Status,
-    label: &str,
-    value: impl Display,
-) -> std::io::Result<()> {
-    // Keep paths, commands, and descriptions uncolored and easy to copy.
-    writeln!(output, "  {} {label:<14} {value}", status.marker())
-}
-
-pub(super) fn detail(output: &mut impl Write, value: impl Display) -> std::io::Result<()> {
-    writeln!(output, "      {value}")
-}
-
-pub(super) fn feature_list(
-    output: &mut impl Write,
-    status: Status,
-    label: &str,
-    features: &[String],
-    columns: usize,
-) -> std::io::Result<()> {
-    use editor_core::unicode::width::UnicodeWidthStr;
-
-    writeln!(output, "  {} {label}", status.marker())?;
-    if features.is_empty() {
-        return detail(output, "None");
+    pub fn heading(&mut self, title: &str) -> std::io::Result<()> {
+        writeln!(self.writer, "{}", self.bold(title))
     }
-    let mut line = String::new();
-    for feature in features {
-        if !line.is_empty() && 6 + line.width() + 2 + feature.width() > columns {
-            detail(output, &line)?;
-            line.clear();
+
+    pub fn row(&mut self, status: Status, label: &str, value: impl Display) -> std::io::Result<()> {
+        let value = Dimmed {
+            text: value,
+            enabled: self.color && matches!(status, Status::Ok | Status::Inactive | Status::Info),
+        };
+        writeln!(self.writer, "  {} {label:<14} {value}", self.marker(status))
+    }
+
+    pub fn detail(&mut self, value: impl Display) -> std::io::Result<()> {
+        if self.options.summary {
+            return Ok(());
         }
-        if !line.is_empty() {
-            line.push_str(", ");
-        }
-        line.push_str(feature);
+        writeln!(self.writer, "      {}", self.dim(value))
     }
-    detail(output, line)
+
+    pub fn field(&mut self, label: &str, value: impl Display) -> std::io::Result<()> {
+        if self.options.summary {
+            return Ok(());
+        }
+        writeln!(
+            self.writer,
+            "      {} {value}",
+            self.styled(label, ColorSpec::BRIGHT_BLACK)
+        )
+    }
+
+    // Important explanations and remedies remain visible in summary mode.
+    pub fn note(&mut self, value: impl Display) -> std::io::Result<()> {
+        writeln!(self.writer, "      {value}")
+    }
+
+    pub fn remedy(&mut self, value: impl Display) -> std::io::Result<()> {
+        writeln!(
+            self.writer,
+            "    {} {value}",
+            self.styled("→", ColorSpec::BRIGHT_YELLOW)
+        )
+    }
+
+    pub fn feature_list(
+        &mut self,
+        status: Status,
+        label: &str,
+        features: &[String],
+        columns: usize,
+    ) -> std::io::Result<()> {
+        use editor_core::unicode::width::UnicodeWidthStr;
+        if self.options.summary {
+            return self.row(
+                status,
+                label,
+                format_args!(
+                    "{} feature{}",
+                    features.len(),
+                    if features.len() == 1 { "" } else { "s" }
+                ),
+            );
+        }
+        writeln!(self.writer, "  {} {label}", self.marker(status))?;
+        if features.is_empty() {
+            return self.detail("None");
+        }
+        let mut line = String::new();
+        for feature in features {
+            if !line.is_empty() && 6 + line.width() + 2 + feature.width() > columns {
+                self.note(&line)?;
+                line.clear();
+            }
+            if !line.is_empty() {
+                line.push_str(", ");
+            }
+            line.push_str(feature);
+        }
+        self.note(line)
+    }
+}
+
+impl<W: Write> Write for Output<W> {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.writer.write(buf)
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.writer.flush()
+    }
+}
+
+pub(super) struct Dimmed<T> {
+    text: T,
+    enabled: bool,
+}
+impl<T: Display> Display for Dimmed<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.enabled {
+            write!(
+                f,
+                "{}{}{}",
+                Csi::Sgr(Sgr::Intensity(Intensity::Dim)),
+                self.text,
+                Csi::Sgr(Sgr::Reset)
+            )
+        } else {
+            self.text.fmt(f)
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    use super::{Options, Output, Status};
+
     #[test]
     fn capability_lists_wrap_at_display_width_without_losing_names() {
-        let mut output = Vec::new();
-        super::feature_list(
-            &mut output,
-            super::Status::Ok,
-            "Supported",
-            &["日本語".into(), "hover".into(), "format".into()],
-            20,
-        )
-        .unwrap();
-        let output = String::from_utf8(output).unwrap();
+        let mut output = Output::new(Vec::new(), Options::default());
+        output
+            .feature_list(
+                Status::Ok,
+                "Supported",
+                &["日本語".into(), "hover".into(), "format".into()],
+                20,
+            )
+            .unwrap();
+        let output = String::from_utf8(output.into_inner()).unwrap();
         assert!(
             output.ends_with("      日本語, hover\n      format\n"),
+            "{output}"
+        );
+    }
+
+    #[test]
+    fn summary_preserves_problems_and_remedies_but_hides_details() {
+        let mut output = Output::new(
+            Vec::new(),
+            Options {
+                summary: true,
+                no_color: true,
+            },
+        );
+        output.detail("hidden path").unwrap();
+        output.field("Arguments:", "hidden args").unwrap();
+        output
+            .feature_list(Status::Inactive, "Not advertised", &["hover".into()], 80)
+            .unwrap();
+        output
+            .row(Status::Unknown, "capabilities", "initialization timed out")
+            .unwrap();
+        output.remedy("install the missing tool").unwrap();
+        let output = String::from_utf8(output.into_inner()).unwrap();
+        assert!(
+            !output.contains("hidden") && !output.contains("hover"),
+            "{output}"
+        );
+        assert!(output.contains("Not advertised 1 feature"), "{output}");
+        assert!(
+            output.contains("initialization timed out")
+                && output.contains("install the missing tool"),
             "{output}"
         );
     }

@@ -1,38 +1,21 @@
 mod output;
 mod probes;
 
-use output::{detail, heading, row, Status};
+pub use output::Options;
+use output::{Output, Status};
 
 use crate::config::{Config, ConfigLoadError};
 use editor_core::unicode::width::UnicodeWidthStr;
 use language::loader::{default_lang_config, parse_lang_config};
 use language::support::LanguageSupport;
 use loader::syntax::Resources;
-use std::{
-    collections::HashSet,
-    io::{IsTerminal, Write},
-};
+use std::{collections::HashSet, io::Write};
 use termina::{
     style::{ColorSpec, StyleExt as _, Stylized},
     Terminal as _,
 };
 
-fn use_color() -> bool {
-    std::io::stdout().is_terminal()
-        && std::env::var_os("NO_COLOR").is_none()
-        && std::env::var_os("TERM").is_none_or(|term| term != "dumb")
-}
-
-fn styled(text: impl Into<String>, color: ColorSpec) -> Stylized<'static> {
-    let text = text.into().stylized();
-    if use_color() {
-        text.foreground(color)
-    } else {
-        text
-    }
-}
-
-fn status_cell(value: &str) -> Stylized<'static> {
+fn status_cell(output: &Output<impl Write>, value: &str) -> Stylized<'static> {
     let color = if let Some((installed, configured)) = value.split_once('/') {
         if installed == "0" {
             Some(ColorSpec::BRIGHT_RED)
@@ -49,7 +32,7 @@ fn status_cell(value: &str) -> Stylized<'static> {
         None
     };
     match color {
-        Some(color) => styled(value, color),
+        Some(color) => output.styled(value, color),
         None => value.to_owned().stylized(),
     }
 }
@@ -69,47 +52,62 @@ fn language_sources() -> std::io::Result<loader::config::LanguageSources> {
 }
 
 /// Display general diagnostics.
-pub fn general() -> std::io::Result<()> {
-    let stdout = std::io::stdout();
-    let mut stdout = stdout.lock();
-
+fn general(stdout: &mut Output<impl Write>) -> std::io::Result<()> {
     let config_file = loader::config_file();
     let lang_file = loader::lang_config_file();
     let log_file = loader::log_file();
     let rt_dirs = loader::runtime_dirs();
 
-    heading(
-        &mut stdout,
-        &format!("Mitos {}", loader::VERSION_AND_GIT_HASH),
-    )?;
+    stdout.heading(&format!("Mitos {}", loader::VERSION_AND_GIT_HASH))?;
     writeln!(stdout)?;
-    heading(&mut stdout, "Configuration")?;
+    stdout.heading("Configuration")?;
     if config_file.exists() {
-        row(&mut stdout, Status::Info, "config", config_file.display())?;
+        stdout.row(
+            Status::Info,
+            "config",
+            if stdout.options.summary {
+                "custom file".into()
+            } else {
+                config_file.display().to_string()
+            },
+        )?;
     } else {
-        row(&mut stdout, Status::Info, "config", "default")?;
+        stdout.row(Status::Info, "config", "default")?;
     }
     if lang_file.exists() {
-        row(&mut stdout, Status::Info, "languages", lang_file.display())?;
-    } else {
-        row(&mut stdout, Status::Info, "languages", "default")?;
-    }
-    row(&mut stdout, Status::Info, "log", log_file.display())?;
-    writeln!(stdout)?;
-    heading(&mut stdout, "Runtime directories (in search order)")?;
-    for directory in rt_dirs {
-        row(
-            &mut stdout,
+        stdout.row(
             Status::Info,
-            "search path",
-            directory.display(),
+            "languages",
+            if stdout.options.summary {
+                "custom file".into()
+            } else {
+                lang_file.display().to_string()
+            },
         )?;
+    } else {
+        stdout.row(Status::Info, "languages", "default")?;
     }
-    runtime_warnings(&mut stdout, rt_dirs)
+    if !stdout.options.summary {
+        stdout.row(Status::Info, "log", log_file.display())?;
+    }
+    writeln!(stdout)?;
+    stdout.heading("Runtime directories (in search order)")?;
+    if stdout.options.summary {
+        stdout.row(
+            Status::Info,
+            "search paths",
+            format_args!("{} directories", rt_dirs.len()),
+        )?;
+    } else {
+        for directory in rt_dirs {
+            stdout.row(Status::Info, "search path", directory.display())?;
+        }
+    }
+    runtime_warnings(stdout, rt_dirs)
 }
 
 fn runtime_warnings(
-    stdout: &mut impl Write,
+    stdout: &mut Output<impl Write>,
     rt_dirs: &[std::path::PathBuf],
 ) -> std::io::Result<()> {
     for rt_dir in rt_dirs.iter() {
@@ -119,14 +117,14 @@ fn runtime_warnings(
                 rt_dir.display(),
                 path.display()
             );
-            row(stdout, Status::Warning, "runtime", msg)?;
+            stdout.row(Status::Warning, "runtime", msg)?;
         }
         if !rt_dir.exists() {
             let msg = format!("Runtime directory does not exist: {}", rt_dir.display());
-            row(stdout, Status::Warning, "runtime", msg)?;
+            stdout.row(Status::Warning, "runtime", msg)?;
         } else if rt_dir.read_dir().ok().map(|it| it.count()) == Some(0) {
             let msg = format!("Runtime directory is empty: {}", rt_dir.display());
-            row(stdout, Status::Warning, "runtime", msg)?;
+            stdout.row(Status::Warning, "runtime", msg)?;
         }
     }
     let has_grammars = rt_dirs.iter().any(|directory| {
@@ -144,37 +142,25 @@ fn runtime_warnings(
             })
     });
     if !has_grammars {
-        row(stdout, Status::Warning, "grammars", "No compiled tree-sitter grammars found. Syntax highlighting requires compiled grammars.")?;
-        detail(
-            stdout,
+        stdout.row(Status::Warning, "grammars", "No compiled tree-sitter grammars found. Syntax highlighting requires compiled grammars.")?;
+        stdout.detail(
             "For source builds, fetch and compile grammars before installing the runtime:",
         )?;
-        detail(
-            stdout,
-            "https://mitos.computer/docs/building-from-source.html",
-        )?;
+        stdout.remedy("https://mitos.computer/docs/building-from-source.html")?;
     }
     Ok(())
 }
 
-pub fn clipboard() -> std::io::Result<()> {
-    let stdout = std::io::stdout();
-    let mut stdout = stdout.lock();
-
-    heading(&mut stdout, "Clipboard")?;
+fn clipboard(stdout: &mut Output<impl Write>) -> std::io::Result<()> {
+    stdout.heading("Clipboard")?;
     let config = match Config::load_default() {
         Ok(config) => config,
         Err(ConfigLoadError::Error(err)) if err.kind() == std::io::ErrorKind::NotFound => {
             Config::default()
         }
         Err(err) => {
-            row(
-                &mut stdout,
-                Status::Error,
-                "config",
-                "Configuration file malformed",
-            )?;
-            detail(&mut stdout, err)?;
+            stdout.row(Status::Error, "config", "Configuration file malformed")?;
+            stdout.note(err)?;
             return Ok(());
         }
     };
@@ -185,40 +171,35 @@ pub fn clipboard() -> std::io::Result<()> {
         .as_str()
     {
         "none" => {
-            row(&mut stdout, Status::Warning, "provider", "Not installed")?;
-            detail(
-                &mut stdout,
-                "For troubleshooting system clipboard issues, refer to:",
-            )?;
-            detail(&mut stdout, "https://github.com/helix-editor/helix/wiki/Troubleshooting#copypaste-fromto-system-clipboard-not-working")?;
+            stdout.row(Status::Warning, "provider", "Not installed")?;
+            stdout.detail("For troubleshooting system clipboard issues, refer to:")?;
+            stdout.remedy("https://github.com/helix-editor/helix/wiki/Troubleshooting#copypaste-fromto-system-clipboard-not-working")?;
         }
-        name => row(&mut stdout, Status::Ok, "provider", name)?,
+        name => stdout.row(Status::Ok, "provider", name)?,
     }
 
     Ok(())
 }
 
-pub fn languages_all() -> std::io::Result<()> {
-    languages(None, language_sources()?.value)
+fn languages_all(stdout: &mut Output<impl Write>) -> std::io::Result<()> {
+    languages(stdout, None, language_sources()?.value)
 }
 
-pub fn languages_selection() -> std::io::Result<()> {
+fn languages_selection(stdout: &mut Output<impl Write>) -> std::io::Result<()> {
     let mut value = language_sources()?.value;
     let selection = value
         .as_mut()
         .ok()
         .and_then(|value| loader::grammar::get_grammar_names(value).ok())
         .flatten();
-    languages(selection, value)
+    languages(stdout, selection, value)
 }
 
 fn languages(
+    stdout: &mut Output<impl Write>,
     selection: Option<HashSet<String>>,
     value: Result<toml::Value, toml::de::Error>,
 ) -> std::io::Result<()> {
-    let stdout = std::io::stdout();
-    let mut stdout = stdout.lock();
-
     let mut syn_loader_conf = match value
         .map_err(language::loader::LanguageLoaderError::DeserializeError)
         .and_then(parse_lang_config)
@@ -231,13 +212,13 @@ fn languages(
             writeln!(
                 stderr,
                 "{}: {}",
-                styled("Error parsing user language config", ColorSpec::BRIGHT_RED),
+                stdout.styled("Error parsing user language config", ColorSpec::BRIGHT_RED),
                 err
             )?;
             writeln!(
                 stderr,
                 "{}",
-                styled("Using default language config", ColorSpec::BRIGHT_YELLOW)
+                stdout.styled("Using default language config", ColorSpec::BRIGHT_YELLOW)
             )?;
             default_lang_config()
         }
@@ -302,7 +283,7 @@ fn languages(
             queries,
         ]);
     }
-    write_table(&mut stdout, &rows, terminal_columns())?;
+    write_table(stdout, &rows, terminal_columns())?;
     writeln!(
         stdout,
         "\nLSP: installed/configured executables (including alternatives)."
@@ -330,7 +311,7 @@ fn languages(
 
 /// Keep complete names, falling back to labelled rows on narrow terminals.
 fn write_table(
-    stdout: &mut impl Write,
+    stdout: &mut Output<impl Write>,
     rows: &[Vec<String>],
     columns: usize,
 ) -> std::io::Result<()> {
@@ -346,11 +327,11 @@ fn write_table(
         })
         .collect();
     if widths.iter().sum::<usize>() + 2 * widths.len().saturating_sub(1) > columns {
-        heading(stdout, "Languages")?;
+        stdout.heading("Languages")?;
         for row in &rows[1..] {
             writeln!(stdout, "\n{}", row[0])?;
             for (heading, value) in headings[1..].iter().zip(&row[1..]) {
-                writeln!(stdout, "  {heading}: {}", status_cell(value))?;
+                writeln!(stdout, "  {heading}: {}", status_cell(stdout, value))?;
             }
         }
         return Ok(());
@@ -360,12 +341,12 @@ fn write_table(
             if column != 0 {
                 write!(stdout, "  ")?;
             }
-            let cell = if index == 0 && use_color() {
-                value.clone().bold()
-            } else if column == 0 || index == 0 {
+            let cell = if index == 0 {
+                stdout.bold(value)
+            } else if column == 0 {
                 value.clone().stylized()
             } else {
-                status_cell(value)
+                status_cell(stdout, value)
             };
             write!(stdout, "{cell}")?;
             if column + 1 < row.len() {
@@ -390,10 +371,7 @@ fn write_table(
 
 /// Display diagnostics pertaining to a particular language (LSP,
 /// highlight queries, etc).
-pub async fn language(lang_str: String) -> std::io::Result<()> {
-    let stdout = std::io::stdout();
-    let mut stdout = stdout.lock();
-
+async fn language(stdout: &mut Output<impl Write>, lang_str: String) -> std::io::Result<()> {
     let syn_loader_conf = match language_sources()?
         .value
         .map_err(language::loader::LanguageLoaderError::DeserializeError)
@@ -407,13 +385,13 @@ pub async fn language(lang_str: String) -> std::io::Result<()> {
             writeln!(
                 stderr,
                 "{}: {}",
-                styled("Error parsing user language config", ColorSpec::BRIGHT_RED),
+                stdout.styled("Error parsing user language config", ColorSpec::BRIGHT_RED),
                 err
             )?;
             writeln!(
                 stderr,
                 "{}",
-                styled("Using default language config", ColorSpec::BRIGHT_YELLOW)
+                stdout.styled("Using default language config", ColorSpec::BRIGHT_YELLOW)
             )?;
             default_lang_config()
         }
@@ -427,7 +405,7 @@ pub async fn language(lang_str: String) -> std::io::Result<()> {
         Some(l) => l,
         None => {
             let msg = format!("Language '{}' not found", lang_str);
-            writeln!(stdout, "{}", styled(msg, ColorSpec::BRIGHT_RED))?;
+            writeln!(stdout, "{}", stdout.styled(msg, ColorSpec::BRIGHT_RED))?;
             let suggestions: Vec<&str> = syn_loader_conf
                 .language
                 .iter()
@@ -444,37 +422,37 @@ pub async fn language(lang_str: String) -> std::io::Result<()> {
                 writeln!(
                     stdout,
                     "Did you mean one of these: {} ?",
-                    styled(suggestions, ColorSpec::BRIGHT_YELLOW)
+                    stdout.styled(suggestions, ColorSpec::BRIGHT_YELLOW)
                 )?;
             }
             return Ok(());
         }
     };
 
-    heading(&mut stdout, &format!("Language: {lang_str}"))?;
+    stdout.heading(&format!("Language: {lang_str}"))?;
     writeln!(stdout)?;
     let editor_config =
         Config::load_for(&workspace::ResolvedWorkspace::current()).unwrap_or_default();
     probe_language_servers(
-        &mut stdout,
+        stdout,
         lang,
         &syn_loader_conf.language_server,
         &editor_config.editor.lsp.workspace_roots,
     )?;
 
     probes::language_servers(
-        &mut stdout,
+        stdout,
         lang,
         &syn_loader_conf.language_server,
         &editor_config.editor.lsp,
     )
     .await?;
     writeln!(stdout)?;
-    probes::debug_adapter(&mut stdout, lang.debugger.as_ref()).await?;
+    probes::debug_adapter(stdout, lang.debugger.as_ref()).await?;
     writeln!(stdout)?;
 
     probe_protocol(
-        &mut stdout,
+        stdout,
         "formatter",
         lang.formatter
             .as_ref()
@@ -482,11 +460,8 @@ pub async fn language(lang_str: String) -> std::io::Result<()> {
     )?;
 
     writeln!(stdout)?;
-    heading(&mut stdout, "Tree-sitter")?;
-    probe_parser(
-        &mut stdout,
-        lang.grammar.as_ref().unwrap_or(&lang.language_id),
-    )?;
+    stdout.heading("Tree-sitter")?;
+    probe_parser(stdout, lang.grammar.as_ref().unwrap_or(&lang.language_id))?;
 
     for (feature, source) in LanguageSupport::inspect(&Resources::default(), &lang_str).queries {
         let (status, state) = if source.is_readable() {
@@ -494,7 +469,7 @@ pub async fn language(lang_str: String) -> std::io::Result<()> {
         } else {
             (Status::Inactive, "queries missing")
         };
-        row(&mut stdout, status, feature.short_title(), state)?;
+        stdout.row(status, feature.short_title(), state)?;
     }
 
     Ok(())
@@ -507,53 +482,52 @@ fn terminal_columns() -> usize {
         .unwrap_or(80)
 }
 
-fn probe_parser(stdout: &mut impl Write, grammar_name: &str) -> std::io::Result<()> {
+fn probe_parser(stdout: &mut Output<impl Write>, grammar_name: &str) -> std::io::Result<()> {
     let (status, state) = match loader::grammar::get_language(grammar_name) {
         Ok(Some(_)) => (Status::Ok, "loaded"),
         Ok(None) | Err(_) => (Status::Warning, "unavailable"),
     };
-    row(stdout, status, "parser", state)
+    stdout.row(status, "parser", state)
 }
 
 /// Describe selection without launching processes or claiming initialization succeeded.
 fn probe_language_servers(
-    stdout: &mut impl Write,
+    stdout: &mut Output<impl Write>,
     language: &language_config::LanguageConfiguration,
     definitions: &std::collections::HashMap<String, language_config::LanguageServerConfiguration>,
     root_dirs: &[std::path::PathBuf],
 ) -> std::io::Result<()> {
-    heading(stdout, "Configured language servers")?;
+    stdout.heading("Configured language servers")?;
     if language.language_servers.is_empty() {
-        row(stdout, Status::Inactive, "servers", "not configured")?;
+        stdout.row(Status::Inactive, "servers", "not configured")?;
         return Ok(());
     }
     let (root, _) = view::language_servers::language_server_root(language, None, root_dirs);
-    row(stdout, Status::Info, "project root", root.display())?;
+    if !stdout.options.summary {
+        stdout.row(Status::Info, "project root", root.display())?;
+    }
     for group in language.language_server_groups() {
         let alternatives = group[0].alternative_group.is_some();
         if alternatives {
-            detail(
-                stdout,
-                "Alternatives (first applicable executable; initialization not tested):",
-            )?;
+            stdout
+                .note("Alternatives (first applicable executable; initialization not tested):")?;
         }
         let mut selected = false;
         for server in group {
             let Some(definition) = definitions.get(&server.name) else {
-                row(stdout, Status::Error, &server.name, "definition missing")?;
+                stdout.row(Status::Error, &server.name, "definition missing")?;
                 continue;
             };
             let path = match stdx::env::which(&definition.command) {
                 Ok(path) => path,
                 Err(_) => {
-                    row(
-                        stdout,
+                    stdout.row(
                         Status::Error,
                         &server.name,
                         format_args!("'{}' not found in $PATH", definition.command),
                     )?;
                     if !definition.args.is_empty() {
-                        detail(stdout, format_args!("Arguments: {:?}", definition.args))?;
+                        stdout.field("Arguments:", format_args!("{:?}", definition.args))?;
                     }
                     continue;
                 }
@@ -561,8 +535,7 @@ fn probe_language_servers(
             match view::language_servers::has_required_root(definition, &root) {
                 Ok(true) => {}
                 Ok(false) => {
-                    row(
-                        stdout,
+                    stdout.row(
                         Status::Inactive,
                         &server.name,
                         "project does not match required-root-patterns",
@@ -570,8 +543,7 @@ fn probe_language_servers(
                     continue;
                 }
                 Err(error) => {
-                    row(
-                        stdout,
+                    stdout.row(
                         Status::Error,
                         &server.name,
                         format_args!("cannot check project requirements: {error}"),
@@ -589,10 +561,18 @@ fn probe_language_servers(
                 "enabled alongside other entries"
             };
             selected = true;
-            row(stdout, Status::Ok, &server.name, path.display())?;
-            detail(stdout, role)?;
+            stdout.row(
+                Status::Ok,
+                &server.name,
+                if stdout.options.summary {
+                    role.to_owned()
+                } else {
+                    path.display().to_string()
+                },
+            )?;
+            stdout.detail(role)?;
             if !definition.args.is_empty() {
-                detail(stdout, format_args!("Arguments: {:?}", definition.args))?;
+                stdout.field("Arguments:", format_args!("{:?}", definition.args))?;
             }
         }
     }
@@ -601,54 +581,59 @@ fn probe_language_servers(
 
 /// Display diagnostics about LSP and DAP.
 fn probe_protocol(
-    stdout: &mut impl Write,
+    stdout: &mut Output<impl Write>,
     protocol_name: &str,
     server_cmd: Option<(&str, &[String])>,
 ) -> std::io::Result<()> {
-    heading(stdout, &format!("Configured {protocol_name}"))?;
+    stdout.heading(&format!("Configured {protocol_name}"))?;
     let Some((cmd, args)) = server_cmd else {
-        return row(stdout, Status::Inactive, "executable", "not configured");
+        return stdout.row(Status::Inactive, "executable", "not configured");
     };
     match stdx::env::which(cmd) {
-        Ok(path) => row(stdout, Status::Ok, "executable", path.display())?,
-        Err(_) => row(
-            stdout,
+        Ok(path) => stdout.row(
+            Status::Ok,
+            "executable",
+            if stdout.options.summary {
+                "found".into()
+            } else {
+                path.display().to_string()
+            },
+        )?,
+        Err(_) => stdout.row(
             Status::Error,
             "executable",
             format_args!("'{cmd}' not found in $PATH"),
         )?,
     }
     if !args.is_empty() {
-        detail(stdout, format_args!("Arguments: {args:?}"))?;
+        stdout.field("Arguments:", format_args!("{args:?}"))?;
     }
 
     Ok(())
 }
 
-pub async fn print_health(health_arg: Option<String>) -> std::io::Result<()> {
+pub async fn print_health(health_arg: Option<String>, options: Options) -> std::io::Result<()> {
+    let stdout = std::io::stdout();
+    let mut output = Output::new(stdout.lock(), options);
     match health_arg.as_deref() {
-        Some("languages") => languages_selection()?,
-        Some("all-languages") => languages_all()?,
-        Some("clipboard") => clipboard()?,
-        None => {
-            general()?;
-            writeln!(std::io::stdout().lock())?;
-            clipboard()?;
-            writeln!(std::io::stdout().lock())?;
-            languages_selection()?;
-        }
-        Some("all") => {
-            general()?;
-            writeln!(std::io::stdout().lock())?;
-            clipboard()?;
-            writeln!(std::io::stdout().lock())?;
-            languages_all()?;
+        Some("languages") => languages_selection(&mut output)?,
+        Some("all-languages") => languages_all(&mut output)?,
+        Some("clipboard") => clipboard(&mut output)?,
+        None | Some("all") => {
+            general(&mut output)?;
+            writeln!(output)?;
+            clipboard(&mut output)?;
+            writeln!(output)?;
+            if health_arg.is_some() {
+                languages_all(&mut output)?;
+            } else {
+                languages_selection(&mut output)?;
+            }
         }
         Some(lang) => {
-            language(lang.to_string()).await?;
-            let mut stdout = std::io::stdout().lock();
-            writeln!(stdout)?;
-            runtime_warnings(&mut stdout, loader::runtime_dirs())?;
+            language(&mut output, lang.to_string()).await?;
+            writeln!(output)?;
+            runtime_warnings(&mut output, loader::runtime_dirs())?;
         }
     }
     Ok(())
@@ -682,7 +667,13 @@ scope = "source.health-test"
 file-types = []
 language-servers = [{{ alternatives = ["missing", "inapplicable", "preferred", "fallback"] }}, "linter"]
 "#)).unwrap();
-        let mut output = Vec::new();
+        let mut output = super::Output::new(
+            Vec::new(),
+            super::Options {
+                no_color: true,
+                ..Default::default()
+            },
+        );
         super::probe_language_servers(
             &mut output,
             &config.language[0],
@@ -690,7 +681,7 @@ language-servers = [{{ alternatives = ["missing", "inapplicable", "preferred", "
             &[],
         )
         .unwrap();
-        let output = String::from_utf8(output).unwrap();
+        let output = String::from_utf8(output.into_inner()).unwrap();
         assert!(output.contains("initialization not tested"));
         assert!(output.contains("not found in $PATH"));
         assert!(output.contains("project does not match required-root-patterns"));
@@ -714,9 +705,15 @@ mod runtime_warning_tests {
             loader::grammar::DYLIB_EXTENSION
         )))
         .unwrap();
-        let mut output = Vec::new();
+        let mut output = super::Output::new(
+            Vec::new(),
+            super::Options {
+                no_color: true,
+                ..Default::default()
+            },
+        );
         super::runtime_warnings(&mut output, &[root.path().to_owned()]).unwrap();
-        let output = String::from_utf8(output).unwrap();
+        let output = String::from_utf8(output.into_inner()).unwrap();
         assert!(output.contains("No compiled tree-sitter grammars found"));
         assert!(output.contains("fetch and compile grammars before installing the runtime"));
     }
@@ -736,9 +733,15 @@ mod runtime_warning_tests {
             "library",
         )
         .unwrap();
-        let mut output = Vec::new();
+        let mut output = super::Output::new(
+            Vec::new(),
+            super::Options {
+                no_color: true,
+                ..Default::default()
+            },
+        );
         super::runtime_warnings(&mut output, &[high, low]).unwrap();
-        assert!(!String::from_utf8(output)
+        assert!(!String::from_utf8(output.into_inner())
             .unwrap()
             .contains("No compiled tree-sitter grammars found"));
     }
@@ -759,9 +762,15 @@ mod runtime_warning_tests {
         .unwrap();
         let linked = root.path().join("user-runtime");
         std::os::unix::fs::symlink(&runtime, &linked).unwrap();
-        let mut output = Vec::new();
+        let mut output = super::Output::new(
+            Vec::new(),
+            super::Options {
+                no_color: true,
+                ..Default::default()
+            },
+        );
         super::runtime_warnings(&mut output, &[linked]).unwrap();
-        let output = String::from_utf8(output).unwrap();
+        let output = String::from_utf8(output.into_inner()).unwrap();
         assert!(output.contains("is symlinked to"));
         assert!(!output.contains("No compiled tree-sitter grammars found"));
     }
@@ -775,13 +784,19 @@ mod runtime_warning_tests {
         std::fs::create_dir(&empty).unwrap();
         std::fs::create_dir(&populated).unwrap();
         std::fs::write(populated.join("file"), "data").unwrap();
-        let mut output = Vec::new();
+        let mut output = super::Output::new(
+            Vec::new(),
+            super::Options {
+                no_color: true,
+                ..Default::default()
+            },
+        );
         super::runtime_warnings(
             &mut output,
             &[missing.clone(), empty.clone(), populated.clone()],
         )
         .unwrap();
-        let output = String::from_utf8(output).unwrap();
+        let output = String::from_utf8(output.into_inner()).unwrap();
         assert!(output.contains(&format!(
             "Runtime directory does not exist: {}",
             missing.display()
@@ -803,9 +818,15 @@ mod tests {
             "[wrapper]\ncommand = 'missing-mitos-health-tool'\nargs = ['run', 'server', '--stdio']",
         )
         .unwrap();
-        let mut output = Vec::new();
+        let mut output = super::Output::new(
+            Vec::new(),
+            super::Options {
+                no_color: true,
+                ..Default::default()
+            },
+        );
         super::probe_language_servers(&mut output, &language, &definitions, &[]).unwrap();
-        let output = String::from_utf8(output).unwrap();
+        let output = String::from_utf8(output.into_inner()).unwrap();
         assert!(output.contains("wrapper"));
         assert!(output.contains("Arguments: [\"run\", \"server\", \"--stdio\"]"));
     }
@@ -817,14 +838,20 @@ mod tests {
             "black".to_owned(),
             "%{buffer_name}".to_owned(),
         ];
-        let mut output = Vec::new();
+        let mut output = super::Output::new(
+            Vec::new(),
+            super::Options {
+                no_color: true,
+                ..Default::default()
+            },
+        );
         super::probe_protocol(
             &mut output,
             "formatter",
             Some(("missing-mitos-health-tool", &args)),
         )
         .unwrap();
-        let output = String::from_utf8(output).unwrap();
+        let output = String::from_utf8(output.into_inner()).unwrap();
         assert!(output.contains("Arguments: [\"run\", \"black\", \"%{buffer_name}\"]"));
     }
 }
