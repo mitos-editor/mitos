@@ -52,7 +52,6 @@ pub struct Client {
     pending_requests: Arc<PendingRequests>,
     request_counter: AtomicU64,
     capabilities: OnceLock<lsp::ServerCapabilities>,
-    text_document_content_schemes: OnceLock<Vec<String>>,
     initialization: OnceCell<()>,
     pub(crate) file_operation_interest: OnceLock<FileOperationsInterest>,
     config: Option<Value>,

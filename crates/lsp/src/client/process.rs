@@ -78,7 +78,6 @@ impl Client {
             pending_requests: connection.requests,
             request_counter: AtomicU64::new(0),
             capabilities: OnceLock::new(),
-            text_document_content_schemes: OnceLock::new(),
             initialization: OnceCell::new(),
             file_operation_interest: OnceLock::new(),
             config,
@@ -104,16 +103,6 @@ impl Client {
                 let response = self
                     .initialize_request(enable_snippets, client_info)
                     .await?;
-                let schemes = response
-                    .pointer("/capabilities/workspace/textDocumentContent/schemes")
-                    .cloned()
-                    .map(serde_json::from_value::<Vec<String>>)
-                    .transpose()?
-                    .unwrap_or_default();
-                let response: lsp::InitializeResult = serde_json::from_value(response)?;
-                self.text_document_content_schemes
-                    .set(schemes)
-                    .expect("content capabilities are installed once");
                 self.capabilities
                     .set(response.capabilities)
                     .expect("capabilities are installed by one initialization");
@@ -129,7 +118,7 @@ impl Client {
         &self,
         enable_snippets: bool,
         client_info: lsp::ClientInfo,
-    ) -> Result<Value> {
+    ) -> Result<lsp::InitializeResult> {
         if let Some(config) = &self.config {
             log::info!("Using custom LSP config: {}", config);
         }
@@ -145,7 +134,9 @@ impl Client {
             initialization_options: self.config.clone(),
             capabilities: lsp::ClientCapabilities {
                 workspace: Some(lsp::WorkspaceClientCapabilities {
-                    text_document_content: None,
+                    text_document_content: Some(lsp::TextDocumentContentClientCapabilities {
+                        dynamic_registration: Some(false),
+                    }),
                     folding_range: Some(lsp::FoldingRangeWorkspaceClientCapabilities {
                         refresh_support: Some(true),
                     }),
@@ -480,11 +471,7 @@ impl Client {
             work_done_progress_params: lsp::WorkDoneProgressParams::default(),
         };
 
-        // The pinned wire dependency does not yet model 3.18 content providers.
-        let mut params = serde_json::to_value(params)?;
-        params["capabilities"]["workspace"]["textDocumentContent"] =
-            serde_json::json!({"dynamicRegistration": false});
-        self.call::<ContentInitialize>(params).await
+        self.call::<lsp::request::Initialize>(params).await
     }
 
     /// Requests graceful shutdown without sending `exit`.
@@ -526,11 +513,4 @@ impl Client {
     pub async fn wait_shutdown_flushed(&self) {
         self.shutdown_flushed.notified().await;
     }
-}
-
-enum ContentInitialize {}
-impl lsp::request::Request for ContentInitialize {
-    type Params = Value;
-    type Result = Value;
-    const METHOD: &'static str = "initialize";
 }
