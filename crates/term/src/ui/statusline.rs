@@ -599,11 +599,7 @@ fn render_file_modification_indicator<'a, F>(context: &mut RenderContext<'a>, wr
 where
     F: Fn(&mut RenderContext<'a>, Span<'a>) + Copy,
 {
-    let title = if context.doc.is_modified() {
-        "[+]"
-    } else {
-        "   "
-    };
+    let title = if context.doc.is_modified() { "[+]" } else { "" };
 
     write(context, title.into());
 }

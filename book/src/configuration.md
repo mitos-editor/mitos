@@ -429,8 +429,8 @@ single statusline at the bottom of the editor for the focused view.
 | Key | Type | Default |
 | --- | --- | --- |
 | `global` | boolean | `false` |
-| `left` | array of element names | `["mode", "spinner", "file-name", "read-only-indicator", "file-modification-indicator", "branch", "debug-session"]` |
-| `right` | array of element names | `["diagnostics", "selections", "register", "search-position", "file-type", "position", "file-encoding"]` |
+| `left` | array of element names | `["mode", "file-name", "read-only-indicator", "file-modification-indicator", "branch", "debug-session"]` |
+| `right` | array of element names | `["diagnostics", "selections", "register", "search-position", "spinner", "file-type", "position", "file-encoding"]` |
 | `separator` | string | `"│"` |
 | `mode.color` | boolean | `false` |
 | `mode.normal` | string | `"NOR"` |

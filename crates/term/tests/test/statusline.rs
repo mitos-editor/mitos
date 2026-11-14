@@ -358,6 +358,47 @@ async fn busy_statuslines_preserve_file_identity_and_state() -> anyhow::Result<(
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn saved_files_do_not_reserve_space_for_the_modified_indicator() -> anyhow::Result<()> {
+    use super::helpers::keys;
+    use arc_swap::ArcSwap;
+    use std::sync::Arc;
+    use theme::icons::ICONS;
+
+    let dir = tempfile::tempdir()?;
+    let path = dir.path().join("main.rs");
+    std::fs::write(&path, "hello\n")?;
+    for icons in [false, true] {
+        let mut config = test_config();
+        config.editor.icons = icons;
+        let mut app = AppBuilder::new()
+            .with_config(config)
+            .with_file(&path, None)
+            .with_lang_loader(language::syntax::Loader::default())
+            .build()?;
+        view::current!(app.editor)
+            .1
+            .set_version_control_head(Some(Arc::new(ArcSwap::from_pointee("main".into()))));
+        let branch = if icons {
+            format!("{}main ", ICONS.vcs().branch())
+        } else {
+            " main ".to_owned()
+        };
+        for (input, indicator) in [("", ""), ("ix<esc>", "[+]"), ("u", "")] {
+            keys(&mut app, input).await?;
+            let (view, doc) = current_ref!(app.editor);
+            let text = row(app.terminal_backend().buffer(), view.statusline_area(doc));
+            let expected = format!("main.rs {indicator}{branch}");
+            assert!(
+                text.contains(&expected),
+                "expected {expected:?}, got {text:?}"
+            );
+        }
+        assert!(app.close().await.is_empty());
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn default_statusline_shows_language_and_only_unusual_encoding() -> anyhow::Result<()> {
     use super::helpers::keys;
 
