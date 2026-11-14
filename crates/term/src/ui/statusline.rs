@@ -743,11 +743,8 @@ where
         .unwrap_or_default()
         .to_string();
 
-    if context.editor.config().icons
-        && !head.is_empty()
-        && let Some(icon) = ICONS.vcs().branch()
-    {
-        write(context, icon_span(icon));
+    if context.editor.config().icons && !head.is_empty() {
+        write(context, icon_span(ICONS.vcs().branch()));
         write(context, format!("{head} ").into());
         return;
     }
