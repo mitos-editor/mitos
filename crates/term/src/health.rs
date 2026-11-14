@@ -1,4 +1,7 @@
+mod output;
 mod probes;
+
+use output::{detail, heading, row, Status};
 
 use crate::config::{Config, ConfigLoadError};
 use editor_core::unicode::width::UnicodeWidthStr;
@@ -15,7 +18,9 @@ use termina::{
 };
 
 fn use_color() -> bool {
-    std::io::stdout().is_terminal() && std::env::var_os("NO_COLOR").is_none()
+    std::io::stdout().is_terminal()
+        && std::env::var_os("NO_COLOR").is_none()
+        && std::env::var_os("TERM").is_none_or(|term| term != "dumb")
 }
 
 fn styled(text: impl Into<String>, color: ColorSpec) -> Stylized<'static> {
@@ -73,25 +78,32 @@ pub fn general() -> std::io::Result<()> {
     let log_file = loader::log_file();
     let rt_dirs = loader::runtime_dirs();
 
-    writeln!(
-        stdout,
-        "Mitos {}\n\nConfiguration",
-        loader::VERSION_AND_GIT_HASH
+    heading(
+        &mut stdout,
+        &format!("Mitos {}", loader::VERSION_AND_GIT_HASH),
     )?;
+    writeln!(stdout)?;
+    heading(&mut stdout, "Configuration")?;
     if config_file.exists() {
-        writeln!(stdout, "Config file: {}", config_file.display())?;
+        row(&mut stdout, Status::Info, "config", config_file.display())?;
     } else {
-        writeln!(stdout, "Config file: default")?;
+        row(&mut stdout, Status::Info, "config", "default")?;
     }
     if lang_file.exists() {
-        writeln!(stdout, "Language file: {}", lang_file.display())?;
+        row(&mut stdout, Status::Info, "languages", lang_file.display())?;
     } else {
-        writeln!(stdout, "Language file: default")?;
+        row(&mut stdout, Status::Info, "languages", "default")?;
     }
-    writeln!(stdout, "Log file: {}", log_file.display())?;
-    writeln!(stdout, "\nRuntime directories (in search order)")?;
+    row(&mut stdout, Status::Info, "log", log_file.display())?;
+    writeln!(stdout)?;
+    heading(&mut stdout, "Runtime directories (in search order)")?;
     for directory in rt_dirs {
-        writeln!(stdout, "  {}", directory.display())?;
+        row(
+            &mut stdout,
+            Status::Info,
+            "search path",
+            directory.display(),
+        )?;
     }
     runtime_warnings(&mut stdout, rt_dirs)
 }
@@ -107,14 +119,14 @@ fn runtime_warnings(
                 rt_dir.display(),
                 path.display()
             );
-            writeln!(stdout, "{}", styled(msg, ColorSpec::BRIGHT_YELLOW))?;
+            row(stdout, Status::Warning, "runtime", msg)?;
         }
         if !rt_dir.exists() {
             let msg = format!("Runtime directory does not exist: {}", rt_dir.display());
-            writeln!(stdout, "{}", styled(msg, ColorSpec::BRIGHT_YELLOW))?;
+            row(stdout, Status::Warning, "runtime", msg)?;
         } else if rt_dir.read_dir().ok().map(|it| it.count()) == Some(0) {
             let msg = format!("Runtime directory is empty: {}", rt_dir.display());
-            writeln!(stdout, "{}", styled(msg, ColorSpec::BRIGHT_YELLOW))?;
+            row(stdout, Status::Warning, "runtime", msg)?;
         }
     }
     let has_grammars = rt_dirs.iter().any(|directory| {
@@ -132,15 +144,14 @@ fn runtime_warnings(
             })
     });
     if !has_grammars {
-        writeln!(
+        row(stdout, Status::Warning, "grammars", "No compiled tree-sitter grammars found. Syntax highlighting requires compiled grammars.")?;
+        detail(
             stdout,
-            "{}",
-            styled("No compiled tree-sitter grammars found. Syntax highlighting requires compiled grammars.", ColorSpec::BRIGHT_YELLOW)
+            "For source builds, fetch and compile grammars before installing the runtime:",
         )?;
-        writeln!(
+        detail(
             stdout,
-            "For source builds, fetch and compile grammars before installing the runtime: \
-             https://mitos.computer/docs/building-from-source.html"
+            "https://mitos.computer/docs/building-from-source.html",
         )?;
     }
     Ok(())
@@ -150,49 +161,38 @@ pub fn clipboard() -> std::io::Result<()> {
     let stdout = std::io::stdout();
     let mut stdout = stdout.lock();
 
+    heading(&mut stdout, "Clipboard")?;
     let config = match Config::load_default() {
         Ok(config) => config,
         Err(ConfigLoadError::Error(err)) if err.kind() == std::io::ErrorKind::NotFound => {
             Config::default()
         }
         Err(err) => {
-            writeln!(
-                stdout,
-                "{}",
-                styled("Configuration file malformed", ColorSpec::BRIGHT_RED)
+            row(
+                &mut stdout,
+                Status::Error,
+                "config",
+                "Configuration file malformed",
             )?;
-            writeln!(stdout, "{}", err)?;
+            detail(&mut stdout, err)?;
             return Ok(());
         }
     };
 
-    writeln!(stdout, "\nClipboard")?;
     use ::clipboard::ClipboardBackend;
     match crate::clipboard::TerminalClipboard
         .name(&config.editor.clipboard.provider)
         .as_str()
     {
         "none" => {
-            writeln!(
-                stdout,
-                "{}",
-                styled(
-                    "System clipboard provider: Not installed",
-                    ColorSpec::BRIGHT_RED
-                )
+            row(&mut stdout, Status::Warning, "provider", "Not installed")?;
+            detail(
+                &mut stdout,
+                "For troubleshooting system clipboard issues, refer to:",
             )?;
-            writeln!(
-                stdout,
-                "    {}",
-                styled(
-                    "For troubleshooting system clipboard issues, refer",
-                    ColorSpec::BRIGHT_RED
-                )
-            )?;
-            writeln!(stdout, "    {}",
-                styled("https://github.com/helix-editor/helix/wiki/Troubleshooting#copypaste-fromto-system-clipboard-not-working", ColorSpec::BRIGHT_RED))?;
+            detail(&mut stdout, "https://github.com/helix-editor/helix/wiki/Troubleshooting#copypaste-fromto-system-clipboard-not-working")?;
         }
-        name => writeln!(stdout, "System clipboard provider: {}", name)?,
+        name => row(&mut stdout, Status::Ok, "provider", name)?,
     }
 
     Ok(())
@@ -302,11 +302,7 @@ fn languages(
             queries,
         ]);
     }
-    let terminal_cols = termina::PlatformTerminal::new()
-        .and_then(|terminal| terminal.get_dimensions())
-        .map(|size| size.cols as usize)
-        .unwrap_or(80);
-    write_table(&mut stdout, &rows, terminal_cols)?;
+    write_table(&mut stdout, &rows, terminal_columns())?;
     writeln!(
         stdout,
         "\nLSP: installed/configured executables (including alternatives)."
@@ -350,7 +346,7 @@ fn write_table(
         })
         .collect();
     if widths.iter().sum::<usize>() + 2 * widths.len().saturating_sub(1) > columns {
-        writeln!(stdout, "Languages")?;
+        heading(stdout, "Languages")?;
         for row in &rows[1..] {
             writeln!(stdout, "\n{}", row[0])?;
             for (heading, value) in headings[1..].iter().zip(&row[1..]) {
@@ -455,7 +451,8 @@ pub async fn language(lang_str: String) -> std::io::Result<()> {
         }
     };
 
-    writeln!(stdout, "Language: {lang_str}\n")?;
+    heading(&mut stdout, &format!("Language: {lang_str}"))?;
+    writeln!(stdout)?;
     let editor_config =
         Config::load_for(&workspace::ResolvedWorkspace::current()).unwrap_or_default();
     probe_language_servers(
@@ -484,31 +481,38 @@ pub async fn language(lang_str: String) -> std::io::Result<()> {
             .map(|formatter| (formatter.command.as_str(), formatter.args.as_slice())),
     )?;
 
-    writeln!(stdout, "\nTree-sitter")?;
-    probe_parser(lang.grammar.as_ref().unwrap_or(&lang.language_id))?;
+    writeln!(stdout)?;
+    heading(&mut stdout, "Tree-sitter")?;
+    probe_parser(
+        &mut stdout,
+        lang.grammar.as_ref().unwrap_or(&lang.language_id),
+    )?;
 
     for (feature, source) in LanguageSupport::inspect(&Resources::default(), &lang_str).queries {
-        let found = if source.is_readable() {
-            styled("✓", ColorSpec::BRIGHT_GREEN)
+        let (status, state) = if source.is_readable() {
+            (Status::Ok, "queries found")
         } else {
-            styled("✘", ColorSpec::BRIGHT_RED)
+            (Status::Inactive, "queries missing")
         };
-        writeln!(stdout, "  {} queries: {}", feature.short_title(), found)?;
+        row(&mut stdout, status, feature.short_title(), state)?;
     }
 
     Ok(())
 }
 
-fn probe_parser(grammar_name: &str) -> std::io::Result<()> {
-    let stdout = std::io::stdout();
-    let mut stdout = stdout.lock();
+fn terminal_columns() -> usize {
+    termina::PlatformTerminal::new()
+        .and_then(|terminal| terminal.get_dimensions())
+        .map(|size| size.cols as usize)
+        .unwrap_or(80)
+}
 
-    write!(stdout, "  Parser: ")?;
-
-    match loader::grammar::get_language(grammar_name) {
-        Ok(Some(_)) => writeln!(stdout, "{}", styled("✓", ColorSpec::BRIGHT_GREEN)),
-        Ok(None) | Err(_) => writeln!(stdout, "{}", styled("None", ColorSpec::BRIGHT_YELLOW)),
-    }
+fn probe_parser(stdout: &mut impl Write, grammar_name: &str) -> std::io::Result<()> {
+    let (status, state) = match loader::grammar::get_language(grammar_name) {
+        Ok(Some(_)) => (Status::Ok, "loaded"),
+        Ok(None) | Err(_) => (Status::Warning, "unavailable"),
+    };
+    row(stdout, status, "parser", state)
 }
 
 /// Describe selection without launching processes or claiming initialization succeeded.
@@ -518,37 +522,38 @@ fn probe_language_servers(
     definitions: &std::collections::HashMap<String, language_config::LanguageServerConfiguration>,
     root_dirs: &[std::path::PathBuf],
 ) -> std::io::Result<()> {
-    writeln!(stdout, "Configured language servers:")?;
+    heading(stdout, "Configured language servers")?;
     if language.language_servers.is_empty() {
-        writeln!(stdout, "  None")?;
+        row(stdout, Status::Inactive, "servers", "not configured")?;
         return Ok(());
     }
     let (root, _) = view::language_servers::language_server_root(language, None, root_dirs);
-    writeln!(stdout, "  Project root: {}", root.display())?;
+    row(stdout, Status::Info, "project root", root.display())?;
     for group in language.language_server_groups() {
         let alternatives = group[0].alternative_group.is_some();
         if alternatives {
-            writeln!(
+            detail(
                 stdout,
-                "  Alternatives (first applicable executable; initialization not tested):"
+                "Alternatives (first applicable executable; initialization not tested):",
             )?;
         }
         let mut selected = false;
         for server in group {
             let Some(definition) = definitions.get(&server.name) else {
-                writeln!(stdout, "    ✘ {}: definition missing", server.name)?;
+                row(stdout, Status::Error, &server.name, "definition missing")?;
                 continue;
             };
             let path = match stdx::env::which(&definition.command) {
                 Ok(path) => path,
                 Err(_) => {
-                    writeln!(
+                    row(
                         stdout,
-                        "    ✘ {}: '{}' not found in $PATH",
-                        server.name, definition.command
+                        Status::Error,
+                        &server.name,
+                        format_args!("'{}' not found in $PATH", definition.command),
                     )?;
                     if !definition.args.is_empty() {
-                        writeln!(stdout, "      Arguments: {:?}", definition.args)?;
+                        detail(stdout, format_args!("Arguments: {:?}", definition.args))?;
                     }
                     continue;
                 }
@@ -556,18 +561,20 @@ fn probe_language_servers(
             match view::language_servers::has_required_root(definition, &root) {
                 Ok(true) => {}
                 Ok(false) => {
-                    writeln!(
+                    row(
                         stdout,
-                        "    − {}: project does not match required-root-patterns",
-                        server.name
+                        Status::Inactive,
+                        &server.name,
+                        "project does not match required-root-patterns",
                     )?;
                     continue;
                 }
                 Err(error) => {
-                    writeln!(
+                    row(
                         stdout,
-                        "    ✘ {}: cannot check project requirements: {error}",
-                        server.name
+                        Status::Error,
+                        &server.name,
+                        format_args!("cannot check project requirements: {error}"),
                     )?;
                     continue;
                 }
@@ -582,9 +589,10 @@ fn probe_language_servers(
                 "enabled alongside other entries"
             };
             selected = true;
-            writeln!(stdout, "    ✓ {}: {} ({role})", server.name, path.display())?;
+            row(stdout, Status::Ok, &server.name, path.display())?;
+            detail(stdout, role)?;
             if !definition.args.is_empty() {
-                writeln!(stdout, "      Arguments: {:?}", definition.args)?;
+                detail(stdout, format_args!("Arguments: {:?}", definition.args))?;
             }
         }
     }
@@ -597,29 +605,21 @@ fn probe_protocol(
     protocol_name: &str,
     server_cmd: Option<(&str, &[String])>,
 ) -> std::io::Result<()> {
-    write!(stdout, "Configured {}:", protocol_name)?;
+    heading(stdout, &format!("Configured {protocol_name}"))?;
     let Some((cmd, args)) = server_cmd else {
-        writeln!(stdout, "{}", styled(" None", ColorSpec::BRIGHT_YELLOW))?;
-        return Ok(());
+        return row(stdout, Status::Inactive, "executable", "not configured");
     };
-    writeln!(stdout)?;
-
-    let (diag, icon) = match stdx::env::which(cmd) {
-        Ok(path) => (
-            styled(path.display().to_string(), ColorSpec::BRIGHT_GREEN),
-            styled("✓", ColorSpec::BRIGHT_GREEN),
-        ),
-        Err(_) => (
-            styled(
-                format!("'{}' not found in $PATH", cmd),
-                ColorSpec::BRIGHT_RED,
-            ),
-            styled("✘", ColorSpec::BRIGHT_RED),
-        ),
-    };
-    writeln!(stdout, "  {} {}", icon, diag)?;
+    match stdx::env::which(cmd) {
+        Ok(path) => row(stdout, Status::Ok, "executable", path.display())?,
+        Err(_) => row(
+            stdout,
+            Status::Error,
+            "executable",
+            format_args!("'{cmd}' not found in $PATH"),
+        )?,
+    }
     if !args.is_empty() {
-        writeln!(stdout, "    Arguments: {args:?}")?;
+        detail(stdout, format_args!("Arguments: {args:?}"))?;
     }
 
     Ok(())
@@ -632,12 +632,14 @@ pub async fn print_health(health_arg: Option<String>) -> std::io::Result<()> {
         Some("clipboard") => clipboard()?,
         None => {
             general()?;
+            writeln!(std::io::stdout().lock())?;
             clipboard()?;
             writeln!(std::io::stdout().lock())?;
             languages_selection()?;
         }
         Some("all") => {
             general()?;
+            writeln!(std::io::stdout().lock())?;
             clipboard()?;
             writeln!(std::io::stdout().lock())?;
             languages_all()?;
@@ -693,7 +695,7 @@ language-servers = [{{ alternatives = ["missing", "inapplicable", "preferred", "
         assert!(output.contains("not found in $PATH"));
         assert!(output.contains("project does not match required-root-patterns"));
         assert!(output.contains("preferred candidate"));
-        assert!(output.contains("(fallback)"));
+        assert!(output.contains("fallback"));
         assert!(output.contains("enabled alongside other entries"));
     }
 }
