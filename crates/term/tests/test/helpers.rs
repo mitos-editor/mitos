@@ -409,7 +409,7 @@ impl AppBuilder {
     ) -> Self {
         self.args
             .files
-            .insert(path.into(), vec![pos.unwrap_or_default()]);
+            .insert(path.into(), pos.into_iter().collect());
 
         self
     }
