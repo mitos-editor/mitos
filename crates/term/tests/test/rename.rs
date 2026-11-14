@@ -99,6 +99,81 @@ async fn wait_message(dir: &Path, method: &str) -> anyhow::Result<serde_json::Va
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn rename_activity_covers_requests_but_not_the_name_prompt() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let mut f = fixture(dir.path(), &[]).await?;
+    let (view, doc) = current_ref!(f.app.editor);
+    let document = doc.id();
+    let task = f.app.editor.prepare_rename(document, view.id)?;
+    let activity = f
+        .app
+        .editor
+        .activities()
+        .next()
+        .expect("prepare-rename activity");
+    assert_eq!(activity.label, "Renaming");
+    assert_eq!(activity.document, Some(document));
+    let update = task.run().await.context("preparation canceled")?;
+    assert_eq!(f.app.editor.activities().count(), 1);
+    let session = update
+        .into_result(&f.app.editor)
+        .context("preparation invalid")??;
+    assert!(
+        f.app.editor.activities().next().is_none(),
+        "entering the new name is idle"
+    );
+    f.app.editor.rename_symbol(session, "renamed".into())?;
+    assert_eq!(f.app.editor.activities().count(), 1);
+    let callback = f.response().await?;
+    assert_eq!(
+        f.app.editor.activities().count(),
+        1,
+        "queued edits are still pending"
+    );
+    callback(&mut f.app.editor);
+    assert_eq!(
+        current_ref!(f.app.editor).1.text().to_string(),
+        "😀 renamed\n"
+    );
+    assert!(f.app.editor.activities().next().is_none());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn rename_activity_clears_on_dropped_preparation_and_canceled_requests() -> anyhow::Result<()>
+{
+    let dir = tempfile::tempdir()?;
+    let response = Gate::new(dir.path().join("rename-response"));
+    response.close()?;
+    let mut f = fixture(
+        dir.path(),
+        &["--response-gate", response.path().to_str().unwrap()],
+    )
+    .await?;
+    let (view, doc) = current_ref!(f.app.editor);
+    let task = f.app.editor.prepare_rename(doc.id(), view.id)?;
+    assert_eq!(f.app.editor.activities().count(), 1);
+    drop(task);
+    assert!(f.app.editor.activities().next().is_none());
+
+    let session = prepare(&mut f.app).await?;
+    assert!(f.app.editor.activities().next().is_none());
+    f.app.editor.rename_symbol(session, "renamed".into())?;
+    wait_message(dir.path(), "textDocument/rename").await?;
+    assert_eq!(f.app.editor.activities().count(), 1);
+    let (view, doc) = current!(f.app.editor);
+    doc.set_selection(view.id, Selection::point(0));
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while f.app.editor.activities().next().is_some() {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await?;
+    response.release()?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn rename_uses_the_prepared_document_and_utf16_position_after_focus_moves(
 ) -> anyhow::Result<()> {
     let dir = tempfile::tempdir()?;
@@ -131,12 +206,14 @@ async fn rename_preparation_rejects_invalid_ranges_and_superseded_targets() -> a
     let mut f = fixture(dir.path(), &["--invalid-range"]).await?;
     let app = &mut f.app;
     assert!(prepare(app).await.is_err());
+    assert!(app.editor.activities().next().is_none());
     let (view, doc) = current_ref!(app.editor);
     let task = app.editor.prepare_rename(doc.id(), view.id)?;
     let update = task.run().await.context("missing preparation")?;
     let (view, doc) = current!(app.editor);
     doc.set_selection(view.id, Selection::point(0));
     assert!(update.into_result(&app.editor).is_none());
+    assert!(app.editor.activities().next().is_none());
     Ok(())
 }
 
@@ -165,10 +242,12 @@ async fn queued_rename_reply_cannot_overwrite_a_newer_document() -> anyhow::Resu
     let session = prepare(&mut f.app).await?;
     f.app.editor.rename_symbol(session, "renamed".into())?;
     let callback = f.response().await?;
+    assert_eq!(f.app.editor.activities().count(), 1);
     let (view, doc) = current!(f.app.editor);
     let change = Transaction::change(doc.text(), [(2, 5, Some("new".into()))].into_iter());
     view::editing::apply(doc, &change, view.id).unwrap();
     callback(&mut f.app.editor);
+    assert!(f.app.editor.activities().next().is_none());
     assert_eq!(current_ref!(f.app.editor).1.text().to_string(), "😀 new\n");
     Ok(())
 }

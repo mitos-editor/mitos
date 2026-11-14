@@ -851,6 +851,7 @@ impl Default for StatusLineConfig {
             global: false,
             left: vec![
                 E::Mode,
+                E::Activity,
                 E::FileName,
                 E::ReadOnlyIndicator,
                 E::FileModificationIndicator,
@@ -898,6 +899,8 @@ impl Default for ModeConfig {
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum StatusLineElement {
+    /// Progress of explicitly requested user actions.
+    Activity,
     /// The editor mode (Normal, Insert, Visual/Selection)
     Mode,
 

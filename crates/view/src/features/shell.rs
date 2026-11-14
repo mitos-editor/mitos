@@ -56,6 +56,7 @@ impl Editor {
         let text = doc.text().clone();
         let selection = doc.selection(view).clone();
         let command = command.to_owned();
+        let activity = self.start_activity("Shell", Some(document));
         tokio::spawn(async move {
             let operation = filter(&shell, &command, &directory, &text, &selection, behavior);
             let Some(result) = cancelable_future(operation, &cancel).await else {
@@ -63,6 +64,7 @@ impl Editor {
             };
             callbacks
                 .send(move |editor| {
+                    let _activity = activity;
                     if !owner.same_destination(&editor.handlers.callbacks)
                         || request.get(editor).is_none()
                     {

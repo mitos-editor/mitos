@@ -19,6 +19,18 @@ use tui::layout::{Constraint, Layout};
 use tui::text::{truncate_line, Line, Span};
 use tui::widgets::Widget;
 
+pub(crate) const ACTIVITY_DELAY: std::time::Duration = std::time::Duration::from_millis(200);
+
+pub(crate) fn activity_matches(
+    activity: view::activity::Activity,
+    doc: &Document,
+    focused: bool,
+) -> bool {
+    activity
+        .document
+        .map_or(focused, |document| document == doc.id())
+}
+
 pub struct RenderContext<'a> {
     pub editor: &'a Editor,
     pub selected_register: Option<char>,
@@ -175,6 +187,7 @@ fn fit_parts<'a>(left: &mut [Part<'a>], right: &mut [Part<'a>], width: usize) {
     for element in [
         E::DebugSession,
         E::Branch,
+        E::Activity,
         E::CurrentWorkingDirectory,
         E::FileIndentStyle,
         E::FileLineEnding,
@@ -238,6 +251,7 @@ where
     F: Fn(&mut RenderContext<'a>, Span<'a>) + Copy,
 {
     match element_id {
+        StatusLineElementID::Activity => render_activity,
         StatusLineElementID::Mode => render_mode,
         StatusLineElementID::Spinner => render_lsp_spinner,
         StatusLineElementID::FileBaseName => render_file_base_name,
@@ -316,6 +330,19 @@ where
         Style::default()
     };
     write(context, Span::styled(content, style));
+}
+
+fn render_activity<'a, F>(context: &mut RenderContext<'a>, write: F)
+where
+    F: Fn(&mut RenderContext<'a>, Span<'a>) + Copy,
+{
+    if let Some(activity) = context.editor.activities().find(|activity| {
+        activity_matches(*activity, context.doc, context.is_focused())
+            && activity.started.elapsed() >= ACTIVITY_DELAY
+    }) {
+        let frame = super::spinner::frame(activity.started.elapsed());
+        write(context, format!(" {frame} {} ", activity.label).into());
+    }
 }
 
 fn render_lsp_spinner<'a, F>(context: &mut RenderContext<'a>, write: F)
@@ -820,6 +847,63 @@ where
 mod tests {
     use super::*;
 
+    fn rendered_activity(editor: &Editor, view: &View) -> String {
+        let doc = editor.document(view.document_id()).unwrap();
+        let spinners = ProgressSpinners::default();
+        let mut context = RenderContext::new(editor, doc, view, &spinners, None);
+        render_activity(&mut context, |context, span| context.parts.spans.push(span));
+        context.parts.to_string()
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn activity_is_delayed_animates_and_retires_without_idle_padding() -> anyhow::Result<()> {
+        let mut app = crate::ui::picker::test::application(false)?;
+        let (view, doc) = view::current_ref!(app.editor);
+        let (view_id, document) = (view.id, doc.id());
+        let first = app.editor.start_activity("Formatting", Some(document));
+        let second = app.editor.start_activity("References", Some(document));
+        let view = app.editor.tree.get(view_id);
+        assert_eq!(rendered_activity(&app.editor, view), "");
+        tokio::time::advance(ACTIVITY_DELAY - std::time::Duration::from_millis(1)).await;
+        assert_eq!(rendered_activity(&app.editor, view), "");
+        tokio::time::advance(std::time::Duration::from_millis(1)).await;
+        let first_frame = rendered_activity(&app.editor, view);
+        assert!(first_frame.contains("Formatting"), "{first_frame:?}");
+        tokio::time::advance(std::time::Duration::from_millis(80)).await;
+        assert_ne!(rendered_activity(&app.editor, view), first_frame);
+        drop(first);
+        assert!(rendered_activity(&app.editor, view).contains("References"));
+        drop(second);
+        assert_eq!(rendered_activity(&app.editor, view), "");
+        Ok(())
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn activity_targets_its_document_or_the_focused_statusline() -> anyhow::Result<()> {
+        let mut app = crate::ui::picker::test::application(false)?;
+        let document = view::current_ref!(app.editor).1.id();
+        let action = app.editor.start_activity("Formatting", Some(document));
+        app.editor.new_file(view::editor::Action::VerticalSplit);
+        tokio::time::advance(ACTIVITY_DELAY).await;
+        for (view, _) in app.editor.tree.views() {
+            assert_eq!(
+                rendered_activity(&app.editor, view).contains("Formatting"),
+                view.document_id() == document,
+            );
+        }
+        drop(action);
+        let workspace = app.editor.start_activity("Git", None);
+        tokio::time::advance(ACTIVITY_DELAY).await;
+        for (view, focused) in app.editor.tree.views() {
+            assert_eq!(
+                rendered_activity(&app.editor, view).contains("Git"),
+                focused
+            );
+        }
+        drop(workspace);
+        Ok(())
+    }
+
     fn part(element: StatusLineElementID, text: &str, compact: Option<&str>) -> Part<'static> {
         Part {
             element,
@@ -848,6 +932,7 @@ mod tests {
             for width in 34..=160 {
                 let mut left = vec![
                     part(E::Mode, " NOR ", None),
+                    part(E::Activity, " ⣾ Formatting ", None),
                     part(
                         E::FileName,
                         " very/long/directory/main.rs ",

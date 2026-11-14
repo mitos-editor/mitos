@@ -163,10 +163,14 @@ async fn a_delayed_shell_leaves_the_editor_available() -> anyhow::Result<()> {
         ),
         ShellBehavior::Replace,
     );
+    let activity = f.editor.activities().next().expect("shell activity");
+    assert_eq!(activity.label, "Shell");
+    assert_eq!(activity.document, Some(current_ref!(f.editor).1.id()));
     f.editor.set_status("editor is available");
     assert_eq!(current_ref!(f.editor).1.text().to_string(), "before\n");
     std::fs::write(&release, "")?;
     publish(&mut f).await?;
+    assert!(f.editor.activities().next().is_none());
     assert_eq!(current_ref!(f.editor).1.text().to_string(), "afterefore\n");
     Ok(())
 }
@@ -313,6 +317,7 @@ async fn selection_changes_and_document_closure_stop_running_shells() -> anyhow:
         })
         .await?;
         let pid = std::fs::read_to_string(&pid_file)?.parse::<i32>()?;
+        assert_eq!(f.editor.activities().count(), 1);
         if close {
             f.close_current()?;
         } else {
@@ -320,6 +325,7 @@ async fn selection_changes_and_document_closure_stop_running_shells() -> anyhow:
             doc.set_selection(view.id, Selection::point(1));
         }
         wait_until(|| unsafe { libc::kill(pid, 0) } != 0).await?;
+        wait_until(|| f.editor.activities().next().is_none()).await?;
     }
     Ok(())
 }

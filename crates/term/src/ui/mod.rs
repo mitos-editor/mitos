@@ -26,6 +26,7 @@ mod select;
 mod sidebar;
 mod spinner;
 mod statusline;
+pub(crate) use statusline::{activity_matches, ACTIVITY_DELAY};
 mod text;
 mod text_decorations;
 

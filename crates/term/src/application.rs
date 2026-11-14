@@ -140,6 +140,7 @@ where
                 self.draw_frame();
                 frame_deadline = None;
             }
+            let activity_deadline = self.activity_frame_deadline();
 
             use futures_util::StreamExt;
 
@@ -176,6 +177,10 @@ where
                     if let Some(due) = frame_deadline { tokio::time::sleep_until(due).await; }
                     else { std::future::pending::<()>().await; }
                 } => {},
+                _ = async {
+                    if let Some(due) = activity_deadline { tokio::time::sleep_until(due).await; }
+                    else { std::future::pending::<()>().await; }
+                } => self.request_frame(),
                 Some(signal) = self.signals.next() => {
                     idle_seen = false;
                     if !self.handle_signals(signal).await {

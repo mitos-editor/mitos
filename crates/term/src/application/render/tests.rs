@@ -63,6 +63,153 @@ fn draw_now(app: &mut TestApplication) {
     app.draw_frame();
 }
 
+#[tokio::test]
+async fn user_activity_wakes_the_pump_without_input_and_stops_when_finished() -> anyhow::Result<()>
+{
+    async fn background_frame(
+        app: &mut TestApplication,
+        frames: &FrameProbe,
+    ) -> anyhow::Result<()> {
+        let count = frames.frames().len();
+        let mut input = app.event_stream();
+        // Keep the existing pump: event_loop() deliberately requests a startup frame.
+        let pump = app.pump(&mut input, false);
+        tokio::pin!(pump);
+        tokio::time::timeout(Duration::from_secs(1), async {
+            loop {
+                tokio::select! {
+                    _ = &mut pump => panic!("editor closed before activity frame"),
+                    _ = frames.ready.notified() => if frames.frames().len() > count { break; },
+                }
+            }
+        })
+        .await?;
+        Ok(())
+    }
+    let (mut app, _) = application(Args::default())?;
+    app.drain_ready_callbacks();
+    let frames = FrameProbe::default();
+    app.compositor.push(Box::new(frames.clone()));
+    draw_now(&mut app);
+    tokio::time::pause();
+    let document = view::current_ref!(app.editor).1.id();
+    let activity = app.editor.start_activity("Formatting", Some(document));
+    let start = tokio::time::Instant::now();
+    assert_eq!(
+        app.activity_frame_deadline(),
+        Some(start + crate::ui::ACTIVITY_DELAY)
+    );
+    draw_now(&mut app);
+    let mut last_frame = start;
+    // Other ready editor events may draw before the activity's delayed frame.
+    while tokio::time::Instant::now() < start + crate::ui::ACTIVITY_DELAY {
+        background_frame(&mut app, &frames).await?;
+        last_frame = tokio::time::Instant::now();
+    }
+    let text: String = app
+        .terminal_backend()
+        .buffer()
+        .content
+        .iter()
+        .map(|cell| cell.symbol())
+        .collect();
+    assert!(text.contains("Formatting"), "{text:?}");
+    background_frame(&mut app, &frames).await?;
+    assert!(tokio::time::Instant::now() > last_frame);
+    assert!(app.activity_frame_deadline().is_some());
+    drop(activity);
+    assert!(app.activity_frame_deadline().is_none());
+    background_frame(&mut app, &frames).await?;
+    let text: String = app
+        .terminal_backend()
+        .buffer()
+        .content
+        .iter()
+        .map(|cell| cell.symbol())
+        .collect();
+    assert!(!text.contains("Formatting"), "{text:?}");
+    assert!(app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test]
+async fn user_activity_deadline_is_not_postponed_by_background_callbacks() -> anyhow::Result<()> {
+    let (mut app, _) = application(Args::default())?;
+    let _activity = app.editor.start_activity("Formatting", None);
+    tokio::time::pause();
+    tokio::time::advance(crate::ui::ACTIVITY_DELAY).await;
+    draw_now(&mut app);
+    let deadline = app.activity_frame_deadline().expect("animation deadline");
+    tokio::time::advance(Duration::from_millis(40)).await;
+    app.apply_callback(Ok(Some(crate::job::Callback::editor(|_| {
+        view::callbacks::CallbackOutcome::None
+    }))));
+    assert_eq!(app.activity_frame_deadline(), Some(deadline));
+    Ok(())
+}
+
+#[tokio::test]
+async fn user_activity_deadlines_follow_visible_statuslines_and_configuration() -> anyhow::Result<()>
+{
+    let (mut app, _) = application(Args::default())?;
+    let document = view::current_ref!(app.editor).1.id();
+    let activity = app.editor.start_activity("Formatting", Some(document));
+    app.editor.new_file(view::editor::Action::VerticalSplit);
+    assert!(app.activity_frame_deadline().is_some());
+    let mut config = (*app.editor.config()).clone();
+    config.statusline.global = true;
+    app.apply_config_update(crate::config::ConfigEvent::UpdateEditor(Box::new(config)));
+    assert!(app.activity_frame_deadline().is_none());
+    drop(activity);
+    let workspace = app.editor.start_activity("Git", None);
+    assert!(app.activity_frame_deadline().is_some());
+    let mut config = (*app.editor.config()).clone();
+    config
+        .statusline
+        .left
+        .retain(|element| *element != editor_config::StatusLineElement::Activity);
+    app.apply_config_update(crate::config::ConfigEvent::UpdateEditor(Box::new(config)));
+    assert!(app.activity_frame_deadline().is_none());
+    drop(workspace);
+    assert!(app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test]
+async fn user_activity_lives_through_job_delivery_and_clears_on_error_or_drop() -> anyhow::Result<()>
+{
+    use crate::job::{Callback, Job};
+    let (mut app, _) = application(Args::default())?;
+    let activity = app.editor.start_activity("Formatting", None);
+    let callback = Job::with_callback(async {
+        Ok(Callback::editor(|editor| {
+            assert_eq!(editor.activities().count(), 1);
+        }))
+    })
+    .with_activity(activity)
+    .future
+    .await;
+    assert_eq!(app.editor.activities().count(), 1);
+    app.apply_callback(callback);
+    assert_eq!(app.editor.activities().count(), 0);
+
+    let activity = app.editor.start_activity("Failing", None);
+    let result = Job::with_callback(async { anyhow::bail!("test failure") })
+        .with_activity(activity)
+        .future
+        .await;
+    assert!(result.is_err());
+    assert_eq!(app.editor.activities().count(), 0);
+
+    let activity = app.editor.start_activity("Canceled", None);
+    let job = Job::new(std::future::pending()).with_activity(activity);
+    assert_eq!(app.editor.activities().count(), 1);
+    drop(job);
+    assert_eq!(app.editor.activities().count(), 0);
+    assert!(app.close().await.is_empty());
+    Ok(())
+}
+
 fn application(
     args: Args,
 ) -> anyhow::Result<(TestApplication, tokio::sync::mpsc::Receiver<EditorCallback>)> {

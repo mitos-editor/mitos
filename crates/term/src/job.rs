@@ -114,6 +114,25 @@ impl Job {
         self.wait = true;
         self
     }
+
+    /// Retain user activity until its completion is applied or discarded.
+    pub fn with_activity(mut self, activity: view::activity::ActivityGuard) -> Self {
+        let future = self.future;
+        self.future = async move {
+            let callback = future.await?;
+            Ok(callback.map(|callback| {
+                Callback::Ui(Box::new(move |compositor, cx| {
+                    let _activity = activity;
+                    match callback {
+                        Callback::Editor(callback) => Ok(callback(cx.editor)),
+                        Callback::Ui(callback) => callback(compositor, cx),
+                    }
+                }))
+            }))
+        }
+        .boxed();
+        self
+    }
 }
 
 impl Jobs {
