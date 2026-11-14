@@ -89,18 +89,22 @@ async fn automatic_linked_editing_retries_discovery_dropped_while_unfocused() ->
 #[tokio::test(flavor = "multi_thread")]
 async fn automatic_linked_editing_keeps_plain_completions_and_imports_in_sync() -> anyhow::Result<()>
 {
-    for (cursor, imports, typing, snippet) in [
-        (4, false, false, false),
-        (14, false, false, false),
-        (4, true, false, false),
-        (14, true, false, false),
-        (4, false, true, false),
-        (4, false, false, true),
-        (14, false, false, true),
+    for (cursor, imports, typing, snippet, as_is) in [
+        (4, false, false, false, false),
+        (14, false, false, false, false),
+        (4, true, false, false, false),
+        (14, true, false, false, false),
+        (4, false, true, false, false),
+        (4, false, false, true, false),
+        (14, false, false, true, false),
+        (4, false, false, false, true),
+        (14, false, false, false, true),
     ] {
         let dir = tempfile::tempdir()?;
         let args: &[&str] = if snippet {
             &["--linked-completion", "--linked-completion-final"]
+        } else if as_is {
+            &["--linked-completion", "--linked-completion-as-is"]
         } else if imports {
             &["--linked-completion", "--linked-completion-import"]
         } else {
@@ -122,10 +126,10 @@ async fn automatic_linked_editing_keeps_plain_completions_and_imports_in_sync() 
         f.app.editor.insert_char('z')?;
         assert_eq!(
             current_ref!(f.app.editor).1.text().to_string(),
-            if snippet {
-                format!("{prefix}😀 <taggedz>body</taggedz>\n")
-            } else {
+            if as_is {
                 format!("{prefix}😀 <taggezd>body</taggezd>\n")
+            } else {
+                format!("{prefix}😀 <taggedz>body</taggedz>\n")
             }
         );
         let (view, doc) = current!(f.app.editor);

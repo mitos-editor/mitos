@@ -992,6 +992,9 @@ fn main() -> anyhow::Result<()> {
                     item["insertTextFormat"] = json!(2);
                     item["textEdit"]["newText"] = json!("tagged$0");
                 }
+                if args.iter().any(|arg| arg == "--linked-completion-as-is") {
+                    item["insertTextMode"] = json!(1);
+                }
                 if args.iter().any(|arg| arg == "--linked-completion-import") {
                     item["additionalTextEdits"] =
                         json!([{"range":range(0,0),"newText":"imported\n"}]);
