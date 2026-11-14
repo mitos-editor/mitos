@@ -150,6 +150,7 @@ pub enum EditorEvent {
     ConfigEvent(ConfigEvent),
     ReloadConfirmation(crate::features::auto_reload::ReloadRequest),
     WorkspaceTrust(crate::features::workspace_trust::TrustRequest),
+    WorkspaceEditConfirmation(crate::workspace_edit::confirmation::ConfirmationRequest),
     SignatureHelp(crate::features::signature_help::SignatureHelpUpdate),
     Hover(crate::features::hover::HoverUpdate),
     BlameDetails(crate::features::blame::BlameDetailsUpdate),
@@ -703,6 +704,9 @@ impl Editor {
                 }
                 EditorEvent::WorkspaceTrust(request) if !request.is_current(self) => {
                     crate::features::workspace_trust::dismiss_request(self, request)
+                }
+                EditorEvent::WorkspaceEditConfirmation(request) if !request.is_current(self) => {
+                    request.resolve(self, false);
                 }
                 _ => return Some(update),
             }

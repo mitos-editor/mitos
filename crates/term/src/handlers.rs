@@ -7,6 +7,7 @@ pub(crate) mod hover;
 pub(crate) mod navigation;
 mod prompt;
 pub(crate) mod signature_help;
+pub(crate) mod workspace_edit;
 pub(crate) mod workspace_trust;
 
 /// Install presentation hooks in this application's editor hub.

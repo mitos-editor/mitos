@@ -12,6 +12,8 @@ pub(crate) struct Pending {
     pub signature_help: Option<features::signature_help::SignatureHelpUpdate>,
     pub reload: VecDeque<features::auto_reload::ReloadRequest>,
     pub trust: VecDeque<features::workspace_trust::TrustRequest>,
+    pub workspace_edits: VecDeque<crate::workspace_edit::confirmation::ConfirmationRequest>,
+    pub workspace_edit_active: bool,
 }
 
 /// Clones retain the editor destination, including document-only signature triggers.
@@ -46,6 +48,15 @@ impl Inbox {
                         .map(EditorEvent::ReloadConfirmation)
                 })
                 .or_else(|| pending.trust.pop_front().map(EditorEvent::WorkspaceTrust))
+                .or_else(|| {
+                    if pending.workspace_edit_active {
+                        return None;
+                    }
+                    pending.workspace_edits.pop_front().map(|request| {
+                        pending.workspace_edit_active = true;
+                        EditorEvent::WorkspaceEditConfirmation(request)
+                    })
+                })
         })
     }
 }

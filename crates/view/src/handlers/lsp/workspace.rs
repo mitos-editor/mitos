@@ -13,6 +13,53 @@ use lsp_client::{
 use crate::Editor;
 
 impl Editor {
+    /// Server requests wait for annotation consent before replying or applying any changes.
+    pub fn request_workspace_edit_from_server(
+        &mut self,
+        server: LanguageServerId,
+        params: lsp::ApplyWorkspaceEditParams,
+        completed: impl FnOnce(&mut Editor, Result<lsp::ApplyWorkspaceEditResponse, jsonrpc::Error>)
+            + Send
+            + 'static,
+    ) {
+        if !self
+            .language_server_by_id(server)
+            .is_some_and(|server| server.is_initialized())
+        {
+            completed(
+                self,
+                Err(jsonrpc::Error {
+                    code: jsonrpc::ErrorCode::InvalidRequest,
+                    message: "Server must be active and initialized to request workspace edits"
+                        .into(),
+                    data: None,
+                }),
+            );
+            return;
+        }
+        self.request_workspace_edit(server, params.edit, None, move |editor, result| {
+            let failed_change = result
+                .as_ref()
+                .err()
+                .and_then(|error| error.downcast_ref::<crate::workspace_edit::ApplyEditError>())
+                .map(|error| error.failed_change_idx as u32);
+            let response = lsp::ApplyWorkspaceEditResponse {
+                applied: result.as_ref().is_ok_and(|applied| *applied),
+                failure_reason: match &result {
+                    Ok(true) => None,
+                    Ok(false) => Some("Workspace edit was canceled".into()),
+                    Err(error) => Some(
+                        error
+                            .downcast_ref::<crate::workspace_edit::ApplyEditError>()
+                            .map_or_else(|| error.to_string(), |error| error.kind.to_string()),
+                    ),
+                },
+                failed_change,
+            };
+            completed(editor, Ok(response));
+        });
+    }
+
     /// Validate the requesting server and apply edits using its negotiated encoding.
     pub fn handle_workspace_edit(
         &mut self,

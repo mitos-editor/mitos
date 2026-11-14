@@ -97,6 +97,7 @@ impl Document {
             tab_width: self.tab_width(),
             indent_style: self.indent_style,
             line_ending: self.line_ending.as_str(),
+            adjust_indentation: true,
         }
     }
 }

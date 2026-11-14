@@ -99,7 +99,6 @@ impl Action {
                     }
                 })
                 .collect();
-            let encoding = server.offset_encoding();
             let callbacks = editor.handlers.callbacks.clone();
             let context = context.clone();
             tokio::spawn(async move {
@@ -118,10 +117,13 @@ impl Action {
                                 edits.push(edit);
                             }
                         }
-                        editor.apply_code_action_edits(encoding, edits)
+                        Ok(edits)
                     });
-                    if let Err(error) = result {
-                        editor.set_error(|| format!("Failed to apply code actions: {error}"));
+                    match result {
+                        Ok(edits) => editor.request_code_action_edits(server_id, edits, Some(context), |editor, result| {
+                            if let Err(error) = result { editor.set_error(|| format!("Failed to apply code actions: {error}")); }
+                        }),
+                        Err(error) => editor.set_error(|| format!("Failed to apply code actions: {error}")),
                     }
                 }).await;
             });
@@ -172,7 +174,9 @@ impl Action {
                                         return;
                                     }
                                     match result {
-                                        Ok(action) => apply_lsp_action(editor, server_id, &action),
+                                        Ok(action) => {
+                                            apply_lsp_action(editor, server_id, &action, context)
+                                        }
                                         Err(err) => editor.set_error(|| {
                                             format!("Failed to resolve code action: {err}")
                                         }),
@@ -181,7 +185,7 @@ impl Action {
                                 .await;
                         });
                     } else {
-                        apply_lsp_action(editor, server_id, action);
+                        apply_lsp_action(editor, server_id, action, context.clone());
                     }
                 }
             }
@@ -201,6 +205,7 @@ struct LspActionSnapshot {
     doc: DocumentId,
     buffer: buffer::Snapshot,
     uri: Option<Uri>,
+    language: Option<String>,
     servers: Vec<Weak<lsp_client::Client>>,
 }
 
@@ -210,6 +215,9 @@ impl LspActionContext {
             doc: doc.id(),
             buffer: doc.snapshot(),
             uri: doc.uri(),
+            language: doc
+                .language_config()
+                .map(|language| language.language_id.clone()),
             servers: doc
                 .language_servers
                 .values()
@@ -235,20 +243,40 @@ impl LspActionContext {
             && editor.document(snapshot.doc).is_some_and(|doc| {
                 snapshot.buffer.is_current(&doc.buffer)
                     && doc.path() == snapshot.uri.as_ref().and_then(Uri::as_path)
+                    && snapshot.language.as_deref()
+                        == doc
+                            .language_config()
+                            .map(|language| language.language_id.as_str())
                     && doc.supports_language_server(server_id)
             })
     }
 }
 
-fn apply_lsp_action(editor: &mut Editor, server_id: LanguageServerId, action: &lsp::CodeAction) {
+fn apply_lsp_action(
+    editor: &mut Editor,
+    server_id: LanguageServerId,
+    action: &lsp::CodeAction,
+    context: LspActionContext,
+) {
     if action.disabled.is_some() {
         return;
     }
-    let server = editor.language_server_by_id(server_id).unwrap();
-    if let Some(edit) = &action.edit
-        && let Err(err) = editor.apply_workspace_edit(server.offset_encoding(), edit)
-    {
-        editor.set_error(|| format!("Failed to apply code action: {}", err.kind));
+    if let Some(edit) = &action.edit {
+        let command = action.command.clone();
+        editor.request_workspace_edit(
+            server_id,
+            edit.clone(),
+            Some(context),
+            move |editor, result| match result {
+                Ok(true) => {
+                    if let Some(command) = command {
+                        editor.execute_lsp_command(command, server_id);
+                    }
+                }
+                Ok(false) => (),
+                Err(error) => editor.set_error(|| format!("Failed to apply code action: {error}")),
+            },
+        );
         return;
     }
     // Commands may depend on the edit, so never execute one after an edit failure.
