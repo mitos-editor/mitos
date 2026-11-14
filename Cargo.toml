@@ -86,7 +86,7 @@ file-watch = { path = "crates/file-watch" }
 text-diff = { path = "crates/text-diff" }
 text-io = { path = "crates/text-io" }
 lsp = { path = "crates/lsp" }
-lsp-types = { version = "0.97", features = ["proposed"] }
+lsp-types = { git = "https://github.com/mitos-editor/lsp-types", rev = "020d1c9f622e26a736cc4a493a4d8f03facbe4e7", features = ["proposed"] }
 parsec = { path = "crates/parsec" }
 snippets = { path = "crates/snippets" }
 spelling = { path = "crates/spelling" }

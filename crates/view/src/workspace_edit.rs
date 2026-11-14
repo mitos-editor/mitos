@@ -25,6 +25,8 @@ pub struct ApplyEditError {
 /// The original rejection from document editing, URL conversion, or filesystem access.
 #[derive(Debug, thiserror::Error)]
 pub enum ApplyEditErrorKind {
+    #[error("snippet workspace edits are not supported")]
+    UnsupportedSnippet,
     #[error(transparent)]
     InvalidTextEdit(#[from] crate::language_servers::edits::TextEditError),
     #[error(transparent)]
@@ -70,7 +72,7 @@ impl Editor {
                             uri,
                             version: None,
                         },
-                        edits: edits.into_iter().map(lsp::OneOf::Left).collect(),
+                        edits: edits.into_iter().map(Into::into).collect(),
                     })
                     .collect(),
             };
@@ -93,8 +95,11 @@ impl Editor {
                 let previous_len = edits.len();
                 for edit in document.edits {
                     let edit = match edit {
-                        lsp::OneOf::Left(edit) => edit,
-                        lsp::OneOf::Right(edit) => edit.text_edit,
+                        lsp::DocumentTextEdit::Plain(edit) => edit,
+                        lsp::DocumentTextEdit::Annotated(edit) => edit.text_edit,
+                        lsp::DocumentTextEdit::Snippet(_) => {
+                            anyhow::bail!("snippet workspace edits are not supported")
+                        }
                     };
                     // Shared imports and file-wide fixes often occur at several cursors.
                     if !edits[..previous_len].contains(&edit) {
@@ -250,10 +255,11 @@ impl Editor {
             .edits
             .iter()
             .map(|edit| match edit {
-                lsp::OneOf::Left(edit) => edit.clone(),
-                lsp::OneOf::Right(edit) => edit.text_edit.clone(),
+                lsp::DocumentTextEdit::Plain(edit) => Ok(edit.clone()),
+                lsp::DocumentTextEdit::Annotated(edit) => Ok(edit.text_edit.clone()),
+                lsp::DocumentTextEdit::Snippet(_) => Err(ApplyEditErrorKind::UnsupportedSnippet),
             })
-            .collect();
+            .collect::<Result<Vec<_>, _>>()?;
         self.apply_text_edits(
             &document_edit.text_document.uri,
             document_edit.text_document.version,
