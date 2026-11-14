@@ -1,5 +1,5 @@
 //! Exercise shared document and range formatting against the real LSP transport.
-use editor_core::Selection;
+use editor_core::{Range, Selection};
 use term::application::TestApplication;
 use view::{current, current_ref, editor::Action, features::formatting};
 
@@ -169,6 +169,199 @@ async fn range_formatting_converts_utf16_positions_and_preserves_surrounding_tex
     assert_eq!(request["params"]["range"]["start"]["character"], 3);
     assert_eq!(request["params"]["range"]["end"]["character"], 6);
     assert!(app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn multi_range_formatting_uses_one_snapshot_and_preserves_selection_history(
+) -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let mut app = application_with_args(dir.path(), &["--multi-range-formatting"]).await?;
+    let (view, doc) = current!(app.editor);
+    doc.indent_style = editor_core::indent::IndentStyle::Spaces(2);
+    let original = Selection::new(vec![Range::new(5, 2), Range::new(6, 9)].into(), 1);
+    doc.set_selection(view.id, original.clone());
+    let view = view.id;
+    let update = formatting::prepare_selections(&app.editor, view)?
+        .run()
+        .await;
+    assert!(update.apply(&mut app.editor)?);
+    let (view, doc) = current!(app.editor);
+    assert_eq!(doc.text(), "😀 formatted formatted\n");
+    assert_eq!(
+        doc.selection(view.id),
+        &Selection::new(vec![Range::new(11, 2), Range::new(12, 21)].into(), 1)
+    );
+    assert!(view::editing::undo(doc, view.id));
+    assert_eq!(doc.text(), "😀 foo bar\n");
+    assert_eq!(doc.selection(view.id), &original);
+    assert!(!view::editing::undo(doc, view.id));
+    assert!(view::editing::redo(doc, view.id));
+    assert_eq!(doc.text(), "😀 formatted formatted\n");
+    let log = std::fs::read_to_string(lsp::log_path(dir.path(), "alpha"))?;
+    let messages: Vec<serde_json::Value> = log
+        .lines()
+        .filter_map(|line| serde_json::from_str(line).ok())
+        .collect();
+    let requests: Vec<_> = messages
+        .iter()
+        .filter(|message| message["method"] == "textDocument/rangesFormatting")
+        .collect();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(
+        requests[0]["params"]["ranges"],
+        serde_json::json!([
+            {"start":{"line":0,"character":3},"end":{"line":0,"character":6}},
+            {"start":{"line":0,"character":7},"end":{"line":0,"character":10}}
+        ])
+    );
+    assert_eq!(requests[0]["params"]["options"]["tabSize"], 2);
+    assert_eq!(requests[0]["params"]["options"]["insertSpaces"], true);
+    let initialize = messages
+        .iter()
+        .find(|message| message["method"] == "initialize")
+        .unwrap();
+    assert_eq!(
+        initialize["params"]["capabilities"]["textDocument"]["rangeFormatting"]["rangesSupport"],
+        true
+    );
+    assert!(!messages
+        .iter()
+        .any(|message| message["method"] == "textDocument/rangeFormatting"));
+    assert!(app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn multi_range_formatting_selects_a_supporting_configured_provider() -> anyhow::Result<()> {
+    for excluded in [false, true] {
+        let dir = tempfile::tempdir()?;
+        let gate = Gate::new(dir.path().join("initialize-ready"));
+        let servers = format!(
+            "{}{}",
+            ServerConfig::feature("alpha", "--formatting", dir.path())
+                .initialize_gate(&gate)
+                .toml(),
+            ServerConfig::feature("beta", "--formatting", dir.path())
+                .arg("--multi-range-formatting")
+                .initialize_gate(&gate)
+                .toml()
+        );
+        let beta = if excluded {
+            r#"{ name = "beta", except-features = ["format"] }"#
+        } else {
+            "\"beta\""
+        };
+        let loader = super::helpers::test_syntax_loader(Some(format!(
+            r#"
+            {servers}
+            [[language]]
+            name = "formatting-test"
+            scope = "source.formatting-test"
+            file-types = ["formatting-test"]
+            roots = []
+            language-servers = ["alpha", {beta}]
+        "#
+        )));
+        let mut config = test_config();
+        config.editor.lsp.enable = true;
+        let mut app = AppBuilder::new()
+            .with_config(config)
+            .with_lang_loader(loader)
+            .build()?;
+        let path = dir.path().join("document.formatting-test");
+        std::fs::write(&path, "😀 foo bar\n")?;
+        app.editor.open(&path, Action::Replace)?;
+        gate.release()?;
+        lsp::initialize(&mut app, 2).await?;
+        let (view, doc) = current!(app.editor);
+        doc.set_selection(
+            view.id,
+            Selection::new(vec![Range::new(2, 5), Range::new(6, 9)].into(), 0),
+        );
+        let view = view.id;
+        let task = formatting::prepare_selections(&app.editor, view);
+        if excluded {
+            assert!(task.is_err());
+        } else {
+            assert!(task?.run().await.apply(&mut app.editor)?);
+            assert_eq!(
+                current_ref!(app.editor).1.text(),
+                "😀 formatted formatted\n"
+            );
+            assert!(lsp::read_log(&lsp::log_path(dir.path(), "beta"))?
+                .iter()
+                .any(|message| message["method"] == "textDocument/rangesFormatting"));
+        }
+        assert!(!lsp::read_log(&lsp::log_path(dir.path(), "alpha"))?
+            .iter()
+            .any(|message| message["method"] == "textDocument/rangesFormatting"));
+        assert!(app.close().await.is_empty());
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn multi_range_formatting_requires_capability_and_rejects_invalid_or_stale_edits(
+) -> anyhow::Result<()> {
+    for scenario in ["unsupported", "overlap", "edited", "rebound", "detached"] {
+        let dir = tempfile::tempdir()?;
+        let args: &[&str] = match scenario {
+            "unsupported" => &[],
+            "overlap" => &["--multi-range-formatting", "--overlapping-range-edits"],
+            _ => &["--multi-range-formatting"],
+        };
+        let mut app = application_with_args(dir.path(), args).await?;
+        let (view, doc) = current!(app.editor);
+        let (view, document) = (view.id, doc.id());
+        doc.set_selection(
+            view,
+            Selection::new(vec![Range::new(2, 5), Range::new(6, 9)].into(), 0),
+        );
+        if scenario == "unsupported" {
+            let error = formatting::prepare_selections(&app.editor, view)
+                .err()
+                .unwrap();
+            assert!(error.to_string().contains("multiple ranges"));
+        } else {
+            let server = doc.language_servers().next().unwrap().id();
+            let update = formatting::prepare_selections(&app.editor, view)?
+                .run()
+                .await;
+            match scenario {
+                "edited" => {
+                    let (view, doc) = current!(app.editor);
+                    let edit = editor_core::Transaction::insert(
+                        doc.text(),
+                        &Selection::point(0),
+                        "new ".into(),
+                    );
+                    view::editing::apply(doc, &edit, view.id)?;
+                }
+                "rebound" => {
+                    app.editor.new_file(Action::Replace);
+                    app.editor.switch(document, Action::Replace);
+                }
+                "detached" => app.editor.handle_language_server_exit(server),
+                _ => (),
+            }
+            let result = update.apply(&mut app.editor);
+            if scenario == "overlap" {
+                assert!(result.is_err());
+            } else {
+                assert!(!result?);
+            }
+        }
+        assert_eq!(
+            app.editor.document(document).unwrap().text().to_string(),
+            if scenario == "edited" {
+                "new 😀 foo bar\n"
+            } else {
+                "😀 foo bar\n"
+            }
+        );
+        assert!(app.close().await.is_empty());
+    }
     Ok(())
 }
 
