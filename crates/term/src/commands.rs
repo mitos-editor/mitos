@@ -16,6 +16,7 @@ mod folding;
 mod formatting;
 mod history;
 pub mod insert;
+mod linked_editing;
 pub(crate) mod lsp;
 mod macros;
 mod mappable;

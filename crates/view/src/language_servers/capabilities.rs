@@ -120,6 +120,14 @@ pub(crate) fn supports_feature(
                         )
                     )
             }),
+        LanguageServerFeature::LinkedEditing => matches!(
+            capabilities.linked_editing_range_provider,
+            Some(
+                LinkedEditingRangeServerCapabilities::Simple(true)
+                    | LinkedEditingRangeServerCapabilities::Options(_)
+                    | LinkedEditingRangeServerCapabilities::RegistrationOptions(_)
+            )
+        ),
         LanguageServerFeature::FoldingRanges => matches!(
             capabilities.folding_range_provider,
             Some(

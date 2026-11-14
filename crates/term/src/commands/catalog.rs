@@ -411,6 +411,7 @@ impl MappableCommand {
         shell_keep_pipe => super::shell::shell_keep_pipe, "Filter selections with shell predicate",
         suspend => super::application::suspend, "Suspend and return to shell",
         rename_symbol => super::lsp::rename_symbol, "Rename symbol",
+        linked_editing => super::linked_editing::linked_editing, "Edit linked ranges together",
         increment => super::editing::increment, "Increment item under cursor",
         decrement => super::editing::decrement, "Decrement item under cursor",
         record_macro => super::macros::record_macro, "Record macro",
@@ -699,6 +700,13 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
         aliases: &["fmt"],
         doc: "Format the file using an external formatter or language server.",
         action: CommandAction::Committed(super::formatting::typed::format),
+        args: CommandArgs::new(&[], &[]),
+    },
+    TypableCommand {
+        name: "linked-editing",
+        aliases: &[],
+        doc: "Start editing server-linked ranges together at the cursor. Escape ends the session.",
+        action: CommandAction::Committed(super::linked_editing::start),
         args: CommandArgs::new(&[], &[]),
     },
     TypableCommand {

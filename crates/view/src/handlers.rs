@@ -245,6 +245,7 @@ fn register_hooks(events: &event::EventHub, document_hooks: DocumentHooks) {
     hover::register_hooks(events);
     navigation::register_hooks(events);
     crate::features::structural_ranges::register_hooks(events);
+    crate::features::linked_editing::register_hooks(events);
     crate::features::shell::register_hooks(events);
     rename::register_hooks(events);
     buffer_search::register_hooks(events);

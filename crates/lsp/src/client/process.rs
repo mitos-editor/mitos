@@ -368,6 +368,9 @@ impl Client {
                     call_hierarchy: Some(lsp::DynamicRegistrationClientCapabilities {
                         dynamic_registration: Some(false),
                     }),
+                    linked_editing_range: Some(lsp::LinkedEditingRangeClientCapabilities {
+                        dynamic_registration: Some(false),
+                    }),
                     document_symbol: Some(lsp::DocumentSymbolClientCapabilities {
                         dynamic_registration: Some(false),
                         symbol_kind: Some(lsp::SymbolKindCapability {

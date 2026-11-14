@@ -50,6 +50,7 @@ impl Editor {
         encoding: OffsetEncoding,
         actions: Vec<lsp::WorkspaceEdit>,
     ) -> anyhow::Result<()> {
+        crate::features::linked_editing::cancel(self);
         let mut documents: Vec<(lsp_client::Url, Option<i32>, Vec<lsp::TextEdit>)> = Vec::new();
         for action in actions {
             let incoming = match action.document_changes {
@@ -198,6 +199,7 @@ impl Editor {
         offset_encoding: OffsetEncoding,
         workspace_edit: &lsp::WorkspaceEdit,
     ) -> Result<(), ApplyEditError> {
+        crate::features::linked_editing::cancel(self);
         if let Some(ref document_changes) = workspace_edit.document_changes {
             match document_changes {
                 lsp::DocumentChanges::Edits(document_edits) => {

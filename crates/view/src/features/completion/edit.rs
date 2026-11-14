@@ -285,6 +285,8 @@ impl Editor {
         } = prepared;
         let trigger_offset = session.trigger.pos;
         let (view, doc) = current!(self);
+        // Completion owns its savepoint and pre-rendered snippet coordinates.
+        doc.linked_editing.clear();
         doc.restore(view.id, &savepoint)?;
         doc.commit_changes();
         view.sync_changes(doc);

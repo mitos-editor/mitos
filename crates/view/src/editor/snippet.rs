@@ -43,6 +43,7 @@ impl Editor {
             &mut context,
         );
         let selection = rendered.first_selection(Direction::Forward, selection.primary_index());
+        doc.linked_editing.clear();
         editing::apply(doc, &transaction.with_selection(selection), view.id)?;
         doc.install_snippet(view.id, rendered);
         self.set_mode(Mode::Insert);

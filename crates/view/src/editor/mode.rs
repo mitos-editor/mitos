@@ -35,6 +35,7 @@ impl Editor {
         features::inline_completion::mode_changed(self, old);
         features::navigation::mode_changed(self, old);
         features::structural_ranges::mode_changed(self);
+        features::linked_editing::cancel(self);
         let has_document = self
             .tree
             .try_get(self.tree.focus())

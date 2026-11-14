@@ -46,9 +46,24 @@ Available features depend on the server.
 | Go to definition / declaration / type | `gd` / `gD` / `gy` |
 | Find references / implementations | `gr` / `gi` |
 | Rename a symbol | `Space r` |
+| Edit linked names together | `:linked-editing` |
 | Code actions, such as quick fixes | `Space a` |
 | File / workspace symbols | `Space s` / `Space S` |
 | Format the file | `:format` |
+
+## Linked editing
+
+Place the cursor inside a name and run `:linked-editing` to edit the matching
+names returned by the language server, such as opening and closing HTML or JSX
+tags. Mitos enters insert mode at the cursor and mirrors typing, deletion, and
+replacement text while retaining one visible cursor. HTML LS and native
+TypeScript LS provide linked ranges.
+
+Escape, moving outside the name, changing focus, or accepting a completion or
+snippet ends the session. Characters outside the server's word pattern also end
+the session and are inserted normally. Without a server pattern, Unicode word
+characters and punctuation already present in the original name are accepted.
+Use `linked-editing` in `only-features` or `except-features` to choose providers.
 
 ## Diagnostics and code actions
 

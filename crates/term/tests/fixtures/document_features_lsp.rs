@@ -51,6 +51,7 @@ fn main() -> anyhow::Result<()> {
     let action_execution = args.first().is_some_and(|arg| arg == "--action-execution");
     let code_actions = args.first().is_some_and(|arg| arg == "--code-actions");
     let structural_ranges = args.first().is_some_and(|arg| arg == "--structural-ranges");
+    let linked_editing = args.first().is_some_and(|arg| arg == "--linked-editing");
     let mut folding_requests = 0;
     let semantic_tokens = args.first().is_some_and(|arg| arg == "--semantic-tokens");
     let semantic_deltas = args.iter().any(|arg| arg == "--deltas");
@@ -86,6 +87,7 @@ fn main() -> anyhow::Result<()> {
         || inline_values
         || semantic_tokens
         || structural_ranges
+        || linked_editing
     {
         Some(std::fs::File::create(&args[2])?)
     } else {
@@ -138,6 +140,7 @@ fn main() -> anyhow::Result<()> {
             || inline_values
             || semantic_tokens
             || structural_ranges
+            || linked_editing
             || language_features
             || navigation
         {
@@ -887,6 +890,39 @@ fn main() -> anyhow::Result<()> {
                 {"range": range(3, 9), "variableName": "ANSWER", "caseSensitiveLookup": false},
                 {"range": range(3, 9), "expression": "answer + 1"}
             ]),
+            "initialize" if linked_editing => json!({"capabilities": {
+                "positionEncoding":"utf-16", "textDocumentSync":1,
+                "linkedEditingRangeProvider": !args.iter().any(|arg| arg == "--unsupported")
+            }}),
+            "textDocument/linkedEditingRange" if linked_editing => {
+                if args.iter().any(|arg| arg == "--null") {
+                    Value::Null
+                } else {
+                    let mut ranges = vec![range(4, 7), range(14, 17)];
+                    if args.iter().any(|arg| arg == "--reverse") {
+                        ranges[0] = range(7, 4);
+                    }
+                    if args.iter().any(|arg| arg == "--overlap") {
+                        ranges[1] = range(5, 7);
+                    }
+                    if args.iter().any(|arg| arg == "--mismatch") {
+                        ranges[1] = range(14, 16);
+                    }
+                    if args.iter().any(|arg| arg == "--bad-position") {
+                        ranges[0] = range(1, 7);
+                    }
+                    let pattern = if args.iter().any(|arg| arg == "--bad-pattern") {
+                        "(?=tag)tag"
+                    } else {
+                        "[a-zA-Z0-9:_-]+"
+                    };
+                    if args.iter().any(|arg| arg == "--no-pattern") {
+                        json!({"ranges":ranges})
+                    } else {
+                        json!({"ranges":ranges,"wordPattern":pattern})
+                    }
+                }
+            }
             "initialize" if structural_ranges => json!({"capabilities": {
                 "positionEncoding":"utf-16", "textDocumentSync":1,
                 "foldingRangeProvider":true, "selectionRangeProvider":true

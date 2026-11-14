@@ -187,6 +187,7 @@ pub struct Document {
     // Document-wide feature state. View-bound request controllers live in view_states.
     // Dropping either owner cancels its in-flight work.
     pub(crate) rename: event::TaskController,
+    pub(crate) linked_editing: crate::features::linked_editing::State,
     pub(crate) inline_completions: InlineCompletions,
     pub(crate) accepted_completions: crate::features::completion::AcceptedCompletions,
     pub(crate) document_colors: DocumentColors,
@@ -294,6 +295,7 @@ impl Document {
             view_states: HashMap::default(),
             pending_navigation: None,
             rename: Default::default(),
+            linked_editing: Default::default(),
             inline_completions: Default::default(),
             accepted_completions: Default::default(),
             breakpoint_source: None,
