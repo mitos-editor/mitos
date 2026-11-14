@@ -180,8 +180,8 @@ pub fn syntax_workspace_symbol_picker(cx: &mut Context) {
 
 fn structural_selection(cx: &mut Context, action: view::editing::syntax::SelectionAction) {
     cx.editor.apply_motion(move |editor: &mut Editor| {
-        let (view, doc) = current!(editor);
-        view::editing::syntax::select(doc, view.id, action);
+        let view = view!(editor).id;
+        editor.select_structure(view, action);
     });
 }
 

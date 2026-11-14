@@ -120,6 +120,22 @@ pub(crate) fn supports_feature(
                         )
                     )
             }),
+        LanguageServerFeature::FoldingRanges => matches!(
+            capabilities.folding_range_provider,
+            Some(
+                FoldingRangeProviderCapability::Simple(true)
+                    | FoldingRangeProviderCapability::FoldingProvider(_)
+                    | FoldingRangeProviderCapability::Options(_)
+            )
+        ),
+        LanguageServerFeature::SelectionRanges => matches!(
+            capabilities.selection_range_provider,
+            Some(
+                SelectionRangeProviderCapability::Simple(true)
+                    | SelectionRangeProviderCapability::Options(_)
+                    | SelectionRangeProviderCapability::RegistrationOptions(_)
+            )
+        ),
         LanguageServerFeature::CodeLens => capabilities.code_lens_provider.is_some(),
         LanguageServerFeature::InlineValues => capabilities.inline_value_provider.is_some(),
     }

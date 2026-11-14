@@ -33,6 +33,30 @@ impl Client {
         }
     }
 
+    pub fn folding_ranges(
+        &self,
+        text_document: lsp::TextDocumentIdentifier,
+    ) -> impl Future<Output = Result<Option<Vec<lsp::FoldingRange>>>> + use<> {
+        self.call::<lsp::request::FoldingRangeRequest>(lsp::FoldingRangeParams {
+            text_document,
+            work_done_progress_params: Default::default(),
+            partial_result_params: Default::default(),
+        })
+    }
+
+    pub fn selection_ranges(
+        &self,
+        text_document: lsp::TextDocumentIdentifier,
+        positions: Vec<lsp::Position>,
+    ) -> impl Future<Output = Result<Option<Vec<lsp::SelectionRange>>>> + use<> {
+        self.call::<lsp::request::SelectionRangeRequest>(lsp::SelectionRangeParams {
+            text_document,
+            positions,
+            work_done_progress_params: Default::default(),
+            partial_result_params: Default::default(),
+        })
+    }
+
     pub fn completion(
         &self,
         text_document: lsp::TextDocumentIdentifier,

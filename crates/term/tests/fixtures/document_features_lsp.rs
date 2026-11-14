@@ -50,6 +50,8 @@ fn main() -> anyhow::Result<()> {
     let diagnostics = args.first().is_some_and(|arg| arg == "--diagnostics");
     let action_execution = args.first().is_some_and(|arg| arg == "--action-execution");
     let code_actions = args.first().is_some_and(|arg| arg == "--code-actions");
+    let structural_ranges = args.first().is_some_and(|arg| arg == "--structural-ranges");
+    let mut folding_requests = 0;
     let semantic_tokens = args.first().is_some_and(|arg| arg == "--semantic-tokens");
     let code_lenses = args.first().is_some_and(|arg| arg == "--code-lenses");
     let inline_values = args.first().is_some_and(|arg| arg == "--inline-values");
@@ -81,6 +83,7 @@ fn main() -> anyhow::Result<()> {
         || code_lenses
         || inline_values
         || semantic_tokens
+        || structural_ranges
     {
         Some(std::fs::File::create(&args[2])?)
     } else {
@@ -132,6 +135,7 @@ fn main() -> anyhow::Result<()> {
             || code_lenses
             || inline_values
             || semantic_tokens
+            || structural_ranges
             || language_features
             || navigation
         {
@@ -240,6 +244,26 @@ fn main() -> anyhow::Result<()> {
         };
         let text = documents.get(uri).map(|s| s.trim()).unwrap_or_default();
         let end = text.encode_utf16().count();
+        if structural_ranges
+            && matches!(
+                method,
+                "textDocument/foldingRange" | "textDocument/selectionRange"
+            )
+        {
+            if let Some(index) = args.iter().position(|arg| arg == "--response-gate") {
+                while !std::path::Path::new(&args[index + 1]).exists() {
+                    std::thread::sleep(std::time::Duration::from_millis(5));
+                }
+            }
+            if args.iter().any(|arg| arg == "--reject-ranges") {
+                respond(
+                    &mut output,
+                    json!({"jsonrpc":"2.0", "id": id,
+                    "error":{"code":-32603,"message":"test range failure"}}),
+                )?;
+                continue;
+            }
+        }
         if formatting && method == "textDocument/formatting" {
             if args.iter().any(|arg| arg == "--ignore-formatting") {
                 continue;
@@ -861,6 +885,44 @@ fn main() -> anyhow::Result<()> {
                 {"range": range(3, 9), "variableName": "ANSWER", "caseSensitiveLookup": false},
                 {"range": range(3, 9), "expression": "answer + 1"}
             ]),
+            "initialize" if structural_ranges => json!({"capabilities": {
+                "positionEncoding":"utf-16", "textDocumentSync":1,
+                "foldingRangeProvider":true, "selectionRangeProvider":true
+            }}),
+            "textDocument/foldingRange" if structural_ranges => {
+                folding_requests += 1;
+                if args.iter().any(|arg| arg == "--null-ranges") {
+                    Value::Null
+                } else if args.iter().any(|arg| arg == "--empty-ranges") {
+                    json!([])
+                } else {
+                    let start = if args.iter().any(|arg| arg == "--refresh-folds")
+                        && folding_requests > 1
+                    {
+                        1
+                    } else {
+                        0
+                    };
+                    json!([
+                        {"startLine":start,"startCharacter":1,"endLine":2,"endCharacter":1},
+                        {"startLine":5,"endLine":1}, {"startLine":0,"endLine":999}
+                    ])
+                }
+            }
+            "textDocument/selectionRange" if structural_ranges => {
+                if args.iter().any(|arg| arg == "--null-ranges") {
+                    Value::Null
+                } else if args.iter().any(|arg| arg == "--invalid-ranges") {
+                    json!([{ "range": range(8, 3) }])
+                } else {
+                    Value::Array(message["params"]["positions"].as_array().unwrap().iter().map(|position| {
+                        let line = position["line"].as_u64().unwrap();
+                        let (start, end) = if position["character"].as_u64().unwrap() >= 9 { (9,13) } else { (3,8) };
+                        let at_line = |start, end| json!({"start":{"line":line,"character":start},"end":{"line":line,"character":end}});
+                        json!({"range":at_line(start,end),"parent":{"range":at_line(0,13)}})
+                    }).collect())
+                }
+            }
             "initialize" if semantic_tokens => json!({"capabilities": {
                 "positionEncoding": "utf-16", "textDocumentSync": 1,
                 "semanticTokensProvider": {

@@ -8,17 +8,8 @@ fn fold(cx: &mut Context, action: FoldAction) {
         FoldAction::Close | FoldAction::Open | FoldAction::Toggle => cx.count(),
         _ => 1,
     };
-    if matches!(
-        action,
-        FoldAction::Close | FoldAction::Toggle | FoldAction::CloseAll
-    ) {
-        let doc = doc!(cx.editor).id();
-        cx.editor.ensure_syntax(doc);
-    }
-    let (view, doc) = current!(cx.editor);
-    for _ in 0..count {
-        doc.fold(view.id, action);
-    }
+    let view = view!(cx.editor).id;
+    cx.editor.fold(view, action, count);
 }
 
 pub(super) fn fold_close(cx: &mut Context) {
