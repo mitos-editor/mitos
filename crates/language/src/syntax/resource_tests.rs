@@ -26,6 +26,56 @@ fn write(dir: &Path, filename: &str, text: &str) {
 }
 
 #[test]
+fn highlight_scopes_choose_the_most_specific_complete_prefix() {
+    let dir = tempfile::tempdir().unwrap();
+    let text = ropey::Rope::from_str("\"value\"");
+    let cases: &[(&str, &[&str], Option<usize>)] = &[
+        (
+            "function.method.builtin",
+            &["function", "function.method", "function.method.builtin"],
+            Some(2),
+        ),
+        (
+            "function.method.builtin",
+            &["function.method", "function"],
+            Some(0),
+        ),
+        ("function.method", &["function.meth", "functionality"], None),
+        (
+            "function.method",
+            &["function", "function.method", "function.method"],
+            Some(1),
+        ),
+        ("function.method", &[], None),
+        (
+            "function.method.",
+            &["function", "function.method"],
+            Some(1),
+        ),
+        ("function..method", &["function", "function."], Some(1)),
+        ("function", &[""], None),
+    ];
+    for &(capture, scopes, expected) in cases {
+        write(
+            dir.path(),
+            "highlights.scm",
+            &format!("(string) @{capture}"),
+        );
+        let loader = Loader::new(configuration(), resources(dir.path())).unwrap();
+        loader.set_scopes(scopes.iter().map(|scope| (*scope).to_owned()).collect());
+        let language = loader.language_for_name("resource-json").unwrap();
+        let syntax = Syntax::new(text.slice(..), language, &loader).unwrap();
+        let mut highlighter = syntax.highlighter(text.slice(..), &loader, ..);
+        let (_, mut highlights) = highlighter.advance();
+        assert_eq!(
+            highlights.next().map(|highlight| highlight.idx()),
+            expected,
+            "capture={capture:?}, scopes={scopes:?}"
+        );
+    }
+}
+
+#[test]
 fn compilers_use_supplied_sources_and_preserve_query_specific_validation() {
     use queries::*;
     let grammar = Resources::default()
