@@ -199,6 +199,12 @@ impl Client {
                     }),
                 }),
                 text_document: Some(lsp::TextDocumentClientCapabilities {
+                    synchronization: Some(lsp::TextDocumentSyncClientCapabilities {
+                        dynamic_registration: Some(false),
+                        will_save: Some(true),
+                        will_save_wait_until: Some(true),
+                        did_save: Some(true),
+                    }),
                     folding_range: Some(lsp::FoldingRangeClientCapabilities {
                         dynamic_registration: Some(false),
                         line_folding_only: Some(true),
@@ -332,6 +338,9 @@ impl Client {
                     range_formatting: Some(lsp::DocumentRangeFormattingClientCapabilities {
                         dynamic_registration: Some(false),
                         ranges_support: Some(true),
+                    }),
+                    on_type_formatting: Some(lsp::DocumentOnTypeFormattingClientCapabilities {
+                        dynamic_registration: Some(false),
                     }),
                     code_action: Some(lsp::CodeActionClientCapabilities {
                         code_action_literal_support: Some(lsp::CodeActionLiteralSupport {

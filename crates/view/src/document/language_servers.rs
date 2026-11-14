@@ -23,6 +23,7 @@ impl Document {
         let attachment = self.language_servers.remove(name)?;
         self.cancel_view_requests(|state| &mut state.hover);
         self.cancel_view_requests(|state| &mut state.navigation);
+        self.cancel_view_requests(|state| &mut state.on_type_formatting);
         self.document_links.cancel_navigation();
         self.reset_all_inlay_hints();
         Some(attachment.client)

@@ -712,6 +712,7 @@ fn reorganized_defaults_keep_existing_behavior() {
     assert_eq!(editor.completion.trigger_delay.as_millis(), 250);
     assert_eq!(editor.inline_completion.trigger_delay.as_millis(), 150);
     assert!(editor.format.on_save);
+    assert!(!editor.format.on_type);
     assert!(editor.files.save.atomic);
     assert!(editor.files.save.insert_final_newline);
     assert!(!editor.files.save.trim_final_newlines);
