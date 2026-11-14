@@ -286,6 +286,8 @@ mod tests {
             pages.update(UpdateContext {
                 editor: &mut self.app.editor,
                 query,
+                source_query: query,
+                preview_visible: false,
                 near_end: false,
                 status: &mut self.status,
                 incomplete: &mut self.incomplete,

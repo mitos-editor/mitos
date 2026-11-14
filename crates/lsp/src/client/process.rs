@@ -146,6 +146,9 @@ impl Client {
                     apply_edit: Some(true),
                     symbol: Some(lsp::WorkspaceSymbolClientCapabilities {
                         dynamic_registration: Some(false),
+                        resolve_support: Some(lsp::WorkspaceSymbolResolveSupportCapability {
+                            properties: vec!["location.range".into()],
+                        }),
                         symbol_kind: Some(lsp::SymbolKindCapability {
                             value_set: Some(SYMBOL_KINDS.to_vec()),
                         }),
