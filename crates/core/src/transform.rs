@@ -230,19 +230,10 @@ pub fn reorder_selection_contents(
 }
 
 fn selected_lines(doc: &Rope, selection: &Selection) -> Vec<usize> {
-    let mut lines = Vec::new();
-
-    // Get all line numbers
-    for range in selection {
-        let (start, end) = range.line_range(doc.slice(..));
-
-        for line in start..=end {
-            lines.push(line)
-        }
-    }
-    lines.sort_unstable(); // sorting by usize so _unstable is preferred
-    lines.dedup();
-    lines
+    selection
+        .line_ranges(doc.slice(..))
+        .flat_map(|(start, end)| start..=end)
+        .collect()
 }
 
 /// Indent nonblank selected lines, adjusting partial space indents.
