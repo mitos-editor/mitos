@@ -17,6 +17,8 @@ pub(crate) struct DocumentViewState {
     /// which the view's first real selection replaces without recording it.
     pub(super) selection_shown: bool,
     pub hover: Option<event::TaskController>,
+    pub(crate) structural_request: event::TaskController,
+    pub(crate) structural_repeat: Option<crate::features::structural_ranges::PendingSelection>,
     pub navigation: Option<event::TaskController>,
     pub code_actions: Option<event::TaskController>,
     pub shell_filters: Option<event::TaskController>,
@@ -41,6 +43,8 @@ impl DocumentViewState {
             selection_shown: true,
             hover: Default::default(),
             navigation: Default::default(),
+            structural_request: Default::default(),
+            structural_repeat: None,
             code_actions: Default::default(),
             shell_filters: Default::default(),
             inlay_hints: Default::default(),

@@ -68,6 +68,7 @@ mod test {
     mod splits;
     mod startup;
     mod statusline;
+    mod structural_ranges;
     mod user_snippets;
     mod workspace_symbols;
     mod workspace_trust;

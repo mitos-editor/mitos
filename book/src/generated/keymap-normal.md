@@ -54,10 +54,10 @@
 | `` S `` | Split selections on regex matches | `` split_selection `` |
 | `` ; `` | Collapse selection into single cursor | `` collapse_selection `` |
 | `` <A-;> `` | Flip selection cursor and anchor | `` flip_selections `` |
-| `` <A-o> `` | Expand selection to parent syntax node | `` expand_selection `` |
-| `` <A-up> `` | Expand selection to parent syntax node | `` expand_selection `` |
-| `` <A-i> `` | Shrink selection to previously expanded syntax node | `` shrink_selection `` |
-| `` <A-down> `` | Shrink selection to previously expanded syntax node | `` shrink_selection `` |
+| `` <A-o> `` | Expand selection to enclosing structure | `` expand_selection `` |
+| `` <A-up> `` | Expand selection to enclosing structure | `` expand_selection `` |
+| `` <A-i> `` | Shrink selection to previously expanded structure | `` shrink_selection `` |
+| `` <A-down> `` | Shrink selection to previously expanded structure | `` shrink_selection `` |
 | `` <A-I> `` | Select all children of the current node | `` select_all_children `` |
 | `` <S-A-down> `` | Select all children of the current node | `` select_all_children `` |
 | `` <A-p> `` | Select previous sibling the in syntax tree | `` select_previous_sibling `` |
@@ -439,11 +439,11 @@
 
 | Key | Description | Command |
 | --- | --- | --- |
-| `` zfc `` | Close the innermost syntax fold | `` fold_close `` |
+| `` zfc `` | Close the innermost fold | `` fold_close `` |
 | `` zfo `` | Open the fold at each cursor | `` fold_open `` |
 | `` zfa `` | Toggle the fold at each cursor | `` fold_toggle `` |
 | `` zfs `` | Fold selected lines | `` fold_selection `` |
-| `` zfm `` | Close all syntax folds | `` fold_all `` |
+| `` zfm `` | Close all folds | `` fold_all `` |
 | `` zfr `` | Open all folds | `` unfold_all `` |
 
 ### `` Z `` — View
@@ -477,9 +477,9 @@
 
 | Key | Description | Command |
 | --- | --- | --- |
-| `` Zfc `` | Close the innermost syntax fold | `` fold_close `` |
+| `` Zfc `` | Close the innermost fold | `` fold_close `` |
 | `` Zfo `` | Open the fold at each cursor | `` fold_open `` |
 | `` Zfa `` | Toggle the fold at each cursor | `` fold_toggle `` |
 | `` Zfs `` | Fold selected lines | `` fold_selection `` |
-| `` Zfm `` | Close all syntax folds | `` fold_all `` |
+| `` Zfm `` | Close all folds | `` fold_all `` |
 | `` Zfr `` | Open all folds | `` unfold_all `` |

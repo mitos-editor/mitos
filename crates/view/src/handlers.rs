@@ -66,6 +66,7 @@ pub struct Handlers {
     pub inline_completions: inline_completion::InlineCompletionHandler,
     pub hover: hover::HoverHandler,
     pub navigation: navigation::NavigationHandler,
+    pub structural_ranges: crate::features::structural_ranges::StructuralRangesHandler,
     pub inlay_hints: inlay_hints::InlayHintsHandler,
     pub signature_hints: signature_help::SignatureHelpHandler,
     pub auto_save: auto_save::AutoSaveHandler,
@@ -134,6 +135,9 @@ impl Handlers {
             inline_completions: inline_completion::InlineCompletionHandler::new(callbacks.clone()),
             hover: hover::HoverHandler::new(callbacks.clone()),
             navigation: navigation::NavigationHandler::new(callbacks.clone()),
+            structural_ranges: crate::features::structural_ranges::StructuralRangesHandler::new(
+                callbacks.clone(),
+            ),
             inlay_hints: inlay_hints::InlayHintsHandler::new(callbacks.clone()),
             signature_hints: signature_help::SignatureHelpHandler::new(
                 callbacks.clone(),
@@ -240,6 +244,7 @@ fn register_hooks(events: &event::EventHub, document_hooks: DocumentHooks) {
     signature_help::register_hooks(events, document_hooks.clone());
     hover::register_hooks(events);
     navigation::register_hooks(events);
+    crate::features::structural_ranges::register_hooks(events);
     crate::features::shell::register_hooks(events);
     rename::register_hooks(events);
     buffer_search::register_hooks(events);

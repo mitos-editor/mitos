@@ -216,9 +216,10 @@ language-servers = [
 Without a filter, all features the server supports are enabled. You can also
 put filtered entries inside an `alternatives` list.
 
-For navigation, hover, formatting, and semantic highlighting, Mitos uses the first listed server
-that supports the feature. Completion, diagnostics, code actions, code lenses,
-and symbol lists combine results from all enabled servers.
+For navigation, hover, formatting, folding, structural selection, and semantic
+highlighting, Mitos uses the first listed server that supports the feature.
+Completion, diagnostics, code actions, code lenses, and symbol lists combine
+results from all enabled servers.
 
 Available feature names:
 
@@ -230,6 +231,7 @@ Available feature names:
 | Completion | `completion`, `inline-completion` |
 | Actions | `code-action`, `code-lens`, `rename-symbol`, `workspace-command`, `document-links` |
 | Highlighting | `semantic-tokens` |
+| Structure | `folding-ranges`, `selection-ranges` |
 | Symbols | `document-symbols`, `workspace-symbols` |
 | Diagnostics | `diagnostics`, `pull-diagnostics` |
 

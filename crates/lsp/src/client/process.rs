@@ -134,6 +134,9 @@ impl Client {
             initialization_options: self.config.clone(),
             capabilities: lsp::ClientCapabilities {
                 workspace: Some(lsp::WorkspaceClientCapabilities {
+                    folding_range: Some(lsp::FoldingRangeWorkspaceClientCapabilities {
+                        refresh_support: Some(true),
+                    }),
                     configuration: Some(true),
                     folding_range: None,
                     did_change_configuration: Some(lsp::DynamicRegistrationClientCapabilities {
@@ -193,6 +196,14 @@ impl Client {
                     }),
                 }),
                 text_document: Some(lsp::TextDocumentClientCapabilities {
+                    folding_range: Some(lsp::FoldingRangeClientCapabilities {
+                        dynamic_registration: Some(false),
+                        line_folding_only: Some(true),
+                        ..Default::default()
+                    }),
+                    selection_range: Some(lsp::SelectionRangeClientCapabilities {
+                        dynamic_registration: Some(false),
+                    }),
                     semantic_tokens: Some(lsp::SemanticTokensClientCapabilities {
                         dynamic_registration: Some(false),
                         requests: lsp::SemanticTokensClientCapabilitiesRequests {

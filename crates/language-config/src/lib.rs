@@ -275,6 +275,8 @@ pub enum LanguageServerFeature {
     CallHierarchy,
     CodeLens,
     SemanticTokens,
+    FoldingRanges,
+    SelectionRanges,
 }
 
 impl Display for LanguageServerFeature {
@@ -306,6 +308,8 @@ impl Display for LanguageServerFeature {
             CallHierarchy => "call-hierarchy",
             CodeLens => "code-lens",
             SemanticTokens => "semantic-tokens",
+            FoldingRanges => "folding-ranges",
+            SelectionRanges => "selection-ranges",
         };
         write!(f, "{feature}",)
     }
