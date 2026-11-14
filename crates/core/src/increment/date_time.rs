@@ -3,26 +3,18 @@ use regex::Regex;
 use std::fmt::Write;
 use std::sync::LazyLock;
 
-/// Increment a Date or DateTime
+/// Increment a Date, Time or DateTime
 ///
 /// If just a Date is selected the day will be incremented.
-/// If a DateTime is selected the second will be incremented.
+/// If a Time or DateTime is selected the minute will be incremented.
 pub fn increment(selected_text: &str, amount: i64) -> Option<String> {
     if selected_text.is_empty() {
         return None;
     }
 
     FORMATS.iter().find_map(|format| {
-        let captures = format.regex.captures(selected_text)?;
-        if captures.len() - 1 != format.fields.len() {
-            return None;
-        }
-
-        let date_time = captures.get(0)?;
-        let has_date = format.fields.iter().any(|f| f.unit.is_date());
-        let has_time = format.fields.iter().any(|f| f.unit.is_time());
-        let date_time = &selected_text[date_time.start()..date_time.end()];
-        match (has_date, has_time) {
+        let date_time = format.regex.find(selected_text)?.as_str();
+        match (format.has_date, format.has_time) {
             (true, true) => {
                 let date_time = strtime::parse(format.fmt, date_time)
                     .ok()?
@@ -79,17 +71,17 @@ static FORMATS: LazyLock<Vec<Format>> = LazyLock::new(|| {
 #[derive(Debug)]
 struct Format {
     fmt: &'static str,
-    fields: Vec<DateField>,
     regex: Regex,
-    max_len: usize,
+    has_date: bool,
+    has_time: bool,
 }
 
 impl Format {
     fn new(fmt: &'static str) -> Self {
         let mut remaining = fmt;
-        let mut fields = Vec::new();
         let mut regex = "^".to_string();
-        let mut max_len = 0;
+        let mut has_date = false;
+        let mut has_time = false;
 
         while let Some(i) = remaining.find('%') {
             let after = &remaining[i + 1..];
@@ -104,8 +96,8 @@ impl Format {
 
             let specifier = &after[..spec_len];
             let field = DateField::from_specifier(specifier).unwrap();
-            fields.push(field);
-            max_len += field.max_len + remaining[..i].len();
+            has_date |= field.unit.is_date();
+            has_time |= field.unit.is_time();
             regex += &remaining[..i];
             write!(regex, "({})", field.regex).unwrap();
             remaining = &after[spec_len..];
@@ -116,26 +108,17 @@ impl Format {
 
         Self {
             fmt,
-            fields,
             regex,
-            max_len,
+            has_date,
+            has_time,
         }
     }
 }
 
-impl PartialEq for Format {
-    fn eq(&self, other: &Self) -> bool {
-        self.fmt == other.fmt && self.fields == other.fields && self.max_len == other.max_len
-    }
-}
-
-impl Eq for Format {}
-
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug)]
 struct DateField {
     regex: &'static str,
     unit: DateUnit,
-    max_len: usize,
 }
 
 impl DateField {
@@ -144,89 +127,73 @@ impl DateField {
             "Y" => Some(Self {
                 regex: r"\d{4}",
                 unit: DateUnit::Years,
-                max_len: 5,
             }),
             "y" => Some(Self {
                 regex: r"\d\d",
                 unit: DateUnit::Years,
-                max_len: 2,
             }),
             "m" => Some(Self {
                 regex: r"[0-1]\d",
                 unit: DateUnit::Months,
-                max_len: 2,
             }),
             "d" => Some(Self {
                 regex: r"[0-3]\d",
                 unit: DateUnit::Days,
-                max_len: 2,
             }),
             "-d" => Some(Self {
                 regex: r"[1-3]?\d",
                 unit: DateUnit::Days,
-                max_len: 2,
             }),
             "a" => Some(Self {
                 regex: r"Sun|Mon|Tue|Wed|Thu|Fri|Sat",
                 unit: DateUnit::Days,
-                max_len: 3,
             }),
             "A" => Some(Self {
                 regex: r"Sunday|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday",
                 unit: DateUnit::Days,
-                max_len: 9,
             }),
             "b" | "h" => Some(Self {
                 regex: r"Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec",
                 unit: DateUnit::Months,
-                max_len: 3,
             }),
             "B" => Some(Self {
                 regex: r"January|February|March|April|May|June|July|August|September|October|November|December",
                 unit: DateUnit::Months,
-                max_len: 9,
             }),
             "H" => Some(Self {
                 regex: r"[0-2]\d",
                 unit: DateUnit::Hours,
-                max_len: 2,
             }),
             "M" => Some(Self {
                 regex: r"[0-5]\d",
                 unit: DateUnit::Minutes,
-                max_len: 2,
             }),
             "S" => Some(Self {
                 regex: r"[0-5]\d",
                 unit: DateUnit::Seconds,
-                max_len: 2,
             }),
             "I" => Some(Self {
                 regex: r"[0-1]\d",
                 unit: DateUnit::Hours,
-                max_len: 2,
             }),
             "-I" => Some(Self {
                 regex: r"1?\d",
                 unit: DateUnit::Hours,
-                max_len: 2,
             }),
             "P" => Some(Self {
                 regex: r"am|pm",
                 unit: DateUnit::AmPm,
-                max_len: 2,
             }),
             "p" => Some(Self {
                 regex: r"AM|PM",
                 unit: DateUnit::AmPm,
-                max_len: 2,
             }),
             _ => None,
         }
     }
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug)]
 enum DateUnit {
     Years,
     Months,
