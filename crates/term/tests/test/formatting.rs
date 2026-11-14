@@ -1,4 +1,4 @@
-//! Exercise shared range formatting against the real LSP transport.
+//! Exercise shared document and range formatting against the real LSP transport.
 use editor_core::Selection;
 use term::application::TestApplication;
 use view::{current, current_ref, editor::Action, features::formatting};
@@ -9,17 +9,32 @@ use super::helpers::{
 };
 
 async fn application(dir: &std::path::Path) -> anyhow::Result<TestApplication> {
+    application_with_args(dir, &[]).await
+}
+
+async fn application_with_args(
+    dir: &std::path::Path,
+    args: &[&str],
+) -> anyhow::Result<TestApplication> {
     let gate = Gate::new(dir.join("initialize-ready"));
-    let server = ServerConfig::feature("alpha", "--formatting", dir).initialize_gate(&gate);
+    let mut server = ServerConfig::feature("alpha", "--formatting", dir).initialize_gate(&gate);
+    for arg in args {
+        server = server.arg(arg);
+    }
+    let mut servers = server.toml();
+    if args.contains(&"--ignore-formatting") {
+        servers.push_str("timeout = 1\n");
+    }
     let mut config = test_config();
     config.editor.lsp.enable = true;
+    config.editor.format.on_save = true;
     let mut app = AppBuilder::new()
         .with_config(config)
         .with_lang_loader(lsp::syntax_loader(
             "formatting-test",
             "formatting-test",
             &["alpha"],
-            &server.toml(),
+            &servers,
         ))
         .build()?;
     let path = dir.join("document.formatting-test");
@@ -44,6 +59,87 @@ async fn application(dir: &std::path::Path) -> anyhow::Result<TestApplication> {
     let (view, doc) = current!(app.editor);
     doc.set_selection(view.id, Selection::single(2, 5));
     Ok(app)
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn document_formatting_reports_server_errors_only_for_current_targets() -> anyhow::Result<()>
+{
+    for stale in [false, true] {
+        let dir = tempfile::tempdir()?;
+        let mut app = application_with_args(
+            dir.path(),
+            &["--document-formatting", "--reject-formatting"],
+        )
+        .await?;
+        let view = current_ref!(app.editor).0.id;
+        let update = formatting::prepare_document(&app.editor, view)?.run().await;
+        if stale {
+            app.editor.new_file(Action::Replace);
+        }
+        let result = update.apply(&mut app.editor);
+        if stale {
+            assert!(!result?);
+        } else {
+            let error = result.expect_err("server formatting failures must reach presentation");
+            assert!(error.to_string().contains("alpha"));
+            assert!(error.to_string().contains("test formatting failure"));
+            assert_eq!(current_ref!(app.editor).1.text(), "😀 foo bar\n");
+        }
+        assert!(app.close().await.is_empty());
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn document_formatting_reports_language_server_timeouts() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let mut app = application_with_args(
+        dir.path(),
+        &["--document-formatting", "--ignore-formatting"],
+    )
+    .await?;
+    let view = current_ref!(app.editor).0.id;
+    let update = formatting::prepare_document(&app.editor, view)?.run().await;
+    let error = update
+        .apply(&mut app.editor)
+        .expect_err("formatting timeouts must reach presentation");
+    assert!(error.to_string().contains("alpha"));
+    assert!(error.to_string().contains("timed out"));
+    assert_eq!(current_ref!(app.editor).1.text(), "😀 foo bar\n");
+    assert!(app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn failed_lsp_formatting_still_saves_the_document() -> anyhow::Result<()> {
+    use view::save::{self, WriteOptions};
+    let dir = tempfile::tempdir()?;
+    let mut app = application_with_args(
+        dir.path(),
+        &["--document-formatting", "--reject-formatting"],
+    )
+    .await?;
+    let (view, doc) = current!(app.editor);
+    let (view, id, path) = (view.id, doc.id(), doc.path().unwrap().to_owned());
+    let edit = editor_core::Transaction::insert(doc.text(), &Selection::point(0), "new ".into());
+    doc.apply(edit.changes())?;
+    let request = save::prepare(
+        &mut app.editor,
+        id,
+        Some(view),
+        None,
+        WriteOptions {
+            force: false,
+            auto_format: true,
+            code_actions: false,
+        },
+    )?;
+    app.editor.submit_save(request)?;
+    app.editor.flush_writes().await?;
+    assert_eq!(std::fs::read_to_string(path)?, "new 😀 foo bar\n");
+    assert!(!app.editor.document(id).unwrap().is_modified());
+    assert!(app.close().await.is_empty());
+    Ok(())
 }
 
 #[tokio::test(flavor = "multi_thread")]

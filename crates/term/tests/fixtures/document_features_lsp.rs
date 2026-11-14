@@ -240,6 +240,19 @@ fn main() -> anyhow::Result<()> {
         };
         let text = documents.get(uri).map(|s| s.trim()).unwrap_or_default();
         let end = text.encode_utf16().count();
+        if formatting && method == "textDocument/formatting" {
+            if args.iter().any(|arg| arg == "--ignore-formatting") {
+                continue;
+            }
+            if args.iter().any(|arg| arg == "--reject-formatting") {
+                respond(
+                    &mut output,
+                    json!({"jsonrpc": "2.0", "id": id,
+                    "error": {"code": -32603, "message": "test formatting failure"}}),
+                )?;
+                continue;
+            }
+        }
         if rename && matches!(method, "textDocument/prepareRename" | "textDocument/rename") {
             let gate_arg = if method == "textDocument/rename" {
                 "--response-gate"
@@ -826,8 +839,12 @@ fn main() -> anyhow::Result<()> {
                 json!({"capabilities":{"textDocumentSync":1,"documentSymbolProvider":true}})
             }
             "initialize" if formatting => json!({"capabilities": {
-                "textDocumentSync": 1, "documentRangeFormattingProvider": true
+                "textDocumentSync": 1, "documentRangeFormattingProvider": true,
+                "documentFormattingProvider": args.iter().any(|arg| arg == "--document-formatting")
             }}),
+            "textDocument/formatting" if formatting => json!([{
+                "range": range(3, 6), "newText": "formatted"
+            }]),
             "textDocument/rangeFormatting" if formatting => json!([{
                 "range": params["range"], "newText": "formatted"
             }]),
