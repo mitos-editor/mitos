@@ -48,7 +48,11 @@ impl Editor {
                 failure_reason: match &result {
                     Ok(true) => None,
                     Ok(false) => Some("Workspace edit was canceled".into()),
-                    Err(error) => Some(error.to_string()),
+                    Err(error) => Some(
+                        error
+                            .downcast_ref::<crate::workspace_edit::ApplyEditError>()
+                            .map_or_else(|| error.to_string(), |error| error.kind.to_string()),
+                    ),
                 },
                 failed_change,
             };
