@@ -112,12 +112,9 @@ pub fn toggle_line_comments(doc: &Rope, selection: &Selection, token: Option<&st
 pub enum CommentChange {
     Commented {
         range: Range,
-        start_pos: usize,
-        end_pos: usize,
-        start_margin: bool,
-        end_margin: bool,
-        start_token: String,
-        end_token: String,
+        /// Token and optional margin spans in document character coordinates.
+        opening: std::ops::Range<usize>,
+        closing: std::ops::Range<usize>,
     },
     Uncommented {
         range: Range,
@@ -140,10 +137,8 @@ pub fn find_block_comments(
     let mut only_whitespace = true;
     let mut comment_changes = Vec::with_capacity(selection.len());
     let default_tokens = tokens.first().cloned().unwrap_or_default();
-    let mut start_token = default_tokens.start.clone();
-    let mut end_token = default_tokens.end.clone();
 
-    let mut tokens = tokens.to_vec();
+    let mut tokens: Vec<_> = tokens.iter().collect();
     // sort the tokens by length, so longer tokens will match first
     tokens.sort_by(|a, b| {
         if a.start.len() == b.start.len() {
@@ -158,32 +153,36 @@ pub fn find_block_comments(
             selection_slice.first_non_whitespace_char(),
             selection_slice.last_non_whitespace_char(),
         ) {
-            let mut line_commented = false;
-            let mut after_start = 0;
-            let mut before_end = 0;
             let len = (end_pos + 1) - start_pos;
 
-            for BlockCommentToken { start, end } in &tokens {
+            let change = tokens.iter().find_map(|BlockCommentToken { start, end }| {
                 let start_len = start.chars().count();
                 let end_len = end.chars().count();
-                after_start = start_pos + start_len;
-                before_end = end_pos.saturating_sub(end_len);
-
-                if len >= start_len + end_len {
-                    let start_fragment = selection_slice.slice_chars(start_pos..after_start);
-                    let end_fragment = selection_slice.slice_chars(before_end + 1..end_pos + 1);
-
-                    // block commented with these tokens
-                    if start_fragment == start.as_str() && end_fragment == end.as_str() {
-                        start_token = start.to_string();
-                        end_token = end.to_string();
-                        line_commented = true;
-                        break;
-                    }
+                if len < start_len + end_len {
+                    return None;
                 }
-            }
+                let after_start = start_pos + start_len;
+                let before_end = end_pos.saturating_sub(end_len);
+                let start_fragment = selection_slice.slice_chars(start_pos..after_start);
+                let end_fragment = selection_slice.slice_chars(before_end + 1..end_pos + 1);
+                if start_fragment != start.as_str() || end_fragment != end.as_str() {
+                    return None;
+                }
+                let start_margin = selection_slice.get_char_at(after_start) == Some(' ');
+                // A single space between the tokens belongs to the opening span only.
+                let end_margin = after_start != before_end
+                    && selection_slice.get_char_at(before_end) == Some(' ');
+                let from = range.from();
+                Some(CommentChange::Commented {
+                    range: *range,
+                    opening: from + start_pos..from + after_start + usize::from(start_margin),
+                    closing: from + before_end + 1 - usize::from(end_margin)..from + end_pos + 1,
+                })
+            });
 
-            if !line_commented {
+            if let Some(change) = change {
+                comment_changes.push(change);
+            } else {
                 comment_changes.push(CommentChange::Uncommented {
                     range: *range,
                     start_pos,
@@ -192,17 +191,6 @@ pub fn find_block_comments(
                     end_token: default_tokens.end.clone(),
                 });
                 commented = false;
-            } else {
-                comment_changes.push(CommentChange::Commented {
-                    range: *range,
-                    start_pos,
-                    end_pos,
-                    start_margin: selection_slice.get_char_at(after_start) == Some(' '),
-                    end_margin: after_start != before_end
-                        && (selection_slice.get_char_at(before_end) == Some(' ')),
-                    start_token: start_token.to_string(),
-                    end_token: end_token.to_string(),
-                });
             }
             only_whitespace = false;
         } else {
@@ -228,26 +216,11 @@ pub fn create_block_comment_transaction(
     for change in comment_changes {
         if commented {
             if let CommentChange::Commented {
-                range,
-                start_pos,
-                end_pos,
-                start_token,
-                end_token,
-                start_margin,
-                end_margin,
+                opening, closing, ..
             } = change
             {
-                let from = range.from();
-                changes.push((
-                    from + start_pos,
-                    from + start_pos + start_token.chars().count() + start_margin as usize,
-                    None,
-                ));
-                changes.push((
-                    from + end_pos - end_token.chars().count() - end_margin as usize + 1,
-                    from + end_pos + 1,
-                    None,
-                ));
+                changes.push((opening.start, opening.end, None));
+                changes.push((closing.start, closing.end, None));
             }
         } else {
             // uncommented so manually map ranges through changes
@@ -532,5 +505,30 @@ mod test {
         transaction.apply(&mut doc);
 
         assert_eq!(doc, "67\n67\n67");
+    }
+
+    #[test]
+    fn test_block_comment_removals_use_document_char_ranges() {
+        let mut doc = Rope::from("🦀 ❤️ x ❤️ tail");
+        let tokens = [BlockCommentToken {
+            start: "❤️".into(),
+            end: "❤️".into(),
+        }];
+        let selection = Selection::single(9, 2);
+        let (commented, changes) = find_block_comments(&tokens, doc.slice(..), &selection);
+        assert!(commented);
+        assert_eq!(
+            changes,
+            vec![CommentChange::Commented {
+                range: Range::new(9, 2),
+                opening: 2..5,
+                closing: 6..9,
+            }]
+        );
+
+        let (transaction, _) =
+            create_block_comment_transaction(&doc, &selection, commented, changes);
+        transaction.apply(&mut doc);
+        assert_eq!(doc, "🦀 x tail");
     }
 }
