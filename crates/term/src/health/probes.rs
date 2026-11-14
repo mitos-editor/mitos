@@ -141,7 +141,7 @@ async fn reply_lsp(client: &lsp::Client, call: jsonrpc::MethodCall) -> lsp::Resu
                 serde_json::to_value(client.configuration(&params))
                     .map_err(|_| jsonrpc::Error::invalid_params("Invalid configuration request"))
             }),
-        "workspace/workspaceFolders" => Ok(json!(client.workspace_folders().await.as_slice())),
+        "workspace/workspaceFolders" => Ok(json!(client.workspace_folders().as_slice())),
         "window/workDoneProgress/create" | "window/showMessageRequest" => Ok(Value::Null),
         _ => Err(jsonrpc::Error {
             code: jsonrpc::ErrorCode::MethodNotFound,
