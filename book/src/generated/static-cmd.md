@@ -353,23 +353,23 @@
 | `goto_previous_entry` | Goto previous pairing | normal: `` [e ``, select: `` [e `` |
 | `goto_next_paragraph` | Goto next paragraph | normal: `` ]p ``, select: `` ]p `` |
 | `goto_previous_paragraph` | Goto previous paragraph | normal: `` [p ``, select: `` [p `` |
-| `debug_launch_picker` | Choose a launch configuration and start debugging | normal: `` <space>Gl ``, select: `` <space>Gl `` |
-| `debug_restart` | Restart debugging session | normal: `` <space>Gr ``, select: `` <space>Gr `` |
-| `debug_toggle_breakpoints` | Toggle breakpoints | normal: `` <space>Gb ``, select: `` <space>Gb `` |
-| `debug_continue` | Continue program execution | normal: `` <space>Gc ``, select: `` <space>Gc `` |
-| `debug_pause` | Pause program execution | normal: `` <space>Gh ``, select: `` <space>Gh `` |
-| `debug_step_in` | Step in | normal: `` <space>Gi ``, select: `` <space>Gi `` |
-| `debug_step_out` | Step out | normal: `` <space>Go ``, select: `` <space>Go `` |
-| `debug_step_over` | Step over the current statement | normal: `` <space>Gn ``, select: `` <space>Gn `` |
-| `debug_variables` | Browse variables | normal: `` <space>Gv ``, select: `` <space>Gv `` |
-| `debug_terminate` | End debug session | normal: `` <space>Gt ``, select: `` <space>Gt `` |
-| `debug_edit_breakpoint_condition` | Edit breakpoint condition on current line | normal: `` <space>G<C-c> ``, select: `` <space>G<C-c> `` |
-| `debug_edit_breakpoint_log_message` | Edit breakpoint log message on current line | normal: `` <space>G<C-l> ``, select: `` <space>G<C-l> `` |
-| `debug_session_picker` | Open debug session picker | normal: `` <space>Gss ``, select: `` <space>Gss `` |
-| `debug_thread_picker` | Choose the current debug thread | normal: `` <space>Gst ``, select: `` <space>Gst `` |
-| `debug_stack_frame_picker` | Open debug stack frame picker | normal: `` <space>Gsf ``, select: `` <space>Gsf `` |
-| `debug_enable_exception_breakpoints` | Enable exception breakpoints | normal: `` <space>Ge ``, select: `` <space>Ge `` |
-| `debug_disable_exception_breakpoints` | Disable exception breakpoints | normal: `` <space>GE ``, select: `` <space>GE `` |
+| `debug_launch_picker` | Choose a launch configuration and start debugging | normal: `` <space>Xl ``, `` <space>xl ``, select: `` <space>Xl ``, `` <space>xl `` |
+| `debug_restart` | Restart debugging session | normal: `` <space>Xr ``, `` <space>xr ``, select: `` <space>Xr ``, `` <space>xr `` |
+| `debug_toggle_breakpoints` | Toggle breakpoints | normal: `` <space>Xb ``, `` <space>xb ``, select: `` <space>Xb ``, `` <space>xb `` |
+| `debug_continue` | Continue program execution | normal: `` <space>Xc ``, `` <space>xc ``, select: `` <space>Xc ``, `` <space>xc `` |
+| `debug_pause` | Pause program execution | normal: `` <space>Xh ``, `` <space>xh ``, select: `` <space>Xh ``, `` <space>xh `` |
+| `debug_step_in` | Step in | normal: `` <space>Xi ``, `` <space>xi ``, select: `` <space>Xi ``, `` <space>xi `` |
+| `debug_step_out` | Step out | normal: `` <space>Xo ``, `` <space>xo ``, select: `` <space>Xo ``, `` <space>xo `` |
+| `debug_step_over` | Step over the current statement | normal: `` <space>Xn ``, `` <space>xn ``, select: `` <space>Xn ``, `` <space>xn `` |
+| `debug_variables` | Browse variables | normal: `` <space>Xv ``, `` <space>xv ``, select: `` <space>Xv ``, `` <space>xv `` |
+| `debug_terminate` | End debug session | normal: `` <space>Xt ``, `` <space>xt ``, select: `` <space>Xt ``, `` <space>xt `` |
+| `debug_edit_breakpoint_condition` | Edit breakpoint condition on current line | normal: `` <space>XBc ``, `` <space>xBc ``, select: `` <space>XBc ``, `` <space>xBc `` |
+| `debug_edit_breakpoint_log_message` | Edit breakpoint log message on current line | normal: `` <space>XBl ``, `` <space>xBl ``, select: `` <space>XBl ``, `` <space>xBl `` |
+| `debug_session_picker` | Open debug session picker | normal: `` <space>Xss ``, `` <space>xss ``, select: `` <space>Xss ``, `` <space>xss `` |
+| `debug_thread_picker` | Choose the current debug thread | normal: `` <space>Xst ``, `` <space>xst ``, select: `` <space>Xst ``, `` <space>xst `` |
+| `debug_stack_frame_picker` | Open debug stack frame picker | normal: `` <space>Xsf ``, `` <space>xsf ``, select: `` <space>Xsf ``, `` <space>xsf `` |
+| `debug_enable_exception_breakpoints` | Enable exception breakpoints | normal: `` <space>Xe ``, `` <space>xe ``, select: `` <space>Xe ``, `` <space>xe `` |
+| `debug_disable_exception_breakpoints` | Disable exception breakpoints | normal: `` <space>XE ``, `` <space>xE ``, select: `` <space>XE ``, `` <space>xE `` |
 | `shell_pipe` | Pipe selections through shell command | normal: `` \| ``, select: `` \| `` |
 | `shell_pipe_to` | Pipe selections into shell command ignoring output | normal: `` <A-\|> ``, select: `` <A-\|> `` |
 | `shell_insert_output` | Insert shell command output before selections | normal: `` ! ``, select: `` ! `` |
