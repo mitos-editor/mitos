@@ -327,12 +327,7 @@ where
         context
             .doc
             .language_servers()
-            .find_map(|srv| {
-                context
-                    .spinners
-                    .get(srv.id())
-                    .and_then(|spinner| spinner.frame())
-            })
+            .find_map(|srv| context.spinners.frame(srv.id()))
             // Even if there's no spinner; reserve its space to avoid elements frequently shifting.
             .unwrap_or(" ")
             .into(),

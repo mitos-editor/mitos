@@ -2,9 +2,12 @@ use std::{collections::HashMap, time::Instant};
 
 use lsp_client::LanguageServerId;
 
+const FRAMES: [&str; 8] = ["⣾", "⣽", "⣻", "⢿", "⡿", "⣟", "⣯", "⣷"];
+const FRAME_INTERVAL_MS: u128 = 80;
+
 #[derive(Default, Debug)]
 pub struct ProgressSpinners {
-    inner: HashMap<LanguageServerId, Spinner>,
+    inner: HashMap<LanguageServerId, Instant>,
 }
 
 impl ProgressSpinners {
@@ -12,76 +15,38 @@ impl ProgressSpinners {
         let active: std::collections::HashSet<_> = servers.collect();
         self.inner.retain(|id, _| active.contains(id));
         for id in active {
-            let spinner = self.get_or_create(id);
-            if spinner.is_stopped() {
-                spinner.start();
-            }
+            self.inner.entry(id).or_insert_with(Instant::now);
         }
     }
 
-    pub fn get(&self, id: LanguageServerId) -> Option<&Spinner> {
-        self.inner.get(&id)
-    }
-
-    pub fn get_or_create(&mut self, id: LanguageServerId) -> &mut Spinner {
-        self.inner.entry(id).or_default()
+    pub fn frame(&self, id: LanguageServerId) -> Option<&'static str> {
+        let elapsed = self.inner.get(&id)?.elapsed().as_millis();
+        let index = (elapsed / FRAME_INTERVAL_MS % FRAMES.len() as u128) as usize;
+        Some(FRAMES[index])
     }
 }
 
-impl Default for Spinner {
-    fn default() -> Self {
-        Self::dots(80)
-    }
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
 
-#[derive(Debug)]
-pub struct Spinner {
-    frames: Vec<&'static str>,
-    count: usize,
-    start: Option<Instant>,
-    interval: u64,
-}
+    #[test]
+    fn synchronization_keeps_active_start_times_and_removes_finished_servers() {
+        let server = LanguageServerId::default();
+        let started = Instant::now() - Duration::from_secs(1);
+        let mut spinners = ProgressSpinners {
+            inner: HashMap::from([(server, started)]),
+        };
 
-impl Spinner {
-    /// Creates a new spinner with `frames` and `interval`.
-    /// Expects the frames count and interval to be greater than 0.
-    pub fn new(frames: Vec<&'static str>, interval: u64) -> Self {
-        let count = frames.len();
-        assert!(count > 0);
-        assert!(interval > 0);
+        spinners.synchronize([server].into_iter());
+        assert_eq!(spinners.inner[&server], started);
+        assert!(spinners.frame(server).is_some());
 
-        Self {
-            frames,
-            count,
-            interval,
-            start: None,
-        }
-    }
+        spinners.synchronize(std::iter::empty());
+        assert_eq!(spinners.frame(server), None);
 
-    pub fn dots(interval: u64) -> Self {
-        Self::new(vec!["⣾", "⣽", "⣻", "⢿", "⡿", "⣟", "⣯", "⣷"], interval)
-    }
-
-    pub fn start(&mut self) {
-        self.start = Some(Instant::now());
-    }
-
-    pub fn frame(&self) -> Option<&str> {
-        let idx = (self
-            .start
-            .map(|time| Instant::now().duration_since(time))?
-            .as_millis()
-            / self.interval as u128) as usize
-            % self.count;
-
-        self.frames.get(idx).copied()
-    }
-
-    pub fn stop(&mut self) {
-        self.start = None;
-    }
-
-    pub fn is_stopped(&self) -> bool {
-        self.start.is_none()
+        spinners.synchronize([server].into_iter());
+        assert!(spinners.inner[&server] > started);
     }
 }
