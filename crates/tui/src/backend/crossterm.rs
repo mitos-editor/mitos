@@ -27,7 +27,7 @@ use std::{
 };
 use termini::TermInfo;
 use ui_core::{
-    graphics::{CursorKind, Rect, UnderlineStyle},
+    graphics::{CursorKind, UnderlineStyle},
     theme,
 };
 
@@ -165,78 +165,11 @@ where
     }
 }
 
-impl<W> CrosstermBackend<W>
+impl<W> Backend for CrosstermBackend<W>
 where
     W: Write,
 {
-    fn claim(&mut self) -> io::Result<()> {
-        self.hyperlinks = Default::default();
-        terminal::enable_raw_mode()?;
-        execute!(
-            self.buffer,
-            terminal::EnterAlternateScreen,
-            EnableFocusChange
-        )?;
-        match execute!(self.buffer, EnableBracketedPaste,) {
-            Err(err) if err.kind() == io::ErrorKind::Unsupported => {
-                log::warn!("Bracketed paste is not supported on this terminal.");
-                self.supports_bracketed_paste = false;
-            }
-            Err(err) => return Err(err),
-            Ok(_) => (),
-        };
-        execute!(self.buffer, terminal::Clear(terminal::ClearType::All))?;
-        if self.config.enable_mouse_capture {
-            execute!(self.buffer, EnableMouseCapture)?;
-            self.mouse_capture_enabled = true;
-        }
-        if self.supports_keyboard_enhancement_protocol() {
-            execute!(
-                self.buffer,
-                PushKeyboardEnhancementFlags(
-                    KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES
-                        | KeyboardEnhancementFlags::REPORT_ALTERNATE_KEYS
-                )
-            )?;
-        }
-        Ok(())
-    }
-
-    fn reconfigure(&mut self, config: Config) -> io::Result<()> {
-        if self.mouse_capture_enabled != config.enable_mouse_capture {
-            if config.enable_mouse_capture {
-                execute!(self.buffer, EnableMouseCapture)?;
-            } else {
-                execute!(self.buffer, DisableMouseCapture)?;
-            }
-            self.mouse_capture_enabled = config.enable_mouse_capture;
-        }
-        self.config = config;
-
-        Ok(())
-    }
-
-    fn restore(&mut self) -> io::Result<()> {
-        self.buffer.write_all(b"\x1b]8;;\x1b\\")?;
-        // reset cursor shape
-        self.buffer
-            .write_all(self.capabilities.reset_cursor_command.as_bytes())?;
-        if self.config.enable_mouse_capture {
-            execute!(self.buffer, DisableMouseCapture)?;
-        }
-        if self.supports_keyboard_enhancement_protocol() {
-            execute!(self.buffer, PopKeyboardEnhancementFlags)?;
-        }
-        if self.supports_bracketed_paste {
-            execute!(self.buffer, DisableBracketedPaste,)?;
-        }
-        execute!(
-            self.buffer,
-            DisableFocusChange,
-            terminal::LeaveAlternateScreen
-        )?;
-        terminal::disable_raw_mode()
-    }
+    type Error = io::Error;
 
     fn draw<'a, I>(&mut self, content: I) -> io::Result<()>
     where
@@ -316,72 +249,6 @@ where
         queue!(self.buffer, Hide)
     }
 
-    fn set_cursor_kind(&mut self, kind: CursorKind) -> io::Result<()> {
-        let shape = match kind {
-            CursorKind::Block => SetCursorStyle::SteadyBlock,
-            CursorKind::Bar => SetCursorStyle::SteadyBar,
-            CursorKind::Underline => SetCursorStyle::SteadyUnderScore,
-        };
-        queue!(self.buffer, shape)
-    }
-
-    fn set_cursor(&mut self, x: u16, y: u16) -> io::Result<()> {
-        queue!(self.buffer, MoveTo(x, y))
-    }
-
-    fn clear(&mut self) -> io::Result<()> {
-        queue!(self.buffer, Clear(ClearType::All))
-    }
-
-    fn start_sync(&mut self) -> io::Result<()> {
-        queue!(self.buffer, BeginSynchronizedUpdate)
-    }
-
-    fn end_sync(&mut self) -> io::Result<()> {
-        queue!(self.buffer, EndSynchronizedUpdate)
-    }
-
-    fn size(&self) -> io::Result<Rect> {
-        let (width, height) =
-            terminal::size().map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
-
-        Ok(Rect::new(0, 0, width, height))
-    }
-
-    fn flush(&mut self) -> io::Result<()> {
-        self.buffer.flush()
-    }
-
-    fn supports_true_color(&self) -> bool {
-        false
-    }
-
-    fn get_theme_mode(&self) -> Option<theme::Mode> {
-        None
-    }
-
-    fn set_background_color(&mut self, _color: Option<theme::Color>) -> io::Result<()> {
-        Ok(())
-    }
-}
-
-impl<W> Backend for CrosstermBackend<W>
-where
-    W: Write,
-{
-    type Error = io::Error;
-
-    fn draw<'a, I>(&mut self, content: I) -> io::Result<()>
-    where
-        I: Iterator<Item = (u16, u16, &'a Cell)>,
-    {
-        CrosstermBackend::draw(self, content)
-    }
-
-    fn hide_cursor(&mut self) -> io::Result<()> {
-        CrosstermBackend::hide_cursor(self)
-    }
-
     fn show_cursor(&mut self) -> io::Result<()> {
         queue!(self.buffer, Show)
     }
@@ -393,11 +260,11 @@ where
 
     fn set_cursor_position<P: Into<Position>>(&mut self, position: P) -> io::Result<()> {
         let Position { x, y } = position.into();
-        CrosstermBackend::set_cursor(self, x, y)
+        queue!(self.buffer, MoveTo(x, y))
     }
 
     fn clear(&mut self) -> io::Result<()> {
-        CrosstermBackend::clear(self)
+        queue!(self.buffer, Clear(ClearType::All))
     }
 
     fn clear_region(&mut self, clear_type: RatatuiClearType) -> io::Result<()> {
@@ -412,7 +279,9 @@ where
     }
 
     fn size(&self) -> io::Result<Size> {
-        Ok(CrosstermBackend::size(self)?.as_size())
+        let (width, height) =
+            terminal::size().map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+        Ok(Size::new(width, height))
     }
 
     fn window_size(&mut self) -> io::Result<RatatuiWindowSize> {
@@ -423,7 +292,7 @@ where
     }
 
     fn flush(&mut self) -> io::Result<()> {
-        CrosstermBackend::flush(self)
+        self.buffer.flush()
     }
 }
 
@@ -440,39 +309,101 @@ where
     }
 
     fn claim(&mut self) -> io::Result<()> {
-        CrosstermBackend::claim(self)
+        self.hyperlinks = Default::default();
+        terminal::enable_raw_mode()?;
+        execute!(
+            self.buffer,
+            terminal::EnterAlternateScreen,
+            EnableFocusChange
+        )?;
+        match execute!(self.buffer, EnableBracketedPaste,) {
+            Err(err) if err.kind() == io::ErrorKind::Unsupported => {
+                log::warn!("Bracketed paste is not supported on this terminal.");
+                self.supports_bracketed_paste = false;
+            }
+            Err(err) => return Err(err),
+            Ok(_) => (),
+        };
+        execute!(self.buffer, terminal::Clear(terminal::ClearType::All))?;
+        if self.config.enable_mouse_capture {
+            execute!(self.buffer, EnableMouseCapture)?;
+            self.mouse_capture_enabled = true;
+        }
+        if self.supports_keyboard_enhancement_protocol() {
+            execute!(
+                self.buffer,
+                PushKeyboardEnhancementFlags(
+                    KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES
+                        | KeyboardEnhancementFlags::REPORT_ALTERNATE_KEYS
+                )
+            )?;
+        }
+        Ok(())
     }
 
     fn reconfigure(&mut self, config: Config) -> io::Result<()> {
-        CrosstermBackend::reconfigure(self, config)
+        if self.mouse_capture_enabled != config.enable_mouse_capture {
+            if config.enable_mouse_capture {
+                execute!(self.buffer, EnableMouseCapture)?;
+            } else {
+                execute!(self.buffer, DisableMouseCapture)?;
+            }
+            self.mouse_capture_enabled = config.enable_mouse_capture;
+        }
+        self.config = config;
+
+        Ok(())
     }
 
     fn restore(&mut self) -> io::Result<()> {
-        CrosstermBackend::restore(self)
+        self.buffer.write_all(b"\x1b]8;;\x1b\\")?;
+        // reset cursor shape
+        self.buffer
+            .write_all(self.capabilities.reset_cursor_command.as_bytes())?;
+        if self.config.enable_mouse_capture {
+            execute!(self.buffer, DisableMouseCapture)?;
+        }
+        if self.supports_keyboard_enhancement_protocol() {
+            execute!(self.buffer, PopKeyboardEnhancementFlags)?;
+        }
+        if self.supports_bracketed_paste {
+            execute!(self.buffer, DisableBracketedPaste,)?;
+        }
+        execute!(
+            self.buffer,
+            DisableFocusChange,
+            terminal::LeaveAlternateScreen
+        )?;
+        terminal::disable_raw_mode()
     }
 
     fn set_cursor_kind(&mut self, kind: CursorKind) -> io::Result<()> {
-        CrosstermBackend::set_cursor_kind(self, kind)
+        let shape = match kind {
+            CursorKind::Block => SetCursorStyle::SteadyBlock,
+            CursorKind::Bar => SetCursorStyle::SteadyBar,
+            CursorKind::Underline => SetCursorStyle::SteadyUnderScore,
+        };
+        queue!(self.buffer, shape)
     }
 
     fn start_sync(&mut self) -> io::Result<()> {
-        CrosstermBackend::start_sync(self)
+        queue!(self.buffer, BeginSynchronizedUpdate)
     }
 
     fn end_sync(&mut self) -> io::Result<()> {
-        CrosstermBackend::end_sync(self)
+        queue!(self.buffer, EndSynchronizedUpdate)
     }
 
     fn supports_true_color(&self) -> bool {
-        CrosstermBackend::supports_true_color(self)
+        false
     }
 
     fn get_theme_mode(&self) -> Option<theme::Mode> {
-        CrosstermBackend::get_theme_mode(self)
+        None
     }
 
-    fn set_background_color(&mut self, color: Option<theme::Color>) -> io::Result<()> {
-        CrosstermBackend::set_background_color(self, color)
+    fn set_background_color(&mut self, _color: Option<theme::Color>) -> io::Result<()> {
+        Ok(())
     }
 }
 
