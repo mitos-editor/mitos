@@ -239,6 +239,24 @@ impl WatchFilter {
         Some(ignores)
     }
 
+    fn filtering_context(&self, path: &Path) -> Option<(&Path, &[Arc<Gitignore>])> {
+        let (root, ignore_files) = self
+            .ignore_files
+            .iter()
+            .filter(|files| path.starts_with(&files.root))
+            .max_by_key(|files| files.root.components().count())
+            .map_or((Path::new(""), &self.global_ignores), |files| {
+                (&files.root, &files.ignores)
+            });
+        if self.config.max_depth.is_some_and(|depth| {
+            path.strip_prefix(root)
+                .is_ok_and(|p| p.components().count() > depth)
+        }) {
+            return None;
+        }
+        Some((root, ignore_files))
+    }
+
     fn ignore_path_impl(
         &self,
         path: &Path,
@@ -272,22 +290,11 @@ impl filesentry::Filter for WatchFilter {
         if let Some(ignored) = self.extra_path(path, is_dir) {
             return ignored;
         }
-        let (root, ignore_files) = self
-            .ignore_files
-            .iter()
-            .filter(|files| path.starts_with(&files.root))
-            .max_by_key(|files| files.root.components().count())
-            .map_or((Path::new(""), &self.global_ignores), |files| {
-                (&files.root, &files.ignores)
-            });
+        let Some((root, ignore_files)) = self.filtering_context(path) else {
+            return true;
+        };
         if path == root {
             return false;
-        }
-        if self.config.max_depth.is_some_and(|depth| {
-            path.strip_prefix(root)
-                .is_ok_and(|p| p.components().count() > depth)
-        }) {
-            return true;
         }
         let nested = self.directory_ignores(path, root);
         self.ignore_path_impl(
@@ -301,20 +308,9 @@ impl filesentry::Filter for WatchFilter {
         if let Some(ignored) = self.extra_path(path, is_dir) {
             return ignored;
         }
-        let (root, ignore_files) = self
-            .ignore_files
-            .iter()
-            .filter(|files| path.starts_with(&files.root))
-            .max_by_key(|files| files.root.components().count())
-            .map_or((Path::new(""), &self.global_ignores), |files| {
-                (&files.root, &files.ignores)
-            });
-        if self.config.max_depth.is_some_and(|depth| {
-            path.strip_prefix(root)
-                .is_ok_and(|p| p.components().count() > depth)
-        }) {
+        let Some((root, ignore_files)) = self.filtering_context(path) else {
             return true;
-        }
+        };
         loop {
             if path == root {
                 return false;
