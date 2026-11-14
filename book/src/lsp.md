@@ -95,7 +95,10 @@ Syntax symbols do not require a running language server.
 ## Formatting
 
 Use `:format` for the whole file or `=` for selected ranges supported by the
-language server. A configured external formatter takes precedence for whole-file
+language server. With multiple selections, `=` requires a server advertising
+LSP 3.18 multi-range formatting, such as clangd 21. All ranges are formatted
+together and applied as one edit; single selections use ordinary range formatting.
+A configured external formatter takes precedence for whole-file
 formatting. Formatting on save requires both `editor.format.on-save` and the
 language's `auto-format` setting to be enabled.
 

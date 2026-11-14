@@ -307,6 +307,10 @@ impl Client {
                     formatting: Some(lsp::DocumentFormattingClientCapabilities {
                         dynamic_registration: Some(false),
                     }),
+                    range_formatting: Some(lsp::DocumentRangeFormattingClientCapabilities {
+                        dynamic_registration: Some(false),
+                        ranges_support: Some(true),
+                    }),
                     code_action: Some(lsp::CodeActionClientCapabilities {
                         code_action_literal_support: Some(lsp::CodeActionLiteralSupport {
                             code_action_kind: lsp::CodeActionKindLiteralSupport {
