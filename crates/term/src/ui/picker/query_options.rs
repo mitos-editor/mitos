@@ -8,6 +8,35 @@ pub(super) type AsyncQueryOptions<T, D> = Box<
     dyn Fn(&Editor, &str, &D, Option<&T>, event::TaskHandle) -> BoxFuture<'static, Output<T, D>>,
 >;
 
+/// Hierarchical query callbacks and their owner-scoped work. File and editor
+/// sources retain their independent lifetimes on the picker.
+pub(super) struct QueryOptionsState<T, D> {
+    pub(super) synchronous: Option<QueryOptions<T, D>>,
+    pub(super) asynchronous: Option<AsyncQueryOptions<T, D>>,
+    pub(super) pending: Option<PendingQuery<T, D>>,
+    pub(super) task: event::TaskController,
+    pub(super) needs_refresh: bool,
+}
+
+impl<T, D> Default for QueryOptionsState<T, D> {
+    fn default() -> Self {
+        Self {
+            synchronous: None,
+            asynchronous: None,
+            pending: None,
+            task: event::TaskController::new(),
+            needs_refresh: false,
+        }
+    }
+}
+
+impl<T, D> QueryOptionsState<T, D> {
+    fn cancel(&mut self) {
+        self.task.cancel();
+        self.pending = None;
+    }
+}
+
 pub(super) struct PendingQuery<T, D> {
     result: oneshot::Receiver<Output<T, D>>,
     data: Arc<D>,
@@ -22,14 +51,13 @@ impl<T: Send + Sync + 'static, D: Send + Sync + 'static> Picker<T, D> {
         callback: impl Fn(&Editor, &str, &D, Option<&T>, event::TaskHandle) -> BoxFuture<'static, Output<T, D>>
             + 'static,
     ) -> Self {
-        self.async_query_options = Some(Box::new(callback));
+        self.query_options.asynchronous = Some(Box::new(callback));
         self
     }
 
     pub(super) fn cancel_query_options(&mut self) {
-        self.query_task.cancel();
-        self.pending_query = None;
-        if self.async_query_options.is_some() {
+        self.query_options.cancel();
+        if self.query_options.asynchronous.is_some() {
             // A cancelled injector may contain only part of its rows. Never
             // publish that snapshot when an owner resumes or reveals an item.
             self.results.discard_pending();
@@ -45,10 +73,10 @@ impl<T: Send + Sync + 'static, D: Send + Sync + 'static> Picker<T, D> {
         if self.primary_query().is_empty() {
             return false;
         }
-        let Some(source) = &self.async_query_options else {
+        let Some(source) = &self.query_options.asynchronous else {
             return false;
         };
-        let cancel = self.query_task.restart();
+        let cancel = self.query_options.task.restart();
         if let Some(updates) = &mut self.file_updates {
             updates.query_changed();
         }
@@ -60,7 +88,7 @@ impl<T: Send + Sync + 'static, D: Send + Sync + 'static> Picker<T, D> {
             cancel.clone(),
         );
         let (tx, result) = oneshot::channel();
-        self.pending_query = Some(PendingQuery {
+        self.query_options.pending = Some(PendingQuery {
             result,
             data: self.results.editor_data.clone(),
             preserve_selection,
@@ -97,7 +125,7 @@ impl<T: Send + Sync + 'static, D: Send + Sync + 'static> Picker<T, D> {
     }
 
     pub(super) fn poll_query_options(&mut self, editor: &Editor) {
-        let Some(pending) = &mut self.pending_query else {
+        let Some(pending) = &mut self.query_options.pending else {
             return;
         };
         if !Arc::ptr_eq(&pending.data, &self.results.editor_data) {
@@ -107,13 +135,13 @@ impl<T: Send + Sync + 'static, D: Send + Sync + 'static> Picker<T, D> {
         match pending.result.try_recv() {
             Ok(result) => {
                 let preserve = pending.preserve_selection;
-                self.pending_query = None;
+                self.query_options.pending = None;
                 match result {
                     Ok((options, data, cursor)) => {
                         let data = Arc::new(data);
                         let injector = self.prepare_query_options(data.clone(), cursor, preserve);
                         let columns = self.columns.clone();
-                        let cancel = self.query_task.restart();
+                        let cancel = self.query_options.task.restart();
                         let redraw = self.redraw.on_drop();
                         tokio::task::spawn_blocking(move || {
                             let _redraw = redraw;
@@ -128,7 +156,7 @@ impl<T: Send + Sync + 'static, D: Send + Sync + 'static> Picker<T, D> {
                     Err(error) => editor.status_sender().report_blocking(error),
                 }
             }
-            Err(oneshot::error::TryRecvError::Closed) => self.pending_query = None,
+            Err(oneshot::error::TryRecvError::Closed) => self.query_options.pending = None,
             Err(oneshot::error::TryRecvError::Empty) => {}
         }
     }
@@ -181,10 +209,10 @@ mod tests {
         // A source-index refresh can arrive before the pending query has rows.
         picker.refresh_query_options(&app.editor, true);
         picker.poll_query_options(&app.editor);
-        assert!(picker.pending_query.is_some());
+        assert!(picker.query_options.pending.is_some());
         second_tx.send(vec![2]).unwrap();
         tokio::time::timeout(std::time::Duration::from_secs(5), async {
-            while picker.pending_query.is_some() {
+            while picker.query_options.pending.is_some() {
                 picker.poll_query_options(&app.editor);
                 tokio::task::yield_now().await;
             }
@@ -232,9 +260,9 @@ mod tests {
         picker.handle_prompt_change(false);
         picker.refresh_query_options(&app.editor, false);
         picker.suspend();
-        assert!(picker.pending_query.is_none());
+        assert!(picker.query_options.pending.is_none());
         picker.refresh_query_if_changed(&mut app.editor);
-        assert!(picker.pending_query.is_some());
+        assert!(picker.query_options.pending.is_some());
         assert_eq!(requests.load(atomic::Ordering::Relaxed), 2);
         Ok(())
     }
@@ -265,7 +293,7 @@ mod tests {
         picker.handle_prompt_change(false);
         picker.refresh_query_options(&app.editor, false);
         picker.reveal_query_item(&app.editor, &0);
-        assert!(picker.pending_query.is_none());
+        assert!(picker.query_options.pending.is_none());
         assert!(cancel.lock().unwrap().as_ref().unwrap().is_canceled());
         assert_eq!(&*picker.primary_query(), "");
         Ok(())
@@ -314,7 +342,7 @@ mod tests {
         })
         .await?;
         picker.suspend();
-        assert!(picker.query_needs_refresh);
+        assert!(picker.query_options.needs_refresh);
         let pending_before_input = picker.has_pending_render();
         let config = Config::default();
         let updates = tokio::sync::mpsc::unbounded_channel().0;
@@ -341,7 +369,7 @@ mod tests {
             pending_before_input,
             "a suspended query must keep sidebar actions queued"
         );
-        assert!(picker.pending_query.is_some());
+        assert!(picker.query_options.pending.is_some());
         assert_eq!(requests.load(Ordering::Relaxed), 2);
         Ok(())
     }

@@ -9,7 +9,7 @@ async fn settle<T: Send + Sync, D: Send + Sync>(picker: &mut Picker<T, D>, edito
             picker.poll_query_options(editor);
             picker.publish_options();
             let status = picker.results.matcher.tick(10);
-            if picker.pending_query.is_none()
+            if picker.query_options.pending.is_none()
                 && !status.running
                 && picker.results.matcher.active_injectors() == 0
                 && !picker.results.is_refreshing()
