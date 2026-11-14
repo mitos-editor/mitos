@@ -9,6 +9,8 @@ impl Document {
     pub(super) fn invalidate_language_features(&mut self) {
         for state in self.view_states.values_mut() {
             state.expansion_history.clear();
+            state.structural_request.cancel();
+            state.structural_repeat = None;
             state.folds = Default::default();
         }
         self.cancel_view_requests(|state| &mut state.hover);
@@ -23,6 +25,7 @@ impl Document {
         self.document_links.invalidate();
         self.code_lenses.clear();
         self.semantic_tokens.invalidate();
+        self.folding_ranges.invalidate();
         self.invalidate_document_symbols();
         self.clear_all_document_highlights();
         self.clear_all_code_action_hints();

@@ -103,6 +103,7 @@ pub enum MethodCall {
     ShowDocument(lsp::ShowDocumentParams),
     WorkspaceDiagnosticRefresh,
     CodeLensRefresh,
+    FoldingRangeRefresh,
     SemanticTokensRefresh,
     InlineValueRefresh,
     ShowMessageRequest(lsp::ShowMessageRequestParams),
@@ -139,6 +140,7 @@ impl MethodCall {
             }
             lsp::request::WorkspaceDiagnosticRefresh::METHOD => Self::WorkspaceDiagnosticRefresh,
             lsp::request::CodeLensRefresh::METHOD => Self::CodeLensRefresh,
+            lsp::request::FoldingRangeRefreshRequest::METHOD => Self::FoldingRangeRefresh,
             lsp::request::SemanticTokensRefresh::METHOD => Self::SemanticTokensRefresh,
             lsp::request::InlineValueRefreshRequest::METHOD => Self::InlineValueRefresh,
             lsp::request::ShowMessageRequest::METHOD => {

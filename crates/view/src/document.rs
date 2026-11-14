@@ -191,6 +191,7 @@ pub struct Document {
     pub(crate) accepted_completions: crate::features::completion::AcceptedCompletions,
     pub(crate) document_colors: DocumentColors,
     pub(crate) code_lenses: DocumentCodeLenses,
+    pub(crate) folding_ranges: crate::features::structural_ranges::FoldingRanges,
     pub(crate) semantic_tokens: crate::features::semantic_tokens::SemanticTokens,
     pub(crate) document_links: DocumentLinks,
     pub(crate) conflicts:
@@ -323,6 +324,7 @@ impl Document {
             document_colors: Default::default(),
             code_lenses: Default::default(),
             semantic_tokens: Default::default(),
+            folding_ranges: Default::default(),
             document_symbols: Default::default(),
             workspace_symbols: Default::default(),
             syntax_loader,

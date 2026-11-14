@@ -14,19 +14,21 @@ Press `z f` to open the folding menu:
 
 | Key | Command | Action |
 | --- | --- | --- |
-| `z f c` | `fold_close` | Close the innermost open syntax fold at each cursor |
+| `z f c` | `fold_close` | Close the innermost open fold at each cursor |
 | `z f o` | `fold_open` | Open the outermost closed fold at each cursor |
 | `z f a` | `fold_toggle` | Toggle the fold at each cursor |
 | `z f s` | `fold_selection` | Fold the lines covered by each selection |
-| `z f m` | `fold_all` | Close all syntax folds |
+| `z f m` | `fold_all` | Close all folds |
 | `z f r` | `unfold_all` | Open all folds, including nested folds |
 
 Use a count to close or open several nested folds, for example `2zfc`. Opening
 an outer fold keeps any folds inside it closed. `Z f` provides the same commands
 from the sticky view menu.
 
-Syntax folding requires support for the document's language. Check the folding
-column in [Language support](./lang-support.md). No language server is required.
+Folding uses the first configured language server that provides folding ranges.
+Server ranges fold whole lines. When no server provides ranges, or its request
+fails, Mitos uses Tree-sitter. Check the folding column in
+[Language support](./lang-support.md) for syntax-based support.
 To fold text in any document, select at least two lines and press `z f s`.
 Folds can contain other folds, but cannot partly overlap.
 

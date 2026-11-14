@@ -25,7 +25,10 @@ or brackets. Expansion history lets `Alt-i` retrace recent `Alt-o` steps. After
 another selection command or an edit clears that history, shrinking selects a
 child instead.
 
-These motions need a syntax grammar for the current language. Use
+Expansion and shrinking prefer selection ranges from the first configured
+language server that supports them. Mitos falls back to Tree-sitter if no server
+provides ranges or its request fails. Sibling and child motions need a syntax
+grammar for the current language. Use
 [textobjects](./textobjects.md) when you want a specific kind of structure,
 such as a function or parameter.
 For worked examples of functions, siblings, parents, and children, see

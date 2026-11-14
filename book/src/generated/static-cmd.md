@@ -92,11 +92,11 @@
 | `delete_selection_noyank` | Delete selection without yanking | normal: `` <A-d> ``, select: `` <A-d> `` |
 | `change_selection` | Change selection | normal: `` c ``, select: `` c `` |
 | `change_selection_noyank` | Change selection without yanking | normal: `` <A-c> ``, select: `` <A-c> `` |
-| `fold_close` | Close the innermost syntax fold | normal: `` Zfc ``, `` zfc ``, select: `` Zfc ``, `` zfc `` |
+| `fold_close` | Close the innermost fold | normal: `` Zfc ``, `` zfc ``, select: `` Zfc ``, `` zfc `` |
 | `fold_open` | Open the fold at each cursor | normal: `` Zfo ``, `` zfo ``, select: `` Zfo ``, `` zfo `` |
 | `fold_toggle` | Toggle the fold at each cursor | normal: `` Zfa ``, `` zfa ``, select: `` Zfa ``, `` zfa `` |
 | `fold_selection` | Fold selected lines | normal: `` Zfs ``, `` zfs ``, select: `` Zfs ``, `` zfs `` |
-| `fold_all` | Close all syntax folds | normal: `` Zfm ``, `` zfm ``, select: `` Zfm ``, `` zfm `` |
+| `fold_all` | Close all folds | normal: `` Zfm ``, `` zfm ``, select: `` Zfm ``, `` zfm `` |
 | `unfold_all` | Open all folds | normal: `` Zfr ``, `` zfr ``, select: `` Zfr ``, `` zfr `` |
 | `collapse_selection` | Collapse selection into single cursor | normal: `` ; ``, select: `` ; `` |
 | `flip_selections` | Flip selection cursor and anchor | normal: `` <A-;> ``, select: `` <A-;> `` |
@@ -281,8 +281,8 @@
 | `rotate_selection_contents_forward` | Rotate selection contents forward | normal: `` <A-)> ``, select: `` <A-)> `` |
 | `rotate_selection_contents_backward` | Rotate selections contents backward | normal: `` <A-(> ``, select: `` <A-(> `` |
 | `reverse_selection_contents` | Reverse selections contents |  |
-| `expand_selection` | Expand selection to parent syntax node | normal: `` <A-o> ``, `` <A-up> ``, select: `` <A-o> ``, `` <A-up> `` |
-| `shrink_selection` | Shrink selection to previously expanded syntax node | normal: `` <A-i> ``, `` <A-down> ``, select: `` <A-i> ``, `` <A-down> `` |
+| `expand_selection` | Expand selection to enclosing structure | normal: `` <A-o> ``, `` <A-up> ``, select: `` <A-o> ``, `` <A-up> `` |
+| `shrink_selection` | Shrink selection to previously expanded structure | normal: `` <A-i> ``, `` <A-down> ``, select: `` <A-i> ``, `` <A-down> `` |
 | `select_next_sibling` | Select next sibling in the syntax tree | normal: `` <A-n> ``, `` <A-right> ``, select: `` <A-n> ``, `` <A-right> `` |
 | `select_previous_sibling` | Select previous sibling the in syntax tree | normal: `` <A-p> ``, `` <A-left> ``, select: `` <A-p> ``, `` <A-left> `` |
 | `select_all_siblings` | Select all siblings of the current node | normal: `` <A-a> ``, select: `` <A-a> `` |

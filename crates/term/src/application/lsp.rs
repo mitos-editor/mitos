@@ -160,6 +160,11 @@ where
                         );
                         Ok(serde_json::Value::Null)
                     }
+                    Ok(MethodCall::FoldingRangeRefresh) => {
+                        let server_id = language_server!().id();
+                        self.editor.refresh_folding_ranges(server_id);
+                        Ok(serde_json::Value::Null)
+                    }
                     Ok(MethodCall::CodeLensRefresh) => {
                         let server_id = language_server!().id();
                         view::features::code_lenses::refresh_for_language_server(

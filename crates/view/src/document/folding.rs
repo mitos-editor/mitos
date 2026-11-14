@@ -91,14 +91,14 @@ impl Folds {
 /// A folding operation applied to each cursor in the current view.
 #[derive(Debug, Clone, Copy)]
 pub enum FoldAction {
-    /// Close the innermost open syntax region containing each cursor.
+    /// Close the innermost open region containing each cursor.
     Close,
     /// Open the outermost closed region containing each cursor's line.
     Open,
     Toggle,
     /// Fold the lines covered by each selection, keeping its first line visible.
     Selection,
-    /// Close all syntax regions, retaining nested closed state.
+    /// Close all regions, retaining nested closed state.
     CloseAll,
     OpenAll,
 }
@@ -122,10 +122,21 @@ impl Document {
 
     /// Change folding without modifying document text or undo history.
     pub fn fold(&mut self, view: ViewId, action: FoldAction) {
-        if matches!(
-            action,
-            FoldAction::Close | FoldAction::Toggle | FoldAction::CloseAll
-        ) {
+        self.fold_with_ranges(view, action, None);
+    }
+
+    pub(crate) fn fold_with_ranges(
+        &mut self,
+        view: ViewId,
+        action: FoldAction,
+        ranges: Option<&[(usize, usize)]>,
+    ) {
+        if ranges.is_none()
+            && matches!(
+                action,
+                FoldAction::Close | FoldAction::Toggle | FoldAction::CloseAll
+            )
+        {
             self.finish_syntax_initialization();
         }
         let text = self.buffer.text().slice(..);
@@ -134,46 +145,53 @@ impl Document {
             action,
             FoldAction::Close | FoldAction::Toggle | FoldAction::CloseAll
         ) {
-            self.syntax
-                .as_ref()
-                .map(|syntax| {
-                    if matches!(action, FoldAction::CloseAll) {
-                        syntax.fold_ranges(text, &self.syntax_loader, ..)
-                    } else {
-                        selection
-                            .iter()
-                            .flat_map(|range| {
-                                let line = text.char_to_line_idx(range.cursor(text));
-                                let bytes = text.line_to_byte_idx(line, stdx::rope::LINE_TYPE)
-                                    ..text.line_to_byte_idx(line + 1, stdx::rope::LINE_TYPE);
-                                syntax.fold_ranges(
-                                    text,
-                                    &self.syntax_loader,
-                                    bytes.start as u32..bytes.end as u32,
-                                )
-                            })
-                            .collect()
-                    }
-                })
-                .unwrap_or_default()
-                .into_iter()
-                .filter_map(|fold| {
-                    if fold.range.is_empty() {
-                        return None;
-                    }
-                    let start_line = text.char_to_line_idx(fold.range.start);
-                    let Some(end) = fold.closing_delimiter else {
-                        return conceal(
-                            text,
-                            start_line,
-                            text.char_to_line_idx(fold.range.end - 1),
-                        );
-                    };
-                    let start = line_end_char_index(&text, start_line);
-                    (text.char_to_line_idx(end) > start_line && start < end)
-                        .then_some(Conceal { range: start..end })
-                })
-                .collect()
+            if let Some(ranges) = ranges {
+                ranges
+                    .iter()
+                    .filter_map(|&(start, end)| conceal(text, start, end))
+                    .collect()
+            } else {
+                self.syntax
+                    .as_ref()
+                    .map(|syntax| {
+                        if matches!(action, FoldAction::CloseAll) {
+                            syntax.fold_ranges(text, &self.syntax_loader, ..)
+                        } else {
+                            selection
+                                .iter()
+                                .flat_map(|range| {
+                                    let line = text.char_to_line_idx(range.cursor(text));
+                                    let bytes = text.line_to_byte_idx(line, stdx::rope::LINE_TYPE)
+                                        ..text.line_to_byte_idx(line + 1, stdx::rope::LINE_TYPE);
+                                    syntax.fold_ranges(
+                                        text,
+                                        &self.syntax_loader,
+                                        bytes.start as u32..bytes.end as u32,
+                                    )
+                                })
+                                .collect()
+                        }
+                    })
+                    .unwrap_or_default()
+                    .into_iter()
+                    .filter_map(|fold| {
+                        if fold.range.is_empty() {
+                            return None;
+                        }
+                        let start_line = text.char_to_line_idx(fold.range.start);
+                        let Some(end) = fold.closing_delimiter else {
+                            return conceal(
+                                text,
+                                start_line,
+                                text.char_to_line_idx(fold.range.end - 1),
+                            );
+                        };
+                        let start = line_end_char_index(&text, start_line);
+                        (text.char_to_line_idx(end) > start_line && start < end)
+                            .then_some(Conceal { range: start..end })
+                    })
+                    .collect()
+            }
         } else {
             Vec::new()
         };
