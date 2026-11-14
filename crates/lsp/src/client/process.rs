@@ -188,7 +188,7 @@ impl Client {
                         did_delete: Some(true),
                         ..Default::default()
                     }),
-                    diagnostic: Some(lsp::DiagnosticWorkspaceClientCapabilities {
+                    diagnostics: Some(lsp::DiagnosticWorkspaceClientCapabilities {
                         refresh_support: Some(true),
                     }),
                     semantic_tokens: Some(lsp::SemanticTokensWorkspaceClientCapabilities {
