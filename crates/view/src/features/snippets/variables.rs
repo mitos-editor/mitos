@@ -12,15 +12,27 @@ impl Editor {
         selection: &Selection,
         snippet: &Snippet,
     ) -> SnippetRenderCtx {
-        let clipboard = snippet
-            .uses_variable("CLIPBOARD")
-            .then(|| self.registers.clipboard_contents().ok())
-            .flatten();
         let mode = if doc.snippet_placeholder_active(self.tree.focus()) {
             crate::document::Mode::Select
         } else {
             self.mode()
         };
+        self.snippet_context_with_mode(doc, text, selection, snippet, mode)
+    }
+
+    /// Workspace edits replace explicit ranges, even when issued in Insert mode.
+    pub(crate) fn snippet_context_with_mode(
+        &self,
+        doc: &Document,
+        text: &Rope,
+        selection: &Selection,
+        snippet: &Snippet,
+        mode: crate::document::Mode,
+    ) -> SnippetRenderCtx {
+        let clipboard = snippet
+            .uses_variable("CLIPBOARD")
+            .then(|| self.registers.clipboard_contents().ok())
+            .flatten();
         with_editor_variables(doc.snippet_ctx(text, selection, mode), clipboard)
     }
 }

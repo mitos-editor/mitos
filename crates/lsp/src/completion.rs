@@ -14,18 +14,29 @@ pub(crate) fn normalize_response(response: lsp::CompletionResponse) -> lsp::Comp
             let apply = list.apply_kind.unwrap_or_default();
             lsp::CompletionResponse::List(lsp::CompletionList {
                 is_incomplete: list.is_incomplete,
-                items: list.items.into_iter().map(|item| normalize(item, &defaults, &apply)).collect(),
+                items: list
+                    .items
+                    .into_iter()
+                    .map(|item| normalize(item, &defaults, &apply))
+                    .collect(),
                 ..Default::default()
             })
         }
     }
 }
 
-fn normalize(mut item: lsp::CompletionItem, defaults: &lsp::CompletionItemDefaults, apply: &lsp::CompletionItemApplyKinds) -> lsp::CompletionItem {
+fn normalize(
+    mut item: lsp::CompletionItem,
+    defaults: &lsp::CompletionItemDefaults,
+    apply: &lsp::CompletionItemApplyKinds,
+) -> lsp::CompletionItem {
     if item.text_edit.is_none()
         && let Some(range) = &defaults.edit_range
     {
-        let new_text = item.text_edit_text.take().unwrap_or_else(|| item.label.clone());
+        let new_text = item
+            .text_edit_text
+            .take()
+            .unwrap_or_else(|| item.label.clone());
         item.text_edit = Some(match range {
             lsp::OneOf::Left(range) => lsp::CompletionTextEdit::Edit(lsp::TextEdit {
                 range: *range,
@@ -43,7 +54,9 @@ fn normalize(mut item: lsp::CompletionItem, defaults: &lsp::CompletionItemDefaul
     item.insert_text_format = item.insert_text_format.or(defaults.insert_text_format);
     item.insert_text_mode = item.insert_text_mode.or(defaults.insert_text_mode);
     item.commit_characters = match (item.commit_characters, &defaults.commit_characters) {
-        (Some(characters), Some(defaults)) if apply.commit_characters == Some(lsp::ApplyKind::MERGE) => {
+        (Some(characters), Some(defaults))
+            if apply.commit_characters == Some(lsp::ApplyKind::MERGE) =>
+        {
             let mut merged = defaults.clone();
             for character in characters {
                 if !merged.contains(&character) {
@@ -56,7 +69,9 @@ fn normalize(mut item: lsp::CompletionItem, defaults: &lsp::CompletionItemDefaul
         (characters, _) => characters,
     };
     item.data = match (item.data, &defaults.data) {
-        (Some(Value::Object(item)), Some(Value::Object(defaults))) if apply.data == Some(lsp::ApplyKind::MERGE) => {
+        (Some(Value::Object(item)), Some(Value::Object(defaults)))
+            if apply.data == Some(lsp::ApplyKind::MERGE) =>
+        {
             let mut merged = defaults.clone();
             merged.extend(item);
             Some(Value::Object(merged))
@@ -89,12 +104,20 @@ mod tests {
             "items": [{"label": "call", "textEditText": "call(${1:arg})$0"},
                 {"label": "label", "insertText": "ignored for default range"}]
         }));
-        assert_eq!(result[0].insert_text_format, Some(lsp::InsertTextFormat::SNIPPET));
+        assert_eq!(
+            result[0].insert_text_format,
+            Some(lsp::InsertTextFormat::SNIPPET)
+        );
         assert_eq!(result[0].insert_text_mode, Some(lsp::InsertTextMode::AS_IS));
         assert_eq!(result[0].data, Some(json!({"provider":"a"})));
-        assert_eq!(serde_json::to_value(&result[0].text_edit).unwrap(),
-            json!({"range":range,"newText":"call(${1:arg})$0"}));
-        assert_eq!(serde_json::to_value(&result[1].text_edit).unwrap()["newText"], "label");
+        assert_eq!(
+            serde_json::to_value(&result[0].text_edit).unwrap(),
+            json!({"range":range,"newText":"call(${1:arg})$0"})
+        );
+        assert_eq!(
+            serde_json::to_value(&result[1].text_edit).unwrap()["newText"],
+            "label"
+        );
     }
 
     #[test]
@@ -115,8 +138,14 @@ mod tests {
             "itemDefaults":{"data":{"shared":true,"nested":{"old":1}},"commitCharacters":[".",";"]},
             "applyKind":{"data":2,"commitCharacters":2},
             "items":[{"label":"a","data":{"nested":{"new":2}},"commitCharacters":[";","("]}]}));
-        assert_eq!(result[0].data, Some(json!({"shared":true,"nested":{"new":2}})));
-        assert_eq!(result[0].commit_characters, Some(vec![".".into(),";".into(),"(".into()]));
+        assert_eq!(
+            result[0].data,
+            Some(json!({"shared":true,"nested":{"new":2}}))
+        );
+        assert_eq!(
+            result[0].commit_characters,
+            Some(vec![".".into(), ";".into(), "(".into()])
+        );
     }
 
     #[test]
@@ -127,14 +156,22 @@ mod tests {
         let result = items(json!({"isIncomplete":false,
             "itemDefaults":{"editRange":{"insert":insert,"replace":replace}},
             "items":[{"label":"a"},{"label":"b","textEdit":explicit}]}));
-        assert_eq!(serde_json::to_value(&result[0].text_edit).unwrap(),
-            json!({"insert":insert,"replace":replace,"newText":"a"}));
-        assert_eq!(serde_json::to_value(&result[1].text_edit).unwrap(),explicit);
+        assert_eq!(
+            serde_json::to_value(&result[0].text_edit).unwrap(),
+            json!({"insert":insert,"replace":replace,"newText":"a"})
+        );
+        assert_eq!(
+            serde_json::to_value(&result[1].text_edit).unwrap(),
+            explicit
+        );
     }
 
     #[test]
     fn array_responses_and_lists_without_defaults_are_unchanged() {
         let item = json!({"label":"a","data":[1,2],"textEditText":"unused"});
-        assert_eq!(items(json!([item.clone()])),items(json!({"isIncomplete":false,"items":[item]})));
+        assert_eq!(
+            items(json!([item.clone()])),
+            items(json!({"isIncomplete":false,"items":[item]}))
+        );
     }
 }

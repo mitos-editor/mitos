@@ -161,7 +161,7 @@ impl Client {
                     }),
                     workspace_edit: Some(lsp::WorkspaceEditClientCapabilities {
                         document_changes: Some(true),
-                        snippet_edit_support: None,
+                        snippet_edit_support: Some(true),
                         resource_operations: Some(vec![
                             lsp::ResourceOperationKind::Create,
                             lsp::ResourceOperationKind::Rename,
@@ -169,7 +169,11 @@ impl Client {
                         ]),
                         failure_handling: Some(lsp::FailureHandlingKind::Abort),
                         normalizes_line_endings: Some(false),
-                        change_annotation_support: None,
+                        change_annotation_support: Some(
+                            lsp::ChangeAnnotationWorkspaceEditClientCapabilities {
+                                groups_on_label: Some(false),
+                            },
+                        ),
                     }),
                     did_change_watched_files: Some(lsp::DidChangeWatchedFilesClientCapabilities {
                         dynamic_registration: Some(true),
@@ -270,6 +274,13 @@ impl Client {
                                 ],
                             }),
                             insert_replace_support: Some(true),
+                            commit_characters_support: Some(true),
+                            insert_text_mode_support: Some(lsp::InsertTextModeSupport {
+                                value_set: vec![
+                                    lsp::InsertTextMode::AS_IS,
+                                    lsp::InsertTextMode::ADJUST_INDENTATION,
+                                ],
+                            }),
                             deprecated_support: Some(true),
                             tag_support: Some(lsp::TagSupport {
                                 value_set: vec![lsp::CompletionItemTag::DEPRECATED],
@@ -279,8 +290,15 @@ impl Client {
                         completion_item_kind: Some(lsp::CompletionItemKindCapability {
                             ..Default::default()
                         }),
+                        insert_text_mode: Some(lsp::InsertTextMode::ADJUST_INDENTATION),
                         completion_list: Some(lsp::CompletionListCapability {
-                            item_defaults: Some(vec!["editRange".into(), "insertTextFormat".into(), "data".into()]),
+                            item_defaults: Some(vec![
+                                "commitCharacters".into(),
+                                "editRange".into(),
+                                "insertTextFormat".into(),
+                                "insertTextMode".into(),
+                                "data".into(),
+                            ]),
                             apply_kind_support: Some(true),
                         }),
                         context_support: None, // additional context information Some(true)
@@ -306,7 +324,7 @@ impl Client {
                         dynamic_registration: Some(false),
                         prepare_support: Some(true),
                         prepare_support_default_behavior: None,
-                        honors_change_annotations: Some(false),
+                        honors_change_annotations: Some(true),
                     }),
                     formatting: Some(lsp::DocumentFormattingClientCapabilities {
                         dynamic_registration: Some(false),
@@ -334,6 +352,7 @@ impl Client {
                                 .collect(),
                             },
                         }),
+                        honors_change_annotations: Some(true),
                         is_preferred_support: Some(true),
                         disabled_support: Some(true),
                         data_support: Some(true),

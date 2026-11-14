@@ -70,6 +70,7 @@ mod test {
     mod statusline;
     mod structural_ranges;
     mod user_snippets;
+    mod workspace_confirmations;
     mod workspace_symbols;
     mod workspace_trust;
 }

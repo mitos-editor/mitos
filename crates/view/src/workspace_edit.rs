@@ -4,10 +4,13 @@
 //! edits and filesystem operations remain applied, matching the advertised LSP
 //! `abort` failure-handling capability.
 
+pub mod confirmation;
+mod snippet;
+
 use lsp_client::UriExt as _;
 use std::path::PathBuf;
 
-use crate::language_servers::edits::generate_transaction_from_edits;
+use editor_core::movement::Direction;
 use lsp_client::{lsp, OffsetEncoding};
 
 use crate::editor::ExistingTarget;
@@ -25,8 +28,14 @@ pub struct ApplyEditError {
 /// The original rejection from document editing, URL conversion, or filesystem access.
 #[derive(Debug, thiserror::Error)]
 pub enum ApplyEditErrorKind {
-    #[error("snippet workspace edits are not supported")]
-    UnsupportedSnippet,
+    #[error("unknown workspace edit annotation: {0}")]
+    UnknownAnnotation(String),
+    #[error("workspace edit requires confirmation")]
+    ConfirmationRequired,
+    #[error("unsupported snippet string kind: {0}")]
+    InvalidSnippetKind(String),
+    #[error("invalid workspace snippet: {0}")]
+    InvalidSnippet(#[source] anyhow::Error),
     #[error(transparent)]
     InvalidTextEdit(#[from] crate::language_servers::edits::TextEditError),
     #[error(transparent)]
@@ -50,8 +59,10 @@ impl Editor {
         encoding: OffsetEncoding,
         actions: Vec<lsp::WorkspaceEdit>,
     ) -> anyhow::Result<()> {
-        let mut documents: Vec<(lsp_client::Url, Option<i32>, Vec<lsp::TextEdit>)> = Vec::new();
+        let mut documents: Vec<(lsp_client::Url, Option<i32>, Vec<lsp::DocumentTextEdit>)> =
+            Vec::new();
         for action in actions {
+            confirmation::validate(&action)?;
             let incoming = match action.document_changes {
                 Some(lsp::DocumentChanges::Edits(edits)) => edits,
                 Some(lsp::DocumentChanges::Operations(operations)) => operations
@@ -94,15 +105,11 @@ impl Editor {
                 *expected = expected.or(version);
                 let previous_len = edits.len();
                 for edit in document.edits {
-                    let edit = match edit {
-                        lsp::DocumentTextEdit::Plain(edit) => edit,
-                        lsp::DocumentTextEdit::Annotated(edit) => edit.text_edit,
-                        lsp::DocumentTextEdit::Snippet(_) => {
-                            anyhow::bail!("snippet workspace edits are not supported")
-                        }
-                    };
                     // Shared imports and file-wide fixes often occur at several cursors.
-                    if !edits[..previous_len].contains(&edit) {
+                    if !edits[..previous_len]
+                        .iter()
+                        .any(|previous| snippet::same_edit(previous, &edit))
+                    {
                         edits.push(edit);
                     }
                 }
@@ -110,14 +117,18 @@ impl Editor {
         }
         let mut prepared = Vec::new();
         for (url, expected, mut edits) in documents {
-            edits.sort_by_key(|edit| (edit.range.start, edit.range.end));
+            edits.sort_by_key(|edit| {
+                let range = snippet::range(edit);
+                (range.start, range.end)
+            });
             // Distinct inserts at the same position have no unambiguous ordering
             // across actions. Equal inserts have already been deduplicated.
             anyhow::ensure!(
-                !edits
-                    .windows(2)
-                    .any(|pair| pair[0].range.start == pair[0].range.end
-                        && pair[0].range.start == pair[1].range.start),
+                !edits.windows(2).any(|pair| {
+                    let left = snippet::range(&pair[0]);
+                    let right = snippet::range(&pair[1]);
+                    left.start == left.end && right.start == right.end && left.start == right.start
+                }),
                 "Code actions contain conflicting inserts"
             );
             let uri = url.to_editor_uri()?;
@@ -131,12 +142,12 @@ impl Editor {
                 expected.is_none_or(|version| version == doc.version()),
                 "Code action is no longer current"
             );
-            let transaction = generate_transaction_from_edits(doc.text(), edits, encoding)?;
-            doc.validate_changes(transaction.changes())?;
-            prepared.push((id, doc.version(), transaction));
+            let edit = snippet::prepare(self, doc, edits, encoding)?;
+            doc.validate_changes(edit.transaction.changes())?;
+            prepared.push((id, doc.version(), edit));
         }
-        for (id, version, transaction) in prepared {
-            self.apply_document_changes(id, version, transaction.changes())?;
+        for (id, version, edit) in prepared {
+            self.apply_prepared_text_edits(id, version, edit)?;
         }
         Ok(())
     }
@@ -145,7 +156,7 @@ impl Editor {
         &mut self,
         url: &lsp_client::Url,
         version: Option<i32>,
-        text_edits: Vec<lsp::TextEdit>,
+        text_edits: Vec<lsp::DocumentTextEdit>,
         offset_encoding: OffsetEncoding,
     ) -> Result<(), ApplyEditErrorKind> {
         let uri = match url.to_editor_uri() {
@@ -186,8 +197,28 @@ impl Editor {
         }
 
         let doc = doc!(self, &doc_id);
-        let transaction = generate_transaction_from_edits(doc.text(), text_edits, offset_encoding)?;
-        self.apply_document_changes(doc_id, actual_version, transaction.changes())?;
+        let edit = snippet::prepare(self, doc, text_edits, offset_encoding)?;
+        self.apply_prepared_text_edits(doc_id, actual_version, edit)?;
+        Ok(())
+    }
+
+    fn apply_prepared_text_edits(
+        &mut self,
+        id: crate::DocumentId,
+        version: i32,
+        edit: snippet::Prepared,
+    ) -> Result<(), EditError> {
+        self.apply_document_changes(id, version, edit.transaction.changes())?;
+        if let Some((view, rendered)) = edit.interactive
+            && self.tree.focus() == view
+            && self.tree.try_get(view).is_some_and(|view| view.doc == id)
+        {
+            let doc = self.documents.get_mut(&id).unwrap();
+            doc.clear_snippet();
+            doc.set_selection(view, rendered.first_selection(Direction::Forward, 0));
+            doc.install_snippet(view, rendered);
+            self.set_mode(crate::document::Mode::Insert);
+        }
         Ok(())
     }
 
@@ -198,6 +229,7 @@ impl Editor {
         offset_encoding: OffsetEncoding,
         workspace_edit: &lsp::WorkspaceEdit,
     ) -> Result<(), ApplyEditError> {
+        confirmation::validate(workspace_edit)?;
         if let Some(ref document_changes) = workspace_edit.document_changes {
             match document_changes {
                 lsp::DocumentChanges::Edits(document_edits) => {
@@ -234,7 +266,11 @@ impl Editor {
         if let Some(ref changes) = workspace_edit.changes {
             log::debug!("workspace changes: {:?}", changes);
             for (i, (uri, text_edits)) in changes.iter().enumerate() {
-                let text_edits = text_edits.to_vec();
+                let text_edits = text_edits
+                    .iter()
+                    .cloned()
+                    .map(lsp::DocumentTextEdit::Plain)
+                    .collect();
                 self.apply_text_edits(uri, None, text_edits, offset_encoding)
                     .map_err(|kind| ApplyEditError {
                         kind,
@@ -251,19 +287,10 @@ impl Editor {
         document_edit: &lsp::TextDocumentEdit,
         offset_encoding: OffsetEncoding,
     ) -> Result<(), ApplyEditErrorKind> {
-        let edits = document_edit
-            .edits
-            .iter()
-            .map(|edit| match edit {
-                lsp::DocumentTextEdit::Plain(edit) => Ok(edit.clone()),
-                lsp::DocumentTextEdit::Annotated(edit) => Ok(edit.text_edit.clone()),
-                lsp::DocumentTextEdit::Snippet(_) => Err(ApplyEditErrorKind::UnsupportedSnippet),
-            })
-            .collect::<Result<Vec<_>, _>>()?;
         self.apply_text_edits(
             &document_edit.text_document.uri,
             document_edit.text_document.version,
-            edits,
+            document_edit.edits.clone(),
             offset_encoding,
         )
     }

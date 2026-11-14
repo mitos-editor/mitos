@@ -611,6 +611,14 @@ fn main() -> anyhow::Result<()> {
                     std::thread::sleep(std::time::Duration::from_millis(5));
                 }
             }
+            if let Some(index) = args.iter().position(|arg| arg == "--completion-result") {
+                let result: Value = serde_json::from_slice(&std::fs::read(&args[index + 1])?)?;
+                respond(
+                    &mut output,
+                    json!({"jsonrpc":"2.0","id":id,"result":result}),
+                )?;
+                continue;
+            }
             let end = params["position"]["character"].as_u64().unwrap() as usize;
             let line = params["position"]["line"].as_u64().unwrap();
             let mut edit_range = range(end.saturating_sub(2), end);

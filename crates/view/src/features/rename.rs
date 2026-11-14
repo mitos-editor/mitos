@@ -233,10 +233,18 @@ impl Editor {
                     }
                     match result {
                         Ok(Some(edit)) => {
-                            if let Err(error) = editor.apply_workspace_edit(context.encoding, &edit)
-                            {
-                                editor.set_error(|| format!("Failed to apply rename: {error}"));
-                            }
+                            editor.request_workspace_edit(
+                                context.server,
+                                edit,
+                                Some(context.snapshot.clone()),
+                                |editor, result| {
+                                    if let Err(error) = result {
+                                        editor.set_error(|| {
+                                            format!("Failed to apply rename: {error}")
+                                        });
+                                    }
+                                },
+                            );
                         }
                         Ok(None) => {}
                         Err(error) => editor.set_error(|| format!("Rename failed: {error}")),

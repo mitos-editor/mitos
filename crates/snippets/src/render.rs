@@ -299,6 +299,8 @@ pub struct SnippetRenderCtx {
     pub indent_style: IndentStyle,
     /// Line-ending sequence of the destination document.
     pub line_ending: &'static str,
+    /// Copy and normalize document indentation after inserted line breaks.
+    pub adjust_indentation: bool,
 }
 
 impl SnippetRenderCtx {
@@ -309,6 +311,7 @@ impl SnippetRenderCtx {
             tab_width: 4,
             indent_style: IndentStyle::Spaces(4),
             line_ending: "\n",
+            adjust_indentation: true,
         }
     }
 }
@@ -376,7 +379,7 @@ impl SnippetRender<'_> {
     }
 
     fn push_str(&mut self, mut text: &str, at_newline: bool) {
-        if at_newline {
+        if at_newline && self.ctx.adjust_indentation {
             let old_len = self.text.len();
             let old_indent_len = normalize_indentation(
                 self.indent,
@@ -398,9 +401,12 @@ impl SnippetRender<'_> {
     }
 
     fn push_newline(&mut self) {
-        self.off += self.ctx.line_ending.chars().count() + self.indent.len_chars();
+        self.off += self.ctx.line_ending.chars().count();
         self.text.push_str(self.ctx.line_ending);
-        self.text.extend(self.indent.chunks());
+        if self.ctx.adjust_indentation {
+            self.off += self.indent.len_chars();
+            self.text.extend(self.indent.chunks());
+        }
     }
 
     fn render_tabstop(&mut self, tabstop: TabstopIdx) {

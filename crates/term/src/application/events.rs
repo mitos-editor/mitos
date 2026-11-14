@@ -99,6 +99,13 @@ where
                     request,
                 );
             }
+            EditorEvent::WorkspaceEditConfirmation(request) => {
+                crate::handlers::workspace_edit::prompt(
+                    &mut self.editor,
+                    &mut self.compositor,
+                    request,
+                );
+            }
             EditorEvent::ReloadConfirmation(request) => {
                 crate::handlers::auto_reload::prompt_reload_modified(&mut self.compositor, request);
             }

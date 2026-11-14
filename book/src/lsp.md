@@ -111,3 +111,9 @@ Use `:lsp-restart` afterwards. `:lsp-stop` stops servers for the current file;
 
 If a feature is missing, start with the
 [troubleshooting guide](./troubleshooting.md#language-features-are-missing).
+
+Code actions and language-server edits can insert snippet placeholders. Placeholders
+become interactive in the focused document; changes to other files insert the
+expanded text without moving focus. When an edit requires confirmation, Mitos
+shows its labels and descriptions before applying any changes. Canceling also
+skips commands that depend on those changes.
