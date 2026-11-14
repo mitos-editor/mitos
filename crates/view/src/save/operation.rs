@@ -151,10 +151,10 @@ impl SaveOperation {
         if self.request.auto_format
             && let Some(format) = doc.auto_format_for_view(editor, self.request.origin)
         {
-            let snapshot = Box::new(FormatSnapshot::new(editor, doc));
+            let snapshot = Box::new(FormatSnapshot::new(editor, doc, format.server));
             return Ok(SaveProgress::Pending(SaveTask(
                 async move {
-                    let result = format.await;
+                    let result = format.future.await;
                     Ok(SaveUpdate {
                         operation: self,
                         stage: CompletedStage::Formatting { snapshot, result },

@@ -198,3 +198,99 @@ async fn range_formatting_rejects_rebound_views_and_detached_servers() -> anyhow
     }
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn document_formatting_rejects_detached_and_replaced_servers() -> anyhow::Result<()> {
+    for lifecycle in ["current", "detach", "restart"] {
+        let dir = tempfile::tempdir()?;
+        let mut app = application_with_args(dir.path(), &["--document-formatting"]).await?;
+        let (view, doc) = current_ref!(app.editor);
+        let (view, document, server) = (
+            view.id,
+            doc.id(),
+            doc.language_servers().next().unwrap().id(),
+        );
+        let update = formatting::prepare_document(&app.editor, view)?.run().await;
+        if lifecycle == "detach" {
+            app.editor.handle_language_server_exit(server);
+        } else if lifecycle == "restart" {
+            app.editor.restart_language_servers(document, &[])?;
+            let replacement = tokio::time::timeout(std::time::Duration::from_secs(10), async {
+                loop {
+                    let (server, call) = app
+                        .editor
+                        .next_language_server_message()
+                        .await
+                        .expect("replacement server initialized");
+                    let initialized = matches!(&call, lsp_client::Call::Notification(n) if n.method == "initialized");
+                    app.handle_language_server_message(call, server).await;
+                    if initialized {
+                        break server;
+                    }
+                }
+            })
+            .await?;
+            assert_ne!(server, replacement);
+        }
+        assert_eq!(update.apply(&mut app.editor)?, lifecycle == "current");
+        assert_eq!(
+            app.editor.document(document).unwrap().text().to_string(),
+            if lifecycle == "current" {
+                "😀 formatted bar\n"
+            } else {
+                "😀 foo bar\n"
+            }
+        );
+        assert!(app.close().await.is_empty());
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn detached_save_formatter_is_discarded_without_canceling_the_write() -> anyhow::Result<()> {
+    use view::save::{self, SaveProgress, WriteOptions};
+    for detached in [false, true] {
+        let dir = tempfile::tempdir()?;
+        let mut app = application_with_args(dir.path(), &["--document-formatting"]).await?;
+        let (view, doc) = current_ref!(app.editor);
+        let (view, document, server, path) = (
+            view.id,
+            doc.id(),
+            doc.language_servers().next().unwrap().id(),
+            doc.path().unwrap().to_owned(),
+        );
+        let request = save::prepare(
+            &mut app.editor,
+            document,
+            Some(view),
+            None,
+            WriteOptions {
+                force: false,
+                auto_format: true,
+                code_actions: false,
+            },
+        )?;
+        let SaveProgress::Pending(task) = save::submit(&mut app.editor, request)? else {
+            anyhow::bail!("expected formatting stage")
+        };
+        let update = task.run().await?;
+        if detached {
+            app.editor.handle_language_server_exit(server);
+        }
+        assert!(matches!(
+            update.apply(&mut app.editor)?,
+            SaveProgress::Queued
+        ));
+        app.editor.flush_writes().await?;
+        let expected = if detached {
+            "😀 foo bar\n"
+        } else {
+            "😀 formatted bar\n"
+        };
+        assert_eq!(std::fs::read_to_string(path)?, expected);
+        assert_eq!(app.editor.document(document).unwrap().text(), expected);
+        assert!(!app.editor.document(document).unwrap().is_modified());
+        assert!(app.close().await.is_empty());
+    }
+    Ok(())
+}

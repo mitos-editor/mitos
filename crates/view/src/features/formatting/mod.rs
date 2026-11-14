@@ -22,10 +22,11 @@ pub(crate) struct FormatSnapshot {
     language: Option<String>,
     loader: Arc<syntax::Loader>,
     owner: EditorCallbackSender,
+    server: Option<LanguageServerId>,
 }
 
 impl FormatSnapshot {
-    pub(crate) fn new(editor: &Editor, doc: &Document) -> Self {
+    pub(crate) fn new(editor: &Editor, doc: &Document, server: Option<LanguageServerId>) -> Self {
         Self {
             document: doc.id(),
             buffer: doc.snapshot(),
@@ -35,6 +36,7 @@ impl FormatSnapshot {
                 .map(|config| config.language_id.clone()),
             loader: editor.syn_loader.load_full(),
             owner: editor.callback_sender().clone(),
+            server,
         }
     }
 
@@ -48,6 +50,10 @@ impl FormatSnapshot {
                 .map(|config| config.language_id.as_str())
                 == self.language.as_deref()
             && Arc::ptr_eq(&self.loader, &editor.syn_loader.load_full())
+            && self.server.is_none_or(|server| {
+                editor.language_server_by_id(server).is_some()
+                    && doc.supports_language_server(server)
+            })
     }
 }
 
@@ -68,7 +74,6 @@ struct FormatTarget {
     snapshot: FormatSnapshot,
     view: ViewId,
     binding_revision: u64,
-    server: Option<LanguageServerId>,
     kind: FormatKind,
 }
 
@@ -96,7 +101,6 @@ impl FormattingUpdate {
             snapshot,
             view,
             binding_revision,
-            server,
             kind,
         } = self.target;
         let Some(doc) = editor.document(snapshot.document) else {
@@ -105,10 +109,6 @@ impl FormattingUpdate {
         if !snapshot.is_current(editor, doc)
             || editor.tree.try_get(view).is_none_or(|view| {
                 view.doc != snapshot.document || view.binding_revision() != binding_revision
-            })
-            || server.is_some_and(|server| {
-                editor.language_server_by_id(server).is_none()
-                    || !doc.supports_language_server(server)
             })
         {
             return Ok(false);
@@ -143,10 +143,9 @@ fn prepare_target(
         .document(view.doc)
         .context("Formatting document is closed")?;
     let target = FormatTarget {
-        snapshot: FormatSnapshot::new(editor, doc),
+        snapshot: FormatSnapshot::new(editor, doc, None),
         view: view.id,
         binding_revision: view.binding_revision(),
-        server: None,
         kind,
     };
     Ok((target, doc))
@@ -154,15 +153,16 @@ fn prepare_target(
 
 /// Prepare whole-document formatting using the document's configured formatter.
 pub fn prepare_document(editor: &Editor, view: ViewId) -> anyhow::Result<FormattingTask> {
-    let (target, doc) = prepare_target(editor, view, FormatKind::Document)?;
+    let (mut target, doc) = prepare_target(editor, view, FormatKind::Document)?;
     let format = doc
         .format_snapshot(editor, target.snapshot.buffer.clone(), Some(view))
         .context(
             "A formatter isn't available, and no language server provides formatting capabilities",
         )?;
+    target.snapshot.server = format.server;
     Ok(FormattingTask {
         target,
-        future: async move { Ok(Some(format.await?)) }.boxed(),
+        future: async move { Ok(Some(format.future.await?)) }.boxed(),
     })
 }
 
@@ -190,7 +190,7 @@ pub fn prepare_selections(editor: &Editor, view: ViewId) -> anyhow::Result<Forma
             )
         })
         .context("No configured language server supports range formatting")?;
-    target.server = Some(server.id());
+    target.snapshot.server = Some(server.id());
     let encoding = server.offset_encoding();
     let range = lsp_client::util::range_to_lsp_range(
         target.snapshot.buffer.text(),
