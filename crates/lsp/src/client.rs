@@ -1,10 +1,13 @@
 //! Shared client state and JSON-RPC request, notification, and response dispatch.
 
+mod diagnostics;
 mod document;
 mod file_operations;
 mod process;
 mod requests;
 mod workspace;
+
+pub use diagnostics::WorkspaceDiagnosticRequest;
 
 use crate::{
     file_operations::FileOperationsInterest,
