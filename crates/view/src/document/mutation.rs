@@ -67,6 +67,8 @@ impl Document {
         origin: Option<ViewId>,
     ) -> Result<(), EditError> {
         self.validate_changes(transaction.changes())?;
+        let expanded = crate::features::linked_editing::expand(self, transaction, origin);
+        let transaction = expanded.as_ref().unwrap_or(transaction);
         let change = self.buffer.apply(transaction.changes())?;
         self.publish_change(&change, transaction.selection(), origin);
         Ok(())

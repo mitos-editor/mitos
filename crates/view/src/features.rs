@@ -25,6 +25,7 @@ pub mod git_operations;
 pub mod hover;
 pub mod inlay_hints;
 pub mod inline_completion;
+pub mod linked_editing;
 pub mod lsp_progress;
 pub mod navigation;
 pub(crate) mod process;

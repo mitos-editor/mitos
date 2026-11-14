@@ -148,10 +148,13 @@ pub fn completion(
         Some(revert) => revert.compose(replay),
         None => replay,
     };
-    super::apply(doc, &transaction, view)?;
-    if let Some(snippet) = snippet {
-        doc.install_snippet(view, snippet);
-    }
+    crate::features::linked_editing::prepared_edit(doc, view, |doc, _| {
+        super::apply(doc, &transaction, view)?;
+        if let Some(snippet) = snippet {
+            doc.install_snippet(view, snippet);
+        }
+        Ok::<_, ReplayError>(())
+    })?;
     Ok(())
 }
 

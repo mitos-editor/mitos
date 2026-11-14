@@ -17,6 +17,7 @@ impl Document {
         self.cancel_view_requests(|state| &mut state.navigation);
         self.cancel_view_requests(|state| &mut state.on_type_formatting);
         self.rename.cancel();
+        self.linked_editing.clear();
         self.cancel_view_requests(|state| &mut state.code_actions);
         self.workspace_symbols.cancel();
         self.reset_all_inlay_hints();

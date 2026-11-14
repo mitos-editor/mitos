@@ -55,6 +55,7 @@ impl Document {
             // History replay ends interactive completion and snippet sessions.
             self.accepted_completions.cancel();
             self.clear_snippet();
+            self.linked_editing.clear();
             self.publish_change(&change, selection.as_ref(), origin);
             applied = true;
         }

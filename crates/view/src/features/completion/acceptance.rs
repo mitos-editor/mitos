@@ -202,6 +202,8 @@ impl Editor {
                     };
                     if let Err(error) = result {
                         editor.set_error(|| format!("Could not apply completion edits: {error}"));
+                    } else {
+                        crate::features::linked_editing::refresh(editor);
                     }
                 })
                 .await;

@@ -604,6 +604,30 @@ impl Client {
         Some(self.call::<lsp::request::DocumentSymbolRequest>(params))
     }
 
+    pub fn linked_editing_ranges(
+        &self,
+        text_document: lsp::TextDocumentIdentifier,
+        position: lsp::Position,
+    ) -> Option<impl Future<Output = Result<Option<lsp::LinkedEditingRanges>>> + use<>> {
+        match self.capabilities().linked_editing_range_provider {
+            Some(
+                lsp::LinkedEditingRangeServerCapabilities::Simple(true)
+                | lsp::LinkedEditingRangeServerCapabilities::Options(_)
+                | lsp::LinkedEditingRangeServerCapabilities::RegistrationOptions(_),
+            ) => (),
+            _ => return None,
+        }
+        Some(
+            self.call::<lsp::request::LinkedEditingRange>(lsp::LinkedEditingRangeParams {
+                text_document_position_params: lsp::TextDocumentPositionParams {
+                    text_document,
+                    position,
+                },
+                work_done_progress_params: lsp::WorkDoneProgressParams::default(),
+            }),
+        )
+    }
+
     pub fn prepare_rename(
         &self,
         text_document: lsp::TextDocumentIdentifier,

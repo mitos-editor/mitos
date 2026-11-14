@@ -46,9 +46,23 @@ Available features depend on the server.
 | Go to definition / declaration / type | `gd` / `gD` / `gy` |
 | Find references / implementations | `gr` / `gi` |
 | Rename a symbol | `Space r` |
+| Edit linked names together | Automatic while editing |
 | Code actions, such as quick fixes | `Space a` |
 | File / workspace symbols | `Space s` / `Space S` |
 | Format the file | `:format` |
+
+## Linked editing
+
+Editing a name automatically updates its linked names, such as opening and
+closing HTML or JSX tags, when the language server supports it. Type, delete,
+or replace the name normally; Mitos keeps one cursor and groups the linked
+changes for undo. HTML LS and native TypeScript LS provide linked ranges.
+
+Set `editor.lsp.linked-editing = false` to disable this behavior. Characters
+outside the server's word pattern are inserted normally without mirroring.
+Without a server pattern, Unicode word characters, `-`, `:`, `.`, `$`, and
+punctuation already present in the original name are accepted.
+Use `linked-editing` in `only-features` or `except-features` to choose providers.
 
 ## Diagnostics and code actions
 

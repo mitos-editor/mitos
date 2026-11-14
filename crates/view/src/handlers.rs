@@ -33,6 +33,7 @@ pub(crate) struct DocumentServices {
     pub document_symbols: document_symbols::DocumentSymbolsHandler,
     pub semantic_tokens: semantic_tokens::SemanticTokensHandler,
     pub document_highlight: document_highlight::DocumentHighlightHandler,
+    pub linked_editing: crate::features::linked_editing::LinkedEditingHandler,
     pub code_action_hint: code_action_hint::CodeActionHintHandler,
     pub signature_help: signature_help::SignatureHelpTrigger,
     pub word_index: word_index::WordIndexTrigger,
@@ -67,6 +68,7 @@ pub struct Handlers {
     pub hover: hover::HoverHandler,
     pub navigation: navigation::NavigationHandler,
     pub structural_ranges: crate::features::structural_ranges::StructuralRangesHandler,
+    pub linked_editing: crate::features::linked_editing::LinkedEditingHandler,
     pub inlay_hints: inlay_hints::InlayHintsHandler,
     pub signature_hints: signature_help::SignatureHelpHandler,
     pub auto_save: auto_save::AutoSaveHandler,
@@ -138,6 +140,9 @@ impl Handlers {
             structural_ranges: crate::features::structural_ranges::StructuralRangesHandler::new(
                 callbacks.clone(),
             ),
+            linked_editing: crate::features::linked_editing::LinkedEditingHandler::new(
+                callbacks.clone(),
+            ),
             inlay_hints: inlay_hints::InlayHintsHandler::new(callbacks.clone()),
             signature_hints: signature_help::SignatureHelpHandler::new(
                 callbacks.clone(),
@@ -170,6 +175,7 @@ impl Handlers {
                     document_symbols: self.document_symbols.clone(),
                     semantic_tokens: self.semantic_tokens.clone(),
                     document_highlight: self.document_highlight.clone(),
+                    linked_editing: self.linked_editing.clone(),
                     code_action_hint: self.code_action_hint.clone(),
                     signature_help: self.signature_hints.document_trigger(),
                     word_index: self.word_index.document_trigger(),
@@ -245,6 +251,7 @@ fn register_hooks(events: &event::EventHub, document_hooks: DocumentHooks) {
     hover::register_hooks(events);
     navigation::register_hooks(events);
     crate::features::structural_ranges::register_hooks(events);
+    crate::features::linked_editing::register_hooks(events, document_hooks.clone());
     crate::features::formatting::register_hooks(events);
     crate::features::shell::register_hooks(events);
     rename::register_hooks(events);

@@ -277,6 +277,7 @@ pub enum LanguageServerFeature {
     SemanticTokens,
     FoldingRanges,
     SelectionRanges,
+    LinkedEditing,
 }
 
 impl LanguageServerFeature {
@@ -345,6 +346,7 @@ impl Display for LanguageServerFeature {
             SemanticTokens => "semantic-tokens",
             FoldingRanges => "folding-ranges",
             SelectionRanges => "selection-ranges",
+            LinkedEditing => "linked-editing",
         };
         write!(f, "{feature}",)
     }

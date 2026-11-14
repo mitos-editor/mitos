@@ -131,6 +131,7 @@ impl FormattingUpdate {
         };
         let scrolloff = editor.config().scroll.padding;
         let doc = doc_mut!(editor, &snapshot.document);
+        doc.linked_editing.clear();
         crate::editing::apply(doc, &transaction, view)?;
         if matches!(kind, FormatKind::Document) {
             let view = view_mut!(editor, view);
@@ -139,6 +140,7 @@ impl FormattingUpdate {
             doc.detect_indent_and_line_ending();
             view.ensure_cursor_in_view(doc, scrolloff);
         }
+        crate::features::linked_editing::refresh(editor);
         Ok(true)
     }
 }

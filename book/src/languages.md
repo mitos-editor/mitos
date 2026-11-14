@@ -231,7 +231,7 @@ Available feature names:
 | Completion | `completion`, `inline-completion` |
 | Actions | `code-action`, `code-lens`, `rename-symbol`, `workspace-command`, `document-links` |
 | Highlighting | `semantic-tokens` |
-| Structure | `folding-ranges`, `selection-ranges` |
+| Structure | `folding-ranges`, `selection-ranges`, `linked-editing` |
 | Symbols | `document-symbols`, `workspace-symbols` |
 | Diagnostics | `diagnostics`, `pull-diagnostics` |
 
