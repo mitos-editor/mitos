@@ -99,6 +99,7 @@ async fn snippet_lifecycle_is_installed_once_without_terminal_hooks() -> anyhow:
             .next()
             .unwrap()
             .ranges[0]
+            .range
             .start,
         2
     );

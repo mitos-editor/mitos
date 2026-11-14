@@ -478,7 +478,12 @@ pub(crate) fn tabstop_highlights(
     let highlight = theme.find_highlight_exact("tabstop")?;
     let mut ranges = Vec::new();
     for tabstop in snippet.tabstops() {
-        ranges.extend(tabstop.ranges.iter().map(|range| range.start..range.end));
+        ranges.extend(
+            tabstop
+                .ranges
+                .iter()
+                .map(|entry| entry.range.start..entry.range.end),
+        );
     }
     Some(OverlayHighlights::Homogeneous { highlight, ranges })
 }

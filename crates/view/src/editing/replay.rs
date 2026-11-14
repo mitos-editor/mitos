@@ -137,7 +137,7 @@ pub fn completion(
             snippet
                 .tabstops
                 .iter_mut()
-                .flat_map(|tabstop| &mut tabstop.ranges),
+                .flat_map(|tabstop| tabstop.ranges.iter_mut().map(|entry| &mut entry.range)),
         ) {
             range.start = position(range.start)?;
             range.end = position(range.end)?;
