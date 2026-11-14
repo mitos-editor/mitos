@@ -38,6 +38,7 @@ pub mod line_ending;
 pub mod macros;
 pub mod match_brackets;
 pub mod movement;
+mod offset_encoding;
 mod position;
 pub mod search;
 pub mod selection;
@@ -79,6 +80,7 @@ pub type Tendril = SmartString<smartstring::LazyCompact>;
 #[doc(inline)]
 pub use regex;
 
+pub use offset_encoding::OffsetEncoding;
 pub use position::{
     coords_at_pos, line_cell_coords_at_pos, pos_at_coords, pos_at_line_cell_coords, Position,
 };

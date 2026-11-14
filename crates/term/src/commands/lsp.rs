@@ -183,7 +183,8 @@ pub(super) fn jump_to_position(
     {
         new_range
     } else {
-        log::warn!("lsp position out of bounds - {:?}", range);
+        editor
+            .set_error(|| format!("Requested location is outside the current document: {range:?}"));
         return;
     };
     // we flip the range so that the cursor sits on the start of the symbol
