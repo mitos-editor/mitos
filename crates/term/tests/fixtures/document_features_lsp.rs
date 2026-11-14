@@ -869,7 +869,10 @@ fn main() -> anyhow::Result<()> {
                 json!({"capabilities":{"textDocumentSync":1,"documentSymbolProvider":true}})
             }
             "initialize" if formatting => json!({"capabilities": {
-                "textDocumentSync": 1, "documentRangeFormattingProvider": true,
+                "textDocumentSync": 1, "documentRangeFormattingProvider":
+                    if args.iter().any(|arg| arg == "--multi-range-formatting") {
+                        json!({"rangesSupport":true})
+                    } else { json!(true) },
                 "documentFormattingProvider": args.iter().any(|arg| arg == "--document-formatting")
             }}),
             "textDocument/formatting" if formatting => json!([{
@@ -878,6 +881,18 @@ fn main() -> anyhow::Result<()> {
             "textDocument/rangeFormatting" if formatting => json!([{
                 "range": params["range"], "newText": "formatted"
             }]),
+            "textDocument/rangesFormatting" if formatting => {
+                let mut edits: Vec<_> = params["ranges"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|range| json!({"range":range,"newText":"formatted"}))
+                    .collect();
+                if args.iter().any(|arg| arg == "--overlapping-range-edits") {
+                    edits.push(edits[0].clone());
+                }
+                json!(edits)
+            }
             "initialize" if inline_values => json!({"capabilities": {
                 "positionEncoding": "utf-16", "textDocumentSync": 1, "inlineValueProvider": {}
             }}),

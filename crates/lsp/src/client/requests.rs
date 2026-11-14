@@ -320,6 +320,32 @@ impl Client {
         Some(self.call::<lsp::request::RangeFormatting>(params))
     }
 
+    pub fn supports_ranges_formatting(&self) -> bool {
+        matches!(
+            &self.capabilities().document_range_formatting_provider,
+            Some(lsp::OneOf::Right(options)) if options.ranges_support == Some(true)
+        )
+    }
+
+    pub fn text_document_ranges_formatting(
+        &self,
+        text_document: lsp::TextDocumentIdentifier,
+        ranges: Vec<lsp::Range>,
+        options: lsp::FormattingOptions,
+        work_done_token: Option<lsp::ProgressToken>,
+    ) -> Option<impl Future<Output = Result<Option<Vec<lsp::TextEdit>>>> + use<>> {
+        if !self.supports_ranges_formatting() {
+            return None;
+        }
+        let params = lsp::DocumentRangesFormattingParams {
+            text_document,
+            ranges,
+            options: self.get_merged_formatting_options(options),
+            work_done_progress_params: lsp::WorkDoneProgressParams { work_done_token },
+        };
+        Some(self.call::<lsp::request::RangesFormatting>(params))
+    }
+
     pub fn text_document_diagnostic(
         &self,
         text_document: lsp::TextDocumentIdentifier,

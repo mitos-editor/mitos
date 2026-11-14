@@ -5,7 +5,7 @@ pub use provider::FormatterError;
 
 use std::sync::Arc;
 
-use anyhow::{bail, Context};
+use anyhow::Context;
 use editor_core::{indent::IndentStyle, Transaction, Uri};
 use futures_util::{future::BoxFuture, FutureExt};
 use language::syntax;
@@ -166,13 +166,11 @@ pub fn prepare_document(editor: &Editor, view: ViewId) -> anyhow::Result<Formatt
     })
 }
 
-/// Prepare LSP range formatting for the view's single selection.
+/// Format selections from one snapshot, using LSP 3.18 for multiple ranges.
 pub fn prepare_selections(editor: &Editor, view: ViewId) -> anyhow::Result<FormattingTask> {
     let (mut target, doc) = prepare_target(editor, view, FormatKind::Selections)?;
     let selection = doc.selection(view);
-    if selection.len() != 1 {
-        bail!("format_selections only supports a single selection for now");
-    }
+    let multiple = selection.len() > 1;
     // Range-only servers need not advertise whole-document formatting. Honor
     // the configured Format feature, then check this operation's capability.
     let server = doc
@@ -184,31 +182,42 @@ pub fn prepare_selections(editor: &Editor, view: ViewId) -> anyhow::Result<Forma
         .filter(|attachment| attachment.opened)
         .map(|attachment| &attachment.client)
         .find(|server| {
-            matches!(
-                server.capabilities().document_range_formatting_provider,
-                Some(lsp::OneOf::Left(true) | lsp::OneOf::Right(_))
-            )
+            (!multiple || server.supports_ranges_formatting())
+                && matches!(
+                    server.capabilities().document_range_formatting_provider,
+                    Some(lsp::OneOf::Left(true) | lsp::OneOf::Right(_))
+                )
         })
-        .context("No configured language server supports range formatting")?;
+        .with_context(|| {
+            if multiple {
+                "No configured language server supports formatting multiple ranges"
+            } else {
+                "No configured language server supports range formatting"
+            }
+        })?;
     target.snapshot.server = Some(server.id());
     let encoding = server.offset_encoding();
-    let range = lsp_client::util::range_to_lsp_range(
-        target.snapshot.buffer.text(),
-        selection.primary(),
-        encoding,
-    );
-    let request = server
-        .text_document_range_formatting(
-            doc.identifier(),
-            range,
-            lsp::FormattingOptions {
-                tab_size: doc.indent_width() as u32,
-                insert_spaces: matches!(doc.indent_style, IndentStyle::Spaces(_)),
-                ..Default::default()
-            },
-            None,
-        )
-        .context("Language server rejected range formatting")?;
+    let ranges: Vec<_> = selection
+        .iter()
+        .map(|range| {
+            lsp_client::util::range_to_lsp_range(target.snapshot.buffer.text(), *range, encoding)
+        })
+        .collect();
+    let options = lsp::FormattingOptions {
+        tab_size: doc.indent_width() as u32,
+        insert_spaces: matches!(doc.indent_style, IndentStyle::Spaces(_)),
+        ..Default::default()
+    };
+    let request = if multiple {
+        server
+            .text_document_ranges_formatting(doc.identifier(), ranges, options, None)
+            .map(FutureExt::boxed)
+    } else {
+        server
+            .text_document_range_formatting(doc.identifier(), ranges[0], options, None)
+            .map(FutureExt::boxed)
+    }
+    .context("Language server rejected range formatting")?;
     let text = target.snapshot.buffer.text().clone();
     Ok(FormattingTask {
         target,
