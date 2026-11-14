@@ -429,6 +429,40 @@ mod nesting_tests {
     use crate::{Snippet, SnippetRenderCtx};
 
     #[test]
+    fn nesting_only_in_the_last_instance_discards_the_outer_session() {
+        let mut text = Rope::from("\n\n");
+        let outer = Snippet::parse("${1:abcdefghij}$0").unwrap();
+        let selection = Selection::new(
+            vec![editor_core::Range::point(0), editor_core::Range::point(1)].into(),
+            0,
+        );
+        let (edit, _, rendered) = outer.render(
+            &text,
+            &selection,
+            |range| (range.head, range.head),
+            &mut SnippetRenderCtx::test_ctx(),
+        );
+        assert!(edit.apply(&mut text));
+        let mut active = ActiveSnippet::new(rendered).unwrap();
+        let inner = Snippet::parse("${1:x}$0").unwrap();
+        let selection = Selection::new(
+            vec![editor_core::Range::point(12), editor_core::Range::point(14)].into(),
+            0,
+        );
+        let (edit, _, rendered) = inner.render(
+            &text,
+            &selection,
+            |range| (range.head, range.head),
+            &mut SnippetRenderCtx::test_ctx(),
+        );
+        assert!(edit.apply(&mut text));
+        assert!(!active.map(edit.changes()));
+        let expected = rendered.clone();
+        let nested = active.insert_subsnippet(rendered).unwrap();
+        assert_eq!(nested.into_rendered(), expected);
+    }
+
+    #[test]
     fn overwriting_one_parent_preserves_other_instances_and_their_primary_cursor() {
         let mut text = Rope::from("\n\n");
         let source = Snippet::parse("${1:outer ${2:child}} ${3:after}$0").unwrap();
