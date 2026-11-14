@@ -38,6 +38,12 @@ pub(crate) struct PendingSelection {
 pub(crate) struct FoldingRanges {
     request: TaskController,
     cache: Option<FoldCache>,
+    pending: Vec<PendingFold>,
+}
+
+struct PendingFold {
+    target: SelectionRequest,
+    operations: Vec<(FoldAction, usize)>,
 }
 
 struct FoldCache {
@@ -49,6 +55,11 @@ struct FoldCache {
 
 impl FoldingRanges {
     pub(crate) fn invalidate(&mut self) {
+        self.refresh();
+        self.pending.clear();
+    }
+
+    fn refresh(&mut self) {
         self.request.cancel();
         self.cache = None;
     }
@@ -97,8 +108,24 @@ impl Editor {
         let id = target.doc;
         let enabled = self.config().lsp.enable;
         let doc = self.document_mut(id).unwrap();
+        doc.folding_ranges
+            .pending
+            .retain(|pending| !pending.target.cancel_handle().is_canceled());
+        if let Some(pending) = doc
+            .folding_ranges
+            .pending
+            .iter_mut()
+            .find(|pending| pending.target.view_id() == view)
+            && !matches!(action, FoldAction::OpenAll)
+        {
+            pending.operations.push((action, count));
+            return;
+        }
         doc.view_state_mut(view).structural_request.cancel();
         doc.view_state_mut(view).structural_repeat = None;
+        doc.folding_ranges
+            .pending
+            .retain(|pending| pending.target.view_id() != view);
         let needs_ranges = matches!(
             action,
             FoldAction::Close | FoldAction::Toggle | FoldAction::CloseAll
@@ -126,7 +153,15 @@ impl Editor {
                 doc.fold_with_ranges(view, action, Some(&ranges));
             }
         } else {
-            request_folds(self, id, Some((view, action, count)));
+            let handle = doc.view_state_mut(view).structural_request.restart();
+            let target = SelectionRequest::new(doc, view, handle, vec![server.unwrap()]);
+            doc.folding_ranges.pending.push(PendingFold {
+                target,
+                operations: vec![(action, count)],
+            });
+            if !doc.folding_ranges.request.is_running() {
+                request_folds(self, id);
+            }
         }
     }
 
@@ -141,9 +176,9 @@ impl Editor {
             .map(Document::id)
             .collect();
         for id in ids {
-            self.document_mut(id).unwrap().folding_ranges.invalidate();
+            self.document_mut(id).unwrap().folding_ranges.refresh();
             if visible.contains(&id) && self.config().lsp.enable {
-                request_folds(self, id, None);
+                request_folds(self, id);
             }
         }
     }
@@ -272,13 +307,8 @@ impl Editor {
     }
 }
 
-fn request_folds(
-    editor: &mut Editor,
-    id: DocumentId,
-    operation: Option<(ViewId, FoldAction, usize)>,
-) {
+fn request_folds(editor: &mut Editor, id: DocumentId) {
     let callbacks = editor.handlers.structural_ranges.callbacks.clone();
-    let mode = editor.mode();
     let Some(doc) = editor.document_mut(id) else {
         return;
     };
@@ -289,10 +319,6 @@ fn request_folds(
     let future = server.folding_ranges(doc.identifier());
     let handle = doc.folding_ranges.request.restart();
     let request = DocumentRequest::new(doc, handle, vec![server_id]);
-    let selected = operation.map(|(view, _, _)| {
-        let handle = doc.view_state_mut(view).structural_request.restart();
-        SelectionRequest::new(doc, view, handle, vec![server_id])
-    });
     let owner = callbacks.clone();
     tokio::spawn(async move {
         let Some(result) = cancelable_future(future, &request.cancel).await else {
@@ -316,36 +342,41 @@ fn request_folds(
                 {
                     return;
                 }
-                let ranges = match result {
-                    Ok(Some(ranges)) => Some(folding_lines(doc, ranges)),
+                let ranges: Option<Arc<[(usize, usize)]>> = match result {
+                    Ok(Some(ranges)) => Some(folding_lines(doc, ranges).into()),
                     Ok(None) => None,
                     Err(error) => {
                         log::debug!("folding ranges request failed: {error}");
                         None
                     }
                 };
-                let current_operation = selected.as_ref().is_some_and(|request| {
-                    request
-                        .get(editor)
-                        .is_some_and(|(view, _)| editor.tree.focus() == view.id)
-                        && editor.mode() == mode
-                });
                 let doc = editor.document_mut(id).unwrap();
-                if let Some(ranges) = ranges {
-                    let ranges: Arc<[(usize, usize)]> = ranges.into();
+                if let Some(ranges) = &ranges {
                     doc.folding_ranges.cache = Some(FoldCache {
                         snapshot: doc.snapshot(),
                         uri: doc.uri(),
                         server: server_id,
                         ranges: ranges.clone(),
                     });
-                    if current_operation && let Some((view, action, count)) = operation {
-                        for _ in 0..count {
-                            doc.fold_with_ranges(view, action, Some(&ranges));
+                }
+                // All commands waiting on this document share its range snapshot,
+                // but each split retains its own selection guard and ordered actions.
+                let pending = std::mem::take(&mut doc.folding_ranges.pending);
+                for pending in pending {
+                    if pending.target.get(editor).is_none() {
+                        continue;
+                    }
+                    let view = pending.target.view_id();
+                    for (action, count) in pending.operations {
+                        if let Some(ranges) = &ranges {
+                            let doc = editor.document_mut(id).unwrap();
+                            for _ in 0..count {
+                                doc.fold_with_ranges(view, action, Some(ranges));
+                            }
+                        } else {
+                            syntax_fold(editor, id, view, action, count);
                         }
                     }
-                } else if current_operation && let Some((view, action, count)) = operation {
-                    syntax_fold(editor, id, view, action, count);
                 }
                 editor.redraw().request();
             })
@@ -456,7 +487,10 @@ pub(crate) fn register_hooks(events: &event::EventHub) {
     register_hook!(events => move |event: &mut DocumentFocusLost<'_>| {
         if let Some(doc) = event.editor.document_mut(event.doc)
             && let Some(state) = doc.view_states.get_mut(&event.view)
+            && state.structural_repeat.is_some()
         {
+            // Selection motions belong to focus. Fold operations can finish in
+            // their original split while another split becomes active.
             state.structural_request.cancel();
             state.structural_repeat = None;
         }

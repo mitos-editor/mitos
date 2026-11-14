@@ -895,6 +895,8 @@ fn main() -> anyhow::Result<()> {
                     Value::Null
                 } else if args.iter().any(|arg| arg == "--empty-ranges") {
                     json!([])
+                } else if args.iter().any(|arg| arg == "--nested-folds") {
+                    json!([{"startLine":0,"endLine":3},{"startLine":1,"endLine":2}])
                 } else {
                     let start = if args.iter().any(|arg| arg == "--refresh-folds")
                         && folding_requests > 1

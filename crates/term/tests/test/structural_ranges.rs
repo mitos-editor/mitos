@@ -345,3 +345,92 @@ async fn repeated_expansions_wait_for_each_result_and_shrink_retraces_every_step
     assert!(f.app.close().await.is_empty());
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn pending_fold_commands_preserve_repeated_close_and_toggle_operations() -> anyhow::Result<()>
+{
+    for action in [FoldAction::Close, FoldAction::Toggle] {
+        let mut f = Fixture::new(
+            "outer\ninner\nend inner\nend outer\nnext\n",
+            "structure-test",
+            &["--nested-folds"],
+        )
+        .await?;
+        let view = f.view();
+        let inside = current_ref!(f.app.editor).1.text().line_to_char_idx(1);
+        f.select(Selection::point(inside));
+        f.app.editor.fold(view, action, 1);
+        let response = f.response().await?;
+        f.app.editor.fold(view, action, 1);
+        response(&mut f.app.editor);
+        if matches!(action, FoldAction::Toggle) {
+            assert!(f.folds().is_empty());
+        } else {
+            let text = current_ref!(f.app.editor).1.text();
+            assert_eq!(
+                f.folds(),
+                vec![
+                    editor_core::line_ending::line_end_char_index(&text.slice(..), 0)
+                        ..editor_core::line_ending::line_end_char_index(&text.slice(..), 3)
+                ]
+            );
+            f.app.editor.fold(view, FoldAction::Open, 1);
+            let text = current_ref!(f.app.editor).1.text();
+            assert_eq!(
+                f.folds(),
+                vec![
+                    editor_core::line_ending::line_end_char_index(&text.slice(..), 1)
+                        ..editor_core::line_ending::line_end_char_index(&text.slice(..), 2)
+                ]
+            );
+        }
+        assert_eq!(f.requests("textDocument/foldingRange")?, 1);
+        assert!(f.app.close().await.is_empty());
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn pending_fold_commands_are_independent_between_splits() -> anyhow::Result<()> {
+    let mut f = Fixture::new("header\nmiddle\nlast\nnext\n", "structure-test", &[]).await?;
+    let first = f.view();
+    let document = current_ref!(f.app.editor).1.id();
+    f.app.editor.fold(first, FoldAction::CloseAll, 1);
+    let response = f.response().await?;
+    f.app.editor.switch(document, Action::VerticalSplit);
+    let second = f.view();
+    f.app.editor.fold(second, FoldAction::CloseAll, 1);
+    response(&mut f.app.editor);
+    let doc = f.app.editor.document(document).unwrap();
+    assert_eq!(doc.folded_ranges(first).len(), 1);
+    assert_eq!(doc.folded_ranges(second), doc.folded_ranges(first));
+    assert_eq!(f.requests("textDocument/foldingRange")?, 1);
+    assert!(f.app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn pending_fold_commands_survive_server_refresh() -> anyhow::Result<()> {
+    let mut f = Fixture::new(
+        "header\nmiddle\nlast\nnext\n",
+        "structure-test",
+        &["--refresh-folds"],
+    )
+    .await?;
+    let view = f.view();
+    f.app.editor.fold(view, FoldAction::CloseAll, 1);
+    let obsolete = f.response().await?;
+    f.app.editor.refresh_folding_ranges(f.server());
+    obsolete(&mut f.app.editor);
+    f.response().await?(&mut f.app.editor);
+    let doc = current_ref!(f.app.editor).1;
+    assert_eq!(
+        f.folds(),
+        vec![
+            editor_core::line_ending::line_end_char_index(&doc.text().slice(..), 1)
+                ..editor_core::line_ending::line_end_char_index(&doc.text().slice(..), 2)
+        ]
+    );
+    assert!(f.app.close().await.is_empty());
+    Ok(())
+}
