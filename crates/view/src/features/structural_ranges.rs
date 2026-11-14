@@ -85,6 +85,10 @@ fn syntax_fold(
     action: FoldAction,
     count: usize,
 ) {
+    let action = match editor.document(doc) {
+        Some(doc) => doc.resolve_fold_action(view, action),
+        None => return,
+    };
     if matches!(
         action,
         FoldAction::Close | FoldAction::Toggle | FoldAction::CloseAll
@@ -126,6 +130,7 @@ impl Editor {
         doc.folding_ranges
             .pending
             .retain(|pending| pending.target.view_id() != view);
+        let action = doc.resolve_fold_action(view, action);
         let needs_ranges = matches!(
             action,
             FoldAction::Close | FoldAction::Toggle | FoldAction::CloseAll
