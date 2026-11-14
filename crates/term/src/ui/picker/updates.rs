@@ -16,6 +16,9 @@ pub(crate) struct UpdateContext<'a, T> {
     pub editor: &'a mut Editor,
     /// Search input, including column filters.
     pub query: &'a str,
+    /// Primary query sent to the source, without other column filters.
+    pub source_query: &'a str,
+    pub preview_visible: bool,
     /// Selection or viewport is within one screen of the final matched row.
     pub near_end: bool,
     /// Persistent source status displayed below the search input.
@@ -304,6 +307,8 @@ impl<T: Send + Sync + 'static, D: Send + Sync + 'static> Picker<T, D> {
             UpdateContext {
                 editor,
                 query: self.prompt.line(),
+                source_query: &query,
+                preview_visible: self.show_preview && self.preview_area.is_some(),
                 near_end: {
                     let count = self.results.matcher.snapshot().matched_item_count();
                     let height = u32::from(self.completion_height);

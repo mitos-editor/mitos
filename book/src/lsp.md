@@ -75,6 +75,13 @@ server take priority over its workspace reports.
 Code lens labels, such as run or test actions, appear beside code when the
 server provides them. Press `Space l` for the commands on the current line.
 
+## Workspace symbols
+
+`Space S` lists project symbols from the language server. Servers can return
+symbols before computing their exact locations. Mitos fetches a location when
+you preview or open a result; `Ctrl-q` resolves the matched results before adding
+them to the quicklist. Split navigation uses the same resolved location.
+
 ## Symbols without a server
 
 `Space s` and `Space S` use language-server symbols when available. Otherwise,

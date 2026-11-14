@@ -354,6 +354,11 @@ fn main() -> anyhow::Result<()> {
             continue;
         }
         if workspace_symbols && method == "workspace/symbol" {
+            if let Some(index) = args.iter().position(|arg| arg == "--symbol-query-gate") {
+                while !std::path::Path::new(&args[index + 1]).exists() {
+                    std::thread::sleep(std::time::Duration::from_millis(5));
+                }
+            }
             if args.iter().any(|arg| arg == "--hold-symbols") {
                 continue;
             }
@@ -371,8 +376,19 @@ fn main() -> anyhow::Result<()> {
             } else {
                 format!("{}:{}", args[1], params["query"].as_str().unwrap())
             };
-            let result = json!([{"name": name,
-                "kind": 12, "location": {"uri": uri, "range": range(3, 6)}}]);
+            let result = if args.iter().any(|arg| arg == "--unsupported-symbols") {
+                json!([
+                    {"name": name, "kind": 12, "location": {"uri": uri, "range": range(3, 6)}},
+                    {"name": "unsupported", "kind": 12, "location": {"uri": "https://example.com/symbol", "range": range(3, 6)}}
+                ])
+            } else if args.iter().any(|arg| arg == "--lazy-symbols") {
+                json!([
+                    {"name": name, "kind": 12, "location": {"uri": uri}, "data": {"provider": args[1], "query": params["query"], "token": [1, {"opaque": true}]}},
+                    {"name": format!("{}:other", args[1]), "kind": 12, "location": {"uri": uri}, "data": {"provider": args[1], "query": "other", "token": [1, {"opaque": true}]}}
+                ])
+            } else {
+                json!([{"name": name, "kind": 12, "location": {"uri": uri, "range": range(3, 6)}}])
+            };
             respond(
                 &mut output,
                 json!({"jsonrpc": "2.0", "id": id, "result": result}),
@@ -403,6 +419,18 @@ fn main() -> anyhow::Result<()> {
                 json!({"jsonrpc": "2.0", "id": id, "result": reports["result"]})
             };
             respond(&mut output, response)?;
+            continue;
+        }
+        if workspace_symbols && method == "workspaceSymbol/resolve" {
+            if args.iter().any(|arg| arg == "--hold-symbol-resolves") {
+                continue;
+            }
+            let mut symbol = params.clone();
+            symbol["location"]["range"] = range(3, 6);
+            respond(
+                &mut output,
+                json!({"jsonrpc": "2.0", "id": id, "result": symbol}),
+            )?;
             continue;
         }
         if method == "textDocument/diagnostic" && diagnostics {
@@ -952,7 +980,7 @@ fn main() -> anyhow::Result<()> {
                 "renameProvider": {"prepareProvider": !args.iter().any(|arg| arg == "--no-prepare")}
             }}),
             "initialize" if workspace_symbols => json!({"capabilities": {
-                "positionEncoding": "utf-16", "textDocumentSync": 1, "workspaceSymbolProvider": true
+                "positionEncoding": "utf-16", "textDocumentSync": 1, "workspaceSymbolProvider": {"resolveProvider": args.iter().any(|arg| arg == "--lazy-symbols")}
             }}),
             "initialize" if document_symbols => {
                 json!({"capabilities":{"textDocumentSync":1,"documentSymbolProvider":true}})

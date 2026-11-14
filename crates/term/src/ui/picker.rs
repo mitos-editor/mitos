@@ -78,6 +78,7 @@ pub(crate) use updates::{PickerSource, SourceInput};
 
 type FileCallback<T> = Box<dyn for<'a> Fn(&'a Editor, &'a T) -> Option<FileLocation<'a>>>;
 type QuicklistCallback<T> = Box<dyn Fn(&Editor, &T) -> Option<QuicklistEntry>>;
+type QuicklistBatchCallback<T> = Box<dyn Fn(&mut Context, Vec<&T>, event::TaskHandle)>;
 type SelectedPreview<'picker, 'editor> = (
     Preview<'picker, 'editor>,
     Option<(usize, usize)>,
@@ -326,6 +327,8 @@ pub struct Picker<T: 'static + Send + Sync, D: 'static> {
     file_fn: Option<FileCallback<T>>,
     /// Given an item in the picker, return an explicit quicklist entry.
     quicklist_fn: Option<QuicklistCallback<T>>,
+    quicklist_batch_fn: Option<QuicklistBatchCallback<T>>,
+    quicklist_task: event::TaskController,
     replacement: Option<Replacement<T, D>>,
     case_sensitive: Option<CaseSensitiveToggle<D>>,
     dynamic_query: Option<DynamicQuery>,
@@ -463,6 +466,8 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             custom_preview: None,
             file_fn: None,
             quicklist_fn: None,
+            quicklist_batch_fn: None,
+            quicklist_task: event::TaskController::new(),
             replacement: None,
             case_sensitive: None,
             dynamic_query: None,
@@ -519,6 +524,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
     /// Stop background source activity while retaining published rows and selection.
     /// Restoring the picker resumes its sources through their existing update path.
     pub(crate) fn suspend(&mut self) {
+        self.quicklist_task.cancel();
         self.query_options.needs_refresh |= self.query_options.pending.is_some()
             || (self.query_options.asynchronous.is_some() && self.results.is_refreshing())
             || (self.dynamic_query.is_some() && !self.has_file_source());
@@ -593,6 +599,15 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         quicklist_fn: impl Fn(&Editor, &T) -> Option<QuicklistEntry> + 'static,
     ) -> Self {
         self.quicklist_fn = Some(Box::new(quicklist_fn));
+        self
+    }
+
+    /// Resolve a snapshot of matched items when the user explicitly exports them.
+    pub(crate) fn with_quicklist_batch(
+        mut self,
+        callback: impl Fn(&mut Context, Vec<&T>, event::TaskHandle) + 'static,
+    ) -> Self {
+        self.quicklist_batch_fn = Some(Box::new(callback));
         self
     }
 
@@ -940,6 +955,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         if self.query == old_query {
             return false;
         }
+        self.quicklist_task.cancel();
         if self.query_options.synchronous.is_some() {
             return true;
         }
@@ -1536,6 +1552,18 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                     // Pickers can provide explicit quicklist entries when they have
                     // more precise jump data. Everything else falls back to preview
                     // locations, which are still usually just path + line span.
+                    if let Some(callback) = &self.quicklist_batch_fn {
+                        let snapshot = self.results.matcher.snapshot();
+                        callback(
+                            ctx,
+                            snapshot
+                                .matched_items(0..snapshot.matched_item_count())
+                                .map(|item| item.data)
+                                .collect(),
+                            self.quicklist_task.restart(),
+                        );
+                        continue;
+                    }
                     let entries = self.quicklist_entries(ctx.editor);
                     let count = entries.len();
                     ctx.editor.replace_quicklist(entries);
