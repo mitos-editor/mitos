@@ -437,3 +437,57 @@ async fn deferred_replies_do_not_follow_a_restarted_server() -> anyhow::Result<(
     assert!(!s.flush().await?.iter().any(|r| r["id"] == "old-instance"));
     Ok(())
 }
+
+#[tokio::test]
+async fn deferred_replies_are_suppressed_during_exit_hooks_before_registry_removal(
+) -> anyhow::Result<()> {
+    use std::sync::{Arc, Mutex};
+
+    use futures_util::FutureExt as _;
+    use view::events::LanguageServerExited;
+
+    let mut s = Server::new()?;
+    s.initialize().await?;
+    let reply = Arc::new(Mutex::new(Some(s.prompt("during-stop").await)));
+    let pending = reply.clone();
+    let client = s.fixture.editor.language_servers().next().unwrap().clone();
+    let server_id = s.id;
+    let message = || {
+        notification(
+            "window/showMessage",
+            json!({"type": 3, "message": "Still active"}),
+        )
+    };
+    assert!(matches!(
+        s.fixture
+            .editor
+            .handle_language_server_message(message(), server_id)
+            .await,
+        Some(HostAction::ShowMessage(_))
+    ));
+    let _registration = event::register_owned_hook!(s.fixture.editor.events() =>
+        move |event: &mut LanguageServerExited<'_>| {
+            assert_eq!(event.server_id, server_id);
+            assert!(event.editor.language_server_by_id(server_id).is_some());
+            // The registry is private. Its inactive state is observable through
+            // dispatch: a registered active client would return ShowMessage here.
+            assert!(event.editor.handle_language_server_message(message(), server_id)
+                .now_or_never().expect("stopped-client dispatch must finish immediately").is_none());
+            pending.lock().unwrap().take().unwrap().complete(event.editor, Ok(Value::Null));
+            Ok(())
+        }
+    );
+    s.fixture.editor.handle_language_server_exit(server_id);
+    assert!(
+        reply.lock().unwrap().is_none(),
+        "exit hook must consume the reply"
+    );
+    assert!(s.fixture.editor.language_server_by_id(server_id).is_none());
+    // Retain the process and flush its input, proving that suppression happened
+    // while registered rather than because removal closed the connection.
+    client.shutdown().await?;
+    assert!(!read_log(&s.log)?
+        .iter()
+        .any(|record| record["id"] == "during-stop"));
+    Ok(())
+}
