@@ -179,103 +179,6 @@ impl<'de> Deserialize<'de> for Theme {
     }
 }
 
-#[allow(clippy::type_complexity)]
-fn build_theme_values(
-    mut values: Map<String, Value>,
-) -> (
-    HashMap<String, Style>,
-    Vec<String>,
-    Vec<Style>,
-    usize,
-    Vec<String>,
-) {
-    let mut styles = HashMap::new();
-    let mut scopes = Vec::new();
-    let mut highlights = Vec::new();
-    let mut rainbow_length = 0;
-
-    let mut warnings = Vec::new();
-
-    // TODO: alert user of parsing failures in editor
-    let palette = values
-        .remove("palette")
-        .map(|value| {
-            ThemePalette::try_from(value).unwrap_or_else(|err| {
-                warnings.push(err);
-                ThemePalette::default()
-            })
-        })
-        .unwrap_or_default();
-    // remove inherits from value to prevent errors
-    let _ = values.remove("inherits");
-    styles.reserve(values.len());
-    scopes.reserve(values.len());
-    highlights.reserve(values.len());
-
-    for (i, style) in values
-        .remove("rainbow")
-        .and_then(|value| match palette.parse_style_array(value) {
-            Ok(styles) => Some(styles),
-            Err(err) => {
-                warnings.push(err);
-                None
-            }
-        })
-        .unwrap_or_else(default_rainbow)
-        .into_iter()
-        .enumerate()
-    {
-        let name = format!("rainbow.{i}");
-        styles.insert(name.clone(), style);
-        scopes.push(name);
-        highlights.push(style);
-        rainbow_length += 1;
-    }
-
-    for (name, style_value) in values {
-        let mut style = Style::default();
-        if let Err(err) = palette.parse_style(&mut style, style_value) {
-            warnings.push(format!("Failed to parse style for key {name:?}. {err}"));
-        }
-
-        // these are used both as UI and as highlights
-        styles.insert(name.clone(), style);
-        scopes.push(name);
-        highlights.push(style);
-    }
-
-    // Reference highlights must remain distinct from selections, including in
-    // custom themes that do not define a dedicated style.
-    if !styles.contains_key("ui.highlight.symbol") {
-        let style = default_symbol_highlight(&styles);
-        styles.insert("ui.highlight.symbol".into(), style);
-        scopes.push("ui.highlight.symbol".into());
-        highlights.push(style);
-    }
-
-    // Compile composed syntax styles once, keeping the render loop an indexed
-    // lookup. The inventory is generated from bundled queries; custom theme keys
-    // are retained and custom scopes still support ordinary prefix fallback.
-    let candidates: std::collections::BTreeSet<_> = scopes
-        .iter()
-        .cloned()
-        .chain(crate::scopes::CAPTURES.iter().map(|s| s.to_string()))
-        .chain(crate::scopes::KINDS.iter().map(|(s, _)| s.to_string()))
-        .collect();
-    for name in candidates {
-        if crate::scopes::Classification::parse(&name).is_some() {
-            let style = resolve_syntax(&styles, &name).unwrap_or_default();
-            if let Some(index) = scopes.iter().position(|s| s == &name) {
-                highlights[index] = style;
-            } else {
-                scopes.push(name);
-                highlights.push(style);
-            }
-        }
-    }
-    (styles, scopes, highlights, rainbow_length, warnings)
-}
-
 fn default_symbol_highlight(styles: &HashMap<String, Style>) -> Style {
     let background = styles.get("ui.background").and_then(|style| style.bg);
     let selection = styles
@@ -470,9 +373,91 @@ impl Theme {
         }
     }
 
-    fn from_keys(toml_keys: Map<String, Value>) -> (Self, Vec<String>) {
-        let (styles, scopes, highlights, rainbow_length, load_errors) =
-            build_theme_values(toml_keys);
+    fn from_keys(mut values: Map<String, Value>) -> (Self, Vec<String>) {
+        let mut styles = HashMap::new();
+        let mut scopes = Vec::new();
+        let mut highlights = Vec::new();
+        let mut rainbow_length = 0;
+
+        let mut warnings = Vec::new();
+
+        // TODO: alert user of parsing failures in editor
+        let palette = values
+            .remove("palette")
+            .map(|value| {
+                ThemePalette::try_from(value).unwrap_or_else(|err| {
+                    warnings.push(err);
+                    ThemePalette::default()
+                })
+            })
+            .unwrap_or_default();
+        // remove inherits from value to prevent errors
+        let _ = values.remove("inherits");
+        styles.reserve(values.len());
+        scopes.reserve(values.len());
+        highlights.reserve(values.len());
+
+        for (i, style) in values
+            .remove("rainbow")
+            .and_then(|value| match palette.parse_style_array(value) {
+                Ok(styles) => Some(styles),
+                Err(err) => {
+                    warnings.push(err);
+                    None
+                }
+            })
+            .unwrap_or_else(default_rainbow)
+            .into_iter()
+            .enumerate()
+        {
+            let name = format!("rainbow.{i}");
+            styles.insert(name.clone(), style);
+            scopes.push(name);
+            highlights.push(style);
+            rainbow_length += 1;
+        }
+
+        for (name, style_value) in values {
+            let mut style = Style::default();
+            if let Err(err) = palette.parse_style(&mut style, style_value) {
+                warnings.push(format!("Failed to parse style for key {name:?}. {err}"));
+            }
+
+            // these are used both as UI and as highlights
+            styles.insert(name.clone(), style);
+            scopes.push(name);
+            highlights.push(style);
+        }
+
+        // Reference highlights must remain distinct from selections, including in
+        // custom themes that do not define a dedicated style.
+        if !styles.contains_key("ui.highlight.symbol") {
+            let style = default_symbol_highlight(&styles);
+            styles.insert("ui.highlight.symbol".into(), style);
+            scopes.push("ui.highlight.symbol".into());
+            highlights.push(style);
+        }
+
+        // Compile composed syntax styles once, keeping the render loop an indexed
+        // lookup. The inventory is generated from bundled queries; custom theme keys
+        // are retained and custom scopes still support ordinary prefix fallback.
+        let candidates: std::collections::BTreeSet<_> = scopes
+            .iter()
+            .cloned()
+            .chain(crate::scopes::CAPTURES.iter().map(|s| s.to_string()))
+            .chain(crate::scopes::KINDS.iter().map(|(s, _)| s.to_string()))
+            .collect();
+        for name in candidates {
+            if crate::scopes::Classification::parse(&name).is_some() {
+                let style = resolve_syntax(&styles, &name).unwrap_or_default();
+                if let Some(index) = scopes.iter().position(|s| s == &name) {
+                    highlights[index] = style;
+                } else {
+                    scopes.push(name);
+                    highlights.push(style);
+                }
+            }
+        }
 
         let scope_index = scopes
             .iter()
@@ -488,7 +473,7 @@ impl Theme {
             rainbow_length,
             ..Default::default()
         };
-        (theme, load_errors)
+        (theme, warnings)
     }
 }
 
