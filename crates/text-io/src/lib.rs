@@ -31,11 +31,8 @@ impl Encoder {
         &mut self,
         src: &str,
         dst: &mut [u8],
-        is_empty: bool,
+        last: bool,
     ) -> (encoding::CoderResult, usize, usize) {
-        if src.is_empty() {
-            return (encoding::CoderResult::InputEmpty, 0, 0);
-        }
         let mut write_to_buf = |convert: fn(u16) -> [u8; 2]| {
             let mut total_written = 0usize;
             for (read, character) in src.char_indices() {
@@ -59,7 +56,7 @@ impl Encoder {
             Self::Utf16Be => write_to_buf(u16::to_be_bytes),
             Self::Utf16Le => write_to_buf(u16::to_le_bytes),
             Self::EncodingRs(encoder) => {
-                let (code_result, read, written, ..) = encoder.encode_from_utf8(src, dst, is_empty);
+                let (code_result, read, written, ..) = encoder.encode_from_utf8(src, dst, last);
 
                 (code_result, read, written)
             }
@@ -235,7 +232,7 @@ pub async fn to_writer<'a, W: tokio::io::AsyncWriteExt + Unpin + ?Sized>(
                     break;
                 }
                 encoding::CoderResult::OutputFull => {
-                    debug_assert!(chunk.len() > total_read);
+                    debug_assert!(total_written > 0);
                     writer.write_all(&buf[..total_written]).await?;
                     total_written = 0;
                 }
@@ -259,6 +256,58 @@ mod tests {
     use std::path::PathBuf;
 
     use super::*;
+
+    #[test]
+    fn iso_2022_jp_writer_finalizes_at_eof() {
+        for prefix_len in std::iter::once(0).chain(BUF_SIZE - 12..=BUF_SIZE - 2) {
+            let text = format!("{}日本語", "a".repeat(prefix_len));
+            let rope = Rope::from_str(&text);
+            let mut bytes = Vec::new();
+            futures_executor::block_on(to_writer(
+                &mut bytes,
+                (encoding::ISO_2022_JP, false),
+                &rope,
+            ))
+            .unwrap();
+            let (expected, _, _) = encoding::ISO_2022_JP.encode(&text);
+            assert!(bytes == expected.as_ref(), "prefix length {prefix_len}");
+        }
+    }
+
+    #[test]
+    fn iso_2022_jp_finalization_retries_when_output_is_full() {
+        let mut encoder = Encoder::from_encoding(encoding::ISO_2022_JP);
+        let mut output = [0; 16];
+        let (result, read, written) = encoder.encode_from_utf8("あ", &mut output, false);
+        assert_eq!(result, encoding::CoderResult::InputEmpty);
+        assert_eq!((read, written), ("あ".len(), 5));
+
+        let (result, read, written) = encoder.encode_from_utf8("", &mut output[..2], true);
+        assert_eq!(result, encoding::CoderResult::OutputFull);
+        assert_eq!((read, written), (0, 0));
+        let (result, read, written) = encoder.encode_from_utf8("", &mut output, true);
+        assert_eq!(result, encoding::CoderResult::InputEmpty);
+        assert_eq!((read, written), (0, 3));
+        assert_eq!(&output[..written], b"\x1b(B");
+    }
+
+    #[test]
+    fn empty_text_writes_only_the_requested_bom() {
+        let rope = Rope::from_str("");
+        for (encoding, bom) in [
+            (encoding::UTF_8, &[0xef, 0xbb, 0xbf][..]),
+            (encoding::UTF_16BE, &[0xfe, 0xff][..]),
+            (encoding::UTF_16LE, &[0xff, 0xfe][..]),
+            (encoding::ISO_2022_JP, &[][..]),
+        ] {
+            for has_bom in [false, true] {
+                let mut bytes = Vec::new();
+                futures_executor::block_on(to_writer(&mut bytes, (encoding, has_bom), &rope))
+                    .unwrap();
+                assert_eq!(bytes, if has_bom { bom } else { &[] });
+            }
+        }
+    }
 
     #[test]
     fn utf16_encoding_keeps_surrogate_pairs_whole_and_uses_exact_capacity() {
