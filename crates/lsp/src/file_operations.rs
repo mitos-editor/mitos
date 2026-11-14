@@ -33,7 +33,7 @@ impl FileOperationFilter {
                 .and_then(|opts| opts.ignore_case)
                 .unwrap_or(false);
             let mut glob_builder = GlobBuilder::new(&filter.pattern.glob);
-            glob_builder.case_insensitive(!ignore_case);
+            glob_builder.case_insensitive(ignore_case);
             let glob = match glob_builder.build() {
                 Ok(glob) => glob,
                 Err(err) => {
@@ -103,6 +103,84 @@ impl FileOperationsInterest {
             will_rename: FileOperationFilter::new(capabilities.will_rename.as_ref()),
             did_delete: FileOperationFilter::new(capabilities.did_delete.as_ref()),
             will_delete: FileOperationFilter::new(capabilities.will_delete.as_ref()),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn filter_respects_ignore_case() {
+        for options in [
+            None,
+            Some(lsp::FileOperationPatternOptions { ignore_case: None }),
+            Some(lsp::FileOperationPatternOptions {
+                ignore_case: Some(false),
+            }),
+            Some(lsp::FileOperationPatternOptions {
+                ignore_case: Some(true),
+            }),
+        ] {
+            let ignore_case = options.as_ref().and_then(|options| options.ignore_case);
+            let capability = lsp::FileOperationRegistrationOptions {
+                filters: vec![lsp::FileOperationFilter {
+                    scheme: Some("file".into()),
+                    pattern: lsp::FileOperationPattern {
+                        glob: "**/src/*.rs".into(),
+                        matches: None,
+                        options,
+                    },
+                }],
+            };
+            let filter = FileOperationFilter::new(Some(&capability));
+
+            for is_dir in [false, true] {
+                assert!(filter.has_interest(Path::new("project/src/main.rs"), is_dir));
+                assert_eq!(
+                    filter.has_interest(Path::new("project/Src/Main.RS"), is_dir),
+                    ignore_case == Some(true),
+                    "ignore_case={ignore_case:?}, is_dir={is_dir}"
+                );
+                assert!(!filter.has_interest(Path::new("project/tests/main.rs"), is_dir));
+            }
+        }
+    }
+
+    #[test]
+    fn filter_respects_scheme_and_pattern_kind() {
+        for scheme in [None, Some("file"), Some("untitled")] {
+            for kind in [
+                None,
+                Some(lsp::FileOperationPatternKind::File),
+                Some(lsp::FileOperationPatternKind::Folder),
+            ] {
+                let capability = lsp::FileOperationRegistrationOptions {
+                    filters: vec![lsp::FileOperationFilter {
+                        scheme: scheme.map(str::to_owned),
+                        pattern: lsp::FileOperationPattern {
+                            glob: "**/src/*".into(),
+                            matches: kind.clone(),
+                            options: None,
+                        },
+                    }],
+                };
+                let filter = FileOperationFilter::new(Some(&capability));
+
+                for is_dir in [false, true] {
+                    let matches_kind = match kind {
+                        None => true,
+                        Some(lsp::FileOperationPatternKind::File) => !is_dir,
+                        Some(lsp::FileOperationPatternKind::Folder) => is_dir,
+                    };
+                    assert_eq!(
+                        filter.has_interest(Path::new("project/src/main.rs"), is_dir),
+                        scheme != Some("untitled") && matches_kind,
+                        "scheme={scheme:?}, kind={kind:?}, is_dir={is_dir}"
+                    );
+                }
+            }
         }
     }
 }
