@@ -280,6 +280,9 @@ pub(super) fn global_search(cx: &mut Context) {
     cx.push_layer(Box::new(overlaid(picker)));
 }
 
+mod buffer_picker;
+pub(super) use buffer_picker::search_picker_in_current_buffer;
+
 fn global_search_picker(
     editor: &mut Editor,
     jobs: &crate::job::Jobs,

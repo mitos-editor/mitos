@@ -112,11 +112,9 @@ impl Search {
     /// This does not walk directories or read files from disk.
     pub fn search_document(&self, path: &Path, text: &Rope) -> std::io::Result<Vec<Match>> {
         let mut results = Vec::new();
-        search_file(
-            &mut searcher(),
-            &self.matcher,
+        self.run_document(
             path,
-            Some(text),
+            text,
             || false,
             |matched| {
                 results.push(matched);
@@ -124,6 +122,24 @@ impl Search {
             },
         )?;
         Ok(results)
+    }
+
+    /// Stream matches from an in-memory document, stopping when canceled or the sink stops.
+    pub fn run_document(
+        &self,
+        path: &Path,
+        text: &Rope,
+        cancelled: impl Fn() -> bool,
+        emit: impl FnMut(Match) -> ControlFlow<()>,
+    ) -> std::io::Result<()> {
+        search_file(
+            &mut searcher(),
+            &self.matcher,
+            path,
+            Some(text),
+            cancelled,
+            emit,
+        )
     }
 
     /// Stream results until traversal finishes, cancellation is requested, or the sink stops.
@@ -496,6 +512,50 @@ mod tests {
             }]
         );
         assert!(collect(dir.path(), &options(), &documents, "disk").is_empty());
+    }
+
+    #[test]
+    fn document_stream_observes_cancellation_and_sink_stop() {
+        let search = Search::new("needle", true).unwrap();
+        let text = Rope::from("needle\nneedle\nneedle\n");
+        let count = std::cell::Cell::new(0);
+        search
+            .run_document(
+                Path::new(""),
+                &text,
+                || true,
+                |_| {
+                    count.set(count.get() + 1);
+                    ControlFlow::Continue(())
+                },
+            )
+            .unwrap();
+        assert_eq!(count.get(), 0);
+        search
+            .run_document(
+                Path::new(""),
+                &text,
+                || count.get() == 1,
+                |_| {
+                    count.set(count.get() + 1);
+                    ControlFlow::Continue(())
+                },
+            )
+            .unwrap();
+        assert_eq!(count.get(), 1);
+        count.set(0);
+        search
+            .run_document(
+                Path::new(""),
+                &text,
+                || false,
+                |_| {
+                    count.set(count.get() + 1);
+                    ControlFlow::Break(())
+                },
+            )
+            .unwrap();
+        assert_eq!(count.get(), 1);
     }
 
     #[test]
