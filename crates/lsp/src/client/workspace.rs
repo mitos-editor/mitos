@@ -121,9 +121,7 @@ impl Client {
             .collect()
     }
 
-    pub async fn workspace_folders(
-        &self,
-    ) -> parking_lot::MutexGuard<'_, Vec<lsp::WorkspaceFolder>> {
+    pub fn workspace_folders(&self) -> parking_lot::MutexGuard<'_, Vec<lsp::WorkspaceFolder>> {
         self.workspace_folders.lock()
     }
 
