@@ -309,7 +309,7 @@ fn changed_file_picker_for_scope(cx: &mut Context, scope: vcs::ChangedFileScope)
             FileChange::Renamed { .. } => ("> ", icons.vcs().renamed(), data.style_renamed),
         };
         if data.icons {
-            icon.map(|icon| Span::styled(icon.with_no_left_padding().to_string(), style))
+            Some(Span::styled(icon.with_no_left_padding().to_string(), style))
         } else {
             Some(Span::styled(plain, style))
         }
