@@ -1,9 +1,28 @@
 pub mod statistics;
 
+use std::borrow::Cow;
+
 use crate::movement::Direction;
 use crate::{Range, RopeSlice, Selection};
 use stdx::rope::RopeExt as _;
 use stdx::rope::{self, RopeSliceExt};
+
+/// How user-entered search text is interpreted.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum SearchSyntax {
+    #[default]
+    Regex,
+    Literal,
+}
+
+impl SearchSyntax {
+    pub fn pattern(self, input: &str) -> Cow<'_, str> {
+        match self {
+            Self::Regex => Cow::Borrowed(input),
+            Self::Literal => Cow::Owned(crate::regex::escape(input)),
+        }
+    }
+}
 
 /// A buffer match in character coordinates and whether reaching it wrapped the document.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

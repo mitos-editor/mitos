@@ -356,6 +356,7 @@
 | `` <C-a> ``, `` <home> `` | `` move_start `` |
 | `` <A-b> ``, `` <C-left> `` | `` move_word_left `` |
 | `` <A-f> ``, `` <C-right> `` | `` move_word_right `` |
+| `` <A-r> `` | `` toggle_search_syntax `` |
 
 ## Completion menu
 
