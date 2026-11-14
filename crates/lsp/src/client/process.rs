@@ -197,7 +197,7 @@ impl Client {
                         dynamic_registration: Some(false),
                         requests: lsp::SemanticTokensClientCapabilitiesRequests {
                             range: Some(true),
-                            full: Some(lsp::SemanticTokensFullOptions::Bool(true)),
+                            full: Some(lsp::SemanticTokensFullOptions::Delta { delta: Some(true) }),
                         },
                         token_types: [
                             "namespace",
