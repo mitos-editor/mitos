@@ -3160,7 +3160,7 @@ dependencies = [
 [[package]]
 name = "lsp-types"
 version = "0.97.0"
-source = "git+https://github.com/mitos-editor/lsp-types?rev=c17a95b4b32a83130749cef8dd2414d80478227a#c17a95b4b32a83130749cef8dd2414d80478227a"
+source = "git+https://github.com/mitos-editor/lsp-types?rev=60bb95403c7b25f94fe29dd2b3ac625472b5ddd3#60bb95403c7b25f94fe29dd2b3ac625472b5ddd3"
 dependencies = [
  "bitflags 1.3.2",
  "fluent-uri",
