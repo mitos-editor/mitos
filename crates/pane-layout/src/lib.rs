@@ -77,6 +77,15 @@ pub enum Layout {
     // could explore stacked/tabbed
 }
 
+impl Layout {
+    fn child_area(self, area: Rect, position: u16, size: u16) -> Rect {
+        match self {
+            Self::Horizontal => Rect::new(area.x, position, area.width, size),
+            Self::Vertical => Rect::new(position, area.y, size, area.height),
+        }
+    }
+}
+
 /// How space is distributed among panes and nested split groups.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -607,21 +616,9 @@ impl<K: Key, P: Pane<K>> Tree<K, P> {
                             used += weights[child.id][axis];
                             let end = (available * used / total + gap * (used - 1)).min(length);
                             let size = (end - offset) as u16;
-                            let child_area = if vertical {
-                                Rect::new(
-                                    area.x.saturating_add(offset as u16),
-                                    area.y,
-                                    size,
-                                    area.height,
-                                )
-                            } else {
-                                Rect::new(
-                                    area.x,
-                                    area.y.saturating_add(offset as u16),
-                                    area.width,
-                                    size,
-                                )
-                            };
+                            let position = if vertical { area.x } else { area.y }
+                                .saturating_add(offset as u16);
+                            let child_area = container.layout.child_area(area, position, size);
                             balanced.push((child.id, child_area));
                             offset = (end + gap).min(length);
                         }
@@ -642,59 +639,24 @@ impl<K: Key, P: Pane<K>> Tree<K, P> {
                         }
                     }
 
-                    match container.layout {
-                        Layout::Horizontal => {
-                            let len = container.children.len();
-
-                            let mut child_y = area.y;
-
-                            for (i, child) in container.children.iter().enumerate() {
-                                let height = shares[i] as u16;
-                                let mut area = Rect::new(
-                                    container.area.x,
-                                    child_y,
-                                    container.area.width,
-                                    height,
-                                );
-                                child_y =
-                                    child_y.saturating_add(height).min(container.area.bottom());
-
-                                // The last child takes the remaining space after rounding.
-                                if i == len - 1 {
-                                    area.height = container.area.bottom().saturating_sub(area.y);
-                                }
-
-                                self.stack.push((child.id, area));
-                            }
-                        }
-                        Layout::Vertical => {
-                            let len = container.children.len();
-
-                            let inner_gap = 1u16;
-
-                            let mut child_x = area.x;
-
-                            for (i, child) in container.children.iter().enumerate() {
-                                let width = shares[i] as u16;
-                                let mut area = Rect::new(
-                                    child_x,
-                                    container.area.y,
-                                    width,
-                                    container.area.height,
-                                );
-                                child_x = child_x
-                                    .saturating_add(width)
-                                    .saturating_add(inner_gap)
-                                    .min(container.area.right());
-
-                                // The last child takes the remaining space after rounding.
-                                if i == len - 1 {
-                                    area.width = container.area.right().saturating_sub(area.x);
-                                }
-
-                                self.stack.push((child.id, area));
-                            }
-                        }
+                    let vertical = container.layout == Layout::Vertical;
+                    let (mut position, end) = if vertical {
+                        (area.x, area.right())
+                    } else {
+                        (area.y, area.bottom())
+                    };
+                    let gap = u16::from(vertical);
+                    for (index, child) in container.children.iter().enumerate() {
+                        let size = shares[index] as u16;
+                        // The last child takes the remaining space after rounding.
+                        let child_size = if index + 1 == container.children.len() {
+                            end.saturating_sub(position)
+                        } else {
+                            size
+                        };
+                        let child_area = container.layout.child_area(area, position, child_size);
+                        self.stack.push((child.id, child_area));
+                        position = position.saturating_add(size).saturating_add(gap).min(end);
                     }
                 }
             }
