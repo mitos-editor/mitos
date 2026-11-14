@@ -122,6 +122,7 @@ impl Document {
     }
 
     pub(crate) fn close_language_server_documents(&mut self) {
+        self.semantic_tokens.invalidate();
         let Some(uri) = self.url() else {
             return;
         };
