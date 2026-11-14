@@ -1,9 +1,16 @@
-use std::{collections::HashMap, time::Instant};
+use std::{
+    collections::HashMap,
+    time::{Duration, Instant},
+};
 
 use lsp_client::LanguageServerId;
 
 const FRAMES: [&str; 8] = ["⣾", "⣽", "⣻", "⢿", "⡿", "⣟", "⣯", "⣷"];
 const FRAME_INTERVAL_MS: u128 = 80;
+
+pub(super) fn frame(elapsed: Duration) -> &'static str {
+    FRAMES[(elapsed.as_millis() / FRAME_INTERVAL_MS % FRAMES.len() as u128) as usize]
+}
 
 #[derive(Default, Debug)]
 pub struct ProgressSpinners {
@@ -20,9 +27,7 @@ impl ProgressSpinners {
     }
 
     pub fn frame(&self, id: LanguageServerId) -> Option<&'static str> {
-        let elapsed = self.inner.get(&id)?.elapsed().as_millis();
-        let index = (elapsed / FRAME_INTERVAL_MS % FRAMES.len() as u128) as usize;
-        Some(FRAMES[index])
+        Some(frame(self.inner.get(&id)?.elapsed()))
     }
 }
 

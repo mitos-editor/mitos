@@ -91,6 +91,35 @@ async fn document_formatting_reports_server_errors_only_for_current_targets() ->
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn explicit_formatting_tracks_activity_until_its_error_is_applied() -> anyhow::Result<()> {
+    use super::helpers::keys;
+    let dir = tempfile::tempdir()?;
+    let mut app = application_with_args(
+        dir.path(),
+        &["--document-formatting", "--ignore-formatting"],
+    )
+    .await?;
+    assert!(app.editor.activities().next().is_none());
+    keys(&mut app, ":format<ret>").await?;
+    let document = current_ref!(app.editor).1.id();
+    let activity = app.editor.activities().next().expect("formatting activity");
+    assert_eq!(activity.label, "Formatting");
+    assert_eq!(activity.document, Some(document));
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        while app.editor.activities().next().is_some() {
+            keys(&mut app, "").await?;
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        }
+        anyhow::Ok(())
+    })
+    .await??;
+    assert!(app.editor.activities().next().is_none());
+    assert!(app.editor.get_status().unwrap().0.contains("timed out"));
+    assert!(app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn document_formatting_reports_language_server_timeouts() -> anyhow::Result<()> {
     let dir = tempfile::tempdir()?;
     let mut app = application_with_args(

@@ -34,6 +34,46 @@ where
             Some(self.render_state.requested.map_or(due, |old| old.min(due)));
     }
 
+    /// Wake for delayed user activity even when no input or server events arrive.
+    pub(super) fn activity_frame_deadline(&self) -> Option<Instant> {
+        use crate::ui::{activity_matches, ACTIVITY_DELAY};
+        use editor_config::StatusLineElement;
+
+        let config = self.editor.config();
+        if !config
+            .statusline
+            .left
+            .contains(&StatusLineElement::Activity)
+            && !config
+                .statusline
+                .right
+                .contains(&StatusLineElement::Activity)
+        {
+            return None;
+        }
+        let now = Instant::now();
+        self.editor
+            .activities()
+            .filter(|activity| {
+                self.editor.tree.views().any(|(view, focused)| {
+                    (!config.statusline.global || focused)
+                        && self
+                            .editor
+                            .document(view.document_id())
+                            .is_some_and(|doc| activity_matches(*activity, doc, focused))
+                })
+            })
+            .map(|activity| {
+                let visible = activity.started + ACTIVITY_DELAY;
+                if visible > now {
+                    visible
+                } else {
+                    now + Duration::from_millis(80)
+                }
+            })
+            .min()
+    }
+
     /// The ordinary event pump keeps progressing while a first frame waits for syntax.
     pub(super) fn frame_deadline(&mut self) -> Option<Instant> {
         let due = self.render_state.requested?;

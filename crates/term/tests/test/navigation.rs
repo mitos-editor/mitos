@@ -83,7 +83,10 @@ impl Fixture {
 
     async fn update(&mut self, kind: NavigationKind) -> anyhow::Result<NavigationUpdate> {
         navigation::request(&mut self.app.editor, kind);
-        self.response().await?(&mut self.app.editor);
+        let response = self.response().await?;
+        assert_eq!(self.app.editor.activities().count(), 1);
+        response(&mut self.app.editor);
+        assert_eq!(self.app.editor.activities().count(), 0);
         navigation::next_update(&self.app.editor).context("navigation result missing")
     }
 
@@ -196,6 +199,7 @@ async fn navigation_rejects_edits_before_publication_and_presentation() -> anyho
     let dir = tempfile::tempdir()?;
     let mut f = Fixture::new(dir.path()).await?;
     navigation::request(&mut f.app.editor, NavigationKind::Definition);
+    assert_eq!(f.app.editor.activities().count(), 1);
     let callback = f.response().await?;
     f.replace("😀 bar bar\n");
     callback(&mut f.app.editor);
@@ -260,6 +264,12 @@ async fn navigation_cancels_inflight_requests_on_focus_loss() -> anyhow::Result<
     f.app.editor.new_file(Action::Replace);
     let cancel = f.wait_message("$/cancelRequest").await?;
     assert_eq!(cancel["params"]["id"], request["id"]);
+    tokio::time::timeout(Duration::from_secs(1), async {
+        while f.app.editor.activities().next().is_some() {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await?;
     Ok(())
 }
 

@@ -92,6 +92,7 @@ pub struct Editor {
 
     writes: WriteQueue,
     saves: crate::save::Operations,
+    pub(crate) activities: crate::activity::Activities,
     file_operation: event::TaskController,
     file_operation_revision: u64,
 
@@ -235,6 +236,7 @@ impl Editor {
             documents: Documents::new(),
             writes: WriteQueue::default(),
             saves: crate::save::Operations::default(),
+            activities: crate::activity::Activities::default(),
             file_operation: event::TaskController::default(),
             file_operation_revision: 0,
             theme: theme_loader.default_theme(),

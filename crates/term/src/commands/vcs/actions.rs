@@ -199,7 +199,7 @@ pub(super) fn start(cx: &mut Context, workspace: PathBuf, action: GitAction) {
             return;
         }
     };
-    cx.editor.set_status("Preparing Git action…");
+    let activity = cx.editor.start_activity("Git", None);
     cx.jobs.add(
         Job::with_callback(async move {
             let result = request.prepare().await;
@@ -212,6 +212,7 @@ pub(super) fn start(cx: &mut Context, workspace: PathBuf, action: GitAction) {
                         let completion = task.execute().await;
                         Ok(Callback::editor(move |editor| completion.finish(editor)))
                     })
+                    .with_activity(activity)
                     .wait_before_exiting(),
                 );
                 Ok(view::callbacks::CallbackOutcome::Redraw)

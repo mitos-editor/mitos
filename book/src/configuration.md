@@ -429,7 +429,7 @@ single statusline at the bottom of the editor for the focused view.
 | Key | Type | Default |
 | --- | --- | --- |
 | `global` | boolean | `false` |
-| `left` | array of element names | `["mode", "file-name", "read-only-indicator", "file-modification-indicator", "branch", "debug-session"]` |
+| `left` | array of element names | `["mode", "activity", "file-name", "read-only-indicator", "file-modification-indicator", "branch", "debug-session"]` |
 | `right` | array of element names | `["diagnostics", "selections", "register", "search-position", "spinner", "file-type", "position", "file-encoding"]` |
 | `separator` | string | `"│"` |
 | `mode.color` | boolean | `false` |
@@ -447,12 +447,20 @@ Diagnostics describe the current file by default. To show counts across files,
 replace `"diagnostics"` with `"workspace-diagnostics"` in `right`. This can be useful
 with `global = true`; counts reflect the diagnostics currently reported to Mitos.
 
+The `activity` element shows a spinner and a short label for explicit formatting,
+navigation and reference requests, shell commands, and Git actions that take longer
+than 200 ms. Document actions appear in that document's statusline; workspace
+actions appear in the focused statusline. If several actions overlap, the oldest
+visible action is shown until it finishes. The element takes no space while idle.
+The separate `spinner` element indicates progress reported by language servers.
+
 Available statusline elements:
 
 | Key    | Description |
 | ------ | ----------- |
 | `mode` | The current editor mode (`mode.normal`/`mode.insert`/`mode.select`) |
 | `spinner` | A progress spinner indicating LSP activity |
+| `activity` | A spinner and label for a pending user action, shown after 200 ms |
 | `branch` | The current branch name or detached commit hash of the opened workspace |
 | `file-name` | The path/name of the opened file |
 | `file-absolute-path` | The absolute path/name of the opened file |
