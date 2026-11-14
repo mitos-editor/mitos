@@ -498,6 +498,7 @@ Available statusline elements:
 | `signature-help.border-style` | border style or `"inherit"` | `"inherit"` | Signature help popup borders and documentation separators. See [popup borders](#popup-borders). |
 | `inlay-hints.enable` | boolean | `false` | Render inlay hints. The server may also require configuration. |
 | `document-highlight.auto-trigger` | boolean | `true` | Highlight references to the symbol at the cursor. |
+| `linked-editing` | boolean | `true` | Automatically edit linked names together, such as opening and closing tags. Requires server support. |
 | `inlay-hints.length-limit` | non-zero integer or unset | Unset | Truncate displayed inlay hints to this length. |
 | `color-swatches.enable` | boolean | `true` | Render swatches beside document colors. |
 | `code-actions.border-style` | border style or `"inherit"` | `"inherit"` | Code action menu borders. See [popup borders](#popup-borders). |

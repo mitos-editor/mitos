@@ -139,6 +139,7 @@ impl Editor {
         for (id, version, transaction) in prepared {
             self.apply_document_changes(id, version, transaction.changes())?;
         }
+        crate::features::linked_editing::refresh(self);
         Ok(())
     }
 
@@ -245,6 +246,7 @@ impl Editor {
             }
         }
 
+        crate::features::linked_editing::refresh(self);
         Ok(())
     }
 

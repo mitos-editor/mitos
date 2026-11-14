@@ -907,9 +907,40 @@ fn main() -> anyhow::Result<()> {
             ]),
             "initialize" if linked_editing => json!({"capabilities": {
                 "positionEncoding":"utf-16", "textDocumentSync":1,
-                "linkedEditingRangeProvider": !args.iter().any(|arg| arg == "--unsupported")
+                "linkedEditingRangeProvider": !args.iter().any(|arg| arg == "--unsupported"),
+                "completionProvider": if args.iter().any(|arg| arg == "--linked-completion") {json!({})} else {Value::Null}
             }}),
+            "textDocument/completion" if linked_editing => {
+                let linked_text = &documents[uri];
+                let opening = linked_text.find('<').unwrap() + 1;
+                let closing = linked_text.rfind("</").unwrap() + 2;
+                let from = if params["position"]["character"].as_u64().unwrap() as usize
+                    >= linked_text[..closing].encode_utf16().count()
+                {
+                    closing
+                } else {
+                    opening
+                };
+                let end = from + linked_text[from..].find('>').unwrap();
+                let mut item = json!({"label":"tagged", "textEdit": {
+                    "range": range(linked_text[..from].encode_utf16().count(), linked_text[..end].encode_utf16().count()),
+                    "newText":"tagged"}});
+                if args.iter().any(|arg| arg == "--linked-completion-final") {
+                    item["insertTextFormat"] = json!(2);
+                    item["textEdit"]["newText"] = json!("tagged$0");
+                }
+                if args.iter().any(|arg| arg == "--linked-completion-import") {
+                    item["additionalTextEdits"] =
+                        json!([{"range":range(0,0),"newText":"imported\n"}]);
+                }
+                json!({"isIncomplete":false,"items":[item]})
+            }
             "textDocument/linkedEditingRange" if linked_editing => {
+                if let Some(index) = args.iter().position(|arg| arg == "--linked-response-gate") {
+                    while !std::path::Path::new(&args[index + 1]).exists() {
+                        std::thread::sleep(std::time::Duration::from_millis(5));
+                    }
+                }
                 if args.iter().any(|arg| arg == "--null") {
                     Value::Null
                 } else {

@@ -628,6 +628,8 @@ pub struct LspConfig {
     pub signature_help: LspSignatureHelpConfig,
     pub inlay_hints: LspInlayHintsConfig,
     pub document_highlight: LspDocumentHighlightConfig,
+    /// Automatically mirror edits to names linked by the language server.
+    pub linked_editing: bool,
     pub color_swatches: LspColorSwatchesConfig,
     pub code_lenses: LspCodeLensesConfig,
     /// Refine syntax highlighting with language-server symbol information.
@@ -648,6 +650,7 @@ impl Default for LspConfig {
             signature_help: LspSignatureHelpConfig::default(),
             inlay_hints: LspInlayHintsConfig::default(),
             document_highlight: LspDocumentHighlightConfig::default(),
+            linked_editing: true,
             color_swatches: LspColorSwatchesConfig::default(),
             code_lenses: LspCodeLensesConfig::default(),
             semantic_tokens: LspSemanticTokensConfig::default(),

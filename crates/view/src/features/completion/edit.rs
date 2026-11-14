@@ -285,29 +285,33 @@ impl Editor {
         } = prepared;
         let trigger_offset = session.trigger.pos;
         let (view, doc) = current!(self);
-        // Completion owns its savepoint and pre-rendered snippet coordinates.
-        doc.linked_editing.clear();
-        doc.restore(view.id, &savepoint)?;
-        doc.commit_changes();
-        view.sync_changes(doc);
-        let before = doc.snapshot();
-        let applied = CompletionApply::new(
-            trigger_offset,
-            doc.text(),
-            doc.selection(view.id),
-            &transaction,
-            snippet.as_ref(),
-            additional.as_ref(),
-        );
-        crate::editing::apply(doc, &transaction, view.id)?;
-        if let Some(snippet) = snippet {
-            doc.install_snippet(view.id, snippet);
-        }
+        let (before, applied) =
+            crate::features::linked_editing::prepared_edit(doc, view.id, |doc, linked| {
+                doc.restore(view.id, &savepoint)?;
+                if let Some(linked) = linked {
+                    linked.restored(doc);
+                }
+                doc.commit_changes();
+                view.sync_changes(doc);
+                let before = doc.snapshot();
+                let applied = CompletionApply::new(
+                    trigger_offset,
+                    doc.text(),
+                    doc.selection(view.id),
+                    &transaction,
+                    snippet.as_ref(),
+                    additional.as_ref(),
+                );
+                crate::editing::apply(doc, &transaction, view.id)?;
+                if let Some(snippet) = snippet {
+                    doc.install_snippet(view.id, snippet);
+                }
+                if let Some(additional) = additional {
+                    crate::editing::apply(doc, &additional, view.id)?;
+                }
+                Ok::<_, EditError>((before, applied))
+            })?;
         self.handlers.completions.edit = Some(CompletionEdit::Applied(applied));
-
-        if let Some(additional) = additional {
-            crate::editing::apply(doc, &additional, view.id)?;
-        }
         let document = doc.id();
         if let CompletionItem::Lsp(item) = item
             && !item.resolved

@@ -127,6 +127,7 @@ impl FormattingUpdate {
             doc.detect_indent_and_line_ending();
             view.ensure_cursor_in_view(doc, scrolloff);
         }
+        crate::features::linked_editing::refresh(editor);
         Ok(true)
     }
 }
