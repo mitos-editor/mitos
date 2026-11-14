@@ -176,39 +176,12 @@ pub fn get_line_ending(line: &RopeSlice) -> Option<LineEnding> {
     LineEnding::from_str(g2).or_else(|| LineEnding::from_str(g1))
 }
 
-#[cfg(not(feature = "unicode-lines"))]
 /// Returns the passed line's line ending, if any.
 pub fn get_line_ending_of_str(line: &str) -> Option<LineEnding> {
-    if line.ends_with("\u{000D}\u{000A}") {
+    if line.ends_with("\r\n") {
         Some(LineEnding::Crlf)
-    } else if line.ends_with('\u{000A}') {
-        Some(LineEnding::LF)
     } else {
-        None
-    }
-}
-
-#[cfg(feature = "unicode-lines")]
-/// Returns the passed line's line ending, if any.
-pub fn get_line_ending_of_str(line: &str) -> Option<LineEnding> {
-    if line.ends_with("\u{000D}\u{000A}") {
-        Some(LineEnding::Crlf)
-    } else if line.ends_with('\u{000A}') {
-        Some(LineEnding::LF)
-    } else if line.ends_with('\u{000B}') {
-        Some(LineEnding::VT)
-    } else if line.ends_with('\u{000C}') {
-        Some(LineEnding::FF)
-    } else if line.ends_with('\u{000D}') {
-        Some(LineEnding::CR)
-    } else if line.ends_with('\u{0085}') {
-        Some(LineEnding::Nel)
-    } else if line.ends_with('\u{2028}') {
-        Some(LineEnding::LS)
-    } else if line.ends_with('\u{2029}') {
-        Some(LineEnding::PS)
-    } else {
-        None
+        line.chars().next_back().and_then(LineEnding::from_char)
     }
 }
 
