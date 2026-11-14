@@ -96,7 +96,7 @@ impl ActiveSnippet {
             self[self.current_tabstop]
                 .ranges
                 .iter()
-                .map(|range| (range.start, range.end)),
+                .map(|entry| (entry.range.start, entry.range.end)),
         )
     }
 
@@ -124,13 +124,16 @@ impl ActiveSnippet {
             if let Some(descendants) = &descendants
                 && descendants[i]
             {
-                tabstop.retain_ranges(|range, _| {
-                    !deletions.iter().any(|deletion| deletion.contains(*range))
+                tabstop.ranges.retain(|entry| {
+                    !deletions
+                        .iter()
+                        .any(|deletion| deletion.contains(entry.range))
                 });
             }
 
             let active = self.active_tabstops.contains(&TabstopIdx(i));
-            changes.update_positions(tabstop.ranges.iter_mut().flat_map(|range| {
+            changes.update_positions(tabstop.ranges.iter_mut().flat_map(|entry| {
+                let range = &mut entry.range;
                 let end_assoc = if active || range.is_empty() {
                     Assoc::After
                 } else {
@@ -142,7 +145,9 @@ impl ActiveSnippet {
                 ]
             }));
             let mut prev = Range { start: 0, end: 0 };
-            tabstop.retain_ranges(|range, owner| {
+            tabstop.ranges.retain_mut(|entry| {
+                let range = &mut entry.range;
+                let owner = entry.instance;
                 let snippet_range = &self.ranges[owner];
                 let retain = snippet_range.start <= snippet_range.end;
                 if retain {
@@ -346,8 +351,8 @@ impl ActiveSnippet {
             .parent
             .and_then(|parent| indices[parent.0]);
         let nested = snippet.tabstops.into_iter().map(|mut tabstop| {
-            for owner in &mut tabstop.instances {
-                *owner = owners[*owner];
+            for entry in &mut tabstop.ranges {
+                entry.instance = owners[entry.instance];
             }
             tabstop.parent = tabstop
                 .parent

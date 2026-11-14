@@ -37,6 +37,7 @@ async fn document_observers_see_mapped_snippets_and_the_transaction_selection() 
                     .next()
                     .unwrap()
                     .ranges[0]
+                    .range
                     .start,
                 2
             );

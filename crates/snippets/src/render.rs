@@ -23,14 +23,21 @@ pub enum TabstopKind {
     Transform(Arc<Transform>),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+/// A document range and the rendered snippet instance that owns it.
+pub struct TabstopRange {
+    /// Document character indices for this occurrence.
+    pub range: Range,
+    /// Index of the owning rendered snippet instance.
+    pub instance: usize,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 /// All rendered document ranges belonging to one logical tabstop.
 pub struct Tabstop {
     /// Ranges are grouped by rendered snippet instance and stored in document
     /// character indices.
-    pub ranges: SmallVec<[Range; 1]>,
-    /// Original snippet instance owning each range, including conditional defaults.
-    pub instances: SmallVec<[usize; 1]>,
+    pub ranges: SmallVec<[TabstopRange; 1]>,
     /// Parent tabstop for a nested placeholder.
     pub parent: Option<TabstopIdx>,
     /// Editing behavior of the tabstop.
@@ -38,23 +45,6 @@ pub struct Tabstop {
 }
 
 impl Tabstop {
-    /// Retain ranges together with their owning snippet instances.
-    pub(super) fn retain_ranges(&mut self, mut keep: impl FnMut(&mut Range, usize) -> bool) {
-        let mut index = 0;
-        let mut instances = SmallVec::new();
-        self.ranges.retain_mut(|range| {
-            let instance = self.instances[index];
-            index += 1;
-            if keep(range, instance) {
-                instances.push(instance);
-                true
-            } else {
-                false
-            }
-        });
-        self.instances = instances;
-    }
-
     /// Returns whether entering the tabstop should initially select its text.
     pub fn has_placeholder(&self) -> bool {
         matches!(
@@ -71,17 +61,17 @@ impl Tabstop {
         Selection::new(
             self.ranges
                 .iter()
-                .map(|&range| {
-                    let mut range = selection::Range::new(range.start, range.end);
+                .map(|entry| {
+                    let mut range = selection::Range::new(entry.range.start, entry.range.end);
                     if direction == Direction::Backward {
                         range = range.flip()
                     }
                     range
                 })
                 .collect(),
-            self.instances
+            self.ranges
                 .iter()
-                .position(|&instance| instance >= primary_idx)
+                .position(|entry| entry.instance >= primary_idx)
                 .unwrap_or(self.ranges.len() - 1),
         )
     }
@@ -123,7 +113,6 @@ impl Snippet {
             self.tabstops()
                 .map(|tabstop| Tabstop {
                     ranges: SmallVec::new(),
-                    instances: SmallVec::new(),
                     parent: tabstop.parent,
                     kind: match &tabstop.kind {
                         elaborate::TabstopKind::Choice { choices } => TabstopKind::Choice {
@@ -256,7 +245,6 @@ fn merge_instances(instances: Vec<RenderedSnippet>) -> RenderedSnippet {
         }
         let mut tabstop = first.tabstops[index].clone();
         tabstop.ranges.clear();
-        tabstop.instances.clear();
         while let Some(parent) = tabstop.parent {
             if let Some(mapped) = indices[parent.0] {
                 tabstop.parent = Some(mapped);
@@ -269,15 +257,19 @@ fn merge_instances(instances: Vec<RenderedSnippet>) -> RenderedSnippet {
             if source.has_placeholder() {
                 tabstop.kind = source.kind.clone();
             }
-            tabstop.ranges.extend_from_slice(&source.ranges);
             tabstop
-                .instances
-                .extend(std::iter::repeat_n(instance_index, source.ranges.len()));
+                .ranges
+                .extend(source.ranges.iter().map(|entry| TabstopRange {
+                    range: entry.range,
+                    instance: instance_index,
+                }));
             // A final stop nested in a skipped variable default still ends the snippet.
             if index == first.tabstops.len() - 1 && source.ranges.is_empty() {
                 let end = instance.ranges[0].end;
-                tabstop.ranges.push(Range { start: end, end });
-                tabstop.instances.push(instance_index);
+                tabstop.ranges.push(TabstopRange {
+                    range: Range { start: end, end },
+                    instance: instance_index,
+                });
             }
         }
         tabstops.push(tabstop);
@@ -427,8 +419,10 @@ impl SnippetRender<'_> {
             }
             _ => start,
         };
-        self.dst[tabstop].ranges.push(Range { start, end });
-        self.dst[tabstop].instances.push(0);
+        self.dst[tabstop].ranges.push(TabstopRange {
+            range: Range { start, end },
+            instance: 0,
+        });
     }
 }
 
@@ -437,7 +431,7 @@ mod tests {
     use editor_core::{Rope, Selection};
     use stdx::Range;
 
-    use crate::render::Tabstop;
+    use crate::render::{Tabstop, TabstopRange};
     use crate::{Snippet, SnippetRenderCtx};
 
     use super::TabstopKind;
@@ -486,27 +480,39 @@ mod tests {
             "macro_rules! name {\n\t    () => {\n\t        \n\t    };\n\t}",
             &[
                 Tabstop {
-                    ranges: vec![Range { start: 13, end: 17 }].into(),
+                    ranges: vec![TabstopRange {
+                        range: Range { start: 13, end: 17 },
+                        instance: 0,
+                    }]
+                    .into(),
                     parent: None,
-                    instances: vec![0].into(),
                     kind: TabstopKind::Placeholder,
                 },
                 Tabstop {
-                    ranges: vec![Range { start: 42, end: 42 }].into(),
+                    ranges: vec![TabstopRange {
+                        range: Range { start: 42, end: 42 },
+                        instance: 0,
+                    }]
+                    .into(),
                     parent: None,
-                    instances: vec![0].into(),
                     kind: TabstopKind::Empty,
                 },
                 Tabstop {
-                    ranges: vec![Range { start: 26, end: 26 }].into(),
+                    ranges: vec![TabstopRange {
+                        range: Range { start: 26, end: 26 },
+                        instance: 0,
+                    }]
+                    .into(),
                     parent: None,
-                    instances: vec![0].into(),
                     kind: TabstopKind::Empty,
                 },
                 Tabstop {
-                    ranges: vec![Range { start: 53, end: 53 }].into(),
+                    ranges: vec![TabstopRange {
+                        range: Range { start: 53, end: 53 },
+                        instance: 0,
+                    }]
+                    .into(),
                     parent: None,
-                    instances: vec![0].into(),
                     kind: TabstopKind::Empty,
                 },
             ],
