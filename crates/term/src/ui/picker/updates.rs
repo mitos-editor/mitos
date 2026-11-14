@@ -82,11 +82,11 @@ impl<T: Send + Sync + 'static, D: Send + Sync + 'static> Picker<T, D> {
             .query_updates
             .as_mut()
             .is_some_and(|refresh| refresh(editor, &self.results.editor_data));
-        let resume = std::mem::take(&mut self.query_needs_refresh);
+        let resume = std::mem::take(&mut self.query_options.needs_refresh);
         if !(changed || resume) {
             return;
         }
-        if self.async_query_options.is_some() {
+        if self.query_options.asynchronous.is_some() {
             self.refresh_query_options(editor, true);
         } else {
             self.request_dynamic_refresh(false);
