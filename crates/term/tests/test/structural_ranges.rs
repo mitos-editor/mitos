@@ -157,11 +157,13 @@ async fn unavailable_server_ranges_fall_back_to_syntax() -> anyhow::Result<()> {
     for flag in ["--null-ranges", "--reject-ranges"] {
         let mut f = Fixture::new("fn main() {\n    work();\n}\nnext();\n", "rust", &[flag]).await?;
         let view = f.view();
-        f.app.editor.fold(view, FoldAction::CloseAll, 1);
+        f.app.editor.fold(view, FoldAction::ToggleAll, 1);
         f.response().await?(&mut f.app.editor);
         let doc = current_ref!(f.app.editor).1;
         assert_eq!(f.folds().len(), 1);
         assert_eq!(f.folds()[0].end, doc.text().line_to_char_idx(2));
+        f.app.editor.fold(view, FoldAction::ToggleAll, 1);
+        assert!(f.folds().is_empty());
         assert!(f.app.close().await.is_empty());
     }
     Ok(())
@@ -343,6 +345,32 @@ async fn repeated_expansions_wait_for_each_result_and_shrink_retraces_every_step
     assert_eq!(current_ref!(f.app.editor).1.selection(view), &original);
     assert_eq!(f.requests("textDocument/selectionRange")?, 2);
     assert!(f.app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn toggle_all_uses_server_ranges_and_preserves_queued_toggle_order() -> anyhow::Result<()> {
+    for repeats in [2, 3] {
+        let mut f = Fixture::new(
+            "outer\ninner\nend inner\nend outer\nnext\n",
+            "structure-test",
+            &["--nested-folds"],
+        )
+        .await?;
+        let view = f.view();
+        f.app.editor.fold(view, FoldAction::ToggleAll, 1);
+        let response = f.response().await?;
+        for _ in 1..repeats {
+            f.app.editor.fold(view, FoldAction::ToggleAll, 1);
+        }
+        response(&mut f.app.editor);
+        assert_eq!(f.folds().len(), repeats % 2);
+        f.app.editor.fold(view, FoldAction::ToggleAll, 1);
+        assert_eq!(f.folds().len(), (repeats + 1) % 2);
+        assert!(current_ref!(f.app.editor).1.syntax().is_none());
+        assert_eq!(f.requests("textDocument/foldingRange")?, 1);
+        assert!(f.app.close().await.is_empty());
+    }
     Ok(())
 }
 

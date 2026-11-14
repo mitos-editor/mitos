@@ -1,4 +1,4 @@
-//! Closed folds belong to a document/view pair, never to the buffer or syntax tree.
+//! Fold regions and their closed state belong to a document/view pair.
 
 use super::Document;
 use crate::ViewId;
@@ -8,6 +8,8 @@ use text_layout::text_annotations::Conceal;
 
 #[derive(Debug, Clone, Default)]
 pub(super) struct Folds {
+    /// Selection-defined regions remain available after opening them.
+    manual: Vec<Conceal>,
     /// Sorted outermost first. Closed descendants survive reopening a parent.
     closed: Vec<Conceal>,
     visible: Vec<Conceal>,
@@ -60,35 +62,37 @@ impl Folds {
     }
 
     pub(super) fn apply_changes(&mut self, changes: &ChangeSet) {
-        if self.closed.is_empty() || changes.is_empty() {
+        if (self.closed.is_empty() && self.manual.is_empty()) || changes.is_empty() {
             return;
         }
         // ChangeIterator owns each inserted string. Only the old coordinates
         // matter here; prepare them once without cloning a paste for every fold.
         let edited: Vec<_> = changes.changed_ranges(0).map(|(old, _)| old).collect();
-        self.closed.retain(|fold| {
-            // An edit touching concealed text opens it in every view. Changes
-            // elsewhere track the same text, including undo and external edits.
-            !edited
-                .iter()
-                .any(|range| range.start <= fold.range.end && range.end >= fold.range.start)
-        });
-        changes.update_positions(
-            self.closed
-                .iter_mut()
-                .map(|fold| (&mut fold.range.start, Assoc::After)),
-        );
-        changes.update_positions(
-            self.closed
-                .iter_mut()
-                .map(|fold| (&mut fold.range.end, Assoc::Before)),
-        );
-        self.closed.retain(|fold| fold.range.start < fold.range.end);
+        for folds in [&mut self.closed, &mut self.manual] {
+            folds.retain(|fold| {
+                // Touching a region opens it and invalidates saved manual boundaries.
+                // Other changes track the same text, including undo and external edits.
+                !edited
+                    .iter()
+                    .any(|range| range.start <= fold.range.end && range.end >= fold.range.start)
+            });
+            changes.update_positions(
+                folds
+                    .iter_mut()
+                    .map(|fold| (&mut fold.range.start, Assoc::After)),
+            );
+            changes.update_positions(
+                folds
+                    .iter_mut()
+                    .map(|fold| (&mut fold.range.end, Assoc::Before)),
+            );
+            folds.retain(|fold| fold.range.start < fold.range.end);
+        }
         self.rebuild();
     }
 }
 
-/// A folding operation applied to each cursor in the current view.
+/// A folding operation applied to the current view.
 #[derive(Debug, Clone, Copy)]
 pub enum FoldAction {
     /// Close the innermost open region containing each cursor.
@@ -101,6 +105,8 @@ pub enum FoldAction {
     /// Close all regions, retaining nested closed state.
     CloseAll,
     OpenAll,
+    /// Open all folds if any are closed; otherwise close all regions.
+    ToggleAll,
 }
 
 /// Convert a syntax or selection range to a whole-line conceal. The final line
@@ -114,6 +120,14 @@ fn conceal(text: RopeSlice, start_line: usize, end_line: usize) -> Option<Concea
 }
 
 impl Document {
+    pub(crate) fn resolve_fold_action(&self, view: ViewId, action: FoldAction) -> FoldAction {
+        match action {
+            FoldAction::ToggleAll if self.folded_ranges(view).is_empty() => FoldAction::CloseAll,
+            FoldAction::ToggleAll => FoldAction::OpenAll,
+            _ => action,
+        }
+    }
+
     pub fn folded_ranges(&self, view: ViewId) -> &[Conceal] {
         self.view_states
             .get(&view)
@@ -131,6 +145,7 @@ impl Document {
         action: FoldAction,
         ranges: Option<&[(usize, usize)]>,
     ) {
+        let action = self.resolve_fold_action(view, action);
         if ranges.is_none()
             && matches!(
                 action,
@@ -141,7 +156,7 @@ impl Document {
         }
         let text = self.buffer.text().slice(..);
         let selection = self.selection(view).clone();
-        let candidates: Vec<_> = if matches!(
+        let mut candidates: Vec<_> = if matches!(
             action,
             FoldAction::Close | FoldAction::Toggle | FoldAction::CloseAll
         ) {
@@ -199,8 +214,17 @@ impl Document {
             .view_states
             .get_mut(&view)
             .expect("attached document view");
+        if matches!(
+            action,
+            FoldAction::Close | FoldAction::Toggle | FoldAction::CloseAll
+        ) {
+            candidates.extend(state.folds.manual.iter().cloned());
+        }
         match action {
-            FoldAction::OpenAll => state.folds = Folds::default(),
+            FoldAction::OpenAll => {
+                state.folds.closed.clear();
+                state.folds.visible.clear();
+            }
             FoldAction::CloseAll => {
                 state.folds.closed.extend(candidates);
                 state.folds.rebuild();
@@ -261,8 +285,16 @@ impl Document {
                     }
                 }
                 state.folds.closed.retain(|fold| !open.contains(fold));
-                state.folds.closed.extend(close);
+                state.folds.closed.extend(close.iter().cloned());
                 state.folds.rebuild();
+                if matches!(action, FoldAction::Selection) {
+                    for fold in close {
+                        if state.folds.closed.contains(&fold) && !state.folds.manual.contains(&fold)
+                        {
+                            state.folds.manual.push(fold);
+                        }
+                    }
+                }
             }
         }
         // Closing a region moves any hidden cursors to its visible header.
@@ -326,6 +358,7 @@ mod tests {
                 .map(|range| Conceal { range })
                 .to_vec(),
             visible: Vec::new(),
+            manual: Vec::new(),
         };
         for start in 0..=text.len_chars() {
             for end in start..=text.len_chars() {
@@ -374,6 +407,7 @@ mod tests {
                             })
                             .collect(),
                         visible: vec![],
+                        manual: vec![],
                     };
                     let mut expected = original.clone();
                     apply_changes_reference(&mut expected, &changes);
@@ -519,6 +553,82 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn opening_manual_folds_preserves_regions_for_closing_all() {
+        let (mut doc, view, other) = fixture("header\nhidden\nlast\nnext", None);
+        doc.set_selection(
+            view.id,
+            Selection::single(0, doc.text().line_to_char_idx(3)),
+        );
+        doc.fold(view.id, FoldAction::Selection);
+        let before = doc.folded_ranges(view.id).to_vec();
+        doc.fold(view.id, FoldAction::OpenAll);
+        assert!(doc.folded_ranges(view.id).is_empty());
+        doc.fold(view.id, FoldAction::CloseAll);
+        assert_eq!(doc.folded_ranges(view.id), before);
+        doc.fold(view.id, FoldAction::Open);
+        assert!(doc.folded_ranges(view.id).is_empty());
+        doc.fold(view.id, FoldAction::Close);
+        assert_eq!(doc.folded_ranges(view.id), before);
+        assert!(doc.folded_ranges(other.id).is_empty());
+        assert!(!doc.is_modified());
+    }
+
+    #[tokio::test]
+    async fn toggle_all_opens_mixed_folds_and_closes_all_regions_in_only_one_view() {
+        let (mut doc, view, other) = fixture(
+            "fn main() {\n    if true {\n        work();\n    }\n}\nfn other() {\n    work();\n}\n",
+            Some("rust"),
+        );
+        let original = doc.text().clone();
+        doc.set_selection(view.id, Selection::point(doc.text().line_to_char_idx(1)));
+        doc.fold(view.id, FoldAction::Close);
+        assert_eq!(doc.folded_ranges(view.id).len(), 1);
+        doc.fold(other.id, FoldAction::CloseAll);
+        let all = doc.folded_ranges(other.id).to_vec();
+        assert_eq!(all.len(), 2);
+        doc.fold(view.id, FoldAction::ToggleAll);
+        assert!(doc.folded_ranges(view.id).is_empty());
+        doc.fold(view.id, FoldAction::ToggleAll);
+        assert_eq!(doc.folded_ranges(view.id), all);
+        doc.fold(view.id, FoldAction::Open);
+        assert_eq!(doc.folded_ranges(view.id).len(), 2);
+        assert_ne!(doc.folded_ranges(view.id), all);
+        assert_eq!(doc.folded_ranges(other.id), all);
+        assert_eq!(doc.text(), &original);
+        assert!(!doc.is_modified());
+    }
+
+    #[tokio::test]
+    async fn open_manual_regions_follow_edits_and_are_invalidated_when_touched() {
+        let (mut doc, view, _) = fixture("before\nheader\nhidden\nlast\nafter", None);
+        doc.set_selection(
+            view.id,
+            Selection::single(
+                doc.text().line_to_char_idx(1),
+                doc.text().line_to_char_idx(4),
+            ),
+        );
+        doc.fold(view.id, FoldAction::Selection);
+        doc.fold(view.id, FoldAction::OpenAll);
+        let insert = Transaction::change(doc.text(), [(0, 0, Some("extra\n".into()))].into_iter());
+        doc.apply(insert.changes()).unwrap();
+        doc.fold(view.id, FoldAction::ToggleAll);
+        assert_eq!(
+            doc.folded_ranges(view.id),
+            &[conceal(doc.text().slice(..), 2, 4).unwrap()]
+        );
+        doc.fold(view.id, FoldAction::ToggleAll);
+        let hidden = doc.text().line_to_char_idx(3);
+        let edit = Transaction::change(
+            doc.text(),
+            [(hidden, hidden + 1, Some("X".into()))].into_iter(),
+        );
+        doc.apply(edit.changes()).unwrap();
+        doc.fold(view.id, FoldAction::ToggleAll);
+        assert!(doc.folded_ranges(view.id).is_empty());
+    }
+
+    #[tokio::test]
     async fn presentation_preserves_folds_without_changing_the_document() {
         let (mut doc, view, _) = fixture("header\nhidden\nlast\nnext", None);
         doc.set_selection(
@@ -614,6 +724,8 @@ mod tests {
         assert_eq!(doc.folded_ranges(view.id), before);
         doc.set_language(None, &loader);
         assert!(doc.folded_ranges(view.id).is_empty());
+        doc.fold(view.id, FoldAction::CloseAll);
+        assert!(doc.folded_ranges(view.id).is_empty());
     }
 
     #[tokio::test]
@@ -658,6 +770,7 @@ mod tests {
                 .map(|range| Conceal { range })
                 .to_vec(),
             visible: Vec::new(),
+            manual: Vec::new(),
         };
         folds.rebuild();
         assert_eq!(

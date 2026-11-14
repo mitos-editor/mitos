@@ -21,8 +21,8 @@
 | `` ~ `` | Switch (toggle) case | `` switch_case `` |
 | `` ` `` | Switch to lowercase | `` switch_to_lowercase `` |
 | `` <A-`> `` | Switch to uppercase | `` switch_to_uppercase `` |
-| `` <home> `` | Goto line start | `` goto_line_start `` |
-| `` <end> `` | Goto line end | `` goto_line_end `` |
+| `` <home> `` | Go to line start | `` goto_line_start `` |
+| `` <end> `` | Go to line end | `` goto_line_end `` |
 | `` w `` | Move to start of next word | `` move_next_word_start `` |
 | `` b `` | Move to start of previous word | `` move_previous_word_start `` |
 | `` e `` | Move to end of next word | `` move_next_word_end `` |
@@ -30,7 +30,7 @@
 | `` B `` | Move to start of previous long word | `` move_previous_long_word_start `` |
 | `` E `` | Move to end of next long word | `` move_next_long_word_end `` |
 | `` v `` | Enter selection extend mode | `` select_mode `` |
-| `` G `` | Goto line | `` goto_line `` |
+| `` G `` | Go to line | `` goto_line `` |
 | `` g `` | Goto | Prefix |
 | `` : `` | Enter command mode | `` command_mode `` |
 | `` <A-q> `` | Add current location to quicklist | `` add_to_quicklist `` |
@@ -60,8 +60,8 @@
 | `` <A-down> `` | Shrink selection to previously expanded structure | `` shrink_selection `` |
 | `` <A-I> `` | Select all children of the current node | `` select_all_children `` |
 | `` <S-A-down> `` | Select all children of the current node | `` select_all_children `` |
-| `` <A-p> `` | Select previous sibling the in syntax tree | `` select_previous_sibling `` |
-| `` <A-left> `` | Select previous sibling the in syntax tree | `` select_previous_sibling `` |
+| `` <A-p> `` | Select previous sibling in the syntax tree | `` select_previous_sibling `` |
+| `` <A-left> `` | Select previous sibling in the syntax tree | `` select_previous_sibling `` |
 | `` <A-n> `` | Select next sibling in the syntax tree | `` select_next_sibling `` |
 | `` <A-right> `` | Select next sibling in the syntax tree | `` select_next_sibling `` |
 | `` <A-e> `` | Move to end of the parent node | `` move_parent_node_end `` |
@@ -120,7 +120,7 @@
 | `` <C-i> `` | Jump forward on jumplist | `` jump_forward `` |
 | `` <tab> `` | Jump forward on jumplist | `` jump_forward `` |
 | `` <C-o> `` | Jump backward on jumplist | `` jump_backward `` |
-| `` <C-s> `` | Save current selection to jumplist | `` save_selection `` |
+| `` <C-s> `` | Record current selections in the jumplist | `` save_selection `` |
 | `` <space> `` | Space | Prefix |
 | `` z `` | View | Prefix |
 | `` Z `` | View (sticky; Escape to exit) | Prefix |
@@ -138,28 +138,28 @@
 
 | Key | Description | Command |
 | --- | --- | --- |
-| `` gg `` | Goto line number `<n>` else file start | `` goto_file_start `` |
-| `` g\| `` | Goto column | `` goto_column `` |
-| `` ge `` | Goto last line | `` goto_last_line `` |
-| `` gf `` | Goto files/URLs in selections | `` goto_file `` |
-| `` gh `` | Goto line start | `` goto_line_start `` |
-| `` gl `` | Goto line end | `` goto_line_end `` |
-| `` gs `` | Goto first non-blank in line | `` goto_first_nonwhitespace `` |
-| `` gd `` | Goto definition | `` goto_definition `` |
-| `` gD `` | Goto declaration | `` goto_declaration `` |
-| `` gy `` | Goto type definition | `` goto_type_definition `` |
-| `` gr `` | Goto references | `` goto_reference `` |
-| `` gi `` | Goto implementation | `` goto_implementation `` |
-| `` gt `` | Goto window top | `` goto_window_top `` |
-| `` gc `` | Goto window center | `` goto_window_center `` |
-| `` gb `` | Goto window bottom | `` goto_window_bottom `` |
-| `` ga `` | Goto last accessed file | `` goto_last_accessed_file `` |
-| `` gm `` | Goto last modified file | `` goto_last_modified_file `` |
-| `` gn `` | Goto next buffer | `` goto_next_buffer `` |
-| `` gp `` | Goto previous buffer | `` goto_previous_buffer `` |
+| `` gg `` | Go to line number `<n>` else file start | `` goto_file_start `` |
+| `` g\| `` | Go to column | `` goto_column `` |
+| `` ge `` | Go to last line | `` goto_last_line `` |
+| `` gf `` | Go to files/URLs in selections | `` goto_file `` |
+| `` gh `` | Go to line start | `` goto_line_start `` |
+| `` gl `` | Go to line end | `` goto_line_end `` |
+| `` gs `` | Go to first non-blank in line | `` goto_first_nonwhitespace `` |
+| `` gd `` | Go to definition | `` goto_definition `` |
+| `` gD `` | Go to declaration | `` goto_declaration `` |
+| `` gy `` | Go to type definition | `` goto_type_definition `` |
+| `` gr `` | Go to references | `` goto_reference `` |
+| `` gi `` | Go to implementation | `` goto_implementation `` |
+| `` gt `` | Go to window top | `` goto_window_top `` |
+| `` gc `` | Go to window center | `` goto_window_center `` |
+| `` gb `` | Go to window bottom | `` goto_window_bottom `` |
+| `` ga `` | Go to last accessed file | `` goto_last_accessed_file `` |
+| `` gm `` | Go to last modified file | `` goto_last_modified_file `` |
+| `` gn `` | Go to next buffer | `` goto_next_buffer `` |
+| `` gp `` | Go to previous buffer | `` goto_previous_buffer `` |
 | `` gk `` | Move up | `` move_line_up `` |
 | `` gj `` | Move down | `` move_line_down `` |
-| `` g. `` | Goto last modification | `` goto_last_modification `` |
+| `` g. `` | Go to last modification | `` goto_last_modification `` |
 | `` g<minus> `` | Move backward in history | `` earlier `` |
 | `` g+ `` | Move forward in history | `` later `` |
 | `` gw `` | Jump to a two-character label | `` goto_word `` |
@@ -168,7 +168,7 @@
 
 | Key | Description | Command |
 | --- | --- | --- |
-| `` mm `` | Goto matching bracket | `` match_brackets `` |
+| `` mm `` | Go to matching bracket | `` match_brackets `` |
 | `` ms `` | Surround add | `` surround_add `` |
 | `` mr `` | Surround replace | `` surround_replace `` |
 | `` md `` | Surround delete | `` surround_delete `` |
@@ -181,44 +181,44 @@
 
 | Key | Description | Command |
 | --- | --- | --- |
-| `` [d `` | Goto previous diagnostic | `` goto_previous_diagnostic `` |
-| `` [s `` | Goto previous spelling finding | `` goto_previous_spelling `` |
-| `` [q `` | Goto previous quicklist entry | `` goto_previous_quicklist `` |
-| `` [D `` | Goto first diagnostic | `` goto_first_diagnostic `` |
-| `` [g `` | Goto previous change | `` vcs_goto_previous_change `` |
+| `` [d `` | Go to previous diagnostic | `` goto_previous_diagnostic `` |
+| `` [s `` | Go to previous spelling finding | `` goto_previous_spelling `` |
+| `` [q `` | Go to previous quicklist entry | `` goto_previous_quicklist `` |
+| `` [D `` | Go to first diagnostic | `` goto_first_diagnostic `` |
+| `` [g `` | Go to previous change | `` vcs_goto_previous_change `` |
 | `` [m `` | Go to the previous unresolved conflict | `` vcs_goto_previous_conflict `` |
-| `` [G `` | Goto first change | `` vcs_goto_first_change `` |
-| `` [l `` | Goto previous quicklist entry in current file | `` goto_previous_file_quicklist `` |
-| `` [f `` | Goto previous function | `` goto_previous_function `` |
-| `` [t `` | Goto previous type definition | `` goto_previous_class `` |
-| `` [a `` | Goto previous parameter | `` goto_previous_parameter `` |
-| `` [c `` | Goto previous comment | `` goto_previous_comment `` |
-| `` [e `` | Goto previous pairing | `` goto_previous_entry `` |
-| `` [T `` | Goto previous test | `` goto_previous_test `` |
-| `` [p `` | Goto previous paragraph | `` goto_previous_paragraph `` |
-| `` [x `` | Goto previous (X)HTML element | `` goto_previous_xml_element `` |
+| `` [G `` | Go to first change | `` vcs_goto_first_change `` |
+| `` [l `` | Go to previous quicklist entry in current file | `` goto_previous_file_quicklist `` |
+| `` [f `` | Go to previous function | `` goto_previous_function `` |
+| `` [t `` | Go to previous type definition | `` goto_previous_class `` |
+| `` [a `` | Go to previous parameter | `` goto_previous_parameter `` |
+| `` [c `` | Go to previous comment | `` goto_previous_comment `` |
+| `` [e `` | Go to previous pairing | `` goto_previous_entry `` |
+| `` [T `` | Go to previous test | `` goto_previous_test `` |
+| `` [p `` | Go to previous paragraph | `` goto_previous_paragraph `` |
+| `` [x `` | Go to previous (X)HTML element | `` goto_previous_xml_element `` |
 | `` [<space> `` | Add newline above | `` add_newline_above `` |
 
 ### `` ] `` — Right bracket
 
 | Key | Description | Command |
 | --- | --- | --- |
-| `` ]d `` | Goto next diagnostic | `` goto_next_diagnostic `` |
-| `` ]s `` | Goto next spelling finding | `` goto_next_spelling `` |
-| `` ]q `` | Goto next quicklist entry | `` goto_next_quicklist `` |
-| `` ]D `` | Goto last diagnostic | `` goto_last_diagnostic `` |
-| `` ]g `` | Goto next change | `` vcs_goto_next_change `` |
+| `` ]d `` | Go to next diagnostic | `` goto_next_diagnostic `` |
+| `` ]s `` | Go to next spelling finding | `` goto_next_spelling `` |
+| `` ]q `` | Go to next quicklist entry | `` goto_next_quicklist `` |
+| `` ]D `` | Go to last diagnostic | `` goto_last_diagnostic `` |
+| `` ]g `` | Go to next change | `` vcs_goto_next_change `` |
 | `` ]m `` | Go to the next unresolved conflict | `` vcs_goto_next_conflict `` |
-| `` ]G `` | Goto last change | `` vcs_goto_last_change `` |
-| `` ]l `` | Goto next quicklist entry in current file | `` goto_next_file_quicklist `` |
-| `` ]f `` | Goto next function | `` goto_next_function `` |
-| `` ]t `` | Goto next type definition | `` goto_next_class `` |
-| `` ]a `` | Goto next parameter | `` goto_next_parameter `` |
-| `` ]c `` | Goto next comment | `` goto_next_comment `` |
-| `` ]e `` | Goto next pairing | `` goto_next_entry `` |
-| `` ]T `` | Goto next test | `` goto_next_test `` |
-| `` ]p `` | Goto next paragraph | `` goto_next_paragraph `` |
-| `` ]x `` | Goto next (X)HTML element | `` goto_next_xml_element `` |
+| `` ]G `` | Go to last change | `` vcs_goto_last_change `` |
+| `` ]l `` | Go to next quicklist entry in current file | `` goto_next_file_quicklist `` |
+| `` ]f `` | Go to next function | `` goto_next_function `` |
+| `` ]t `` | Go to next type definition | `` goto_next_class `` |
+| `` ]a `` | Go to next parameter | `` goto_next_parameter `` |
+| `` ]c `` | Go to next comment | `` goto_next_comment `` |
+| `` ]e `` | Go to next pairing | `` goto_next_entry `` |
+| `` ]T `` | Go to next test | `` goto_next_test `` |
+| `` ]p `` | Go to next paragraph | `` goto_next_paragraph `` |
+| `` ]x `` | Go to next (X)HTML element | `` goto_next_xml_element `` |
 | `` ]<space> `` | Add newline below | `` add_newline_below `` |
 
 ### `` <C-w> `` — Window
@@ -227,9 +227,9 @@
 | --- | --- | --- |
 | `` <C-w>b `` | Toggle file explorer sidebar | `` toggle_sidebar `` |
 | `` <C-w>e `` | Open and focus file explorer sidebar | `` focus_sidebar `` |
-| `` <C-w><C-w> `` | Goto next window | `` rotate_view `` |
-| `` <C-w>w `` | Goto next window | `` rotate_view `` |
-| `` <C-w>W `` | Goto previous window | `` rotate_view_reverse `` |
+| `` <C-w><C-w> `` | Go to next window | `` rotate_view `` |
+| `` <C-w>w `` | Go to next window | `` rotate_view `` |
+| `` <C-w>W `` | Go to previous window | `` rotate_view_reverse `` |
 | `` <C-w><C-s> `` | Horizontal bottom split | `` split_horizontal `` |
 | `` <C-w>s `` | Horizontal bottom split | `` split_horizontal `` |
 | `` <C-w><C-v> `` | Vertical right split | `` split_vertical `` |
@@ -302,7 +302,7 @@
 | `` <space>p `` | Paste clipboard after selections | `` paste_clipboard_after `` |
 | `` <space>P `` | Paste clipboard before selections | `` paste_clipboard_before `` |
 | `` <space>R `` | Replace selections by clipboard content | `` replace_selections_with_clipboard `` |
-| `` <space>/ `` | Open search picker rooted at the current working directory | `` search_picker_in_current_working_directory `` |
+| `` <space>/ `` | Search text in the current working directory | `` search_picker_in_current_working_directory `` |
 | `` <space>k `` | Show docs for item under cursor | `` hover `` |
 | `` <space>K `` | Show docs for item under cursor in a new buffer | `` goto_hover `` |
 | `` <space>r `` | Rename symbol | `` rename_symbol `` |
@@ -401,9 +401,9 @@
 | --- | --- | --- |
 | `` <space>wb `` | Toggle file explorer sidebar | `` toggle_sidebar `` |
 | `` <space>we `` | Open and focus file explorer sidebar | `` focus_sidebar `` |
-| `` <space>w<C-w> `` | Goto next window | `` rotate_view `` |
-| `` <space>ww `` | Goto next window | `` rotate_view `` |
-| `` <space>wW `` | Goto previous window | `` rotate_view_reverse `` |
+| `` <space>w<C-w> `` | Go to next window | `` rotate_view `` |
+| `` <space>ww `` | Go to next window | `` rotate_view `` |
+| `` <space>wW `` | Go to previous window | `` rotate_view_reverse `` |
 | `` <space>w<C-s> `` | Horizontal bottom split | `` split_horizontal `` |
 | `` <space>ws `` | Horizontal bottom split | `` split_horizontal `` |
 | `` <space>w<C-v> `` | Vertical right split | `` split_vertical `` |
@@ -453,9 +453,14 @@
 
 | Key | Description | Command |
 | --- | --- | --- |
-| `` zf `` | Folding | Prefix |
+| `` zc `` | Close the innermost fold | `` fold_close `` |
+| `` zo `` | Open the fold at each cursor | `` fold_open `` |
+| `` za `` | Toggle the fold at each cursor | `` fold_toggle `` |
+| `` zf `` | Fold selected lines | `` fold_selection `` |
+| `` zC `` | Close all folds | `` fold_all `` |
+| `` zO `` | Open all folds | `` unfold_all `` |
+| `` zA `` | Open all folds if any are closed, otherwise close all folds | `` fold_toggle_all `` |
 | `` zz `` | Scroll vertically to center the primary cursor | `` center_view_vertically `` |
-| `` zc `` | Scroll vertically to center the primary cursor | `` center_view_vertically `` |
 | `` zt `` | Align view top | `` align_view_top `` |
 | `` zb `` | Align view bottom | `` align_view_bottom `` |
 | `` zm `` | Scroll horizontally to center the primary cursor | `` center_view_horizontally `` |
@@ -476,24 +481,18 @@
 | `` zn `` | Select next search match | `` search_next `` |
 | `` zN `` | Select previous search match | `` search_previous `` |
 
-#### `` zf `` — Folding
-
-| Key | Description | Command |
-| --- | --- | --- |
-| `` zfc `` | Close the innermost fold | `` fold_close `` |
-| `` zfo `` | Open the fold at each cursor | `` fold_open `` |
-| `` zfa `` | Toggle the fold at each cursor | `` fold_toggle `` |
-| `` zfs `` | Fold selected lines | `` fold_selection `` |
-| `` zfm `` | Close all folds | `` fold_all `` |
-| `` zfr `` | Open all folds | `` unfold_all `` |
-
 ### `` Z `` — View
 
 | Key | Description | Command |
 | --- | --- | --- |
-| `` Zf `` | Folding | Prefix |
+| `` Zc `` | Close the innermost fold | `` fold_close `` |
+| `` Zo `` | Open the fold at each cursor | `` fold_open `` |
+| `` Za `` | Toggle the fold at each cursor | `` fold_toggle `` |
+| `` Zf `` | Fold selected lines | `` fold_selection `` |
+| `` ZC `` | Close all folds | `` fold_all `` |
+| `` ZO `` | Open all folds | `` unfold_all `` |
+| `` ZA `` | Open all folds if any are closed, otherwise close all folds | `` fold_toggle_all `` |
 | `` Zz `` | Scroll vertically to center the primary cursor | `` center_view_vertically `` |
-| `` Zc `` | Scroll vertically to center the primary cursor | `` center_view_vertically `` |
 | `` Zt `` | Align view top | `` align_view_top `` |
 | `` Zb `` | Align view bottom | `` align_view_bottom `` |
 | `` Zm `` | Scroll horizontally to center the primary cursor | `` center_view_horizontally `` |
@@ -513,14 +512,3 @@
 | `` Z? `` | Search backward for regex pattern | `` search_backward `` |
 | `` Zn `` | Select next search match | `` search_next `` |
 | `` ZN `` | Select previous search match | `` search_previous `` |
-
-#### `` Zf `` — Folding
-
-| Key | Description | Command |
-| --- | --- | --- |
-| `` Zfc `` | Close the innermost fold | `` fold_close `` |
-| `` Zfo `` | Open the fold at each cursor | `` fold_open `` |
-| `` Zfa `` | Toggle the fold at each cursor | `` fold_toggle `` |
-| `` Zfs `` | Fold selected lines | `` fold_selection `` |
-| `` Zfm `` | Close all folds | `` fold_all `` |
-| `` Zfr `` | Open all folds | `` unfold_all `` |

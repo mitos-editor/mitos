@@ -30,3 +30,7 @@ pub(super) fn fold_all(cx: &mut Context) {
 pub(super) fn unfold_all(cx: &mut Context) {
     fold(cx, FoldAction::OpenAll);
 }
+
+pub(super) fn fold_toggle_all(cx: &mut Context) {
+    fold(cx, FoldAction::ToggleAll);
+}

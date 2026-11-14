@@ -4,6 +4,7 @@
 
 ## [Unreleased]
 
+- Folding shortcuts now sit directly under `z` and sticky `Z`: `zc` closes, `zo` opens, `za` toggles, `zf` folds selections, `zC` closes all, `zO` opens all, and `zA` toggles all. Opening selection folds preserves their boundaries so they can be closed again. Vertical centering remains on `zz`; `zc` now closes a fold.
 - Debugging commands move from `Space G` to `Space x` for one command or `Space X` for a sticky menu. Breakpoint conditions and log messages move to `B c` and `B l` within the debug menu.
 
 ## [0.2.1](https://github.com/mitos-editor/mitos/compare/v0.2.0...v0.2.1) - 2026-11-09

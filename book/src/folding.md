@@ -10,27 +10,31 @@ Selection folds and syntax regions without paired closing tokens fold whole
 lines. Folding changes the view, leaving the document text and undo history
 intact. Each split has its own folds.
 
-Press `z f` to open the folding menu:
+Use these view commands to fold code:
 
 | Key | Command | Action |
 | --- | --- | --- |
-| `z f c` | `fold_close` | Close the innermost open fold at each cursor |
-| `z f o` | `fold_open` | Open the outermost closed fold at each cursor |
-| `z f a` | `fold_toggle` | Toggle the fold at each cursor |
-| `z f s` | `fold_selection` | Fold the lines covered by each selection |
-| `z f m` | `fold_all` | Close all folds |
-| `z f r` | `unfold_all` | Open all folds, including nested folds |
+| `z c` | `fold_close` | Close the innermost open fold at each cursor |
+| `z o` | `fold_open` | Open the outermost closed fold at each cursor |
+| `z a` | `fold_toggle` | Toggle the fold at each cursor |
+| `z f` | `fold_selection` | Fold the lines covered by each selection |
+| `z C` | `fold_all` | Close all folds |
+| `z O` | `unfold_all` | Open all folds, including nested folds |
+| `z A` | `fold_toggle_all` | Open all folds if any are closed; otherwise close all folds |
 
-Use a count to close or open several nested folds, for example `2zfc`. Opening
-an outer fold keeps any folds inside it closed. `Z f` provides the same commands
-from the sticky view menu.
+Use a count to close or open several nested folds, for example `2zc`. Opening
+an outer fold keeps any folds inside it closed. `Z` provides the same commands
+from the sticky view menu. Use `z z` to center the view vertically.
 
 Folding uses the first configured language server that provides folding ranges.
 Server ranges fold whole lines. When no server provides ranges, or its request
 fails, Mitos uses Tree-sitter. Check the folding column in
 [Language support](./lang-support.md) for syntax-based support.
-To fold text in any document, select at least two lines and press `z f s`.
-Folds can contain other folds, but cannot partly overlap.
+To fold text in any document, select at least two lines and press `z f`.
+Folds can contain other folds, but cannot partly overlap. Opening a selection
+fold keeps its boundaries available for `z c`, `z C`, `z a`, and `z A`.
+Editing inside that region or changing the document's language clears its saved
+boundaries.
 
 `j` and `k` count visible document lines; wrapped-line motions count visual rows.
 Relative line numbers count visible lines too. Scrolling and mouse clicks follow

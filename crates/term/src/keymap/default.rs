@@ -62,15 +62,14 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
         node.is_sticky = true;
     }
     let view = keymap!({ "View"
-        "f" => { "Folding"
-            "c" => fold_close,
-            "o" => fold_open,
-            "a" => fold_toggle,
-            "s" => fold_selection,
-            "m" => fold_all,
-            "r" => unfold_all,
-        },
-        "z" | "c" => center_view_vertically,
+        "c" => fold_close,
+        "o" => fold_open,
+        "a" => fold_toggle,
+        "f" => fold_selection,
+        "C" => fold_all,
+        "O" => unfold_all,
+        "A" => fold_toggle_all,
+        "z" => center_view_vertically,
         "t" => align_view_top,
         "b" => align_view_bottom,
         "m" => center_view_horizontally,

@@ -555,6 +555,32 @@ mod tests {
     }
 
     #[test]
+    fn folding_commands_are_directly_under_view_prefixes() {
+        let keymaps = default();
+        for mode in [Mode::Normal, Mode::Select] {
+            let root = &keymaps[&mode];
+            for prefix in [key!('z'), key!('Z')] {
+                for (key, command) in [
+                    (key!('c'), MappableCommand::fold_close),
+                    (key!('o'), MappableCommand::fold_open),
+                    (key!('a'), MappableCommand::fold_toggle),
+                    (key!('f'), MappableCommand::fold_selection),
+                    (key!('C'), MappableCommand::fold_all),
+                    (key!('O'), MappableCommand::unfold_all),
+                    (key!('A'), MappableCommand::fold_toggle_all),
+                    (key!('z'), MappableCommand::center_view_vertically),
+                ] {
+                    assert_eq!(
+                        root.search(&[prefix, key]),
+                        Some(&KeyTrie::Action(command)),
+                        "Unexpected binding for {mode:?}: {prefix} {key}",
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
     fn reverse_map() {
         let normal_mode = keymap!({ "Normal mode"
             "i" => insert_mode,
