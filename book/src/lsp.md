@@ -87,6 +87,13 @@ A configured external formatter takes precedence for whole-file
 formatting. Formatting on save requires both `editor.format.on-save` and the
 language's `auto-format` setting to be enabled.
 
+Set `editor.format.on-type = true` to format while typing characters requested
+by the language server, such as a newline or closing brace. This uses one cursor
+and is disabled by default.
+
+Servers can also provide edits immediately before a manual or automatic save.
+Slow or failed save hooks do not prevent saving.
+
 See [Languages](./languages.md#configuring-the-formatter-command) for external
 formatters and [code actions on save](./languages.md#configuring-code-actions-on-save).
 For suggestions while typing, see [Completion and snippets](./completion.md).

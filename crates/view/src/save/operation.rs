@@ -1,4 +1,4 @@
-//! The fixed code-actions, formatting, and write pipeline for one accepted save.
+//! The code-actions, formatting, pre-save hooks, and write pipeline for one accepted save.
 
 use std::collections::VecDeque;
 
@@ -9,7 +9,7 @@ use lsp_client::{
     LanguageServerId, OffsetEncoding,
 };
 
-use super::PreparedSave;
+use super::{pre_save, PreparedSave};
 use crate::{
     action::{code_actions_for_range, LspActionContext},
     document::FormatterError,
@@ -63,6 +63,7 @@ pub struct SaveUpdate {
 struct SaveOperation {
     request: PreparedSave,
     kinds: VecDeque<CodeActionKind>,
+    pre_save: Option<Box<pre_save::PreSave>>,
 }
 
 enum CompletedStage {
@@ -83,15 +84,17 @@ enum CompletedStage {
         snapshot: Box<FormatSnapshot>,
         result: Result<Transaction, FormatterError>,
     },
+    WillSave(Box<pre_save::Update>),
 }
 
-/// Submit a prepared document save. Plain writes are queued immediately; saves
-/// with pre-save work return tasks for the frontend to drive without owning policy.
+/// Submit a prepared document save. Writes without pre-save work queue immediately;
+/// asynchronous stages are returned for the frontend to drive without owning policy.
 pub fn submit(editor: &mut Editor, request: PreparedSave) -> Result<SaveProgress, SaveError> {
     if !request.auto_format && !request.code_actions {
         return SaveOperation {
             request,
             kinds: VecDeque::new(),
+            pre_save: None,
         }
         .write(editor);
     }
@@ -109,7 +112,12 @@ pub fn submit(editor: &mut Editor, request: PreparedSave) -> Result<SaveProgress
         .into_iter()
         .map(CodeActionKind::from)
         .collect();
-    SaveOperation { request, kinds }.advance(editor)
+    SaveOperation {
+        request,
+        kinds,
+        pre_save: None,
+    }
+    .advance(editor)
 }
 
 impl SaveOperation {
@@ -176,9 +184,24 @@ impl SaveOperation {
         )))
     }
 
-    fn write(self, editor: &mut Editor) -> Result<SaveProgress, SaveError> {
-        if editor.document(self.request.doc_id).is_none() {
+    fn write(mut self, editor: &mut Editor) -> Result<SaveProgress, SaveError> {
+        let Some(doc) = editor.document(self.request.doc_id) else {
             return Ok(SaveProgress::DocumentClosed);
+        };
+        let pre_save = self.pre_save.get_or_insert_with(|| {
+            Box::new(pre_save::PreSave::new(editor, doc, self.request.reason))
+        });
+        if let Some(request) = pre_save.next(editor, doc, self.request.reason) {
+            return Ok(SaveProgress::Pending(SaveTask(
+                async move {
+                    let update = request.await;
+                    Ok(SaveUpdate {
+                        operation: self,
+                        stage: CompletedStage::WillSave(Box::new(update)),
+                    })
+                }
+                .boxed(),
+            )));
         }
         editor
             .save(self.request.doc_id, self.request.path, self.request.force)
@@ -191,6 +214,10 @@ impl SaveUpdate {
     pub fn apply(self, editor: &mut Editor) -> Result<SaveProgress, SaveError> {
         let Self { operation, stage } = self;
         match stage {
+            CompletedStage::WillSave(update) => {
+                update.apply(editor, operation.request.doc_id);
+                operation.write(editor)
+            }
             CompletedStage::Write => operation.write(editor),
             CompletedStage::Actions {
                 context,

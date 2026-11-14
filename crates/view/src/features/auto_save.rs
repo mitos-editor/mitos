@@ -158,8 +158,13 @@ fn request_auto_save(editor: &mut Editor) {
 
 /// Focus-loss saves have their own setting and also run while in insert mode.
 pub fn focus_lost(editor: &mut Editor) {
-    if editor.config().files.auto_save.focus_lost {
-        request_auto_save(editor);
+    if editor.config().files.auto_save.focus_lost
+        && let Err(error) = crate::save::auto_save_with_reason(
+            editor,
+            lsp_client::lsp::TextDocumentSaveReason::FOCUS_OUT,
+        )
+    {
+        editor.set_error(|| error.to_string());
     }
 }
 

@@ -6,6 +6,7 @@
 
 use stdx::rope::RopeExt as _;
 mod operation;
+mod pre_save;
 mod queue;
 
 pub(crate) use operation::{next, Completion, Operations};
@@ -53,6 +54,7 @@ pub struct PreparedSave {
     pub force: bool,
     pub auto_format: bool,
     pub code_actions: bool,
+    pub(crate) reason: lsp_client::lsp::TextDocumentSaveReason,
 }
 
 /// Normalize a document and checkpoint its edits before submitting a save.
@@ -88,6 +90,7 @@ fn prepare_with_config(
             force: options.force,
             auto_format: false,
             code_actions: false,
+            reason: lsp_client::lsp::TextDocumentSaveReason::MANUAL,
         });
     }
 
@@ -124,6 +127,7 @@ fn prepare_with_config(
         force: options.force,
         auto_format: config.format.on_save && options.auto_format,
         code_actions,
+        reason: lsp_client::lsp::TextDocumentSaveReason::MANUAL,
     };
     editor.sync_document_views(doc_id);
     Ok(request)
@@ -185,9 +189,17 @@ pub fn save_all(
     Ok(())
 }
 
-/// Save modified files without running formatters or code actions, ignoring scratch buffers.
+/// Save modified files without whole-document formatting or code actions, ignoring scratch buffers.
+/// Interested language servers still receive pre-save hooks.
 /// Debouncing, focus, and mode restrictions belong to `features::auto_save`.
 pub fn auto_save(editor: &mut Editor) -> anyhow::Result<()> {
+    auto_save_with_reason(editor, lsp_client::lsp::TextDocumentSaveReason::AFTER_DELAY)
+}
+
+pub(crate) fn auto_save_with_reason(
+    editor: &mut Editor,
+    reason: lsp_client::lsp::TextDocumentSaveReason,
+) -> anyhow::Result<()> {
     save_all(
         editor,
         WriteAllOptions {
@@ -196,7 +208,10 @@ pub fn auto_save(editor: &mut Editor) -> anyhow::Result<()> {
             auto_format: false,
             code_actions: false,
         },
-        |editor, request| editor.save(request.doc_id, request.path, request.force),
+        |editor, mut request| {
+            request.reason = reason;
+            editor.submit_save(request).map_err(Into::into)
+        },
     )
 }
 
