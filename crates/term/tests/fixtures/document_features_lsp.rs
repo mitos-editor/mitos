@@ -51,6 +51,8 @@ fn main() -> anyhow::Result<()> {
     let action_execution = args.first().is_some_and(|arg| arg == "--action-execution");
     let code_actions = args.first().is_some_and(|arg| arg == "--code-actions");
     let semantic_tokens = args.first().is_some_and(|arg| arg == "--semantic-tokens");
+    let semantic_deltas = args.iter().any(|arg| arg == "--deltas");
+    let mut semantic_result = 0;
     let code_lenses = args.first().is_some_and(|arg| arg == "--code-lenses");
     let inline_values = args.first().is_some_and(|arg| arg == "--inline-values");
     let mut hold_lenses = args.iter().any(|arg| arg == "--hold-resolves");
@@ -865,17 +867,43 @@ fn main() -> anyhow::Result<()> {
                 "positionEncoding": "utf-16", "textDocumentSync": 1,
                 "semanticTokensProvider": {
                     "legend": {"tokenTypes": ["method"], "tokenModifiers": ["definition", "deprecated"]},
-                    "full": !args.iter().any(|arg| arg == "--range-only"),
+                    "full": if args.iter().any(|arg| arg == "--range-only") { json!(false) }
+                        else if semantic_deltas { json!({"delta": !args.iter().any(|arg| arg == "--no-delta-support")}) }
+                        else { json!(true) },
                     "range": true
                 }
             }}),
             "textDocument/semanticTokens/full" | "textDocument/semanticTokens/range"
                 if semantic_tokens =>
             {
-                if text.contains("no tokens") {
+                semantic_result += 1;
+                let mut result = if text.contains("no tokens") {
                     json!({"data": []})
                 } else {
-                    json!({"data": [0, 3, 3, 0, 3]})
+                    json!({"data": [0, 3, if text.contains("😀 x") { 1 } else { 3 }, 0, 3]})
+                };
+                if semantic_deltas && !args.iter().any(|arg| arg == "--no-result-id") {
+                    result["resultId"] = json!(format!("full-{semantic_result}"));
+                }
+                result
+            }
+            "textDocument/semanticTokens/full/delta" if semantic_deltas => {
+                semantic_result += 1;
+                if args.iter().any(|arg| arg == "--null-delta") {
+                    Value::Null
+                } else if args.iter().any(|arg| arg == "--delta-full") {
+                    json!({"resultId": format!("delta-{semantic_result}"), "data": [0, 3, 1, 0, 3]})
+                } else if args.iter().any(|arg| arg == "--invalid-delta") {
+                    json!({"resultId": "invalid", "edits": [{"start": 999, "deleteCount": 1}]})
+                } else if args.iter().any(|arg| arg == "--malformed-delta") {
+                    json!({"edits": [{"start": "invalid", "deleteCount": 1}]})
+                } else {
+                    let edits = if text.contains("no tokens") {
+                        json!([{"start": 0, "deleteCount": 5}])
+                    } else {
+                        json!([{"start": 2, "deleteCount": 1, "data": [if text.contains("😀 x") { 1 } else { 3 }]}])
+                    };
+                    json!({"resultId": format!("delta-{semantic_result}"), "edits": edits})
                 }
             }
             "initialize" if code_lenses => json!({"capabilities": {
