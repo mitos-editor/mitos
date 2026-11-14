@@ -45,7 +45,7 @@ pub(super) fn default_provider() -> ClipboardProvider {
             command: Cow::Borrowed(program),
             args: Cow::Owned(args.iter().map(|arg| Cow::Borrowed(*arg)).collect()),
         };
-        execute_command(&command, None, false).is_ok()
+        execute_command(&command, None).is_ok()
     }
 
     if binary_exists("termux-clipboard-set") && binary_exists("termux-clipboard-get") {
@@ -116,9 +116,7 @@ impl ClipboardBackend for NativeClipboard {
                 (ClipboardType::Selection, _) => commands.yank_primary.as_ref(),
             };
             return match command {
-                Some(command) => {
-                    execute_command(command, None, true)?.ok_or(ClipboardError::MissingStdout)
-                }
+                Some(command) => read_command(command, None),
                 None => Ok(String::new()),
             };
         }
@@ -149,7 +147,7 @@ impl ClipboardBackend for NativeClipboard {
                 ClipboardType::Selection => commands.paste_primary.as_ref(),
             };
             return match command {
-                Some(command) => execute_command(command, Some(content), false).map(|_| ()),
+                Some(command) => execute_command(command, Some(content)),
                 None => Ok(()),
             };
         }
@@ -254,20 +252,37 @@ command_provider! {
     paste => "termux-clipboard-set";
 }
 
-fn execute_command(
-    cmd: &Command,
-    input: Option<&str>,
-    pipe_output: bool,
-) -> Result<Option<String>> {
-    execute_command_with_timeout(cmd, input, pipe_output, std::time::Duration::from_secs(5))
+#[derive(Clone, Copy)]
+enum CommandOutput {
+    Capture,
+    Discard,
+}
+
+fn execute_command(cmd: &Command, input: Option<&str>) -> Result<()> {
+    execute_command_with_timeout(
+        cmd,
+        input,
+        CommandOutput::Discard,
+        std::time::Duration::from_secs(5),
+    )
+    .map(|_| ())
+}
+
+fn read_command(cmd: &Command, input: Option<&str>) -> Result<String> {
+    execute_command_with_timeout(
+        cmd,
+        input,
+        CommandOutput::Capture,
+        std::time::Duration::from_secs(5),
+    )
 }
 
 fn execute_command_with_timeout(
     cmd: &Command,
     input: Option<&str>,
-    pipe_output: bool,
+    output: CommandOutput,
     timeout: std::time::Duration,
-) -> Result<Option<String>> {
+) -> Result<String> {
     // This synchronous API is also called inside the editor's Tokio runtime.
     // A separate thread lets cancellable pipe I/O use its own runtime without
     // nesting block_on or leaving blocked pipe workers behind on timeout.
@@ -278,7 +293,7 @@ fn execute_command_with_timeout(
                 tokio::runtime::Builder::new_current_thread()
                     .enable_all()
                     .build()?
-                    .block_on(execute_command_async(cmd, input, pipe_output, timeout))
+                    .block_on(execute_command_async(cmd, input, output, timeout))
             })?
             .join()
             .map_err(|_| ClipboardError::CommandFailed)?
@@ -288,12 +303,13 @@ fn execute_command_with_timeout(
 async fn execute_command_async(
     cmd: &Command,
     input: Option<&str>,
-    pipe_output: bool,
+    output: CommandOutput,
     timeout: std::time::Duration,
-) -> Result<Option<String>> {
+) -> Result<String> {
     use std::process::{Command, Stdio};
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
+    let pipe_output = matches!(output, CommandOutput::Capture);
     let mut command: Command = Command::new(cmd.command.as_ref());
 
     command
@@ -378,9 +394,9 @@ async fn execute_command_async(
             return Err(ClipboardError::CommandFailed);
         }
         if pipe_output {
-            Ok(Some(String::from_utf8(output)?))
+            Ok(String::from_utf8(output)?)
         } else {
-            Ok(None)
+            Ok(String::new())
         }
     })
     .await
@@ -421,7 +437,7 @@ mod tests {
         let result = execute_command_with_timeout(
             &command,
             None,
-            true,
+            CommandOutput::Capture,
             std::time::Duration::from_millis(500),
         );
         assert!(
@@ -455,7 +471,7 @@ mod tests {
         let result = execute_command_with_timeout(
             &command,
             Some(&input),
-            false,
+            CommandOutput::Discard,
             std::time::Duration::from_millis(500),
         );
         assert!(
@@ -474,7 +490,7 @@ mod tests {
         let result = execute_command_with_timeout(
             &command,
             None,
-            true,
+            CommandOutput::Capture,
             std::time::Duration::from_millis(500),
         );
         assert!(
@@ -495,10 +511,7 @@ mod tests {
             .build()
             .unwrap();
         runtime.block_on(async {
-            assert_eq!(
-                execute_command(&command, Some(&input), true).unwrap(),
-                Some(input)
-            );
+            assert_eq!(read_command(&command, Some(&input)).unwrap(), input);
         });
     }
 
@@ -545,20 +558,28 @@ mod tests {
     #[test]
     fn windows_deadline_covers_blocked_input_output_and_exit() {
         let input = "x".repeat(8 * 1024 * 1024);
-        for (helper, input, pipe_output) in [
-            ("native::tests::clipboard_helper_wait", None, true),
+        for (helper, input, output) in [
+            (
+                "native::tests::clipboard_helper_wait",
+                None,
+                CommandOutput::Capture,
+            ),
             (
                 "native::tests::clipboard_helper_wait",
                 Some(input.as_str()),
-                false,
+                CommandOutput::Discard,
             ),
-            ("native::tests::clipboard_helper_inherit_stdout", None, true),
+            (
+                "native::tests::clipboard_helper_inherit_stdout",
+                None,
+                CommandOutput::Capture,
+            ),
         ] {
             let started = std::time::Instant::now();
             let result = execute_command_with_timeout(
                 &self_command(helper),
                 input,
-                pipe_output,
+                output,
                 std::time::Duration::from_millis(500),
             );
             assert!(
@@ -573,12 +594,10 @@ mod tests {
     #[test]
     fn windows_pipes_preserve_large_unicode_input_and_output() {
         let input = "α\n".repeat(512 * 1024);
-        let output = execute_command(
+        let output = read_command(
             &self_command("native::tests::clipboard_helper_echo"),
             Some(&input),
-            true,
         )
-        .unwrap()
         .unwrap();
         // The Rust test harness writes its own framing around the helper output.
         assert!(output.contains(&input));
