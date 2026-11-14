@@ -1,6 +1,6 @@
 //! Refresh symbol providers when their source changes, without resetting picker input.
 
-use std::{path::PathBuf, sync::Arc};
+use std::sync::Arc;
 
 use editor_core::Uri;
 use lsp_client::LanguageServerId;
@@ -36,6 +36,9 @@ fn source_state(editor: &Editor, document: DocumentId, workspace: bool) -> Optio
     let mut documents: Vec<_> = editor
         .documents()
         .filter(|doc| workspace || doc.id() == document)
+        .filter(|doc| {
+            !workspace || doc.id() == document || !matches!(doc.uri(), Some(Uri::Virtual(_)))
+        })
         .map(|doc| (doc.id(), doc.version(), doc.uri()))
         .collect();
     documents.sort_by_key(|(id, _, _)| *id);
@@ -47,9 +50,21 @@ fn source_state(editor: &Editor, document: DocumentId, workspace: bool) -> Optio
 
 pub(super) fn symbol_key(
     item: &SymbolInformationItem,
-) -> (Option<PathBuf>, String, serde_json::Value, Option<String>) {
+) -> (
+    String,
+    Option<lsp_client::LanguageServerId>,
+    String,
+    serde_json::Value,
+    Option<String>,
+) {
     (
-        item.symbol.location.uri.as_path().map(Path::to_owned),
+        item.symbol
+            .location
+            .uri
+            .to_url()
+            .expect("symbol URIs are absolute")
+            .to_string(),
+        item.symbol.location.server_id,
         item.symbol.name.clone(),
         // Upstream SymbolKind has no Hash implementation; use its numeric wire value.
         serde_json::to_value(item.symbol.kind).expect("symbol kinds serialize as integers"),

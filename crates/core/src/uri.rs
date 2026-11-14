@@ -6,13 +6,14 @@ use std::{
 
 /// A generic pointer to a file location.
 ///
-/// Currently this type only supports paths to local files.
+/// Virtual URIs are created explicitly by the service that owns their content.
 ///
 /// Cloning this type is cheap: the internal representation uses an Arc.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 #[non_exhaustive]
 pub enum Uri {
     File(Arc<Path>),
+    Virtual(stdx::Url),
 }
 
 impl Uri {
@@ -21,12 +22,14 @@ impl Uri {
     pub fn to_url(&self) -> Result<stdx::Url, ()> {
         match self {
             Uri::File(path) => stdx::Url::from_file_path(path),
+            Uri::Virtual(uri) => Ok(uri.clone()),
         }
     }
 
     pub fn as_path(&self) -> Option<&Path> {
         match self {
             Self::File(path) => Some(path),
+            Self::Virtual(_) => None,
         }
     }
 }
@@ -47,6 +50,7 @@ impl fmt::Display for Uri {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::File(path) => write!(f, "{}", path.display()),
+            Self::Virtual(uri) => write!(f, "{uri}"),
         }
     }
 }

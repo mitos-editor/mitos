@@ -85,6 +85,14 @@ pub fn run() -> anyhow::Result<()> {
     let mut held_lenses = Vec::<Value>::new();
     let navigation = args.first().is_some_and(|arg| arg == "--navigation");
     let language_features = args.first().is_some_and(|arg| arg == "--language-features");
+    let virtual_documents = args.first().is_some_and(|arg| arg == "--virtual-documents");
+    let virtual_uri = args
+        .iter()
+        .position(|arg| arg == "--virtual-uri")
+        .map(|index| args[index + 1].as_str())
+        .unwrap_or("test-source:/generated.rs");
+    let mut virtual_show_sent = false;
+    let mut virtual_content_requests = 0;
     let signature_help = args.first().is_some_and(|arg| arg == "--signature-help");
     let inline_completion = args.first().is_some_and(|arg| arg == "--inline-completion");
     let completion = args.first().is_some_and(|arg| arg == "--completion");
@@ -103,6 +111,7 @@ pub fn run() -> anyhow::Result<()> {
         || lifecycle
         || signature_help
         || language_features
+        || virtual_documents
         || navigation
         || completion
         || inline_completion
@@ -163,6 +172,7 @@ pub fn run() -> anyhow::Result<()> {
             || structural_ranges
             || linked_editing
             || language_features
+            || virtual_documents
             || navigation
         {
             writeln!(request_log.as_mut().unwrap(), "{message}")?;
@@ -204,6 +214,18 @@ pub fn run() -> anyhow::Result<()> {
                     uri.into(),
                     params["textDocument"]["text"].as_str().unwrap().into(),
                 );
+                if virtual_documents
+                    && !virtual_show_sent
+                    && args.iter().any(|arg| arg == "--show-document")
+                {
+                    virtual_show_sent = true;
+                    respond(
+                        &mut output,
+                        json!({"jsonrpc":"2.0", "id":"virtual-show",
+                            "method":"window/showDocument", "params":{"uri":virtual_uri,
+                                "selection":range(3, 12), "takeFocus":true}}),
+                    )?;
+                }
                 if code_lenses && args.iter().any(|arg| arg == "--refresh") {
                     respond(
                         &mut output,
@@ -277,6 +299,32 @@ pub fn run() -> anyhow::Result<()> {
         }
         let text = documents.get(uri).map(|s| s.trim()).unwrap_or_default();
         let end = text.encode_utf16().count();
+        if virtual_documents && method == "workspace/textDocumentContent" {
+            if args.iter().any(|arg| arg == "--fail-virtual-content") {
+                respond(
+                    &mut output,
+                    json!({"jsonrpc":"2.0", "id":id,
+                    "error":{"code":-32603,"message":"test content failure"}}),
+                )?;
+                continue;
+            }
+            wait_for_gate(&args, "--content-gate");
+            let index = args
+                .iter()
+                .position(|arg| arg == "--content-file")
+                .ok_or_else(|| anyhow::anyhow!("missing virtual content file"))?;
+            let mut text = std::fs::read_to_string(&args[index + 1])?;
+            virtual_content_requests += 1;
+            if args.iter().any(|arg| arg == "--changing-virtual-content") {
+                text = format!("😀 generated {} {virtual_content_requests}\n", args[1]);
+            }
+            respond(
+                &mut output,
+                json!({"jsonrpc":"2.0", "id":id,
+                "result":{"text":text}}),
+            )?;
+            continue;
+        }
         if editing_hooks
             && matches!(
                 method,
@@ -364,6 +412,25 @@ pub fn run() -> anyhow::Result<()> {
                 }]})
             };
             respond_result(&mut output, id, result)?;
+            continue;
+        }
+        if virtual_documents && method == "workspace/symbol" {
+            wait_for_gate(&args, "--symbol-query-gate");
+            let query = params["query"].as_str().unwrap_or_default();
+            let symbols: Vec<_> = [("match", virtual_uri.to_owned()), ("other", format!("{virtual_uri}?other"))]
+                .into_iter().filter(|(name, _)| query.is_empty() || name.contains(query))
+                .map(|(name, uri)| {
+                    let label = if args.iter().any(|arg| arg == "--changing-virtual-content") {
+                        format!("{}:{name}:{virtual_content_requests}", args[1])
+                    } else { format!("{}:{name}", args[1]) };
+                    json!({"name":label,"kind":12,
+                        "location":{"uri":uri},"data":{"provider":args[1],"symbol":name,"token":[42,{"raw":true}]}})
+                })
+                .collect();
+            respond(
+                &mut output,
+                json!({"jsonrpc":"2.0", "id":id, "result":symbols}),
+            )?;
             continue;
         }
         if workspace_symbols && method == "workspace/symbol" {
@@ -457,12 +524,12 @@ pub fn run() -> anyhow::Result<()> {
             respond(&mut output, response)?;
             continue;
         }
-        if workspace_symbols && method == "workspaceSymbol/resolve" {
+        if (workspace_symbols || virtual_documents) && method == "workspaceSymbol/resolve" {
             if args.iter().any(|arg| arg == "--hold-symbol-resolves") {
                 continue;
             }
             let mut symbol = params.clone();
-            symbol["location"]["range"] = range(3, 6);
+            symbol["location"]["range"] = range(3, if virtual_documents { 12 } else { 6 });
             respond_result(&mut output, id, symbol)?;
             continue;
         }
@@ -989,6 +1056,15 @@ pub fn run() -> anyhow::Result<()> {
             continue;
         }
         let mut result = match method {
+            "initialize" if virtual_documents => json!({"capabilities": {
+                "positionEncoding":"utf-16", "textDocumentSync":1,
+                "definitionProvider":true,
+                "workspaceSymbolProvider":{"resolveProvider":true},
+                "workspace":{"textDocumentContent":{"schemes":["test-source"]}}
+            }}),
+            "textDocument/definition" if virtual_documents => json!({
+                "uri":virtual_uri, "range":range(3, 12)
+            }),
             "initialize" if editing_hooks => json!({"capabilities": {
                 "positionEncoding": "utf-16",
                 "textDocumentSync": {

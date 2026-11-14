@@ -1,6 +1,6 @@
 //! Symbol data shared by document and workspace queries after protocol conversion.
 
-use lsp_client::{lsp, OffsetEncoding};
+use lsp_client::{lsp, Client, OffsetEncoding, UriExt as _};
 
 use super::navigation::Location;
 
@@ -14,18 +14,29 @@ pub struct Symbol {
 }
 
 impl Symbol {
-    pub(super) fn from_lsp(
+    pub(super) fn from_lsp_with_server(
         name: String,
         kind: lsp::SymbolKind,
         container_name: Option<String>,
         location: lsp::Location,
         encoding: OffsetEncoding,
+        server: Option<&Client>,
     ) -> Option<Self> {
         Some(Self {
             name,
             kind,
             container_name,
-            location: Location::from_lsp(location, encoding)?,
+            location: match server {
+                Some(server) => {
+                    if location.uri.to_file_path().is_err()
+                        && !server.supports_text_document_content(&location.uri)
+                    {
+                        return None;
+                    }
+                    Location::from_server(location, encoding, server.id())?
+                }
+                None => Location::from_lsp(location, encoding)?,
+            },
         })
     }
 }

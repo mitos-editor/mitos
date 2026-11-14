@@ -58,8 +58,36 @@ where
                 offset_encoding,
                 reply,
             }) => {
-                let result = self.handle_show_document(params, offset_encoding);
-                reply.complete(&self.editor, Ok(json!(result)));
+                if params.external != Some(true)
+                    && !params
+                        .uri
+                        .as_str()
+                        .split_once(':')
+                        .is_some_and(|(scheme, _)| scheme.eq_ignore_ascii_case("file"))
+                {
+                    let action = if params.take_focus == Some(false) {
+                        view::editor::Action::Load
+                    } else {
+                        self.show_document_action(params.take_focus)
+                    };
+                    self.editor.request_language_server_document(
+                        server_id,
+                        params.uri,
+                        params.selection,
+                        action,
+                        move |editor, result| {
+                            reply.complete(
+                                editor,
+                                Ok(json!(lsp::ShowDocumentResult {
+                                    success: result.is_ok(),
+                                })),
+                            );
+                        },
+                    );
+                } else {
+                    let result = self.handle_show_document(params, offset_encoding);
+                    reply.complete(&self.editor, Ok(json!(result)));
+                }
             }
             None => {}
         }
@@ -107,18 +135,7 @@ where
                 return lsp::ShowDocumentResult { success: false };
             }
         };
-        // Determine the focus strategy based on the current UI state and LSP request:
-        // 1. If there is no pop-up overlay, jump directly (Replace).
-        // 2. If there is a pop-up overlay, unless the LSP forces take_focus, only load in the background (Load) to prevent interruption of input.
-        // Note: We assume layer_count() == 1 means only the EditorView is present (no popups/overlays).
-        let action = if self.compositor.layer_count() == 1 {
-            view::editor::Action::Replace
-        } else {
-            match take_focus {
-                Some(true) => view::editor::Action::Replace,
-                _ => view::editor::Action::Load,
-            }
-        };
+        let action = self.show_document_action(take_focus);
 
         let success =
             match self
@@ -132,6 +149,14 @@ where
                 }
             };
         lsp::ShowDocumentResult { success }
+    }
+
+    fn show_document_action(&self, take_focus: Option<bool>) -> view::editor::Action {
+        if self.compositor.layer_count() == 1 || take_focus == Some(true) {
+            view::editor::Action::Replace
+        } else {
+            view::editor::Action::Load
+        }
     }
 }
 

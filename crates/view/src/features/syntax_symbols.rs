@@ -160,6 +160,7 @@ impl WorkspaceSymbols {
             let text = doc.text().slice(..);
             let uri_or_id = doc
                 .uri()
+                .filter(|uri| uri.as_path().is_some())
                 .map(Target::Uri)
                 .unwrap_or_else(|| Target::Document(doc.id()));
             for tag in tags_iter(
