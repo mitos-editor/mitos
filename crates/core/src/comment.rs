@@ -85,17 +85,9 @@ pub fn toggle_line_comments(doc: &Rope, selection: &Selection, token: Option<&st
     let token = token.unwrap_or(DEFAULT_COMMENT_TOKEN);
     let comment = Tendril::from(format!("{} ", token));
 
-    let mut lines: Vec<usize> = Vec::with_capacity(selection.len());
-
-    let mut min_next_line = 0;
-    for selection in selection {
-        let (start, end) = selection.line_range(text);
-        let start = start.clamp(min_next_line, text.len_lines(stdx::rope::LINE_TYPE));
-        let end = (end + 1).min(text.len_lines(stdx::rope::LINE_TYPE));
-
-        lines.extend(start..end);
-        min_next_line = end;
-    }
+    let lines = selection
+        .line_ranges(text)
+        .flat_map(|(start, end)| start..(end + 1).min(text.len_lines(stdx::rope::LINE_TYPE)));
 
     let (commented, to_change, min, margin) = find_line_comment(token, text, lines);
 
