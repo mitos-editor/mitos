@@ -176,6 +176,36 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn jdtls_workspace_snippets_without_kind_install_placeholders_and_undo() {
+        let (mut editor, dir) = crate::editor::tests::editor("#[|a]#b\n");
+        let id = current_ref!(editor).1.id();
+        editor.set_doc_path(id, &dir.path().join("Main.java"));
+        let uri = current_ref!(editor).1.url().unwrap();
+        // Resolved JDT LS Extract to method edits omit snippet.kind.
+        let edit = serde_json::from_value(serde_json::json!({
+            "documentChanges": [{
+                "textDocument": {"uri": uri, "version": null},
+                "edits": [{
+                    "range": {"start": {"line": 0, "character": 0},
+                        "end": {"line": 0, "character": 2}},
+                    "snippet": {"value": "${1|private,public,protected|} ${2:method}() {}"}
+                }]
+            }]
+        }))
+        .unwrap();
+        editor
+            .apply_code_action_edits(OffsetEncoding::Utf8, vec![edit])
+            .unwrap();
+        let (view, doc) = current!(editor);
+        assert_eq!(doc.text(), "private method() {}\n");
+        assert_eq!(doc.selection(view.id), &Selection::single(0, 7));
+        assert!(doc.active_snippet().is_some());
+        assert!(crate::editing::undo(doc, view.id));
+        assert_eq!(doc.text(), "ab\n");
+        assert!(!crate::editing::undo(doc, view.id));
+    }
+
+    #[tokio::test]
     async fn batched_snippet_actions_deduplicate_shared_edits_and_use_one_undo_step() {
         let (mut editor, dir) = crate::editor::tests::editor("#[|a]#b\n");
         let id = current_ref!(editor).1.id();
