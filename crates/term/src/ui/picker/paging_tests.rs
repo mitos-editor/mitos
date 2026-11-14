@@ -1,25 +1,19 @@
-use super::test::{application, draw, frame, until};
+use super::test::{application, draw, event_with_config, frame, until};
 use super::*;
-use crate::{application::TestApplication, config::Config as AppConfig, job::Jobs};
+use crate::{application::TestApplication, config::Config as AppConfig};
 
 /// Send one key through the picker's real event handling, then redraw like the editor does.
-fn press(picker: &mut Picker<u32, ()>, app: &mut TestApplication, key: &str) {
-    let config = AppConfig::default();
-    let updates = tokio::sync::mpsc::unbounded_channel().0;
-    let mut jobs = Jobs::new();
-    let mut cx = Context {
-        config: crate::config::Context {
-            current: &config,
-            updates: &updates,
-        },
-        editor: &mut app.editor,
-        interaction: &mut app.interaction,
-        jobs: &mut jobs,
-        scroll: None,
-        image_picker: None,
-        is_cursor_owner: true,
-    };
-    picker.handle_event(&Event::Key(key.parse().unwrap()), &mut cx);
+fn press<T: Send + Sync, D: Send + Sync>(
+    picker: &mut Picker<T, D>,
+    app: &mut TestApplication,
+    key: &str,
+) {
+    event_with_config(
+        picker,
+        app,
+        &AppConfig::default(),
+        Event::Key(key.parse().unwrap()),
+    );
     draw(picker, app);
 }
 
@@ -156,25 +150,6 @@ async fn file_picker_pages_without_first_jumping_to_the_bottom() -> anyhow::Resu
     .await?;
     let rows = picker.completion_height as u32;
     assert!(rows > 3, "test frame must show a page");
-    let updates = tokio::sync::mpsc::unbounded_channel().0;
-    let config = AppConfig::default();
-    let mut jobs = Jobs::new();
-    let mut press = |picker: &mut Picker<_, _>, app: &mut TestApplication, key: &str| {
-        let mut cx = Context {
-            config: crate::config::Context {
-                current: &config,
-                updates: &updates,
-            },
-            editor: &mut app.editor,
-            interaction: &mut app.interaction,
-            jobs: &mut jobs,
-            scroll: None,
-            image_picker: None,
-            is_cursor_owner: true,
-        };
-        picker.handle_event(&Event::Key(key.parse().unwrap()), &mut cx);
-        draw(picker, app);
-    };
     for _ in 0..3 {
         press(&mut picker, &mut app, "down");
     }
