@@ -11,7 +11,6 @@ pub use selection_contents::{increment_selections, reflow_selections, replace_gr
 pub use sort::{sort_selection_contents, SortMode, SortOptions};
 
 use crate::{indent::IndentStyle, Rope, RopeSlice, Selection, Tendril, Transaction};
-use std::char::{ToLowercase, ToUppercase};
 use stdx::rope::RopeSliceExt;
 
 /// Align single-line selections to shared columns; return `None` for multiline ranges.
@@ -103,52 +102,20 @@ where
     })
 }
 
-enum CaseSwitcher {
-    Upper(ToUppercase),
-    Lower(ToLowercase),
-    Keep(Option<char>),
-}
-
-impl Iterator for CaseSwitcher {
-    type Item = char;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        match self {
-            CaseSwitcher::Upper(upper) => upper.next(),
-            CaseSwitcher::Lower(lower) => lower.next(),
-            CaseSwitcher::Keep(ch) => ch.take(),
-        }
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        match self {
-            CaseSwitcher::Upper(upper) => upper.size_hint(),
-            CaseSwitcher::Lower(lower) => lower.size_hint(),
-            CaseSwitcher::Keep(ch) => {
-                let n = if ch.is_some() { 1 } else { 0 };
-                (n, Some(n))
-            }
-        }
-    }
-}
-
-impl ExactSizeIterator for CaseSwitcher {}
-
 /// Swap upper and lower case within each selected range.
 pub fn switch_case(doc: &Rope, selection: &Selection) -> Transaction {
     map_case(doc, selection, |string| {
-        string
-            .chars()
-            .flat_map(|ch| {
-                if ch.is_lowercase() {
-                    CaseSwitcher::Upper(ch.to_uppercase())
-                } else if ch.is_uppercase() {
-                    CaseSwitcher::Lower(ch.to_lowercase())
-                } else {
-                    CaseSwitcher::Keep(Some(ch))
-                }
-            })
-            .collect()
+        let mut output = Tendril::new();
+        for ch in string.chars() {
+            if ch.is_lowercase() {
+                output.extend(ch.to_uppercase());
+            } else if ch.is_uppercase() {
+                output.extend(ch.to_lowercase());
+            } else {
+                output.push(ch);
+            }
+        }
+        output
     })
 }
 
@@ -305,4 +272,21 @@ pub fn unindent(
     }
 
     Transaction::change(doc, changes.into_iter())
+}
+
+#[cfg(test)]
+mod case_tests {
+    use super::*;
+    use crate::Range;
+
+    #[test]
+    fn switch_case_expands_unicode_and_maps_reversed_selections() {
+        let mut doc = Rope::from_str("ß İ!z");
+        let selection = Selection::new(vec![Range::new(3, 0), Range::new(4, 5)].into(), 0);
+        let transaction = switch_case(&doc, &selection);
+        let mapped = selection.map(transaction.changes());
+        assert!(transaction.apply(&mut doc));
+        assert_eq!(doc.to_string(), "SS i\u{307}!Z");
+        assert_eq!(mapped.ranges(), &[Range::new(5, 0), Range::new(6, 7)]);
+    }
 }
