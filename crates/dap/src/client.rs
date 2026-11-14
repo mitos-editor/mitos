@@ -14,7 +14,7 @@ use tokio::{
     io::{AsyncBufRead, AsyncWrite, BufReader, BufWriter},
     net::TcpStream,
     process::{Child, Command},
-    sync::mpsc::{channel, UnboundedReceiver},
+    sync::{mpsc::UnboundedReceiver, oneshot},
 };
 
 /// Build a locally managed adapter without access to the editor's controlling terminal.
@@ -432,7 +432,7 @@ impl RequestSender {
 
             let arguments = Some(serde_json::to_value(arguments)?);
 
-            let (callback_tx, mut callback_rx) = channel(1);
+            let (callback_tx, callback_rx) = oneshot::channel();
 
             let id = server_tx.send_request(R::COMMAND, arguments, callback_tx)?;
 
@@ -441,10 +441,10 @@ impl RequestSender {
                 sender: server_tx,
                 sequence: id,
             };
-            let response = timeout(Duration::from_secs(20), callback_rx.recv())
+            let response = timeout(Duration::from_secs(20), callback_rx)
                 .await
                 .map_err(|_| Error::Timeout(id))? // return Timeout
-                .ok_or(Error::StreamClosed)??;
+                .map_err(|_| Error::StreamClosed)??;
 
             Ok(response.body.unwrap_or_default())
         }
@@ -613,6 +613,29 @@ mod tests {
         for task in tasks {
             assert!(task.await.unwrap().is_ok());
         }
+    }
+
+    #[tokio::test]
+    async fn canceled_requests_do_not_block_later_responses() {
+        let (client, _incoming, adapter) = connection();
+        let mut adapter = BufReader::new(adapter);
+        let canceled = tokio::spawn(client.request_sender().call::<requests::Threads>(None));
+        let first = read_message(&mut adapter).await;
+        canceled.abort();
+        assert!(canceled.await.unwrap_err().is_cancelled());
+
+        let next = tokio::spawn(client.request_sender().call::<requests::Threads>(None));
+        let second = read_message(&mut adapter).await;
+        reply_to(&mut adapter, &first, json!({"ignored": true})).await;
+        reply_to(&mut adapter, &second, json!({"threads": []})).await;
+        assert_eq!(
+            time::timeout(time::Duration::from_secs(5), next)
+                .await
+                .unwrap()
+                .unwrap()
+                .unwrap(),
+            json!({"threads": []})
+        );
     }
 
     #[tokio::test]
