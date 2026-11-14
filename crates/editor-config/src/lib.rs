@@ -851,7 +851,6 @@ impl Default for StatusLineConfig {
             global: false,
             left: vec![
                 E::Mode,
-                E::Spinner,
                 E::FileName,
                 E::ReadOnlyIndicator,
                 E::FileModificationIndicator,
@@ -863,6 +862,7 @@ impl Default for StatusLineConfig {
                 E::Selections,
                 E::Register,
                 E::SearchPosition,
+                E::Spinner,
                 E::FileType,
                 E::Position,
                 E::FileEncoding,
