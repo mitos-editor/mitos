@@ -133,7 +133,7 @@ where
                         return;
                     }
                     Ok(MethodCall::WorkspaceFolders) => {
-                        Ok(json!(&*language_server!().workspace_folders().await))
+                        Ok(json!(&*language_server!().workspace_folders()))
                     }
                     Ok(MethodCall::WorkspaceConfiguration(params)) => {
                         Ok(json!(language_server!().configuration(&params)))
