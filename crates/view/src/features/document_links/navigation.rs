@@ -15,6 +15,12 @@ use crate::{callbacks::EditorCallbackSender, features::request::SelectionRequest
 pub enum NavigationTarget {
     Path(PathBuf),
     Url(Url),
+    /// An editor-owned reference to an exact position in a local document.
+    Location {
+        uri: Url,
+        range: lsp::Range,
+        offset_encoding: lsp_client::OffsetEncoding,
+    },
 }
 
 /// Ready targets can be applied immediately; unresolved LSP links require a task.
@@ -91,6 +97,16 @@ pub fn prepare_navigation(editor: &mut Editor) -> FileNavigation {
     let mut fallback = Vec::new();
 
     for selection in ranges {
+        let reference_links: Vec<_> = doc
+            .reference_links()
+            .iter()
+            .filter(|link| overlaps(&selection, link.start, link.end))
+            .map(|link| link.target.clone())
+            .collect();
+        if !reference_links.is_empty() {
+            targets.extend(reference_links);
+            continue;
+        }
         let mut matched = false;
         for link in doc
             .document_links()

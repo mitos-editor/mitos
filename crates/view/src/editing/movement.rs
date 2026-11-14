@@ -401,6 +401,7 @@ mod tests {
                     tags: Vec::new(),
                     source: None,
                     data: None,
+                    details: None,
                 }],
                 &[],
                 None,

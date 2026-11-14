@@ -22,6 +22,7 @@ fn main() {
                 tags: vec![],
                 source: None,
                 data: None,
+                details: None,
             }),
             &[],
             None,

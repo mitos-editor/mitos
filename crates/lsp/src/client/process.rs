@@ -403,6 +403,8 @@ impl Client {
                         related_document_support: Some(true),
                     }),
                     publish_diagnostics: Some(lsp::PublishDiagnosticsClientCapabilities {
+                        related_information: Some(true),
+                        code_description_support: Some(true),
                         version_support: Some(true),
                         tag_support: Some(lsp::TagSupport {
                             value_set: vec![

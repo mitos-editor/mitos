@@ -321,21 +321,29 @@ pub(crate) fn document_link_highlights(
 ) -> Option<OverlayHighlights> {
     let highlight = theme.find_highlight_exact("ui.link")?;
 
-    if doc.document_links().is_empty() {
-        return None;
-    }
-
     let mut ranges: Vec<ops::Range<usize>> = Vec::new();
-    for link in doc.document_links() {
-        if link.start >= link.end {
+    let mut links: Vec<_> = doc
+        .document_links()
+        .iter()
+        .map(|link| (link.start, link.end))
+        .chain(
+            doc.source()
+                .reference_links()
+                .iter()
+                .map(|link| (link.start, link.end)),
+        )
+        .collect();
+    links.sort_unstable();
+    for (start, end) in links {
+        if start >= end {
             continue;
         }
 
         match ranges.last_mut() {
-            Some(existing_range) if link.start <= existing_range.end => {
-                existing_range.end = existing_range.end.max(link.end);
+            Some(existing_range) if start <= existing_range.end => {
+                existing_range.end = existing_range.end.max(end);
             }
-            _ => ranges.push(link.start..link.end),
+            _ => ranges.push(start..end),
         }
     }
 

@@ -61,6 +61,22 @@ impl<'a> DocumentLinks<'a> {
                 }
             }
         }
+        for link in doc.source().reference_links() {
+            let view::features::document_links::NavigationTarget::Url(url) = &link.target else {
+                continue;
+            };
+            if link.start < link.end && Hyperlink::supports(url.as_str()) {
+                let mut identity = DefaultHasher::new();
+                (doc.source().id(), view, link.start, link.end).hash(&mut identity);
+                ranges.push(LinkRange {
+                    range: link.start..link.end,
+                    identity: identity.finish(),
+                    target: url.as_str(),
+                    cell_id: None,
+                });
+            }
+        }
+        ranges.sort_by_key(|link| link.range.start);
         Self {
             buffer,
             ranges,

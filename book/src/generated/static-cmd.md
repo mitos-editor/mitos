@@ -151,6 +151,8 @@
 | `workspace_symbol_picker` | Open workspace symbol picker |  |
 | `syntax_workspace_symbol_picker` | Open workspace symbol picker from syntax information |  |
 | `lsp_or_syntax_workspace_symbol_picker` | Open workspace symbol picker from LSP or syntax information | normal: `` <space>S ``, select: `` <space>S `` |
+| `diagnostic_details` | Read the full diagnostic at the selection in a buffer | normal: `` <space><A-d> ``, select: `` <space><A-d> `` |
+| `diagnostic_details_split` | Read the full diagnostic in a horizontal split |  |
 | `diagnostics_picker` | Open diagnostic picker | normal: `` <space>d ``, select: `` <space>d `` |
 | `workspace_diagnostics_picker` | Open workspace diagnostic picker | normal: `` <space>D ``, select: `` <space>D `` |
 | `last_picker` | Open last picker | normal: `` <space>' ``, select: `` <space>' `` |

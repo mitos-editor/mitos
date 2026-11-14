@@ -331,6 +331,7 @@ mod tests {
                 tags: vec![],
                 source: None,
                 data: None,
+                details: None,
             }],
             &[],
             None,

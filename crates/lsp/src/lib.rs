@@ -78,20 +78,7 @@ impl From<sonic_rs::Error> for Error {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-/// Unit used by the server for the `character` component of LSP positions.
-///
-/// UTF-16 is the protocol default when position encoding negotiation is not
-/// supported.
-pub enum OffsetEncoding {
-    /// UTF-8 code units aka bytes
-    Utf8,
-    /// UTF-32 code units aka chars
-    Utf32,
-    /// UTF-16 code units
-    #[default]
-    Utf16,
-}
+pub use editor_core::OffsetEncoding;
 
 pub mod util;
 #[derive(Debug, PartialEq, Clone)]

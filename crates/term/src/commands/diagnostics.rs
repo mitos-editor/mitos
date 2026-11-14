@@ -149,6 +149,7 @@ struct PickerDiagnostic {
     source: Option<Box<str>>,
     message: Box<str>,
     provider: DiagnosticProvider,
+    details: Option<std::sync::Arc<::diagnostics::DiagnosticDetails>>,
     ordinal: usize,
     resolved: bool,
 }
@@ -203,6 +204,7 @@ fn open_document_diagnostics(doc: &Document) -> impl Iterator<Item = PickerDiagn
         source: diag.source.clone(),
         message: diag.message.clone(),
         provider: diag.provider.clone(),
+        details: diag.details.clone(),
         ordinal: 0,
         resolved: false,
     })
@@ -241,6 +243,7 @@ fn store_diagnostic(
         source: diagnostic.source.clone().map(Into::into),
         message: diagnostic.message.as_str().into(),
         provider: provider.clone(),
+        details: view::features::diagnostics::diagnostic_details(diagnostic, offset_encoding),
         ordinal: 0,
         resolved: false,
     })
@@ -386,7 +389,7 @@ fn diag_picker(
             }
         }),
     ];
-    let mut primary_column = 1; // message
+    let primary_column = 1; // message
 
     if format == DiagnosticsFormat::ShowSourcePath {
         columns.insert(
@@ -409,7 +412,6 @@ fn diag_picker(
                 DiagnosticLocation::Document { path: None, .. } => "[scratch]".into(),
             }),
         );
-        primary_column += 1;
     }
 
     Picker::new(
@@ -426,6 +428,22 @@ fn diag_picker(
         },
     )
     .with_title("Diagnostics")
+    .with_item_actions(
+        |maps| &maps.diagnostics_picker,
+        |cx, item, action| {
+            use crate::{keymap::component::PickerItemAction, ui::picker::PickerCallbackResult};
+            let Some(item) = item else {
+                return PickerCallbackResult::KeepOpen;
+            };
+            let action = match action {
+                PickerItemAction::DiagnosticDetails => Action::Replace,
+                PickerItemAction::DiagnosticDetailsSplit => Action::HorizontalSplit,
+                _ => return PickerCallbackResult::KeepOpen,
+            };
+            open_details(cx.editor, item, action);
+            PickerCallbackResult::Close
+        },
+    )
     .with_item_key(PickerDiagnostic::key)
     .with_editor_updates(move |cx| {
         let mut items = diagnostic_items(cx.editor, document);
@@ -455,6 +473,172 @@ fn diag_picker(
     .with_preview(diagnostic_file_location)
     .with_quicklist(diagnostic_quicklist_entry)
     .truncate_start(false)
+}
+
+fn open_details(editor: &mut Editor, item: &PickerDiagnostic, action: Action) {
+    use view::features::document_links::{NavigationTarget, ReferenceLink};
+    let (name, location, target) = match &item.location {
+        DiagnosticLocation::Document {
+            doc_id,
+            path,
+            range,
+        } => {
+            let Some(doc) = editor.document(*doc_id) else {
+                editor.set_error(|| "Diagnostic document is no longer open");
+                return;
+            };
+            let name = path.as_ref().and_then(|path| path.file_name()).map_or_else(
+                || doc.display_name().into_owned(),
+                |name| name.to_string_lossy().into_owned(),
+            );
+            let line = doc
+                .text()
+                .char_to_line_idx(range.start.min(doc.text().len_chars()))
+                + 1;
+            let location = path.as_ref().map_or_else(
+                || format!("{name}:{line}"),
+                |path| format!("{}:{line}", path::get_relative_path(path).display()),
+            );
+            let target =
+                doc.uri()
+                    .and_then(|uri| uri.to_url().ok())
+                    .map(|uri| NavigationTarget::Location {
+                        uri,
+                        range: lsp_client::util::range_to_lsp_range(
+                            doc.text(),
+                            editor_core::Range::new(range.start, range.end),
+                            OffsetEncoding::Utf32,
+                        ),
+                        offset_encoding: OffsetEncoding::Utf32,
+                    });
+            (name, location, target)
+        }
+        DiagnosticLocation::File {
+            uri,
+            range,
+            offset_encoding,
+        } => {
+            let name = uri.as_path().and_then(|path| path.file_name()).map_or_else(
+                || uri.to_string(),
+                |name| name.to_string_lossy().into_owned(),
+            );
+            (
+                name,
+                format!("{}:{}", uri, range.start.line + 1),
+                uri.to_url().ok().map(|uri| NavigationTarget::Location {
+                    uri,
+                    range: *range,
+                    offset_encoding: *offset_encoding,
+                }),
+            )
+        }
+    };
+    let severity = match item.severity.unwrap_or(Severity::Warning) {
+        Severity::Error => "ERROR",
+        Severity::Warning => "WARNING",
+        Severity::Info => "INFO",
+        Severity::Hint => "HINT",
+    };
+    let mut text = severity.to_owned();
+    if let Some(source) = &item.source {
+        text.push_str(&format!(" · {source}"));
+    }
+    if let Some(code) = &item.code {
+        let code = match code {
+            NumberOrString::String(code) => code.to_string(),
+            NumberOrString::Number(code) => code.to_string(),
+        };
+        text.push_str(&format!(" ({code})"));
+    }
+    if item.resolved {
+        text.push_str(" (resolved)");
+    }
+    text.push('\n');
+    let start = text.chars().count();
+    text.push_str(&location);
+    let origin = target.map(|target| ReferenceLink {
+        start,
+        end: start + location.chars().count(),
+        target,
+    });
+    text.push_str("\n\n");
+    text.push_str(
+        item.details
+            .as_ref()
+            .and_then(|details| details.rendered.as_deref())
+            .unwrap_or(&item.message),
+    );
+    if !text.ends_with('\n') {
+        text.push('\n');
+    }
+    view::features::diagnostics::details::open_buffer(
+        editor,
+        name,
+        text,
+        item.details.as_deref(),
+        origin,
+        action,
+    );
+}
+
+/// Inspect the full diagnostic at the primary selection, falling back to its line.
+pub(super) fn diagnostic_details(cx: &mut Context) {
+    diagnostic_details_impl(cx, Action::Replace);
+}
+
+pub(super) fn diagnostic_details_split(cx: &mut Context) {
+    diagnostic_details_impl(cx, Action::HorizontalSplit);
+}
+
+fn diagnostic_details_impl(cx: &mut Context, action: Action) {
+    let (view, doc) = current_ref!(cx.editor);
+    let selection = doc.selection(view.id).primary();
+    let cursor = selection.cursor(doc.text().slice(..));
+    let line = doc.text().char_to_line_idx(cursor);
+    let intersects = |diag: &::diagnostics::Diagnostic| {
+        if diag.range.start == diag.range.end {
+            diag.range.start == cursor
+                || (selection.from() <= diag.range.start && diag.range.start < selection.to())
+        } else {
+            (diag.range.start <= cursor && cursor < diag.range.end)
+                || (selection.from() < diag.range.end && diag.range.start < selection.to())
+        }
+    };
+    let exact = doc.diagnostics().iter().any(intersects);
+    let items: Vec<_> = doc
+        .diagnostics()
+        .iter()
+        .zip(open_document_diagnostics(doc))
+        .filter(|(diag, _)| {
+            if exact {
+                intersects(diag)
+            } else {
+                diag.line == line
+            }
+        })
+        .map(|(_, item)| item)
+        .collect();
+    if items.is_empty() {
+        cx.editor
+            .set_error(|| "No diagnostics at the selection or cursor line");
+    } else if items.len() == 1 {
+        open_details(cx.editor, &items[0], action);
+    } else {
+        // Overlapping diagnostics remain distinct and require an explicit choice.
+        let picker = Picker::new(
+            cx.editor.redraw().clone(),
+            [ui::PickerColumn::new(
+                "message",
+                |item: &PickerDiagnostic, _| item.message.as_ref().into(),
+            )],
+            0,
+            items,
+            (),
+            move |cx, item, _| open_details(cx.editor, item, action),
+        )
+        .with_title("Diagnostic details");
+        cx.push_layer(Box::new(overlaid(picker)));
+    }
 }
 
 pub fn diagnostics_picker(cx: &mut Context) {
@@ -527,6 +711,7 @@ mod tests {
             tags: Vec::new(),
             source: None,
             data: None,
+            details: None,
         }
     }
 

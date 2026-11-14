@@ -851,3 +851,91 @@ async fn action_details_preserve_tags_tooltips_and_one_documentation_command() -
     );
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn diagnostic_metadata_is_only_returned_to_its_reporting_server() -> anyhow::Result<()> {
+    use diagnostics::{Diagnostic, DiagnosticDetails, DiagnosticProvider, Range};
+    let mut f = Fixture::new().await?;
+    let owned = Diagnostic {
+        range: Range { start: 0, end: 1 },
+        ends_at_word: false,
+        starts_at_word: false,
+        zero_width: false,
+        line: 0,
+        message: "owned".into(),
+        severity: None,
+        code: None,
+        provider: DiagnosticProvider::Lsp {
+            server_id: f.server,
+            identifier: None,
+        },
+        tags: vec![],
+        source: None,
+        data: Some(json!({"identity": "owned"})),
+        details: Some(Arc::new(DiagnosticDetails {
+            documentation: Some(stdx::Url::parse("https://example.com/E1")?),
+            ..Default::default()
+        })),
+    };
+    let mut foreign = owned.clone();
+    foreign.provider = DiagnosticProvider::Lsp {
+        server_id: LanguageServerId::default(),
+        identifier: None,
+    };
+    foreign.message = "foreign".into();
+    let mut internal = owned.clone();
+    internal.provider = DiagnosticProvider::Spelling;
+    internal.message = "internal".into();
+    internal.data = None;
+    internal.details = None;
+    f.editor.document_mut(f.doc).unwrap().replace_diagnostics(
+        [owned, foreign, internal],
+        &[],
+        None,
+    );
+    f.gate.release()?;
+    let doc = f.editor.document(f.doc).unwrap();
+    for (request, _) in view::action::code_actions_for_range(
+        doc,
+        editor_core::Range::new(0, 1),
+        None,
+        lsp::CodeActionTriggerKind::INVOKED,
+    ) {
+        tokio::time::timeout(Duration::from_secs(10), request).await??;
+    }
+    let requests = fixture_lsp::read_log(&f.log)?;
+    let initialize = requests
+        .iter()
+        .find(|request| request["method"] == "initialize")
+        .unwrap();
+    assert_eq!(
+        initialize["params"]["capabilities"]["textDocument"]["publishDiagnostics"]
+            ["relatedInformation"],
+        true
+    );
+    assert_eq!(
+        initialize["params"]["capabilities"]["textDocument"]["publishDiagnostics"]
+            ["codeDescriptionSupport"],
+        true
+    );
+    let context = &requests
+        .iter()
+        .find(|request| request["method"] == "textDocument/codeAction")
+        .unwrap()["params"]["context"]["diagnostics"];
+    let context = context.as_array().unwrap();
+    assert_eq!(
+        context.len(),
+        2,
+        "editor diagnostics remain available to language-server fixes"
+    );
+    assert!(context
+        .iter()
+        .all(|diagnostic| diagnostic["message"] != "foreign"));
+    let owned = context
+        .iter()
+        .find(|diagnostic| diagnostic["message"] == "owned")
+        .unwrap();
+    assert_eq!(owned["codeDescription"]["href"], "https://example.com/E1");
+    assert_eq!(owned["data"]["identity"], "owned");
+    Ok(())
+}

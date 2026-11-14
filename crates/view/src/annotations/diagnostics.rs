@@ -437,6 +437,7 @@ mod tests {
             tags: Vec::new(),
             source: None,
             data: None,
+            details: None,
         }];
         let mut annotations = TextAnnotations::default();
         annotations.add_line_annotation(InlineDiagnostics::new(

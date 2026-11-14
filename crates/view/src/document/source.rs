@@ -14,7 +14,10 @@ use super::Document;
 
 pub(super) enum DocumentSource {
     FileOrScratch,
-    Virtual { name: String },
+    Virtual {
+        name: String,
+        links: Vec<crate::features::document_links::ReferenceLink>,
+    },
     Revision(HistoricalDocument),
     Review(Box<ReviewDocument>),
 }
@@ -91,8 +94,29 @@ impl Document {
 
     /// Name an immutable document supplied by an external service.
     pub(crate) fn with_readonly_name(mut self, name: String) -> Self {
-        self.source = DocumentSource::Virtual { name };
+        self.source = DocumentSource::Virtual {
+            name,
+            links: Vec::new(),
+        };
         self
+    }
+
+    /// Navigation metadata belongs to the immutable reference document's source.
+    pub(crate) fn with_reference_links(
+        mut self,
+        links: Vec<crate::features::document_links::ReferenceLink>,
+    ) -> Self {
+        if let DocumentSource::Virtual { links: targets, .. } = &mut self.source {
+            *targets = links;
+        }
+        self
+    }
+
+    pub fn reference_links(&self) -> &[crate::features::document_links::ReferenceLink] {
+        match &self.source {
+            DocumentSource::Virtual { links, .. } => links,
+            _ => &[],
+        }
     }
 
     pub(crate) fn is_virtual(&self) -> bool {
@@ -101,7 +125,7 @@ impl Document {
 
     pub(super) fn virtual_name(&self) -> Option<&str> {
         match &self.source {
-            DocumentSource::Virtual { name } => Some(name),
+            DocumentSource::Virtual { name, .. } => Some(name),
             _ => None,
         }
     }
