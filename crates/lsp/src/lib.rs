@@ -26,14 +26,14 @@ mod transport;
 pub use client::{Client, PartialResultRequest, RequestUpdate, WorkspaceDiagnosticRequest};
 pub use futures_executor::block_on;
 pub use jsonrpc::Call;
-pub use lsp::{Position, Url};
+pub use lsp::{Position, TextDocumentContentParams, TextDocumentContentResult, Url};
 pub mod lsp {
     pub use lsp_types::Uri as Url;
     pub use lsp_types::*;
 }
 
 mod protocol;
-pub use protocol::{TextDocumentContentParams, TextDocumentContentResult, UriError, UriExt};
+pub use protocol::{UriError, UriExt};
 use std::collections::HashMap;
 
 use thiserror::Error;
@@ -103,7 +103,7 @@ pub enum MethodCall {
     RegisterCapability(lsp::RegistrationParams),
     UnregisterCapability(lsp::UnregistrationParams),
     ShowDocument(lsp::ShowDocumentParams),
-    TextDocumentContentRefresh(TextDocumentContentParams),
+    TextDocumentContentRefresh(lsp::TextDocumentContentRefreshParams),
     WorkspaceDiagnosticRefresh,
     CodeLensRefresh,
     FoldingRangeRefresh,
@@ -117,7 +117,7 @@ impl MethodCall {
     pub fn parse(method: &str, params: jsonrpc::Params) -> Result<MethodCall> {
         use lsp::request::Request;
         let request = match method {
-            "workspace/textDocumentContent/refresh" => {
+            lsp::request::TextDocumentContentRefreshRequest::METHOD => {
                 Self::TextDocumentContentRefresh(params.parse()?)
             }
             lsp::request::WorkDoneProgressCreate::METHOD => {
