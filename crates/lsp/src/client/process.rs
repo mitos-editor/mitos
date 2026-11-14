@@ -449,8 +449,7 @@ impl Client {
             work_done_progress_params: lsp::WorkDoneProgressParams::default(),
         };
 
-        self.call::<InitializeWithWorkspaceDiagnostics>(initialize_wire_params(params)?)
-            .await
+        self.call::<lsp::request::Initialize>(params).await
     }
 
     /// Requests graceful shutdown without sending `exit`.
@@ -491,67 +490,5 @@ impl Client {
     /// is, since it doesn't wait for any server response).
     pub async fn wait_shutdown_flushed(&self) {
         self.shutdown_flushed.notified().await;
-    }
-}
-
-// The pinned lsp-types dependency names this workspace capability `diagnostic`.
-// The protocol uses the plural `diagnostics`; textDocument.diagnostic stays singular.
-fn initialize_wire_params(params: lsp::InitializeParams) -> Result<Value> {
-    let mut params = serde_json::to_value(params)?;
-    if let Some(workspace) = params
-        .pointer_mut("/capabilities/workspace")
-        .and_then(Value::as_object_mut)
-        && let Some(diagnostics) = workspace.remove("diagnostic")
-    {
-        workspace.insert("diagnostics".into(), diagnostics);
-    }
-    Ok(params)
-}
-
-enum InitializeWithWorkspaceDiagnostics {}
-
-impl lsp::request::Request for InitializeWithWorkspaceDiagnostics {
-    type Params = Value;
-    type Result = lsp::InitializeResult;
-    const METHOD: &'static str = "initialize";
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn workspace_diagnostic_refresh_capability_uses_the_protocols_plural_name() {
-        let params = initialize_wire_params(lsp::InitializeParams {
-            capabilities: lsp::ClientCapabilities {
-                workspace: Some(lsp::WorkspaceClientCapabilities {
-                    diagnostic: Some(lsp::DiagnosticWorkspaceClientCapabilities {
-                        refresh_support: Some(true),
-                    }),
-                    ..Default::default()
-                }),
-                text_document: Some(lsp::TextDocumentClientCapabilities {
-                    diagnostic: Some(lsp::DiagnosticClientCapabilities {
-                        related_document_support: Some(true),
-                        ..Default::default()
-                    }),
-                    ..Default::default()
-                }),
-                ..Default::default()
-            },
-            ..Default::default()
-        })
-        .unwrap();
-        assert_eq!(
-            params["capabilities"]["workspace"]["diagnostics"]["refreshSupport"],
-            true
-        );
-        assert!(params["capabilities"]["workspace"]
-            .get("diagnostic")
-            .is_none());
-        assert_eq!(
-            params["capabilities"]["textDocument"]["diagnostic"]["relatedDocumentSupport"],
-            true
-        );
     }
 }
