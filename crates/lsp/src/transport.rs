@@ -1,6 +1,8 @@
 mod requests;
 pub(crate) use requests::PendingRequests;
 
+pub(crate) const PARTIAL_RESULT_TOKEN_PREFIX: &str = "mitos:partial:";
+
 use crate::{
     jsonrpc,
     lsp::{self, notification::Notification as _},
@@ -256,6 +258,9 @@ impl Transport {
             ServerMessage::Output(output) => {
                 self.pending_requests.complete(output, &self.name);
             }
+            ServerMessage::Call(jsonrpc::Call::Notification(ref notification))
+                if notification.method == lsp::notification::Progress::METHOD
+                    && self.pending_requests.partial_result(&notification.params) => {}
             ServerMessage::Call(jsonrpc::Call::MethodCall(ref method_call))
                 if self.shutdown_requested.load(Ordering::Acquire) =>
             {

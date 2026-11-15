@@ -101,6 +101,7 @@ pub fn supports_feature(
             Some(
                 CallHierarchyServerCapability::Simple(true)
                     | CallHierarchyServerCapability::Options(_)
+                    | CallHierarchyServerCapability::RegistrationOptions(_)
             )
         ),
         LanguageServerFeature::SemanticTokens => capabilities
@@ -205,6 +206,24 @@ mod tests {
             &capabilities,
             LanguageServerFeature::RenameSymbol
         ));
+    }
+
+    #[test]
+    fn registration_options_and_range_objects_enable_features() {
+        let capabilities: lsp::ServerCapabilities = serde_json::from_value(serde_json::json!({
+            "implementationProvider": {"documentSelector": null, "id": "implementation"},
+            "typeDefinitionProvider": {"documentSelector": null, "id": "types"},
+            "callHierarchyProvider": {"documentSelector": null, "id": "calls"},
+            "semanticTokensProvider": {"legend": {"tokenTypes": [], "tokenModifiers": []}, "range": {}}
+        })).unwrap();
+        for feature in [
+            LanguageServerFeature::GotoImplementation,
+            LanguageServerFeature::GotoTypeDefinition,
+            LanguageServerFeature::CallHierarchy,
+            LanguageServerFeature::SemanticTokens,
+        ] {
+            assert!(supports_feature(&capabilities, feature));
+        }
     }
 
     #[test]

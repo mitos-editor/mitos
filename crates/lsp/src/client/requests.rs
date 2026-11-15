@@ -146,7 +146,10 @@ impl Client {
         match capabilities.inlay_hint_provider {
             Some(
                 lsp::OneOf::Left(true)
-                | lsp::OneOf::Right(lsp::InlayHintServerCapabilities::Options(_)),
+                | lsp::OneOf::Right(
+                    lsp::InlayHintServerCapabilities::Options(_)
+                    | lsp::InlayHintServerCapabilities::RegistrationOptions(_),
+                ),
             ) => (),
             _ => return None,
         }
@@ -674,6 +677,18 @@ impl Client {
         };
 
         Some(self.call::<lsp::request::WorkspaceSymbolRequest>(params))
+    }
+
+    pub fn resolve_workspace_symbol(
+        &self,
+        symbol: lsp::WorkspaceSymbol,
+    ) -> Option<impl Future<Output = Result<lsp::WorkspaceSymbol>> + use<>> {
+        if !matches!(&self.capabilities().workspace_symbol_provider,
+            Some(lsp::OneOf::Right(options)) if options.resolve_provider == Some(true))
+        {
+            return None;
+        }
+        Some(self.call::<lsp::request::WorkspaceSymbolResolve>(symbol))
     }
 
     pub fn code_actions(

@@ -29,6 +29,7 @@ use view::{
     Align, Editor,
 };
 mod symbol_updates;
+mod workspace_symbols;
 
 /// Gets the first language server that is attached to a document which supports a specific feature.
 /// If there is no configured language server that supports the feature, this displays a status message.
@@ -312,11 +313,11 @@ fn symbol_container_cell<'a>(
     .into()
 }
 
-fn symbol_path_cell<'a>(item: &'a SymbolInformationItem, data: &'a SymbolPickerData) -> Cell<'a> {
-    let path = if let Some(path) = item.symbol.location.uri.as_path() {
+fn symbol_path_cell<'a>(uri: &editor_core::Uri, data: &'a SymbolPickerData) -> Cell<'a> {
+    let path = if let Some(path) = uri.as_path() {
         path::get_relative_path(path).to_string_lossy().to_string()
     } else {
-        item.symbol.location.uri.to_string()
+        uri.to_string()
     };
     Span::styled(path, data.theme.get("ui.text.directory")).into()
 }
@@ -399,7 +400,7 @@ mod symbol_picker_tests {
         let kind = symbol_kind_cell(&item, &data);
         let name = symbol_name_cell(&item, &data);
         let container = symbol_container_cell(&item, &data);
-        let path = symbol_path_cell(&item, &data);
+        let path = symbol_path_cell(&item.symbol.location.uri, &data);
 
         assert_eq!(
             kind.content.lines[0].spans[0].style,
@@ -545,92 +546,7 @@ struct WorkspaceSymbolPickerData {
 }
 
 pub fn workspace_symbol_picker(cx: &mut Context) {
-    use crate::ui::picker::Injector;
-
-    let document = doc!(cx.editor).id();
-    let session = match cx.editor.workspace_symbols(document) {
-        Ok(session) => session,
-        Err(error) => {
-            cx.editor.set_error(|| error.to_string());
-            return;
-        }
-    };
-    let get_symbols = |pattern: &str,
-                       editor: &mut Editor,
-                       data: std::sync::Arc<WorkspaceSymbolPickerData>,
-                       injector: &Injector<_, _>| {
-        let request = data.symbols.load().query(editor, pattern.to_owned());
-        let injector = injector.clone();
-        async move {
-            let mut task = request?;
-            while let Some(response) = task.next_batch().await {
-                match response {
-                    Ok(items) => {
-                        for item in items {
-                            injector.push(SymbolInformationItem {
-                                symbol: item,
-                                tree_prefix: String::new(),
-                            })?;
-                        }
-                    }
-                    Err(error) => {
-                        injector.fail();
-                        log::error!("Error requesting workspace symbols: {error}");
-                    }
-                }
-            }
-            Ok(())
-        }
-        .boxed()
-    };
-    let session = std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(session));
-    let columns = [
-        ui::PickerColumn::new("kind", |item, data: &WorkspaceSymbolPickerData| {
-            symbol_kind_cell(item, &data.style)
-        })
-        .with_prefix(|item, data| symbol_kind_icon(item, &data.style)),
-        ui::PickerColumn::new("name", |item, data: &WorkspaceSymbolPickerData| {
-            symbol_name_cell(item, &data.style)
-        })
-        .without_filtering(),
-        ui::PickerColumn::new("container", |item, data: &WorkspaceSymbolPickerData| {
-            symbol_container_cell(item, &data.style)
-        }),
-        ui::PickerColumn::new("path", |item, data: &WorkspaceSymbolPickerData| {
-            symbol_path_cell(item, &data.style)
-        }),
-    ];
-
-    let picker_data = WorkspaceSymbolPickerData {
-        style: SymbolPickerData {
-            show_icons: cx.editor.config().icons,
-            theme: cx.editor.theme.clone(),
-        },
-        symbols: session.clone(),
-    };
-
-    let picker = Picker::new(
-        cx.editor.redraw().clone(),
-        columns,
-        1, // name column
-        [],
-        picker_data,
-        move |cx, item, action| {
-            if !session.load().is_current(cx.editor) {
-                return;
-            }
-            jump_to_location(cx.editor, &item.symbol.location, action);
-        },
-    )
-    .with_preview(|_editor, item| location_to_file_location(&item.symbol.location))
-    .with_quicklist(|_editor, item| location_to_quicklist_entry(&item.symbol.location))
-    .with_title("Workspace Symbols")
-    .with_dynamic_query(get_symbols, None, cx.jobs)
-    .with_item_key(symbol_updates::symbol_key)
-    .with_query_updates(symbol_updates::workspace_updates(cx.editor, document))
-    .truncate_start(false);
-
-    cx.push_layer(Box::new(overlaid(picker)));
+    workspace_symbols::picker(cx);
 }
 
 impl ui::menu::Item for CodeActionItem {

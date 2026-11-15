@@ -22,7 +22,7 @@ mod file_operations;
 pub mod jsonrpc;
 mod transport;
 
-pub use client::Client;
+pub use client::{Client, WorkspaceDiagnosticRequest};
 pub use futures_executor::block_on;
 pub use jsonrpc::Call;
 pub use lsp::{Position, Url};

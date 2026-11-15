@@ -16,12 +16,15 @@ use tokio::{sync::mpsc::Sender, time::Instant};
 use crate::{
     callbacks::EditorCallbackSender,
     events::{
-        DocumentDidChange, DocumentDidOpen, DocumentLanguageDidChange, LanguageServerExited,
-        LanguageServerInitialized,
+        ConfigDidChange, DocumentDidChange, DocumentDidClose, DocumentDidOpen,
+        DocumentLanguageDidChange, LanguageServerExited, LanguageServerInitialized,
     },
     features::{debounce::debounce_documents, request::DocumentRequest},
     DocumentId, Editor,
 };
+
+mod workspace;
+pub use workspace::request_workspace_diagnostics;
 
 /// Cancellation follows the document and is independent per server.
 #[derive(Default)]
@@ -42,6 +45,7 @@ impl DocumentDiagnostics {
 pub(crate) struct PullDiagnosticResults {
     next_request: u64,
     reports: BTreeMap<Uri, HashMap<DiagnosticProvider, DiagnosticReport>>,
+    workspace: HashMap<LanguageServerId, TaskController>,
 }
 
 #[derive(Default)]
@@ -267,7 +271,7 @@ fn request_document_diagnostics_for_language_servers(
     }
 }
 
-/// Refresh this provider for every open document attached to it.
+/// Refresh this provider's open documents and restart its workspace pull.
 pub fn request_all_document_diagnostics_for_language_server(
     editor: &mut Editor,
     server_id: LanguageServerId,
@@ -281,6 +285,7 @@ pub fn request_all_document_diagnostics_for_language_server(
     for document in documents {
         request_document_diagnostics_for_language_servers(editor, document, &servers);
     }
+    request_workspace_diagnostics(editor, server_id);
 }
 
 /// Refresh all pull-diagnostic providers attached to this document.
@@ -302,6 +307,8 @@ pub(crate) fn register_hooks(events: &event::EventHub, hooks: crate::handlers::D
             event.editor.pull_diagnostics.invalidate(&uri);
         }
         request_document_diagnostics(event.editor, event.doc);
+        workspace::cancel_unused(event.editor);
+        workspace::document_opened(event.editor, event.doc);
         Ok(())
     });
     register_hook!(events => move |event: &mut DocumentDidChange<'_>| {
@@ -351,6 +358,7 @@ pub(crate) fn register_hooks(events: &event::EventHub, hooks: crate::handlers::D
     });
     register_hook!(events => move |event: &mut DocumentDidOpen<'_>| {
         request_document_diagnostics(event.editor, event.doc);
+        workspace::document_opened(event.editor, event.doc);
         Ok(())
     });
     register_hook!(events => move |event: &mut LanguageServerInitialized<'_>| {
@@ -358,6 +366,7 @@ pub(crate) fn register_hooks(events: &event::EventHub, hooks: crate::handlers::D
         Ok(())
     });
     register_hook!(events => move |event: &mut LanguageServerExited<'_>| {
+        event.editor.pull_diagnostics.workspace.remove(&event.server_id);
         for doc in event.editor.documents_mut() {
             doc.pull_diagnostics.requests.remove(&event.server_id);
         }
@@ -365,6 +374,19 @@ pub(crate) fn register_hooks(events: &event::EventHub, hooks: crate::handlers::D
             reports.retain(|provider, _| provider.language_server_id() != Some(event.server_id));
             !reports.is_empty()
         });
+        Ok(())
+    });
+    register_hook!(events => move |event: &mut DocumentDidClose<'_>| {
+        workspace::cancel_unused(event.editor);
+        let servers: Vec<_> = event.editor.pull_diagnostics.workspace.keys().copied().collect();
+        for server in servers {
+            request_workspace_diagnostics(event.editor, server);
+        }
+        Ok(())
+    });
+    register_hook!(events => move |event: &mut ConfigDidChange<'_>| {
+        workspace::cancel_unused(event.editor);
+        workspace::request_if_idle(event.editor);
         Ok(())
     });
 }

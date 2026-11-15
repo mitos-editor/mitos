@@ -18,6 +18,41 @@ use view::{
 use super::helpers::lsp::{self, Gate, ServerConfig};
 use super::helpers::{test_config, AppBuilder};
 
+fn write_reports(path: &Path, reports: &Value) -> anyhow::Result<()> {
+    // Lock before truncation: the server may still be reading the previous report.
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(path)?;
+    file.lock()?;
+    file.set_len(0)?;
+    serde_json::to_writer(&mut file, reports)?;
+    Ok(())
+}
+
+#[test]
+fn diagnostic_report_updates_preserve_in_flight_readers() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let path = dir.path().join("workspace.json");
+    let original = json!({"hold": true});
+    write_reports(&path, &original)?;
+    let in_flight = std::fs::File::open(&path)?;
+    in_flight.lock_shared()?;
+    let updated = json!({"result": {"items": []}});
+    std::thread::scope(|scope| -> anyhow::Result<()> {
+        let writer = scope.spawn(|| write_reports(&path, &updated));
+        assert_eq!(serde_json::from_reader::<_, Value>(in_flight)?, original);
+        writer.join().expect("diagnostic report writer panicked")?;
+        Ok(())
+    })?;
+    assert_eq!(
+        serde_json::from_reader::<_, Value>(std::fs::File::open(path)?)?,
+        updated
+    );
+    Ok(())
+}
+
 struct Fixture {
     app: TestApplication,
     callbacks: mpsc::Receiver<(bool, EditorCallback)>,
@@ -27,6 +62,16 @@ struct Fixture {
 
 impl Fixture {
     fn new(directory: &Path, word: &str, names: &[&str], inter_file: bool) -> anyhow::Result<Self> {
+        Self::with_workspace(directory, word, names, inter_file, false)
+    }
+
+    fn with_workspace(
+        directory: &Path,
+        word: &str,
+        names: &[&str],
+        inter_file: bool,
+        workspace: bool,
+    ) -> anyhow::Result<Self> {
         let gate = Gate::new(directory.join("initialize-ready"));
         let mut servers = String::new();
         let mut logs = Vec::new();
@@ -39,6 +84,11 @@ impl Fixture {
                 .arg(related);
             if inter_file {
                 server = server.arg("--inter-file");
+            }
+            if workspace {
+                let reports = lsp::log_path(directory, name).with_extension("workspace.json");
+                std::fs::write(&reports, r#"{"result":{"items":[]}}"#)?;
+                server = server.arg("--workspace-diagnostics").arg(reports);
             }
             servers.push_str(&server.toml());
             logs.push(lsp::log_path(directory, name));
@@ -149,11 +199,7 @@ impl Fixture {
     }
 
     fn related_reports(&self, server: usize, reports: Value) -> anyhow::Result<()> {
-        std::fs::write(
-            self.logs[server].with_extension("related.json"),
-            serde_json::to_vec(&reports)?,
-        )?;
-        Ok(())
+        write_reports(&self.logs[server].with_extension("related.json"), &reports)
     }
 }
 
@@ -734,6 +780,407 @@ async fn progress_completion_refreshes_diagnostics_while_a_prompt_is_open() -> a
     f.publish().await?;
     assert_eq!(f.requests(0)?.len(), 2);
     assert_eq!(f.messages(), ["alpha: 😀 original"]);
+    assert!(f.app.close().await.is_empty());
+    Ok(())
+}
+
+fn workspace_report(uri: &Uri, result_id: &str, message: Option<&str>) -> Value {
+    let mut report = related_report(Some(result_id), message);
+    report["uri"] = json!(uri.to_url().unwrap().as_str());
+    report["version"] = Value::Null;
+    report
+}
+
+impl Fixture {
+    fn workspace_reports(&self, server: usize, reports: Value) -> anyhow::Result<()> {
+        write_reports(
+            &self.logs[server].with_extension("workspace.json"),
+            &reports,
+        )
+    }
+
+    fn request_workspace(&mut self, name: &str) {
+        let server = self.server(name);
+        pull::request_workspace_diagnostics(&mut self.app.editor, server);
+    }
+
+    async fn until(&mut self, ready: impl Fn(&Self) -> bool) -> anyhow::Result<()> {
+        tokio::time::timeout(Duration::from_secs(10), async {
+            while !ready(self) {
+                self.publish().await?;
+            }
+            anyhow::Ok(())
+        })
+        .await??;
+        Ok(())
+    }
+
+    fn raw_messages(&self, uri: &Uri) -> Vec<&str> {
+        self.app
+            .editor
+            .diagnostics()
+            .get(uri)
+            .into_iter()
+            .flatten()
+            .map(|(diag, _)| diag.message.as_str())
+            .collect()
+    }
+
+    fn workspace_requests(&self, server: usize) -> anyhow::Result<Vec<Value>> {
+        Ok(lsp::read_log(&self.logs[server])?
+            .into_iter()
+            .filter(|request| request["method"] == "workspace/diagnostic")
+            .collect())
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn workspace_diagnostic_batches_update_unopened_files_in_wire_order() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let mut f = Fixture::with_workspace(dir.path(), "original", &["alpha"], false, true)?;
+    let uri = Uri::from(stdx::path::normalize(dir.path().join("unopened.pull-test")));
+    f.workspace_reports(
+        0,
+        json!({
+            "batches": [{"items": [workspace_report(&uri, "first", Some("partial"))]}],
+            "result": {"items": [workspace_report(&uri, "second", Some("final"))]}
+        }),
+    )?;
+    f.initialize().await?;
+    f.until(|f| f.raw_messages(&uri) == ["partial"]).await?;
+    f.until(|f| f.raw_messages(&uri) == ["final"]).await?;
+    assert_eq!(f.app.editor.documents().count(), 1);
+    assert!(!f
+        .app
+        .editor
+        .language_server_is_progressing(f.server("alpha")));
+    let requests = f.workspace_requests(0)?;
+    assert_eq!(requests[0]["params"]["identifier"], "alpha");
+    assert!(requests[0]["params"]["partialResultToken"].is_string());
+    assert!(f.app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn workspace_diagnostic_result_ids_follow_uris_and_empty_reports_clear_one_provider(
+) -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let mut f = Fixture::with_workspace(dir.path(), "original", &["alpha", "beta"], false, true)?;
+    let uri = Uri::from(stdx::path::normalize(dir.path().join("unopened.pull-test")));
+    for (index, name) in ["alpha", "beta"].into_iter().enumerate() {
+        f.workspace_reports(
+            index,
+            json!({"result": {"items": [workspace_report(&uri, name, Some(name))]}}),
+        )?;
+    }
+    f.initialize().await?;
+    for _ in 0..4 {
+        f.publish().await?;
+    }
+    assert_eq!(f.raw_messages(&uri), ["alpha", "beta"]);
+    f.workspace_reports(0, json!({"result": {"items": [{"uri": uri.to_url().unwrap().as_str(), "version": null, "kind": "unchanged", "resultId": "alpha:rotated"}]}}))?;
+    f.request_workspace("alpha");
+    // A final callback acts as a deterministic barrier for the unchanged report.
+    f.publish().await?;
+    let request = f.workspace_requests(0)?.pop().unwrap();
+    assert!(request["params"]["previousResultIds"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|previous| previous["uri"] == uri.to_url().unwrap().as_str()
+            && previous["value"] == "alpha"));
+    assert_eq!(f.raw_messages(&uri), ["alpha", "beta"]);
+    f.workspace_reports(
+        0,
+        json!({"result": {"items": [workspace_report(&uri, "cleared", None)]}}),
+    )?;
+    f.request_workspace("alpha");
+    f.until(|f| f.raw_messages(&uri) == ["beta"]).await?;
+    let request = f.workspace_requests(0)?.pop().unwrap();
+    assert!(request["params"]["previousResultIds"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|previous| previous["uri"] == uri.to_url().unwrap().as_str()
+            && previous["value"] == "alpha:rotated"));
+    assert!(f.app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn workspace_diagnostics_never_replace_direct_pulls_for_open_documents() -> anyhow::Result<()>
+{
+    let dir = tempfile::tempdir()?;
+    let mut f = Fixture::with_workspace(dir.path(), "original", &["alpha"], false, true)?;
+    let uri = current_ref!(f.app.editor).1.uri().unwrap();
+    f.workspace_reports(0, json!({"batches": [{"items": [workspace_report(&uri, "workspace", Some("workspace"))]}], "result": {"items": []}}))?;
+    f.initialize().await?;
+    // Initial document, partial workspace, and final workspace callbacks.
+    for _ in 0..3 {
+        f.publish().await?;
+    }
+    assert_eq!(f.messages(), ["alpha: 😀 original"]);
+    f.edit("changed");
+    f.workspace_reports(
+        0,
+        json!({"result": {"items": [workspace_report(&uri, "old", Some("stale workspace"))]}}),
+    )?;
+    f.request_workspace("alpha");
+    f.request();
+    f.until(|f| f.messages() == ["alpha: 😀 changed"]).await?;
+    assert_eq!(f.messages(), ["alpha: 😀 changed"]);
+    assert!(f.app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn workspace_diagnostics_reject_queued_reports_after_open_or_server_exit(
+) -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let mut f = Fixture::with_workspace(dir.path(), "original", &["alpha"], false, true)?;
+    let uri = Uri::from(stdx::path::normalize(dir.path().join("unopened.pull-test")));
+    f.workspace_reports(0, json!({"batches": [{"items": [workspace_report(&uri, "queued", Some("queued workspace"))]}], "hold": true}))?;
+    f.initialize().await?;
+    let queued = vec![f.response().await?, f.response().await?];
+    f.open(uri.as_path().unwrap(), "opened")?;
+    for callback in queued {
+        callback(&mut f.app.editor);
+    }
+    assert!(!f.raw_messages(&uri).contains(&"queued workspace"));
+    let another = Uri::from(stdx::path::normalize(dir.path().join("another.pull-test")));
+    f.workspace_reports(0, json!({"batches": [{"items": [workspace_report(&another, "queued", Some("after exit"))]}], "hold": true}))?;
+    f.request_workspace("alpha");
+    let queued = vec![f.response().await?, f.response().await?];
+    let server = f.server("alpha");
+    f.app.editor.handle_language_server_exit(server);
+    for callback in queued {
+        callback(&mut f.app.editor);
+    }
+    assert!(f.raw_messages(&another).is_empty());
+    assert!(f.app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn completed_workspace_pulls_retry_with_result_ids_without_a_busy_loop() -> anyhow::Result<()>
+{
+    let dir = tempfile::tempdir()?;
+    let mut f = Fixture::with_workspace(dir.path(), "original", &["alpha"], false, true)?;
+    let uri = Uri::from(stdx::path::normalize(dir.path().join("unopened.pull-test")));
+    f.workspace_reports(
+        0,
+        json!({"result": {"items": [workspace_report(&uri, "retained", Some("first"))]}}),
+    )?;
+    f.initialize().await?;
+    f.until(|f| f.raw_messages(&uri) == ["first"]).await?;
+    assert_eq!(f.workspace_requests(0)?.len(), 1);
+    f.workspace_reports(
+        0,
+        json!({"result": {"items": [workspace_report(&uri, "updated", Some("second"))]}}),
+    )?;
+    f.until(|f| f.raw_messages(&uri) == ["second"]).await?;
+    let requests = f.workspace_requests(0)?;
+    assert_eq!(requests.len(), 2);
+    assert!(requests[1]["params"]["previousResultIds"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|id| id["value"] == "retained"));
+    assert!(f.app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn closing_a_document_moves_it_from_direct_to_workspace_diagnostics() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let mut f = Fixture::with_workspace(dir.path(), "original", &["alpha"], false, true)?;
+    f.initialize().await?;
+    f.publish().await?;
+    f.publish().await?;
+    let path = dir.path().join("second.pull-test");
+    let document = f.open(&path, "second")?;
+    f.publish().await?;
+    let uri = f.app.editor.document(document).unwrap().uri().unwrap();
+    f.workspace_reports(0, json!({"result": {"items": [workspace_report(&uri, "closed", Some("workspace after close"))]}}))?;
+    assert!(f.app.editor.close_document(document, true).is_ok());
+    f.until(|f| f.raw_messages(&uri) == ["workspace after close"])
+        .await?;
+    assert_eq!(f.app.editor.documents().count(), 1);
+    assert!(f.app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn late_workspace_reports_cannot_replace_newer_related_document_results() -> anyhow::Result<()>
+{
+    let dir = tempfile::tempdir()?;
+    let mut f = Fixture::with_workspace(dir.path(), "original", &["alpha"], false, true)?;
+    let uri = Uri::from(stdx::path::normalize(dir.path().join("unopened.pull-test")));
+    f.workspace_reports(0, json!({"hold": true}))?;
+    f.initialize().await?;
+    f.publish().await?;
+    f.workspace_reports(
+        0,
+        json!({"result": {"items": [workspace_report(&uri, "old", Some("old workspace"))]}}),
+    )?;
+    f.request_workspace("alpha");
+    let old_workspace = f.response().await?;
+    f.related(0, &uri, related_report(Some("new"), Some("new related")))?;
+    f.request();
+    f.publish().await?;
+    assert_eq!(f.raw_messages(&uri), ["new related"]);
+    old_workspace(&mut f.app.editor);
+    assert_eq!(f.raw_messages(&uri), ["new related"]);
+    assert!(f.app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn workspace_reports_for_open_files_without_direct_pulls_validate_versions(
+) -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let mut f = Fixture::with_workspace(dir.path(), "original", &["alpha"], false, true)?;
+    f.initialize().await?;
+    f.publish().await?;
+    f.publish().await?;
+    let server = f.server("alpha");
+    let path = dir.path().join("other.unknown-language");
+    let uri = Uri::from(stdx::path::normalize(&path));
+    f.workspace_reports(0, json!({"result": {"items": [workspace_report(&uri, "valid", Some("open workspace file"))]}}))?;
+    let target = f.open(&path, "other")?;
+    assert!(!f
+        .app
+        .editor
+        .document(target)
+        .unwrap()
+        .language_servers()
+        .any(|candidate| candidate.id() == server));
+    f.until(|f| f.raw_messages(&uri) == ["open workspace file"])
+        .await?;
+    assert_eq!(f.raw_messages(&uri), ["open workspace file"]);
+
+    f.workspace_reports(
+        0,
+        json!({"result": {"items": [workspace_report(&uri, "stale", Some("stale unversioned"))]}}),
+    )?;
+    pull::request_workspace_diagnostics(&mut f.app.editor, server);
+    let stale = f.response().await?;
+    f.edit("changed");
+    stale(&mut f.app.editor);
+    assert_eq!(f.raw_messages(&uri), ["open workspace file"]);
+
+    let mut versioned = workspace_report(&uri, "fresh", Some("fresh version"));
+    versioned["version"] = json!(f.app.editor.document(target).unwrap().version() + 1);
+    f.workspace_reports(0, json!({"result": {"items": [versioned]}}))?;
+    pull::request_workspace_diagnostics(&mut f.app.editor, server);
+    let fresh = f.response().await?;
+    f.edit("latest");
+    fresh(&mut f.app.editor);
+    assert_eq!(f.raw_messages(&uri), ["fresh version"]);
+
+    let mut old_version = workspace_report(&uri, "older", Some("stale version"));
+    old_version["version"] = json!(f.app.editor.document(target).unwrap().version() - 1);
+    f.workspace_reports(0, json!({"result": {"items": [old_version]}}))?;
+    pull::request_workspace_diagnostics(&mut f.app.editor, server);
+    f.publish().await?;
+    assert_eq!(f.raw_messages(&uri), ["fresh version"]);
+    assert!(f.app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn server_refresh_restarts_workspace_pulls_without_document_edits() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let mut f = Fixture::with_workspace(dir.path(), "original", &["alpha"], false, true)?;
+    f.initialize().await?;
+    f.publish().await?;
+    f.publish().await?;
+    let server = f.server("alpha");
+    let uri = Uri::from(stdx::path::normalize(dir.path().join("unopened.pull-test")));
+    f.workspace_reports(
+        0,
+        json!({"result": {"items": [workspace_report(&uri, "refreshed", Some("after refresh"))]}}),
+    )?;
+    let request = serde_json::from_value(
+        json!({"jsonrpc":"2.0", "id":"workspace-refresh", "method":"workspace/diagnostic/refresh", "params": null}),
+    )?;
+    f.app.handle_language_server_message(request, server).await;
+    f.until(|f| f.raw_messages(&uri) == ["after refresh"])
+        .await?;
+    assert_eq!(f.workspace_requests(0)?.len(), 2);
+    assert_eq!(f.messages(), ["alpha: 😀 original"]);
+    assert!(f.app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn streamed_unchanged_reports_can_rotate_ids_after_a_full_batch() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let mut f = Fixture::with_workspace(dir.path(), "original", &["alpha"], false, true)?;
+    let uri = Uri::from(stdx::path::normalize(dir.path().join("unopened.pull-test")));
+    f.workspace_reports(0, json!({"batches": [
+        {"items": [workspace_report(&uri, "first", Some("retained full batch"))]},
+        {"items": [{"uri": uri.to_url().unwrap().as_str(), "version": null, "kind": "unchanged", "resultId": "rotated"}]}
+    ], "hold": true}))?;
+    f.initialize().await?;
+    // One direct report and the two workspace batches, in any task order.
+    for _ in 0..3 {
+        f.publish().await?;
+    }
+    assert_eq!(f.raw_messages(&uri), ["retained full batch"]);
+    f.workspace_reports(0, json!({"result": {"items": []}}))?;
+    f.request_workspace("alpha");
+    f.publish().await?;
+    let request = f.workspace_requests(0)?.pop().unwrap();
+    assert!(request["params"]["previousResultIds"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|previous| previous["uri"] == uri.to_url().unwrap().as_str()
+            && previous["value"] == "rotated"));
+    assert!(f.app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn workspace_unchanged_reports_cannot_reuse_a_discarded_full_batch() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let mut f = Fixture::with_workspace(dir.path(), "original", &["alpha"], false, true)?;
+    f.initialize().await?;
+    f.publish().await?;
+    f.publish().await?;
+    let server = f.server("alpha");
+    let path = dir.path().join("other.unknown-language");
+    let uri = Uri::from(stdx::path::normalize(&path));
+    f.workspace_reports(
+        0,
+        json!({"result": {"items": [workspace_report(&uri, "retained", Some("retained report"))]}}),
+    )?;
+    let document = f.open(&path, "original")?;
+    f.until(|f| f.raw_messages(&uri) == ["retained report"])
+        .await?;
+    let next_version = f.app.editor.document(document).unwrap().version() + 1;
+    f.workspace_reports(0, json!({"batches": [
+        {"items": [workspace_report(&uri, "discarded", Some("discarded full report"))]},
+        {"items": [{"uri": uri.to_url().unwrap().as_str(), "version": next_version, "kind": "unchanged", "resultId": "must-not-retain"}]}
+    ], "hold": true}))?;
+    pull::request_workspace_diagnostics(&mut f.app.editor, server);
+    let full = f.response().await?;
+    let unchanged = f.response().await?;
+    f.edit("changed");
+    full(&mut f.app.editor);
+    unchanged(&mut f.app.editor);
+    assert_eq!(f.raw_messages(&uri), ["retained report"]);
+    f.workspace_reports(0, json!({"result": {"items": []}}))?;
+    pull::request_workspace_diagnostics(&mut f.app.editor, server);
+    f.publish().await?;
+    let request = f.workspace_requests(0)?.pop().unwrap();
+    assert!(request["params"]["previousResultIds"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|previous| previous["uri"] == uri.to_url().unwrap().as_str()
+            && previous["value"] == "retained"));
     assert!(f.app.close().await.is_empty());
     Ok(())
 }

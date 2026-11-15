@@ -456,3 +456,73 @@ async fn dropping_the_shutdown_receiver_preserves_fire_and_forget_ordering() {
     assert_eq!(fixture.next().await["method"], "exit");
     assert!(fixture.finish().await.is_empty());
 }
+
+#[tokio::test]
+async fn partial_result_subscriptions_follow_request_cancellation_and_completion() {
+    let mut fixture = Fixture::new(4096, true);
+    let (sender, mut partial) = unbounded_channel();
+    let request = fixture
+        .transport
+        .pending_requests
+        .request_with_partial::<lsp::request::WorkspaceDiagnosticRequest>(
+            &fixture.sender,
+            jsonrpc::Id::Num(1),
+            &lsp::WorkspaceDiagnosticParams {
+                identifier: None,
+                previous_result_ids: Vec::new(),
+                work_done_progress_params: Default::default(),
+                partial_result_params: lsp::PartialResultParams {
+                    partial_result_token: Some(lsp::ProgressToken::String("test-partial".into())),
+                },
+            },
+            20,
+            Some(("test-partial".into(), sender)),
+        );
+    assert_eq!(fixture.next().await["id"], 1);
+    fixture.respond(serde_json::json!({"jsonrpc":"2.0", "method":"$/progress", "params":{"token":"test-partial", "value":{"items":[]}}})).await;
+    assert_eq!(
+        tokio::time::timeout(Duration::from_secs(5), partial.recv())
+            .await
+            .unwrap()
+            .unwrap(),
+        serde_json::json!({"items":[]})
+    );
+    fixture
+        .respond(serde_json::json!({"jsonrpc":"2.0", "id":1, "result":{"items":[]}}))
+        .await;
+    assert!(request.await.is_ok());
+    assert!(partial.recv().await.is_none());
+    assert_eq!(fixture.pending(), 0);
+    assert!(fixture.finish().await.is_empty());
+}
+
+#[tokio::test]
+async fn cancellation_removes_partial_subscriptions_and_ignores_late_batches() {
+    let requests = Arc::new(PendingRequests::default());
+    let (sender, mut outgoing) = unbounded_channel();
+    let (progress, mut partial) = unbounded_channel();
+    let request = requests.request_with_partial::<lsp::request::Shutdown>(
+        &sender,
+        jsonrpc::Id::Num(1),
+        &(),
+        20,
+        Some(("mitos:partial:1".into(), progress)),
+    );
+    assert!(matches!(outgoing.recv().await, Some(Payload::Request(_))));
+    assert!(requests.start(&jsonrpc::Id::Num(1)));
+    drop(request);
+    assert!(partial.recv().await.is_none());
+    assert!(matches!(
+        outgoing.recv().await,
+        Some(Payload::Cancel {
+            notify_server: true,
+            ..
+        })
+    ));
+    assert!(requests.partial_result(
+        &serde_json::json!({"token":"mitos:partial:1", "value":{"items":[]}}).into()
+    ));
+    assert!(!requests
+        .partial_result(&serde_json::json!({"token":"indexing", "value":{"kind":"end"}}).into()));
+    assert!(!requests.partial_result(&serde_json::json!({"token":"mitos:partial:index", "value":{"kind":"begin", "title":"Indexing"}}).into()));
+}

@@ -15,6 +15,12 @@ fn respond(output: &mut impl Write, message: Value) -> anyhow::Result<()> {
     Ok(())
 }
 
+fn diagnostic_reports(path: &str) -> anyhow::Result<Value> {
+    let file = std::fs::File::open(path)?;
+    file.lock_shared()?;
+    Ok(serde_json::from_reader(file)?)
+}
+
 fn range(start: usize, end: usize) -> Value {
     json!({"start": {"line": 0, "character": start}, "end": {"line": 0, "character": end}})
 }
@@ -358,6 +364,11 @@ fn main() -> anyhow::Result<()> {
             continue;
         }
         if workspace_symbols && method == "workspace/symbol" {
+            if let Some(index) = args.iter().position(|arg| arg == "--symbol-query-gate") {
+                while !std::path::Path::new(&args[index + 1]).exists() {
+                    std::thread::sleep(std::time::Duration::from_millis(5));
+                }
+            }
             if args.iter().any(|arg| arg == "--hold-symbols") {
                 continue;
             }
@@ -375,11 +386,60 @@ fn main() -> anyhow::Result<()> {
             } else {
                 format!("{}:{}", args[1], params["query"].as_str().unwrap())
             };
-            let result = json!([{"name": name,
-                "kind": 12, "location": {"uri": uri, "range": range(3, 6)}}]);
+            let result = if args.iter().any(|arg| arg == "--unsupported-symbols") {
+                json!([
+                    {"name": name, "kind": 12, "location": {"uri": uri, "range": range(3, 6)}},
+                    {"name": "unsupported", "kind": 12, "location": {"uri": "https://example.com/symbol", "range": range(3, 6)}}
+                ])
+            } else if args.iter().any(|arg| arg == "--lazy-symbols") {
+                json!([
+                    {"name": name, "kind": 12, "location": {"uri": uri}, "data": {"provider": args[1], "query": params["query"], "token": [1, {"opaque": true}]}},
+                    {"name": format!("{}:other", args[1]), "kind": 12, "location": {"uri": uri}, "data": {"provider": args[1], "query": "other", "token": [1, {"opaque": true}]}}
+                ])
+            } else {
+                json!([{"name": name, "kind": 12, "location": {"uri": uri, "range": range(3, 6)}}])
+            };
             respond(
                 &mut output,
                 json!({"jsonrpc": "2.0", "id": id, "result": result}),
+            )?;
+            continue;
+        }
+        if method == "workspace/diagnostic" && diagnostics {
+            writeln!(request_log.as_mut().unwrap(), "{message}")?;
+            request_log.as_mut().unwrap().flush()?;
+            let index = args
+                .iter()
+                .position(|arg| arg == "--workspace-diagnostics")
+                .unwrap();
+            let reports = diagnostic_reports(&args[index + 1])?;
+            for batch in reports["batches"].as_array().into_iter().flatten() {
+                respond(
+                    &mut output,
+                    json!({"jsonrpc": "2.0", "method": "$/progress",
+                    "params": {"token": params["partialResultToken"], "value": batch}}),
+                )?;
+            }
+            if reports["hold"].as_bool() == Some(true) {
+                continue;
+            }
+            let response = if let Some(error) = reports.get("error") {
+                json!({"jsonrpc": "2.0", "id": id, "error": error})
+            } else {
+                json!({"jsonrpc": "2.0", "id": id, "result": reports["result"]})
+            };
+            respond(&mut output, response)?;
+            continue;
+        }
+        if workspace_symbols && method == "workspaceSymbol/resolve" {
+            if args.iter().any(|arg| arg == "--hold-symbol-resolves") {
+                continue;
+            }
+            let mut symbol = params.clone();
+            symbol["location"]["range"] = range(3, 6);
+            respond(
+                &mut output,
+                json!({"jsonrpc": "2.0", "id": id, "result": symbol}),
             )?;
             continue;
         }
@@ -415,8 +475,7 @@ fn main() -> anyhow::Result<()> {
                 report
             };
             if let Some(index) = args.iter().position(|arg| arg == "--related-diagnostics") {
-                result["relatedDocuments"] =
-                    serde_json::from_reader(std::fs::File::open(&args[index + 1])?)?;
+                result["relatedDocuments"] = diagnostic_reports(&args[index + 1])?;
             }
             respond(
                 &mut output,
@@ -942,7 +1001,7 @@ fn main() -> anyhow::Result<()> {
                 "renameProvider": {"prepareProvider": !args.iter().any(|arg| arg == "--no-prepare")}
             }}),
             "initialize" if workspace_symbols => json!({"capabilities": {
-                "positionEncoding": "utf-16", "textDocumentSync": 1, "workspaceSymbolProvider": true
+                "positionEncoding": "utf-16", "textDocumentSync": 1, "workspaceSymbolProvider": {"resolveProvider": args.iter().any(|arg| arg == "--lazy-symbols")}
             }}),
             "initialize" if document_symbols => {
                 json!({"capabilities":{"textDocumentSync":1,"documentSymbolProvider":true}})
@@ -1180,7 +1239,7 @@ fn main() -> anyhow::Result<()> {
             }}),
             "initialize" if diagnostics => json!({"capabilities": {
                 "positionEncoding": "utf-16", "textDocumentSync": 1,
-                "diagnosticProvider": {"identifier": args[1], "workspaceDiagnostics": false,
+                "diagnosticProvider": {"identifier": args[1], "workspaceDiagnostics": args.iter().any(|arg| arg == "--workspace-diagnostics"),
                     "interFileDependencies": args.iter().any(|arg| arg == "--inter-file")}
             }}),
             "initialize" => json!({"capabilities": {
