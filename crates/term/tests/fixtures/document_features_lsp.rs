@@ -485,6 +485,22 @@ fn main() -> anyhow::Result<()> {
         }
         if method == "textDocument/codeAction"
             && action_execution
+            && args.iter().any(|arg| arg == "--presentation-details")
+        {
+            respond(
+                &mut output,
+                json!({"jsonrpc": "2.0", "id": id, "result": [
+                    {"title": "Generated fix", "kind": "quickfix", "tags": [1, 999],
+                     "edit": {"changes": {}}, "command": {"title": "Apply fix", "command": "fixture.command", "tooltip": "Run generated fix"}},
+                    {"title": "Unknown annotation", "kind": "quickfix", "tags": [999], "edit": {"changes": {}}},
+                    {"title": "Run helper", "command": "fixture.command", "tooltip": "Explain helper"},
+                    {"title": "disabled", "kind": "source.first", "disabled": {"reason": "unavailable"}}
+                ]}),
+            )?;
+            continue;
+        }
+        if method == "textDocument/codeAction"
+            && action_execution
             && args.iter().any(|a| a == "--multicursor-actions")
         {
             let start = params["range"]["start"]["character"].as_u64().unwrap();
@@ -890,7 +906,7 @@ fn main() -> anyhow::Result<()> {
             }
             if params["data"]["kind"] != "empty" {
                 lens["command"] = json!({"title": format!("{} resolved", args[1]),
-                    "command": "fixture.lens", "arguments": [args[1], params["data"]]});
+                    "command": "fixture.lens", "tooltip": "Run resolved lens", "arguments": [args[1], params["data"]]});
             }
             respond(
                 &mut output,
@@ -1197,7 +1213,14 @@ fn main() -> anyhow::Result<()> {
             }}),
             "initialize" if action_execution => json!({"capabilities": {
                 "positionEncoding": "utf-16", "textDocumentSync": 1,
-                "codeActionProvider": {"resolveProvider": !args.iter().any(|arg| arg == "--no-resolve")},
+                "codeActionProvider": {
+                    "resolveProvider": !args.iter().any(|arg| arg == "--no-resolve"),
+                    "documentation": if args.iter().any(|arg| arg == "--presentation-details") { json!([
+                        {"kind": "quickfix", "command": {"title": "Quick fix help", "command": "fixture.documentation", "tooltip": "Learn about quick fixes"}},
+                        {"kind": "source", "command": {"title": "Source help", "command": "fixture.documentation"}},
+                        {"kind": "source.first", "command": {"title": "First source help", "command": "fixture.documentation"}}
+                    ]) } else { Value::Null }
+                },
                 "executeCommandProvider": {"commands": ["fixture.command"]}
             }}),
             "initialize" if inline_completion => json!({"capabilities": {
@@ -1264,10 +1287,12 @@ fn main() -> anyhow::Result<()> {
             "documentLink/resolve" => {
                 let mut link = params.clone();
                 link["target"] = params["data"]["target"].clone();
+                link["tooltip"] = json!("Open *resolved* [target]");
                 link
             }
             "textDocument/documentLink" => json!([{
-                "range": range(3, end), "target": "https://example.test/target"
+                "range": range(3, end), "target": "https://example.test/target",
+                "tooltip": "Open *example* [target]"
             }]),
             "textDocument/codeLens" if code_lenses && text.contains("no lenses") => Value::Null,
             "textDocument/codeLens"
@@ -1301,7 +1326,7 @@ fn main() -> anyhow::Result<()> {
             }
             "textDocument/codeLens" if code_lenses => json!([
                 {"range": range(3, end), "command": {"title": format!("{} ready", args[1]),
-                    "command": "fixture.lens", "arguments": [args[1]]}},
+                    "command": "fixture.lens", "tooltip": "Run ready lens", "arguments": [args[1]]}},
                 {"range": range(3, end), "data": {"server": args[1], "kind": "resolve"}},
                 {"range": range(3, end), "data": {"server": args[1], "kind": "empty"}},
                 {"range": range(3, end), "data": {"server": args[1], "kind": "failure"}},

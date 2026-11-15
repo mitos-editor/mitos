@@ -349,6 +349,10 @@ impl Client {
                         dynamic_registration: Some(false),
                     }),
                     code_action: Some(lsp::CodeActionClientCapabilities {
+                        documentation_support: Some(true),
+                        tag_support: Some(lsp::CodeActionTagOptions {
+                            value_set: vec![lsp::CodeActionTag::LLM_GENERATED],
+                        }),
                         code_action_literal_support: Some(lsp::CodeActionLiteralSupport {
                             code_action_kind: lsp::CodeActionKindLiteralSupport {
                                 value_set: [
@@ -409,7 +413,7 @@ impl Client {
                     }),
                     document_link: Some(lsp::DocumentLinkClientCapabilities {
                         dynamic_registration: Some(false),
-                        tooltip_support: Some(false),
+                        tooltip_support: Some(true),
                     }),
                     call_hierarchy: Some(lsp::DynamicRegistrationClientCapabilities {
                         dynamic_registration: Some(false),

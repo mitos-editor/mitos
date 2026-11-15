@@ -58,6 +58,16 @@ impl Fixture {
         format: bool,
         multicursor: bool,
     ) -> anyhow::Result<Self> {
+        Self::with_settings(resolve, kinds, format, multicursor, false).await
+    }
+
+    async fn with_settings(
+        resolve: bool,
+        kinds: &[&str],
+        format: bool,
+        multicursor: bool,
+        details: bool,
+    ) -> anyhow::Result<Self> {
         let save = !kinds.is_empty();
         let dir = tempfile::tempdir()?;
         let log = fixture_lsp::log_path(dir.path(), "alpha");
@@ -68,6 +78,11 @@ impl Fixture {
             .arg("--response-gate")
             .arg(gate.path())
             .arg(if resolve { "--resolve" } else { "--no-resolve" })
+            .arg(if details {
+                "--presentation-details"
+            } else {
+                "--no-presentation-details"
+            })
             .arg(if multicursor {
                 "--multicursor-actions"
             } else if save {
@@ -781,5 +796,58 @@ async fn multicursor_actions_reject_stale_queued_resolutions() -> anyhow::Result
         .0
         .contains("no longer current"));
     f.assert_no_command().await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn action_details_preserve_tags_tooltips_and_one_documentation_command() -> anyhow::Result<()>
+{
+    let mut f = Fixture::with_settings(false, &[], false, false, true).await?;
+    let actions = f.available_actions().await?;
+    let generated = actions
+        .iter()
+        .find(|action| action.title() == "Generated fix")
+        .unwrap();
+    assert!(generated.is_llm_generated());
+    assert_eq!(generated.tooltip(), Some("Run generated fix"));
+    let unknown = actions
+        .iter()
+        .find(|action| action.title() == "Unknown annotation")
+        .unwrap();
+    assert!(!unknown.is_llm_generated());
+    let helper = actions
+        .iter()
+        .find(|action| action.title() == "Run helper")
+        .unwrap();
+    assert_eq!(helper.tooltip(), Some("Explain helper"));
+    assert!(!actions.iter().any(|action| action.title() == "disabled"));
+    let documentation: Vec<_> = actions
+        .iter()
+        .filter(|action| action.title().ends_with("help"))
+        .collect();
+    assert_eq!(documentation.len(), 1);
+    assert_eq!(documentation[0].title(), "Quick fix help");
+    assert_eq!(documentation[0].tooltip(), Some("Learn about quick fixes"));
+    documentation[0].execute(&mut f.editor);
+    f.wait_request("workspace/executeCommand").await?;
+    assert!(f
+        .messages()
+        .iter()
+        .any(|message| message["method"] == "workspace/executeCommand"
+            && message["params"]["command"] == "fixture.documentation"));
+    let initialize = f
+        .messages()
+        .into_iter()
+        .find(|message| message["method"] == "initialize")
+        .unwrap();
+    assert_eq!(
+        initialize["params"]["capabilities"]["textDocument"]["codeAction"]["documentationSupport"],
+        true
+    );
+    assert_eq!(
+        initialize["params"]["capabilities"]["textDocument"]["codeAction"]["tagSupport"]
+            ["valueSet"],
+        json!([1])
+    );
     Ok(())
 }
