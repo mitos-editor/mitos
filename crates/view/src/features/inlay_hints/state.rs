@@ -34,6 +34,15 @@ pub struct DocumentInlayHints {
     // the latter preserves explicitly supplied annotations and existing consumers.
     pub(crate) ordered: Vec<InlineAnnotation>,
     pub(crate) styles: Vec<HintStyle>,
+    pub(super) labels: Vec<Option<DisplayedHint>>,
+}
+
+/// Only original label bytes are interaction targets. Padding entries and the
+/// ellipsis appended by truncation have no corresponding protocol text.
+#[derive(Debug, Clone, Copy)]
+pub(super) struct DisplayedHint {
+    pub(super) hint: usize,
+    pub(super) label_bytes: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -63,7 +72,22 @@ impl DocumentInlayHints {
             padding_after_inlay_hints: Vec::new(),
             ordered: Vec::new(),
             styles: Vec::new(),
+            labels: Vec::new(),
         }
+    }
+}
+
+impl DocumentInlayHints {
+    pub(super) fn hint_for_annotation(
+        &self,
+        source: text_layout::doc_formatter::InlineAnnotationSource<'_>,
+    ) -> Option<(usize, usize)> {
+        let index = self
+            .ordered
+            .iter()
+            .position(|entry| std::ptr::eq(entry, source.annotation))?;
+        let label = self.labels.get(index).copied().flatten()?;
+        (source.byte_offset < label.label_bytes).then_some((label.hint, source.byte_offset))
     }
 }
 

@@ -47,6 +47,7 @@ mod test {
     #[cfg(feature = "git")]
     mod git_diff;
     mod goto_hover;
+    mod inlay_mouse_targets;
     mod inline_completion;
     mod language_features;
     mod linked_editing;

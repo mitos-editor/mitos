@@ -1,4 +1,4 @@
-//! User-initiated access to full hints. Display annotations are never action targets.
+//! Fresh hint identities, displayed label hits, and lazy hint resolution.
 
 use std::{
     future::Future,
@@ -22,12 +22,24 @@ pub struct InlayHintTarget {
     owner: Weak<EditorCallbackSender>,
     document: DocumentId,
     view: ViewId,
+    focus: ViewId,
     generation: Arc<()>,
     index: usize,
     selection: Selection,
 }
 
 impl InlayHintTarget {
+    /// Whether two hits belong to the same cached hint and interaction context.
+    pub fn same_hint(&self, other: &Self) -> bool {
+        self.owner.ptr_eq(&other.owner)
+            && self.document == other.document
+            && self.view == other.view
+            && self.focus == other.focus
+            && Arc::ptr_eq(&self.generation, &other.generation)
+            && self.index == other.index
+            && self.selection == other.selection
+    }
+
     /// Check the editor, document snapshot, provider, view and original selection.
     pub fn is_current(&self, editor: &Editor) -> bool {
         if !self
@@ -35,7 +47,7 @@ impl InlayHintTarget {
             .ptr_eq(&Arc::downgrade(&editor.handlers.inlay_hints.callbacks))
             || !editor.config().lsp.enable
             || !editor.config().lsp.inlay_hints.enable
-            || editor.tree.focus() != self.view
+            || editor.tree.focus() != self.focus
             || !editor
                 .tree
                 .try_get(self.view)
@@ -105,6 +117,7 @@ pub fn hints_on_line(editor: &Editor, view: ViewId, line: usize) -> Vec<InlayHin
                 owner: source.owner.clone(),
                 document: doc.id(),
                 view: view.id,
+                focus: editor.tree.focus(),
                 generation: state.generation.clone(),
                 index,
                 selection: doc.selection(view.id).clone(),
@@ -117,6 +130,63 @@ pub fn hints_on_line(editor: &Editor, view: ViewId, line: usize) -> Vec<InlayHin
             )
         })
         .collect()
+}
+
+/// A displayed label glyph mapped to its full hint and optional structured part.
+#[derive(Clone)]
+pub struct InlayHintHit {
+    pub target: InlayHintTarget,
+    pub label_part: Option<usize>,
+}
+
+/// Hit only visible label text from the current live presentation. Other inline
+/// annotations, hint padding, truncated suffixes and hidden hints are excluded.
+/// Capturing a target never changes the focused view or any selection.
+pub fn hint_at_screen_coords(
+    editor: &Editor,
+    view: ViewId,
+    row: u16,
+    column: u16,
+) -> Option<InlayHintHit> {
+    let view = editor.tree.try_get(view)?;
+    let doc = editor.document(view.doc)?;
+    let presented = editor.completion_presentation(doc);
+    if !presented.is_live() {
+        return None;
+    }
+    let state = &doc.view_states.get(&view.id)?.inlay_hints;
+    let source = state.source.as_ref()?;
+    let layout = view.layout_presented(presented, None);
+    let glyph = layout.inline_annotation_at_screen_coords(row, column)?;
+    let (index, byte_offset) = state.get()?.hint_for_annotation(glyph)?;
+    let target = InlayHintTarget {
+        owner: source.owner.clone(),
+        document: doc.id(),
+        view: view.id,
+        focus: editor.tree.focus(),
+        generation: state.generation.clone(),
+        index,
+        selection: doc.selection(view.id).clone(),
+    };
+    if !target.is_current(editor) {
+        return None;
+    }
+    let label_part = label_part_at_offset(&state.hints.get(index)?.hint.label, byte_offset);
+    Some(InlayHintHit { target, label_part })
+}
+
+fn label_part_at_offset(label: &lsp::InlayHintLabel, mut byte_offset: usize) -> Option<usize> {
+    let lsp::InlayHintLabel::LabelParts(parts) = label else {
+        return None;
+    };
+    parts.iter().position(|part| {
+        if byte_offset < part.value.len() {
+            true
+        } else {
+            byte_offset -= part.value.len();
+            false
+        }
+    })
 }
 
 /// An interaction result, guarded until the frontend displays or uses it.
@@ -239,4 +309,27 @@ fn same_label(original: &lsp::InlayHint, resolved: &lsp::InlayHint) -> bool {
             }
             _ => false,
         }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn structured_part_hits_use_utf8_offsets_and_keep_combining_clusters_together() {
+        let part = |value: &str| lsp::InlayHintLabelPart {
+            value: value.into(),
+            tooltip: None,
+            location: None,
+            command: None,
+        };
+        let label =
+            lsp::InlayHintLabel::LabelParts(vec![part("界e"), part("\u{301}😀"), part(" tail")]);
+        assert_eq!(label_part_at_offset(&label, 0), Some(0));
+        // A grapheme starting at e includes the next part's combining mark;
+        // its screen cells belong to the part containing its first byte.
+        assert_eq!(label_part_at_offset(&label, 3), Some(0));
+        assert_eq!(label_part_at_offset(&label, 6), Some(1));
+        assert_eq!(label_part_at_offset(&label, 10), Some(2));
+        assert_eq!(label_part_at_offset(&label, 15), None);
+    }
 }
