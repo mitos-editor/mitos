@@ -1,17 +1,19 @@
 # Releases
 
-[release-plz](https://release-plz.dev/) opens and updates a release PR on pushes
-to `main`. Merging that PR creates a draft GitHub release and a version tag such as `v0.2.1`;
+[git-cliff](https://git-cliff.org/) prepares one changelog for the entire repository.
+The Prepare release workflow opens a release PR on pushes to `main` when none is
+already open. Merging that PR creates a draft GitHub release and a version tag such as `v0.2.1`;
 the tag triggers `.github/workflows/release.yml` to build and upload the binary
 archives, Linux AppImages, Debian package, SHA-256 checksums, and provenance attestations.
 The release stays in draft until you publish it manually. Artifact uploads find
 the existing draft by ID and refuse to proceed if it is already published.
 
-Releases use Git tags only; release-plz does not publish crates to crates.io.
-The `term` package owns the release and root changelog. Its version is inherited
-from `workspace.package.version`, so the editor's internal workspace crates
-remain on the same version. The vendored `crates/lsp-types` package retains its
-upstream version and is excluded from release-plz versioning and releases.
+Mitos has one application version, one root changelog, and one version tag.
+The version comes from `workspace.package.version`; internal crates inherit it.
+Independently versioned crates, including the vendored `crates/lsp-types`, keep
+their versions. Release preparation regenerates `Cargo.lock` with
+`cargo update --workspace`, retaining locked external dependencies. No crates
+are published to crates.io.
 
 ## Version baseline
 
@@ -19,11 +21,22 @@ Mitos uses semantic versions starting at **0.1.0**, independently of Helix's
 release history. Tags use the form `v0.1.0`. Inherited Helix tags must not be
 pushed back into this repository.
 
-With no existing release tags, release-plz treats `0.1.0` as the initial
-release and keeps that version in its first release PR. Subsequent versions
-follow release-plz's semantic version bumps from commit messages.
-`release_always = false` ensures draft release creation happens only after a
-release PR is merged. `git_release_draft = true` keeps the release unpublished.
+Release preparation starts at the highest stable `vX.Y.Z` tag reachable from
+`main`. Nightly, prerelease, and unrelated upstream tags are ignored. The
+repository must already have a stable version tag.
+
+`cliff.toml` defines the notes and version policy. Below 1.0, features and fixes
+suggest a patch bump; breaking changes suggest a minor bump. Commits anywhere
+in the repository contribute, including grammars, themes, and packaging.
+Existing `Unreleased` notes move into the new release entry, and historical
+entries are preserved. Review and curate the generated notes before merging.
+
+An open release PR is left unchanged so manual version choices and curated notes
+are preserved. This includes existing release-plz PRs during the migration.
+Merge current `main` into the release branch and update its notes if more changes
+need to be included before releasing. After a release PR is merged, the workflow
+creates the draft before pushing the tag that starts packaging. Retries reuse
+the draft and never move an existing tag or edit a published release.
 
 ## Repository setup
 
@@ -33,7 +46,8 @@ from an account with write access to the repository. Grant repository
 and save the token as the repository Actions secret `RELEASE_PAT`.
 
 The PAT allows release PRs to trigger CI and version tags to trigger the binary
-build workflow. See the [release-plz token setup guide](https://release-plz.dev/docs/github/token).
+build workflow. The Prepare release workflow uses `RELEASE_PAT` for both operations;
+checkout credentials remain disabled.
 
 ## Release checklist
 
@@ -53,7 +67,7 @@ build workflow. See the [release-plz token setup guide](https://release-plz.dev/
    `nix/grammar-sources.json` against `languages.toml`; regenerate changed pins
    with `cargo xtask update-nix-grammar-sources` on a machine with Nix installed.
 5. Wait for CI and merge the release PR.
-6. Verify the Release-plz and Release workflows finish. Check all six platform
+6. Verify the Prepare release and Release workflows finish. Check all six platform
    archives, both Linux AppImages, the x86_64 Debian package, source archive,
    `SHA256SUMS`, and provenance attestations on the draft GitHub release. The source
    archive includes pinned grammar sources and excludes Git metadata and CI
@@ -75,7 +89,20 @@ release automatically. A rerun after manual publication fails the draft check
 rather than changing the published release.
 
 Manual dispatch of the Release workflow remains a preview build and uploads CI
-artifacts. Manual dispatch of Release-plz on `main` reruns release automation.
+artifacts. Manual dispatch of Prepare release on `main` reruns release automation.
+
+To prepare the same version and changelog locally, install git-cliff 2.14.2 and
+the repository's Rust toolchain, start from a clean `main` checkout with tags,
+and run:
+
+```sh
+python3 .github/scripts/release.py prepare
+```
+
+This edits `Cargo.toml`, `Cargo.lock`, and `CHANGELOG.md` without creating a PR,
+tag, or GitHub release. To choose another version, edit
+`workspace.package.version`, regenerate the lockfile with `cargo update --workspace`,
+and adjust the new changelog heading and comparison link before merging.
 
 ## Branches and channels
 
@@ -130,7 +157,8 @@ Stable publication is manual. If you automate it later with `GITHUB_TOKEN`,
 call the stable update explicitly: its release event will not start another
 workflow. Publishing with a GitHub App token or PAT also permits that trigger.
 
-Validate release automation without publishing anything:
+Validate release automation without publishing anything. Install git-cliff
+2.14.2 and Cargo to exercise the release preparation fixtures:
 
 ```sh
 python3 -m unittest discover -s tests/releases -v

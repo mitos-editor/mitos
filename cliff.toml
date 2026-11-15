@@ -1,0 +1,39 @@
+[changelog]
+header = ""
+body = """
+## [{{ version | trim_start_matches(pat="v") }}](https://github.com/mitos-editor/mitos/compare/{{ previous.version }}...{{ version }}) - {{ timestamp | date(format="%Y-%m-%d") }}
+{% for group, commits in commits | group_by(attribute="group") %}
+### {{ group }}
+
+{% for commit in commits -%}
+- {% if commit.scope %}**{{ commit.scope }}:** {% endif %}{% if commit.breaking %}**Breaking:** {% endif %}{{ commit.message }}
+{% endfor %}
+{% endfor %}
+"""
+trim = true
+
+[git]
+conventional_commits = true
+filter_unconventional = false
+protect_breaking_commits = true
+commit_preprocessors = [
+  { pattern = '\(#([0-9]+)\)', replace = '([#$1](https://github.com/mitos-editor/mitos/pull/$1))' },
+]
+commit_parsers = [
+  { message = '^feat', group = "Features" },
+  { message = '^fix', group = "Fixes" },
+  { message = '^perf', group = "Performance" },
+  { message = '^docs', group = "Documentation" },
+  { message = '^chore\(release\):', skip = true },
+  { message = '.*', group = "Other changes" },
+]
+# Nightlies, prereleases, and inherited upstream tags are not release baselines.
+tag_pattern = '^v[0-9]+\.[0-9]+\.[0-9]+$'
+use_branch_tags = true
+topo_order = true
+sort_commits = "oldest"
+
+[bump]
+# Retain the existing release policy while Mitos is below 1.0.
+features_always_bump_minor = false
+breaking_always_bump_major = false
