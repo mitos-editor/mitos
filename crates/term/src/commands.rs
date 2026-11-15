@@ -15,6 +15,7 @@ mod files;
 mod folding;
 mod formatting;
 mod history;
+mod inlay_hints;
 pub mod insert;
 pub(crate) mod lsp;
 mod macros;
@@ -54,6 +55,7 @@ pub use dap::{
 pub use diagnostics::{diagnostics_picker, workspace_diagnostics_picker};
 pub(crate) use editing::replace_selections;
 pub use files::typed::{write_all_impl, MoveBufferOptions};
+pub use inlay_hints::inlay_hints;
 pub use insert::{CommentContinuation, Open};
 pub use lsp::{
     code_action, goto_declaration, goto_definition, goto_implementation, goto_reference,
