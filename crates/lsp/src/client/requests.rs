@@ -181,6 +181,7 @@ impl Client {
         }
         Some(
             self.call::<lsp::request::InlineCompletionRequest>(lsp::InlineCompletionParams {
+                partial_result_params: Default::default(),
                 text_document_position: lsp::TextDocumentPositionParams {
                     text_document,
                     position,
@@ -382,7 +383,7 @@ impl Client {
         &self,
         text_document: lsp::TextDocumentIdentifier,
         previous_result_id: Option<String>,
-    ) -> Option<impl Future<Output = Result<lsp::DocumentDiagnosticReportResult>> + use<>> {
+    ) -> Option<impl Future<Output = Result<lsp::DocumentDiagnosticReport>> + use<>> {
         let capabilities = self.capabilities();
 
         // Return early if the server does not support pull diagnostic.
@@ -515,7 +516,8 @@ impl Client {
         match capabilities.type_definition_provider {
             Some(
                 lsp::TypeDefinitionProviderCapability::Simple(true)
-                | lsp::TypeDefinitionProviderCapability::Options(_),
+                | lsp::TypeDefinitionProviderCapability::Options(_)
+                | lsp::TypeDefinitionProviderCapability::RegistrationOptions(_),
             ) => (),
             _ => return None,
         }
@@ -539,7 +541,8 @@ impl Client {
         match capabilities.implementation_provider {
             Some(
                 lsp::ImplementationProviderCapability::Simple(true)
-                | lsp::ImplementationProviderCapability::Options(_),
+                | lsp::ImplementationProviderCapability::Options(_)
+                | lsp::ImplementationProviderCapability::RegistrationOptions(_),
             ) => (),
             _ => return None,
         }
@@ -752,7 +755,12 @@ impl Client {
                     | lsp::SemanticTokensFullOptions::Delta { .. }
             )
         );
-        if !full && options.range != Some(true) {
+        if !full
+            && !matches!(
+                options.range,
+                Some(lsp::OneOf::Left(true) | lsp::OneOf::Right(_))
+            )
+        {
             return None;
         }
         let full_request = full.then(|| {

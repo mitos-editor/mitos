@@ -371,30 +371,23 @@ pub(crate) fn register_hooks(events: &event::EventHub, hooks: crate::handlers::D
 
 fn handle_pull_diagnostics_response(
     editor: &mut Editor,
-    result: lsp::DocumentDiagnosticReportResult,
+    result: lsp::DocumentDiagnosticReport,
     provider: DiagnosticProvider,
     uri: Uri,
     request_id: u64,
     related_documents: BTreeMap<Uri, RelatedDocument>,
 ) {
     let (primary, related) = match result {
-        lsp::DocumentDiagnosticReportResult::Report(lsp::DocumentDiagnosticReport::Full(
-            report,
-        )) => (
-            Some(report.full_document_diagnostic_report.into()),
+        lsp::DocumentDiagnosticReport::Full(report) => (
+            report.full_document_diagnostic_report.into(),
             report.related_documents,
         ),
-        lsp::DocumentDiagnosticReportResult::Report(lsp::DocumentDiagnosticReport::Unchanged(
-            report,
-        )) => (
-            Some(report.unchanged_document_diagnostic_report.into()),
+        lsp::DocumentDiagnosticReport::Unchanged(report) => (
+            report.unchanged_document_diagnostic_report.into(),
             report.related_documents,
         ),
-        lsp::DocumentDiagnosticReportResult::Partial(report) => (None, report.related_documents),
     };
-    if let Some(report) = primary {
-        apply_report(editor, &provider, uri.clone(), request_id, report);
-    }
+    apply_report(editor, &provider, uri.clone(), request_id, primary);
 
     for (related_uri, report) in related.into_iter().flatten() {
         let related_uri = match related_uri.to_editor_uri() {

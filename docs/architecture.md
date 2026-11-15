@@ -32,6 +32,7 @@ Features live with the state they change; frontends adapt input and present resu
 | `file-watch` | Native watches, ignore filtering, coverage, and metadata polling |
 | `spelling` | Dictionary operations, scanning, suggestions, and word persistence |
 | `lsp`, `dap`, `vcs` | Language-server, debugger, and repository integration |
+| `lsp-types` | Vendored Language Server Protocol data types and wire-format tests |
 | `debugger` | Session membership and selection history, thread/frame transitions, and breakpoint models |
 | `dap-types` | Debug Adapter Protocol data types |
 | `command-line`, `parsec`, `snippets` | Command argument parsing, parser combinators, and snippet parsing/state |
@@ -1128,11 +1129,12 @@ completion applies the written revision and path through
 returning the first failure. Required frontend jobs likewise finish their callbacks
 and followups before reporting an error.
 
-The LSP client uses upstream `lsp-types` wire definitions. `lsp::UriExt` adapts
+The LSP client uses wire definitions maintained in `crates/lsp-types`, vendored
+from the Mitos fork with its MIT license and protocol tests. `lsp::UriExt` adapts
 protocol URIs through `stdx` for the editor's RFC3986 file encoding and path
 conversion. Symbol queries expose one normalized editor location per symbol. Icon names
 belong to the frontend; the client advertises the supported wire kinds without
-extending protocol types. Incoming URI syntax is validated by the upstream
+extending protocol types. Incoming URI syntax is validated by the protocol
 wire type; editor navigation additionally requires an absolute URI.
 
 ## Protocol and repository integrations

@@ -636,6 +636,7 @@ async fn title_requests_are_limited_before_the_client_sends_them() -> anyhow::Re
     );
     server
         .command(lsp_client::lsp::Command {
+            tooltip: None,
             title: "release".into(),
             command: "fixture.release-lenses".into(),
             arguments: None,

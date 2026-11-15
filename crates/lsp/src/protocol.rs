@@ -1,4 +1,4 @@
-//! Editor adapters around upstream LSP wire types.
+//! Editor adapters around the workspace's LSP wire types.
 
 use crate::lsp;
 use std::path::{Path, PathBuf};

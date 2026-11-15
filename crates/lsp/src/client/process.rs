@@ -125,7 +125,7 @@ impl Client {
 
         #[allow(deprecated)]
         let params = lsp::InitializeParams {
-            process_id: Some(std::process::id()),
+            process_id: std::process::id().try_into().ok(),
             workspace_folders: Some(self.workspace_folders.lock().clone()),
             // root_path is obsolete, but some clients like pyright still use it so we specify both.
             // clients will prefer _uri if possible
@@ -134,6 +134,7 @@ impl Client {
             initialization_options: self.config.clone(),
             capabilities: lsp::ClientCapabilities {
                 workspace: Some(lsp::WorkspaceClientCapabilities {
+                    text_document_content: None,
                     folding_range: Some(lsp::FoldingRangeWorkspaceClientCapabilities {
                         refresh_support: Some(true),
                     }),
@@ -160,6 +161,7 @@ impl Client {
                         refresh_support: Some(true),
                     }),
                     workspace_edit: Some(lsp::WorkspaceEditClientCapabilities {
+                        metadata_support: None,
                         document_changes: Some(true),
                         snippet_edit_support: Some(true),
                         resource_operations: Some(vec![
@@ -188,7 +190,7 @@ impl Client {
                         did_delete: Some(true),
                         ..Default::default()
                     }),
-                    diagnostic: Some(lsp::DiagnosticWorkspaceClientCapabilities {
+                    diagnostics: Some(lsp::DiagnosticWorkspaceClientCapabilities {
                         refresh_support: Some(true),
                     }),
                     semantic_tokens: Some(lsp::SemanticTokensWorkspaceClientCapabilities {
@@ -216,7 +218,7 @@ impl Client {
                     semantic_tokens: Some(lsp::SemanticTokensClientCapabilities {
                         dynamic_registration: Some(false),
                         requests: lsp::SemanticTokensClientCapabilitiesRequests {
-                            range: Some(true),
+                            range: Some(lsp::OneOf::Left(true)),
                             full: Some(lsp::SemanticTokensFullOptions::Delta { delta: Some(true) }),
                         },
                         token_types: [
@@ -323,6 +325,7 @@ impl Client {
                                 label_offset_support: Some(true),
                             }),
                             active_parameter_support: Some(true),
+                            no_active_parameter_support: Some(true),
                         }),
                         ..Default::default()
                     }),
@@ -371,6 +374,7 @@ impl Client {
                         ..Default::default()
                     }),
                     diagnostic: Some(lsp::DiagnosticClientCapabilities {
+                        markup_message_support: None,
                         dynamic_registration: Some(false),
                         related_document_support: Some(true),
                     }),
@@ -392,6 +396,9 @@ impl Client {
                     }),
                     code_lens: Some(lsp::CodeLensClientCapabilities {
                         dynamic_registration: Some(false),
+                        resolve_support: Some(lsp::ClientCodeLensResolveOptions {
+                            properties: vec!["command".into()],
+                        }),
                     }),
                     inlay_hint: Some(lsp::InlayHintClientCapabilities {
                         dynamic_registration: Some(false),

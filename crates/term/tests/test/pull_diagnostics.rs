@@ -191,7 +191,7 @@ async fn related_reports_update_unopened_files_even_when_the_requested_report_is
     f.initialize().await?;
     f.publish().await?;
     assert_eq!(
-        f.app.editor.diagnostics()[&uri][0].0.message,
+        f.app.editor.diagnostics()[&uri][0].0.message.as_str(),
         "related error"
     );
     assert_eq!(f.app.editor.documents().count(), 1);
@@ -205,7 +205,7 @@ async fn related_reports_update_unopened_files_even_when_the_requested_report_is
     f.publish().await?;
     assert_eq!(f.messages(), ["alpha: 😀 original"]);
     assert_eq!(
-        f.app.editor.diagnostics()[&uri][0].0.message,
+        f.app.editor.diagnostics()[&uri][0].0.message.as_str(),
         "updated error"
     );
 
@@ -217,7 +217,7 @@ async fn related_reports_update_unopened_files_even_when_the_requested_report_is
     f.request();
     f.publish().await?;
     assert_eq!(
-        f.app.editor.diagnostics()[&uri][0].0.message,
+        f.app.editor.diagnostics()[&uri][0].0.message.as_str(),
         "updated error"
     );
 
@@ -301,7 +301,7 @@ async fn related_reports_preserve_other_providers() -> anyhow::Result<()> {
     f.publish().await?;
     let diagnostics = &f.app.editor.diagnostics()[&uri];
     assert_eq!(diagnostics.len(), 1);
-    assert_eq!(diagnostics[0].0.message, "beta");
+    assert_eq!(diagnostics[0].0.message.as_str(), "beta");
     assert!(matches!(&diagnostics[0].1, DiagnosticProvider::Lsp {
         identifier: Some(id), ..
     } if id.as_ref() == "beta"));
@@ -370,7 +370,7 @@ async fn related_reports_skip_unsupported_uris_and_uncached_unchanged_reports() 
     f.initialize().await?;
     f.publish().await?;
     assert_eq!(
-        f.app.editor.diagnostics()[&valid][0].0.message,
+        f.app.editor.diagnostics()[&valid][0].0.message.as_str(),
         "valid error"
     );
     assert!(!f.app.editor.diagnostics().contains_key(&uri));
@@ -605,7 +605,7 @@ async fn queued_reports_cannot_publish_after_edits_renames_or_closure() -> anyho
     // state nor the old URI's cache.
     assert_eq!(f.messages(), after_rename);
     assert_eq!(
-        f.app.editor.diagnostics()[&old_uri][0].0.message,
+        f.app.editor.diagnostics()[&old_uri][0].0.message.as_str(),
         "alpha: 😀 updated"
     );
     // Closing before publication must not insert an entry into the global cache.

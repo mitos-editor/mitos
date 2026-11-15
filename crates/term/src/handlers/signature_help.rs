@@ -21,12 +21,12 @@ use crate::{
 
 fn active_param_range(
     signature: &SignatureInformation,
-    response_active_parameter: Option<u32>,
+    response_active_parameter: Option<Option<u32>>,
 ) -> Option<(usize, usize)> {
     let param_idx = signature
         .active_parameter
         .or(response_active_parameter)
-        .unwrap_or(0) as usize;
+        .unwrap_or(Some(0))? as usize;
     let param = signature.parameters.as_ref()?.get(param_idx)?;
     match &param.label {
         lsp::ParameterLabel::Simple(string) => {
@@ -147,4 +147,45 @@ pub(super) fn register_hooks(events: &event::EventHub) {
         }
         Ok(())
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn active_parameter_distinguishes_omission_null_and_signature_overrides() {
+        for (response, signature, expected) in [
+            (json!({}), json!({}), Some((2, 7))),
+            (json!({"activeParameter": 1}), json!({}), Some((9, 14))),
+            (json!({"activeParameter": null}), json!({}), None),
+            (
+                json!({"activeParameter": 1}),
+                json!({"activeParameter": null}),
+                None,
+            ),
+            (
+                json!({"activeParameter": null}),
+                json!({"activeParameter": 0}),
+                Some((2, 7)),
+            ),
+        ] {
+            let mut value = json!({
+                "label": "f(first, other)",
+                "parameters": [{"label": "first"}, {"label": "other"}]
+            });
+            value
+                .as_object_mut()
+                .unwrap()
+                .extend(signature.as_object().unwrap().clone());
+            let mut help = response;
+            help["signatures"] = json!([value]);
+            let help: lsp::SignatureHelp = serde_json::from_value(help).unwrap();
+            assert_eq!(
+                active_param_range(&help.signatures[0], help.active_parameter),
+                expected
+            );
+        }
+    }
 }
