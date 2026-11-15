@@ -40,6 +40,45 @@ fn range(start: usize, end: usize) -> Value {
     json!({"start": {"line": 0, "character": start}, "end": {"line": 0, "character": end}})
 }
 
+fn inlay_actions(args: &[String], hint: &mut Value) {
+    let utf8 = args.iter().any(|arg| arg == "--utf-8");
+    let start = if utf8 { 5 } else { 3 };
+    let target = args
+        .iter()
+        .position(|arg| arg == "--inlay-target")
+        .map(|index| args[index + 1].as_str())
+        .unwrap_or("file:///inlay.rs");
+    hint["label"][0]["location"] = json!({"uri": target, "range": range(start, start + 6)});
+    hint["label"][0]["command"] = json!({"title": "Inspect", "command": "inlay.inspect", "arguments": [{"provider": args[1], "opaque": [null, {"value": true}]}]});
+    if args.iter().any(|arg| arg == "--inlay-second-action") {
+        hint["label"][1]["location"] = json!({"uri": target, "range": range(start + 1, start + 2)});
+        hint["label"][1]["command"] =
+            json!({"title": "Inspect suffix", "command": "inlay.other", "arguments": ["suffix"]});
+    }
+    let edits = args
+        .iter()
+        .position(|arg| arg == "--hint-edits")
+        .map(|index| args[index + 1].as_str())
+        .unwrap_or("insert");
+    hint["textEdits"] = match edits {
+        "multiple" => {
+            json!([{"range": range(start, start + 8), "newText": "typed"}, {"range": range(0, 0), "newText": "prefix "}])
+        }
+        "reversed" => json!([{"range": range(start + 1, start), "newText": "bad"}]),
+        "overlap" => {
+            json!([{"range": range(start, start + 2), "newText": "first"}, {"range": range(start + 1, start + 3), "newText": "second"}])
+        }
+        "interior" => {
+            json!([{"range": range(if utf8 { 2 } else { 1 }, if utf8 { 2 } else { 1 }), "newText": "bad"}])
+        }
+        "line" => {
+            json!([{"range": {"start": {"line": 99, "character": 0}, "end": {"line": 99, "character": 0}}, "newText": "bad"}])
+        }
+        "clamped" => json!([{"range": range(start, u32::MAX as usize), "newText": "typed"}]),
+        _ => json!([{"range": range(start, start), "newText": ": Type"}]),
+    };
+}
+
 fn main() -> anyhow::Result<()> {
     let mut input = io::stdin().lock();
     let mut output = io::stdout().lock();
@@ -644,6 +683,16 @@ fn main() -> anyhow::Result<()> {
                 if let Some(parts) = result["label"].as_array_mut() {
                     parts[0]["tooltip"] = json!({"kind": "markdown", "value": "**resolved part**"});
                 }
+                if args.iter().any(|arg| arg == "--lazy-inlay-actions") {
+                    inlay_actions(&args, &mut result);
+                }
+                if args.iter().any(|arg| arg == "--omit-inlay-actions") {
+                    result.as_object_mut().unwrap().remove("textEdits");
+                    for part in result["label"].as_array_mut().unwrap() {
+                        part.as_object_mut().unwrap().remove("location");
+                        part.as_object_mut().unwrap().remove("command");
+                    }
+                }
                 if args.iter().any(|arg| arg == "--changed-hint") {
                     result["position"]["character"] = json!(0);
                 }
@@ -655,7 +704,7 @@ fn main() -> anyhow::Result<()> {
             if method == "textDocument/hover" && args.iter().any(|arg| arg == "--hold-hover") {
                 continue;
             }
-            let result = if text.contains("empty") {
+            let mut result = if text.contains("empty") {
                 Value::Null
             } else if method == "textDocument/hover" {
                 json!({"contents": {"kind": "plaintext", "value": format!("{}: {text}", args[1])}})
@@ -674,6 +723,25 @@ fn main() -> anyhow::Result<()> {
             } else {
                 json!([{"position": {"line": 0, "character": 3}, "label": format!("界é {text}"), "kind": 1, "paddingLeft": true, "paddingRight": true}])
             };
+            if method == "textDocument/inlayHint"
+                && args.iter().any(|arg| arg == "--inlay-details")
+                && !result.is_null()
+            {
+                let hint = &mut result[0];
+                hint["position"]["character"] = json!(if args.iter().any(|arg| arg == "--utf-8") {
+                    5
+                } else {
+                    3
+                });
+                inlay_actions(&args, hint);
+                if args.iter().any(|arg| arg == "--lazy-inlay-actions") {
+                    hint.as_object_mut().unwrap().remove("textEdits");
+                    for part in hint["label"].as_array_mut().unwrap() {
+                        part.as_object_mut().unwrap().remove("location");
+                        part.as_object_mut().unwrap().remove("command");
+                    }
+                }
+            }
             respond_result(&mut output, id, result)?;
             if method == "textDocument/inlayHint"
                 && !inlay_refresh_sent
@@ -1171,7 +1239,8 @@ fn main() -> anyhow::Result<()> {
                 "referencesProvider": true, "documentHighlightProvider": true
             }}),
             "initialize" if language_features => json!({"capabilities": {
-                "textDocumentSync": 1, "positionEncoding": "utf-16", "hoverProvider": true,
+                "textDocumentSync": 1, "positionEncoding": if args.iter().any(|arg| arg == "--utf-8") { "utf-8" } else { "utf-16" }, "hoverProvider": true,
+                "executeCommandProvider": {"commands": ["inlay.inspect", "inlay.other"]},
                 "inlayHintProvider": if args.iter().any(|arg| arg == "--inlay-details") && !args.iter().any(|arg| arg == "--no-inlay-resolve") { json!({"resolveProvider": true}) } else { json!(true) }
             }}),
             "initialize" if signature_help => json!({"capabilities": {

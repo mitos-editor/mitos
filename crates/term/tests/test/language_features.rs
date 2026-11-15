@@ -1,4 +1,5 @@
 //! Request lifetime and presentation contracts through the shared editor API.
+mod inlay_actions;
 use std::{
     path::{Path, PathBuf},
     time::Duration,
@@ -130,7 +131,13 @@ async fn inlay_details_resolve_exact_original_hint_once_and_retain_metadata() ->
     assert_eq!(
         request["params"]["capabilities"]["textDocument"]["inlayHint"]["resolveSupport"]
             ["properties"],
-        serde_json::json!(["tooltip", "label.tooltip"])
+        serde_json::json!([
+            "tooltip",
+            "label.tooltip",
+            "label.location",
+            "label.command",
+            "textEdits"
+        ])
     );
     assert!(!lsp::read_log(&f.log)?
         .iter()
@@ -325,7 +332,7 @@ async fn replacing_pending_inlay_details_keeps_only_the_new_interaction() -> any
     gate.release()?;
     f.hover().await?;
     keys(&mut f.app, "").await?;
-    assert!(screen(&f.app).contains("literal whole hint"));
+    assert!(screen(&f.app).contains("Show details"));
     assert!(!screen(&f.app).contains("Loading inlay hint"));
     assert_eq!(
         lsp::read_log(&f.log)?
@@ -370,7 +377,7 @@ async fn inlay_details_command_renders_markup_and_closes_stale_details() -> anyh
     let view = f.inlays().await?;
     keys(&mut f.app, "<space>?inlay_hints<ret>").await?;
     f.wait_message("inlayHint/resolve").await?;
-    keys(&mut f.app, "").await?;
+    keys(&mut f.app, "<ret>").await?;
     let contents = screen(&f.app);
     // The test backend stores a blank trailing cell for the wide first grapheme.
     assert!(contents.contains("é suffix"), "{contents}");
