@@ -174,6 +174,17 @@ impl<T: Component> Popup<T> {
         } else {
             self.position = Some(position);
         }
+        if !self.follow_cursor {
+            // A mouse-anchored explicit menu may remain open during a resize.
+            // Keep its placement inside the new screen without changing the
+            // existing caret-following policy for keyboard popups.
+            position.row = position
+                .row
+                .min(usize::from(viewport.height.saturating_sub(1)));
+            position.col = position
+                .col
+                .min(usize::from(viewport.width.saturating_sub(1)));
+        }
 
         // -- make sure frame doesn't stick out of bounds
         let mut rel_x = position.col as u16;
@@ -501,6 +512,19 @@ mod tests {
             .render_info(viewport, DisplayPosition::new(12, 50))
             .area;
         assert_eq!((caret.y, caret.x), (13, 50));
+    }
+
+    #[test]
+    fn fixed_screen_anchors_remain_visible_after_the_terminal_shrinks() {
+        use super::*;
+        let mut popup = Popup::new("fixed", crate::ui::Text::new("tooltip".into()))
+            .anchor(Some(DisplayPosition::new(22, 70)));
+        popup.render_info(Rect::new(0, 0, 80, 24), DisplayPosition::default());
+        let viewport = Rect::new(0, 0, 30, 10);
+        let area = popup.render_info(viewport, DisplayPosition::default()).area;
+        assert!(!area.is_empty());
+        assert!(area.right() <= viewport.right());
+        assert!(area.bottom() <= viewport.bottom());
     }
 
     #[test]

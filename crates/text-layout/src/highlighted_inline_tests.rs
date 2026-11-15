@@ -139,7 +139,7 @@ fn concealed_inline_entries_have_no_displayed_provenance() {
         InlineAnnotation::new(1, "hidden"),
         InlineAnnotation::new(3, "visible"),
     ];
-    let conceals = [Conceal { range: 1..3 }];
+    let conceals = [Conceal::new(1..3)];
     let mut annotations = TextAnnotations::default();
     annotations
         .add_inline_annotations(&entries, None)
