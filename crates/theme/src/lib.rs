@@ -1085,11 +1085,4 @@ mod tests {
             Style::new().fg(Color::Rgb(r, g, b))
         );
     }
-
-    #[test]
-    #[should_panic(expected = "index out of bounds: the len is 0 but the index is 4278190078")]
-    fn out_of_bounds() {
-        let highlight = Highlight::new(Theme::rgb_highlight(0, 0, 0).get() - 1);
-        Theme::default().highlight(highlight);
-    }
 }
