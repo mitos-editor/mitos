@@ -103,6 +103,11 @@ impl<'a> InlineDiagnosticAccumulator<'a> {
         self.stack.clear();
     }
 
+    /// Whether painting this line still needs a diagnostic block or label.
+    pub fn has_pending_diagnostics(&self) -> bool {
+        !self.stack.is_empty()
+    }
+
     fn process_anchor_impl(
         &mut self,
         grapheme: &FormattedGrapheme,

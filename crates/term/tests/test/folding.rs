@@ -89,16 +89,20 @@ async fn manual_folds_render_navigate_hit_test_and_reveal_search_results() -> an
 #[tokio::test(flavor = "multi_thread")]
 async fn syntax_highlighting_continues_after_a_fold_larger_than_the_viewport() -> anyhow::Result<()>
 {
-    let mut app = AppBuilder::new()
-        .with_input_text(format!(
-            "#[f|]#n hidden() {{\n{}}}\nfn visible() {{}}\n",
-            "    work();\n".repeat(200)
-        ))
-        .with_lang_loader(test_syntax_loader(None))
-        .build()?;
-    app.editor
-        .set_theme(theme::Theme::from(toml::from_str::<toml::Value>(
-            r#"
+    for rainbow in [false, true] {
+        let mut config = super::helpers::test_config();
+        config.editor.rainbow_brackets.enable = rainbow;
+        let mut app = AppBuilder::new()
+            .with_config(config)
+            .with_input_text(format!(
+                "#[f|]#n hidden() {{\n{}}}\nfn visible() {{}}\n",
+                "    work();\n".repeat(200)
+            ))
+            .with_lang_loader(test_syntax_loader(None))
+            .build()?;
+        app.editor
+            .set_theme(theme::Theme::from(toml::from_str::<toml::Value>(
+                r#"
         "ui.background" = { bg = "black" }
         "ui.text" = { fg = "white" }
         "ui.selection" = { bg = "green" }
@@ -107,24 +111,25 @@ async fn syntax_highlighting_continues_after_a_fold_larger_than_the_viewport() -
         "keyword" = { fg = "red" }
         "function" = { fg = "yellow" }
     "#,
-        )?))?;
-    keys(&mut app, ":set-language rust<ret>zc").await?;
-    let (view, doc) = current_ref!(app.editor);
-    assert!(doc.syntax().is_some());
-    assert_eq!(doc.folded_ranges(view.id).len(), 1);
-    let area = view.inner_area(doc);
-    let backend = app.terminal_backend();
-    let buffer = backend.buffer();
-    assert_eq!(buffer[(area.x + 13, area.y)].symbol(), "…");
-    assert_eq!(buffer[(area.x + 13, area.y)].fg, tui::style::Color::Cyan);
-    assert_eq!(buffer[(area.x, area.y + 1)].symbol(), "f");
-    assert_eq!(buffer[(area.x, area.y + 1)].fg, tui::style::Color::Red);
-    assert_eq!(buffer[(area.x + 3, area.y + 1)].symbol(), "v");
-    assert_eq!(
-        buffer[(area.x + 3, area.y + 1)].fg,
-        tui::style::Color::Yellow
-    );
-    assert!(app.close().await.is_empty());
+            )?))?;
+        keys(&mut app, ":set-language rust<ret>zc").await?;
+        let (view, doc) = current_ref!(app.editor);
+        assert!(doc.syntax().is_some());
+        assert_eq!(doc.folded_ranges(view.id).len(), 1);
+        let area = view.inner_area(doc);
+        let backend = app.terminal_backend();
+        let buffer = backend.buffer();
+        assert_eq!(buffer[(area.x + 13, area.y)].symbol(), "…");
+        assert_eq!(buffer[(area.x + 13, area.y)].fg, tui::style::Color::Cyan);
+        assert_eq!(buffer[(area.x, area.y + 1)].symbol(), "f");
+        assert_eq!(buffer[(area.x, area.y + 1)].fg, tui::style::Color::Red);
+        assert_eq!(buffer[(area.x + 3, area.y + 1)].symbol(), "v");
+        assert_eq!(
+            buffer[(area.x + 3, area.y + 1)].fg,
+            tui::style::Color::Yellow
+        );
+        assert!(app.close().await.is_empty());
+    }
     Ok(())
 }
 

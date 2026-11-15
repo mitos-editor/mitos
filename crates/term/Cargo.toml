@@ -46,6 +46,10 @@ git = ["view/git"]
 name = "ms"
 path = "src/main.rs"
 
+[[bench]]
+name = "rendering"
+harness = false
+
 [[bin]]
 name = "mitos-test-lsp"
 path = "tests/fixtures/document_features_lsp.rs"
