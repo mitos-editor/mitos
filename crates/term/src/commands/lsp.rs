@@ -494,61 +494,49 @@ mod symbol_picker_tests {
 }
 
 pub fn symbol_picker(cx: &mut Context) {
+    if !cx.editor.config().lsp.enable {
+        cx.editor.set_error(|| "Language servers are disabled");
+        return;
+    }
     let picker_data = SymbolPickerData {
         show_icons: cx.editor.config().icons,
         theme: cx.editor.theme.clone(),
     };
     let (view, doc) = current_ref!(cx.editor);
+    if doc
+        .language_servers_with_feature(LanguageServerFeature::DocumentSymbols)
+        .next()
+        .is_none()
+    {
+        cx.editor
+            .set_error(|| "No configured language server supports document symbols");
+        return;
+    }
     let (document, view) = (doc.id(), view.id);
-    let task = match cx.editor.document_symbols(document, view) {
-        Ok(task) => task,
-        Err(error) => {
-            cx.editor.set_error(|| error.to_string());
-            return;
-        }
-    };
-    cx.jobs.callback(async move {
-        let update = task.run().await;
-        let call = move |editor: &mut Editor, compositor: &mut Compositor| {
-            let Some(symbols) = update.and_then(|update| update.into_symbols(editor)) else {
-                return;
-            };
-            let mut items = Vec::new();
-            for symbol in symbols {
-                nested_symbol_to_flat(&mut items, symbol, "", None);
-            }
-            let columns = [
-                ui::PickerColumn::new("kind", symbol_kind_cell).with_prefix(symbol_kind_icon),
-                // Nested document symbols include their fully expanded tree guide in
-                // the name column. Legacy flat responses remain unprefixed.
-                ui::PickerColumn::new("name", symbol_name_cell),
-                ui::PickerColumn::new("container", symbol_container_cell),
-            ];
-
-            let picker = Picker::new(
-                editor.redraw().clone(),
-                columns,
-                1, // name column
-                items,
-                picker_data,
-                move |cx, item, action| {
-                    jump_to_location(cx.editor, &item.symbol.location, action);
-                },
-            )
-            .with_item_key(symbol_updates::symbol_key)
-            .with_editor_updates(symbol_updates::document_updates(editor, document, view))
-            .with_title("Document Symbols")
-            .with_preview(move |_editor, item| location_to_file_location(&item.symbol.location))
-            .with_quicklist(move |_editor, item| location_to_quicklist_entry(&item.symbol.location))
-            .truncate_start(false);
-
-            compositor.push(Box::new(overlaid(picker)))
-        };
-
-        Ok(Callback::ui(move |compositor, cx| {
-            call(cx.editor, compositor)
-        }))
-    });
+    let columns = [
+        ui::PickerColumn::new("kind", symbol_kind_cell).with_prefix(symbol_kind_icon),
+        // Nested document symbols include their fully expanded tree guide in
+        // the name column. Legacy flat responses remain unprefixed.
+        ui::PickerColumn::new("name", symbol_name_cell),
+        ui::PickerColumn::new("container", symbol_container_cell),
+    ];
+    let picker = Picker::new(
+        cx.editor.redraw().clone(),
+        columns,
+        1, // name column
+        [],
+        picker_data,
+        move |cx, item, action| {
+            jump_to_location(cx.editor, &item.symbol.location, action);
+        },
+    )
+    .with_item_key(symbol_updates::symbol_key)
+    .with_editor_updates(symbol_updates::document_updates(document, view))
+    .with_title("Document Symbols")
+    .with_preview(move |_editor, item| location_to_file_location(&item.symbol.location))
+    .with_quicklist(move |_editor, item| location_to_quicklist_entry(&item.symbol.location))
+    .truncate_start(false);
+    cx.push_layer(Box::new(overlaid(picker)));
 }
 
 struct WorkspaceSymbolPickerData {

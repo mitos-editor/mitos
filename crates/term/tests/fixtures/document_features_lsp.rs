@@ -936,6 +936,9 @@ fn main() -> anyhow::Result<()> {
             continue;
         }
         if method == "textDocument/documentSymbol" && document_symbols {
+            if args.iter().any(|arg| arg == "--hold-symbols") {
+                continue;
+            }
             if args.iter().any(|arg| arg == "--fail-symbols") {
                 respond(
                     &mut output,

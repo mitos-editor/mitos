@@ -57,6 +57,10 @@ their batches before publishing the completed result.
 | File / workspace symbols | `Space s` / `Space S` |
 | Format the file | `:format` |
 
+The file-symbol picker opens while language-server results load. Press `Esc` to
+close a symbol picker and cancel its pending requests. Reopen it with `Space '` to
+restart an unfinished load.
+
 ## Linked editing
 
 Editing a name automatically updates its linked names, such as opening and
