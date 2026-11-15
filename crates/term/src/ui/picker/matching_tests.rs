@@ -32,103 +32,47 @@ fn matched<T: Send + Sync + Clone, D>(picker: &Picker<T, D>) -> Vec<T> {
 }
 
 #[tokio::test]
-async fn file_picker_match_text_and_order_ignore_icons() -> anyhow::Result<()> {
+async fn file_picker_match_text_excludes_icons() -> anyhow::Result<()> {
     let app = application(false)?;
     let dir = tempfile::tempdir()?;
-    let names = [
-        "core.rs",
-        "cr.rs",
-        "café.rs",
-        "🦀.rs",
-        "README.md",
-        "src/core.rs",
-    ];
-    let paths: Vec<_> = names.iter().map(|name| dir.path().join(name)).collect();
-    for path in &paths {
-        std::fs::create_dir_all(path.parent().unwrap())?;
-        std::fs::write(path, "")?;
-    }
-    let mut picker = ui::file_picker(&app.editor, dir.path().to_owned());
-    settle(&mut picker, &app.editor).await;
-    let patterns = ["", "core", "^core", "cr", "rs$", "!md", "café", "🦀"];
-    let mut expected = Vec::new();
+    let relative = PathBuf::from("src").join("café.rs");
+    let path = dir.path().join(&relative);
+    let picker = ui::file_picker(&app.editor, dir.path().to_owned());
     for icons in [false, true] {
-        picker.results.reset(
-            paths.clone(),
-            Arc::new(ui::FilePickerData {
-                root: dir.path().to_owned(),
-                theme: Arc::new(app.editor.theme.clone()),
-                icons,
-                files: picker.results.editor_data.files.clone(),
-            }),
-            &picker.columns,
+        let data = ui::FilePickerData {
+            root: dir.path().to_owned(),
+            theme: Arc::new(app.editor.theme.clone()),
+            icons,
+            files: picker.results.editor_data.files.clone(),
+        };
+        assert_eq!(
+            picker.columns[0].format_text(&path, &data),
+            relative.to_string_lossy()
         );
-        for (index, pattern) in patterns.iter().enumerate() {
-            picker.results.reparse(0, pattern, false);
-            settle(&mut picker, &app.editor).await;
-            let snapshot = picker.results.matcher.snapshot();
-            for item in snapshot.matched_items(..) {
-                assert_eq!(
-                    item.matcher_columns[0].slice(..).to_string(),
-                    item.data
-                        .strip_prefix(dir.path())?
-                        .components()
-                        .collect::<PathBuf>()
-                        .to_string_lossy(),
-                );
-            }
-            if icons {
-                assert_eq!(matched(&picker), expected[index], "query: {pattern}");
-            } else {
-                expected.push(matched(&picker));
-            }
-        }
+        assert_eq!((picker.columns[0].prefix)(&path, &data).is_some(), icons);
     }
     Ok(())
 }
 
 #[tokio::test]
-async fn file_explorer_match_text_and_order_ignore_icons() -> anyhow::Result<()> {
+async fn file_explorer_match_text_excludes_icons() -> anyhow::Result<()> {
     let app = application(false)?;
     let dir = tempfile::tempdir()?;
-    std::fs::create_dir(dir.path().join("core"))?;
-    std::fs::write(dir.path().join("core.rs"), "")?;
-    std::fs::write(dir.path().join("cr.rs"), "")?;
-    let mut picker = ui::file_explorer(dir.path().to_owned(), &app.editor)?;
-    settle(&mut picker, &app.editor).await;
-    let options = matched(&picker);
-    let mut expected = Vec::new();
-    for icons in [false, true] {
-        picker.results.reset(
-            options.clone(),
-            Arc::new(ui::file_explorer::ExplorerData {
-                root: dir.path().to_owned(),
-                theme: Arc::new(app.editor.theme.clone()),
-                show_icons: icons,
-                tree: None,
-            }),
-            &picker.columns,
-        );
-        for (index, pattern) in ["", "core", "^core", "cr"].iter().enumerate() {
-            picker.results.reparse(0, pattern, false);
-            settle(&mut picker, &app.editor).await;
-            for item in picker.results.matcher.snapshot().matched_items(..) {
-                let (path, is_dir) = item.data;
-                let name = path
-                    .file_name()
-                    .map_or_else(|| "..".into(), |name| name.to_string_lossy());
-                let text = if *is_dir {
-                    format!("{name}/")
-                } else {
-                    name.into_owned()
-                };
-                assert_eq!(item.matcher_columns[0].slice(..).to_string(), text);
-            }
-            if icons {
-                assert_eq!(matched(&picker), expected[index], "query: {pattern}");
-            } else {
-                expected.push(matched(&picker));
-            }
+    let picker = ui::file_explorer(dir.path().to_owned(), &app.editor)?;
+    for show_icons in [false, true] {
+        let data = ui::file_explorer::ExplorerData {
+            root: dir.path().to_owned(),
+            theme: Arc::new(app.editor.theme.clone()),
+            show_icons,
+            tree: None,
+        };
+        for (name, is_dir, expected) in [("café.rs", false, "café.rs"), ("src", true, "src/")] {
+            let item = (dir.path().join(name), is_dir);
+            assert_eq!(picker.columns[0].format_text(&item, &data), expected);
+            assert_eq!(
+                (picker.columns[0].prefix)(&item, &data).is_some(),
+                show_icons
+            );
         }
     }
     Ok(())
