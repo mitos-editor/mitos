@@ -432,7 +432,7 @@ mod symbol_picker_tests {
                 container_name: Some("crate".into()),
                 location: Location {
                     server_id: None,
-                    uri: std::path::PathBuf::from("/tmp/main.rs").into(),
+                    uri: std::env::temp_dir().join("main.rs").into(),
                     range: lsp::Range::default(),
                     offset_encoding: OffsetEncoding::Utf16,
                 },
