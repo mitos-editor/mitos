@@ -77,6 +77,171 @@ async fn dropping_a_symbol_query_cancels_its_server_request() -> anyhow::Result<
     Ok(())
 }
 
+#[tokio::test(flavor = "multi_thread")]
+async fn streamed_symbols_arrive_before_completion_and_an_error_invalidates_them(
+) -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let gate = Gate::new(dir.path().join("symbol-final"));
+    let mut app = fixture(
+        dir.path(),
+        &[
+            "--stream-symbols",
+            "--symbol-stream-error",
+            "--lazy-symbols",
+            "--symbol-final-gate",
+            gate.path().to_str().unwrap(),
+        ],
+    )
+    .await?;
+    let document = current_ref!(app.editor).1.id();
+    let session = app.editor.workspace_symbols(document)?;
+    let mut task = session.query(&app.editor, "stream".into())?;
+    let items = tokio::time::timeout(Duration::from_secs(5), task.next_batch())
+        .await?
+        .unwrap()?;
+    assert_eq!(items.len(), 2);
+    assert!(items[0].is_current(&app.editor));
+    // The server cannot answer a resolve while held behind the final gate.
+    let resolve = items[0].resolve(&app.editor)?.run();
+    tokio::pin!(resolve);
+    assert!(
+        tokio::time::timeout(Duration::from_millis(30), &mut resolve)
+            .await
+            .is_err()
+    );
+    gate.release()?;
+    assert!(task.next_batch().await.unwrap().is_err());
+    assert!(!items[0].is_current(&app.editor));
+    assert!(items[0].resolve(&app.editor).is_err());
+    assert!(tokio::time::timeout(Duration::from_secs(5), resolve)
+        .await??
+        .is_none());
+    assert!(task.next_batch().await.is_none());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn dropping_a_streaming_query_invalidates_its_provisional_symbols() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let gate = Gate::new(dir.path().join("symbol-final"));
+    let mut app = fixture(
+        dir.path(),
+        &[
+            "--stream-symbols",
+            "--symbol-final-gate",
+            gate.path().to_str().unwrap(),
+        ],
+    )
+    .await?;
+    let document = current_ref!(app.editor).1.id();
+    let session = app.editor.workspace_symbols(document)?;
+    let mut task = session.query(&app.editor, "pending".into())?;
+    let items = tokio::time::timeout(Duration::from_secs(5), task.next_batch())
+        .await?
+        .unwrap()?;
+    assert!(items[0].is_current(&app.editor));
+    drop(task);
+    assert!(!items[0].is_current(&app.editor));
+    gate.release()?;
+    wait_message(dir.path(), "$/cancelRequest").await?;
+    Ok(())
+}
+
+async fn streaming_providers(dir: &Path) -> anyhow::Result<(TestApplication, Gate, Gate)> {
+    let initialize = Gate::new(dir.join("initialize"));
+    let alpha = Gate::new(dir.join("alpha-final"));
+    let beta = Gate::new(dir.join("beta-final"));
+    let servers = [
+        ServerConfig::feature("alpha", "--workspace-symbols", dir)
+            .arg("--stream-symbols")
+            .arg("--symbol-stream-error")
+            .arg("--symbol-final-gate")
+            .arg(alpha.path())
+            .initialize_gate(&initialize)
+            .toml(),
+        ServerConfig::feature("beta", "--workspace-symbols", dir)
+            .arg("--stream-symbols")
+            .arg("--symbol-second-batch")
+            .arg("--symbol-final-gate")
+            .arg(beta.path())
+            .initialize_gate(&initialize)
+            .toml(),
+    ]
+    .concat();
+    let mut config = test_config();
+    config.editor.lsp.enable = true;
+    config.editor.idle_timeout = editor_config::Config::default().idle_timeout;
+    let mut app = AppBuilder::new()
+        .with_config(config)
+        .with_lang_loader(lsp::syntax_loader(
+            "symbols",
+            "symbols",
+            &["alpha", "beta"],
+            &servers,
+        ))
+        .build()?;
+    let path = dir.join("document.symbols");
+    std::fs::write(&path, "😀 foo\n")?;
+    app.editor.open(&path, Action::Replace)?;
+    initialize.release()?;
+    lsp::initialize(&mut app, 2).await?;
+    Ok((app, alpha, beta))
+}
+
+fn screen(app: &TestApplication) -> String {
+    app.terminal_backend()
+        .buffer()
+        .content
+        .iter()
+        .map(|cell| cell.symbol())
+        .collect()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_failed_streaming_provider_does_not_cancel_other_picker_providers() -> anyhow::Result<()>
+{
+    let dir = tempfile::tempdir()?;
+    let (mut app, alpha, beta) = streaming_providers(dir.path()).await?;
+    super::helpers::keys(&mut app, "<space>S").await?;
+    let initial = screen(&app);
+    assert!(initial.contains("alpha:"), "{initial}");
+    assert!(initial.contains("beta:"), "{initial}");
+    alpha.release()?;
+    super::helpers::keys(&mut app, "").await?;
+    let failed = screen(&app);
+    assert!(!failed.contains("alpha:"), "{failed}");
+    assert!(failed.contains("beta:"), "{failed}");
+    beta.release()?;
+    super::helpers::keys(&mut app, "").await?;
+    let completed = screen(&app);
+    assert!(completed.contains("beta::second"), "{completed}");
+    assert!(!lsp::read_log(&lsp::log_path(dir.path(), "beta"))?
+        .iter()
+        .any(|message| message["method"] == "$/cancelRequest"));
+    super::helpers::keys(&mut app, "<esc>").await?;
+    assert!(app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn old_query_errors_cannot_replace_new_streamed_picker_rows() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let (mut app, alpha, beta) = streaming_providers(dir.path()).await?;
+    super::helpers::keys(&mut app, "<space>S").await?;
+    assert!(screen(&app).contains("beta:"));
+    super::helpers::keys(&mut app, "new").await?;
+    alpha.release()?;
+    beta.release()?;
+    super::helpers::keys(&mut app, "").await?;
+    let current = screen(&app);
+    assert!(current.contains("beta:new:second"), "{current}");
+    assert!(!current.contains("beta::second"), "{current}");
+    assert!(!current.contains("alpha:"), "{current}");
+    super::helpers::keys(&mut app, "<esc>").await?;
+    assert!(app.close().await.is_empty());
+    Ok(())
+}
+
 async fn wait_message(dir: &Path, method: &str) -> anyhow::Result<()> {
     tokio::time::timeout(Duration::from_secs(5), async {
         loop {

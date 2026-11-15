@@ -36,6 +36,12 @@ configured executables, then `:lsp-restart` after installing a server.
 
 Available features depend on the server.
 
+Mitos accepts partial results from servers that stream long requests. Workspace
+symbol searches show each batch as it arrives; starting another search or closing
+the picker cancels the old request. If a provider fails, its partial symbols are
+removed while results from other providers remain available. Other requests combine
+their batches before publishing the completed result.
+
 | Action | Keys or command |
 | --- | --- |
 | Next / previous error or warning | `]d` / `[d` |

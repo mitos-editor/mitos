@@ -4,9 +4,13 @@ use std::sync::{Arc, Mutex, OnceLock, Weak};
 
 use anyhow::{ensure, Context as _, Result};
 use event::{cancelable_future, register_hook, TaskController, TaskHandle};
-use futures_util::{future::BoxFuture, stream::FuturesUnordered, FutureExt, StreamExt};
+use futures_util::{
+    future::BoxFuture,
+    stream::{self, BoxStream, SelectAll},
+    FutureExt, StreamExt,
+};
 use language_config::LanguageServerFeature;
-use lsp_client::{lsp, Client, OffsetEncoding, UriExt as _};
+use lsp_client::{lsp, Client, OffsetEncoding, RequestUpdate, UriExt as _};
 
 use super::{navigation::Location, request::DocumentRequest};
 use crate::{
@@ -55,7 +59,9 @@ impl WorkspaceSymbolsSession {
             .iter()
             .filter_map(|server| {
                 let client = server.upgrade()?;
-                let future = client.workspace_symbols(query.clone())?;
+                let stream = client.workspace_symbols_stream(query.clone())?;
+                let mut provider = TaskController::default();
+                let valid = provider.restart();
                 let request = Arc::new(Query {
                     owner: self.owner.clone(),
                     target: DocumentRequest::new(doc, cancel.clone(), vec![client.id()]),
@@ -63,8 +69,31 @@ impl WorkspaceSymbolsSession {
                     server: server.clone(),
                     encoding: client.offset_encoding(),
                     text: query.clone(),
+                    provider: Mutex::new(provider),
+                    valid,
                 });
-                Some(async move { Ok(normalize_symbols(future.await?, request)) }.boxed())
+                let request = PendingQuery {
+                    query: request,
+                    completed: false,
+                };
+                Some(
+                    stream::unfold(Some((stream, request)), |state| async move {
+                        let (mut stream, mut request) = state?;
+                        let update = stream.next().await?;
+                        let (response, next) = match update {
+                            RequestUpdate::Partial(Ok(batch)) => (Ok(Some(batch)), Some(stream)),
+                            RequestUpdate::Partial(Err(error)) => (Err(error), None),
+                            RequestUpdate::Response(response) => {
+                                (response.map(Option::flatten), None)
+                            }
+                        };
+                        let response =
+                            response.map(|batch| normalize_symbols(batch, request.query.clone()));
+                        request.completed = next.is_none() && response.is_ok();
+                        Some((response, next.map(|stream| (stream, request))))
+                    })
+                    .boxed(),
+                )
             })
             .collect();
         Ok(WorkspaceSymbolsTask {
@@ -82,6 +111,23 @@ struct Query {
     server: Weak<Client>,
     encoding: OffsetEncoding,
     text: String,
+    provider: Mutex<TaskController>,
+    valid: TaskHandle,
+}
+
+/// Provisional rows and lazy resolutions expire on failure or local cancellation.
+/// A successful final response releases the guard while keeping its rows usable.
+struct PendingQuery {
+    query: Arc<Query>,
+    completed: bool,
+}
+
+impl Drop for PendingQuery {
+    fn drop(&mut self) {
+        if !self.completed {
+            self.query.provider.lock().unwrap().cancel();
+        }
+    }
 }
 
 impl Query {
@@ -91,6 +137,7 @@ impl Query {
 
     fn is_current(&self, editor: &Editor) -> bool {
         !self.lifetime.is_canceled()
+            && !self.valid.is_canceled()
             && self.owner.same_destination(editor.callback_sender())
             && editor.config().lsp.enable
             && self.target.is_current(editor)
@@ -177,10 +224,14 @@ impl WorkspaceSymbolResolveTask {
         let location = match self.future {
             Some(future) => {
                 let response = cancelable_future(
-                    cancelable_future(future, &self.symbol.query.target.cancel),
-                    &self.symbol.query.lifetime,
+                    cancelable_future(
+                        cancelable_future(future, &self.symbol.query.target.cancel),
+                        &self.symbol.query.lifetime,
+                    ),
+                    &self.symbol.query.valid,
                 )
                 .await
+                .flatten()
                 .flatten();
                 let Some(response) = response else {
                     return Ok(None);
@@ -221,7 +272,7 @@ impl WorkspaceSymbolResolution {
 pub struct WorkspaceSymbolsTask {
     lifetime: TaskHandle,
     cancel: TaskHandle,
-    requests: FuturesUnordered<BoxFuture<'static, lsp_client::Result<Vec<Arc<WorkspaceSymbol>>>>>,
+    requests: SelectAll<BoxStream<'static, lsp_client::Result<Vec<Arc<WorkspaceSymbol>>>>>,
 }
 
 impl WorkspaceSymbolsTask {

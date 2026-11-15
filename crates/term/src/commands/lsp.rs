@@ -553,6 +553,7 @@ pub fn symbol_picker(cx: &mut Context) {
 
 struct WorkspaceSymbolPickerData {
     style: SymbolPickerData,
+    published: std::sync::Arc<std::sync::Mutex<workspace_symbols::PublishedSymbols>>,
     symbols: std::sync::Arc<
         arc_swap::ArcSwap<view::features::workspace_symbols::WorkspaceSymbolsSession>,
     >,
