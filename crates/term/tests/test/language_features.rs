@@ -275,6 +275,69 @@ async fn inlay_resolution_is_canceled_by_edits_while_waiting() -> anyhow::Result
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn dismissing_pending_inlay_details_prevents_late_popups() -> anyhow::Result<()> {
+    use super::helpers::{keys, screen};
+    let dir = tempfile::tempdir()?;
+    let gate = Gate::new(dir.path().join("resolve-ready"));
+    let mut f = Fixture::with_args(
+        dir.path(),
+        &[
+            "--inlay-details",
+            "--resolve-gate",
+            gate.path().to_str().unwrap(),
+        ],
+    )
+    .await?;
+    let view = f.inlays().await?;
+    let selection = current_ref!(f.app.editor).1.selection(view).clone();
+    keys(&mut f.app, "<space>?inlay_hints<ret>").await?;
+    f.wait_message("inlayHint/resolve").await?;
+    assert!(screen(&f.app).contains("Loading inlay hint"));
+    keys(&mut f.app, "<esc>").await?;
+    assert_eq!(current_ref!(f.app.editor).1.selection(view), &selection);
+    assert!(!screen(&f.app).contains("Loading inlay hint"));
+    gate.release()?;
+    f.hover().await?; // transport barrier after the delayed resolve response
+    keys(&mut f.app, "").await?;
+    assert!(!screen(&f.app).contains("literal whole hint"));
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn replacing_pending_inlay_details_keeps_only_the_new_interaction() -> anyhow::Result<()> {
+    use super::helpers::{keys, screen};
+    let dir = tempfile::tempdir()?;
+    let gate = Gate::new(dir.path().join("resolve-ready"));
+    let mut f = Fixture::with_args(
+        dir.path(),
+        &[
+            "--inlay-details",
+            "--resolve-gate",
+            gate.path().to_str().unwrap(),
+        ],
+    )
+    .await?;
+    f.inlays().await?;
+    keys(&mut f.app, "<space>?inlay_hints<ret>").await?;
+    f.wait_message("inlayHint/resolve").await?;
+    keys(&mut f.app, "<esc><space>?inlay_hints<ret>").await?;
+    assert!(screen(&f.app).contains("Loading inlay hint"));
+    gate.release()?;
+    f.hover().await?;
+    keys(&mut f.app, "").await?;
+    assert!(screen(&f.app).contains("literal whole hint"));
+    assert!(!screen(&f.app).contains("Loading inlay hint"));
+    assert_eq!(
+        lsp::read_log(&f.log)?
+            .iter()
+            .filter(|message| message["method"] == "inlayHint/resolve")
+            .count(),
+        2
+    );
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn inlay_hints_preserve_same_anchor_kind_order_and_per_hint_padding() -> anyhow::Result<()> {
     let dir = tempfile::tempdir()?;
     let mut f = Fixture::with_args(dir.path(), &["--mixed-inlays"]).await?;
