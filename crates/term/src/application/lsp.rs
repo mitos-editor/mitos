@@ -59,6 +59,13 @@ where
                     Notification::LogMessage(params) => {
                         log::info!("window/logMessage: {:?}", params);
                     }
+                    Notification::LogTrace(params) => {
+                        self.editor.handle_language_server_trace(server_id, params);
+                    }
+                    Notification::TelemetryEvent(params) => {
+                        self.editor
+                            .handle_language_server_telemetry(server_id, params);
+                    }
                     Notification::ProgressMessage(params) => {
                         if let Some(update) = self
                             .editor

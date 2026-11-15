@@ -97,11 +97,12 @@ impl Client {
         &self,
         enable_snippets: bool,
         client_info: lsp::ClientInfo,
+        trace: lsp::TraceValue,
     ) -> Result<()> {
         self.initialization
             .get_or_try_init(|| async {
                 let response = self
-                    .initialize_request(enable_snippets, client_info)
+                    .initialize_request(enable_snippets, client_info, trace)
                     .await?;
                 self.capabilities
                     .set(response.capabilities)
@@ -118,6 +119,7 @@ impl Client {
         &self,
         enable_snippets: bool,
         client_info: lsp::ClientInfo,
+        trace: lsp::TraceValue,
     ) -> Result<lsp::InitializeResult> {
         if let Some(config) = &self.config {
             log::info!("Using custom LSP config: {}", config);
@@ -446,13 +448,20 @@ impl Client {
                 }),
                 ..Default::default()
             },
-            trace: None,
+            trace: Some(trace),
             client_info: Some(client_info),
             locale: None, // TODO
             work_done_progress_params: lsp::WorkDoneProgressParams::default(),
         };
 
         self.call::<lsp::request::Initialize>(params).await
+    }
+
+    /// Update the server's execution trace verbosity after initialization.
+    pub fn set_trace(&self, value: lsp::TraceValue) {
+        if self.is_initialized() {
+            self.notify::<lsp::notification::SetTrace>(lsp::SetTraceParams { value });
+        }
     }
 
     /// Requests graceful shutdown without sending `exit`.

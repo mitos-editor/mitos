@@ -126,6 +126,7 @@ async fn initialize_lsp(
             name: "mitos".to_owned(),
             version: Some(loader::VERSION_AND_GIT_HASH.to_owned()),
         },
+        protocol::TraceValue::Off,
     );
     tokio::pin!(initialize);
     loop {

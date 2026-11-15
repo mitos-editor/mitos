@@ -526,3 +526,61 @@ async fn cancellation_removes_partial_subscriptions_and_ignores_late_batches() {
         .partial_result(&serde_json::json!({"token":"indexing", "value":{"kind":"end"}}).into()));
     assert!(!requests.partial_result(&serde_json::json!({"token":"mitos:partial:index", "value":{"kind":"begin", "title":"Indexing"}}).into()));
 }
+
+#[tokio::test]
+async fn raw_logging_never_bypasses_trace_or_telemetry_policy() {
+    use std::sync::Mutex;
+    struct Capture(Mutex<Vec<String>>);
+    impl log::Log for Capture {
+        fn enabled(&self, _: &log::Metadata) -> bool {
+            true
+        }
+        fn log(&self, record: &log::Record) {
+            let message = record.args().to_string();
+            if message.starts_with("raw-log-test ") {
+                self.0.lock().unwrap().push(message);
+            }
+        }
+        fn flush(&self) {}
+    }
+    static CAPTURE: Capture = Capture(Mutex::new(Vec::new()));
+    log::set_logger(&CAPTURE).unwrap();
+    let previous = log::max_level();
+    log::set_max_level(log::LevelFilter::Info);
+    let mut messages = Vec::new();
+    for method in ["$/logTrace", "telemetry/event"] {
+        for params in [
+            serde_json::json!({"message": "suppressed", "verbose": "detail"}),
+            serde_json::json!([1, 2]),
+            serde_json::json!(false),
+        ] {
+            messages.push(
+                serde_json::json!({"jsonrpc": "2.0", "method": method, "params": params})
+                    .to_string(),
+            );
+        }
+    }
+    messages.push(
+        r#"{"jsonrpc":"2.0","method":"telemetry/\u0065vent","params":{"message":"suppressed"}}"#
+            .into(),
+    );
+    messages.push(serde_json::json!({"jsonrpc": "2.0", "method": "window/logMessage", "params": {"type": 3, "message": "ordinary diagnostic"}}).to_string());
+    for message in messages {
+        let frame = format!("Content-Length: {}\r\n\r\n{message}", message.len());
+        let mut reader = BufReader::new(frame.as_bytes());
+        let mut content = Vec::new();
+        let _ = Transport::recv_server_message(
+            &mut reader,
+            &mut String::new(),
+            &mut content,
+            "raw-log-test",
+        )
+        .await;
+        assert!(content.is_empty());
+    }
+    let records = CAPTURE.0.lock().unwrap();
+    assert_eq!(records.len(), 1);
+    assert!(records[0].contains("ordinary diagnostic"));
+    assert!(!records[0].contains("suppressed"));
+    log::set_max_level(previous);
+}
