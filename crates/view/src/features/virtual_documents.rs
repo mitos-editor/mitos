@@ -11,8 +11,8 @@ use tokio::sync::OnceCell;
 use crate::{
     callbacks::EditorCallbackSender,
     editor::Action,
-    events::{ConfigDidChange, DocumentDidClose, DocumentDidOpen, LanguageServerExited},
-    features::request::SelectionRequest,
+    events::{ConfigDidChange, LanguageServerExited},
+    features::{request::SelectionRequest, source_documents::SourceDocumentKey},
     Document, DocumentId, Editor,
 };
 
@@ -41,18 +41,16 @@ pub struct ContentRequestCanceled;
 type Key = (LanguageServerId, String);
 
 struct Entry {
-    document: Option<DocumentId>,
     content: Arc<OnceCell<String>>,
     _controller: TaskController,
     current: TaskHandle,
 }
 
 impl Entry {
-    fn new(document: Option<DocumentId>) -> Self {
+    fn new() -> Self {
         let mut controller = TaskController::new();
         let current = controller.restart();
         Self {
-            document,
             content: Arc::new(OnceCell::new()),
             _controller: controller,
             current,
@@ -71,6 +69,12 @@ pub(crate) struct VirtualDocuments {
     entries: HashMap<Key, Entry>,
 }
 
+impl VirtualDocuments {
+    pub(super) fn remove(&mut self, server: LanguageServerId, uri: &str) {
+        self.entries.remove(&(server, uri.to_owned()));
+    }
+}
+
 impl Editor {
     /// Find an already loaded document without confusing equal URIs from two servers.
     pub fn language_server_document(
@@ -78,12 +82,10 @@ impl Editor {
         server: LanguageServerId,
         uri: &lsp::Uri,
     ) -> Option<DocumentId> {
-        let id = self
-            .virtual_documents
-            .entries
-            .get(&(server, uri.as_str().into()))?
-            .document?;
-        self.document(id).map(|_| id)
+        self.source_document(&SourceDocumentKey::LanguageServer(
+            server,
+            uri.as_str().into(),
+        ))
     }
 
     fn content_request(
@@ -109,7 +111,7 @@ impl Editor {
             .virtual_documents
             .entries
             .entry((server, uri.as_str().into()))
-            .or_insert_with(|| Entry::new(None));
+            .or_insert_with(Entry::new);
         let current = entry.current.clone();
         let content = entry.content.clone();
         Ok((current, async move {
@@ -275,19 +277,12 @@ impl Editor {
         text: String,
     ) -> Result<DocumentId> {
         let key = (server, uri.as_str().into());
-        let entry = self
-            .virtual_documents
-            .entries
-            .get(&key)
-            .context("Content request was invalidated")?;
-        if let Some(id) = entry.document {
-            let doc = self.document_mut(id).context("Document was closed")?;
-            let text = Rope::from(text);
-            if doc.text() == &text {
-                return Ok(id);
-            }
-            let changes = text_diff::compare_ropes(doc.text(), &text);
-            doc.replace_readonly_content(changes.changes(), false)?;
+        ensure!(
+            self.virtual_documents.entries.contains_key(&key),
+            "Content request was invalidated"
+        );
+        if let Some(id) = self.language_server_document(server, &uri) {
+            self.replace_source_document_content(id, &Rope::from(text), false)?;
             return Ok(id);
         }
         let client = self
@@ -295,36 +290,34 @@ impl Editor {
             .get_by_id(server)
             .cloned()
             .context("Language server has stopped")?;
-        let mut doc = Document::from(
-            Rope::from(text),
-            None,
-            self.config.clone(),
-            self.syn_loader.load_full(),
-        )
-        .with_language_server_source(DocumentSource {
-            uri: uri.clone(),
-            server,
-            workspace: client.root_path().to_path_buf(),
-        });
-        let loader = self.syn_loader.load_full();
-        let filename = uri.as_str().split(['?', '#']).next().unwrap_or_default();
-        if let Some(language) = loader.language_for_filename(std::path::Path::new(filename)) {
-            doc.set_language(Some(loader.language(language).config().clone()), &loader);
-        }
-        doc.attach_content_server(client);
-        let id = self.new_file_from_document(Action::Load, doc);
-        self.virtual_documents
-            .entries
-            .get_mut(&key)
-            .unwrap()
-            .document = Some(id);
-        self.events()
-            .clone()
-            .dispatch(DocumentDidOpen {
-                editor: self,
-                doc: id,
-            })
-            .report_to(self.status_sender());
+        let (id, _) = self.open_source_document(
+            Some(SourceDocumentKey::LanguageServer(
+                server,
+                uri.as_str().into(),
+            )),
+            Action::Load,
+            |editor| {
+                let mut doc = Document::from(
+                    Rope::from(text),
+                    None,
+                    editor.config.clone(),
+                    editor.syn_loader.load_full(),
+                )
+                .with_language_server_source(DocumentSource {
+                    uri: uri.clone(),
+                    server,
+                    workspace: client.root_path().to_path_buf(),
+                });
+                let loader = editor.syn_loader.load_full();
+                let filename = uri.as_str().split(['?', '#']).next().unwrap_or_default();
+                if let Some(language) = loader.language_for_filename(std::path::Path::new(filename))
+                {
+                    doc.set_language(Some(loader.language(language).config().clone()), &loader);
+                }
+                doc.attach_content_server(client);
+                doc
+            },
+        );
         Ok(id)
     }
 
@@ -334,14 +327,11 @@ impl Editor {
         let Some(old) = self.virtual_documents.entries.remove(&key) else {
             return;
         };
-        let document = old.document;
         drop(old);
-        let Some(document) = document.filter(|id| self.document(*id).is_some()) else {
+        let Some(_) = self.language_server_document(server, &uri) else {
             return;
         };
-        self.virtual_documents
-            .entries
-            .insert(key, Entry::new(Some(document)));
+        self.virtual_documents.entries.insert(key, Entry::new());
         let (current, future) = match self.content_request(server, uri.clone()) {
             Ok(request) => request,
             Err(error) => {
@@ -379,15 +369,13 @@ impl Editor {
 pub(crate) fn register_hooks(events: &event::EventHub) {
     register_hook!(events => move |event: &mut LanguageServerExited<'_>| {
         event.editor.virtual_documents.entries.retain(|(server, _), _| *server != event.server_id);
-        Ok(())
-    });
-    register_hook!(events => move |event: &mut DocumentDidClose<'_>| {
-        event.editor.virtual_documents.entries.retain(|_, entry| entry.document != Some(event.doc.id()));
+        event.editor.source_documents.remove_server(event.server_id);
         Ok(())
     });
     register_hook!(events => move |event: &mut ConfigDidChange<'_>| {
         if !event.new.lsp.enable {
             event.editor.virtual_documents.entries.clear();
+            event.editor.source_documents.remove_language_servers();
         }
         Ok(())
     });
