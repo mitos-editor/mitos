@@ -27,6 +27,7 @@ pub enum PromptAction {
     CompletePrevious,
     ExitSelection,
     InsertRegister,
+    ToggleSearchSyntax,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
@@ -432,6 +433,7 @@ impl Default for ComponentKeymaps {
                 ("S-tab", P::CompletePrevious),
                 ("C-q", P::ExitSelection),
                 ("C-r", P::InsertRegister),
+                ("A-r", P::ToggleSearchSyntax),
             ]),
             buffer_picker: picker.clone(),
             quicklist_picker: quicklist_picker_keymap(&picker),

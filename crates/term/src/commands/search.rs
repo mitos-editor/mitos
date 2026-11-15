@@ -29,15 +29,6 @@ use view::{
     Align, Editor,
 };
 
-fn search_completions(cx: &mut Context, reg: Option<char>) -> Vec<String> {
-    let mut items = reg
-        .and_then(|reg| cx.editor.read_register(reg))
-        .map_or(Vec::new(), |reg| reg.take(200).collect());
-    items.sort_unstable();
-    items.dedup();
-    items.into_iter().map(|value| value.to_string()).collect()
-}
-
 pub(super) fn search(cx: &mut Context) {
     searcher(cx, Direction::Forward)
 }
@@ -56,20 +47,11 @@ fn searcher(cx: &mut Context, direction: Direction) {
         Movement::Move
     };
 
-    // TODO: could probably share with select_on_matches?
-    let completions = search_completions(cx, Some(reg));
-
     ui::search_prompt(
         cx,
         "search:".into(),
         Some(reg),
-        move |_editor: &Editor, input: &str| {
-            completions
-                .iter()
-                .filter(|comp| comp.starts_with(input))
-                .map(|comp| (0.., comp.clone().into()))
-                .collect()
-        },
+        ui::completers::none,
         move |cx, query, _, event| {
             if event == PromptEvent::Validate {
                 cx.editor.registers.last_search_register = reg;

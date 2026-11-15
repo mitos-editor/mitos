@@ -34,6 +34,7 @@ use crate::job::Callback;
 use crate::ui::completers::CompletionResult;
 pub use completion::Completion;
 pub use editor::EditorView;
+use editor_core::search::SearchSyntax;
 pub(crate) use icons::icon_span;
 pub use markdown::Markdown;
 pub use menu::Menu;
@@ -47,13 +48,15 @@ use stdx::rope;
 pub use text::Text;
 use theme::icons::ICONS;
 use theme::Theme;
-use view::{graphics::RectExt as _, Editor};
+use view::{graphics::RectExt as _, register::SearchHistoryEntry, Editor};
 
 use tui::text::{Line, Span};
 
 use std::{
+    cell::Cell,
     error::Error,
     path::{Path, PathBuf},
+    rc::Rc,
     sync::Arc,
 };
 
@@ -137,6 +140,8 @@ fn search_prompt_impl(
     fun: impl Fn(&mut crate::compositor::Context, view::features::buffer_search::Query, &str, PromptEvent)
         + 'static,
 ) {
+    let syntax = highlight_search.then(|| Rc::new(Cell::new(SearchSyntax::Regex)));
+    let callback_syntax = syntax.clone();
     let (view, doc) = current!(cx.editor);
     let doc_id = view.document_id();
     let view_id = view.id;
@@ -181,8 +186,12 @@ fn search_prompt_impl(
                     }
 
                     let is_crlf = doc!(cx.editor).line_ending == editor_core::LineEnding::Crlf;
+                    let syntax = callback_syntax
+                        .as_ref()
+                        .map_or(SearchSyntax::Regex, |syntax| syntax.get());
+                    let pattern = syntax.pattern(input);
                     match view::features::buffer_search::Query::new(
-                        input,
+                        &pattern,
                         config.search.smart_case,
                         is_crlf,
                     ) {
@@ -194,6 +203,22 @@ fn search_prompt_impl(
                             doc.set_selection(view.id, snapshot.clone());
 
                             if event == PromptEvent::Validate {
+                                if highlight_search
+                                    && let Some(register) = history_register
+                                    && let Err(err) = cx.editor.registers.push_search(
+                                        register,
+                                        SearchHistoryEntry {
+                                            text: input.to_owned(),
+                                            syntax,
+                                        },
+                                    )
+                                {
+                                    doc_mut!(cx.editor, &doc_id).finish_selection_preview(view_id);
+                                    cx.editor.set_error(|| err.to_string());
+                                    return;
+                                }
+                                let doc = doc!(cx.editor);
+                                let view = view_mut!(cx.editor, view_id);
                                 // Equivalent to push_jump to store selection just before jump
                                 view.push_jump(doc, (doc_id, snapshot.clone()));
                             }
@@ -241,7 +266,8 @@ fn search_prompt_impl(
             }
         },
     )
-    .with_language("regex", std::sync::Arc::clone(&cx.editor.syn_loader));
+    .with_language("regex", std::sync::Arc::clone(&cx.editor.syn_loader))
+    .with_search_syntax(syntax);
     // Calculate initial completion
     prompt.recalculate_completion(cx.editor);
     // prompt

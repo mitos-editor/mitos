@@ -8,11 +8,13 @@ use crate::ui::{
     completers::{CompletionResult, DeferredCompletion},
 };
 use arc_swap::ArcSwap;
+use editor_core::search::SearchSyntax;
 use event::TaskController;
 use language::syntax;
 use std::sync::mpsc::{Receiver, TryRecvError};
 use std::sync::Arc;
 use std::{borrow::Cow, ops::RangeFrom};
+use std::{cell::Cell, rc::Rc};
 use stdx::rope::RopeExt as _;
 use tui::buffer::Buffer as Surface;
 use tui::layout::Constraint;
@@ -22,6 +24,7 @@ use ui_core::input::KeyEvent;
 use ui_core::keyboard::{KeyCode, KeyModifiers};
 use ui_core::keymap::{KeymapState, Lookup};
 use view::document::Mode;
+use view::register::SearchHistoryEntry;
 
 use editor_core::{
     unicode::segmentation::{GraphemeCursor, UnicodeSegmentation},
@@ -69,9 +72,10 @@ pub struct Prompt {
     selection: Option<usize>,
     history_register: Option<char>,
     history_pos: Option<usize>,
-    history_draft: Option<String>,
+    history_draft: Option<SearchHistoryEntry>,
     history_edited: bool,
-    cached_suggestion: std::cell::OnceCell<Option<String>>,
+    cached_suggestion: std::cell::OnceCell<Option<SearchHistoryEntry>>,
+    search_syntax: Option<Rc<Cell<SearchSyntax>>>,
     completion_fn: CompletionFn,
     /// Cancels background work computing deferred completions when they are no longer needed.
     task_controller: TaskController,
@@ -176,6 +180,7 @@ impl Prompt {
             history_draft: None,
             history_edited: true,
             cached_suggestion: std::cell::OnceCell::new(),
+            search_syntax: None,
             completion_fn: Box::new(completion_fn),
             task_controller: TaskController::new(),
             deferred_completion: None,
@@ -189,6 +194,77 @@ impl Prompt {
             keys: KeymapState::default(),
             language: None,
         }
+    }
+
+    pub(super) fn with_search_syntax(mut self, syntax: Option<Rc<Cell<SearchSyntax>>>) -> Self {
+        self.search_syntax = syntax;
+        self
+    }
+
+    fn syntax(&self) -> SearchSyntax {
+        self.search_syntax
+            .as_ref()
+            .map_or(SearchSyntax::Regex, |syntax| syntax.get())
+    }
+
+    fn label(&self) -> Cow<'_, str> {
+        if self.search_syntax.is_some() {
+            let syntax = match self.syntax() {
+                SearchSyntax::Regex => "regex",
+                SearchSyntax::Literal => "literal",
+            };
+            Cow::Owned(format!("{} [{syntax}]:", self.prompt.trim_end_matches(':')))
+        } else {
+            Cow::Borrowed(self.prompt.as_ref())
+        }
+    }
+
+    fn history_entry(&self) -> SearchHistoryEntry {
+        SearchHistoryEntry {
+            text: self.line.clone(),
+            syntax: self.syntax(),
+        }
+    }
+
+    fn restore_history_entry(&mut self, entry: SearchHistoryEntry, editor: &Editor) {
+        if let Some(syntax) = &self.search_syntax {
+            syntax.set(entry.syntax);
+        }
+        self.set_line(entry.text, editor);
+    }
+
+    fn history_entries<'a>(
+        &self,
+        editor: &'a Editor,
+        register: char,
+    ) -> Box<dyn DoubleEndedIterator<Item = SearchHistoryEntry> + 'a> {
+        if self.search_syntax.is_some() && !matches!(register, '#' | '.' | '%') {
+            editor.registers.search_history(register)
+        } else {
+            Box::new(
+                editor
+                    .read_register(register)
+                    .into_iter()
+                    .flatten()
+                    .map(|value| SearchHistoryEntry::regex(value.into_owned())),
+            )
+        }
+    }
+
+    fn first_history_entry(&self, editor: &Editor) -> Option<&SearchHistoryEntry> {
+        self.cached_suggestion
+            .get_or_init(|| {
+                self.history_register.and_then(|register| {
+                    if self.search_syntax.is_some() {
+                        self.history_entries(editor, register).next()
+                    } else {
+                        editor
+                            .first_register_value(register)
+                            .map(|value| SearchHistoryEntry::regex(value.into_owned()))
+                    }
+                })
+            })
+            .as_ref()
     }
 
     pub(crate) fn session(&self) -> &PromptSession {
@@ -252,14 +328,8 @@ impl Prompt {
         &'a self,
         editor: &'a Editor,
     ) -> Option<Cow<'a, str>> {
-        self.cached_suggestion
-            .get_or_init(|| {
-                self.history_register
-                    .and_then(|reg| editor.first_register_value(reg))
-                    .map(Cow::into_owned)
-            })
-            .as_deref()
-            .map(Cow::Borrowed)
+        self.first_history_entry(editor)
+            .map(|entry| Cow::Borrowed(entry.text.as_str()))
     }
 
     pub fn recalculate_completion(&mut self, editor: &Editor) {
@@ -274,6 +344,27 @@ impl Prompt {
         }
         self.pending_completion = None;
         self.completion_line.clone_from(&self.line);
+
+        if self.search_syntax.is_some() {
+            let mut entries = self
+                .history_register
+                .map(|register| {
+                    self.history_entries(editor, register)
+                        .take(200)
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            entries.retain(|entry| {
+                entry.syntax == self.syntax() && entry.text.starts_with(&self.line)
+            });
+            entries.sort_by(|a, b| a.text.cmp(&b.text));
+            entries.dedup();
+            self.completion = entries
+                .into_iter()
+                .map(|entry| (0.., entry.text.into()))
+                .collect();
+            return;
+        }
 
         match (self.completion_fn)(editor, &self.line) {
             CompletionResult::Immediate(completion) => self.completion = completion,
@@ -557,23 +648,27 @@ impl Prompt {
         (self.callback_fn)(cx, &self.line, PromptEvent::Abort);
         if self.history_edited {
             self.history_pos = None;
-            self.history_draft = Some(self.line.clone());
+            self.history_draft = Some(self.history_entry());
         }
-        let draft = self.history_draft.get_or_insert_with(|| self.line.clone());
-        let Some(values) = cx.editor.read_register(register) else {
-            return;
-        };
-        let values: Vec<_> = values
+        if self.history_draft.is_none() {
+            self.history_draft = Some(self.history_entry());
+        }
+        let draft = &self.history_draft.as_ref().unwrap().text;
+        let values: Vec<_> = self
+            .history_entries(cx.editor, register)
             .rev()
-            .filter(|value| value.contains(draft.as_str()))
-            .map(Cow::into_owned)
+            .filter(|entry| entry.text.contains(draft))
             .collect();
         if values.is_empty() {
             return;
         }
         let newest = values.len() - 1;
         if matches!(direction, CompletionDirection::Forward) && self.history_pos == Some(newest) {
-            self.line = self.history_draft.take().unwrap_or_default();
+            let entry = self.history_draft.take().unwrap();
+            self.line = entry.text;
+            if let Some(syntax) = &self.search_syntax {
+                syntax.set(entry.syntax);
+            }
             self.history_pos = None;
         } else {
             let index = match direction {
@@ -583,7 +678,10 @@ impl Prompt {
                 }
             }
             .min(newest);
-            self.line.clone_from(&values[index]);
+            self.line.clone_from(&values[index].text);
+            if let Some(syntax) = &self.search_syntax {
+                syntax.set(values[index].syntax);
+            }
             self.history_pos = Some(index);
         }
         self.move_end();
@@ -741,10 +839,11 @@ impl Prompt {
         cx.hyperlinks.borrow_mut().clear(area.clip_top(line));
         surface.clear_with(area.clip_top(line), background);
         // render buffer text
-        surface.set_string(area.x, area.y + line, &self.prompt, prompt_color);
+        let label = self.label();
+        surface.set_string(area.x, area.y + line, &label, prompt_color);
 
         self.line_area = area
-            .clip_left(self.prompt.len() as u16)
+            .clip_left(label.width() as u16)
             .clip_top(line)
             .clip_right(2);
         if self.line_area.is_empty() {
@@ -764,7 +863,11 @@ impl Prompt {
                     suggestion_color,
                 );
             }
-        } else if let Some((language, loader)) = self.language.as_ref() {
+        } else if let Some((language, loader)) = self
+            .language
+            .as_ref()
+            .filter(|_| self.syntax() == SearchSyntax::Regex)
+        {
             let mut text: ui::text::Text = crate::ui::markdown::highlighted_code_block(
                 &self.line,
                 language,
@@ -878,9 +981,9 @@ impl Prompt {
                 PromptAction::MoveLeft => self.move_cursor(Movement::BackwardChar(1)),
                 PromptAction::MoveRight => {
                     if self.line.is_empty()
-                        && let Some(suggestion) = self.first_history_completion(cx.editor)
+                        && let Some(entry) = self.first_history_entry(cx.editor).cloned()
                     {
-                        self.set_line(suggestion.into_owned(), cx.editor);
+                        self.restore_history_entry(entry, cx.editor);
                         (self.callback_fn)(cx, &self.line, PromptEvent::Update);
                     } else {
                         self.move_cursor(Movement::ForwardChar(1));
@@ -916,29 +1019,27 @@ impl Prompt {
                     if self.selection.is_some() && self.line.ends_with(std::path::MAIN_SEPARATOR) {
                         self.recalculate_completion(cx.editor);
                     } else {
-                        let last_item = self
-                            .first_history_completion(cx.editor)
-                            .map(|entry| entry.to_string())
-                            .unwrap_or_else(|| String::from(""));
-
-                        // handle executing with last command in history if nothing entered
-                        let input = if self.line.is_empty() {
-                            &last_item
-                        } else {
-                            if last_item != self.line {
-                                // store in history
-                                if let Some(register) = self.history_register
-                                    && let Err(err) =
-                                        cx.editor.registers.push_unique(register, self.line.clone())
-                                {
-                                    cx.editor.set_error(|| err.to_string());
-                                };
+                        let last_entry = self.first_history_entry(cx.editor).cloned();
+                        if self.line.is_empty() {
+                            if let Some(entry) = last_entry {
+                                self.line = entry.text;
+                                self.cursor = self.line.len();
+                                if let Some(syntax) = &self.search_syntax {
+                                    syntax.set(entry.syntax);
+                                }
                             }
+                        } else if self.search_syntax.is_none()
+                            && last_entry
+                                .as_ref()
+                                .is_none_or(|entry| entry.text != self.line)
+                            && let Some(register) = self.history_register
+                            && let Err(err) =
+                                cx.editor.registers.push_unique(register, self.line.clone())
+                        {
+                            cx.editor.set_error(|| err.to_string());
+                        }
 
-                            &self.line
-                        };
-
-                        let callback = (self.callback_fn)(cx, input, PromptEvent::Validate);
+                        let callback = (self.callback_fn)(cx, &self.line, PromptEvent::Validate);
 
                         return match callback {
                             Some(callback) => EventResult::Consumed(Some(Box::new(
@@ -975,6 +1076,16 @@ impl Prompt {
                     (self.callback_fn)(cx, &self.line, PromptEvent::Update);
                 }
                 PromptAction::ExitSelection => self.exit_selection(),
+                PromptAction::ToggleSearchSyntax => {
+                    if let Some(syntax) = &self.search_syntax {
+                        syntax.set(match syntax.get() {
+                            SearchSyntax::Regex => SearchSyntax::Literal,
+                            SearchSyntax::Literal => SearchSyntax::Regex,
+                        });
+                        self.recalculate_completion(cx.editor);
+                        (self.callback_fn)(cx, &self.line, PromptEvent::Update);
+                    }
+                }
                 PromptAction::InsertRegister => {
                     self.completion = cx
                         .editor
@@ -1095,7 +1206,7 @@ impl Component for Prompt {
             return Cursor::Hidden;
         }
         let area = area
-            .clip_left(self.prompt.len() as u16)
+            .clip_left(self.label().width() as u16)
             .clip_right(if self.prompt.is_empty() { 2 } else { 0 });
 
         let cursor = self
