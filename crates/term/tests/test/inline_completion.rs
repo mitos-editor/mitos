@@ -479,6 +479,78 @@ async fn inline_requests_extend_the_selected_completion_using_live_utf16_ranges(
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn follow_up_inline_requests_after_ordinary_completion_acceptance() -> anyhow::Result<()> {
+    assert_follow_up_after_completion_acceptance(false).await
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn follow_up_inline_requests_after_inline_extension_acceptance() -> anyhow::Result<()> {
+    assert_follow_up_after_completion_acceptance(true).await
+}
+
+async fn assert_follow_up_after_completion_acceptance(extension: bool) -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let mut f =
+        Fixture::with_options(dir.path(), false, "🙂 pr!\nnext\n", &["--no-resolve"]).await?;
+    f.open_menu().await?;
+    f.key("<C-n>").await?;
+    let selected = f.response().await?;
+    if extension {
+        selected(&mut f.app.editor);
+        assert!(f.preview().is_some());
+        f.key("<C-y>").await?;
+    } else {
+        f.key("<ret>").await?;
+        selected(&mut f.app.editor);
+        assert!(f.preview().is_none());
+    }
+    f.app.editor.reset_idle_timer();
+    tokio::time::timeout(
+        Duration::from_secs(5),
+        super::helpers::run_event_loop_until_idle(&mut f.app),
+    )
+    .await?;
+    assert!(!completion::is_shown(&f.app.editor));
+    f.response().await?(&mut f.app.editor);
+    let requests = lsp::read_log(&lsp::log_path(dir.path(), "inline"))?;
+    let follow_up = requests
+        .last()
+        .context("missing follow-up inline request")?;
+    assert_eq!(follow_up["context"]["triggerKind"], 2);
+    assert!(follow_up["context"].get("selectedCompletionInfo").is_none());
+    let (view, doc) = current_ref!(f.app.editor);
+    let server = doc.language_servers().next().unwrap();
+    assert_eq!(
+        follow_up["position"],
+        serde_json::to_value(doc.position(view.id, server.offset_encoding()))?
+    );
+    assert!(f.app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn dismissing_the_completion_menu_cancels_its_queued_inline_result() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let mut f =
+        Fixture::with_options(dir.path(), false, "🙂 pr!\nnext\n", &["--no-resolve"]).await?;
+    f.open_menu().await?;
+    f.key("<C-n>").await?;
+    let selected = f.response().await?;
+    f.key("<C-c>").await?;
+    selected(&mut f.app.editor);
+    assert!(f.preview().is_none());
+    assert!(!completion::is_shown(&f.app.editor));
+    assert_eq!(current_ref!(f.app.editor).1.text(), "🙂 pr!\nnext\n");
+    assert!(
+        tokio::time::timeout(Duration::from_millis(50), f.callbacks.recv())
+            .await
+            .is_err()
+    );
+    assert!(f.app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn ordinary_insert_prefixes_still_accept_the_selected_menu_item() -> anyhow::Result<()> {
     for (prefix, command) in [("z", "h"), ("g", "<C-p>")] {
         let dir = tempfile::tempdir()?;

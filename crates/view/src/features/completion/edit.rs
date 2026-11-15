@@ -365,6 +365,8 @@ impl Editor {
             snippet,
             additional,
         } = prepared;
+        // Cancel selected-item work before the edit schedules a fresh automatic request.
+        crate::features::inline_completion::dismiss(self);
         let trigger_offset = session.trigger.pos;
         let (view, doc) = current!(self);
         let (before, applied) =
@@ -412,7 +414,16 @@ impl Editor {
 
     /// Dismiss a menu and return accepted edit metadata, preserving a newly scheduled trigger.
     pub fn finish_completion(&mut self) -> Option<CompletionApply> {
-        crate::features::inline_completion::dismiss(self);
+        // Acceptance or earlier invalidation already canceled the selected-item
+        // request. Cleanup must preserve automatic work scheduled by the accepted edit.
+        if self.handlers.completions.session.is_some()
+            && !matches!(
+                self.handlers.completions.edit,
+                Some(CompletionEdit::Applied(_))
+            )
+        {
+            crate::features::inline_completion::dismiss(self);
+        }
         self.handlers.completions.dismiss();
         match self.handlers.completions.edit.take() {
             Some(CompletionEdit::Applied(applied)) => Some(applied),
