@@ -519,356 +519,112 @@ mod test {
 
     #[test]
     fn parsing_unmodified_keys() {
-        assert_eq!(
-            str::parse::<KeyEvent>("backspace").unwrap(),
-            KeyEvent {
-                code: KeyCode::Backspace,
-                modifiers: KeyModifiers::NONE
-            }
-        );
-
-        assert_eq!(
-            str::parse::<KeyEvent>("left").unwrap(),
-            KeyEvent {
-                code: KeyCode::Left,
-                modifiers: KeyModifiers::NONE
-            }
-        );
-
-        assert_eq!(
-            str::parse::<KeyEvent>(",").unwrap(),
-            KeyEvent {
-                code: KeyCode::Char(','),
-                modifiers: KeyModifiers::NONE
-            }
-        );
-
-        assert_eq!(
-            str::parse::<KeyEvent>("w").unwrap(),
-            KeyEvent {
-                code: KeyCode::Char('w'),
-                modifiers: KeyModifiers::NONE
-            }
-        );
-
-        assert_eq!(
-            str::parse::<KeyEvent>("F12").unwrap(),
-            KeyEvent {
-                code: KeyCode::F(12),
-                modifiers: KeyModifiers::NONE
-            }
-        );
-
-        assert_eq!(
-            str::parse::<KeyEvent>("%").unwrap(),
-            KeyEvent {
-                code: KeyCode::Char('%'),
-                modifiers: KeyModifiers::NONE
-            }
-        );
-
-        assert_eq!(
-            str::parse::<KeyEvent>(";").unwrap(),
-            KeyEvent {
-                code: KeyCode::Char(';'),
-                modifiers: KeyModifiers::NONE
-            }
-        );
-
-        assert_eq!(
-            str::parse::<KeyEvent>(">").unwrap(),
-            KeyEvent {
-                code: KeyCode::Char('>'),
-                modifiers: KeyModifiers::NONE
-            }
-        );
-
-        assert_eq!(
-            str::parse::<KeyEvent>("<").unwrap(),
-            KeyEvent {
-                code: KeyCode::Char('<'),
-                modifiers: KeyModifiers::NONE
-            }
-        );
-
-        assert_eq!(
-            str::parse::<KeyEvent>("+").unwrap(),
-            KeyEvent {
-                code: KeyCode::Char('+'),
-                modifiers: KeyModifiers::NONE
-            }
-        );
-        assert_eq!(
-            str::parse::<KeyEvent>("-").unwrap(),
-            KeyEvent {
-                code: KeyCode::Char('-'),
-                modifiers: KeyModifiers::NONE,
-            }
-        );
+        for (label, code) in [
+            ("backspace", KeyCode::Backspace),
+            ("left", KeyCode::Left),
+            (",", KeyCode::Char(',')),
+            ("w", KeyCode::Char('w')),
+            ("F12", KeyCode::F(12)),
+            ("%", KeyCode::Char('%')),
+            (";", KeyCode::Char(';')),
+            (">", KeyCode::Char('>')),
+            ("<", KeyCode::Char('<')),
+            ("+", KeyCode::Char('+')),
+            ("-", KeyCode::Char('-')),
+        ] {
+            assert_eq!(
+                label.parse::<KeyEvent>().unwrap(),
+                KeyEvent {
+                    code,
+                    modifiers: KeyModifiers::NONE,
+                },
+                "{label}"
+            );
+        }
     }
 
     #[test]
     fn parsing_modified_keys() {
-        assert_eq!(
-            str::parse::<KeyEvent>("S-minus").unwrap(),
-            KeyEvent {
-                code: KeyCode::Char('-'),
-                modifiers: KeyModifiers::SHIFT
-            }
-        );
-
-        assert_eq!(
-            str::parse::<KeyEvent>("C-A-S-F12").unwrap(),
-            KeyEvent {
-                code: KeyCode::F(12),
-                modifiers: KeyModifiers::SHIFT | KeyModifiers::CONTROL | KeyModifiers::ALT
-            }
-        );
-
-        assert_eq!(
-            str::parse::<KeyEvent>("S-C-2").unwrap(),
-            KeyEvent {
-                code: KeyCode::Char('2'),
-                modifiers: KeyModifiers::SHIFT | KeyModifiers::CONTROL
-            }
-        );
-
-        assert_eq!(
-            str::parse::<KeyEvent>("A-C-+").unwrap(),
-            KeyEvent {
-                code: KeyCode::Char('+'),
-                modifiers: KeyModifiers::ALT | KeyModifiers::CONTROL
-            }
-        );
-
-        assert_eq!(
-            str::parse::<KeyEvent>("C-S-r").unwrap(),
-            str::parse::<KeyEvent>("C-R").unwrap(),
-        );
-
-        assert_eq!(
-            str::parse::<KeyEvent>("S-w").unwrap(),
-            KeyEvent {
-                code: KeyCode::Char('W'),
-                modifiers: KeyModifiers::NONE
-            }
-        );
-
-        assert_eq!(
-            str::parse::<KeyEvent>("Meta-c").unwrap(),
-            KeyEvent {
-                code: KeyCode::Char('c'),
-                modifiers: KeyModifiers::SUPER
-            }
-        );
-        assert_eq!(
-            str::parse::<KeyEvent>("Win-s").unwrap(),
-            KeyEvent {
-                code: KeyCode::Char('s'),
-                modifiers: KeyModifiers::SUPER
-            }
-        );
-        assert_eq!(
-            str::parse::<KeyEvent>("Cmd-d").unwrap(),
-            KeyEvent {
-                code: KeyCode::Char('d'),
-                modifiers: KeyModifiers::SUPER
-            }
-        );
+        for (label, code, modifiers) in [
+            ("S-minus", KeyCode::Char('-'), KeyModifiers::SHIFT),
+            (
+                "C-A-S-F12",
+                KeyCode::F(12),
+                KeyModifiers::SHIFT | KeyModifiers::CONTROL | KeyModifiers::ALT,
+            ),
+            (
+                "S-C-2",
+                KeyCode::Char('2'),
+                KeyModifiers::SHIFT | KeyModifiers::CONTROL,
+            ),
+            (
+                "A-C-+",
+                KeyCode::Char('+'),
+                KeyModifiers::ALT | KeyModifiers::CONTROL,
+            ),
+            ("C-S-r", KeyCode::Char('R'), KeyModifiers::CONTROL),
+            ("C-R", KeyCode::Char('R'), KeyModifiers::CONTROL),
+            ("S-w", KeyCode::Char('W'), KeyModifiers::NONE),
+            ("Meta-c", KeyCode::Char('c'), KeyModifiers::SUPER),
+            ("Win-s", KeyCode::Char('s'), KeyModifiers::SUPER),
+            ("Cmd-d", KeyCode::Char('d'), KeyModifiers::SUPER),
+        ] {
+            assert_eq!(
+                label.parse::<KeyEvent>().unwrap(),
+                KeyEvent { code, modifiers },
+                "{label}"
+            );
+        }
     }
 
     #[test]
     fn parsing_nonsensical_keys_fails() {
-        assert!(str::parse::<KeyEvent>("F25").is_err());
-        assert!(str::parse::<KeyEvent>("F0").is_err());
-        assert!(str::parse::<KeyEvent>("aaa").is_err());
-        assert!(str::parse::<KeyEvent>("S-S-a").is_err());
-        assert!(str::parse::<KeyEvent>("C-A-S-C-1").is_err());
-        assert!(str::parse::<KeyEvent>("FU").is_err());
-        assert!(str::parse::<KeyEvent>("123").is_err());
-        assert!(str::parse::<KeyEvent>("S--").is_err());
-        assert!(str::parse::<KeyEvent>("S-").is_err());
-        assert!(str::parse::<KeyEvent>("S-percent").is_err());
+        for label in [
+            "F25",
+            "F0",
+            "aaa",
+            "S-S-a",
+            "C-A-S-C-1",
+            "FU",
+            "123",
+            "S--",
+            "S-",
+            "S-percent",
+        ] {
+            assert!(label.parse::<KeyEvent>().is_err(), "{label}");
+        }
     }
 
     #[test]
     fn parsing_unsupported_named_keys() {
-        assert!(str::parse::<KeyEvent>("plus").is_err());
-        assert!(str::parse::<KeyEvent>("percent").is_err());
-        assert!(str::parse::<KeyEvent>("semicolon").is_err());
+        for label in ["plus", "percent", "semicolon"] {
+            assert!(label.parse::<KeyEvent>().is_err(), "{label}");
+        }
     }
 
     #[test]
     fn parsing_valid_macros() {
-        assert_eq!(
-            parse_macro("xdo").ok(),
-            Some(vec![
-                KeyEvent {
-                    code: KeyCode::Char('x'),
-                    modifiers: KeyModifiers::NONE,
-                },
-                KeyEvent {
-                    code: KeyCode::Char('d'),
-                    modifiers: KeyModifiers::NONE,
-                },
-                KeyEvent {
-                    code: KeyCode::Char('o'),
-                    modifiers: KeyModifiers::NONE,
-                },
-            ]),
-        );
-
-        assert_eq!(
-            parse_macro("<C-w>v<C-w>h<C-o>xx<A-s>").ok(),
-            Some(vec![
-                KeyEvent {
-                    code: KeyCode::Char('w'),
-                    modifiers: KeyModifiers::CONTROL,
-                },
-                KeyEvent {
-                    code: KeyCode::Char('v'),
-                    modifiers: KeyModifiers::NONE,
-                },
-                KeyEvent {
-                    code: KeyCode::Char('w'),
-                    modifiers: KeyModifiers::CONTROL,
-                },
-                KeyEvent {
-                    code: KeyCode::Char('h'),
-                    modifiers: KeyModifiers::NONE,
-                },
-                KeyEvent {
-                    code: KeyCode::Char('o'),
-                    modifiers: KeyModifiers::CONTROL,
-                },
-                KeyEvent {
-                    code: KeyCode::Char('x'),
-                    modifiers: KeyModifiers::NONE,
-                },
-                KeyEvent {
-                    code: KeyCode::Char('x'),
-                    modifiers: KeyModifiers::NONE,
-                },
-                KeyEvent {
-                    code: KeyCode::Char('s'),
-                    modifiers: KeyModifiers::ALT,
-                },
-            ])
-        );
-
-        assert_eq!(
-            parse_macro(":o foo.bar<ret>").ok(),
-            Some(vec![
-                KeyEvent {
-                    code: KeyCode::Char(':'),
-                    modifiers: KeyModifiers::NONE,
-                },
-                KeyEvent {
-                    code: KeyCode::Char('o'),
-                    modifiers: KeyModifiers::NONE,
-                },
-                KeyEvent {
-                    code: KeyCode::Char(' '),
-                    modifiers: KeyModifiers::NONE,
-                },
-                KeyEvent {
-                    code: KeyCode::Char('f'),
-                    modifiers: KeyModifiers::NONE,
-                },
-                KeyEvent {
-                    code: KeyCode::Char('o'),
-                    modifiers: KeyModifiers::NONE,
-                },
-                KeyEvent {
-                    code: KeyCode::Char('o'),
-                    modifiers: KeyModifiers::NONE,
-                },
-                KeyEvent {
-                    code: KeyCode::Char('.'),
-                    modifiers: KeyModifiers::NONE,
-                },
-                KeyEvent {
-                    code: KeyCode::Char('b'),
-                    modifiers: KeyModifiers::NONE,
-                },
-                KeyEvent {
-                    code: KeyCode::Char('a'),
-                    modifiers: KeyModifiers::NONE,
-                },
-                KeyEvent {
-                    code: KeyCode::Char('r'),
-                    modifiers: KeyModifiers::NONE,
-                },
-                KeyEvent {
-                    code: KeyCode::Enter,
-                    modifiers: KeyModifiers::NONE,
-                },
-            ])
-        );
-
-        assert_eq!(
-            parse_macro(":w aa-bb.txt<ret>").ok(),
-            Some(vec![
-                KeyEvent {
-                    code: KeyCode::Char(':'),
-                    modifiers: KeyModifiers::NONE,
-                },
-                KeyEvent {
-                    code: KeyCode::Char('w'),
-                    modifiers: KeyModifiers::NONE,
-                },
-                KeyEvent {
-                    code: KeyCode::Char(' '),
-                    modifiers: KeyModifiers::NONE,
-                },
-                KeyEvent {
-                    code: KeyCode::Char('a'),
-                    modifiers: KeyModifiers::NONE,
-                },
-                KeyEvent {
-                    code: KeyCode::Char('a'),
-                    modifiers: KeyModifiers::NONE,
-                },
-                KeyEvent {
-                    code: KeyCode::Char('-'),
-                    modifiers: KeyModifiers::NONE,
-                },
-                KeyEvent {
-                    code: KeyCode::Char('b'),
-                    modifiers: KeyModifiers::NONE,
-                },
-                KeyEvent {
-                    code: KeyCode::Char('b'),
-                    modifiers: KeyModifiers::NONE,
-                },
-                KeyEvent {
-                    code: KeyCode::Char('.'),
-                    modifiers: KeyModifiers::NONE,
-                },
-                KeyEvent {
-                    code: KeyCode::Char('t'),
-                    modifiers: KeyModifiers::NONE,
-                },
-                KeyEvent {
-                    code: KeyCode::Char('x'),
-                    modifiers: KeyModifiers::NONE,
-                },
-                KeyEvent {
-                    code: KeyCode::Char('t'),
-                    modifiers: KeyModifiers::NONE,
-                },
-                KeyEvent {
-                    code: KeyCode::Enter,
-                    modifiers: KeyModifiers::NONE,
-                },
-            ])
-        );
+        let expected: Vec<_> = [
+            (KeyCode::Char('x'), KeyModifiers::NONE),
+            (KeyCode::Char(' '), KeyModifiers::NONE),
+            (KeyCode::Char('-'), KeyModifiers::NONE),
+            (KeyCode::Char('界'), KeyModifiers::NONE),
+            (KeyCode::Char('w'), KeyModifiers::CONTROL),
+            (KeyCode::Char('v'), KeyModifiers::NONE),
+            (KeyCode::Enter, KeyModifiers::NONE),
+            (KeyCode::Char('<'), KeyModifiers::NONE),
+            (KeyCode::Char('>'), KeyModifiers::NONE),
+        ]
+        .into_iter()
+        .map(|(code, modifiers)| KeyEvent { code, modifiers })
+        .collect();
+        assert_eq!(parse_macro("x -界<C-w>v<ret><lt><gt>").unwrap(), expected);
     }
 
     #[test]
     fn parsing_invalid_macros_fails() {
-        assert!(parse_macro("abc<C-").is_err());
-        assert!(parse_macro("abc>123").is_err());
-        assert!(parse_macro("wd<foo>").is_err());
+        for keys in ["abc<C-", "abc>123", "wd<foo>"] {
+            assert!(parse_macro(keys).is_err(), "{keys}");
+        }
     }
 }
