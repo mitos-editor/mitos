@@ -247,9 +247,9 @@ fn prepare(
     item: lsp::InlineCompletionItem,
 ) -> Option<InlineCompletion> {
     // Snippets require tabstop expansion, so don't offer them as literal ghost text.
-    if item.insert_text_format == Some(lsp::InsertTextFormat::SNIPPET) {
+    let lsp::OneOf::Left(insert_text) = item.insert_text else {
         return None;
-    }
+    };
     let range = match item.range {
         Some(range) => {
             if range.start.line != range.end.line
@@ -270,12 +270,12 @@ fn prepare(
         .filter_text
         .as_deref()
         .filter(|text| !text.is_empty())
-        .unwrap_or(&item.insert_text);
+        .unwrap_or(&insert_text);
     if !filter.starts_with(&replaced) {
         return None;
     }
     let prefix = text.slice_chars(range.from()..cursor).to_string();
-    let ghost = item.insert_text.strip_prefix(&prefix)?;
+    let ghost = insert_text.strip_prefix(&prefix)?;
     if ghost.is_empty() {
         return None;
     }
@@ -290,7 +290,7 @@ fn prepare(
     Some(InlineCompletion {
         cursor,
         range,
-        text: item.insert_text,
+        text: insert_text,
         lines: preview
             .split('\n')
             .map(|line| line.trim_end_matches('\r').to_owned())
@@ -450,11 +450,10 @@ mod tests {
 
     fn item(text: &str) -> lsp::InlineCompletionItem {
         lsp::InlineCompletionItem {
-            insert_text: text.into(),
+            insert_text: lsp::OneOf::Left(text.into()),
             filter_text: None,
             range: None,
             command: None,
-            insert_text_format: None,
         }
     }
 
@@ -537,7 +536,10 @@ mod tests {
         ));
         assert!(prepare(&text, 2, OffsetEncoding::Utf16, server, suggestion.clone()).is_none());
         suggestion.range = None;
-        suggestion.insert_text_format = Some(lsp::InsertTextFormat::SNIPPET);
+        suggestion.insert_text = lsp::OneOf::Right(lsp::StringValue {
+            kind: "snippet".into(),
+            value: "${1:print}".into(),
+        });
         assert!(prepare(&text, 2, OffsetEncoding::Utf16, server, suggestion).is_none());
     }
 }

@@ -211,6 +211,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "borrow-or-share"
+version = "0.2.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dc0b364ead1874514c8c2855ab558056ebfeb775653e7ae45ff72f28f8f3166c"
+
+[[package]]
 name = "bstr"
 version = "1.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1176,11 +1182,13 @@ dependencies = [
 
 [[package]]
 name = "fluent-uri"
-version = "0.1.4"
+version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "17c704e9dbe1ddd863da1e6ff3567795087b1eb201ce80d8fa81162e1516500d"
+checksum = "bc74ac4d8359ae70623506d512209619e5cf8f347124910440dbc221714b328e"
 dependencies = [
- "bitflags 1.3.2",
+ "borrow-or-share",
+ "ref-cast",
+ "serde",
 ]
 
 [[package]]
@@ -3160,9 +3168,8 @@ dependencies = [
 [[package]]
 name = "lsp-types"
 version = "0.97.0"
-source = "git+https://github.com/mitos-editor/lsp-types?rev=c17a95b4b32a83130749cef8dd2414d80478227a#c17a95b4b32a83130749cef8dd2414d80478227a"
 dependencies = [
- "bitflags 1.3.2",
+ "bitflags 2.13.2",
  "fluent-uri",
  "serde",
  "serde_json",

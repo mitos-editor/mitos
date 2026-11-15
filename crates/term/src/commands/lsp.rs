@@ -831,6 +831,7 @@ pub(super) mod typed {
                     (
                         ls_id,
                         lsp_client::lsp::Command {
+                            tooltip: None,
                             title: command.clone(),
                             command: command.clone(),
                             arguments: None,
@@ -881,6 +882,7 @@ pub(super) mod typed {
 
                     cx.editor.execute_lsp_command(
                         lsp_client::lsp::Command {
+                            tooltip: None,
                             title: command.clone(),
                             arguments,
                             command,

@@ -4,7 +4,7 @@ git_only = true
 git_tag_enable = false
 git_release_enable = false
 changelog_update = false
-# All workspace packages track the same editor release tag.
+# Editor packages track the same release tag; vendored protocol types are excluded below.
 git_tag_name = "v{{ version }}"
 semver_check = false
 pr_draft = false
@@ -26,3 +26,7 @@ git_release_name = "Mitos {{ version }}"
 git_release_enable = true
 git_release_draft = true
 git_release_latest = false
+
+[[package]]
+name = "lsp-types"
+release = false

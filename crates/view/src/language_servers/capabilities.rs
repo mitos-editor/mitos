@@ -31,7 +31,8 @@ pub fn supports_feature(
             capabilities.type_definition_provider,
             Some(
                 TypeDefinitionProviderCapability::Simple(true)
-                    | TypeDefinitionProviderCapability::Options(_),
+                    | TypeDefinitionProviderCapability::Options(_)
+                    | TypeDefinitionProviderCapability::RegistrationOptions(_),
             )
         ),
         LanguageServerFeature::GotoReference => matches!(
@@ -42,7 +43,8 @@ pub fn supports_feature(
             capabilities.implementation_provider,
             Some(
                 ImplementationProviderCapability::Simple(true)
-                    | ImplementationProviderCapability::Options(_),
+                    | ImplementationProviderCapability::Options(_)
+                    | ImplementationProviderCapability::RegistrationOptions(_),
             )
         ),
         LanguageServerFeature::SignatureHelp => capabilities.signature_help_provider.is_some(),
@@ -113,7 +115,7 @@ pub fn supports_feature(
                         options,
                     ) => &options.semantic_tokens_options,
                 };
-                options.range == Some(true)
+                matches!(options.range, Some(OneOf::Left(true) | OneOf::Right(_)))
                     || matches!(
                         options.full,
                         Some(
@@ -157,6 +159,26 @@ pub fn supports_feature(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn navigation_registration_options_enable_the_provider() {
+        for (field, feature) in [
+            (
+                "typeDefinitionProvider",
+                LanguageServerFeature::GotoTypeDefinition,
+            ),
+            (
+                "implementationProvider",
+                LanguageServerFeature::GotoImplementation,
+            ),
+        ] {
+            let capabilities = serde_json::from_value(serde_json::json!({
+                field: {"documentSelector": null, "id": "navigation", "workDoneProgress": true}
+            }))
+            .unwrap();
+            assert!(supports_feature(&capabilities, feature));
+        }
+    }
 
     #[test]
     fn advertised_features_respect_boolean_and_option_capabilities() {

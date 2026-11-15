@@ -124,6 +124,7 @@ mod tests {
                 range: Default::default(),
                 data: None,
                 command: Some(lsp_client::lsp::Command {
+                    tooltip: None,
                     title: "Run".into(),
                     command: "run".into(),
                     arguments: None,

@@ -78,8 +78,12 @@ impl Fixture {
 #[tokio::test(flavor = "multi_thread")]
 async fn full_and_range_only_servers_refine_highlights_using_negotiated_utf16() -> anyhow::Result<()>
 {
-    for range_only in [false, true] {
-        let mut f = Fixture::new(range_only).await?;
+    for (range_only, args) in [
+        (false, &[][..]),
+        (true, &[][..]),
+        (true, &["--range-options"][..]),
+    ] {
+        let mut f = Fixture::with_args(range_only, args).await?;
         let response = f.response().await?;
         response(&mut f.app.editor);
         let tokens = f.app.editor.document(f.doc).unwrap().semantic_tokens();

@@ -93,6 +93,17 @@ async fn initialization_sends_configuration_before_open_and_feature_requests() -
         messages[config]["params"]["settings"],
         json!({"lifecycle": "alpha"})
     );
+    let capabilities = &messages[index("initialize")]["params"]["capabilities"];
+    assert_eq!(
+        capabilities["workspace"]["diagnostics"]["refreshSupport"],
+        true
+    );
+    assert!(capabilities["workspace"].get("diagnostic").is_none());
+    assert_eq!(
+        capabilities["textDocument"]["signatureHelp"]["signatureInformation"]
+            ["noActiveParameterSupport"],
+        true
+    );
     assert!(f.app.close().await.is_empty());
     Ok(())
 }
@@ -127,7 +138,10 @@ async fn pushes_reject_uninitialized_unknown_invalid_and_stale_updates() -> anyh
             .editor
             .handle_publish_diagnostics(id, params(&uri, Some(stale), "stale"));
         assert_eq!(f.messages(), ["current"]);
-        assert_eq!(f.app.editor.diagnostics()[&uri][0].0.message, "current");
+        assert_eq!(
+            f.app.editor.diagnostics()[&uri][0].0.message.as_str(),
+            "current"
+        );
     }
     let mut invalid = params(&uri, None, "invalid URI");
     invalid.uri = "https://example.test/diagnostic".parse()?;
@@ -237,7 +251,10 @@ async fn exit_cleans_open_and_unopened_diagnostics_before_hooks_and_registry_rem
     assert_eq!(f.messages(), ["beta", "spelling"]);
     assert!(!f.app.editor.diagnostics().contains_key(&alpha_only));
     assert_eq!(f.app.editor.diagnostics()[&shared].len(), 1);
-    assert_eq!(f.app.editor.diagnostics()[&shared][0].0.message, "beta");
+    assert_eq!(
+        f.app.editor.diagnostics()[&shared][0].0.message.as_str(),
+        "beta"
+    );
     f.app.editor.handle_language_server_exit(alpha);
     assert_eq!(exits.load(Ordering::SeqCst), 1);
     assert!(f.app.close().await.is_empty());
@@ -321,7 +338,10 @@ async fn restart_clears_selected_server_document_and_workspace_diagnostics() -> 
     assert_eq!(other_doc.diagnostics()[0].message.as_ref(), "beta");
     assert!(!f.app.editor.diagnostics().contains_key(&alpha_only));
     assert_eq!(f.app.editor.diagnostics()[&shared].len(), 1);
-    assert_eq!(f.app.editor.diagnostics()[&shared][0].0.message, "beta");
+    assert_eq!(
+        f.app.editor.diagnostics()[&shared][0].0.message.as_str(),
+        "beta"
+    );
     // Late notifications from the retired process cannot restore its diagnostics.
     f.app
         .editor
@@ -393,7 +413,10 @@ async fn stop_clears_workspace_diagnostics_for_unopened_files() -> anyhow::Resul
     assert!(f.app.editor.language_server_by_id(beta).is_some());
     assert!(!f.app.editor.diagnostics().contains_key(&alpha_only));
     assert_eq!(f.app.editor.diagnostics()[&shared].len(), 1);
-    assert_eq!(f.app.editor.diagnostics()[&shared][0].0.message, "beta");
+    assert_eq!(
+        f.app.editor.diagnostics()[&shared][0].0.message.as_str(),
+        "beta"
+    );
     f.app.editor.refresh_language_servers(document);
     assert!(f.app.editor.language_server_by_id(alpha).is_none());
     assert!(current_ref!(f.app.editor)
@@ -733,6 +756,15 @@ async fn progress_tokens_are_scoped_to_servers_and_removed_on_stop() -> anyhow::
     }
     assert!(f.app.editor.language_server_is_progressing(alpha));
     assert!(f.app.editor.language_server_is_progressing(beta));
+    let partial: lsp::ProgressParams = serde_json::from_value(json!({
+        "token": "shared", "value": {"items": []}
+    }))?;
+    assert!(f
+        .app
+        .editor
+        .handle_language_server_progress(alpha, partial)
+        .is_none());
+    assert!(f.app.editor.language_server_is_progressing(alpha));
     let document = current_ref!(f.app.editor).1.id();
     f.app.editor.stop_language_servers(document, &["alpha"])?;
     assert!(!f.app.editor.language_server_is_progressing(alpha));

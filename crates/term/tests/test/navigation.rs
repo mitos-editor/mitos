@@ -119,7 +119,8 @@ impl Fixture {
 #[tokio::test(flavor = "multi_thread")]
 async fn navigation_normalizes_location_shapes_and_preserves_target_ranges() -> anyhow::Result<()> {
     let dir = tempfile::tempdir()?;
-    let mut f = Fixture::new(dir.path()).await?;
+    let mut f =
+        Fixture::with_servers(dir.path(), &[("alpha", &["--registration-options"])]).await?;
     for kind in [
         NavigationKind::Definition,
         NavigationKind::Declaration,

@@ -159,6 +159,7 @@ mod tests {
                 range: lsp::Range::default(),
                 data: None,
                 command: Some(lsp::Command {
+                    tooltip: None,
                     title: title.into(),
                     command: "run".into(),
                     arguments: None,

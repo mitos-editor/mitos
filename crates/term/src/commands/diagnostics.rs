@@ -273,7 +273,7 @@ fn store_diagnostic(
         severity,
         code,
         source: diagnostic.source.clone().map(Into::into),
-        message: diagnostic.message.clone().into(),
+        message: diagnostic.message.as_str().into(),
         provider: provider.clone(),
         ordinal: 0,
         resolved: false,

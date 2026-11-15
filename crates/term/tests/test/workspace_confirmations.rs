@@ -185,7 +185,11 @@ async fn workspace_confirmation_accepts_or_declines_before_reply_and_edits() -> 
         let edit = edit(&f);
         f.app.editor.request_workspace_edit_from_server(
             f.server("alpha"),
-            lsp::ApplyWorkspaceEditParams { label: None, edit },
+            lsp::ApplyWorkspaceEditParams {
+                label: None,
+                edit,
+                metadata: None,
+            },
             move |_, response| {
                 let _ = tx.send(response);
             },
@@ -292,6 +296,7 @@ async fn workspace_confirmation_does_not_run_code_action_commands_when_declined(
             title: "Confirm and run".into(),
             edit: Some(edit(&f)),
             command: Some(lsp::Command {
+                tooltip: None,
                 title: "Run".into(),
                 command: "fixture.command".into(),
                 arguments: None,
@@ -317,6 +322,7 @@ async fn workspace_confirmation_does_not_run_code_action_commands_when_declined(
                 .language_server_by_id(server)
                 .unwrap()
                 .command(lsp::Command {
+                    tooltip: None,
                     title: "Test barrier".into(),
                     command: "fixture.command".into(),
                     arguments: Some(vec![json!("barrier")]),

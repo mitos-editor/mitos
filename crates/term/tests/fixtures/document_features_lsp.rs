@@ -533,6 +533,7 @@ fn main() -> anyhow::Result<()> {
             writeln!(request_log.as_mut().unwrap(), "{params}")?;
             request_log.as_mut().unwrap().flush()?;
             let items = json!([
+                {"insertText": {"kind": "snippet", "value": "${1:print}"}},
                 {"range": range(3, 5), "insertText": "print(界)\n\treturn 1"},
                 {"insertText": "# alternate"}
             ]);
@@ -1094,7 +1095,7 @@ fn main() -> anyhow::Result<()> {
                     "full": if args.iter().any(|arg| arg == "--range-only") { json!(false) }
                         else if semantic_deltas { json!({"delta": !args.iter().any(|arg| arg == "--no-delta-support")}) }
                         else { json!(true) },
-                    "range": true
+                    "range": if args.iter().any(|arg| arg == "--range-options") { json!({}) } else { json!(true) }
                 }
             }}),
             "textDocument/semanticTokens/full" | "textDocument/semanticTokens/range"
@@ -1155,8 +1156,14 @@ fn main() -> anyhow::Result<()> {
             "initialize" if navigation => json!({"capabilities": {
                 "textDocumentSync": 1,
                 "positionEncoding": if args.iter().any(|arg| arg == "--utf-8") { "utf-8" } else { "utf-16" },
-                "definitionProvider": true, "declarationProvider": true, "typeDefinitionProvider": true,
-                "implementationProvider": true, "referencesProvider": true, "documentHighlightProvider": true
+                "definitionProvider": true, "declarationProvider": true,
+                "typeDefinitionProvider": if args.iter().any(|arg| arg == "--registration-options") {
+                    json!({"documentSelector": null, "id": "types"})
+                } else { json!(true) },
+                "implementationProvider": if args.iter().any(|arg| arg == "--registration-options") {
+                    json!({"documentSelector": null, "id": "implementations"})
+                } else { json!(true) },
+                "referencesProvider": true, "documentHighlightProvider": true
             }}),
             "initialize" if language_features => json!({"capabilities": {
                 "textDocumentSync": 1, "positionEncoding": "utf-16", "hoverProvider": true, "inlayHintProvider": true

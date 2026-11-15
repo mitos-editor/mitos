@@ -13,6 +13,7 @@ members = [
   "crates/term",
   "crates/tui",
   "crates/lsp",
+  "crates/lsp-types",
   "crates/event",
   "crates/dap-types",
   "crates/dap",
@@ -86,7 +87,7 @@ file-watch = { path = "crates/file-watch" }
 text-diff = { path = "crates/text-diff" }
 text-io = { path = "crates/text-io" }
 lsp = { path = "crates/lsp" }
-lsp-types = { git = "https://github.com/mitos-editor/lsp-types", rev = "c17a95b4b32a83130749cef8dd2414d80478227a", features = ["proposed"] }
+lsp-types = { path = "crates/lsp-types" }
 parsec = { path = "crates/parsec" }
 snippets = { path = "crates/snippets" }
 spelling = { path = "crates/spelling" }

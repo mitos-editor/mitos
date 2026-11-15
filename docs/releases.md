@@ -10,8 +10,8 @@ the existing draft by ID and refuse to proceed if it is already published.
 Releases use Git tags only; release-plz does not publish crates to crates.io.
 The `term` package owns the release and root changelog. Its version is inherited
 from `workspace.package.version`, so the editor's internal workspace crates
-remain on the same version. External dependencies, including `lsp-types`, retain
-their upstream versions.
+remain on the same version. The vendored `crates/lsp-types` package retains its
+upstream version and is excluded from release-plz versioning and releases.
 
 ## Version baseline
 
@@ -37,10 +37,10 @@ build workflow. See the [release-plz token setup guide](https://release-plz.dev/
 
 ## Release checklist
 
-1. Review the release PR's version, `Cargo.lock`, and `CHANGELOG.md`. All workspace
-   packages must share `workspace.package.version`; keep external dependency
-   versions unchanged. For a minor release such as 0.2.0, set that version in
-   `Cargo.toml` and regenerate the lockfile with Cargo.
+1. Review the release PR's version, `Cargo.lock`, and `CHANGELOG.md`. Editor
+   packages must share `workspace.package.version`; keep the vendored `lsp-types`
+   version and external dependency versions unchanged. For a minor release such
+   as 0.2.0, set that version in `Cargo.toml` and regenerate the lockfile with Cargo.
 2. Curate the changelog in plain English, including runtime, grammar, theme, and
    packaging changes outside Rust packages. Link feature documentation and
    upstream libraries, and explain breaking changes and how to upgrade.

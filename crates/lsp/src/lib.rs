@@ -13,7 +13,7 @@
 //! bug for non-ASCII text.
 //!
 //! Protocol wire types are available under [`lsp`] and intentionally remain in
-//! the upstream `lsp-types` dependency, with editor URI adapters in [`UriExt`].
+//! the workspace's `lsp-types` crate, with editor URI adapters in [`UriExt`].
 
 mod client;
 mod completion;
