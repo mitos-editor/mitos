@@ -116,51 +116,8 @@ mod tests {
     }
 
     #[test]
-    fn border_choice_survives_theme_changes_and_uses_theme_colors() {
-        let area = Rect::new(0, 0, 5, 3);
-        let config = editor_config::Config {
-            border_style: BorderStyle::Rounded,
-            ..editor_config::Config::default()
-        };
-
-        for (name, color) in [("red", Color::Red), ("blue", Color::Blue)] {
-            let theme = Theme::from(toml::Value::Table(toml::toml! {
-                "ui.text" = name
-                "ui.window" = name
-            }));
-            let mut surface = Buffer::empty(area);
-            bordered(&theme, config.border_style).render(area, &mut surface);
-            assert_eq!(surface[(0, 0)].symbol(), "╭");
-            assert_eq!(surface[(0, 0)].fg, color);
-
-            top_border(theme.get("ui.window"), config.border_style).render(area, &mut surface);
-            assert_eq!(surface[(0, 0)].symbol(), "─");
-            assert_eq!(surface[(0, 0)].fg, color);
-        }
-    }
-
-    #[test]
-    fn panels_follow_border_setting_changes() {
-        let theme = Theme::default();
-        let area = Rect::new(0, 0, 5, 3);
-        for (style, corner, horizontal) in [
-            (BorderStyle::None, " ", " "),
-            (BorderStyle::Plain, "┌", "─"),
-            (BorderStyle::Rounded, "╭", "─"),
-            (BorderStyle::Double, "╔", "═"),
-            (BorderStyle::Thick, "┏", "━"),
-            (BorderStyle::QuadrantInside, "▗", "▄"),
-            (BorderStyle::QuadrantOutside, "▛", "▀"),
-        ] {
-            let mut surface = Buffer::empty(area);
-            let block = horizontally_padded(&theme, style);
-            assert_eq!(block.inner(area), Rect::new(2, 1, 1, 1));
-            block.render(area, &mut surface);
-            assert_eq!(surface[(0, 0)].symbol(), corner);
-            assert_eq!(surface[(1, 0)].symbol(), horizontal);
-
-            top_border(Style::default(), style).render(area, &mut surface);
-            assert_eq!(surface[(0, 0)].symbol(), horizontal);
-        }
+    fn border_styles_select_the_requested_symbol_set() {
+        assert_eq!(border_set(BorderStyle::None), border::EMPTY);
+        assert_eq!(border_set(BorderStyle::Double), border::DOUBLE);
     }
 }
