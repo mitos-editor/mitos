@@ -1180,6 +1180,13 @@ async fn historical_sides_detect_their_own_languages_and_open_with_source_syntax
         assert_eq!(doc.language_name(), Some(language));
         assert!(doc.syntax().is_some());
         let source = doc.id();
+        assert!(!doc.is_syntax_pending());
+        f.editor.switch(id, Action::Replace);
+        f.editor.open_review_source(true, Action::VerticalSplit)?;
+        let (_, doc) = current_ref!(f.editor);
+        assert_eq!(doc.id(), source);
+        assert!(doc.syntax().is_some());
+        assert!(!doc.is_syntax_pending());
         f.editor.set_document_language(source, None)?;
         assert!(f.editor.document(source).unwrap().syntax().is_none());
         f.editor.refresh_doc_language(source);

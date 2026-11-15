@@ -396,7 +396,6 @@ impl Editor {
                     source.loader(),
                 );
                 doc.set_historical(request.document_source(before));
-                source.initialize_document(&mut doc, before);
                 doc
             });
         if !created {
@@ -406,8 +405,10 @@ impl Editor {
                 .expect("historical publication uses immutable source text");
             let doc = self.document_mut(id).unwrap();
             doc.set_historical(request.document_source(before));
-            source.initialize_document(doc, before);
         }
+        // Registration schedules ordinary syntax initialization. Install the
+        // prepared snapshot afterward, canceling that redundant parse.
+        source.initialize_document(self.document_mut(id).unwrap(), before);
         id
     }
 }
