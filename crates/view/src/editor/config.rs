@@ -82,6 +82,14 @@ impl Editor {
     pub fn refresh_config(&mut self, old_config: &Config) {
         let config = self.config();
         self.auto_pairs = (&config.auto_pairs).into();
+        if old_config.lsp.trace != config.lsp.trace {
+            let trace = crate::language_servers::trace_value(config.lsp.trace);
+            for server in self.language_servers() {
+                if self.language_servers.is_ready(server.id()) {
+                    server.set_trace(trace);
+                }
+            }
+        }
         // Apply path-based settings before layout and feature observers read them.
         // Other live settings are read through the installed configuration snapshot.
         if old_config.files.editor_config != config.files.editor_config {

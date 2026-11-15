@@ -495,6 +495,7 @@ Available statusline elements:
 | Key | Type | Default | Description |
 | --- | --- | --- | --- |
 | `enable` | boolean | `true` | Enable LSP integration globally. |
+| `trace` | `"off"`, `"messages"`, `"verbose"` | `"off"` | Write server execution traces to the local log. `messages` omits verbose details. Changes apply on configuration reload. |
 | `workspace-roots` | array of paths | `[]` | Workspace-relative directories that stop LSP root discovery. |
 | `progress.enable` | boolean | `false` | Show `$/progress` messages in the command area. |
 | `messages.enable` | boolean | `true` | Show `window/showMessage` messages in the command area. |
@@ -513,6 +514,10 @@ Available statusline elements:
 | `code-lenses.border-style` | border style or `"inherit"` | `"inherit"` | Code lens command menu borders. See [popup borders](#popup-borders). |
 | `completion.snippets` | boolean | `true` | Advertise and insert LSP snippet completions. A server restart is required after changing it. |
 | `references.include-declaration` | boolean | `true` | Include a symbol's declaration in reference results. |
+
+Start Mitos with `ms -v` to record execution traces in the local log. Use
+`ms -vv` to include server telemetry events at debug log level. Telemetry never
+appears in the command area, and Mitos does not send it to an external service.
 
 The dotted paths above are feature subsections. For example:
 

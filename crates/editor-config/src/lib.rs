@@ -619,6 +619,8 @@ impl Default for SmartTabConfig {
 #[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
 pub struct LspConfig {
     pub enable: bool,
+    /// Server execution tracing written to the local editor log.
+    pub trace: LspTrace,
     /// Workspace-relative ceilings for language-server root discovery.
     pub workspace_roots: Vec<PathBuf>,
     pub progress: LspProgressConfig,
@@ -643,6 +645,7 @@ impl Default for LspConfig {
         Self {
             enable: true,
             workspace_roots: Vec::new(),
+            trace: LspTrace::default(),
             progress: LspProgressConfig::default(),
             messages: LspMessagesConfig::default(),
             hover: PopupConfig::default(),
@@ -658,6 +661,15 @@ impl Default for LspConfig {
             references: LspReferencesConfig::default(),
         }
     }
+}
+
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum LspTrace {
+    #[default]
+    Off,
+    Messages,
+    Verbose,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1903,5 +1915,22 @@ mod tests {
             assert!(toml::from_str::<Config>(&format!("[search]\nmax-matches = {value}")).is_err());
         }
         assert!(Config::default().statusline.shows_search_position());
+    }
+
+    #[test]
+    fn lsp_trace_defaults_off_and_validates_verbosity() {
+        assert_eq!(LspConfig::default().trace, LspTrace::Off);
+        for (name, trace) in [
+            ("off", LspTrace::Off),
+            ("messages", LspTrace::Messages),
+            ("verbose", LspTrace::Verbose),
+        ] {
+            let config: LspConfig = toml::from_str(&format!("trace = '{name}'")).unwrap();
+            assert_eq!(config.trace, trace);
+            round_trip(&config);
+        }
+        for value in ["'debug'", "true", "1"] {
+            assert!(toml::from_str::<LspConfig>(&format!("trace = {value}")).is_err());
+        }
     }
 }

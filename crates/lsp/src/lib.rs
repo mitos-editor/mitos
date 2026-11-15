@@ -167,6 +167,8 @@ pub enum Notification {
     PublishDiagnostics(lsp::PublishDiagnosticsParams),
     ShowMessage(lsp::ShowMessageParams),
     LogMessage(lsp::LogMessageParams),
+    LogTrace(lsp::LogTraceParams),
+    TelemetryEvent(lsp::OneOf<lsp::LSPObject, lsp::LSPArray>),
     ProgressMessage(lsp::ProgressParams),
 }
 
@@ -190,6 +192,8 @@ impl Notification {
                 let params: lsp::LogMessageParams = params.parse()?;
                 Self::LogMessage(params)
             }
+            lsp::notification::LogTrace::METHOD => Self::LogTrace(params.parse()?),
+            lsp::notification::TelemetryEvent::METHOD => Self::TelemetryEvent(params.parse()?),
             lsp::notification::Progress::METHOD => {
                 let params: lsp::ProgressParams = params.parse()?;
                 Self::ProgressMessage(params)
@@ -311,5 +315,36 @@ impl LspProgressMap {
                     *progress = lsp::WorkDoneProgress::Report(status)
                 }
             });
+    }
+}
+
+#[cfg(test)]
+mod notification_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn trace_and_telemetry_notifications_validate_their_payloads() {
+        let trace = Notification::parse(
+            "$/logTrace",
+            json!({"message": "request complete", "verbose": "details"}).into(),
+        )
+        .unwrap();
+        assert!(
+            matches!(trace, Notification::LogTrace(lsp::LogTraceParams { message, verbose: Some(verbose) })
+            if message == "request complete" && verbose == "details")
+        );
+        for payload in [json!({"counts": [1, 2]}), json!([{"count": 1}])] {
+            assert!(matches!(
+                Notification::parse("telemetry/event", payload.into()).unwrap(),
+                Notification::TelemetryEvent(_)
+            ));
+        }
+        assert!(Notification::parse("$/logTrace", json!({"message": 4}).into()).is_err());
+        assert!(
+            Notification::parse("$/logTrace", json!({"verbose": "missing message"}).into())
+                .is_err()
+        );
+        assert!(Notification::parse("telemetry/event", jsonrpc::Params::None).is_err());
     }
 }

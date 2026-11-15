@@ -158,7 +158,14 @@ impl Transport {
         reader.read_exact(content).await?;
         let msg = std::str::from_utf8(content).context("invalid utf8 from server")?;
 
-        info!("{language_server_name} <- {msg}");
+        // These notifications have their own opt-in logging policy. Looking up
+        // the method before decoding also protects malformed notification params.
+        use sonic_rs::JsonValueTrait as _;
+        let separately_logged = sonic_rs::get_from_slice(content, ["method"])
+            .is_ok_and(|method| matches!(method.as_str(), Some("$/logTrace" | "telemetry/event")));
+        if !separately_logged {
+            info!("{language_server_name} <- {msg}");
+        }
 
         // NOTE: We avoid using `?` here, since it would return early on error
         // and skip clearing `content`. By returning the result directly instead,

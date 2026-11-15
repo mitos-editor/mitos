@@ -67,7 +67,7 @@ impl Editor {
         let status_sender = self.handlers.status.clone();
         let language_servers = lang.as_ref().map_or_else(HashMap::default, |language| {
             self.language_servers
-                .get(language, path, root_dirs, config.lsp.completion.snippets)
+                .get(language, path, root_dirs, &config.lsp)
                 .filter_map(|(lang, client)| match client {
                     Ok(client) => Some((lang, client)),
                     Err(err) => {
@@ -104,7 +104,8 @@ impl Editor {
     /// Publish editor readiness only after configuration is queued. Pending documents
     /// open with their latest snapshot before feature observers can request work.
     pub fn handle_language_server_initialized(&mut self, server_id: LanguageServerId) {
-        if !self.language_servers.configure(server_id) {
+        let trace = crate::language_servers::trace_value(self.config().lsp.trace);
+        if !self.language_servers.configure(server_id, trace) {
             return;
         }
         for doc in self.documents.values_mut() {
@@ -265,7 +266,7 @@ impl Editor {
                     &config,
                     path.as_deref(),
                     &editor_config.lsp.workspace_roots,
-                    editor_config.lsp.completion.snippets,
+                    &editor_config.lsp,
                 )
                 .transpose()
             {

@@ -183,6 +183,27 @@ fn main() -> anyhow::Result<()> {
         if method == "initialize" && args.iter().any(|arg| arg == "--exit-on-initialize") {
             return Ok(());
         }
+        if method == "$/setTrace" && args.iter().any(|arg| arg == "--trace-events") {
+            for (method, params) in [
+                (
+                    "$/logTrace",
+                    json!({"message": "trace summary", "verbose": "trace detail"}),
+                ),
+                ("telemetry/event", json!({"count": 2})),
+                ("telemetry/event", json!([1, 2])),
+                ("$/logTrace", json!({"message": 4})),
+                ("telemetry/event", Value::Null),
+                (
+                    "window/logMessage",
+                    json!({"type": 3, "message": "still running"}),
+                ),
+            ] {
+                respond(
+                    &mut output,
+                    json!({"jsonrpc": "2.0", "method": method, "params": params}),
+                )?;
+            }
+        }
         match method {
             "textDocument/didOpen" => {
                 versions.insert(

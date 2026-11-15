@@ -1,3 +1,4 @@
+mod logging;
 mod workspace;
 
 use crate::events::LanguageServerExited;

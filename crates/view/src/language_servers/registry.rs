@@ -104,7 +104,7 @@ impl Registry {
 
     /// Queue configuration before publishing editor readiness. Wire capabilities
     /// alone do not let documents or features start sending messages.
-    pub(crate) fn configure(&mut self, id: LanguageServerId) -> bool {
+    pub(crate) fn configure(&mut self, id: LanguageServerId, trace: lsp::TraceValue) -> bool {
         let Some(entry) = self.inner.get_mut(id) else {
             log::debug!("ignoring initialization from removed server {id}");
             return false;
@@ -112,6 +112,9 @@ impl Registry {
         if entry.state != ServerState::Starting || !entry.client.is_initialized() {
             return false;
         }
+        // Configuration can change while initialize is pending. Apply the latest
+        // trace setting before documents and feature observers start sending work.
+        entry.client.set_trace(trace);
         if let Some(config) = entry.client.config() {
             entry.client.did_change_configuration(config.clone());
         }
@@ -152,7 +155,7 @@ impl Registry {
         ls_config: &LanguageConfiguration,
         doc_path: Option<&std::path::Path>,
         root_dirs: &[PathBuf],
-        enable_snippets: bool,
+        options: &editor_config::LspConfig,
     ) -> Result<Arc<Client>, StartupError> {
         let syn_loader = self.syn_loader.load();
         let config = syn_loader
@@ -160,16 +163,7 @@ impl Registry {
             .get(&name)
             .ok_or_else(|| anyhow::anyhow!("Language server '{name}' not defined"))?;
         let id = self.inner.try_insert_with_key(|id| {
-            start_client(
-                id,
-                name,
-                ls_config,
-                config,
-                doc_path,
-                root_dirs,
-                enable_snippets,
-            )
-            .map(|client| {
+            start_client(id, name, ls_config, config, doc_path, root_dirs, options).map(|client| {
                 self.incoming.push(UnboundedReceiverStream::new(client.1));
                 ServerEntry {
                     client: client.0,
@@ -199,7 +193,7 @@ impl Registry {
         language_config: &LanguageConfiguration,
         doc_path: Option<&std::path::Path>,
         root_dirs: &[PathBuf],
-        enable_snippets: bool,
+        options: &editor_config::LspConfig,
     ) -> Option<Result<Arc<Client>>> {
         self.unavailable.retain(|key, _| key.server != name);
         if let Some(old_clients) = self.instances.remove(name) {
@@ -220,7 +214,7 @@ impl Registry {
             language_config,
             doc_path,
             root_dirs,
-            enable_snippets,
+            options,
         ) {
             Ok(client) => client,
             Err(StartupError::NoRequiredRootFound) => return None,
@@ -330,7 +324,7 @@ impl Registry {
         language_config: &LanguageConfiguration,
         doc_path: Option<&Path>,
         root_dirs: &[PathBuf],
-        enable_snippets: bool,
+        options: &editor_config::LspConfig,
     ) -> impl Iterator<Item = (LanguageServerName, Result<Arc<Client>>)> {
         let (root_path, _) = language_server_root(language_config, doc_path, root_dirs);
         let mut result = Vec::new();
@@ -391,13 +385,8 @@ impl Registry {
                     result.push((name.clone(), Ok(client)));
                     break;
                 }
-                match self.start_client(
-                    name.clone(),
-                    language_config,
-                    doc_path,
-                    root_dirs,
-                    enable_snippets,
-                ) {
+                match self.start_client(name.clone(), language_config, doc_path, root_dirs, options)
+                {
                     Ok(client) => {
                         if let Some(key) = selection_key {
                             self.alternative_selections.insert(key, name.clone());
@@ -446,7 +435,7 @@ fn start_client(
     ls_config: &LanguageServerConfiguration,
     doc_path: Option<&std::path::Path>,
     root_dirs: &[PathBuf],
-    enable_snippets: bool,
+    options: &editor_config::LspConfig,
 ) -> Result<NewClient, StartupError> {
     let (root_path, root_uri) = language_server_root(config, doc_path, root_dirs);
     if !has_required_root(ls_config, &root_path)? {
@@ -468,6 +457,8 @@ fn start_client(
 
     let client = Arc::new(client);
 
+    let enable_snippets = options.completion.snippets;
+    let trace = super::trace_value(options.trace);
     // Startup and fallback policy belong to this editor-owned registry.
     let initializing = client.clone();
     tokio::spawn(async move {
@@ -475,7 +466,10 @@ fn start_client(
             name: "mitos".into(),
             version: Some(loader::VERSION_AND_GIT_HASH.into()),
         };
-        if let Err(error) = initializing.initialize(enable_snippets, client_info).await {
+        if let Err(error) = initializing
+            .initialize(enable_snippets, client_info, trace)
+            .await
+        {
             log::error!(
                 "failed to initialize language server {}: {error}",
                 initializing.name()
