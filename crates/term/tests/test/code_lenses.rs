@@ -658,3 +658,19 @@ async fn title_requests_are_limited_before_the_client_sends_them() -> anyhow::Re
     assert!(fixture.app.close().await.is_empty());
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn code_lens_menu_shows_eager_and_resolved_command_tooltips() -> anyhow::Result<()> {
+    let mut fixture = Fixture::new(&["alpha"], &[]).await?;
+    fixture.open_menu().await?;
+    let buffer = fixture.app.terminal_backend().buffer();
+    let screen = buffer
+        .content
+        .chunks(buffer.area.width as usize)
+        .map(|row| row.iter().map(|cell| cell.symbol()).collect::<String>())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(screen.contains("Run ready lens"));
+    assert!(screen.contains("Run resolved lens"));
+    Ok(())
+}

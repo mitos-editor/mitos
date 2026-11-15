@@ -55,8 +55,21 @@ impl ui::menu::Item for CodeLensCommand {
     type Data = ();
 
     fn format(&self, _: &Self::Data) -> Row<'_> {
-        self.command.title.as_str().into()
+        command_row(&self.command.title, self.command.tooltip.as_deref(), false)
     }
+}
+
+fn command_row<'a>(title: &'a str, tooltip: Option<&str>, llm_generated: bool) -> Row<'a> {
+    let mut title = Line::from(title);
+    if llm_generated {
+        title.spans.push(Span::raw(" [AI generated]"));
+    }
+    let tooltip = tooltip
+        .unwrap_or_default()
+        .lines()
+        .collect::<Vec<_>>()
+        .join(" ");
+    Row::new([Cell::from(title), Cell::from(tooltip)])
 }
 
 pub fn show_code_lenses_under_cursor(cx: &mut Context) {
@@ -552,7 +565,7 @@ pub fn workspace_symbol_picker(cx: &mut Context) {
 impl ui::menu::Item for CodeActionItem {
     type Data = ();
     fn format(&self, _data: &Self::Data) -> Row<'_> {
-        Row::new([self.title()])
+        command_row(self.title(), self.tooltip(), self.is_llm_generated())
     }
 }
 
@@ -839,5 +852,28 @@ pub(super) mod typed {
         let document = doc!(cx.editor).id();
         let servers: Vec<_> = args.iter().map(|arg| arg.as_ref()).collect();
         cx.editor.stop_language_servers(document, &servers)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::command_row;
+    use tui::{
+        buffer::Buffer,
+        layout::Constraint,
+        widgets::{Table, Widget},
+    };
+    use view::graphics::Rect;
+
+    #[test]
+    fn command_menus_show_generation_tags_and_plain_tooltips() {
+        let area = Rect::new(0, 0, 80, 1);
+        let mut surface = Buffer::empty(area);
+        let row = command_row("Apply fix", Some("Explain *this*\non the next line"), true);
+        Table::new([row], [Constraint::Length(30), Constraint::Length(49)])
+            .render(area, &mut surface);
+        let line: String = surface.content.iter().map(|cell| cell.symbol()).collect();
+        assert!(line.contains("Apply fix [AI generated]"));
+        assert!(line.contains("Explain *this* on the next line"));
     }
 }
