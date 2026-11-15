@@ -85,47 +85,57 @@ pub fn show_code_lenses_under_cursor(cx: &mut Context) {
         cx.editor.set_error(|| "No code lenses available");
         return;
     };
-    cx.jobs.callback(async move {
-        let resolved = future.await;
-        Ok(Callback::ui(move |compositor, cx| {
-            let editor = &mut *cx.editor;
-            let Some(mut resolved) = resolved else { return };
-            let is_current = move |editor: &Editor| {
-                editor.tree.focus() == view_id
-                    && editor
-                        .tree
-                        .try_get(view_id)
-                        .is_some_and(|view| view.document_id() == doc_id)
-                    && editor
-                        .document(doc_id)
-                        .is_some_and(|doc| doc.selection(view_id) == &selection)
-            };
-            if !resolved.is_current(editor) || !is_current(editor) {
-                return;
-            }
-            if resolved.commands.is_empty() {
-                editor.set_error(|| "No code lenses available");
-                return;
-            }
-            resolved.cache(editor);
-            let commands = std::mem::take(&mut resolved.commands);
-            let mut menu = ui::Menu::new(commands, (), move |editor, lens, event| {
-                if event == PromptEvent::Validate
-                    && resolved.is_current(editor)
-                    && is_current(editor)
-                    && let Some(lens) = lens
-                {
-                    editor.execute_lsp_command(lens.command.clone(), lens.language_server_id);
+    cx.replace_or_push_layer(
+        "code-lens",
+        ui::Pending::new(
+            "code-lens",
+            "Loading code lenses...",
+            cx.editor.redraw().clone(),
+            future,
+            move |compositor, cx, resolved| {
+                let editor = &mut *cx.editor;
+                let Some(mut resolved) = resolved else {
+                    return false;
+                };
+                let is_current = move |editor: &Editor| {
+                    editor.tree.focus() == view_id
+                        && editor
+                            .tree
+                            .try_get(view_id)
+                            .is_some_and(|view| view.document_id() == doc_id)
+                        && editor
+                            .document(doc_id)
+                            .is_some_and(|doc| doc.selection(view_id) == &selection)
+                };
+                if !resolved.is_current(editor) || !is_current(editor) {
+                    return false;
                 }
-            });
-            menu.move_down();
-            let popup = Popup::new("code-lens", menu)
-                .with_border(ui::PopupBorder::CodeLenses)
-                .with_scrollbar(false)
-                .auto_close(true);
-            compositor.replace_or_push("code-lens", popup);
-        }))
-    });
+                if resolved.commands.is_empty() {
+                    editor.set_error(|| "No code lenses available");
+                    return false;
+                }
+                resolved.cache(editor);
+                let commands = std::mem::take(&mut resolved.commands);
+                let mut menu = ui::Menu::new(commands, (), move |editor, lens, event| {
+                    if event == PromptEvent::Validate
+                        && resolved.is_current(editor)
+                        && is_current(editor)
+                        && let Some(lens) = lens
+                    {
+                        editor.execute_lsp_command(lens.command.clone(), lens.language_server_id);
+                    }
+                });
+                menu.move_down();
+                let popup = Popup::new("code-lens", menu)
+                    .with_border(ui::PopupBorder::CodeLenses)
+                    .with_scrollbar(false)
+                    .auto_close(true);
+                compositor.replace_or_push("code-lens", popup);
+                true
+            },
+        )
+        .with_border(ui::PopupBorder::CodeLenses),
+    );
 }
 
 #[derive(PartialEq)]
@@ -494,61 +504,49 @@ mod symbol_picker_tests {
 }
 
 pub fn symbol_picker(cx: &mut Context) {
+    if !cx.editor.config().lsp.enable {
+        cx.editor.set_error(|| "Language servers are disabled");
+        return;
+    }
     let picker_data = SymbolPickerData {
         show_icons: cx.editor.config().icons,
         theme: cx.editor.theme.clone(),
     };
     let (view, doc) = current_ref!(cx.editor);
+    if doc
+        .language_servers_with_feature(LanguageServerFeature::DocumentSymbols)
+        .next()
+        .is_none()
+    {
+        cx.editor
+            .set_error(|| "No configured language server supports document symbols");
+        return;
+    }
     let (document, view) = (doc.id(), view.id);
-    let task = match cx.editor.document_symbols(document, view) {
-        Ok(task) => task,
-        Err(error) => {
-            cx.editor.set_error(|| error.to_string());
-            return;
-        }
-    };
-    cx.jobs.callback(async move {
-        let update = task.run().await;
-        let call = move |editor: &mut Editor, compositor: &mut Compositor| {
-            let Some(symbols) = update.and_then(|update| update.into_symbols(editor)) else {
-                return;
-            };
-            let mut items = Vec::new();
-            for symbol in symbols {
-                nested_symbol_to_flat(&mut items, symbol, "", None);
-            }
-            let columns = [
-                ui::PickerColumn::new("kind", symbol_kind_cell).with_prefix(symbol_kind_icon),
-                // Nested document symbols include their fully expanded tree guide in
-                // the name column. Legacy flat responses remain unprefixed.
-                ui::PickerColumn::new("name", symbol_name_cell),
-                ui::PickerColumn::new("container", symbol_container_cell),
-            ];
-
-            let picker = Picker::new(
-                editor.redraw().clone(),
-                columns,
-                1, // name column
-                items,
-                picker_data,
-                move |cx, item, action| {
-                    jump_to_location(cx.editor, &item.symbol.location, action);
-                },
-            )
-            .with_item_key(symbol_updates::symbol_key)
-            .with_editor_updates(symbol_updates::document_updates(editor, document, view))
-            .with_title("Document Symbols")
-            .with_preview(move |_editor, item| location_to_file_location(&item.symbol.location))
-            .with_quicklist(move |_editor, item| location_to_quicklist_entry(&item.symbol.location))
-            .truncate_start(false);
-
-            compositor.push(Box::new(overlaid(picker)))
-        };
-
-        Ok(Callback::ui(move |compositor, cx| {
-            call(cx.editor, compositor)
-        }))
-    });
+    let columns = [
+        ui::PickerColumn::new("kind", symbol_kind_cell).with_prefix(symbol_kind_icon),
+        // Nested document symbols include their fully expanded tree guide in
+        // the name column. Legacy flat responses remain unprefixed.
+        ui::PickerColumn::new("name", symbol_name_cell),
+        ui::PickerColumn::new("container", symbol_container_cell),
+    ];
+    let picker = Picker::new(
+        cx.editor.redraw().clone(),
+        columns,
+        1, // name column
+        [],
+        picker_data,
+        move |cx, item, action| {
+            jump_to_location(cx.editor, &item.symbol.location, action);
+        },
+    )
+    .with_item_key(symbol_updates::symbol_key)
+    .with_editor_updates(symbol_updates::document_updates(document, view))
+    .with_title("Document Symbols")
+    .with_preview(move |_editor, item| location_to_file_location(&item.symbol.location))
+    .with_quicklist(move |_editor, item| location_to_quicklist_entry(&item.symbol.location))
+    .truncate_start(false);
+    cx.push_layer(Box::new(overlaid(picker)));
 }
 
 struct WorkspaceSymbolPickerData {
@@ -572,32 +570,40 @@ impl ui::menu::Item for CodeActionItem {
 
 pub fn code_action(cx: &mut Context) {
     let task = cx.editor.request_code_actions();
-    cx.jobs.callback(async move {
-        let update = task.run().await;
-        Ok(Callback::ui(move |compositor, cx| {
-            let editor = &mut *cx.editor;
-            let Some(actions) = update.and_then(|update| update.into_actions(editor)) else {
-                return;
-            };
-            if actions.is_empty() {
-                editor.set_error(|| "No code actions available");
-                return;
-            }
-            let mut picker = ui::Menu::new(actions, (), move |editor, action, event| {
-                if event == PromptEvent::Validate
-                    && let Some(action) = action
-                {
-                    action.execute(editor);
+    cx.replace_or_push_layer(
+        "code-action",
+        ui::Pending::new(
+            "code-action",
+            "Loading code actions...",
+            cx.editor.redraw().clone(),
+            task.run(),
+            move |compositor, cx, update| {
+                let editor = &mut *cx.editor;
+                let Some(actions) = update.and_then(|update| update.into_actions(editor)) else {
+                    return false;
+                };
+                if actions.is_empty() {
+                    editor.set_error(|| "No code actions available");
+                    return false;
                 }
-            });
-            picker.move_down();
-            let popup = Popup::new("code-action", picker)
-                .with_border(ui::PopupBorder::CodeActions)
-                .with_scrollbar(false)
-                .auto_close(true);
-            compositor.replace_or_push("code-action", popup);
-        }))
-    });
+                let mut picker = ui::Menu::new(actions, (), move |editor, action, event| {
+                    if event == PromptEvent::Validate
+                        && let Some(action) = action
+                    {
+                        action.execute(editor);
+                    }
+                });
+                picker.move_down();
+                let popup = Popup::new("code-action", picker)
+                    .with_border(ui::PopupBorder::CodeActions)
+                    .with_scrollbar(false)
+                    .auto_close(true);
+                compositor.replace_or_push("code-action", popup);
+                true
+            },
+        )
+        .with_border(ui::PopupBorder::CodeActions),
+    );
 }
 
 /// Precondition: `locations` should be non-empty.
@@ -687,39 +693,46 @@ pub fn rename_symbol(cx: &mut Context) {
         }
     };
     let history_register = cx.register;
-    cx.jobs.callback(async move {
-        let update = task.run().await;
-        Ok(Callback::ui(move |compositor, cx| {
-            let editor = &mut *cx.editor;
-            let Some(result) = update.and_then(|update| update.into_result(editor)) else {
-                return;
-            };
-            let session = match result {
-                Ok(session) => session,
-                Err(error) => {
-                    editor.set_error(|| error.to_string());
-                    return;
-                }
-            };
-            let prefill = session.prefill().to_owned();
-            let mut session = Some(session);
-            let prompt = ui::Prompt::new(
-                "rename-to:".into(),
-                history_register,
-                ui::completers::none,
-                move |cx, input, event| {
-                    if event == PromptEvent::Validate
-                        && let Some(session) = session.take()
-                        && let Err(error) = cx.editor.rename_symbol(session, input.to_owned())
-                    {
-                        cx.editor.set_error(|| error.to_string());
+    cx.replace_or_push_layer(
+        "prepare-rename",
+        ui::Pending::new(
+            "prepare-rename",
+            "Preparing rename...",
+            cx.editor.redraw().clone(),
+            task.run(),
+            move |compositor, cx, update| {
+                let editor = &mut *cx.editor;
+                let Some(result) = update.and_then(|update| update.into_result(editor)) else {
+                    return false;
+                };
+                let session = match result {
+                    Ok(session) => session,
+                    Err(error) => {
+                        editor.set_error(|| error.to_string());
+                        return false;
                     }
-                },
-            )
-            .with_line(prefill, editor);
-            compositor.push(Box::new(prompt));
-        }))
-    });
+                };
+                let prefill = session.prefill().to_owned();
+                let mut session = Some(session);
+                let prompt = ui::Prompt::new(
+                    "rename-to:".into(),
+                    history_register,
+                    ui::completers::none,
+                    move |cx, input, event| {
+                        if event == PromptEvent::Validate
+                            && let Some(session) = session.take()
+                            && let Err(error) = cx.editor.rename_symbol(session, input.to_owned())
+                        {
+                            cx.editor.set_error(|| error.to_string());
+                        }
+                    },
+                )
+                .with_line(prefill, editor);
+                compositor.push(Box::new(prompt));
+                true
+            },
+        ),
+    );
 }
 
 pub fn select_references_to_symbol_under_cursor(cx: &mut Context) {

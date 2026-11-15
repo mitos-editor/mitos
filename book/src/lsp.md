@@ -57,6 +57,15 @@ their batches before publishing the completed result.
 | File / workspace symbols | `Space s` / `Space S` |
 | Format the file | `:format` |
 
+The file-symbol picker opens while language-server results load. Press `Esc` to
+close a symbol picker and cancel its pending requests. Reopen it with `Space '` to
+restart an unfinished load.
+
+Code-action and code-lens menus, and rename preparation, can also be canceled with
+`Esc` while loading. Keys typed during loading wait for the resulting menu or
+prompt. Diagnostic pickers display shared results; closing them leaves background
+diagnostics running.
+
 ## Linked editing
 
 Editing a name automatically updates its linked names, such as opening and

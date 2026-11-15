@@ -88,7 +88,11 @@ impl Fixture {
             if workspace {
                 let reports = lsp::log_path(directory, name).with_extension("workspace.json");
                 std::fs::write(&reports, r#"{"result":{"items":[]}}"#)?;
-                server = server.arg("--workspace-diagnostics").arg(reports);
+                server = server
+                    .arg("--workspace-diagnostics")
+                    .arg(reports)
+                    .arg("--request-log")
+                    .arg(lsp::log_path(directory, name).with_extension("messages.jsonl"));
             }
             servers.push_str(&server.toml());
             logs.push(lsp::log_path(directory, name));
@@ -835,6 +839,38 @@ impl Fixture {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn closing_diagnostic_pickers_keeps_shared_workspace_pulls_running() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let mut f = Fixture::with_workspace(dir.path(), "original", &["alpha"], false, true)?;
+    let uri = Uri::from(stdx::path::normalize(dir.path().join("unopened.pull-test")));
+    f.workspace_reports(
+        0,
+        json!({
+            "batches": [{"items": [workspace_report(&uri, "shared", Some("background diagnostic"))]}],
+            "hold": true
+        }),
+    )?;
+    f.initialize().await?;
+    f.until(|f| f.raw_messages(&uri) == ["background diagnostic"])
+        .await?;
+    let log = f.logs[0].with_extension("messages.jsonl");
+    let request = lsp::wait_message(&log, "workspace/diagnostic").await?;
+    for input in ["<space>d", "<space>D"] {
+        super::helpers::keys(&mut f.app, input).await?;
+        assert!(super::helpers::screen(&f.app).contains("Diagnostics"));
+        super::helpers::keys(&mut f.app, "<esc>").await?;
+        assert!(!super::helpers::screen(&f.app).contains("Diagnostics"));
+        assert_eq!(f.raw_messages(&uri), ["background diagnostic"]);
+    }
+    assert_eq!(f.workspace_requests(0)?.len(), 1);
+    assert!(!lsp::read_log(&log)?.iter().any(|message| {
+        message["method"] == "$/cancelRequest" && message["params"]["id"] == request["id"]
+    }));
+    assert!(f.app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn workspace_diagnostic_batches_update_unopened_files_in_wire_order() -> anyhow::Result<()> {
     let dir = tempfile::tempdir()?;
     let mut f = Fixture::with_workspace(dir.path(), "original", &["alpha"], false, true)?;
@@ -1016,8 +1052,11 @@ async fn late_workspace_reports_cannot_replace_newer_related_document_results() 
     let dir = tempfile::tempdir()?;
     let mut f = Fixture::with_workspace(dir.path(), "original", &["alpha"], false, true)?;
     let uri = Uri::from(stdx::path::normalize(dir.path().join("unopened.pull-test")));
-    f.workspace_reports(0, json!({"hold": true}))?;
+    f.workspace_reports(0, json!({"batches": [{"items": []}], "hold": true}))?;
     f.initialize().await?;
+    // Drain the initial document response and workspace batch before changing
+    // reports, so the initial workspace request has read its held response.
+    f.publish().await?;
     f.publish().await?;
     f.workspace_reports(
         0,

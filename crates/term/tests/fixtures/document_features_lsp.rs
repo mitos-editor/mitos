@@ -268,6 +268,13 @@ fn main() -> anyhow::Result<()> {
         let Some(id) = message.get("id") else {
             continue;
         };
+        if args
+            .iter()
+            .position(|arg| arg == "--hold-request")
+            .is_some_and(|index| args[index + 1] == method)
+        {
+            continue;
+        }
         let text = documents.get(uri).map(|s| s.trim()).unwrap_or_default();
         let end = text.encode_utf16().count();
         if editing_hooks
@@ -936,6 +943,9 @@ fn main() -> anyhow::Result<()> {
             continue;
         }
         if method == "textDocument/documentSymbol" && document_symbols {
+            if args.iter().any(|arg| arg == "--hold-symbols") {
+                continue;
+            }
             if args.iter().any(|arg| arg == "--fail-symbols") {
                 respond(
                     &mut output,
