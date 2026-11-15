@@ -1052,8 +1052,11 @@ async fn late_workspace_reports_cannot_replace_newer_related_document_results() 
     let dir = tempfile::tempdir()?;
     let mut f = Fixture::with_workspace(dir.path(), "original", &["alpha"], false, true)?;
     let uri = Uri::from(stdx::path::normalize(dir.path().join("unopened.pull-test")));
-    f.workspace_reports(0, json!({"hold": true}))?;
+    f.workspace_reports(0, json!({"batches": [{"items": []}], "hold": true}))?;
     f.initialize().await?;
+    // Drain the initial document response and workspace batch before changing
+    // reports, so the initial workspace request has read its held response.
+    f.publish().await?;
     f.publish().await?;
     f.workspace_reports(
         0,
