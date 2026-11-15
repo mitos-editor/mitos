@@ -277,6 +277,8 @@ impl Client {
                     completion: Some(lsp::CompletionClientCapabilities {
                         completion_item: Some(lsp::CompletionItemCapability {
                             snippet_support: Some(enable_snippets),
+                            preselect_support: Some(true),
+                            label_details_support: Some(true),
                             resolve_support: Some(lsp::CompletionItemCapabilityResolveSupport {
                                 properties: vec![
                                     String::from("documentation"),
@@ -312,7 +314,7 @@ impl Client {
                             ]),
                             apply_kind_support: Some(true),
                         }),
-                        context_support: None, // additional context information Some(true)
+                        context_support: Some(true),
                         ..Default::default()
                     }),
                     hover: Some(lsp::HoverClientCapabilities {

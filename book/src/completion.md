@@ -20,6 +20,10 @@ Typing another character normally accepts the selected suggestion and continues
 typing. Mitos previews the selected suggestion in the document by default.
 Disable this with `editor.completion.preview-insert = false`.
 
+When a language server provides label details, the menu shows the signature or
+type beside the name and its module or file path in a separate column. These
+details help distinguish suggestions and are not inserted into the document.
+
 To request suggestions only with `Ctrl-x`:
 
 ```toml
