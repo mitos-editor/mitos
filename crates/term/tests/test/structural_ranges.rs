@@ -230,11 +230,16 @@ async fn lsp_folds_override_syntax_and_empty_reports_are_authoritative() -> anyh
             assert!(f.folds().is_empty());
         } else {
             let doc = current_ref!(f.app.editor).1;
-            // LSP folds the closing brace line; syntax keeps the delimiter visible.
+            // Both providers conceal the complete closing-brace line.
             assert_eq!(
                 f.folds()[0].end,
                 editor_core::line_ending::line_end_char_index(&doc.text().slice(..), 2)
             );
+            let server_folds = f.folds();
+            let (_, doc) = current!(f.app.editor);
+            doc.fold(view, FoldAction::OpenAll);
+            doc.fold(view, FoldAction::CloseAll);
+            assert_eq!(f.folds(), server_folds);
         }
         assert!(f.app.close().await.is_empty());
     }
@@ -250,7 +255,10 @@ async fn unavailable_server_ranges_fall_back_to_syntax() -> anyhow::Result<()> {
         f.response().await?(&mut f.app.editor);
         let doc = current_ref!(f.app.editor).1;
         assert_eq!(f.folds().len(), 1);
-        assert_eq!(f.folds()[0].end, doc.text().line_to_char_idx(2));
+        assert_eq!(
+            f.folds()[0].end,
+            editor_core::line_ending::line_end_char_index(&doc.text().slice(..), 2)
+        );
         f.app.editor.fold(view, FoldAction::ToggleAll, 1);
         assert!(f.folds().is_empty());
         assert!(f.app.close().await.is_empty());

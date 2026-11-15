@@ -800,8 +800,7 @@ impl Syntax {
         )
     }
 
-    /// Regions captured by `@fold`, including injected languages. Paired syntax
-    /// tokens identify closers without inspecting text for delimiter-like strings.
+    /// Regions captured by `@fold`, including injected languages.
     /// Presentation policy and closed state belong to the view.
     pub fn fold_ranges(
         &self,
@@ -1320,38 +1319,19 @@ impl RainbowQuery {
     }
 }
 
-/// A syntax fold's source extent and optional paired closing token.
+/// A syntax fold's source extent.
 #[derive(Debug, Clone)]
 pub struct FoldRange {
     /// Full captured region in document character indices.
     pub range: ops::Range<usize>,
-    /// First character of a real paired closing token, when present.
-    pub closing_delimiter: Option<usize>,
 }
 
 impl FoldRange {
     fn new(source: RopeSlice, node: &Node) -> Self {
         let bytes = node.byte_range();
-        let closing_delimiter = node
-            .child_count()
-            .checked_sub(1)
-            .and_then(|index| node.child(index))
-            .filter(|closing| !closing.is_missing())
-            .filter(|closing| {
-                let opening = match closing.kind() {
-                    "}" => "{",
-                    "]" => "[",
-                    ")" => "(",
-                    _ => return false,
-                };
-                node.children()
-                    .any(|child| child.kind() == opening && !child.is_missing())
-            })
-            .map(|closing| source.byte_to_char_idx(closing.start_byte() as usize));
         Self {
             range: source.byte_to_char_idx(bytes.start as usize)
                 ..source.byte_to_char_idx(bytes.end as usize),
-            closing_delimiter,
         }
     }
 }
