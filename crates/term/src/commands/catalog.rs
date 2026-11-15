@@ -265,7 +265,7 @@ impl MappableCommand {
         extend_to_line_end => super::movement::extend_to_line_end, "Extend to line end",
         extend_to_line_end_newline => super::movement::extend_to_line_end_newline, "Extend to line end",
         signature_help => super::lsp::signature_help, "Show signature help",
-        inlay_hints => super::inlay_hints::inlay_hints, "Show inlay hint details on the current line",
+        inlay_hints => super::inlay_hints::inlay_hints, "Show inlay hint details and actions on the current line",
         smart_tab => super::insert::smart_tab, "Insert tab if all cursors have all whitespace to their left; otherwise, run a separate command.",
         insert_tab => super::insert::insert_tab, "Insert tab char"; keep_completion,
         insert_newline => super::insert::insert_newline, "Insert newline char"; keep_completion,
