@@ -153,6 +153,7 @@ pub fn render_text(
 
         // Classify against the document line, not the visible row: a viewport
         // edge or soft wrap does not turn interior whitespace into trailing text.
+        // Collapsed labels have their own text, independent of source whitespace.
         if renderer.classify_trailing && trailing_line != grapheme.line_idx {
             trailing_line = grapheme.line_idx;
             let line = line_without_line_ending(&text, trailing_line);
@@ -164,8 +165,10 @@ pub fn render_text(
             trailing_start = text.line_to_char_idx(trailing_line) + line.len_chars() - count;
         }
         let trailing = renderer.classify_trailing
-            && !grapheme.is_virtual()
-            && !grapheme.source.is_eof()
+            && matches!(
+                grapheme.source,
+                GraphemeSource::Document { codepoints: 1.. }
+            )
             && grapheme.char_idx >= trailing_start;
         let grapheme_width = renderer.draw_grapheme(
             &grapheme,
@@ -732,6 +735,35 @@ mod whitespace_tests {
                         offset,
                     );
                     assert_eq!(folded, plain, "width={width}, offset={offset}, wrap={wrap}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn collapsed_label_spaces_do_not_inherit_source_trailing_whitespace() {
+        use text_layout::text_annotations::Conceal;
+        for (text, range, visible) in [
+            ("header\nhidden\nlast\nnext", 6..18, "headertwo words\nnext"),
+            ("a    \nnext", 1..4, "atwo words \nnext"),
+        ] {
+            let folds = [Conceal::new(range).with_text("two words")];
+            let mut annotations = TextAnnotations::default();
+            annotations.set_conceals(&folds);
+            for mode in ["trailing", "all"] {
+                let settings = format!("[whitespace]\nrender = '{mode}'");
+                for (width, wrap) in [(12, true), (20, false)] {
+                    let folded = render_with_layout_annotations(
+                        text,
+                        &settings,
+                        width,
+                        wrap,
+                        0,
+                        &annotations,
+                        true,
+                    );
+                    let plain = render(visible, &settings, width, wrap, 0);
+                    assert_eq!(folded, plain, "text={text:?}, mode={mode}, wrap={wrap}");
                 }
             }
         }
