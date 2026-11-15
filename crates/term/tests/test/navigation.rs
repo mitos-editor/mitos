@@ -18,12 +18,12 @@ use view::{
 
 use super::helpers::{
     lsp::{self, Gate, ServerConfig},
-    test_config, test_syntax_loader, AppBuilder,
+    test_config, test_syntax_loader,
 };
 
 struct Fixture {
     app: TestApplication,
-    callbacks: mpsc::UnboundedReceiver<EditorCallback>,
+    callbacks: mpsc::UnboundedReceiver<(bool, EditorCallback)>,
     logs: Vec<PathBuf>,
 }
 
@@ -48,24 +48,16 @@ impl Fixture {
             logs.push(lsp::log_path(dir, name));
         }
         let mut config = test_config();
-        config.editor.lsp.enable = true;
         config.editor.lsp.document_highlight.auto_trigger = false;
-        let (sender, callbacks) = super::helpers::callbacks::channel();
-        let mut app = AppBuilder::new()
-            .with_config(config)
-            .with_lang_loader(lsp::syntax_loader(
-                "navigation-test",
-                "navigation-test",
-                &names,
-                &configuration,
-            ))
-            .with_handler_setup(move |handlers, _| {
-                handlers.navigation = NavigationHandler::new(sender)
-            })
-            .build()?;
-        let path = dir.join("document.navigation-test");
-        std::fs::write(&path, "😀 foo foo\n")?;
-        app.editor.open(&path, Action::Replace)?;
+        let (mut app, callbacks) = lsp::feature_app_with_servers(
+            dir,
+            "😀 foo foo\n",
+            "navigation-test",
+            &names,
+            config,
+            &configuration,
+            |handlers, sender, _| handlers.navigation = NavigationHandler::new(sender),
+        )?;
         gate.release()?;
         lsp::initialize(&mut app, servers.len()).await?;
         Ok(Self {
@@ -78,6 +70,7 @@ impl Fixture {
     async fn response(&mut self) -> anyhow::Result<EditorCallback> {
         tokio::time::timeout(Duration::from_secs(5), self.callbacks.recv())
             .await?
+            .map(|(_, callback)| callback)
             .context("navigation queue closed")
     }
 

@@ -87,14 +87,7 @@ impl Fixture {
     }
 
     async fn response(&mut self) -> anyhow::Result<EditorCallback> {
-        loop {
-            let (scheduling, callback) = self.next().await?;
-            if scheduling {
-                callback(&mut self.app.editor);
-            } else {
-                return Ok(callback);
-            }
-        }
+        super::helpers::callbacks::response(&mut self.app, &mut self.callbacks).await
     }
 
     async fn update(&mut self) -> anyhow::Result<SignatureHelpUpdate> {

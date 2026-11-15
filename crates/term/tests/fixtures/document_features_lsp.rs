@@ -15,6 +15,21 @@ fn respond(output: &mut impl Write, message: Value) -> anyhow::Result<()> {
     Ok(())
 }
 
+fn respond_result(output: &mut impl Write, id: &Value, result: Value) -> anyhow::Result<()> {
+    respond(
+        output,
+        json!({"jsonrpc": "2.0", "id": id, "result": result}),
+    )
+}
+
+fn wait_for_gate(args: &[String], argument: &str) {
+    if let Some(index) = args.iter().position(|arg| arg == argument) {
+        while !std::path::Path::new(&args[index + 1]).exists() {
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+    }
+}
+
 fn diagnostic_reports(path: &str) -> anyhow::Result<Value> {
     let file = std::fs::File::open(path)?;
     file.lock_shared()?;
@@ -133,12 +148,8 @@ fn main() -> anyhow::Result<()> {
         let uri = params["textDocument"]["uri"].as_str().unwrap_or_default();
         // Hold initialization until the test has finished attaching the document.
         // Otherwise a fast server can race launch_language_servers and didOpen.
-        if method == "initialize"
-            && let Some(index) = args.iter().position(|arg| arg == "--initialize-gate")
-        {
-            while !std::path::Path::new(&args[index + 1]).exists() {
-                std::thread::sleep(std::time::Duration::from_millis(5));
-            }
+        if method == "initialize" {
+            wait_for_gate(&args, "--initialize-gate");
         }
         if file_operations
             || rename
@@ -270,11 +281,7 @@ fn main() -> anyhow::Result<()> {
             if args.iter().any(|arg| arg == "--hooks-ignore") {
                 continue;
             }
-            if let Some(index) = args.iter().position(|arg| arg == "--hook-response-gate") {
-                while !std::path::Path::new(&args[index + 1]).exists() {
-                    std::thread::sleep(std::time::Duration::from_millis(5));
-                }
-            }
+            wait_for_gate(&args, "--hook-response-gate");
             let response = if args.iter().any(|arg| arg == "--hooks-error") {
                 json!({"jsonrpc": "2.0", "id": id, "error": {"code": -32603, "message": "hook failed"}})
             } else {
@@ -307,11 +314,7 @@ fn main() -> anyhow::Result<()> {
                 "textDocument/foldingRange" | "textDocument/selectionRange"
             )
         {
-            if let Some(index) = args.iter().position(|arg| arg == "--response-gate") {
-                while !std::path::Path::new(&args[index + 1]).exists() {
-                    std::thread::sleep(std::time::Duration::from_millis(5));
-                }
-            }
+            wait_for_gate(&args, "--response-gate");
             if args.iter().any(|arg| arg == "--reject-ranges") {
                 respond(
                     &mut output,
@@ -340,11 +343,7 @@ fn main() -> anyhow::Result<()> {
             } else {
                 "--prepare-gate"
             };
-            if let Some(index) = args.iter().position(|arg| arg == gate_arg) {
-                while !std::path::Path::new(&args[index + 1]).exists() {
-                    std::thread::sleep(std::time::Duration::from_millis(5));
-                }
-            }
+            wait_for_gate(&args, gate_arg);
             let result = if method == "textDocument/prepareRename" {
                 if args.iter().any(|arg| arg == "--invalid-range") {
                     json!({"start": {"line": 100, "character": 0}, "end": {"line": 100, "character": 3}})
@@ -357,18 +356,11 @@ fn main() -> anyhow::Result<()> {
                     "edits": [{"range": range(3, 6), "newText": params["newName"]}]
                 }]})
             };
-            respond(
-                &mut output,
-                json!({"jsonrpc": "2.0", "id": id, "result": result}),
-            )?;
+            respond_result(&mut output, id, result)?;
             continue;
         }
         if workspace_symbols && method == "workspace/symbol" {
-            if let Some(index) = args.iter().position(|arg| arg == "--symbol-query-gate") {
-                while !std::path::Path::new(&args[index + 1]).exists() {
-                    std::thread::sleep(std::time::Duration::from_millis(5));
-                }
-            }
+            wait_for_gate(&args, "--symbol-query-gate");
             if args.iter().any(|arg| arg == "--hold-symbols") {
                 continue;
             }
@@ -399,10 +391,7 @@ fn main() -> anyhow::Result<()> {
             } else {
                 json!([{"name": name, "kind": 12, "location": {"uri": uri, "range": range(3, 6)}}])
             };
-            respond(
-                &mut output,
-                json!({"jsonrpc": "2.0", "id": id, "result": result}),
-            )?;
+            respond_result(&mut output, id, result)?;
             continue;
         }
         if method == "workspace/diagnostic" && diagnostics {
@@ -437,10 +426,7 @@ fn main() -> anyhow::Result<()> {
             }
             let mut symbol = params.clone();
             symbol["location"]["range"] = range(3, 6);
-            respond(
-                &mut output,
-                json!({"jsonrpc": "2.0", "id": id, "result": symbol}),
-            )?;
+            respond_result(&mut output, id, symbol)?;
             continue;
         }
         if method == "textDocument/diagnostic" && diagnostics {
@@ -477,10 +463,7 @@ fn main() -> anyhow::Result<()> {
             if let Some(index) = args.iter().position(|arg| arg == "--related-diagnostics") {
                 result["relatedDocuments"] = diagnostic_reports(&args[index + 1])?;
             }
-            respond(
-                &mut output,
-                json!({"jsonrpc": "2.0", "id": id, "result": result}),
-            )?;
+            respond_result(&mut output, id, result)?;
             continue;
         }
         if method == "textDocument/codeAction"
@@ -539,10 +522,7 @@ fn main() -> anyhow::Result<()> {
                             "start": start, "end": start + 1, "replacement": "YY"}}));
                 }
             }
-            respond(
-                &mut output,
-                json!({"jsonrpc": "2.0", "id": id, "result": result}),
-            )?;
+            respond_result(&mut output, id, Value::Array(result))?;
             continue;
         }
         if method == "textDocument/codeAction"
@@ -564,10 +544,7 @@ fn main() -> anyhow::Result<()> {
                     "data": {"uri": uri, "version": versions[uri],
                         "replacement": replacement, "end": end}}
             ]);
-            respond(
-                &mut output,
-                json!({"jsonrpc": "2.0", "id": id, "result": result}),
-            )?;
+            respond_result(&mut output, id, result)?;
             continue;
         }
         if method == "textDocument/codeAction" && code_actions {
@@ -582,10 +559,7 @@ fn main() -> anyhow::Result<()> {
             } else {
                 json!([{"title": format!("{}: {text}", args[1]), "kind": "quickfix"}])
             };
-            respond(
-                &mut output,
-                json!({"jsonrpc": "2.0", "id": id, "result": result}),
-            )?;
+            respond_result(&mut output, id, result)?;
             continue;
         }
         if method == "textDocument/inlineCompletion" && inline_completion {
@@ -603,10 +577,7 @@ fn main() -> anyhow::Result<()> {
             } else {
                 json!({"items": items})
             };
-            respond(
-                &mut output,
-                json!({"jsonrpc": "2.0", "id": id, "result": result}),
-            )?;
+            respond_result(&mut output, id, result)?;
             continue;
         }
         if navigation
@@ -657,10 +628,7 @@ fn main() -> anyhow::Result<()> {
                     _ => unreachable!(),
                 }
             };
-            respond(
-                &mut output,
-                json!({"jsonrpc": "2.0", "id": id, "result": result}),
-            )?;
+            respond_result(&mut output, id, result)?;
             continue;
         }
         if language_features && matches!(method, "textDocument/hover" | "textDocument/inlayHint") {
@@ -674,10 +642,7 @@ fn main() -> anyhow::Result<()> {
             } else {
                 json!([{"position": {"line": 0, "character": 3}, "label": format!("界é {text}"), "kind": 1, "paddingLeft": true, "paddingRight": true}])
             };
-            respond(
-                &mut output,
-                json!({"jsonrpc": "2.0", "id": id, "result": result}),
-            )?;
+            respond_result(&mut output, id, result)?;
             if method == "textDocument/inlayHint"
                 && !inlay_refresh_sent
                 && args.iter().any(|arg| arg == "--inlay-refresh")
@@ -694,11 +659,7 @@ fn main() -> anyhow::Result<()> {
         if method == "textDocument/signatureHelp" && signature_help {
             writeln!(request_log.as_mut().unwrap(), "{params}")?;
             request_log.as_mut().unwrap().flush()?;
-            if let Some(index) = args.iter().position(|arg| arg == "--response-gate") {
-                while !std::path::Path::new(&args[index + 1]).exists() {
-                    std::thread::sleep(std::time::Duration::from_millis(5));
-                }
-            }
+            wait_for_gate(&args, "--response-gate");
             if text.contains("error") {
                 respond(
                     &mut output,
@@ -717,26 +678,16 @@ fn main() -> anyhow::Result<()> {
                     {"label": "second(value)", "parameters": [{"label": "value"}], "activeParameter": 0}
                 ], "activeSignature": 0})
             };
-            respond(
-                &mut output,
-                json!({"jsonrpc": "2.0", "id": id, "result": result}),
-            )?;
+            respond_result(&mut output, id, result)?;
             continue;
         }
         if method == "textDocument/completion" && (completion || inline_completion) {
             writeln!(request_log.as_mut().unwrap(), "{params}")?;
             request_log.as_mut().unwrap().flush()?;
-            if let Some(index) = args.iter().position(|arg| arg == "--response-gate") {
-                while !std::path::Path::new(&args[index + 1]).exists() {
-                    std::thread::sleep(std::time::Duration::from_millis(5));
-                }
-            }
+            wait_for_gate(&args, "--response-gate");
             if let Some(index) = args.iter().position(|arg| arg == "--completion-result") {
                 let result: Value = serde_json::from_slice(&std::fs::read(&args[index + 1])?)?;
-                respond(
-                    &mut output,
-                    json!({"jsonrpc":"2.0","id":id,"result":result}),
-                )?;
+                respond_result(&mut output, id, result)?;
                 continue;
             }
             let end = params["position"]["character"].as_u64().unwrap() as usize;
@@ -795,10 +746,7 @@ fn main() -> anyhow::Result<()> {
                 {"label": second, "sortText": "1", "detail": args[1],
                     "textEdit": {"range": edit_range, "newText": second_text}, "insertTextFormat": if snippet { 2 } else { 1 }}
             ]});
-            respond(
-                &mut output,
-                json!({"jsonrpc": "2.0", "id": id, "result": result}),
-            )?;
+            respond_result(&mut output, id, result)?;
             continue;
         }
         if method == "completionItem/resolve" && (completion || inline_completion) {
@@ -809,29 +757,18 @@ fn main() -> anyhow::Result<()> {
                     .open(&args[index + 1])?;
                 writeln!(log, "{params}")?;
             }
-            if let Some(index) = args.iter().position(|arg| arg == "--resolve-gate") {
-                while !std::path::Path::new(&args[index + 1]).exists() {
-                    std::thread::sleep(std::time::Duration::from_millis(5));
-                }
-            }
+            wait_for_gate(&args, "--resolve-gate");
             let mut item = params.clone();
             item["documentation"] = json!("resolved documentation");
             if documents.values().any(|text| text.starts_with("imports")) {
                 item["additionalTextEdits"] =
                     json!([{"range":range(0, 0), "newText":"use fruit;\n"}]);
             }
-            respond(
-                &mut output,
-                json!({"jsonrpc": "2.0", "id": id, "result": item}),
-            )?;
+            respond_result(&mut output, id, item)?;
             continue;
         }
         if method == "codeAction/resolve" && action_execution {
-            if let Some(index) = args.iter().position(|arg| arg == "--response-gate") {
-                while !std::path::Path::new(&args[index + 1]).exists() {
-                    std::thread::sleep(std::time::Duration::from_millis(5));
-                }
-            }
+            wait_for_gate(&args, "--response-gate");
             if params["data"]["failure"] == "resolve" {
                 respond(
                     &mut output,
@@ -866,10 +803,7 @@ fn main() -> anyhow::Result<()> {
                     action["command"] =
                         json!({"title": "after edit", "command": "fixture.command"});
                 }
-                respond(
-                    &mut output,
-                    json!({"jsonrpc": "2.0", "id": id, "result": action}),
-                )?;
+                respond_result(&mut output, id, action)?;
             }
             continue;
         }
@@ -892,10 +826,7 @@ fn main() -> anyhow::Result<()> {
                 lens["command"] = json!({"title": format!("{} resolved", args[1]),
                     "command": "fixture.lens", "arguments": [args[1], params["data"]]});
             }
-            respond(
-                &mut output,
-                json!({"jsonrpc": "2.0", "id": id, "result": lens}),
-            )?;
+            respond_result(&mut output, id, lens)?;
             continue;
         }
         if method == "workspace/executeCommand"
@@ -907,10 +838,7 @@ fn main() -> anyhow::Result<()> {
                 let mut lens = message["params"].clone();
                 lens["command"] = json!({"title": format!("{} resolved", args[1]),
                     "command": "fixture.lens", "arguments": [args[1], lens["data"]]});
-                respond(
-                    &mut output,
-                    json!({"jsonrpc": "2.0", "id": message["id"], "result": lens}),
-                )?;
+                respond_result(&mut output, &message["id"], lens)?;
             }
         }
         if method == "documentLink/resolve"
@@ -924,11 +852,7 @@ fn main() -> anyhow::Result<()> {
         }
         // Test documents start with an emoji and a space: UTF-16 column 3 is char 2.
         if file_operations && method.starts_with("workspace/will") {
-            if let Some(index) = args.iter().position(|arg| arg == "--preflight-gate") {
-                while !std::path::Path::new(&args[index + 1]).exists() {
-                    std::thread::sleep(std::time::Duration::from_millis(5));
-                }
-            }
+            wait_for_gate(&args, "--preflight-gate");
             let result = if let Some(index) = args.iter().position(|arg| arg == "--preflight-edit")
             {
                 serde_json::from_slice(&std::fs::read(&args[index + 1])?)?
@@ -945,10 +869,7 @@ fn main() -> anyhow::Result<()> {
             } else {
                 Value::Null
             };
-            respond(
-                &mut output,
-                json!({"jsonrpc":"2.0", "id":id, "result":result}),
-            )?;
+            respond_result(&mut output, id, result)?;
             continue;
         }
         if method == "textDocument/documentSymbol" && document_symbols {
@@ -969,10 +890,7 @@ fn main() -> anyhow::Result<()> {
             } else {
                 json!([{"name":name, "kind":12, "range":range(0, end), "selectionRange":range(0, 1), "children":[{"name":"child", "kind":12,"range":range(1, 2), "selectionRange":range(1, 2)}]}])
             };
-            respond(
-                &mut output,
-                json!({"jsonrpc":"2.0", "id":id, "result":result}),
-            )?;
+            respond_result(&mut output, id, result)?;
             continue;
         }
         let mut result = match method {
@@ -1074,11 +992,7 @@ fn main() -> anyhow::Result<()> {
                 json!({"isIncomplete":false,"items":[item]})
             }
             "textDocument/linkedEditingRange" if linked_editing => {
-                if let Some(index) = args.iter().position(|arg| arg == "--linked-response-gate") {
-                    while !std::path::Path::new(&args[index + 1]).exists() {
-                        std::thread::sleep(std::time::Duration::from_millis(5));
-                    }
-                }
+                wait_for_gate(&args, "--linked-response-gate");
                 if args.iter().any(|arg| arg == "--null") {
                     Value::Null
                 } else {
@@ -1316,9 +1230,6 @@ fn main() -> anyhow::Result<()> {
                 "changeNotifications": !args.iter().any(|arg| arg == "--no-workspace-notifications")
             }});
         }
-        respond(
-            &mut output,
-            json!({"jsonrpc": "2.0", "id": id, "result": result}),
-        )?;
+        respond_result(&mut output, id, result)?;
     }
 }
