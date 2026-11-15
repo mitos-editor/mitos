@@ -142,7 +142,7 @@ fn contains_cursor(fold: &Conceal, text: RopeSlice, cursor: usize, line: usize) 
     start_line <= line
         && line <= text.char_to_line_idx(fold.range.end)
         // Whole-line and syntax folds retain their source-line commands,
-        // including opening from a retained closing token or suffix. Inline
+        // including opening from the last concealed source line. Inline
         // regions use character endpoints so adjacent folds stay independent.
         && (fold.range.start == line_end_char_index(&text, start_line)
             || cursor < fold.range.end)
@@ -232,16 +232,7 @@ impl Document {
                             return None;
                         }
                         let start_line = text.char_to_line_idx(fold.range.start);
-                        let Some(end) = fold.closing_delimiter else {
-                            return conceal(
-                                text,
-                                start_line,
-                                text.char_to_line_idx(fold.range.end - 1),
-                            );
-                        };
-                        let start = line_end_char_index(&text, start_line);
-                        (text.char_to_line_idx(end) > start_line && start < end)
-                            .then_some(Conceal::new(start..end))
+                        conceal(text, start_line, text.char_to_line_idx(fold.range.end - 1))
                     })
                     .collect()
             }
@@ -712,10 +703,12 @@ mod tests {
         );
         let text = doc.text().clone();
         let inner = text.line_to_char_idx(1);
-        let inner_fold =
-            Conceal::new(line_end_char_index(&text.slice(..), 1)..text.line_to_char_idx(3) + 4);
-        let outer_fold =
-            Conceal::new(line_end_char_index(&text.slice(..), 0)..text.line_to_char_idx(4));
+        let inner_fold = Conceal::new(
+            line_end_char_index(&text.slice(..), 1)..line_end_char_index(&text.slice(..), 3),
+        );
+        let outer_fold = Conceal::new(
+            line_end_char_index(&text.slice(..), 0)..line_end_char_index(&text.slice(..), 4),
+        );
         doc.set_selection(view.id, Selection::point(inner));
         doc.fold(view.id, FoldAction::Close);
         assert_eq!(
@@ -756,17 +749,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn closing_a_syntax_fold_keeps_a_cursor_on_its_real_closing_token() {
+    async fn closing_a_syntax_fold_moves_a_hidden_cursor_to_the_header() {
         let (mut doc, view, _) = fixture("fn main() {\n    work();\n}\n", Some("rust"));
         let text = doc.text().clone();
         let closer = text.line_to_char_idx(2);
         doc.set_selection(view.id, Selection::point(closer));
         doc.fold(view.id, FoldAction::CloseAll);
         assert_eq!(doc.folded_ranges(view.id).len(), 1);
-        assert_eq!(
-            doc.selection(view.id).primary().cursor(text.slice(..)),
-            closer
-        );
+        assert_eq!(doc.selection(view.id).primary().cursor(text.slice(..)), 0);
     }
 
     #[tokio::test]

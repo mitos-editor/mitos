@@ -1,14 +1,12 @@
 # Code folding
 
 Fold code to keep long functions and other blocks out of the way while you work.
-A closed fold shows a selectable `…` in place of its body. Syntax folds keep
-closing braces, brackets, and parentheses visible with the rest of their line,
-so a folded region can look like `pub struct Editor {…}`, `[…],`, or
-`call!(…);`. You can select and edit the closing tokens normally.
-
-Selection folds and syntax regions without paired closing tokens fold whole
-lines. Folding changes the view, leaving the document text and undo history
-intact. Each split has its own folds.
+Syntax and selection folds keep the first line visible and show a selectable
+`…` in place of the remaining lines, including closing delimiters and any text
+on their lines. For example, a folded Rust struct looks like
+`pub struct Editor {…`, and a Python function looks like `def run():…`.
+Folding changes the view, leaving the document text and undo history intact.
+Each split has its own folds.
 
 Use these view commands to fold code:
 
