@@ -832,7 +832,11 @@ pub(super) fn render_preview_content(
         .language_config()
         .and_then(|config| config.rainbow_brackets)
         .unwrap_or(config.rainbow_brackets.enable)
-        && let Some(overlay) = highlights::rainbow_highlights(doc.into(), &layout, &cx.editor.theme)
+        && let Some(overlay) = highlights::rainbow_highlights(
+            doc.into(),
+            &layout.visible_byte_ranges(),
+            &cx.editor.theme,
+        )
     {
         overlay_highlights.push(overlay);
     }

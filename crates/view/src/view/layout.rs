@@ -70,15 +70,16 @@ impl ViewLayout<'_> {
         let range = self.visible_byte_range();
         let mut start = range.start;
         let mut ranges = Vec::new();
-        for conceal in self.annotations.conceals() {
+        let conceals = self.annotations.conceals();
+        let char_start = self.text.byte_to_char_idx(start);
+        let char_end = self.text.byte_to_char_idx(range.end);
+        let first = conceals.partition_point(|c| c.range.end <= char_start);
+        for conceal in conceals[first..]
+            .iter()
+            .take_while(|c| c.range.start < char_end)
+        {
             let hidden_start = self.text.char_to_byte_idx(conceal.range.start);
             let hidden_end = self.text.char_to_byte_idx(conceal.range.end);
-            if hidden_end <= start {
-                continue;
-            }
-            if hidden_start >= range.end {
-                break;
-            }
             if start < hidden_start {
                 ranges.push(start..hidden_start);
             }

@@ -125,8 +125,8 @@ pub fn render_text(
         {
             syntax_style = syntax_styles.next().unwrap().1;
         }
-        while grapheme.char_idx >= overlay_highlighter.pos {
-            overlay_highlighter.advance();
+        if grapheme.char_idx >= overlay_highlighter.pos {
+            overlay_highlighter.advance_to(grapheme.char_idx);
         }
 
         let grapheme_style = if let GraphemeSource::VirtualText { highlight } = grapheme.source {
@@ -138,7 +138,7 @@ pub fn render_text(
                 syntax_style: style,
                 overlay_style: Style::default(),
             }
-        } else if text_annotations.conceal_at(grapheme.char_idx).is_some() {
+        } else if matches!(grapheme.source, GraphemeSource::Conceal { .. }) {
             GraphemeStyle {
                 syntax_style: renderer.text_style.patch(theme.get("ui.virtual.fold")),
                 overlay_style: overlay_highlighter.style,
@@ -669,10 +669,10 @@ impl<'t> OverlayHighlighter<'t> {
         self.pos = self.inner.next_event_offset();
     }
 
-    fn advance(&mut self) {
+    fn advance_to(&mut self, pos: usize) {
         self.style = self
             .inner
-            .advance()
+            .advance_to(pos)
             .fold(Style::default(), |acc, highlight| {
                 acc.patch(self.theme.highlight(highlight))
             });

@@ -295,10 +295,15 @@ impl Debug for TextAnnotations<'_> {
 }
 
 impl<'a> TextAnnotations<'a> {
-    /// Skipping raw text cannot bypass layout-dependent annotations. Empty
-    /// layers are harmless; folds and virtual-line sessions require traversal.
+    /// Skipping raw text cannot bypass annotations in the discarded tail.
+    /// Virtual-line sessions and overlays retain their ordinary traversal.
     pub(crate) fn can_skip_unwrapped_tail(&self, range: Range<usize>) -> bool {
-        self.conceals.is_empty()
+        let next_fold = self
+            .conceals
+            .partition_point(|c| c.range.end <= range.start);
+        self.conceals
+            .get(next_fold)
+            .is_none_or(|c| c.range.start >= range.end)
             && self.line_annotations.is_empty()
             && self.inline_annotations.iter().all(|layer| {
                 let next = layer
@@ -566,6 +571,17 @@ mod tests {
     use super::*;
     use crate::doc_formatter::{DocumentFormatter, TextFormat};
     use editor_core::Rope;
+
+    #[test]
+    fn unrelated_folds_do_not_block_tail_skipping() {
+        let conceals = [Conceal::new(0..10), Conceal::new(40..50)];
+        let mut annotations = TextAnnotations::default();
+        annotations.set_conceals(&conceals);
+        assert!(annotations.can_skip_unwrapped_tail(20..30));
+        assert!(annotations.can_skip_unwrapped_tail(10..40));
+        assert!(!annotations.can_skip_unwrapped_tail(9..20));
+        assert!(!annotations.can_skip_unwrapped_tail(30..41));
+    }
 
     #[derive(Clone)]
     struct Gap {

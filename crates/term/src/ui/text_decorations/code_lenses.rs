@@ -51,7 +51,7 @@ impl<'a> CodeLensDecoration<'a> {
 
 impl Decoration for CodeLensDecoration<'_> {
     fn can_skip_unwrapped_tail(&self) -> bool {
-        self.lenses.is_empty()
+        self.ready.is_none()
     }
 
     fn reset_pos(&mut self, pos: usize) -> usize {
