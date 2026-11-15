@@ -141,3 +141,5 @@ become interactive in the focused document; changes to other files insert the
 expanded text without moving focus. When an edit requires confirmation, Mitos
 shows its labels and descriptions before applying any changes. Canceling also
 skips commands that depend on those changes.
+For server edits identified as refactorings, the confirmation includes that
+context and the operation name when supplied.

@@ -80,6 +80,7 @@ impl Client {
             capabilities: OnceLock::new(),
             initialization: OnceCell::new(),
             file_operation_interest: OnceLock::new(),
+            document_selectors: OnceLock::new(),
             config,
             req_timeout,
             root_path,
@@ -164,7 +165,7 @@ impl Client {
                         refresh_support: Some(true),
                     }),
                     workspace_edit: Some(lsp::WorkspaceEditClientCapabilities {
-                        metadata_support: None,
+                        metadata_support: Some(true),
                         document_changes: Some(true),
                         snippet_edit_support: Some(true),
                         resource_operations: Some(vec![
@@ -204,6 +205,9 @@ impl Client {
                     }),
                 }),
                 text_document: Some(lsp::TextDocumentClientCapabilities {
+                    filters: Some(lsp::TextDocumentFilterClientCapabilities {
+                        relative_pattern_support: Some(true),
+                    }),
                     synchronization: Some(lsp::TextDocumentSyncClientCapabilities {
                         dynamic_registration: Some(false),
                         will_save: Some(true),

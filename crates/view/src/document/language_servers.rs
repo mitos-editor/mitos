@@ -46,6 +46,12 @@ impl Document {
                             client.capabilities(),
                             feature,
                         )
+                        && crate::language_servers::matches_document_selector(
+                            client,
+                            feature,
+                            self.language_id().unwrap_or_default(),
+                            self.url().as_ref(),
+                        )
                         && features.has_feature(feature))
                     .then_some(client)
                 })

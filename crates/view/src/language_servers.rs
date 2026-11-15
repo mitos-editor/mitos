@@ -1,6 +1,7 @@
 //! Language-server integration with editor state and operations.
 
 mod capabilities;
+pub(crate) use capabilities::matches_document_selector;
 pub use capabilities::supports_feature;
 pub mod edits;
 mod registry;

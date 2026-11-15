@@ -1224,6 +1224,16 @@ fn main() -> anyhow::Result<()> {
             "textDocument/codeLens" => json!([{"range": range(3, end)}]),
             _ => Value::Null,
         };
+        if method == "initialize"
+            && let Some(index) = args.iter().position(|arg| arg == "--capabilities")
+        {
+            let capabilities: serde_json::Map<String, Value> =
+                serde_json::from_slice(&std::fs::read(&args[index + 1])?)?;
+            result["capabilities"]
+                .as_object_mut()
+                .unwrap()
+                .extend(capabilities);
+        }
         if method == "initialize" && args.iter().any(|arg| arg == "--workspace-folders") {
             result["capabilities"]["workspace"] = json!({"workspaceFolders": {
                 "supported": true,
