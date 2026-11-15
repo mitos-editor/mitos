@@ -34,6 +34,7 @@ pub(crate) mod request;
 pub mod semantic_tokens;
 pub mod shell;
 pub mod signature_help;
+pub(crate) mod source_documents;
 pub mod spelling;
 pub mod structural_ranges;
 pub mod symbols;

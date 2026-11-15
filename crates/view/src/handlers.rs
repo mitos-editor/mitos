@@ -263,6 +263,7 @@ fn register_hooks(events: &event::EventHub, document_hooks: DocumentHooks) {
     code_actions::register_hooks(events);
     workspace_symbols::register_hooks(events);
     crate::features::virtual_documents::register_hooks(events);
+    crate::features::source_documents::register_hooks(events);
     inlay_hints::register_hooks(events);
     completion::register_hooks(events);
     crate::debugger::register_hooks(events);

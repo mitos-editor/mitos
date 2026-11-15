@@ -222,21 +222,16 @@ impl Editor {
             changes: projection.changes,
             observed: None,
         };
-        let mut doc = Document::from(
-            projection.text,
-            None,
-            self.config.clone(),
-            self.syn_loader.load_full(),
-        );
-        doc.set_review(state);
-        let id = self.new_file_from_document(action, doc);
-        self.events()
-            .clone()
-            .dispatch(crate::events::DocumentDidOpen {
-                editor: self,
-                doc: id,
-            })
-            .report_to(self.status_sender());
+        let (id, _) = self.open_source_document(None, action, |editor| {
+            let mut doc = Document::from(
+                projection.text,
+                None,
+                editor.config.clone(),
+                editor.syn_loader.load_full(),
+            );
+            doc.set_review(state);
+            doc
+        });
         self.start_review(id, work);
         // Pathless projections still need the source repository's metadata watches.
         self.refresh_vcs_watches();
@@ -582,9 +577,8 @@ impl Editor {
                 .and_then(|row| if before { row.before } else { row.after })
                 .or_else(|| state.review.after_line_at(doc.cursor_line(view.id)))
                 .ok_or_else(|| anyhow::anyhow!("This row has no source location"))?;
-            let (path, label) = request.source_metadata(before);
-            let workspace = request.workspace.clone();
-            self.open_historical_source(path, workspace, label, source, action, before);
+            let request = request.clone();
+            self.open_historical_source(request, source, action, before);
             let (view, doc) = crate::current!(self);
             let line = line.min(
                 doc.text()

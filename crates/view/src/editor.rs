@@ -100,6 +100,7 @@ pub struct Editor {
     pub(crate) language_servers: crate::language_servers::Registry,
     pub(crate) diagnostics: LspDiagnostics,
     pub(crate) pull_diagnostics: crate::features::diagnostics::pull::PullDiagnosticResults,
+    pub(crate) source_documents: crate::features::source_documents::SourceDocuments,
     pub(crate) virtual_documents: crate::features::virtual_documents::VirtualDocuments,
     pub diff_providers: DiffProviderRegistry,
 
@@ -244,6 +245,7 @@ impl Editor {
             language_servers,
             diagnostics: LspDiagnostics::new(),
             pull_diagnostics: Default::default(),
+            source_documents: Default::default(),
             virtual_documents: Default::default(),
             diff_providers,
             debugger: crate::debugger::DebuggerState::default(),

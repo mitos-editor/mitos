@@ -1,6 +1,8 @@
 //! Fixed historical inputs. Repository reads and parsing share the review worker budget.
 use super::{decode, source::LanguageContext, Review, ReviewSource};
-use crate::{editor::Action, Document, DocumentId, Editor};
+use crate::{
+    editor::Action, features::source_documents::SourceDocumentKey, Document, DocumentId, Editor,
+};
 use anyhow::{ensure, Result};
 use editor_core::Rope;
 use std::{path::PathBuf, sync::Arc};
@@ -234,6 +236,45 @@ impl HistoricalReviewRequest {
         }
     }
 
+    #[cfg(feature = "git")]
+    fn source_key(&self, before_source: bool) -> Option<SourceDocumentKey> {
+        if let Input::Revisions {
+            repository,
+            before,
+            after,
+            buffer,
+        } = &self.input
+        {
+            // A captured buffer is a separate snapshot, even when its path and
+            // revision label happen to match a committed endpoint.
+            if !before_source && buffer.is_some() {
+                return None;
+            }
+            let endpoint = if before_source { before } else { after }.as_ref()?;
+            return Some(SourceDocumentKey::Revision {
+                repository: repository.root().to_owned(),
+                revision: endpoint.revision.clone(),
+                path: endpoint.path().to_owned(),
+            });
+        }
+        None
+    }
+
+    #[cfg(not(feature = "git"))]
+    fn source_key(&self, _before_source: bool) -> Option<SourceDocumentKey> {
+        None
+    }
+
+    fn document_source(&self, before: bool) -> HistoricalDocument {
+        let (path, label) = self.source_metadata(before);
+        HistoricalDocument {
+            path,
+            workspace: self.workspace.clone(),
+            label,
+            _task: event::TaskController::new(),
+        }
+    }
+
     pub(super) fn is_current(&self, editor: &Editor) -> bool {
         self.trusted
             == editor
@@ -341,35 +382,32 @@ impl Editor {
 
     pub(super) fn open_historical_source(
         &mut self,
-        path: PathBuf,
-        workspace: PathBuf,
-        label: String,
+        request: HistoricalReviewRequest,
         source: Arc<ReviewSource>,
         action: Action,
         before: bool,
     ) -> DocumentId {
-        let mut doc = Document::from(
-            source.text(before).clone(),
-            None,
-            self.config.clone(),
-            source.loader(),
-        );
-        // Syntax was prepared off-thread for this exact snapshot. It carries no filesystem/LSP identity.
-        doc.set_historical(HistoricalDocument {
-            path,
-            workspace,
-            label,
-            _task: event::TaskController::new(),
-        });
-        let id = self.new_file_from_document(action, doc);
-        source.initialize_document(self.document_mut(id).unwrap(), before);
-        self.events()
-            .clone()
-            .dispatch(crate::events::DocumentDidOpen {
-                editor: self,
-                doc: id,
-            })
-            .report_to(self.status_sender());
+        let (id, created) =
+            self.open_source_document(request.source_key(before), action, |editor| {
+                let mut doc = Document::from(
+                    source.text(before).clone(),
+                    None,
+                    editor.config.clone(),
+                    source.loader(),
+                );
+                doc.set_historical(request.document_source(before));
+                source.initialize_document(&mut doc, before);
+                doc
+            });
+        if !created {
+            // A ready diff side can finish an already loading revision buffer.
+            // Replacing its origin cancels that older load before it can publish.
+            self.replace_source_document_content(id, source.text(before), true)
+                .expect("historical publication uses immutable source text");
+            let doc = self.document_mut(id).unwrap();
+            doc.set_historical(request.document_source(before));
+            source.initialize_document(doc, before);
+        }
         id
     }
 }
@@ -381,29 +419,22 @@ impl Editor {
         request: HistoricalReviewRequest,
         action: Action,
     ) -> DocumentId {
-        let (path, label) = request.source_metadata(false);
-        let mut doc = Document::from(
-            Rope::from("Loading historical version…\n"),
-            None,
-            self.config.clone(),
-            self.syn_loader.load_full(),
-        );
-        let mut task = event::TaskController::new();
-        let cancel = task.restart();
-        doc.set_historical(HistoricalDocument {
-            path,
-            workspace: request.workspace.clone(),
-            label,
-            _task: task,
-        });
-        let id = self.new_file_from_document(action, doc);
-        self.events()
-            .clone()
-            .dispatch(crate::events::DocumentDidOpen {
-                editor: self,
-                doc: id,
-            })
-            .report_to(self.status_sender());
+        let mut origin = request.document_source(false);
+        let cancel = origin._task.restart();
+        let (id, created) =
+            self.open_source_document(request.source_key(false), action, |editor| {
+                let mut doc = Document::from(
+                    Rope::from("Loading historical version…\n"),
+                    None,
+                    editor.config.clone(),
+                    editor.syn_loader.load_full(),
+                );
+                doc.set_historical(origin);
+                doc
+            });
+        if !created {
+            return id;
+        }
         let old = self.document(id).unwrap().snapshot();
         let worker = self.handlers.change_review.worker.clone();
         let callbacks = self.callback_sender().clone();
@@ -434,12 +465,16 @@ impl Editor {
                             "Workspace trust changed; reopen this historical version"
                         ))
                     };
-                    let Some(doc) = editor.document_mut(id) else {
+                    let Some(doc) = editor.document(id) else {
                         return;
                     };
                     if !old.is_current(&doc.buffer) {
                         return;
                     }
+                    if result.is_err() {
+                        editor.forget_source_document(id);
+                    }
+                    let doc = editor.document_mut(id).unwrap();
                     let (source, transaction) = match result {
                         Ok((source, transaction)) => (Some(source), transaction),
                         Err(error) => {
@@ -470,6 +505,62 @@ impl Editor {
 mod source_tests {
     use super::*;
     use crate::{document::DocumentKind, editing::tests::document_and_view};
+
+    #[cfg(feature = "git")]
+    #[tokio::test]
+    async fn ready_diff_source_completes_a_loading_revision_in_place() {
+        let (mut editor, directory) = crate::editor::tests::editor("#[|]#");
+        let repository_path = directory.path().join("repository");
+        let output = std::process::Command::new("git")
+            .args(["init", "--quiet"])
+            .arg(&repository_path)
+            .env_remove("GIT_DIR")
+            .env_remove("GIT_WORK_TREE")
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let repository = GitRepository::discover(&repository_path).unwrap();
+        let endpoint = RevisionFile::new(
+            vcs::operations::history::RevisionId::parse(&"1".repeat(40)).unwrap(),
+            "source.rs".into(),
+        )
+        .unwrap();
+        let request =
+            HistoricalReviewRequest::revisions(&editor, repository, None, Some(endpoint)).unwrap();
+        let source = Arc::new(ReviewSource::new(
+            Rope::new(),
+            Rope::from("fn historical() {}\n"),
+            None,
+            LanguageContext::historical(&editor, &request.path),
+        ));
+        // Keep the repository read queued until the ready diff side supersedes it.
+        let worker = editor.handlers.change_review.worker.clone();
+        let permit = worker.acquire_owned().await.unwrap();
+        let loading = editor.open_historical_version(request.clone(), Action::Load);
+        assert!(editor
+            .document(loading)
+            .unwrap()
+            .historical()
+            .unwrap()
+            ._task
+            .is_running());
+        let ready = editor.open_historical_source(request, source, Action::Replace, false);
+        assert_eq!(ready, loading);
+        let doc = editor.document(ready).unwrap();
+        assert_eq!(doc.text().to_string(), "fn historical() {}\n");
+        assert!(!doc.historical().unwrap()._task.is_running());
+        assert!(doc.path().is_none() && doc.uri().is_none());
+        drop(permit);
+        tokio::task::yield_now().await;
+        assert_eq!(
+            editor.document(ready).unwrap().text().to_string(),
+            "fn historical() {}\n"
+        );
+    }
 
     #[tokio::test]
     async fn revision_origin_controls_language_display_and_immutable_content() {
