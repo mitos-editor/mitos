@@ -580,6 +580,9 @@ impl View {
             other_inlay_hints,
             padding_before_inlay_hints,
             padding_after_inlay_hints,
+            ordered,
+            styles,
+            ..
         }) = doc.inlay_hints(self.id)
         {
             let type_style = theme.and_then(|t| t.find_highlight("ui.virtual.inlay-hint.type"));
@@ -587,15 +590,29 @@ impl View {
                 theme.and_then(|t| t.find_highlight("ui.virtual.inlay-hint.parameter"));
             let other_style = theme.and_then(|t| t.find_highlight("ui.virtual.inlay-hint"));
 
-            // Overlapping annotations are ignored apart from the first so the order here is not random:
-            // types -> parameters -> others should hopefully be the "correct" order for most use cases,
-            // with the padding coming before and after as expected.
-            text_annotations
-                .add_inline_annotations(padding_before_inlay_hints, None)
-                .add_inline_annotations(type_inlay_hints, type_style)
-                .add_inline_annotations(parameter_inlay_hints, parameter_style)
-                .add_inline_annotations(other_inlay_hints, other_style)
-                .add_inline_annotations(padding_after_inlay_hints, None);
+            if !ordered.is_empty() {
+                use crate::features::inlay_hints::HintStyle;
+                text_annotations.add_inline_annotations_with_optional_highlights(
+                    ordered,
+                    styles
+                        .iter()
+                        .map(|style| match style {
+                            HintStyle::Padding => None,
+                            HintStyle::Type => type_style,
+                            HintStyle::Parameter => parameter_style,
+                            HintStyle::Other => other_style,
+                        })
+                        .collect(),
+                );
+            } else {
+                // Explicitly supplied annotations retain their existing layer order.
+                text_annotations
+                    .add_inline_annotations(padding_before_inlay_hints, None)
+                    .add_inline_annotations(type_inlay_hints, type_style)
+                    .add_inline_annotations(parameter_inlay_hints, parameter_style)
+                    .add_inline_annotations(other_inlay_hints, other_style)
+                    .add_inline_annotations(padding_after_inlay_hints, None);
+            }
         };
         let config = doc.source().config.load();
 

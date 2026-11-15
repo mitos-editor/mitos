@@ -132,6 +132,13 @@ enable = true
 When a server requests a hint refresh, Mitos updates visible hints automatically.
 Hints in hidden buffers refresh when those buffers are shown again.
 
+Use `inlay_hints` from the command palette to read complete labels and tooltips
+on the current line, including labels shortened by `length-limit`. When several
+hints share a line, choose one with the arrow keys and Enter. Details are loaded
+on demand when the server supports it. The details popup uses the usual popup
+controls: Ctrl-d/Ctrl-u scroll and Escape closes it. Plain-text tooltips keep
+literal punctuation; Markdown tooltips use Markdown formatting.
+
 Run `:config-reload` to apply changes. See the
 [language-server settings](./configuration.md#editorlsp) for more options,
 or set `enable = false` under `[editor.lsp]` to disable language servers.

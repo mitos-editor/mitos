@@ -8,15 +8,28 @@ use lsp_client::LanguageServerId;
 
 use crate::{
     callbacks::EditorCallbackSender,
-    events::{ConfigDidChange, LanguageServerExited},
+    events::{ConfigDidChange, DocumentFocusLost, LanguageServerExited, SelectionDidChange},
 };
 
+mod details;
 mod requests;
 mod state;
 
+pub use details::{hints_on_line, resolve, InlayHintItem, InlayHintTarget, ResolvedInlayHint};
 pub use requests::refresh;
+pub(crate) use state::HintStyle;
 pub(crate) use state::InlayHintsState;
 pub use state::{DocumentInlayHints, DocumentInlayHintsId};
+
+/// Full label text, retaining the order of structured label parts.
+pub fn label(label: &lsp_client::lsp::InlayHintLabel) -> String {
+    match label {
+        lsp_client::lsp::InlayHintLabel::String(label) => label.clone(),
+        lsp_client::lsp::InlayHintLabel::LabelParts(parts) => {
+            parts.iter().map(|part| part.value.as_str()).collect()
+        }
+    }
+}
 
 pub struct InlayHintsHandler {
     callbacks: Arc<EditorCallbackSender>,
@@ -48,6 +61,19 @@ pub fn refresh_for_language_server(editor: &mut crate::Editor, server: LanguageS
 }
 
 pub(crate) fn register_hooks(events: &event::EventHub) {
+    register_hook!(events => move |event: &mut SelectionDidChange<'_>| {
+        if let Some(state) = event.doc.view_states.get_mut(&event.view) {
+            state.inlay_hints.details.cancel();
+        }
+        Ok(())
+    });
+    register_hook!(events => move |event: &mut DocumentFocusLost<'_>| {
+        if let Some(doc) = event.editor.document_mut(event.doc)
+            && let Some(state) = doc.view_states.get_mut(&event.view) {
+            state.inlay_hints.details.cancel();
+        }
+        Ok(())
+    });
     register_hook!(events => move |event: &mut LanguageServerExited<'_>| {
         for doc in event.editor.documents_mut() {
             if doc.supports_language_server(event.server_id) {

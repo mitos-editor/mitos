@@ -647,6 +647,26 @@ fn main() -> anyhow::Result<()> {
             respond_result(&mut output, id, result)?;
             continue;
         }
+        if language_features && method == "inlayHint/resolve" {
+            wait_for_gate(&args, "--resolve-gate");
+            if args.iter().any(|arg| arg == "--resolve-error") {
+                respond(
+                    &mut output,
+                    json!({"jsonrpc": "2.0", "id": id, "error": {"code": -32603, "message": "hint resolution failed"}}),
+                )?;
+            } else {
+                let mut result = message["params"].clone();
+                result["tooltip"] = json!({"kind": "plaintext", "value": "**literal whole hint**"});
+                if let Some(parts) = result["label"].as_array_mut() {
+                    parts[0]["tooltip"] = json!({"kind": "markdown", "value": "**resolved part**"});
+                }
+                if args.iter().any(|arg| arg == "--changed-hint") {
+                    result["position"]["character"] = json!(0);
+                }
+                respond_result(&mut output, id, result)?;
+            }
+            continue;
+        }
         if language_features && matches!(method, "textDocument/hover" | "textDocument/inlayHint") {
             if method == "textDocument/hover" && args.iter().any(|arg| arg == "--hold-hover") {
                 continue;
@@ -655,6 +675,18 @@ fn main() -> anyhow::Result<()> {
                 Value::Null
             } else if method == "textDocument/hover" {
                 json!({"contents": {"kind": "plaintext", "value": format!("{}: {text}", args[1])}})
+            } else if args.iter().any(|arg| arg == "--mixed-inlays") {
+                json!([
+                    {"position": {"line": 0, "character": 3}, "label": "P", "tooltip": "Parameter documentation", "kind": 2, "paddingLeft": true, "paddingRight": true},
+                    {"position": {"line": 0, "character": 3}, "label": "T", "tooltip": "Type documentation", "kind": 1, "paddingLeft": true},
+                    {"position": {"line": 0, "character": 3}, "label": "O", "tooltip": "Other documentation", "paddingRight": true}
+                ])
+            } else if args.iter().any(|arg| arg == "--inlay-details") {
+                json!([{"position": {"line": 0, "character": 3},
+                    "label": [{"value": "界é", "tooltip": "eager *part*", "location": {"uri": "file:///inlay.rs", "range": range(0, 1)}, "command": {"title": "Inspect", "command": "inlay.inspect", "arguments": ["opaque"]}}, {"value": " suffix"}],
+                    "kind": 1, "paddingLeft": true, "paddingRight": true,
+                    "textEdits": [{"range": range(3, 3), "newText": ": Type"}],
+                    "data": {"server": args[1], "opaque": [null, {"nested": "value"}]}}])
             } else {
                 json!([{"position": {"line": 0, "character": 3}, "label": format!("界é {text}"), "kind": 1, "paddingLeft": true, "paddingRight": true}])
             };
@@ -1162,7 +1194,8 @@ fn main() -> anyhow::Result<()> {
                 "referencesProvider": true, "documentHighlightProvider": true
             }}),
             "initialize" if language_features => json!({"capabilities": {
-                "textDocumentSync": 1, "positionEncoding": "utf-16", "hoverProvider": true, "inlayHintProvider": true
+                "textDocumentSync": 1, "positionEncoding": "utf-16", "hoverProvider": true,
+                "inlayHintProvider": if args.iter().any(|arg| arg == "--inlay-details") && !args.iter().any(|arg| arg == "--no-inlay-resolve") { json!({"resolveProvider": true}) } else { json!(true) }
             }}),
             "initialize" if signature_help => json!({"capabilities": {
                 "positionEncoding": "utf-16", "textDocumentSync": 1,
