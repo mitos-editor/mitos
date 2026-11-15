@@ -459,7 +459,7 @@ Available statusline elements:
 | `spinner` | A progress spinner indicating LSP activity |
 | `activity` | A spinner and label while a user command is running |
 | `branch` | The current branch name or detached commit hash of the opened workspace |
-| `file-name` | The path/name of the opened file |
+| `file-name` | The opened file's path relative to the editor workspace; external paths use `~` for the home directory when possible |
 | `file-absolute-path` | The absolute path/name of the opened file |
 | `file-base-name` | The basename of the opened file |
 | `current-working-directory` | The current working directory  |
