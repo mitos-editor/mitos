@@ -18,7 +18,6 @@ foldhash.workspace = true
 
 [dev-dependencies]
 quickcheck.workspace = true
-criterion.workspace = true
 
 [[bench]]
 name = "word_index"

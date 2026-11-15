@@ -11,7 +11,7 @@ repository.workspace = true
 homepage.workspace = true
 
 [lib]
-# Skip libtest benchmark harness, the benches use criterion.
+# Skip the libtest benchmark harness.
 bench = false
 
 [features]
@@ -81,6 +81,5 @@ libc.workspace = true
 core = { workspace = true, features = ["integration"] }
 # Headless editor tests run independent Tokio runtimes in parallel.
 event.workspace = true
-criterion.workspace = true
 quickcheck.workspace = true
 
