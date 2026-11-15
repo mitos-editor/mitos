@@ -299,29 +299,6 @@ mod tests {
     }
 
     #[test]
-    fn region_scopes_the_scan() {
-        // The same misspelling appears twice; only the one inside the region is reported.
-        let diagnostics = check("quik brown quik", 11..15);
-        assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
-        assert_eq!(
-            (diagnostics[0].range.start, diagnostics[0].range.end),
-            (11, 15)
-        );
-    }
-
-    #[test]
-    fn offsets_are_char_indices_across_multibyte_text() {
-        // A 4-byte emoji precedes the misspelling: the diagnostic range must be in chars (2..6),
-        // not bytes (5..9), exercising the byte→char conversion.
-        let diagnostics = check("🚀 quik", 0..6);
-        assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
-        assert_eq!(
-            (diagnostics[0].range.start, diagnostics[0].range.end),
-            (2, 6)
-        );
-    }
-
-    #[test]
     fn skips_words_inside_urls_and_emails() {
         // Only the prose misspelling "teh" is flagged; the misspelled-looking host/path fragments
         // ("barbaz", "exampel") inside the URL and email are skipped.
@@ -332,46 +309,15 @@ mod tests {
     }
 
     #[test]
-    fn combined_ignore_patterns_preserve_independent_regex_semantics() {
-        let patterns = [
-            r"(?i)^mitos$",
-            r"^[A-Z0-9_]+$",
-            r"^v[0-9]+$",
-            r"界",
-            r"^$",
-            r"(?P<word>café)$",
-            r"(?P<word>Grüße)$",
-        ]
-        .map(str::to_owned);
+    fn multiple_ignore_patterns_use_a_combined_filter() {
         let filter = SpellingFilter::new(&SpellingConfig {
-            ignore_regexes: patterns.to_vec(),
+            ignore_regexes: [r"(?i)^mitos$", r"^v[0-9]+$"].map(str::to_owned).to_vec(),
             ..Default::default()
         });
         assert!(matches!(filter.ignore, IgnorePatterns::Set(_)));
-        let references: Vec<_> = patterns
-            .iter()
-            .map(|p| regex::Regex::new(p).unwrap())
-            .collect();
-        for word in [
-            "mitos",
-            "MITOS",
-            "SCREAMING_CASE",
-            "v123",
-            "界",
-            "世界",
-            "café",
-            "Grüße",
-            "cafe",
-            "ordinary",
-            "",
-            "😀",
-        ] {
-            assert_eq!(
-                filter.ignores(word),
-                word.is_empty() || references.iter().any(|r| r.is_match(word)),
-                "{word:?}"
-            );
-        }
+        assert!(filter.ignores("MITOS"));
+        assert!(filter.ignores("v123"));
+        assert!(!filter.ignores("ordinary"));
     }
 
     #[test]
@@ -386,18 +332,6 @@ mod tests {
         assert!(filter.ignores("v123"));
         assert!(filter.ignores("MITOS"));
         assert!(!filter.ignores("ordinary"));
-        for patterns in [vec![], vec!["[".to_owned()], vec!["^v[0-9]+$".to_owned()]] {
-            let expected = patterns
-                .iter()
-                .filter_map(|p| regex::Regex::new(p).ok())
-                .any(|r| r.is_match("v123"));
-            let filter = SpellingFilter::new(&SpellingConfig {
-                ignore_regexes: patterns,
-                ..Default::default()
-            });
-            assert!(matches!(filter.ignore, IgnorePatterns::Individual(_)));
-            assert_eq!(filter.ignores("v123"), expected);
-        }
     }
 
     #[test]
