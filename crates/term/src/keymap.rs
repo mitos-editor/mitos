@@ -196,6 +196,28 @@ impl Keymaps {
             .is_some_and(|node| node.contains_key(&key))
     }
 
+    /// Inspect the next binding without advancing pending or sticky keys.
+    pub(crate) fn preserves_completion(&self, mode: Mode, key: KeyEvent) -> bool {
+        fn preserves(binding: &KeyTrie) -> bool {
+            match binding {
+                KeyTrie::Node(node) => node.iter().any(|(_, binding)| preserves(binding)),
+                binding => binding.actions().is_some_and(|commands| {
+                    commands.iter().all(MappableCommand::preserves_completion)
+                }),
+            }
+        }
+        let maps = self.map();
+        let root = self
+            .sticky
+            .as_ref()
+            .and_then(|(mode, path)| maps.get(mode)?.search(path))
+            .or_else(|| maps.get(&mode));
+        let mut path = self.pending().to_vec();
+        path.push(key);
+        root.and_then(|root| root.search(&path))
+            .is_some_and(preserves)
+    }
+
     /// Lookup `key` in the keymap to try and find a command to execute. Escape
     /// key cancels pending keystrokes. If there are no pending keystrokes but a
     /// sticky node is in use, it will be cleared.

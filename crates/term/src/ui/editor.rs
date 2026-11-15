@@ -699,15 +699,25 @@ impl Component for EditorView {
                             // let completion swallow the event if necessary
                             let mut consumed = false;
                             if let Some(completion) = &mut self.completion {
+                                let preserves_completion =
+                                    self.keymaps.preserves_completion(mode, key);
+                                let pending_command = !self.keymaps.pending().is_empty()
+                                    || self.keymaps.sticky().is_some();
                                 let res = {
                                     // use a fake context here
                                     let mut cx = cx.as_ui();
 
-                                    match completion.handle_event(event, &mut cx) {
+                                    let result = if pending_command {
+                                        EventResult::Ignored(None)
+                                    } else {
+                                        completion.handle_event(event, &mut cx)
+                                    };
+                                    match result {
                                         EventResult::Consumed(callback) => {
                                             consumed = true;
                                             Some(callback)
                                         }
+                                        _ if preserves_completion => None,
                                         _ => match completion.accept(&mut cx) {
                                             EventResult::Consumed(callback) => Some(callback),
                                             _ => None,

@@ -322,6 +322,7 @@ impl Client {
                         ..Default::default()
                     }),
                     signature_help: Some(lsp::SignatureHelpClientCapabilities {
+                        context_support: Some(true),
                         signature_information: Some(lsp::SignatureInformationSettings {
                             documentation_format: Some(vec![lsp::MarkupKind::Markdown]),
                             parameter_information: Some(lsp::ParameterInformationSettings {

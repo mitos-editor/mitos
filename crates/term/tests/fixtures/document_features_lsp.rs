@@ -565,11 +565,18 @@ fn main() -> anyhow::Result<()> {
         if method == "textDocument/inlineCompletion" && inline_completion {
             writeln!(request_log.as_mut().unwrap(), "{params}")?;
             request_log.as_mut().unwrap().flush()?;
-            let items = json!([
+            let mut items = json!([
                 {"insertText": {"kind": "snippet", "value": "${1:print}"}},
                 {"range": range(3, 5), "insertText": "print(界)\n\treturn 1"},
                 {"insertText": "# alternate"}
             ]);
+            if let Some(selected) = params["context"].get("selectedCompletionInfo") {
+                items = json!([
+                    {"range": range(0, 0), "insertText": "wrong range"},
+                    {"range": selected["range"], "insertText": "wrong text"},
+                    {"range": selected["range"], "insertText": format!("{}(界)", selected["text"].as_str().unwrap())}
+                ]);
+            }
             let result = if text.contains("empty") {
                 Value::Null
             } else if args.iter().any(|arg| arg == "--array") {
@@ -758,9 +765,19 @@ fn main() -> anyhow::Result<()> {
                 writeln!(log, "{params}")?;
             }
             wait_for_gate(&args, "--resolve-gate");
+            if args.iter().any(|arg| arg == "--resolve-error") {
+                respond(
+                    &mut output,
+                    json!({"jsonrpc": "2.0", "id": id,
+                    "error": {"code": -32603, "message": "completion resolve failed"}}),
+                )?;
+                continue;
+            }
             let mut item = params.clone();
             item["documentation"] = json!("resolved documentation");
-            if documents.values().any(|text| text.starts_with("imports")) {
+            if documents.values().any(|text| text.starts_with("imports"))
+                || args.iter().any(|arg| arg == "--resolve-additional-edits")
+            {
                 item["additionalTextEdits"] =
                     json!([{"range":range(0, 0), "newText":"use fruit;\n"}]);
             }
@@ -1117,7 +1134,7 @@ fn main() -> anyhow::Result<()> {
             "initialize" if inline_completion => json!({"capabilities": {
                 "positionEncoding": "utf-16", "textDocumentSync": 1,
                 "inlineCompletionProvider": true,
-                "completionProvider": {"resolveProvider": true}
+                "completionProvider": {"resolveProvider": !args.iter().any(|arg| arg == "--no-resolve")}
             }}),
             "initialize" if formatting_callback => json!({"capabilities": {
                 "textDocumentSync": 1, "documentFormattingProvider": true
@@ -1143,7 +1160,7 @@ fn main() -> anyhow::Result<()> {
             }}),
             "initialize" if signature_help => json!({"capabilities": {
                 "positionEncoding": "utf-16", "textDocumentSync": 1,
-                "signatureHelpProvider": {"triggerCharacters": ["(", ","]}
+                "signatureHelpProvider": {"triggerCharacters": ["(", ","], "retriggerCharacters": [")"]}
             }}),
             "initialize" if lifecycle => json!({"capabilities": {
                 "positionEncoding": "utf-16", "textDocumentSync": 1, "documentSymbolProvider": true
