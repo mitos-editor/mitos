@@ -11,7 +11,7 @@ use view::graphics::RectExt as _;
 use view::{document::Mode, graphics::Rect, Document, Editor, View};
 
 use crate::ui::ProgressSpinners;
-use std::{collections::HashSet, path::Path};
+use std::{borrow::Cow, collections::HashSet, path::Path};
 
 use editor_config::StatusLineElement as StatusLineElementID;
 use tui::buffer::Buffer as Surface;
@@ -676,16 +676,22 @@ fn filename(context: &RenderContext<'_>, format: FileNameFormat) -> String {
                     .strip_prefix(review.workspace())
                     .unwrap_or(review.path())
             })
-            .or_else(|| doc.display_path()),
-        FileNameFormat::Absolute => display.source_path,
+            .map(Cow::Borrowed)
+            .or_else(|| {
+                doc.path().map(|path| {
+                    stdx::path::get_relative_path_from(path, context.editor.workspace().root())
+                })
+            }),
+        FileNameFormat::Absolute => display.source_path.map(Cow::Borrowed),
         FileNameFormat::Base => display
             .source_path
             .and_then(|path| path.file_name())
-            .map(Path::new),
+            .map(Path::new)
+            .map(Cow::Borrowed),
     };
     let name = path.map_or_else(
         || doc.display_name(),
-        |path| display.format_path(path).into(),
+        |path| display.format_path(&path).into(),
     );
     name.into_owned()
 }
@@ -846,6 +852,58 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn file_names_keep_external_package_paths() -> anyhow::Result<()> {
+        let mut app = crate::ui::picker::test::application(false)?;
+        let document = view::current_ref!(app.editor).1.id();
+        let external = tempfile::tempdir()?;
+        let external = stdx::path::canonicalize(external.path());
+        let module = external
+            .join("go")
+            .join("pkg")
+            .join("mod")
+            .join("example.com")
+            .join("package@v1.2.3")
+            .join("function.go");
+        let repository = external.join("dependency");
+        std::fs::create_dir_all(module.parent().unwrap())?;
+        std::fs::create_dir_all(repository.join(".git"))?;
+
+        for (path, expected) in [
+            (
+                app.editor.workspace().root().join("src").join("main.go"),
+                Path::new("src").join("main.go"),
+            ),
+            (
+                module.clone(),
+                stdx::path::fold_home_dir(&module).into_owned(),
+            ),
+            (
+                repository.join("src").join("function.go"),
+                stdx::path::fold_home_dir(repository.join("src").join("function.go")).into_owned(),
+            ),
+        ] {
+            app.editor.set_doc_path(document, &path);
+            let (view, doc) = view::current_ref!(app.editor);
+            let spinners = ProgressSpinners::default();
+            let mut context = RenderContext::new(&app.editor, doc, view, &spinners, None);
+            render_file_name(&mut context, |context, span| context.parts.spans.push(span));
+            assert_eq!(
+                context.parts.to_string(),
+                format!(" {} ", expected.display())
+            );
+            assert_eq!(
+                filename(&context, FileNameFormat::Base),
+                path.file_name().unwrap().to_string_lossy()
+            );
+            assert_eq!(
+                filename(&context, FileNameFormat::Absolute),
+                path.to_string_lossy()
+            );
+        }
+        Ok(())
+    }
 
     fn rendered_activity(editor: &Editor, view: &View) -> String {
         let doc = editor.document(view.document_id()).unwrap();
