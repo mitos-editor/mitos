@@ -55,6 +55,11 @@ fn inlay_actions(args: &[String], hint: &mut Value) {
         hint["label"][1]["command"] =
             json!({"title": "Inspect suffix", "command": "inlay.other", "arguments": ["suffix"]});
     }
+    if args.iter().any(|arg| arg == "--inlay-command-only") {
+        for part in hint["label"].as_array_mut().unwrap() {
+            part.as_object_mut().unwrap().remove("location");
+        }
+    }
     let edits = args
         .iter()
         .position(|arg| arg == "--hint-edits")

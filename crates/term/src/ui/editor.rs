@@ -47,6 +47,7 @@ pub struct EditorView {
     pub(crate) repeat: crate::repeat::RepeatController,
     pub(crate) completion: Option<Completion>,
     renderer: PaneRenderer,
+    pub(super) inlay_mouse: super::inlay_hints::MouseHints,
     /// Tracks if the terminal window is focused by reaction to terminal focus events
     terminal_focused: bool,
 }
@@ -64,6 +65,7 @@ impl EditorView {
             repeat: crate::repeat::RepeatController::default(),
             completion: None,
             renderer: PaneRenderer::default(),
+            inlay_mouse: Default::default(),
             terminal_focused: true,
         }
     }
@@ -348,6 +350,45 @@ impl EditorView {
         event: &MouseEvent,
         cxt: &mut commands::Context,
     ) -> EventResult {
+        if event.kind == MouseEventKind::Moved {
+            let (row, column) = (event.row, event.column);
+            return EventResult::Ignored(Some(Box::new(move |compositor, cx| {
+                super::inlay_hints::mouse_moved(compositor, cx, row, column);
+            })));
+        }
+        if event.kind == MouseEventKind::Down(MouseButton::Left) {
+            // A release may have been lost while another window had focus.
+            self.inlay_mouse.pressed = false;
+        }
+        if self.inlay_mouse.pressed {
+            match event.kind {
+                MouseEventKind::Up(MouseButton::Left) => {
+                    self.inlay_mouse.pressed = false;
+                    return EventResult::Consumed(None);
+                }
+                MouseEventKind::Drag(MouseButton::Left) => return EventResult::Consumed(None),
+                _ => {}
+            }
+        }
+        if event.kind == MouseEventKind::Down(MouseButton::Left)
+            && (event.modifiers.is_empty() || event.modifiers == KeyModifiers::CONTROL)
+            && let Some((view, hit)) =
+                super::inlay_hints::mouse_hit_at(cxt.editor, event.row, event.column)
+        {
+            self.handle_non_key_input(cxt);
+            self.inlay_mouse.pressed = true;
+            let (row, column, follow) = (
+                event.row,
+                event.column,
+                event.modifiers == KeyModifiers::CONTROL,
+            );
+            return EventResult::Consumed(Some(Box::new(move |compositor, cx| {
+                if !hit.target.is_current(cx.editor) {
+                    return;
+                }
+                super::inlay_hints::mouse_clicked(compositor, cx, view, row, column, follow);
+            })));
+        }
         if event.kind != MouseEventKind::Moved {
             self.handle_non_key_input(cxt)
         }
@@ -611,6 +652,15 @@ impl Component for EditorView {
         event: &Event,
         context: &mut crate::compositor::Context,
     ) -> EventResult {
+        if matches!(event, Event::Resize(_, _) | Event::FocusLost) {
+            self.inlay_mouse.clear();
+            context
+                .jobs
+                .sender()
+                .enqueue(crate::job::Callback::ui(|compositor, _| {
+                    super::inlay_hints::remove_hover(compositor);
+                }));
+        }
         if self.handle_resize_event(event, context) {
             return EventResult::Consumed(None);
         }
@@ -755,6 +805,18 @@ impl Component for EditorView {
 
                 // appease borrowck
                 let callback = cx.take_callback();
+                let callback = if self.inlay_mouse.is_hovering() {
+                    Some(Box::new(
+                        move |compositor: &mut crate::compositor::Compositor, cx: &mut Context| {
+                            super::inlay_hints::remove_hover(compositor);
+                            if let Some(callback) = callback {
+                                callback(compositor, cx);
+                            }
+                        },
+                    ) as crate::compositor::Callback)
+                } else {
+                    callback
+                };
 
                 // if the command consumed the last view, skip the render.
                 // on the next loop cycle the Application will then terminate.
@@ -776,7 +838,29 @@ impl Component for EditorView {
                 EventResult::Consumed(callback)
             }
 
-            Event::Mouse(event) => self.handle_mouse_event(event, &mut cx),
+            Event::Mouse(event) => {
+                let result = self.handle_mouse_event(event, &mut cx);
+                if event.kind == MouseEventKind::Moved {
+                    result
+                } else {
+                    self.inlay_mouse.clear();
+                    let (consumed, callback) = match result {
+                        EventResult::Consumed(callback) => (true, callback),
+                        EventResult::Ignored(callback) => (false, callback),
+                    };
+                    let callback: crate::compositor::Callback = Box::new(move |compositor, cx| {
+                        super::inlay_hints::remove_hover(compositor);
+                        if let Some(callback) = callback {
+                            callback(compositor, cx);
+                        }
+                    });
+                    if consumed {
+                        EventResult::Consumed(Some(callback))
+                    } else {
+                        EventResult::Ignored(Some(callback))
+                    }
+                }
+            }
             Event::IdleTimeout => self.handle_idle_timeout(&mut cx),
             Event::FocusGained => {
                 self.terminal_focused = true;

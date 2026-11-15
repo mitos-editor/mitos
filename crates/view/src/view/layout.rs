@@ -47,13 +47,23 @@ impl ViewLayout<'_> {
         .row;
         let row = first_row + self.offset.vertical_offset + usize::from(row - self.viewport.y);
         let column = self.offset.horizontal_offset + usize::from(column - self.viewport.x);
-        for grapheme in DocumentFormatter::new_at_prev_checkpoint(
+        let mut formatter = DocumentFormatter::new_at_prev_checkpoint(
             self.text,
             &self.format,
             &self.annotations,
             self.offset.anchor,
-        ) {
+        );
+        while let Some(grapheme) = formatter.next() {
+            if grapheme.visual_pos.row < row {
+                // Preceding unwrapped rows may have arbitrarily long tails.
+                // Reuse the renderer's conservative annotation-aware fast path.
+                formatter.skip_unwrapped_line_tail();
+                continue;
+            }
             if grapheme.visual_pos.row > row {
+                break;
+            }
+            if grapheme.visual_pos.col > column {
                 break;
             }
             if grapheme.visual_pos.row == row
@@ -413,5 +423,20 @@ mod tests {
                 1
             );
         }
+    }
+
+    #[test]
+    fn inline_hits_skip_long_unwrapped_tails_before_the_target_row() {
+        let text = Rope::from_str(&format!("{}\na", "x".repeat(20_000_000)));
+        let inline = [InlineAnnotation::new(20_000_001, "hint")];
+        let mut layout = plain_layout(&text, Rect::new(0, 0, 80, 2));
+        layout.annotations.add_inline_annotations(&inline, None);
+        let started = std::time::Instant::now();
+        let source = layout.inline_annotation_at_screen_coords(1, 1).unwrap();
+        assert_eq!(source.byte_offset, 1);
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(1),
+            "offscreen source tails must not be formatted on every mouse move"
+        );
     }
 }
