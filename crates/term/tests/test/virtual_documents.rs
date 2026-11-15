@@ -525,15 +525,31 @@ async fn lazy_workspace_symbols_preserve_virtual_provider_and_opaque_data() -> a
 async fn lazy_workspace_preview_loads_only_the_selected_virtual_document_and_navigates(
 ) -> anyhow::Result<()> {
     let directory = tempfile::tempdir()?;
-    let f = Fixture::new(directory.path(), &["alpha"], &[]).await?;
+    let content = Gate::new(directory.path().join("preview-content-ready"));
+    let f = Fixture::new(
+        directory.path(),
+        &["alpha"],
+        &["--content-gate", content.path().to_str().unwrap()],
+    )
+    .await?;
     let origin = f.origin;
     let server = f.server("alpha");
     let mut app = f.into_ui();
     super::helpers::keys(&mut app, "<space>S").await?;
-    let document = app
-        .editor
-        .language_server_document(server, &URI.parse()?)
-        .context("selected preview content")?;
+    // Preview loads are background work and may finish after the idle frame.
+    let uri = URI.parse()?;
+    assert!(app.editor.language_server_document(server, &uri).is_none());
+    content.release()?;
+    let document = tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            if let Some(document) = app.editor.language_server_document(server, &uri) {
+                return anyhow::Ok(document);
+            }
+            super::helpers::keys(&mut app, "").await?;
+        }
+    })
+    .await
+    .context("selected preview content")??;
     assert_eq!(current_ref!(app.editor).1.id(), origin);
     assert_eq!(
         app.editor.document(document).unwrap().text(),
