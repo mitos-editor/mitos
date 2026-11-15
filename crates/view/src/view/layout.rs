@@ -5,7 +5,7 @@ use crate::graphics::Rect;
 use editor_core::RopeSlice;
 use stdx::rope::RopeExt as _;
 use text_layout::{
-    char_idx_at_visual_offset, doc_formatter::TextFormat, text_annotations::TextAnnotations,
+    doc_formatter::TextFormat, hit_test, text_annotations::TextAnnotations,
     visual_offset_from_anchor, DisplayPosition, VisualOffsetError,
 };
 
@@ -138,7 +138,7 @@ impl ViewLayout<'_> {
         column: u16,
         ignore_virtual_text: bool,
     ) -> Option<usize> {
-        let (position, virtual_lines) = char_idx_at_visual_offset(
+        let hit = hit_test(
             self.text,
             self.offset.anchor,
             (row as usize + self.offset.vertical_offset) as isize,
@@ -146,7 +146,7 @@ impl ViewLayout<'_> {
             &self.format,
             &self.annotations,
         );
-        (virtual_lines == 0 || !ignore_virtual_text).then_some(position)
+        (!hit.is_virtual || !ignore_virtual_text).then_some(hit.char_idx)
     }
 
     /// Last visible visual row relative to the viewport, clamped to the end of the text.

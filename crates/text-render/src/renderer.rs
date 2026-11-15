@@ -707,6 +707,37 @@ mod whitespace_tests {
     }
 
     #[test]
+    fn collapsed_label_clipping_matches_visible_document_graphemes() {
+        use text_layout::text_annotations::Conceal;
+        let conceals = [Conceal::new(9..15).with_text("界e\u{301} 😀 label")];
+        let mut annotations = TextAnnotations::default();
+        annotations.set_conceals(&conceals);
+        for wrap in [false, true] {
+            for width in [4, 12, 20] {
+                for offset in [0, 2, 3, 5, 8] {
+                    let folded = render_with_layout_annotations(
+                        "before\na[hidden]tail\nnext",
+                        "",
+                        width,
+                        wrap,
+                        offset,
+                        &annotations,
+                        true,
+                    );
+                    let plain = render(
+                        "before\na[界e\u{301} 😀 label]tail\nnext",
+                        "",
+                        width,
+                        wrap,
+                        offset,
+                    );
+                    assert_eq!(folded, plain, "width={width}, offset={offset}, wrap={wrap}");
+                }
+            }
+        }
+    }
+
+    #[test]
     fn tab_end_marks_the_last_cell_and_preserves_single_cell_tabs() {
         let mut config = WhitespaceConfig {
             render: editor_config::WhitespaceRender::Basic(WhitespaceRenderValue::All),
@@ -1091,7 +1122,7 @@ mod whitespace_tests {
         let text = format!("{}\nfolded body\nclosing\nfollowing", "x".repeat(200));
         let inline = [InlineAnnotation::new(150, "virtual\nline")];
         let overlays = [Overlay::new(160, "界")];
-        let conceals = [Conceal { range: 180..220 }];
+        let conceals = [Conceal::new(180..220)];
         #[derive(Clone)]
         struct ExtraLine;
         impl text_layout::text_annotations::LineAnnotation for ExtraLine {

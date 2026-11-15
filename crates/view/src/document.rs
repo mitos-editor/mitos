@@ -16,7 +16,8 @@ mod folding;
 mod mutation;
 mod selection_undo;
 mod view_state;
-pub use folding::FoldAction;
+pub(crate) use folding::FoldRange;
+pub use folding::{FoldAction, FoldKind};
 use view_state::DocumentViewState;
 
 pub use crate::features::blame::LineBlameError;

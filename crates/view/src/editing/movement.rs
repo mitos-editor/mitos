@@ -111,7 +111,10 @@ pub fn scroll(
                         &layout.annotations,
                     );
                     let head = if virtual_rows != 0 {
-                        editor_core::graphemes::next_grapheme_boundary(layout.text, head)
+                        layout.annotations.conceal_at(head).map_or_else(
+                            || editor_core::graphemes::next_grapheme_boundary(layout.text, head),
+                            |fold| fold.range.end,
+                        )
                     } else {
                         head
                     };

@@ -114,7 +114,15 @@ async fn lsp_folds_work_without_grammar_and_cache_whole_line_ranges() -> anyhow:
         assert_eq!(caps["workspace"]["foldingRange"]["refreshSupport"], true);
         assert_eq!(
             caps["textDocument"]["foldingRange"]["lineFoldingOnly"],
+            false
+        );
+        assert_eq!(
+            caps["textDocument"]["foldingRange"]["foldingRange"]["collapsedText"],
             true
+        );
+        assert_eq!(
+            caps["textDocument"]["foldingRange"]["foldingRangeKind"]["valueSet"],
+            serde_json::json!(["comment", "imports", "region"])
         );
         assert_eq!(
             caps["textDocument"]["selectionRange"]["dynamicRegistration"],
@@ -122,6 +130,87 @@ async fn lsp_folds_work_without_grammar_and_cache_whole_line_ranges() -> anyhow:
         );
         assert!(f.app.close().await.is_empty());
     }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn character_folds_keep_labels_kinds_hit_testing_and_cached_positions() -> anyhow::Result<()>
+{
+    use view::document::FoldKind;
+    let mut f = Fixture::new(
+        "😀 abcdef import suffix\nxbody\nzsuffix\nheader\nlast\nnext",
+        "structure-test",
+        &["--character-folds"],
+    )
+    .await?;
+    let view = f.view();
+    f.app
+        .editor
+        .fold(view, FoldAction::CloseKind(FoldKind::Comment), 1);
+    f.response().await?(&mut f.app.editor);
+    assert_eq!(f.folds(), vec![2..8]);
+    let (target, doc) = current_ref!(f.app.editor);
+    assert_eq!(doc.folded_ranges(view)[0].text(), "界e\u{301}");
+    let area = target.inner_area(doc);
+    for column in [3, 4, 5] {
+        assert_eq!(
+            target.pos_at_screen_coords(doc, area.y, area.x + column, true),
+            Some(2)
+        );
+    }
+    f.app
+        .editor
+        .fold(view, FoldAction::CloseKind(FoldKind::Imports), 1);
+    assert_eq!(f.folds(), vec![2..8, 9..14]);
+    f.app
+        .editor
+        .fold(view, FoldAction::CloseKind(FoldKind::Region), 1);
+    assert_eq!(f.folds().len(), 3);
+    f.app.editor.fold(view, FoldAction::CloseAll, 1);
+    assert_eq!(f.folds().len(), 4, "unknown kinds remain ordinary folds");
+    assert_eq!(f.requests("textDocument/foldingRange")?, 1);
+    f.app.editor.fold(view, FoldAction::OpenAll, 1);
+    f.select(Selection::point(11));
+    f.app.editor.fold(view, FoldAction::Close, 1);
+    assert_eq!(f.folds(), vec![9..14]);
+    let (target, doc) = current_ref!(f.app.editor);
+    assert_eq!(
+        doc.selection(target.id)
+            .primary()
+            .cursor(doc.text().slice(..)),
+        9
+    );
+    f.app
+        .editor
+        .fold(view, FoldAction::CloseKind(FoldKind::Comment), 1);
+    let server = f.server();
+    f.app
+        .handle_language_server_message(
+            serde_json::from_value(serde_json::json!({
+                "jsonrpc":"2.0", "id":"character-refresh", "method":"workspace/foldingRange/refresh"
+            }))?,
+            server,
+        )
+        .await;
+    f.response().await?(&mut f.app.editor);
+    // A refresh preserves closed regions; reopening uses the new label.
+    f.app
+        .editor
+        .fold(view, FoldAction::CloseKind(FoldKind::Comment), 1);
+    assert_eq!(
+        current_ref!(f.app.editor).1.folded_ranges(view)[0].text(),
+        "界e\u{301}"
+    );
+    f.app.editor.fold(view, FoldAction::OpenAll, 1);
+    f.app
+        .editor
+        .fold(view, FoldAction::CloseKind(FoldKind::Comment), 1);
+    assert_eq!(
+        current_ref!(f.app.editor).1.folded_ranges(view)[0].text(),
+        "updated"
+    );
+    assert_eq!(f.requests("textDocument/foldingRange")?, 2);
+    assert!(f.app.close().await.is_empty());
     Ok(())
 }
 

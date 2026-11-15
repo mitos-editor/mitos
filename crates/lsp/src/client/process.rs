@@ -212,7 +212,17 @@ impl Client {
                     }),
                     folding_range: Some(lsp::FoldingRangeClientCapabilities {
                         dynamic_registration: Some(false),
-                        line_folding_only: Some(true),
+                        line_folding_only: Some(false),
+                        folding_range_kind: Some(lsp::FoldingRangeKindCapability {
+                            value_set: Some(vec![
+                                lsp::FoldingRangeKind::Comment,
+                                lsp::FoldingRangeKind::Imports,
+                                lsp::FoldingRangeKind::Region,
+                            ]),
+                        }),
+                        folding_range: Some(lsp::FoldingRangeCapability {
+                            collapsed_text: Some(true),
+                        }),
                         ..Default::default()
                     }),
                     selection_range: Some(lsp::SelectionRangeClientCapabilities {

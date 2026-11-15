@@ -1,7 +1,7 @@
 //! Terminal bindings for document/view folding operations.
 
 use super::Context;
-use view::document::FoldAction;
+use view::document::{FoldAction, FoldKind};
 
 fn fold(cx: &mut Context, action: FoldAction) {
     let count = match action {
@@ -33,4 +33,14 @@ pub(super) fn unfold_all(cx: &mut Context) {
 
 pub(super) fn fold_toggle_all(cx: &mut Context) {
     fold(cx, FoldAction::ToggleAll);
+}
+
+pub(super) fn fold_comments(cx: &mut Context) {
+    fold(cx, FoldAction::CloseKind(FoldKind::Comment));
+}
+pub(super) fn fold_imports(cx: &mut Context) {
+    fold(cx, FoldAction::CloseKind(FoldKind::Imports));
+}
+pub(super) fn fold_regions(cx: &mut Context) {
+    fold(cx, FoldAction::CloseKind(FoldKind::Region));
 }

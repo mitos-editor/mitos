@@ -97,6 +97,9 @@
 | `fold_toggle` | Toggle the fold at each cursor | normal: `` Za ``, `` za ``, select: `` Za ``, `` za `` |
 | `fold_selection` | Fold selected lines | normal: `` Zf ``, `` zf ``, select: `` Zf ``, `` zf `` |
 | `fold_all` | Close all folds | normal: `` ZC ``, `` zC ``, select: `` ZC ``, `` zC `` |
+| `fold_comments` | Close all LSP comment folds |  |
+| `fold_imports` | Close all LSP import folds |  |
+| `fold_regions` | Close all LSP region folds |  |
 | `unfold_all` | Open all folds | normal: `` ZO ``, `` zO ``, select: `` ZO ``, `` zO `` |
 | `fold_toggle_all` | Open all folds if any are closed, otherwise close all folds | normal: `` ZA ``, `` zA ``, select: `` ZA ``, `` zA `` |
 | `collapse_selection` | Collapse selection into single cursor | normal: `` ; ``, select: `` ; `` |

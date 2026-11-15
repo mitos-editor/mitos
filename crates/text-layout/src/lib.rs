@@ -11,8 +11,8 @@ mod position;
 pub mod text_annotations;
 
 pub use position::{
-    char_idx_at_visual_block_offset, char_idx_at_visual_offset, softwrapped_dimensions,
-    visual_offset_from_anchor, visual_offset_from_block, VisualOffsetError,
+    char_idx_at_visual_block_offset, char_idx_at_visual_offset, hit_test, softwrapped_dimensions,
+    visual_offset_from_anchor, visual_offset_from_block, VisualHit, VisualOffsetError,
 };
 
 mod display_position;

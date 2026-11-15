@@ -114,8 +114,13 @@ pub fn move_vertically_visual(
         text_fmt,
         annotations,
     );
-    if dir == Direction::Forward {
-        new_pos += (virtual_rows != 0) as usize;
+    if dir == Direction::Forward && virtual_rows != 0 {
+        // A collapsed label has one cursor anchor even when it wraps. Skip
+        // its remaining rows rather than repeatedly selecting the same anchor
+        // or stepping into the hidden document text.
+        new_pos = annotations
+            .conceal_at(new_pos)
+            .map_or(new_pos + 1, |fold| fold.range.end);
     }
 
     // Special-case to avoid moving to the end of the last non-empty line.

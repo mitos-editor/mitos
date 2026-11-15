@@ -32,6 +32,11 @@ pub enum GraphemeSource {
     Document {
         codepoints: usize,
     },
+    /// Selectable replacement text. Every label grapheme has the fold's start
+    /// position; only its last grapheme consumes the concealed document text.
+    Conceal {
+        codepoints: usize,
+    },
     /// Inline virtual text can not be highlighted with a `Highlight` iterator
     /// because it's not part of the document. Instead the `Highlight`
     /// is emitted right by the document formatter
@@ -53,7 +58,9 @@ impl GraphemeSource {
 
     pub fn doc_chars(self) -> usize {
         match self {
-            GraphemeSource::Document { codepoints } => codepoints,
+            GraphemeSource::Document { codepoints } | GraphemeSource::Conceal { codepoints } => {
+                codepoints
+            }
             GraphemeSource::VirtualText { .. } => 0,
         }
     }
@@ -190,6 +197,7 @@ pub struct DocumentFormatter<'t> {
     exhausted: bool,
 
     inline_annotation_graphemes: Option<(Graphemes<'t>, Option<Highlight>)>,
+    conceal_graphemes: Option<(std::iter::Peekable<Graphemes<'t>>, usize)>,
 
     // softwrap specific
     /// The indentation of the current line
@@ -241,6 +249,7 @@ impl<'t> DocumentFormatter<'t> {
             line_pos: block_line_idx,
             block_line_pos: block_line_idx,
             inline_annotation_graphemes: None,
+            conceal_graphemes: None,
         }
     }
 
@@ -270,17 +279,36 @@ impl<'t> DocumentFormatter<'t> {
     }
 
     fn advance_grapheme(&mut self, col: usize, char_pos: usize) -> Option<GraphemeWithSource<'t>> {
-        if let Some(conceal) = self.annotations.conceal_at(char_pos) {
+        if self.conceal_graphemes.is_none()
+            && let Some(conceal) = self.annotations.conceal_at(char_pos)
+        {
             let end = conceal.range.end;
             self.graphemes = self.text.slice_chars(end..).graphemes();
             self.annotation_cursor.skip_concealed(end);
+            self.conceal_graphemes = Some((conceal.text().graphemes(true).peekable(), end));
+        }
+        if let Some((label, end)) = &mut self.conceal_graphemes {
+            let grapheme = label.next().expect("nonempty conceal label");
+            let consumed = if label.peek().is_none() {
+                *end - char_pos
+            } else {
+                0
+            };
+            let concealed_lines = if consumed == 0 {
+                0
+            } else {
+                self.text.char_to_line_idx(char_pos + consumed)
+                    - self.text.char_to_line_idx(char_pos)
+            };
+            if consumed != 0 {
+                self.conceal_graphemes = None;
+            }
             return Some(GraphemeWithSource {
-                grapheme: Grapheme::Other { g: "…".into() },
-                source: GraphemeSource::Document {
-                    codepoints: end - char_pos,
+                grapheme: Grapheme::new(grapheme.into(), col, self.text_fmt.tab_width),
+                source: GraphemeSource::Conceal {
+                    codepoints: consumed,
                 },
-                concealed_lines: self.text.char_to_line_idx(end)
-                    - self.text.char_to_line_idx(char_pos),
+                concealed_lines,
             });
         }
         let (grapheme, source) =
