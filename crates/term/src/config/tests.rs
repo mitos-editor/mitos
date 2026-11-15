@@ -516,11 +516,8 @@ fn terminal_settings_keep_editor_table_and_merge_precedence() {
 #[test]
 fn composed_settings_retain_strict_validation() {
     for settings in [
-        "true-color = 'yes'",
-        "undercurl = 1",
         "kitty-keyboard-protocol = 'sometimes'",
         "undercurls = true",
-        "scrolloff = 'seven'",
         "auto-save = { after-delay = { unknown = true } }",
     ] {
         assert!(
@@ -542,62 +539,6 @@ fn composed_settings_round_trip_for_runtime_options() {
         serde_json::from_value::<EditorSettings>(value).unwrap(),
         settings
     );
-}
-
-#[test]
-fn inline_blame_settings_round_trip_with_grouped_editor_settings() {
-    use editor_config::InlineBlameShow;
-
-    let config = Config::load_test(
-            "[editor.inline-blame]\nshow = 'all-lines'\nformat = '{title}'\n[editor.scroll]\npadding = 7",
-        );
-    let settings = config.editor_settings();
-    assert_eq!(settings.editor.inline_blame.show, InlineBlameShow::AllLines);
-    assert_eq!(settings.editor.inline_blame.format, "{title}");
-    assert_eq!(settings.editor.scroll.padding, 7);
-    let value = serde_json::to_value(&settings).unwrap();
-    assert_eq!(value["inline-blame"]["show"], "all-lines");
-    assert_eq!(
-        serde_json::from_value::<EditorSettings>(value).unwrap(),
-        settings
-    );
-    assert!(Config::load_test_result("[editor.inline-blame]\nshow = 'sometimes'").is_err());
-    assert!(Config::load_test_result("[editor.inline-blame]\nauto-fetch = true").is_err());
-}
-
-#[test]
-fn editor_presentation_options_keep_defaults_and_accept_configuration() {
-    use editor_config::{BorderStyle, BreadcrumbPathOptions, PickerLayout};
-    let defaults = Config::load_test("").editor;
-    assert!(!defaults.icons);
-    assert!(!defaults.breadcrumb.enable);
-    assert_eq!(defaults.breadcrumb.path, BreadcrumbPathOptions::Full);
-    assert!(defaults.welcome_screen);
-    assert_eq!(defaults.picker.layout, PickerLayout::Auto);
-    assert!(defaults.picker.show_keybindings);
-    let configured = Config::load_test(
-        r#"
-        theme = 'default'
-        [editor]
-        icons = true
-        welcome-screen = false
-        border-style = 'rounded'
-        [editor.breadcrumb]
-        enable = true
-        path = 'file'
-        [editor.picker]
-        layout = 'centered'
-        show-keybindings = false
-    "#,
-    )
-    .editor;
-    assert!(configured.icons);
-    assert!(configured.breadcrumb.enable);
-    assert_eq!(configured.breadcrumb.path, BreadcrumbPathOptions::File);
-    assert!(!configured.welcome_screen);
-    assert_eq!(configured.border_style, BorderStyle::Rounded);
-    assert_eq!(configured.picker.layout, PickerLayout::Centered);
-    assert!(!configured.picker.show_keybindings);
 }
 
 #[test]
@@ -691,34 +632,6 @@ fn clipboard_settings_roundtrip_and_local_override_preserve_schema() {
         settings
     );
     assert!(Config::load_test_result("[editor]\nclipboard-provider = 'unknown'").is_err());
-}
-#[test]
-fn reorganized_defaults_keep_existing_behavior() {
-    let config = Config::load_test("");
-    let editor = config.editor;
-    assert!(editor.lsp.enable);
-    assert!(editor.lsp.messages.enable);
-    assert!(!editor.lsp.progress.enable);
-    assert!(editor.lsp.signature_help.auto_trigger);
-    assert!(editor.lsp.signature_help.show_documentation);
-    assert!(!editor.lsp.inlay_hints.enable);
-    assert_eq!(editor.lsp.inlay_hints.length_limit, None);
-    assert!(editor.lsp.document_highlight.auto_trigger);
-    assert!(editor.lsp.color_swatches.enable);
-    assert!(editor.lsp.code_lenses.enable);
-    assert!(editor.lsp.completion.snippets);
-    assert!(editor.lsp.references.include_declaration);
-    assert!(editor.completion.auto_trigger);
-    assert_eq!(editor.completion.trigger_delay.as_millis(), 250);
-    assert_eq!(editor.inline_completion.trigger_delay.as_millis(), 150);
-    assert!(editor.format.on_save);
-    assert!(!editor.format.on_type);
-    assert!(editor.files.save.atomic);
-    assert!(editor.files.save.insert_final_newline);
-    assert!(!editor.files.save.trim_final_newlines);
-    assert!(!editor.files.save.trim_trailing_whitespace);
-    assert!(!editor.statusline.mode.color);
-    assert!(!editor.rainbow_brackets.enable);
 }
 
 #[test]

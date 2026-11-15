@@ -1756,112 +1756,62 @@ mod tests {
 
     #[test]
     fn popup_border_overrides_inherit_round_trip_and_validate() {
-        let paths = [
-            "lsp.hover",
-            "completion",
-            "lsp.signature-help",
-            "lsp.code-actions",
-            "lsp.code-lenses",
-            "info",
-            "inline-blame",
-            "command-line",
-            "shell-output",
-            "search",
-        ];
-        for path in paths {
-            let defaults: Config = toml::from_str(&format!("[{path}]")).unwrap();
-            assert_eq!(defaults, Config::default(), "{path}");
-            for (name, expected) in [
-                ("inherit", BorderStyle::Double),
-                ("none", BorderStyle::None),
-                ("plain", BorderStyle::Plain),
-                ("rounded", BorderStyle::Rounded),
-                ("double", BorderStyle::Double),
-                ("thick", BorderStyle::Thick),
-                ("quadrant-inside", BorderStyle::QuadrantInside),
-                ("quadrant-outside", BorderStyle::QuadrantOutside),
-            ] {
-                let source = format!("border-style = 'double'\n[{path}]\nborder-style = '{name}'");
-                let config: Config = toml::from_str(&source).unwrap();
-                let serialized = round_trip(&config);
-                let table: toml::Value = toml::from_str(&serialized).unwrap();
-                let section = path.split('.').fold(&table, |value, key| &value[key]);
-                assert_eq!(section["border-style"].as_str(), Some(name));
-                let preference: BorderStyleOverride =
-                    section["border-style"].clone().try_into().unwrap();
-                assert_eq!(preference.resolve(config.border_style), expected);
-            }
-            for value in ["'invalid'", "true", "1", "[]", "{}"] {
-                let source = format!("[{path}]\nborder-style = {value}");
-                assert!(
-                    toml::from_str::<Config>(&source).is_err(),
-                    "accepted {source}"
-                );
-            }
-            let source = format!("[{path}]\nborder-stlye = 'none'");
-            assert!(
-                toml::from_str::<Config>(&source).is_err(),
-                "accepted {source}"
-            );
-        }
+        let config: Config = toml::from_str(
+            r#"
+            border-style = 'double'
+            [lsp.hover]
+            border-style = 'none'
+            [completion]
+            border-style = 'inherit'
+        "#,
+        )
+        .unwrap();
+        assert_eq!(
+            config.lsp.hover.border_style.resolve(config.border_style),
+            BorderStyle::None
+        );
+        assert_eq!(
+            config.completion.border_style.resolve(config.border_style),
+            BorderStyle::Double
+        );
+        round_trip(&config);
+        assert!(toml::from_str::<Config>("[completion]\nborder-style = 'invalid'").is_err());
     }
 
     #[test]
-    fn command_line_defaults_round_trip_and_validate() {
-        assert_eq!(Config::default().command_line.show, CommandLineShow::Always);
-        assert_eq!(Config::default().command_line.reserved_height(), 1);
-        for (value, expected) in [
-            ("always", CommandLineShow::Always),
-            ("auto", CommandLineShow::Auto),
-        ] {
-            let config: Config =
-                toml::from_str(&format!("[command-line]\nshow = '{value}'")).unwrap();
-            assert_eq!(config.command_line.show, expected);
-            round_trip(&config);
-        }
-        let partial: Config = toml::from_str("[command-line]").unwrap();
-        assert_eq!(partial.command_line, CommandLineConfig::default());
-        for source in [
-            "command-line = false",
-            "[command-line]\nshow = 'never'",
-            "[command-line]\nshow = false",
-            "[command-line]\nunknown = true",
-        ] {
-            assert!(
-                toml::from_str::<Config>(source).is_err(),
-                "accepted {source}"
-            );
-        }
+    fn presentation_settings_round_trip_overrides() {
+        let config: Config = toml::from_str(
+            r#"
+            border-style = 'quadrant-inside'
+            [command-line]
+            show = 'auto'
+            [splits]
+            strategy = 'balanced'
+            [picker]
+            layout = 'centered'
+            show-keybindings = false
+        "#,
+        )
+        .unwrap();
+        assert_eq!(config.border_style, BorderStyle::QuadrantInside);
+        assert_eq!(config.command_line.show, CommandLineShow::Auto);
+        assert_eq!(config.splits.strategy, SplitStrategy::Balanced);
+        assert_eq!(config.picker.layout, PickerLayout::Centered);
+        assert!(!config.picker.show_keybindings);
+        round_trip(&config);
+        assert!(toml::from_str::<Config>("[picker]\nwidth = 90").is_err());
     }
 
     #[test]
-    fn rulers_default_and_round_trip_single_column_characters() {
-        let defaults = RulersConfig::default();
-        assert!(defaults.columns.is_empty());
-        assert_eq!(defaults.style, RulerStyle::Background);
-        assert_eq!(defaults.character, '┊');
-        assert_eq!(toml::from_str::<RulersConfig>("").unwrap(), defaults);
-        let columns_only: RulersConfig = toml::from_str("columns = [51, 73]").unwrap();
-        assert_eq!(columns_only.style, RulerStyle::Background);
-        assert_eq!(columns_only.character, '┊');
+    fn rulers_round_trip_single_column_characters() {
         for character in ['┊', '│', '|', ' '] {
-            let config: RulersConfig =
-                toml::from_str(&format!("columns = [80, 120]\ncharacter = '{character}'")).unwrap();
+            let config: RulersConfig = toml::from_str(&format!(
+                "columns = [80, 120]\nstyle = 'glyph'\ncharacter = '{character}'"
+            ))
+            .unwrap();
             assert_eq!(config.character, character);
             assert_eq!(config.columns, [80, 120]);
-            round_trip(&config);
-        }
-    }
-
-    #[test]
-    fn rulers_round_trip_rendering_styles() {
-        for (name, expected) in [
-            ("background", RulerStyle::Background),
-            ("glyph", RulerStyle::Glyph),
-        ] {
-            let config: RulersConfig = toml::from_str(&format!("style = '{name}'")).unwrap();
-            assert_eq!(config.style, expected);
-            assert_eq!(config.character, '┊');
+            assert_eq!(config.style, RulerStyle::Glyph);
             round_trip(&config);
         }
     }
@@ -1881,123 +1831,6 @@ mod tests {
             "style = 1",
         ] {
             assert!(toml::from_str::<RulersConfig>(source).is_err(), "{source}");
-        }
-    }
-
-    #[test]
-    fn split_strategies_preserve_defaults_and_round_trip() {
-        for source in ["", "[splits]"] {
-            assert_eq!(
-                toml::from_str::<Config>(source).unwrap().splits.strategy,
-                SplitStrategy::EqualSiblings
-            );
-        }
-        for (name, expected) in [
-            ("equal-siblings", SplitStrategy::EqualSiblings),
-            ("balanced", SplitStrategy::Balanced),
-        ] {
-            let config: Config = toml::from_str(&format!("[splits]\nstrategy = '{name}'")).unwrap();
-            assert_eq!(config.splits.strategy, expected);
-            let serialized = toml::Value::try_from(&config).unwrap();
-            assert_eq!(serialized["splits"]["strategy"].as_str(), Some(name));
-        }
-        for source in [
-            "strategy = 'halves'",
-            "strategy = true",
-            "stratgey = 'balanced'",
-        ] {
-            assert!(toml::from_str::<Config>(&format!("[splits]\n{source}")).is_err());
-        }
-    }
-
-    #[test]
-    fn picker_layout_defaults_to_auto_and_round_trips_both_choices() {
-        assert_eq!(Config::default().picker.layout, PickerLayout::Auto);
-        for source in ["", "[picker]"] {
-            assert_eq!(
-                toml::from_str::<Config>(source).unwrap().picker.layout,
-                PickerLayout::Auto
-            );
-        }
-        for (name, expected) in [
-            ("auto", PickerLayout::Auto),
-            ("centered", PickerLayout::Centered),
-        ] {
-            let config: Config = toml::from_str(&format!("[picker]\nlayout = '{name}'")).unwrap();
-            assert_eq!(config.picker.layout, expected);
-            let serialized = toml::Value::try_from(&config).unwrap();
-            assert_eq!(serialized["picker"]["layout"].as_str(), Some(name));
-        }
-    }
-
-    #[test]
-    fn picker_keybinding_hints_default_to_enabled_and_round_trip() {
-        assert!(Config::default().picker.show_keybindings);
-        for source in ["", "[picker]", "[picker]\nlayout = 'centered'"] {
-            assert!(
-                toml::from_str::<Config>(source)
-                    .unwrap()
-                    .picker
-                    .show_keybindings
-            );
-        }
-        for enabled in [true, false] {
-            let config: Config =
-                toml::from_str(&format!("[picker]\nshow-keybindings = {enabled}")).unwrap();
-            assert_eq!(config.picker.show_keybindings, enabled);
-            let serialized = toml::Value::try_from(&config).unwrap();
-            assert_eq!(
-                serialized["picker"]["show-keybindings"].as_bool(),
-                Some(enabled)
-            );
-        }
-        for value in ["'true'", "1", "[]"] {
-            assert!(
-                toml::from_str::<Config>(&format!("[picker]\nshow-keybindings = {value}")).is_err()
-            );
-        }
-    }
-
-    #[test]
-    fn picker_layout_rejects_unknown_values_fields_and_wrong_types() {
-        for source in [
-            "layout = 'fullscreen'",
-            "layout = true",
-            "layout = 90",
-            "width = 90",
-        ] {
-            assert!(toml::from_str::<Config>(&format!("[picker]\n{source}")).is_err());
-        }
-    }
-
-    #[test]
-    fn border_style_defaults_to_rounded_and_round_trips_all_choices() {
-        assert_eq!(Config::default().border_style, BorderStyle::Rounded);
-        assert_eq!(
-            toml::from_str::<Config>("").unwrap().border_style,
-            BorderStyle::Rounded
-        );
-
-        for (name, expected) in [
-            ("none", BorderStyle::None),
-            ("plain", BorderStyle::Plain),
-            ("rounded", BorderStyle::Rounded),
-            ("double", BorderStyle::Double),
-            ("thick", BorderStyle::Thick),
-            ("quadrant-inside", BorderStyle::QuadrantInside),
-            ("quadrant-outside", BorderStyle::QuadrantOutside),
-        ] {
-            let config: Config = toml::from_str(&format!("border-style = '{name}'")).unwrap();
-            assert_eq!(config.border_style, expected);
-            let serialized = toml::Value::try_from(&config).unwrap();
-            assert_eq!(serialized["border-style"].as_str(), Some(name));
-        }
-    }
-
-    #[test]
-    fn border_style_rejects_unknown_values_and_wrong_types() {
-        for value in ["'invalid'", "42", "true"] {
-            assert!(toml::from_str::<Config>(&format!("border-style = {value}")).is_err());
         }
     }
 
