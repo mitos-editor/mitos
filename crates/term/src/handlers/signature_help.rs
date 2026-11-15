@@ -58,6 +58,7 @@ pub fn show_signature_help(
         None => return,
     };
     let config = &editor.config();
+    let active_help = response.clone();
     let doc = doc!(editor);
     let language = doc.language_name().unwrap_or("");
 
@@ -136,6 +137,14 @@ pub fn show_signature_help(
     }
 
     compositor.replace_or_push(SignatureHelp::ID, popup);
+    editor
+        .handlers()
+        .signature_hints
+        .set_active_help(Some(active_help));
+    editor
+        .handlers()
+        .signature_hints
+        .set_active_signature(active_signature);
 }
 
 pub(super) fn register_hooks(events: &event::EventHub) {

@@ -184,8 +184,13 @@ impl Completion {
         // Then create the menu
         let menu = Menu::new(items, data, move |editor: &mut Editor, item, event| {
             match event {
-                PromptEvent::Update if preview_completion_insert => {
-                    if let Some(item) = item
+                PromptEvent::Update => {
+                    if let Err(error) = editor.select_completion(&session, item) {
+                        editor.set_error(|| error.to_string());
+                        return;
+                    }
+                    if preview_completion_insert
+                        && let Some(item) = item
                         && let Err(error) = editor.preview_completion(&session, item)
                     {
                         editor.set_error(|| error.to_string());
@@ -200,7 +205,7 @@ impl Completion {
                         return;
                     }
                 }
-                PromptEvent::Abort | PromptEvent::Update => {}
+                PromptEvent::Abort => {}
             }
 
             // In case the popup was deleted because of an intersection w/ the auto-complete menu.
@@ -312,6 +317,7 @@ impl Completion {
 
     pub fn replace_provider_completions(
         &mut self,
+        editor: &mut Editor,
         response: &mut CompletionResponse,
         is_incomplete: bool,
     ) {
@@ -324,6 +330,7 @@ impl Completion {
         self.score(false);
         let menu = self.popup.contents_mut();
         menu.ensure_cursor_in_bounds();
+        menu.notify_selection(editor);
     }
 
     pub fn is_empty(&self) -> bool {
@@ -332,10 +339,18 @@ impl Completion {
 
     pub fn replace_item(
         &mut self,
+        editor: &mut Editor,
         old_item: &impl PartialEq<CompletionItem>,
         new_item: CompletionItem,
     ) {
-        self.popup.contents_mut().replace_option(old_item, new_item);
+        let menu = self.popup.contents_mut();
+        let selected = menu
+            .selection()
+            .is_some_and(|selected| old_item == selected);
+        menu.replace_option(old_item, new_item);
+        if selected {
+            menu.notify_selection(editor);
+        }
     }
 
     pub(crate) fn accept(&mut self, cx: &mut Context) -> EventResult {

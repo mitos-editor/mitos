@@ -236,6 +236,10 @@ impl<T: Item> Menu<T> {
         })
     }
 
+    pub(crate) fn notify_selection(&self, editor: &mut Editor) {
+        (self.callback_fn)(editor, self.selection(), MenuEvent::Update);
+    }
+
     pub fn selection_mut(&mut self) -> Option<&mut T> {
         self.cursor.and_then(|cursor| {
             self.matches

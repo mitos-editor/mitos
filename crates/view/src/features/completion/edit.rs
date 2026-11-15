@@ -133,8 +133,87 @@ impl Editor {
         if !session.is_current(self) || self.handlers.completions.edit.is_some() {
             return false;
         }
+        crate::features::inline_completion::dismiss(self);
         self.handlers.completions.edit = Some(CompletionEdit::Shown);
         true
+    }
+
+    /// Track a menu selection separately from its optional presentation preview.
+    pub fn select_completion(
+        &mut self,
+        session: &CompletionSession,
+        item: Option<&CompletionItem>,
+    ) -> Result<(), EditError> {
+        if !session.is_current(self) {
+            return Ok(());
+        }
+        let prepared = item.and_then(|item| self.prepare_completion(session, item));
+        let doc = self
+            .document(session.trigger.doc)
+            .expect("validated session");
+        let replacement = if let Some(prepared) = prepared {
+            prepared.validate(doc)?;
+            let has_command =
+                matches!(item, Some(CompletionItem::Lsp(item)) if item.item.command.is_some());
+            let unresolved = match item {
+                Some(CompletionItem::Lsp(item)) if !item.resolved => self
+                    .language_server_by_id(item.provider)
+                    .and_then(|server| server.capabilities().completion_provider.as_ref())
+                    .is_some_and(|options| options.resolve_provider == Some(true)),
+                _ => false,
+            };
+            if unresolved
+                || prepared.snippet.is_some()
+                || prepared.additional.is_some()
+                || has_command
+            {
+                None
+            } else {
+                let changes = doc
+                    .savepoint_transaction(session.trigger.view, &prepared.savepoint)?
+                    .changes()
+                    .clone()
+                    .compose(prepared.transaction.changes().clone());
+                let transaction = Transaction::from(changes);
+                let mut edits = transaction.changes_iter();
+                edits.next().and_then(|(from, to, text)| {
+                    edits.next().is_none().then(|| {
+                        (
+                            editor_core::Range::new(from, to),
+                            text.map_or_else(String::new, |text| text.to_string()),
+                        )
+                    })
+                })
+            }
+        } else {
+            None
+        };
+        let unchanged = match (&self.handlers.completions.selected, &replacement) {
+            (Some(selected), Some((range, text))) => {
+                selected.source.is_current(&doc.buffer)
+                    && selected.range == *range
+                    && selected.text == *text
+            }
+            (None, None) => true,
+            _ => false,
+        };
+        if unchanged {
+            return Ok(());
+        }
+        self.handlers.completions.selected =
+            replacement.map(|(range, text)| super::SelectedCompletion {
+                source: doc.snapshot(),
+                range,
+                text,
+            });
+        crate::features::inline_completion::dismiss(self);
+        if self.config().inline_completion.auto_trigger {
+            crate::features::inline_completion::trigger(
+                self,
+                lsp::InlineCompletionTriggerKind::Automatic,
+            );
+        }
+        Ok(())
     }
 
     fn prepare_completion(
@@ -256,7 +335,10 @@ impl Editor {
             Some(CompletionEdit::Preview {
                 source,
                 presentation,
-            }) if source.is_current(&doc.buffer) && super::is_active(self) => {
+            }) if source.is_current(&doc.buffer)
+                && super::is_active(self)
+                && doc.inline_completion(self.tree.focus()).is_none() =>
+            {
                 crate::document::PresentedDocument::proposed(doc, presentation)
             }
             _ => doc.into(),
@@ -283,6 +365,8 @@ impl Editor {
             snippet,
             additional,
         } = prepared;
+        // Cancel selected-item work before the edit schedules a fresh automatic request.
+        crate::features::inline_completion::dismiss(self);
         let trigger_offset = session.trigger.pos;
         let (view, doc) = current!(self);
         let (before, applied) =
@@ -330,6 +414,16 @@ impl Editor {
 
     /// Dismiss a menu and return accepted edit metadata, preserving a newly scheduled trigger.
     pub fn finish_completion(&mut self) -> Option<CompletionApply> {
+        // Acceptance or earlier invalidation already canceled the selected-item
+        // request. Cleanup must preserve automatic work scheduled by the accepted edit.
+        if self.handlers.completions.session.is_some()
+            && !matches!(
+                self.handlers.completions.edit,
+                Some(CompletionEdit::Applied(_))
+            )
+        {
+            crate::features::inline_completion::dismiss(self);
+        }
         self.handlers.completions.dismiss();
         match self.handlers.completions.edit.take() {
             Some(CompletionEdit::Applied(applied)) => Some(applied),

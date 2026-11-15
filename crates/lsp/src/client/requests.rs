@@ -116,6 +116,7 @@ impl Client {
         text_document: lsp::TextDocumentIdentifier,
         position: lsp::Position,
         work_done_token: Option<lsp::ProgressToken>,
+        context: lsp::SignatureHelpContext,
     ) -> Option<impl Future<Output = Result<Option<SignatureHelp>>> + use<>> {
         let capabilities = self.capabilities.get().unwrap();
 
@@ -128,8 +129,7 @@ impl Client {
                 position,
             },
             work_done_progress_params: lsp::WorkDoneProgressParams { work_done_token },
-            context: None,
-            // lsp::SignatureHelpContext
+            context: Some(context),
         };
 
         Some(self.call::<lsp::request::SignatureHelpRequest>(params))
@@ -175,6 +175,7 @@ impl Client {
         text_document: lsp::TextDocumentIdentifier,
         position: lsp::Position,
         trigger_kind: lsp::InlineCompletionTriggerKind,
+        selected_completion_info: Option<lsp::SelectedCompletionInfo>,
     ) -> Option<impl Future<Output = Result<Option<lsp::InlineCompletionResponse>>> + use<>> {
         if !matches!(
             self.capabilities().inline_completion_provider,
@@ -191,7 +192,7 @@ impl Client {
                 },
                 context: lsp::InlineCompletionContext {
                     trigger_kind,
-                    selected_completion_info: None,
+                    selected_completion_info,
                 },
                 work_done_progress_params: Default::default(),
             }),

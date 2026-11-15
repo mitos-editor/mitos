@@ -38,6 +38,7 @@ const TIMEOUT: Duration = Duration::from_millis(120);
 struct Session {
     controller: TaskController,
     target: Option<(DocumentId, ViewId, Option<LanguageServerId>)>,
+    active: Option<lsp::SignatureHelp>,
 }
 
 struct Shared {
@@ -88,7 +89,23 @@ impl SignatureHelpHandler {
         let Some(doc) = editor.document(view.doc) else {
             return;
         };
-        schedule(&self.shared, &self.events, doc, view.id, invoked);
+        schedule(&self.shared, &self.events, doc, view.id, invoked, None);
+    }
+
+    /// Record help after a frontend actually presents it, preserving visible
+    /// context when a replacement popup is suppressed.
+    pub fn set_active_help(&self, response: Option<lsp::SignatureHelp>) {
+        self.shared.session.lock().unwrap().active = response;
+    }
+
+    /// Keep retrigger context in step with the frontend's selected overload.
+    pub fn set_active_signature(&self, index: usize) {
+        let mut session = self.shared.session.lock().unwrap();
+        if let Some(active) = &mut session.active
+            && index < active.signatures.len()
+        {
+            active.active_signature = u32::try_from(index).ok();
+        }
     }
 
     /// Invalidate requests and queued results, and ask the frontend to dismiss help.
@@ -108,6 +125,7 @@ fn close(shared: &Arc<Shared>, events: &Sender<Option<Request>>) {
     }
     let cancel = session.controller.restart();
     session.target = None;
+    session.active = None;
     shared.presentations.with(|pending| {
         pending.signature_help = Some(SignatureHelpUpdate {
             owner: Arc::downgrade(shared),
@@ -126,6 +144,7 @@ fn schedule(
     doc: &Document,
     view: ViewId,
     invoked: SignatureHelpInvoked,
+    trigger_character: Option<String>,
 ) {
     if doc.try_selection(view).is_none() {
         return;
@@ -135,9 +154,25 @@ fn schedule(
         .next()
         .map(|server| server.id());
     let mut session = shared.session.lock().unwrap();
+    let target = (doc.id(), view, server);
+    if session.target != Some(target) {
+        session.active = None;
+    }
+    let context = lsp::SignatureHelpContext {
+        trigger_kind: if trigger_character.is_some() {
+            lsp::SignatureHelpTriggerKind::TRIGGER_CHARACTER
+        } else if invoked == SignatureHelpInvoked::Manual {
+            lsp::SignatureHelpTriggerKind::INVOKED
+        } else {
+            lsp::SignatureHelpTriggerKind::CONTENT_CHANGE
+        },
+        trigger_character,
+        is_retrigger: session.active.is_some(),
+        active_signature_help: session.active.clone(),
+    };
     // Cancel immediately, including responses already queued on the editor thread.
     let cancel = session.controller.restart();
-    session.target = Some((doc.id(), view, server));
+    session.target = Some(target);
     shared
         .presentations
         .with(|pending| pending.signature_help = None);
@@ -146,6 +181,7 @@ fn schedule(
         target: SelectionRequest::new(doc, view, cancel, server.into_iter().collect()),
         invoked,
         server,
+        context,
     };
     drop(session);
     send_blocking(events, Some(request));
@@ -170,6 +206,7 @@ impl SignatureHelpTrigger {
                 doc,
                 target_view,
                 SignatureHelpInvoked::Automatic,
+                None,
             );
         } else {
             close(&shared, &self.events);
@@ -182,6 +219,7 @@ struct Request {
     target: SelectionRequest,
     invoked: SignatureHelpInvoked,
     server: Option<LanguageServerId>,
+    context: lsp::SignatureHelpContext,
 }
 
 impl Request {
@@ -214,6 +252,7 @@ impl Request {
                     doc.identifier(),
                     doc.position(view.id, server.offset_encoding()),
                     None,
+                    self.context.clone(),
                 )
             });
         let Some(future) = future else {
@@ -264,6 +303,7 @@ impl Request {
             .unwrap();
         if update.result.is_none() {
             session.target = None;
+            session.active = None;
         }
         editor.present(|pending| pending.signature_help = Some(update));
     }
@@ -361,7 +401,7 @@ pub(crate) fn mode_changed(editor: &Editor, old: Mode) {
 
 /// Interpret trigger characters using the first supported server's capabilities.
 pub fn post_insert_char(editor: &Editor) {
-    if !editor.config().lsp.signature_help.auto_trigger {
+    if !editor.config().lsp.signature_help.auto_trigger || editor.mode() != Mode::Insert {
         return;
     }
     let Some(view) = editor.tree.try_get(editor.tree.focus()) else {
@@ -376,22 +416,43 @@ pub fn post_insert_char(editor: &Editor) {
     else {
         return;
     };
-    let triggers = server
-        .capabilities()
-        .signature_help_provider
-        .as_ref()
-        .and_then(|options| options.trigger_characters.as_ref());
+    let Some(options) = server.capabilities().signature_help_provider.as_ref() else {
+        return;
+    };
+    let session = editor
+        .handlers
+        .signature_hints
+        .shared
+        .session
+        .lock()
+        .unwrap();
+    let is_active =
+        session.target == Some((doc.id(), view.id, Some(server.id()))) && session.active.is_some();
+    drop(session);
     let text = doc.text().slice(..);
     let cursor = doc.selection(view.id).primary().cursor(text);
-    if triggers.is_some_and(|triggers| {
-        triggers
-            .iter()
-            .any(|trigger| text.slice_chars(..cursor).ends_with(trigger))
-    }) {
-        editor
-            .handlers
-            .signature_hints
-            .trigger(editor, SignatureHelpInvoked::Automatic);
+    let trigger = options
+        .trigger_characters
+        .iter()
+        .flatten()
+        .chain(
+            options
+                .retrigger_characters
+                .iter()
+                .flatten()
+                .filter(|_| is_active),
+        )
+        .find(|trigger| text.slice_chars(..cursor).ends_with(trigger));
+    if let Some(trigger) = trigger {
+        let handler = &editor.handlers.signature_hints;
+        schedule(
+            &handler.shared,
+            &handler.events,
+            doc,
+            view.id,
+            SignatureHelpInvoked::Automatic,
+            Some(trigger.clone()),
+        );
     }
 }
 
