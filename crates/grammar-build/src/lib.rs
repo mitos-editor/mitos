@@ -11,9 +11,9 @@ use std::{
     process::Command,
     sync::{
         atomic::{AtomicBool, AtomicUsize, Ordering},
-        mpsc::channel,
-        Arc,
+        Mutex,
     },
+    thread,
     time::SystemTime,
 };
 use tempfile::TempPath;
@@ -123,35 +123,37 @@ fn run_parallel<F, Res>(
     job: F,
 ) -> Vec<(String, Result<Res>)>
 where
-    F: Fn(GrammarConfiguration) -> Result<Res> + Send + 'static + Clone,
-    Res: Send + 'static,
+    F: Fn(GrammarConfiguration) -> Result<Res> + Sync,
+    Res: Send,
 {
-    let pool = threadpool::Builder::new().build();
-    let (tx, rx) = channel();
     let total = grammars.len();
-    let counter = Arc::new(AtomicUsize::new(0));
+    let workers = thread::available_parallelism()
+        .map_or(1, usize::from)
+        .min(total);
+    let next = AtomicUsize::new(0);
+    let results = Mutex::new(Vec::with_capacity(total));
     println!("{action} {total} grammars");
 
-    for grammar in grammars {
-        let tx = tx.clone();
-        let job = job.clone();
-        let counter = Arc::clone(&counter);
+    thread::scope(|scope| {
+        for _ in 0..workers {
+            scope.spawn(|| loop {
+                let index = next.fetch_add(1, Ordering::Relaxed);
+                let Some(grammar) = grammars.get(index).cloned() else {
+                    break;
+                };
+                println!(
+                    "{action} grammars ({}/{total}): {}",
+                    index + 1,
+                    grammar.grammar_id
+                );
+                let id = grammar.grammar_id.clone();
+                let result = job(grammar);
+                results.lock().unwrap().push((id, result));
+            });
+        }
+    });
 
-        pool.execute(move || {
-            let current = counter.fetch_add(1, Ordering::Relaxed) + 1;
-            println!(
-                "{action} grammars ({current}/{total}): {}",
-                grammar.grammar_id
-            );
-            // Ignore any SendErrors, if any job in another thread has encountered an
-            // error the Receiver will be closed causing this send to fail.
-            let _ = tx.send((grammar.grammar_id.clone(), job(grammar)));
-        });
-    }
-
-    drop(tx);
-
-    rx.iter().collect()
+    results.into_inner().unwrap()
 }
 
 enum FetchStatus {
@@ -519,6 +521,43 @@ fn mtime(path: &Path) -> Result<SystemTime> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parallel_jobs_collect_every_result_even_after_failures() {
+        let grammars = (0..32)
+            .map(|index| GrammarConfiguration {
+                grammar_id: index.to_string(),
+                source: GrammarSource::Local {
+                    path: String::new(),
+                },
+            })
+            .collect();
+        let results = run_parallel(grammars, "Testing", |grammar| {
+            let index: usize = grammar.grammar_id.parse().unwrap();
+            if index.is_multiple_of(3) {
+                bail!("failed {index}");
+            }
+            Ok(index)
+        });
+
+        let mut seen = Vec::new();
+        for (id, result) in results {
+            let index: usize = id.parse().unwrap();
+            if index.is_multiple_of(3) {
+                assert_eq!(result.unwrap_err().to_string(), format!("failed {index}"));
+            } else {
+                assert_eq!(result.unwrap(), index);
+            }
+            seen.push(index);
+        }
+        seen.sort_unstable();
+        assert_eq!(seen, (0..32).collect::<Vec<_>>());
+
+        let empty = run_parallel(Vec::new(), "Testing", |_| -> Result<()> {
+            panic!("empty batches must not run jobs")
+        });
+        assert!(empty.is_empty());
+    }
 
     fn git<I, S>(repository_dir: &Path, args: I) -> Result<String>
     where
