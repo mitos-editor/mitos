@@ -560,9 +560,10 @@ mod test {
         move_prev_word_start(Rope::from("Sample").slice(..), Range::point(99999999), 1);
     }
 
-    #[test]
-    fn test_behaviour_when_moving_to_start_of_next_words() {
-        let tests = [
+    type WordMotionCase = (&'static str, Vec<(usize, Range, Range)>);
+
+    fn common_next_word_start_cases() -> [WordMotionCase; 17] {
+        [
             ("Basic forward motion stops at the first space",
                 vec![(1, Range::new(0, 0), Range::new(0, 6))]),
             (" Starting from a boundary advances the anchor",
@@ -579,19 +580,11 @@ mod test {
                 vec![(1, Range::new(0, 0), Range::new(0, 29))]),
             ("Jumping\n    into starting whitespace selects the spaces before 'into'",
                 vec![(1, Range::new(0, 7), Range::new(8, 12))]),
-            ("alphanumeric.!,and.?=punctuation are considered 'words' for the purposes of word motion",
-                vec![
-                    (1, Range::new(0, 0), Range::new(0, 12)),
-                    (1, Range::new(0, 12), Range::new(12, 15)),
-                    (1, Range::new(12, 15), Range::new(15, 18))
-                ]),
             ("...   ... punctuation and spaces behave as expected",
                 vec![
                     (1, Range::new(0, 0), Range::new(0, 6)),
                     (1, Range::new(0, 6), Range::new(6, 10)),
                 ]),
-            (".._.._ punctuation is not joined by underscores into a single block",
-                vec![(1, Range::new(0, 0), Range::new(0, 2))]),
             ("Newlines\n\nare bridged seamlessly.",
                 vec![
                     (1, Range::new(0, 0), Range::new(0, 8)),
@@ -604,12 +597,6 @@ mod test {
             ("A failed motion does not modify the range",
                 vec![
                     (3, Range::new(37, 41), Range::new(37, 41)),
-                ]),
-            ("oh oh oh two character words!",
-                vec![
-                    (1, Range::new(0, 0), Range::new(0, 3)),
-                    (1, Range::new(0, 3), Range::new(3, 6)),
-                    (1, Range::new(0, 2), Range::new(1, 3)),
                 ]),
             ("Multiple motions at once resolve correctly",
                 vec![
@@ -632,13 +619,92 @@ mod test {
                     (1, Range::new(0, 0), Range::new(1, 4)),
                     (1, Range::new(1, 4), Range::new(5, 8)),
                 ]),
+        ]
+    }
+
+    fn common_next_word_end_cases() -> [WordMotionCase; 15] {
+        [
+            ("Basic forward motion from the start of a word to the end of it",
+                vec![(1, Range::new(0, 0), Range::new(0, 5))]),
+            ("Basic forward motion from the end of a word to the end of the next",
+                vec![(1, Range::new(0, 5), Range::new(5, 13))]),
+            ("Basic forward motion from the middle of a word to the end of it",
+                vec![(1, Range::new(2, 2), Range::new(2, 5))]),
+            ("    Jumping to end of a word preceded by whitespace",
+                vec![(1, Range::new(0, 0), Range::new(0, 11))]),
+            // // Why do we want this behavior?  The current behavior fails this
+            // // test, but seems better and more consistent.
+            // (" Starting from a boundary advances the anchor",
+            //     vec![(1, Range::new(0, 0), Range::new(1, 9))]),
+
+            ("Previous anchor is irrelevant for end of word motion",
+                vec![(1, Range::new(12, 2), Range::new(2, 8))]),
+            ("Identifiers_with_underscores are considered a single word",
+                vec![(1, Range::new(0, 0), Range::new(0, 28))]),
+            ("Jumping\n    into starting whitespace selects up to the end of next word",
+                vec![(1, Range::new(0, 7), Range::new(8, 16))]),
+            ("...   ... punctuation and spaces behave as expected",
+                vec![
+                    (1, Range::new(0, 0), Range::new(0, 3)),
+                    (1, Range::new(0, 3), Range::new(3, 9)),
+                ]),
+            ("Newlines\n\nare bridged seamlessly.",
+                vec![
+                    (1, Range::new(0, 0), Range::new(0, 8)),
+                    (1, Range::new(0, 8), Range::new(10, 13)),
+                ]),
+            ("A failed motion does not modify the range",
+                vec![
+                    (3, Range::new(37, 41), Range::new(37, 41)),
+                ]),
+            ("Multiple motions at once resolve correctly",
+                vec![
+                    (3, Range::new(0, 0), Range::new(16, 19)),
+                ]),
+            ("Excessive motions are performed partially",
+                vec![
+                    (999, Range::new(0, 0), Range::new(31, 41)),
+                ]),
+            ("", // Edge case of moving forward in empty string
+                vec![
+                    (1, Range::new(0, 0), Range::new(0, 0)),
+                ]),
+            ("\n\n\n\n\n", // Edge case of moving forward in all newlines
+                vec![
+                    (1, Range::new(0, 0), Range::new(5, 5)),
+                ]),
+            ("\n   \n   \n Jumping through alternated space blocks and newlines selects the space blocks",
+                vec![
+                    (1, Range::new(0, 0), Range::new(1, 4)),
+                    (1, Range::new(1, 4), Range::new(5, 8)),
+                ]),
+        ]
+    }
+
+    #[test]
+    fn test_behaviour_when_moving_to_start_of_next_words() {
+        let tests = [
+            ("alphanumeric.!,and.?=punctuation are considered 'words' for the purposes of word motion",
+                vec![
+                    (1, Range::new(0, 0), Range::new(0, 12)),
+                    (1, Range::new(0, 12), Range::new(12, 15)),
+                    (1, Range::new(12, 15), Range::new(15, 18))
+                ]),
+            (".._.._ punctuation is not joined by underscores into a single block",
+                vec![(1, Range::new(0, 0), Range::new(0, 2))]),
+            ("oh oh oh two character words!",
+                vec![
+                    (1, Range::new(0, 0), Range::new(0, 3)),
+                    (1, Range::new(0, 3), Range::new(3, 6)),
+                    (1, Range::new(0, 2), Range::new(1, 3)),
+                ]),
             ("ヒーリクス multibyte characters behave as normal characters",
                 vec![
                     (1, Range::new(0, 0), Range::new(0, 6)),
                 ]),
         ];
 
-        for (sample, scenario) in tests {
+        for (sample, scenario) in common_next_word_start_cases().into_iter().chain(tests) {
             for (count, begin, expected_end) in scenario.into_iter() {
                 let range = move_next_word_start(Rope::from(sample).slice(..), begin, count);
                 assert_eq!(range, expected_end, "Case failed: [{}]", sample);
@@ -650,72 +716,32 @@ mod test {
     fn test_behaviour_when_moving_to_start_of_next_sub_words() {
         let tests = [
             (
-                "NextSubwordStart",
+                &["NextSubwordStart"][..],
                 vec![
                     (1, Range::new(0, 0), Range::new(0, 4)),
                     (1, Range::new(4, 4), Range::new(4, 11)),
                 ],
             ),
             (
-                "next_subword_start",
+                &[
+                    "next_subword_start",
+                    "Next_Subword_Start",
+                    "NEXT_SUBWORD_START",
+                    "next subword start",
+                    "Next Subword Start",
+                    "NEXT SUBWORD START",
+                ][..],
                 vec![
                     (1, Range::new(0, 0), Range::new(0, 5)),
                     (1, Range::new(4, 4), Range::new(5, 13)),
                 ],
             ),
             (
-                "Next_Subword_Start",
-                vec![
-                    (1, Range::new(0, 0), Range::new(0, 5)),
-                    (1, Range::new(4, 4), Range::new(5, 13)),
-                ],
-            ),
-            (
-                "NEXT_SUBWORD_START",
-                vec![
-                    (1, Range::new(0, 0), Range::new(0, 5)),
-                    (1, Range::new(4, 4), Range::new(5, 13)),
-                ],
-            ),
-            (
-                "next subword start",
-                vec![
-                    (1, Range::new(0, 0), Range::new(0, 5)),
-                    (1, Range::new(4, 4), Range::new(5, 13)),
-                ],
-            ),
-            (
-                "Next Subword Start",
-                vec![
-                    (1, Range::new(0, 0), Range::new(0, 5)),
-                    (1, Range::new(4, 4), Range::new(5, 13)),
-                ],
-            ),
-            (
-                "NEXT SUBWORD START",
-                vec![
-                    (1, Range::new(0, 0), Range::new(0, 5)),
-                    (1, Range::new(4, 4), Range::new(5, 13)),
-                ],
-            ),
-            (
-                "next__subword__start",
-                vec![
-                    (1, Range::new(0, 0), Range::new(0, 6)),
-                    (1, Range::new(4, 4), Range::new(4, 6)),
-                    (1, Range::new(5, 5), Range::new(6, 15)),
-                ],
-            ),
-            (
-                "Next__Subword__Start",
-                vec![
-                    (1, Range::new(0, 0), Range::new(0, 6)),
-                    (1, Range::new(4, 4), Range::new(4, 6)),
-                    (1, Range::new(5, 5), Range::new(6, 15)),
-                ],
-            ),
-            (
-                "NEXT__SUBWORD__START",
+                &[
+                    "next__subword__start",
+                    "Next__Subword__Start",
+                    "NEXT__SUBWORD__START",
+                ][..],
                 vec![
                     (1, Range::new(0, 0), Range::new(0, 6)),
                     (1, Range::new(4, 4), Range::new(4, 6)),
@@ -724,10 +750,13 @@ mod test {
             ),
         ];
 
-        for (sample, scenario) in tests {
-            for (count, begin, expected_end) in scenario.into_iter() {
-                let range = move_next_sub_word_start(Rope::from(sample).slice(..), begin, count);
-                assert_eq!(range, expected_end, "Case failed: [{}]", sample);
+        for (samples, scenario) in tests {
+            for &sample in samples {
+                for &(count, begin, expected_end) in &scenario {
+                    let range =
+                        move_next_sub_word_start(Rope::from(sample).slice(..), begin, count);
+                    assert_eq!(range, expected_end, "Case failed: [{}]", sample);
+                }
             }
         }
     }
@@ -736,72 +765,32 @@ mod test {
     fn test_behaviour_when_moving_to_end_of_next_sub_words() {
         let tests = [
             (
-                "NextSubwordEnd",
+                &["NextSubwordEnd"][..],
                 vec![
                     (1, Range::new(0, 0), Range::new(0, 4)),
                     (1, Range::new(4, 4), Range::new(4, 11)),
                 ],
             ),
             (
-                "next subword end",
+                &[
+                    "next subword end",
+                    "Next Subword End",
+                    "NEXT SUBWORD END",
+                    "next_subword_end",
+                    "Next_Subword_End",
+                    "NEXT_SUBWORD_END",
+                ][..],
                 vec![
                     (1, Range::new(0, 0), Range::new(0, 4)),
                     (1, Range::new(4, 4), Range::new(4, 12)),
                 ],
             ),
             (
-                "Next Subword End",
-                vec![
-                    (1, Range::new(0, 0), Range::new(0, 4)),
-                    (1, Range::new(4, 4), Range::new(4, 12)),
-                ],
-            ),
-            (
-                "NEXT SUBWORD END",
-                vec![
-                    (1, Range::new(0, 0), Range::new(0, 4)),
-                    (1, Range::new(4, 4), Range::new(4, 12)),
-                ],
-            ),
-            (
-                "next_subword_end",
-                vec![
-                    (1, Range::new(0, 0), Range::new(0, 4)),
-                    (1, Range::new(4, 4), Range::new(4, 12)),
-                ],
-            ),
-            (
-                "Next_Subword_End",
-                vec![
-                    (1, Range::new(0, 0), Range::new(0, 4)),
-                    (1, Range::new(4, 4), Range::new(4, 12)),
-                ],
-            ),
-            (
-                "NEXT_SUBWORD_END",
-                vec![
-                    (1, Range::new(0, 0), Range::new(0, 4)),
-                    (1, Range::new(4, 4), Range::new(4, 12)),
-                ],
-            ),
-            (
-                "next__subword__end",
-                vec![
-                    (1, Range::new(0, 0), Range::new(0, 4)),
-                    (1, Range::new(4, 4), Range::new(4, 13)),
-                    (1, Range::new(5, 5), Range::new(5, 13)),
-                ],
-            ),
-            (
-                "Next__Subword__End",
-                vec![
-                    (1, Range::new(0, 0), Range::new(0, 4)),
-                    (1, Range::new(4, 4), Range::new(4, 13)),
-                    (1, Range::new(5, 5), Range::new(5, 13)),
-                ],
-            ),
-            (
-                "NEXT__SUBWORD__END",
+                &[
+                    "next__subword__end",
+                    "Next__Subword__End",
+                    "NEXT__SUBWORD__END",
+                ][..],
                 vec![
                     (1, Range::new(0, 0), Range::new(0, 4)),
                     (1, Range::new(4, 4), Range::new(4, 13)),
@@ -810,10 +799,12 @@ mod test {
             ),
         ];
 
-        for (sample, scenario) in tests {
-            for (count, begin, expected_end) in scenario.into_iter() {
-                let range = move_next_sub_word_end(Rope::from(sample).slice(..), begin, count);
-                assert_eq!(range, expected_end, "Case failed: [{}]", sample);
+        for (samples, scenario) in tests {
+            for &sample in samples {
+                for &(count, begin, expected_end) in &scenario {
+                    let range = move_next_sub_word_end(Rope::from(sample).slice(..), begin, count);
+                    assert_eq!(range, expected_end, "Case failed: [{}]", sample);
+                }
             }
         }
     }
@@ -821,72 +812,17 @@ mod test {
     #[test]
     fn test_behaviour_when_moving_to_start_of_next_long_words() {
         let tests = [
-            ("Basic forward motion stops at the first space",
-                vec![(1, Range::new(0, 0), Range::new(0, 6))]),
-            (" Starting from a boundary advances the anchor",
-                vec![(1, Range::new(0, 0), Range::new(1, 10))]),
-            ("Long       whitespace gap is bridged by the head",
-                vec![(1, Range::new(0, 0), Range::new(0, 11))]),
-            ("Previous anchor is irrelevant for forward motions",
-                vec![(1, Range::new(12, 0), Range::new(0, 9))]),
-            ("    Starting from whitespace moves to last space in sequence",
-                vec![(1, Range::new(0, 0), Range::new(0, 4))]),
-            ("Starting from mid-word leaves anchor at start position and moves head",
-                vec![(1, Range::new(3, 3), Range::new(3, 9))]),
-            ("Identifiers_with_underscores are considered a single word",
-                vec![(1, Range::new(0, 0), Range::new(0, 29))]),
-            ("Jumping\n    into starting whitespace selects the spaces before 'into'",
-                vec![(1, Range::new(0, 7), Range::new(8, 12))]),
             ("alphanumeric.!,and.?=punctuation are not treated any differently than alphanumerics",
                 vec![
                     (1, Range::new(0, 0), Range::new(0, 33)),
                 ]),
-            ("...   ... punctuation and spaces behave as expected",
-                vec![
-                    (1, Range::new(0, 0), Range::new(0, 6)),
-                    (1, Range::new(0, 6), Range::new(6, 10)),
-                ]),
             (".._.._ punctuation is joined by underscores into a single word, as it behaves like alphanumerics",
                 vec![(1, Range::new(0, 0), Range::new(0, 7))]),
-            ("Newlines\n\nare bridged seamlessly.",
-                vec![
-                    (1, Range::new(0, 0), Range::new(0, 8)),
-                    (1, Range::new(0, 8), Range::new(10, 14)),
-                ]),
-            ("Jumping\n\n\n\n\n\n   from newlines to whitespace selects whitespace.",
-                vec![
-                    (1, Range::new(0, 9), Range::new(13, 16)),
-                ]),
-            ("A failed motion does not modify the range",
-                vec![
-                    (3, Range::new(37, 41), Range::new(37, 41)),
-                ]),
             ("oh oh oh two character words!",
                 vec![
                     (1, Range::new(0, 0), Range::new(0, 3)),
                     (1, Range::new(0, 3), Range::new(3, 6)),
                     (1, Range::new(0, 1), Range::new(0, 3)),
-                ]),
-            ("Multiple motions at once resolve correctly",
-                vec![
-                    (3, Range::new(0, 0), Range::new(17, 20)),
-                ]),
-            ("Excessive motions are performed partially",
-                vec![
-                    (999, Range::new(0, 0), Range::new(32, 41)),
-                ]),
-            ("", // Edge case of moving forward in empty string
-                vec![
-                    (1, Range::new(0, 0), Range::new(0, 0)),
-                ]),
-            ("\n\n\n\n\n", // Edge case of moving forward in all newlines
-                vec![
-                    (1, Range::new(0, 0), Range::new(5, 5)),
-                ]),
-            ("\n   \n   \n Jumping through alternated space blocks and newlines selects the space blocks",
-                vec![
-                    (1, Range::new(0, 0), Range::new(1, 4)),
-                    (1, Range::new(1, 4), Range::new(5, 8)),
                 ]),
             ("ヒー..リクス multibyte characters behave as normal characters, including their interaction with punctuation",
                 vec![
@@ -894,7 +830,7 @@ mod test {
                 ]),
         ];
 
-        for (sample, scenario) in tests {
+        for (sample, scenario) in common_next_word_start_cases().into_iter().chain(tests) {
             for (count, begin, expected_end) in scenario.into_iter() {
                 let range = move_next_long_word_start(Rope::from(sample).slice(..), begin, count);
                 assert_eq!(range, expected_end, "Case failed: [{}]", sample);
@@ -991,72 +927,32 @@ mod test {
     fn test_behaviour_when_moving_to_start_of_previous_sub_words() {
         let tests = [
             (
-                "PrevSubwordEnd",
+                &["PrevSubwordEnd"][..],
                 vec![
                     (1, Range::new(13, 13), Range::new(14, 11)),
                     (1, Range::new(11, 11), Range::new(11, 4)),
                 ],
             ),
             (
-                "prev subword end",
+                &[
+                    "prev subword end",
+                    "Prev Subword End",
+                    "PREV SUBWORD END",
+                    "prev_subword_end",
+                    "Prev_Subword_End",
+                    "PREV_SUBWORD_END",
+                ][..],
                 vec![
                     (1, Range::new(15, 15), Range::new(16, 13)),
                     (1, Range::new(12, 12), Range::new(13, 5)),
                 ],
             ),
             (
-                "Prev Subword End",
-                vec![
-                    (1, Range::new(15, 15), Range::new(16, 13)),
-                    (1, Range::new(12, 12), Range::new(13, 5)),
-                ],
-            ),
-            (
-                "PREV SUBWORD END",
-                vec![
-                    (1, Range::new(15, 15), Range::new(16, 13)),
-                    (1, Range::new(12, 12), Range::new(13, 5)),
-                ],
-            ),
-            (
-                "prev_subword_end",
-                vec![
-                    (1, Range::new(15, 15), Range::new(16, 13)),
-                    (1, Range::new(12, 12), Range::new(13, 5)),
-                ],
-            ),
-            (
-                "Prev_Subword_End",
-                vec![
-                    (1, Range::new(15, 15), Range::new(16, 13)),
-                    (1, Range::new(12, 12), Range::new(13, 5)),
-                ],
-            ),
-            (
-                "PREV_SUBWORD_END",
-                vec![
-                    (1, Range::new(15, 15), Range::new(16, 13)),
-                    (1, Range::new(12, 12), Range::new(13, 5)),
-                ],
-            ),
-            (
-                "prev__subword__end",
-                vec![
-                    (1, Range::new(17, 17), Range::new(18, 15)),
-                    (1, Range::new(13, 13), Range::new(14, 6)),
-                    (1, Range::new(14, 14), Range::new(15, 6)),
-                ],
-            ),
-            (
-                "Prev__Subword__End",
-                vec![
-                    (1, Range::new(17, 17), Range::new(18, 15)),
-                    (1, Range::new(13, 13), Range::new(14, 6)),
-                    (1, Range::new(14, 14), Range::new(15, 6)),
-                ],
-            ),
-            (
-                "PREV__SUBWORD__END",
+                &[
+                    "prev__subword__end",
+                    "Prev__Subword__End",
+                    "PREV__SUBWORD__END",
+                ][..],
                 vec![
                     (1, Range::new(17, 17), Range::new(18, 15)),
                     (1, Range::new(13, 13), Range::new(14, 6)),
@@ -1065,10 +961,13 @@ mod test {
             ),
         ];
 
-        for (sample, scenario) in tests {
-            for (count, begin, expected_end) in scenario.into_iter() {
-                let range = move_prev_sub_word_start(Rope::from(sample).slice(..), begin, count);
-                assert_eq!(range, expected_end, "Case failed: [{}]", sample);
+        for (samples, scenario) in tests {
+            for &sample in samples {
+                for &(count, begin, expected_end) in &scenario {
+                    let range =
+                        move_prev_sub_word_start(Rope::from(sample).slice(..), begin, count);
+                    assert_eq!(range, expected_end, "Case failed: [{}]", sample);
+                }
             }
         }
     }
@@ -1173,72 +1072,17 @@ mod test {
     #[test]
     fn test_behaviour_when_moving_to_end_of_next_words() {
         let tests = [
-            ("Basic forward motion from the start of a word to the end of it",
-                vec![(1, Range::new(0, 0), Range::new(0, 5))]),
-            ("Basic forward motion from the end of a word to the end of the next",
-                vec![(1, Range::new(0, 5), Range::new(5, 13))]),
-            ("Basic forward motion from the middle of a word to the end of it",
-                vec![(1, Range::new(2, 2), Range::new(2, 5))]),
-            ("    Jumping to end of a word preceded by whitespace",
-                vec![(1, Range::new(0, 0), Range::new(0, 11))]),
-
-            // // Why do we want this behavior?  The current behavior fails this
-            // // test, but seems better and more consistent.
-            // (" Starting from a boundary advances the anchor",
-            //     vec![(1, Range::new(0, 0), Range::new(1, 9))]),
-
-            ("Previous anchor is irrelevant for end of word motion",
-                vec![(1, Range::new(12, 2), Range::new(2, 8))]),
-            ("Identifiers_with_underscores are considered a single word",
-                vec![(1, Range::new(0, 0), Range::new(0, 28))]),
-            ("Jumping\n    into starting whitespace selects up to the end of next word",
-                vec![(1, Range::new(0, 7), Range::new(8, 16))]),
             ("alphanumeric.!,and.?=punctuation are considered 'words' for the purposes of word motion",
                 vec![
                     (1, Range::new(0, 0), Range::new(0, 12)),
                     (1, Range::new(0, 12), Range::new(12, 15)),
                     (1, Range::new(12, 15), Range::new(15, 18))
                 ]),
-            ("...   ... punctuation and spaces behave as expected",
-                vec![
-                    (1, Range::new(0, 0), Range::new(0, 3)),
-                    (1, Range::new(0, 3), Range::new(3, 9)),
-                ]),
             (".._.._ punctuation is not joined by underscores into a single block",
                 vec![(1, Range::new(0, 0), Range::new(0, 2))]),
-            ("Newlines\n\nare bridged seamlessly.",
-                vec![
-                    (1, Range::new(0, 0), Range::new(0, 8)),
-                    (1, Range::new(0, 8), Range::new(10, 13)),
-                ]),
             ("Jumping\n\n\n\n\n\n   from newlines to whitespace selects to end of next word.",
                 vec![
                     (1, Range::new(0, 8), Range::new(13, 20)),
-                ]),
-            ("A failed motion does not modify the range",
-                vec![
-                    (3, Range::new(37, 41), Range::new(37, 41)),
-                ]),
-            ("Multiple motions at once resolve correctly",
-                vec![
-                    (3, Range::new(0, 0), Range::new(16, 19)),
-                ]),
-            ("Excessive motions are performed partially",
-                vec![
-                    (999, Range::new(0, 0), Range::new(31, 41)),
-                ]),
-            ("", // Edge case of moving forward in empty string
-                vec![
-                    (1, Range::new(0, 0), Range::new(0, 0)),
-                ]),
-            ("\n\n\n\n\n", // Edge case of moving forward in all newlines
-                vec![
-                    (1, Range::new(0, 0), Range::new(5, 5)),
-                ]),
-            ("\n   \n   \n Jumping through alternated space blocks and newlines selects the space blocks",
-                vec![
-                    (1, Range::new(0, 0), Range::new(1, 4)),
-                    (1, Range::new(1, 4), Range::new(5, 8)),
                 ]),
             ("ヒーリクス multibyte characters behave as normal characters",
                 vec![
@@ -1246,7 +1090,7 @@ mod test {
                 ]),
         ];
 
-        for (sample, scenario) in tests {
+        for (sample, scenario) in common_next_word_end_cases().into_iter().chain(tests) {
             for (count, begin, expected_end) in scenario.into_iter() {
                 let range = move_next_word_end(Rope::from(sample).slice(..), begin, count);
                 assert_eq!(range, expected_end, "Case failed: [{}]", sample);
@@ -1340,72 +1184,32 @@ mod test {
     fn test_behaviour_when_moving_to_end_of_previous_sub_words() {
         let tests = [
             (
-                "PrevSubwordEnd",
+                &["PrevSubwordEnd"][..],
                 vec![
                     (1, Range::new(13, 13), Range::new(14, 11)),
                     (1, Range::new(11, 11), Range::new(11, 4)),
                 ],
             ),
             (
-                "prev subword end",
+                &[
+                    "prev subword end",
+                    "Prev Subword End",
+                    "PREV SUBWORD END",
+                    "prev_subword_end",
+                    "Prev_Subword_End",
+                    "PREV_SUBWORD_END",
+                ][..],
                 vec![
                     (1, Range::new(15, 15), Range::new(16, 12)),
                     (1, Range::new(12, 12), Range::new(12, 4)),
                 ],
             ),
             (
-                "Prev Subword End",
-                vec![
-                    (1, Range::new(15, 15), Range::new(16, 12)),
-                    (1, Range::new(12, 12), Range::new(12, 4)),
-                ],
-            ),
-            (
-                "PREV SUBWORD END",
-                vec![
-                    (1, Range::new(15, 15), Range::new(16, 12)),
-                    (1, Range::new(12, 12), Range::new(12, 4)),
-                ],
-            ),
-            (
-                "prev_subword_end",
-                vec![
-                    (1, Range::new(15, 15), Range::new(16, 12)),
-                    (1, Range::new(12, 12), Range::new(12, 4)),
-                ],
-            ),
-            (
-                "Prev_Subword_End",
-                vec![
-                    (1, Range::new(15, 15), Range::new(16, 12)),
-                    (1, Range::new(12, 12), Range::new(12, 4)),
-                ],
-            ),
-            (
-                "PREV_SUBWORD_END",
-                vec![
-                    (1, Range::new(15, 15), Range::new(16, 12)),
-                    (1, Range::new(12, 12), Range::new(12, 4)),
-                ],
-            ),
-            (
-                "prev__subword__end",
-                vec![
-                    (1, Range::new(17, 17), Range::new(18, 13)),
-                    (1, Range::new(13, 13), Range::new(13, 4)),
-                    (1, Range::new(14, 14), Range::new(15, 13)),
-                ],
-            ),
-            (
-                "Prev__Subword__End",
-                vec![
-                    (1, Range::new(17, 17), Range::new(18, 13)),
-                    (1, Range::new(13, 13), Range::new(13, 4)),
-                    (1, Range::new(14, 14), Range::new(15, 13)),
-                ],
-            ),
-            (
-                "PREV__SUBWORD__END",
+                &[
+                    "prev__subword__end",
+                    "Prev__Subword__End",
+                    "PREV__SUBWORD__END",
+                ][..],
                 vec![
                     (1, Range::new(17, 17), Range::new(18, 13)),
                     (1, Range::new(13, 13), Range::new(13, 4)),
@@ -1414,10 +1218,12 @@ mod test {
             ),
         ];
 
-        for (sample, scenario) in tests {
-            for (count, begin, expected_end) in scenario.into_iter() {
-                let range = move_prev_sub_word_end(Rope::from(sample).slice(..), begin, count);
-                assert_eq!(range, expected_end, "Case failed: [{}]", sample);
+        for (samples, scenario) in tests {
+            for &sample in samples {
+                for &(count, begin, expected_end) in &scenario {
+                    let range = move_prev_sub_word_end(Rope::from(sample).slice(..), begin, count);
+                    assert_eq!(range, expected_end, "Case failed: [{}]", sample);
+                }
             }
         }
     }
@@ -1425,70 +1231,15 @@ mod test {
     #[test]
     fn test_behaviour_when_moving_to_end_of_next_long_words() {
         let tests = [
-            ("Basic forward motion from the start of a word to the end of it",
-                vec![(1, Range::new(0, 0), Range::new(0, 5))]),
-            ("Basic forward motion from the end of a word to the end of the next",
-                vec![(1, Range::new(0, 5), Range::new(5, 13))]),
-            ("Basic forward motion from the middle of a word to the end of it",
-                vec![(1, Range::new(2, 2), Range::new(2, 5))]),
-            ("    Jumping to end of a word preceded by whitespace",
-                vec![(1, Range::new(0, 0), Range::new(0, 11))]),
-
-            // // Why do we want this behavior?  The current behavior fails this
-            // // test, but seems better and more consistent.
-            // (" Starting from a boundary advances the anchor",
-            //     vec![(1, Range::new(0, 0), Range::new(1, 9))]),
-
-            ("Previous anchor is irrelevant for end of word motion",
-                vec![(1, Range::new(12, 2), Range::new(2, 8))]),
-            ("Identifiers_with_underscores are considered a single word",
-                vec![(1, Range::new(0, 0), Range::new(0, 28))]),
-            ("Jumping\n    into starting whitespace selects up to the end of next word",
-                vec![(1, Range::new(0, 7), Range::new(8, 16))]),
             ("alphanumeric.!,and.?=punctuation are treated the same way",
                 vec![
                     (1, Range::new(0, 0), Range::new(0, 32)),
                 ]),
-            ("...   ... punctuation and spaces behave as expected",
-                vec![
-                    (1, Range::new(0, 0), Range::new(0, 3)),
-                    (1, Range::new(0, 3), Range::new(3, 9)),
-                ]),
             (".._.._ punctuation is joined by underscores into a single block",
                 vec![(1, Range::new(0, 0), Range::new(0, 6))]),
-            ("Newlines\n\nare bridged seamlessly.",
-                vec![
-                    (1, Range::new(0, 0), Range::new(0, 8)),
-                    (1, Range::new(0, 8), Range::new(10, 13)),
-                ]),
             ("Jumping\n\n\n\n\n\n   from newlines to whitespace selects to end of next word.",
                 vec![
                     (1, Range::new(0, 9), Range::new(13, 20)),
-                ]),
-            ("A failed motion does not modify the range",
-                vec![
-                    (3, Range::new(37, 41), Range::new(37, 41)),
-                ]),
-            ("Multiple motions at once resolve correctly",
-                vec![
-                    (3, Range::new(0, 0), Range::new(16, 19)),
-                ]),
-            ("Excessive motions are performed partially",
-                vec![
-                    (999, Range::new(0, 0), Range::new(31, 41)),
-                ]),
-            ("", // Edge case of moving forward in empty string
-                vec![
-                    (1, Range::new(0, 0), Range::new(0, 0)),
-                ]),
-            ("\n\n\n\n\n", // Edge case of moving forward in all newlines
-                vec![
-                    (1, Range::new(0, 0), Range::new(5, 5)),
-                ]),
-            ("\n   \n   \n Jumping through alternated space blocks and newlines selects the space blocks",
-                vec![
-                    (1, Range::new(0, 0), Range::new(1, 4)),
-                    (1, Range::new(1, 4), Range::new(5, 8)),
                 ]),
             ("ヒーリ..クス multibyte characters behave as normal characters, including  when they interact with punctuation",
                 vec![
@@ -1496,7 +1247,7 @@ mod test {
                 ]),
         ];
 
-        for (sample, scenario) in tests {
+        for (sample, scenario) in common_next_word_end_cases().into_iter().chain(tests) {
             for (count, begin, expected_end) in scenario.into_iter() {
                 let range = move_next_long_word_end(Rope::from(sample).slice(..), begin, count);
                 assert_eq!(range, expected_end, "Case failed: [{}]", sample);
