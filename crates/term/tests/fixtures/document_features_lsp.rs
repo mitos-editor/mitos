@@ -1094,6 +1094,13 @@ fn main() -> anyhow::Result<()> {
                     Value::Null
                 } else if args.iter().any(|arg| arg == "--empty-ranges") {
                     json!([])
+                } else if args.iter().any(|arg| arg == "--character-folds") {
+                    json!([
+                        {"startLine":0,"startCharacter":3,"endLine":0,"endCharacter":9,"kind":"comment","collapsedText":if folding_requests > 1 { "updated" } else { "界e\u{301}" }},
+                        {"startLine":0,"startCharacter":10,"endLine":0,"endCharacter":15,"kind":"imports","collapsedText":"use"},
+                        {"startLine":1,"startCharacter":1,"endLine":2,"endCharacter":1,"kind":"region","collapsedText":"region"},
+                        {"startLine":3,"endLine":4,"kind":"server-custom"}
+                    ])
                 } else if args.iter().any(|arg| arg == "--nested-folds") {
                     json!([{"startLine":0,"endLine":3},{"startLine":1,"endLine":2}])
                 } else {
@@ -1105,7 +1112,7 @@ fn main() -> anyhow::Result<()> {
                         0
                     };
                     json!([
-                        {"startLine":start,"startCharacter":1,"endLine":2,"endCharacter":1},
+                        {"startLine":start,"endLine":2},
                         {"startLine":5,"endLine":1}, {"startLine":0,"endLine":999}
                     ])
                 }

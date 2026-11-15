@@ -13,9 +13,219 @@ use editor_core::{
 use stdx::rope::RopeExt as _;
 
 fn fold(text: editor_core::RopeSlice, start: usize, end: usize) -> Conceal {
-    Conceal {
-        range: line_end_char_index(&text, start)..line_end_char_index(&text, end),
+    Conceal::new(line_end_char_index(&text, start)..line_end_char_index(&text, end))
+}
+
+#[test]
+fn collapsed_labels_wrap_and_hit_test_each_grapheme_at_the_fold_anchor() {
+    use crate::doc_formatter::GraphemeSource;
+
+    for newline in ["\n", "\r\n"] {
+        for width in [4, 8, 40] {
+            let rope = Rope::from_str(&format!(
+                "before{newline}if {{{newline}hidden{newline}}}; tail{newline}next"
+            ));
+            let text = rope.slice(..);
+            let start = text.line_to_char_idx(1) + 4;
+            let end = text.line_to_char_idx(3);
+            let folds = [Conceal::new(start..end).with_text("界e\u{301} label 😀")];
+            let mut annotations = TextAnnotations::default();
+            annotations.set_conceals(&folds);
+            let format = TextFormat {
+                soft_wrap: true,
+                viewport_width: width,
+                max_wrap: 0,
+                max_indent_retain: 0,
+                ..Default::default()
+            };
+            let graphemes: Vec<_> =
+                DocumentFormatter::new_at_prev_checkpoint(text, &format, &annotations, 0).collect();
+            let labels: Vec<_> = graphemes
+                .iter()
+                .filter(|g| matches!(g.source, GraphemeSource::Conceal { .. }))
+                .collect();
+            assert_eq!(
+                labels.iter().map(|g| g.raw.to_string()).collect::<String>(),
+                "界e\u{301} label 😀"
+            );
+            assert_eq!(
+                labels.iter().map(|g| g.doc_chars()).sum::<usize>(),
+                end - start
+            );
+            for label in &labels {
+                assert_eq!(label.char_idx, start);
+                assert!(!label.source.is_eof());
+                for column in label.visual_pos.col..label.visual_pos.col + label.width() {
+                    assert!(
+                        !hit_test(
+                            text,
+                            0,
+                            label.visual_pos.row as isize,
+                            column,
+                            &format,
+                            &annotations
+                        )
+                        .is_virtual
+                    );
+                    assert_eq!(
+                        char_idx_at_visual_block_offset(
+                            text,
+                            0,
+                            label.visual_pos.row,
+                            column,
+                            &format,
+                            &annotations
+                        ),
+                        (start, label.visual_pos.row - labels[0].visual_pos.row)
+                    );
+                }
+            }
+            for hidden in start..end {
+                assert_eq!(
+                    visual_offset_from_block(text, 0, hidden, &format, &annotations).0,
+                    labels[0].visual_pos
+                );
+                assert_eq!(
+                    visual_offset_from_anchor(text, 0, hidden, &format, &annotations, usize::MAX)
+                        .unwrap()
+                        .0,
+                    labels[0].visual_pos
+                );
+            }
+            for suffix in graphemes.iter().filter(|g| g.char_idx >= end) {
+                assert_eq!(
+                    visual_offset_from_block(text, 0, suffix.char_idx, &format, &annotations).0,
+                    suffix.visual_pos
+                );
+            }
+            let from_inside =
+                DocumentFormatter::new_at_prev_checkpoint(text, &format, &annotations, end - 1)
+                    .collect::<Vec<_>>();
+            assert_eq!(from_inside[0].char_idx, text.line_to_char_idx(1));
+        }
     }
+}
+
+#[test]
+fn wrapped_labels_scroll_both_directions_and_visual_motion_crosses_them_atomically() {
+    let rope = Rope::from_str("before\nabHIDDENcd\nnext");
+    let text = rope.slice(..);
+    let start = text.line_to_char_idx(1) + 2;
+    let end = start + 6;
+    let folds = [Conceal::new(start..end).with_text("long label with words 😀 and more")];
+    let mut annotations = TextAnnotations::default();
+    annotations.set_conceals(&folds);
+    for width in [4, 8] {
+        let format = TextFormat {
+            soft_wrap: true,
+            viewport_width: width,
+            max_wrap: 0,
+            max_indent_retain: 0,
+            ..Default::default()
+        };
+        let end_row = visual_offset_from_block(text, 0, end, &format, &annotations)
+            .0
+            .row;
+        let mut anchor = 0;
+        let mut offset = 0;
+        for target_row in 1..=end_row + 1 {
+            (anchor, offset) = char_idx_at_visual_offset(
+                text,
+                anchor,
+                (offset + 1) as isize,
+                0,
+                &format,
+                &annotations,
+            );
+            assert_eq!(
+                visual_offset_from_block(text, 0, anchor, &format, &annotations)
+                    .0
+                    .row
+                    + offset,
+                target_row
+            );
+        }
+        for target_row in (0..=end_row).rev() {
+            (anchor, offset) = char_idx_at_visual_offset(
+                text,
+                anchor,
+                offset as isize - 1,
+                0,
+                &format,
+                &annotations,
+            );
+            assert_eq!(
+                visual_offset_from_block(text, 0, anchor, &format, &annotations)
+                    .0
+                    .row
+                    + offset,
+                target_row
+            );
+        }
+        for count in [1, 2] {
+            let down = move_vertically_visual(
+                text,
+                Range::point(start),
+                Direction::Forward,
+                count,
+                Movement::Move,
+                &format,
+                &mut annotations,
+            );
+            assert_eq!(down.cursor(text), end);
+            let up = move_vertically_visual(
+                text,
+                down,
+                Direction::Backward,
+                count,
+                Movement::Move,
+                &format,
+                &mut annotations,
+            );
+            assert_eq!(up.cursor(text), start);
+            let up = move_vertically_visual(
+                text,
+                up,
+                Direction::Backward,
+                1,
+                Movement::Move,
+                &format,
+                &mut annotations,
+            );
+            assert!(up.cursor(text) < start);
+        }
+    }
+}
+
+#[test]
+fn virtual_rows_after_a_collapsed_label_still_reject_document_hits() {
+    let rope = Rope::from_str("abHIDDENtail");
+    let text = rope.slice(..);
+    let folds = [Conceal::new(2..8).with_text("long long long label")];
+    let inline = [InlineAnnotation::new(8, "\nvirtual\n")];
+    let mut annotations = TextAnnotations::default();
+    annotations.set_conceals(&folds);
+    annotations.add_inline_annotations(&inline, None);
+    let format = TextFormat {
+        soft_wrap: true,
+        viewport_width: 8,
+        max_wrap: 0,
+        max_indent_retain: 0,
+        ..Default::default()
+    };
+    let virtual_row = DocumentFormatter::new_at_prev_checkpoint(text, &format, &annotations, 0)
+        .find(|g| g.is_virtual() && g.raw.to_string() == "v")
+        .unwrap()
+        .visual_pos
+        .row;
+    assert!(hit_test(text, 0, virtual_row as isize, 0, &format, &annotations).is_virtual);
+}
+
+#[test]
+fn collapsed_labels_cannot_insert_controls_or_display_lines() {
+    let fold = Conceal::new(1..2).with_text("a\n\r\t\x1b\u{85}\u{2028}\u{2029}b");
+    assert_eq!(fold.text(), "a       b");
+    assert_eq!(Conceal::new(1..2).with_text("").text(), "…");
 }
 
 #[test]
@@ -324,12 +534,8 @@ fn preserved_suffixes_round_trip_and_share_the_headers_wrapped_rows() {
                 let rope = Rope::from_str(&format!("if {{{newline}hidden{newline}}} else {{{newline}hidden{newline}}}; 界e\u{301}{ending}"));
                 let text = rope.slice(..);
                 let folds = [
-                    Conceal {
-                        range: line_end_char_index(&text, 0)..text.line_to_char_idx(2),
-                    },
-                    Conceal {
-                        range: line_end_char_index(&text, 2)..text.line_to_char_idx(4),
-                    },
+                    Conceal::new(line_end_char_index(&text, 0)..text.line_to_char_idx(2)),
+                    Conceal::new(line_end_char_index(&text, 2)..text.line_to_char_idx(4)),
                 ];
                 let mut annotations = TextAnnotations::default();
                 annotations.set_conceals(&folds);

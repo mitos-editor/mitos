@@ -21,7 +21,7 @@ fn per_item_colors_preserve_layer_order_folds_and_restarts() {
         Highlight::new(0xffff00),
     ];
     let padding = [InlineAnnotation::new(2, " "), InlineAnnotation::new(7, " ")];
-    let conceals = [Conceal { range: 1..6 }];
+    let conceals = [Conceal::new(1..6)];
     for conceal in [false, true] {
         for wrap in [false, true] {
             let mut old = TextAnnotations::default();

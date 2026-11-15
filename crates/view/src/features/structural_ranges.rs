@@ -7,7 +7,7 @@ use lsp_client::{lsp, LanguageServerId, OffsetEncoding};
 use std::sync::Arc;
 
 use crate::{
-    document::FoldAction,
+    document::{FoldAction, FoldKind, FoldRange},
     editing::syntax::{self, SelectionAction},
     events::{
         ConfigDidChange, DocumentDidChange, DocumentFocusLost, DocumentLanguageDidChange,
@@ -50,7 +50,7 @@ struct FoldCache {
     snapshot: buffer::Snapshot,
     uri: Option<Uri>,
     server: LanguageServerId,
-    ranges: Arc<[(usize, usize)]>,
+    ranges: Arc<[FoldRange]>,
 }
 
 impl FoldingRanges {
@@ -133,7 +133,10 @@ impl Editor {
         let action = doc.resolve_fold_action(view, action);
         let needs_ranges = matches!(
             action,
-            FoldAction::Close | FoldAction::Toggle | FoldAction::CloseAll
+            FoldAction::Close
+                | FoldAction::Toggle
+                | FoldAction::CloseAll
+                | FoldAction::CloseKind(_)
         );
         let server = enabled
             .then(|| fold_provider(doc))
@@ -321,6 +324,7 @@ fn request_folds(editor: &mut Editor, id: DocumentId) {
         return;
     };
     let server_id = server.id();
+    let encoding = server.offset_encoding();
     let future = server.folding_ranges(doc.identifier());
     let handle = doc.folding_ranges.request.restart();
     let request = DocumentRequest::new(doc, handle, vec![server_id]);
@@ -347,8 +351,8 @@ fn request_folds(editor: &mut Editor, id: DocumentId) {
                 {
                     return;
                 }
-                let ranges: Option<Arc<[(usize, usize)]>> = match result {
-                    Ok(Some(ranges)) => Some(folding_lines(doc, ranges).into()),
+                let ranges: Option<Arc<[FoldRange]>> = match result {
+                    Ok(Some(ranges)) => Some(folding_ranges(doc.text(), ranges, encoding).into()),
                     Ok(None) => None,
                     Err(error) => {
                         log::debug!("folding ranges request failed: {error}");
@@ -389,13 +393,63 @@ fn request_folds(editor: &mut Editor, id: DocumentId) {
     });
 }
 
-fn folding_lines(doc: &Document, ranges: Vec<lsp::FoldingRange>) -> Vec<(usize, usize)> {
-    let lines = doc.text().len_lines(stdx::rope::LINE_TYPE);
+fn folding_ranges(
+    rope: &editor_core::Rope,
+    ranges: Vec<lsp::FoldingRange>,
+    encoding: OffsetEncoding,
+) -> Vec<FoldRange> {
+    use editor_core::{
+        graphemes::{ensure_grapheme_boundary_next, ensure_grapheme_boundary_prev},
+        line_ending::line_end_char_index,
+    };
+    use text_layout::text_annotations::Conceal;
+
+    let text = rope.slice(..);
+    let lines = rope.len_lines(stdx::rope::LINE_TYPE);
     ranges
         .into_iter()
         .filter_map(|range| {
-            let (start, end) = (range.start_line as usize, range.end_line as usize);
-            (start < end && end < lines).then_some((start, end))
+            let (start_line, end_line) = (range.start_line as usize, range.end_line as usize);
+            if start_line > end_line || end_line >= lines {
+                return None;
+            }
+            let endpoint = |line, character| match character {
+                Some(character) => {
+                    let pos = lsp_client::util::lsp_pos_to_pos(
+                        rope,
+                        lsp::Position::new(line as u32, character),
+                        encoding,
+                    )?;
+                    // Ignore offsets inside a UTF-8 scalar or UTF-16 surrogate
+                    // pair. Out-of-range columns still clamp to the line end.
+                    if pos < line_end_char_index(&text, line)
+                        && lsp_client::util::pos_to_lsp_pos(rope, pos, encoding).character
+                            != character
+                    {
+                        return None;
+                    }
+                    Some(pos)
+                }
+                None => Some(line_end_char_index(&text, line)),
+            };
+            // Never hide a fraction of a grapheme, or text beyond the requested range.
+            let start =
+                ensure_grapheme_boundary_next(text, endpoint(start_line, range.start_character)?);
+            let end = ensure_grapheme_boundary_prev(text, endpoint(end_line, range.end_character)?);
+            if start >= end {
+                return None;
+            }
+            let mut conceal = Conceal::new(start..end);
+            if let Some(label) = range.collapsed_text {
+                conceal = conceal.with_text(&label);
+            }
+            let kind = match range.kind {
+                Some(lsp::FoldingRangeKind::Comment) => Some(FoldKind::Comment),
+                Some(lsp::FoldingRangeKind::Imports) => Some(FoldKind::Imports),
+                Some(lsp::FoldingRangeKind::Region) => Some(FoldKind::Region),
+                _ => None,
+            };
+            Some(FoldRange { conceal, kind })
         })
         .collect()
 }
@@ -515,4 +569,156 @@ pub(crate) fn register_hooks(events: &event::EventHub) {
         }
         Ok(())
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use editor_core::{line_ending::line_end_char_index, Rope};
+    use stdx::rope::RopeExt as _;
+
+    #[test]
+    fn folding_endpoints_use_negotiated_encoding_and_default_to_line_ends() {
+        for newline in ["\n", "\r\n"] {
+            let text = Rope::from_str(&format!("😀 e\u{301} abc{newline}é last{newline}"));
+            for encoding in [
+                OffsetEncoding::Utf8,
+                OffsetEncoding::Utf16,
+                OffsetEncoding::Utf32,
+            ] {
+                let end = text.line_to_char_idx(1) + 2;
+                let start = lsp_client::util::pos_to_lsp_pos(&text, 5, encoding);
+                let stop = lsp_client::util::pos_to_lsp_pos(&text, end, encoding);
+                let ranges = folding_ranges(
+                    &text,
+                    vec![lsp::FoldingRange {
+                        start_line: 0,
+                        start_character: Some(start.character),
+                        end_line: 1,
+                        end_character: Some(stop.character),
+                        kind: Some(lsp::FoldingRangeKind::Custom("unknown".into())),
+                        collapsed_text: Some("label".into()),
+                    }],
+                    encoding,
+                );
+                assert_eq!(ranges[0].conceal.range, 5..end);
+                assert_eq!(ranges[0].conceal.text(), "label");
+                assert_eq!(ranges[0].kind, None);
+                for (start_character, end_character, expected) in [
+                    (
+                        None,
+                        None,
+                        line_end_char_index(&text.slice(..), 0)
+                            ..line_end_char_index(&text.slice(..), 1),
+                    ),
+                    (
+                        Some(start.character),
+                        None,
+                        5..line_end_char_index(&text.slice(..), 1),
+                    ),
+                    (
+                        None,
+                        Some(stop.character),
+                        line_end_char_index(&text.slice(..), 0)..end,
+                    ),
+                ] {
+                    let ranges = folding_ranges(
+                        &text,
+                        vec![lsp::FoldingRange {
+                            start_line: 0,
+                            end_line: 1,
+                            start_character,
+                            end_character,
+                            ..Default::default()
+                        }],
+                        encoding,
+                    );
+                    assert_eq!(ranges[0].conceal.range, expected);
+                }
+                let inside_cluster = lsp_client::util::pos_to_lsp_pos(&text, 3, encoding);
+                let ranges = folding_ranges(
+                    &text,
+                    vec![lsp::FoldingRange {
+                        start_line: 0,
+                        end_line: 0,
+                        start_character: Some(inside_cluster.character),
+                        end_character: Some(start.character),
+                        ..Default::default()
+                    }],
+                    encoding,
+                );
+                assert_eq!(ranges[0].conceal.range, 4..5);
+            }
+        }
+    }
+
+    #[test]
+    fn invalid_empty_and_partial_grapheme_folds_are_ignored() {
+        let text = Rope::from_str("e\u{301} abc\nlast");
+        let ranges = folding_ranges(
+            &text,
+            vec![
+                lsp::FoldingRange {
+                    start_line: 1,
+                    end_line: 0,
+                    ..Default::default()
+                },
+                lsp::FoldingRange {
+                    start_line: 0,
+                    end_line: 2,
+                    ..Default::default()
+                },
+                lsp::FoldingRange {
+                    start_line: 0,
+                    end_line: 0,
+                    ..Default::default()
+                },
+                lsp::FoldingRange {
+                    start_line: 0,
+                    end_line: 0,
+                    start_character: Some(0),
+                    end_character: Some(1),
+                    ..Default::default()
+                },
+            ],
+            OffsetEncoding::Utf16,
+        );
+        assert!(ranges.is_empty());
+        let ranges = folding_ranges(
+            &text,
+            vec![lsp::FoldingRange {
+                start_line: 0,
+                end_line: 0,
+                start_character: Some(3),
+                end_character: Some(u32::MAX),
+                ..Default::default()
+            }],
+            OffsetEncoding::Utf16,
+        );
+        assert_eq!(ranges[0].conceal.range, 3..6);
+        let text = Rope::from_str("😀 tail");
+        for encoding in [OffsetEncoding::Utf8, OffsetEncoding::Utf16] {
+            let ranges = folding_ranges(
+                &text,
+                vec![
+                    lsp::FoldingRange {
+                        start_line: 0,
+                        end_line: 0,
+                        start_character: Some(1),
+                        end_character: Some(u32::MAX),
+                        ..Default::default()
+                    },
+                    lsp::FoldingRange {
+                        start_line: 0,
+                        end_line: 0,
+                        start_character: Some(0),
+                        end_character: Some(1),
+                        ..Default::default()
+                    },
+                ],
+                encoding,
+            );
+            assert!(ranges.is_empty());
+        }
+    }
 }
