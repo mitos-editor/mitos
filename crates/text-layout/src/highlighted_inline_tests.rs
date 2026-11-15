@@ -26,7 +26,8 @@ fn per_item_colors_preserve_layer_order_folds_and_restarts() {
         for wrap in [false, true] {
             let mut old = TextAnnotations::default();
             let mut new = TextAnnotations::default();
-            for annotations in [&mut old, &mut new] {
+            let mut owned = TextAnnotations::default();
+            for annotations in [&mut old, &mut new, &mut owned] {
                 annotations.add_inline_annotations(&before, None);
                 if conceal {
                     annotations.set_conceals(&conceals);
@@ -36,8 +37,16 @@ fn per_item_colors_preserve_layer_order_folds_and_restarts() {
                 old.add_inline_annotations(std::slice::from_ref(item), Some(color));
             }
             new.add_inline_annotations_with_highlights(&swatches, &colors);
+            owned.add_inline_annotations_with_optional_highlights(
+                &swatches,
+                colors.into_iter().map(Some).collect(),
+            );
             old.add_inline_annotations(&padding, None);
             new.add_inline_annotations(&padding, None);
+            owned.add_inline_annotations_with_optional_highlights(
+                &padding,
+                vec![None; padding.len()],
+            );
             let format = TextFormat {
                 soft_wrap: wrap,
                 viewport_width: 17,
@@ -55,6 +64,7 @@ fn per_item_colors_preserve_layer_order_folds_and_restarts() {
                     .collect::<Vec<_>>()
                 };
                 assert_eq!(render(&new), render(&old));
+                assert_eq!(render(&owned), render(&old));
             }
         }
     }

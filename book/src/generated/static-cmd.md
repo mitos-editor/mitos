@@ -219,6 +219,7 @@
 | `extend_to_line_end` | Extend to line end | select: `` <end> `` |
 | `extend_to_line_end_newline` | Extend to line end |  |
 | `signature_help` | Show signature help |  |
+| `inlay_hints` | Show inlay hint details on the current line |  |
 | `smart_tab` | Insert tab if all cursors have all whitespace to their left; otherwise, run a separate command. | insert: `` <tab> `` |
 | `insert_tab` | Insert tab char | insert: `` <S-tab> `` |
 | `insert_newline` | Insert newline char | insert: `` <C-j> ``, `` <ret> `` |
