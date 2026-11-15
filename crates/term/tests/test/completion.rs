@@ -1029,6 +1029,45 @@ async fn completion_popup_and_documentation_share_the_live_border_override() -> 
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn label_details_preserve_filtering_preselection_and_insert_text() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let response = dir.path().join("response.json");
+    std::fs::write(
+        &response,
+        serde_json::to_vec(&serde_json::json!([
+            {"label":"print", "insertText":"print()"},
+            {"label":"打印", "filterText":"pr", "insertText":"print(value)", "preselect":true,
+                "labelDetails":{"detail":"(值: 字符串)","description":"工具::print"}}
+        ]))?,
+    )?;
+    let mut f = Fixture::uninitialized_with_response(
+        dir.path(),
+        "pr\n",
+        &["alpha"],
+        test_config(),
+        Some(&response),
+    )?;
+    f.initialize().await?;
+    let protocol = lsp::read_log(&dir.path().join("alpha-protocol.jsonl"))?;
+    let capabilities = &protocol
+        .iter()
+        .find(|message| message["method"] == "initialize")
+        .unwrap()["params"]["capabilities"]["textDocument"]["completion"];
+    assert_eq!(capabilities["completionItem"]["labelDetailsSupport"], true);
+    assert_eq!(capabilities["completionItem"]["preselectSupport"], true);
+    assert_eq!(capabilities["contextSupport"], true);
+
+    f.show().await?;
+    f.key("<tab>").await?;
+    assert_eq!(f.presentation_text(), "print(value)\n");
+    assert_eq!(f.text(), "pr\n");
+    f.key("<ret>").await?;
+    assert_eq!(f.text(), "print(value)\n");
+    assert!(f.app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn list_defaults_feed_preview_acceptance_and_resolution() -> anyhow::Result<()> {
     let dir = tempfile::tempdir()?;
     let response = dir.path().join("response.json");
