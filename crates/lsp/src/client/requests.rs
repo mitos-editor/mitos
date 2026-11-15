@@ -37,7 +37,7 @@ impl Client {
         &self,
         text_document: lsp::TextDocumentIdentifier,
     ) -> impl Future<Output = Result<Option<Vec<lsp::FoldingRange>>>> + use<> {
-        self.call::<lsp::request::FoldingRangeRequest>(lsp::FoldingRangeParams {
+        self.call_partial::<lsp::request::FoldingRangeRequest>(lsp::FoldingRangeParams {
             text_document,
             work_done_progress_params: Default::default(),
             partial_result_params: Default::default(),
@@ -49,7 +49,7 @@ impl Client {
         text_document: lsp::TextDocumentIdentifier,
         positions: Vec<lsp::Position>,
     ) -> impl Future<Output = Result<Option<Vec<lsp::SelectionRange>>>> + use<> {
-        self.call::<lsp::request::SelectionRangeRequest>(lsp::SelectionRangeParams {
+        self.call_partial::<lsp::request::SelectionRangeRequest>(lsp::SelectionRangeParams {
             text_document,
             positions,
             work_done_progress_params: Default::default(),
@@ -75,14 +75,13 @@ impl Client {
                 position,
             },
             context: Some(context),
-            // TODO: support these tokens by async receiving and updating the choice list
             work_done_progress_params: lsp::WorkDoneProgressParams { work_done_token },
             partial_result_params: lsp::PartialResultParams {
                 partial_result_token: None,
             },
         };
 
-        let request = self.call::<lsp::request::Completion>(params);
+        let request = self.call_partial::<lsp::request::Completion>(params);
         Some(async move { Ok(request.await?.map(crate::completion::normalize_response)) })
     }
 
@@ -182,8 +181,8 @@ impl Client {
         ) {
             return None;
         }
-        Some(
-            self.call::<lsp::request::InlineCompletionRequest>(lsp::InlineCompletionParams {
+        Some(self.call_partial::<lsp::request::InlineCompletionRequest>(
+            lsp::InlineCompletionParams {
                 partial_result_params: Default::default(),
                 text_document_position: lsp::TextDocumentPositionParams {
                     text_document,
@@ -194,8 +193,8 @@ impl Client {
                     selected_completion_info: None,
                 },
                 work_done_progress_params: Default::default(),
-            }),
-        )
+            },
+        ))
     }
 
     pub fn text_document_document_color(
@@ -206,15 +205,11 @@ impl Client {
         self.capabilities.get().unwrap().color_provider.as_ref()?;
         let params = lsp::DocumentColorParams {
             text_document,
-            work_done_progress_params: lsp::WorkDoneProgressParams {
-                work_done_token: work_done_token.clone(),
-            },
-            partial_result_params: lsp_types::PartialResultParams {
-                partial_result_token: work_done_token,
-            },
+            work_done_progress_params: lsp::WorkDoneProgressParams { work_done_token },
+            partial_result_params: Default::default(),
         };
 
-        Some(self.call::<lsp::request::DocumentColor>(params))
+        Some(self.call_partial::<lsp::request::DocumentColor>(params))
     }
 
     pub fn text_document_document_link(
@@ -230,7 +225,7 @@ impl Client {
             partial_result_params: lsp::PartialResultParams::default(),
         };
 
-        Some(self.call::<lsp::request::DocumentLinkRequest>(params))
+        Some(self.call_partial::<lsp::request::DocumentLinkRequest>(params))
     }
 
     pub fn resolve_document_link(
@@ -405,7 +400,7 @@ impl Client {
             partial_result_params: lsp::PartialResultParams::default(),
         };
 
-        Some(self.call::<lsp::request::DocumentDiagnosticRequest>(params))
+        Some(self.call_partial::<lsp::request::DocumentDiagnosticRequest>(params))
     }
 
     pub fn text_document_document_highlight(
@@ -433,14 +428,14 @@ impl Client {
             },
         };
 
-        Some(self.call::<lsp::request::DocumentHighlightRequest>(params))
+        Some(self.call_partial::<lsp::request::DocumentHighlightRequest>(params))
     }
 
     fn goto_request<
         T: lsp::request::Request<
-            Params = lsp::GotoDefinitionParams,
-            Result = Option<lsp::GotoDefinitionResponse>,
-        >,
+                Params = lsp::GotoDefinitionParams,
+                Result = Option<lsp::GotoDefinitionResponse>,
+            > + 'static,
     >(
         &self,
         text_document: lsp::TextDocumentIdentifier,
@@ -458,7 +453,7 @@ impl Client {
             },
         };
 
-        self.call::<T>(params)
+        self.call_partial::<T>(params)
     }
 
     pub fn goto_definition(
@@ -586,7 +581,7 @@ impl Client {
             },
         };
 
-        Some(self.call::<lsp::request::References>(params))
+        Some(self.call_partial::<lsp::request::References>(params))
     }
 
     pub fn document_symbols(
@@ -607,7 +602,7 @@ impl Client {
             partial_result_params: lsp::PartialResultParams::default(),
         };
 
-        Some(self.call::<lsp::request::DocumentSymbolRequest>(params))
+        Some(self.call_partial::<lsp::request::DocumentSymbolRequest>(params))
     }
 
     pub fn linked_editing_ranges(
@@ -657,26 +652,35 @@ impl Client {
         Some(self.call::<lsp::request::PrepareRenameRequest>(params))
     }
 
-    // empty string to get all symbols
+    // An empty query asks for all symbols.
     pub fn workspace_symbols(
         &self,
         query: String,
     ) -> Option<impl Future<Output = Result<Option<lsp::WorkspaceSymbolResponse>>> + use<>> {
-        let capabilities = self.capabilities.get().unwrap();
+        let request = self.workspace_symbols_stream(query)?;
+        Some(super::partial::collect(request))
+    }
 
-        // Return early if the server does not support workspace symbols.
-        match capabilities.workspace_symbol_provider {
+    /// Start a workspace symbol query, exposing batches before its final response.
+    pub fn workspace_symbols_stream(
+        &self,
+        query: String,
+    ) -> Option<
+        super::PartialResultRequest<
+            Option<lsp::WorkspaceSymbolResponse>,
+            lsp::WorkspaceSymbolResponse,
+        >,
+    > {
+        match self.capabilities().workspace_symbol_provider {
             Some(lsp::OneOf::Left(true) | lsp::OneOf::Right(_)) => (),
             _ => return None,
         }
-
         let params = lsp::WorkspaceSymbolParams {
             query,
-            work_done_progress_params: lsp::WorkDoneProgressParams::default(),
-            partial_result_params: lsp::PartialResultParams::default(),
+            work_done_progress_params: Default::default(),
+            partial_result_params: Default::default(),
         };
-
-        Some(self.call::<lsp::request::WorkspaceSymbolRequest>(params))
+        Some(self.partial_request::<lsp::request::WorkspaceSymbolRequest>(params, self.req_timeout))
     }
 
     pub fn resolve_workspace_symbol(
@@ -716,7 +720,7 @@ impl Client {
             partial_result_params: lsp::PartialResultParams::default(),
         };
 
-        Some(self.call::<lsp::request::CodeActionRequest>(params))
+        Some(self.call_partial::<lsp::request::CodeActionRequest>(params))
     }
 
     pub fn rename_symbol(
@@ -779,19 +783,23 @@ impl Client {
             return None;
         }
         let full_request = full.then(|| {
-            self.call::<lsp::request::SemanticTokensFullRequest>(lsp::SemanticTokensParams {
-                text_document: text_document.clone(),
-                work_done_progress_params: Default::default(),
-                partial_result_params: Default::default(),
-            })
+            self.call_partial::<lsp::request::SemanticTokensFullRequest>(
+                lsp::SemanticTokensParams {
+                    text_document: text_document.clone(),
+                    work_done_progress_params: Default::default(),
+                    partial_result_params: Default::default(),
+                },
+            )
         });
         let range_request = (!full).then(|| {
-            self.call::<lsp::request::SemanticTokensRangeRequest>(lsp::SemanticTokensRangeParams {
-                text_document,
-                range: lsp::Range::new(lsp::Position::new(0, 0), end),
-                work_done_progress_params: Default::default(),
-                partial_result_params: Default::default(),
-            })
+            self.call_partial::<lsp::request::SemanticTokensRangeRequest>(
+                lsp::SemanticTokensRangeParams {
+                    text_document,
+                    range: lsp::Range::new(lsp::Position::new(0, 0), end),
+                    work_done_progress_params: Default::default(),
+                    partial_result_params: Default::default(),
+                },
+            )
         });
         Some(async move {
             let tokens = if let Some(request) = full_request {
@@ -836,14 +844,16 @@ impl Client {
         ) {
             return None;
         }
-        Some(self.call::<lsp::request::SemanticTokensFullDeltaRequest>(
-            lsp::SemanticTokensDeltaParams {
-                text_document,
-                previous_result_id,
-                work_done_progress_params: Default::default(),
-                partial_result_params: Default::default(),
-            },
-        ))
+        Some(
+            self.call_partial::<lsp::request::SemanticTokensFullDeltaRequest>(
+                lsp::SemanticTokensDeltaParams {
+                    text_document,
+                    previous_result_id,
+                    work_done_progress_params: Default::default(),
+                    partial_result_params: Default::default(),
+                },
+            ),
+        )
     }
 
     pub fn code_lens(
@@ -852,7 +862,7 @@ impl Client {
     ) -> Option<impl Future<Output = Result<Option<Vec<lsp::CodeLens>>>> + use<>> {
         self.capabilities().code_lens_provider?;
         Some(
-            self.call::<lsp::request::CodeLensRequest>(lsp::CodeLensParams {
+            self.call_partial::<lsp::request::CodeLensRequest>(lsp::CodeLensParams {
                 text_document,
                 work_done_progress_params: Default::default(),
                 partial_result_params: Default::default(),

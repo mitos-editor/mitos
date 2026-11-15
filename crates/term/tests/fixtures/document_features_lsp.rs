@@ -391,7 +391,37 @@ fn main() -> anyhow::Result<()> {
             } else {
                 json!([{"name": name, "kind": 12, "location": {"uri": uri, "range": range(3, 6)}}])
             };
-            respond_result(&mut output, id, result)?;
+            if args.iter().any(|arg| arg == "--stream-symbols") {
+                respond(
+                    &mut output,
+                    json!({"jsonrpc":"2.0", "method":"$/progress", "params":{
+                        "token":params["partialResultToken"], "value":result
+                    }}),
+                )?;
+                wait_for_gate(&args, "--symbol-final-gate");
+                if args.iter().any(|arg| arg == "--symbol-second-batch") {
+                    let mut second = result.clone();
+                    for item in second.as_array_mut().unwrap() {
+                        item["name"] = json!(format!("{}:second", item["name"].as_str().unwrap()));
+                    }
+                    respond(
+                        &mut output,
+                        json!({"jsonrpc":"2.0", "method":"$/progress", "params":{
+                            "token":params["partialResultToken"], "value":second
+                        }}),
+                    )?;
+                }
+                if args.iter().any(|arg| arg == "--symbol-stream-error") {
+                    respond(
+                        &mut output,
+                        json!({"jsonrpc":"2.0", "id":id, "error":{"code":-32603, "message":"symbol query failed"}}),
+                    )?;
+                } else {
+                    respond_result(&mut output, id, Value::Null)?;
+                }
+            } else {
+                respond_result(&mut output, id, result)?;
+            }
             continue;
         }
         if method == "workspace/diagnostic" && diagnostics {
