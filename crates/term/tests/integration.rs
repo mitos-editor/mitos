@@ -51,6 +51,7 @@ mod test {
     mod language_features;
     mod linked_editing;
     mod lsp_alternatives;
+    mod lsp_interactions;
     mod lsp_lifecycle;
     mod lsp_workspace;
     mod movement;

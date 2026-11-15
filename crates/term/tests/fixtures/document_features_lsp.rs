@@ -268,6 +268,13 @@ fn main() -> anyhow::Result<()> {
         let Some(id) = message.get("id") else {
             continue;
         };
+        if args
+            .iter()
+            .position(|arg| arg == "--hold-request")
+            .is_some_and(|index| args[index + 1] == method)
+        {
+            continue;
+        }
         let text = documents.get(uri).map(|s| s.trim()).unwrap_or_default();
         let end = text.encode_utf16().count();
         if editing_hooks
