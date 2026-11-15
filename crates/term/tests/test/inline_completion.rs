@@ -10,12 +10,11 @@ use view::{
     callbacks::EditorCallback,
     current, current_ref,
     document::Mode,
-    editor::Action,
     features::inline_completion::{self, InlineCompletionHandler},
 };
 
 use super::helpers::lsp::{self, Gate, ServerConfig};
-use super::helpers::{test_config, AppBuilder};
+use super::helpers::test_config;
 
 struct Fixture {
     app: TestApplication,
@@ -31,9 +30,7 @@ impl Fixture {
         if array {
             server = server.arg("--array");
         }
-        let loader = lsp::syntax_loader("inline-test", "inline-test", &["inline"], &server.toml());
         let mut config = test_config();
-        config.editor.lsp.enable = true;
         config.editor.completion.auto_trigger = false;
         config.keys = toml::from_str(
             r#"[insert]
@@ -46,18 +43,17 @@ A-p = "inline_completion_previous"
         )?;
         config.editor.inline_completion.auto_trigger = true;
         config.editor.inline_completion.trigger_delay = Duration::from_millis(5);
-        let (sender, callbacks) =
-            super::helpers::callbacks::unbounded(|blocking, callback| (blocking, callback));
-        let mut app = AppBuilder::new()
-            .with_config(config)
-            .with_lang_loader(loader)
-            .with_handler_setup(move |handlers, _| {
+        let (mut app, callbacks) = lsp::feature_app_with_servers(
+            dir,
+            text,
+            "inline-test",
+            &["inline"],
+            config,
+            &server.toml(),
+            |handlers, sender, _| {
                 handlers.inline_completions = InlineCompletionHandler::new(sender);
-            })
-            .build()?;
-        let path = dir.join("document.inline-test");
-        std::fs::write(&path, text)?;
-        app.editor.open(&path, Action::Replace)?;
+            },
+        )?;
         let (view, doc) = current!(app.editor);
         doc.set_selection(view.id, Selection::point(4));
         app.editor.set_mode(Mode::Insert);
@@ -84,14 +80,7 @@ A-p = "inline_completion_previous"
             .context("inline callback destination closed")
     }
     async fn response(&mut self) -> anyhow::Result<EditorCallback> {
-        loop {
-            let (scheduling, callback) = self.next().await?;
-            if scheduling {
-                callback(&mut self.app.editor);
-            } else {
-                return Ok(callback);
-            }
-        }
+        super::helpers::callbacks::response(&mut self.app, &mut self.callbacks).await
     }
     fn preview(&self) -> Option<&view::document::InlineCompletion> {
         let (view, doc) = current_ref!(self.app.editor);

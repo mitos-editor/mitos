@@ -21,12 +21,12 @@ use view::{
 
 use super::helpers::{
     lsp::{self, Gate, ServerConfig},
-    test_config, AppBuilder,
+    test_config,
 };
 
 struct Fixture {
     app: TestApplication,
-    callbacks: mpsc::UnboundedReceiver<EditorCallback>,
+    callbacks: mpsc::UnboundedReceiver<(bool, EditorCallback)>,
     log: PathBuf,
 }
 
@@ -53,26 +53,20 @@ impl Fixture {
             })
             .collect::<String>();
         let mut config = test_config();
-        config.editor.lsp.enable = true;
         config.editor.lsp.inlay_hints.enable = true;
         config.editor.lsp.inlay_hints.length_limit = Some(3.try_into().unwrap());
-        let (sender, callbacks) = super::helpers::callbacks::unbounded(|_, callback| callback);
-        let mut app = AppBuilder::new()
-            .with_config(config)
-            .with_lang_loader(lsp::syntax_loader(
-                "hover-test",
-                "hover-test",
-                names,
-                &servers,
-            ))
-            .with_handler_setup(move |handlers, _| {
+        let (mut app, callbacks) = lsp::feature_app_with_servers(
+            dir,
+            "😀 original\n",
+            "hover-test",
+            names,
+            config,
+            &servers,
+            |handlers, sender, _| {
                 handlers.hover = HoverHandler::new(sender.clone());
                 handlers.inlay_hints = InlayHintsHandler::new(sender);
-            })
-            .build()?;
-        let path = dir.join("document.hover-test");
-        std::fs::write(&path, "😀 original\n")?;
-        app.editor.open(&path, Action::Replace)?;
+            },
+        )?;
         gate.release()?;
         lsp::initialize(&mut app, names.len()).await?;
         Ok(Self {
@@ -89,6 +83,7 @@ impl Fixture {
     async fn response(&mut self) -> anyhow::Result<EditorCallback> {
         tokio::time::timeout(Duration::from_secs(5), self.callbacks.recv())
             .await?
+            .map(|(_, callback)| callback)
             .context("feature callback queue closed")
     }
 
