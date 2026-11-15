@@ -1,5 +1,14 @@
 [changelog]
-header = ""
+# --prepend replaces this header and keeps the notes below Unreleased.
+# They become part of the new version entry, alongside the generated notes.
+header = """
+# Changelog
+
+[Unreleased]: https://github.com/mitos-editor/mitos/commits/main
+
+## [Unreleased]
+
+"""
 body = """
 ## [{{ version | trim_start_matches(pat="v") }}](https://github.com/mitos-editor/mitos/compare/{{ previous.version }}...{{ version }}) - {{ timestamp | date(format="%Y-%m-%d") }}
 {% for group, commits in commits | group_by(attribute="group") %}

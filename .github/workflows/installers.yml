@@ -9,8 +9,6 @@ on:
       - '.github/scripts/nightly.py'
       - '.github/scripts/update-stable.sh'
       - '.github/scripts/test-release.py'
-      - '.github/scripts/release.py'
-      - 'cliff.toml'
       - 'tests/releases/**'
   push:
     branches: [main]
@@ -21,8 +19,6 @@ on:
       - '.github/scripts/nightly.py'
       - '.github/scripts/update-stable.sh'
       - '.github/scripts/test-release.py'
-      - '.github/scripts/release.py'
-      - 'cliff.toml'
       - 'tests/releases/**'
 
 permissions:
@@ -47,10 +43,6 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Install git-cliff
-        uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
-        with:
-          tool: git-cliff@2.14.2
       - name: Test release selection and publication
         run: python -m unittest discover -s tests/releases -v
       - name: Install actionlint
