@@ -133,6 +133,13 @@ on demand when the server supports it. The details popup uses the usual popup
 controls: Ctrl-d/Ctrl-u scroll and Escape closes it. Plain-text tooltips keep
 literal punctuation; Markdown tooltips use Markdown formatting.
 
+Hover over visible hint text to read its details without moving the cursor.
+Click a label part to open its details and action menu, or Ctrl-click to follow
+its location (or run its command when it has no location). Hint text edits are
+applied only when you choose **Apply hint text edits**. Padding and the generated
+truncation ellipsis do not activate hints. Moving away from both a hint and its
+tooltip dismisses passive details; Escape also cancels a pending hover.
+
 Run `:config-reload` to apply changes. See the
 [language-server settings](./configuration.md#editorlsp) for more options,
 or set `enable = false` under `[editor.lsp]` to disable language servers.

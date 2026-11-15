@@ -38,6 +38,7 @@ pub struct Popup<T: Component> {
     keys: KeymapState,
     contents: T,
     position: Option<DisplayPosition>,
+    follow_cursor: bool,
     area: Rect,
     position_bias: Open,
     scroll_half_pages: usize,
@@ -55,6 +56,7 @@ impl<T: Component> Popup<T> {
             contents,
             keys: KeymapState::default(),
             position: None,
+            follow_cursor: true,
             position_bias: Open::Below,
             area: Rect::new(0, 0, 0, 0),
             scroll_half_pages: 0,
@@ -73,6 +75,14 @@ impl<T: Component> Popup<T> {
     /// but rather the screen-space position of the information to which the popup refers.
     pub fn position(mut self, pos: Option<DisplayPosition>) -> Self {
         self.position = pos;
+        self
+    }
+
+    /// Mouse interactions stay anchored to the hit cell, including a hit in an
+    /// unfocused split. None retains the existing caret-following behavior.
+    pub(crate) fn anchor(mut self, pos: Option<DisplayPosition>) -> Self {
+        self.position = pos;
+        self.follow_cursor = pos.is_none();
         self
     }
 
@@ -157,7 +167,7 @@ impl<T: Component> Popup<T> {
     ) -> RenderInfo {
         if let Some(old_position) = self
             .position
-            .filter(|old_position| old_position.row == position.row)
+            .filter(|old_position| !self.follow_cursor || old_position.row == position.row)
         {
             position = old_position;
         } else {
@@ -433,6 +443,24 @@ fn clamp_scroll(half_pages: &mut usize, half_page_size: usize, max_offset: usize
 #[cfg(test)]
 mod tests {
     use super::clamp_scroll;
+
+    #[test]
+    fn fixed_screen_anchors_do_not_follow_a_different_caret_row() {
+        use super::*;
+        let viewport = Rect::new(0, 0, 80, 24);
+        let mut fixed = Popup::new("fixed", crate::ui::Text::new("tooltip".into()))
+            .anchor(Some(DisplayPosition::new(2, 4)));
+        let hit = fixed
+            .render_info(viewport, DisplayPosition::new(12, 50))
+            .area;
+        assert_eq!((hit.y, hit.x), (3, 4));
+        let mut keyboard = Popup::new("keyboard", crate::ui::Text::new("tooltip".into()));
+        keyboard.render_info(viewport, DisplayPosition::new(2, 4));
+        let caret = keyboard
+            .render_info(viewport, DisplayPosition::new(12, 50))
+            .area;
+        assert_eq!((caret.y, caret.x), (13, 50));
+    }
 
     #[test]
     fn clamped_scroll_is_stable_across_frames() {

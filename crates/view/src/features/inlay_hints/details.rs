@@ -22,6 +22,7 @@ pub struct InlayHintTarget {
     owner: Weak<EditorCallbackSender>,
     document: DocumentId,
     view: ViewId,
+    binding: u64,
     focus: ViewId,
     generation: Arc<()>,
     index: usize,
@@ -34,13 +35,15 @@ impl InlayHintTarget {
         self.owner.ptr_eq(&other.owner)
             && self.document == other.document
             && self.view == other.view
+            && self.binding == other.binding
             && self.focus == other.focus
             && Arc::ptr_eq(&self.generation, &other.generation)
             && self.index == other.index
             && self.selection == other.selection
     }
 
-    /// Check the editor, document snapshot, provider, view and original selection.
+    /// Check the editor, live presentation, document snapshot, provider, target
+    /// view and selection, while retaining the focus captured at the hit.
     pub fn is_current(&self, editor: &Editor) -> bool {
         if !self
             .owner
@@ -48,16 +51,18 @@ impl InlayHintTarget {
             || !editor.config().lsp.enable
             || !editor.config().lsp.inlay_hints.enable
             || editor.tree.focus() != self.focus
-            || !editor
-                .tree
-                .try_get(self.view)
-                .is_some_and(|view| view.doc == self.document)
+            || !editor.tree.try_get(self.view).is_some_and(|view| {
+                view.doc == self.document && view.binding_revision() == self.binding
+            })
         {
             return false;
         }
         let Some(doc) = editor.document(self.document) else {
             return false;
         };
+        if !editor.completion_presentation(doc).is_live() {
+            return false;
+        }
         let Some(state) = doc
             .view_states
             .get(&self.view)
@@ -117,6 +122,7 @@ pub fn hints_on_line(editor: &Editor, view: ViewId, line: usize) -> Vec<InlayHin
                 owner: source.owner.clone(),
                 document: doc.id(),
                 view: view.id,
+                binding: view.binding_revision(),
                 focus: editor.tree.focus(),
                 generation: state.generation.clone(),
                 index,
@@ -149,12 +155,22 @@ pub fn hint_at_screen_coords(
     column: u16,
 ) -> Option<InlayHintHit> {
     let view = editor.tree.try_get(view)?;
+    if row < view.area.top()
+        || row >= view.area.bottom()
+        || column < view.area.left()
+        || column >= view.area.right()
+    {
+        return None;
+    }
     let doc = editor.document(view.doc)?;
     let presented = editor.completion_presentation(doc);
     if !presented.is_live() {
         return None;
     }
     let state = &doc.view_states.get(&view.id)?.inlay_hints;
+    if state.hints.is_empty() {
+        return None;
+    }
     let source = state.source.as_ref()?;
     let layout = view.layout_presented(presented, None);
     let glyph = layout.inline_annotation_at_screen_coords(row, column)?;
@@ -163,6 +179,7 @@ pub fn hint_at_screen_coords(
         owner: source.owner.clone(),
         document: doc.id(),
         view: view.id,
+        binding: view.binding_revision(),
         focus: editor.tree.focus(),
         generation: state.generation.clone(),
         index,
