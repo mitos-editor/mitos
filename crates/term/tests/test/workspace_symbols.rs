@@ -92,6 +92,30 @@ async fn wait_message(dir: &Path, method: &str) -> anyhow::Result<()> {
     .await?
 }
 
+async fn wait_picker_requests(
+    app: &mut TestApplication,
+    dir: &Path,
+    method: &str,
+    count: usize,
+) -> anyhow::Result<Vec<serde_json::Value>> {
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            let messages: Vec<_> = lsp::read_log(&lsp::log_path(dir, "symbols"))?
+                .into_iter()
+                .filter(|message| message["method"] == method)
+                .collect();
+            if messages.len() >= count {
+                return Ok(messages);
+            }
+            // Publishing picker rows and starting their lazy preview require
+            // UI updates even when the previous input pump already went idle.
+            super::helpers::keys(app, "").await?;
+        }
+    })
+    .await
+    .with_context(|| format!("picker did not send {count} {method} requests"))?
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn closing_the_symbol_picker_cancels_pending_queries() -> anyhow::Result<()> {
     let dir = tempfile::tempdir()?;
@@ -288,7 +312,7 @@ async fn symbol_picker_resolves_the_selected_preview_and_exports_precise_quickli
     let dir = tempfile::tempdir()?;
     let mut app = fixture(dir.path(), &["--lazy-symbols"]).await?;
     super::helpers::keys(&mut app, "<space>S").await?;
-    wait_message(dir.path(), "workspaceSymbol/resolve").await?;
+    wait_picker_requests(&mut app, dir.path(), "workspaceSymbol/resolve", 1).await?;
     super::helpers::keys(&mut app, "").await?;
     let resolves: Vec<_> = lsp::read_log(&lsp::log_path(dir.path(), "symbols"))?
         .into_iter()
@@ -430,11 +454,33 @@ async fn hidden_symbol_previews_resolve_only_on_accept_and_keep_split_navigation
 async fn closing_the_symbol_picker_cancels_lazy_preview_and_quicklist_requests(
 ) -> anyhow::Result<()> {
     let dir = tempfile::tempdir()?;
-    let mut app = fixture(dir.path(), &["--lazy-symbols", "--hold-symbol-resolves"]).await?;
+    let gate = Gate::new(dir.path().join("symbol-query"));
+    let mut app = fixture(
+        dir.path(),
+        &[
+            "--lazy-symbols",
+            "--hold-symbol-resolves",
+            "--symbol-query-gate",
+            gate.path().to_str().unwrap(),
+        ],
+    )
+    .await?;
+    // Results arrive after the first idle pump, as they can under CI load.
     super::helpers::keys(&mut app, "<space>S").await?;
-    wait_message(dir.path(), "workspaceSymbol/resolve").await?;
-    super::helpers::keys(&mut app, "<C-q><esc>").await?;
-    wait_message(dir.path(), "$/cancelRequest").await?;
+    gate.release()?;
+    let preview = wait_picker_requests(&mut app, dir.path(), "workspaceSymbol/resolve", 1).await?;
+    assert_eq!(preview.len(), 1, "only the selected preview should resolve");
+    super::helpers::keys(&mut app, "<C-q>").await?;
+    let resolves = wait_picker_requests(&mut app, dir.path(), "workspaceSymbol/resolve", 3).await?;
+    assert_eq!(resolves.len(), 3, "one preview and two quicklist resolves");
+    assert_eq!(resolves[0]["id"], preview[0]["id"]);
+    super::helpers::keys(&mut app, "<esc>").await?;
+    let canceled = wait_picker_requests(&mut app, dir.path(), "$/cancelRequest", 3).await?;
+    for resolve in resolves {
+        assert!(canceled
+            .iter()
+            .any(|cancel| cancel["params"]["id"] == resolve["id"]));
+    }
     assert!(app.editor.quicklist.entries().is_empty());
     assert!(app.close().await.is_empty());
     Ok(())
