@@ -24,19 +24,6 @@ currently the only supported provider.
 
 Find other version-control commands by searching for `vcs-` in the command palette (`Space ?`).
 
-The `Space i` and `Space B` aliases have been removed. Use `Space g i` and
-`Space g t` instead, or restore the aliases in `config.toml`:
-
-```toml
-[keys.normal.space]
-i = "vcs_show_change"
-B = "vcs_toggle_inline_blame"
-
-[keys.select.space]
-i = "vcs_show_change"
-B = "vcs_toggle_inline_blame"
-```
-
 Previously, `Space g` opened changed files directly; that action is now
 `Space g s`. To open changed files directly again, replace the
 version-control menu with this binding in `config.toml`:
