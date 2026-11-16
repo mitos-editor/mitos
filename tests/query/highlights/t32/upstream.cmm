@@ -1,0 +1,9 @@
+ENTRY
+; ^ @keyword
+PARAMETERS
+; ^ @keyword
+RETURNVALUES
+; ^ @keyword
+ENTRY %LINE &input
+;     ^ @constant.builtin
+;            ^ @variable.parameter
