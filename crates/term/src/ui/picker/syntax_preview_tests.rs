@@ -330,6 +330,88 @@ async fn directory_polling_refreshes_ignore_rules_without_directory_metadata_cha
 }
 
 #[tokio::test]
+async fn search_preview_highlights_visible_matches_and_refreshes_query_and_case(
+) -> anyhow::Result<()> {
+    use view::graphics::Color;
+
+    let mut fixture = Fixture::new()?;
+    let path = fixture.dir.path().join("matches.txt");
+    std::fs::write(&path, "é cat cat\nCAT\ncat\n")?;
+    let path = fixture.preview("matches.txt");
+    let mut entry = fixture
+        .picker()
+        .preview
+        .preview_cache
+        .remove(&path)
+        .unwrap();
+    fixture
+        .app
+        .editor
+        .set_theme(theme::Theme::from(toml::Value::Table(toml::toml! {
+            "ui.text" = { fg = "#ffffff" }
+            "ui.selection" = { bg = "#444444" }
+            "ui.cursor.match" = { fg = "#ff0000" }
+            "ui.highlight" = { bg = "#0000ff" }
+        })))?;
+    let config = Config::default();
+    let updates = tokio::sync::mpsc::unbounded_channel().0;
+    let cx = Context {
+        config: crate::config::Context {
+            current: &config,
+            updates: &updates,
+        },
+        editor: &mut fixture.app.editor,
+        interaction: &mut fixture.app.interaction,
+        jobs: &mut fixture.jobs,
+        scroll: None,
+        image_picker: None,
+        is_cursor_owner: true,
+    };
+    let area = Rect::new(0, 0, 30, 2);
+    let mut search = SearchPreview::default();
+    let mut scroll = FileScroll::default();
+    for (pattern, smart_case, offset, expected) in [
+        ("cat", true, 0, 9),
+        ("cat", false, 0, 6),
+        ("CAT", true, 0, 3),
+        (r"c\pL+t", true, 0, 9),
+        ("[", true, 0, 0),
+        ("", true, 0, 0),
+        ("cat", true, 1, 6),
+        (r"\ACAT|CAT\n\z", true, 1, 0),
+        (r"^CAT$", false, 1, 3),
+        (r"^", true, 1, 0),
+    ] {
+        let query = search.query(pattern.into(), smart_case);
+        scroll.initialized = true;
+        scroll.scroll.offset = offset;
+        let mut surface = Surface::empty(area);
+        render_preview_content(
+            Preview::Cached(&mut entry.preview),
+            Some((0, 0)),
+            query.as_deref(),
+            &mut scroll,
+            area,
+            &mut surface,
+            &cx.draw_context(),
+        );
+        let highlighted = surface
+            .content
+            .iter()
+            .filter(|cell| cell.fg == Color::Rgb(255, 0, 0))
+            .count();
+        assert_eq!(
+            highlighted, expected,
+            "{pattern:?}, smart_case={smart_case}, offset={offset}"
+        );
+        if offset == 0 {
+            assert_eq!(surface[(0, 0)].bg, Color::Rgb(0, 0, 255));
+        }
+    }
+    Ok(())
+}
+
+#[tokio::test]
 async fn preview_rendering_tolerates_locations_beyond_a_shortened_file() -> anyhow::Result<()> {
     let mut fixture = Fixture::new()?;
     let path = fixture.preview("short.json");
@@ -357,6 +439,7 @@ async fn preview_rendering_tolerates_locations_beyond_a_shortened_file() -> anyh
     render_preview_content(
         Preview::Cached(&mut entry.preview),
         Some((100, 150)),
+        None,
         &mut FileScroll::default(),
         area,
         &mut Surface::empty(area),

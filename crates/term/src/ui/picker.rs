@@ -322,6 +322,7 @@ pub struct Picker<T: 'static + Send + Sync, D: 'static> {
     pub truncate_start: bool,
     preview: FilePreview,
     preview_scroll: FileScroll,
+    preview_search: Option<preview::SearchPreview>,
     custom_preview: Option<Box<dyn PickerPreview<T>>>,
     /// Given an item in the picker, return the file path and line number to display.
     file_fn: Option<FileCallback<T>>,
@@ -463,6 +464,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             widths,
             preview: FilePreview::default(),
             preview_scroll: FileScroll::default(),
+            preview_search: None,
             custom_preview: None,
             file_fn: None,
             quicklist_fn: None,
@@ -590,6 +592,12 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
 
     pub fn with_custom_preview(mut self, preview: impl PickerPreview<T> + 'static) -> Self {
         self.custom_preview = Some(Box::new(preview));
+        self
+    }
+
+    /// Highlight visible matches of the primary regex query in the file preview.
+    pub fn with_search_preview(mut self) -> Self {
+        self.preview_search = Some(preview::SearchPreview::default());
         self
     }
 
@@ -1385,8 +1393,27 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             preview.render(item, inner, surface, cx);
             return;
         }
+        let pattern = self.primary_query();
+        let smart_case = self
+            .case_sensitive
+            .as_ref()
+            .map_or(cx.editor.config().search.smart_case, |toggle| {
+                !toggle.enabled
+            });
+        let search = self
+            .preview_search
+            .as_mut()
+            .and_then(|search| search.query(pattern, smart_case));
         if let Some((preview, range, scroll)) = self.get_preview(cx.editor) {
-            render_preview_content(preview, range, scroll, inner, surface, cx);
+            render_preview_content(
+                preview,
+                range,
+                search.as_deref(),
+                scroll,
+                inner,
+                surface,
+                cx,
+            );
         }
     }
 

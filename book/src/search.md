@@ -38,8 +38,8 @@ the previous search.
 
 Highlighting covers complete visible source lines, including horizontally
 scrolled text. Multiline matches crossing the viewport boundary or a fold may
-be omitted. Workspace search and replacement previews retain their existing
-result-line highlighting.
+be omitted. Workspace search and replacement previews also highlight visible
+matches, while keeping the selected result's line highlighted.
 
 ## Replace several matches
 
