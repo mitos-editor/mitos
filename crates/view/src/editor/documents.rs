@@ -28,6 +28,13 @@ impl Editor {
         view.ensure_cursor_in_view(doc, scrolloff)
     }
 
+    /// Move a document to a zero-based buffer position, clamping to the last buffer.
+    pub fn move_document(&mut self, id: DocumentId, position: usize) {
+        if self.documents.move_to(id, position) {
+            self.redraw().request();
+        }
+    }
+
     pub fn switch(&mut self, id: DocumentId, action: Action) {
         use crate::tree::Layout;
 
