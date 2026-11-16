@@ -704,11 +704,16 @@ is mapped through edits and consumed when a view next displays the document.
 
 `term::application` retains application state, shutdown, signals, and the event
 loop. Its private modules separate startup, live configuration, editor/terminal
-event adaptation, LSP presentation and dispatch, and frame rendering. Adapter
+event adaptation, LSP presentation, and frame rendering. Adapter
 methods remain available through `Application`; component state stays private.
 
-`term::Application` decodes incoming notifications and calls these operations;
-exit status text, progress displays, and interactive prompts stay in the frontend.
+`Editor::handle_language_server_message` decodes incoming LSP messages, applies
+editor effects, and sends ordinary replies and protocol errors. It returns concrete
+`view::handlers::lsp::HostAction` values for progress, messages, choices, and document
+display. `term::Application` presents these actions and owns prompt, focus, and
+external-URL policy. Interactive requests carry a consume-once `DeferredReply`
+weakly bound to the original client instance. Completion checks that the client is
+still active in the same editor; dropping or replacing a prompt sends no reply.
 `view::features::lsp_progress` owns work tokens and completion-triggered diagnostic
 refreshes. It processes notifications even while a prompt suppresses status text,
 and server cleanup removes its tokens. Terminal spinners follow the shared active
@@ -719,8 +724,8 @@ application results, and dynamic file-watcher registration. It uses the server's
 negotiated position encoding, preserves partial edit failures, and adds relative
 watch roots before registering interests. `lsp::Client::configuration` resolves
 ordered configuration sections; workspace folders remain on the client.
-`term::Application` decodes requests, calls these typed operations, and serializes
-and sends replies. Diagnostic refresh uses the existing shared pull-diagnostic
+The editor's inbound dispatcher calls these typed operations and serializes their
+replies. Diagnostic refresh uses the existing shared pull-diagnostic
 entry point. Unsupported capability registrations retain their compatibility
 acknowledgement; progress presentation and interactive requests stay with the frontend.
 

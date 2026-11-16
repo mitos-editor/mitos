@@ -288,13 +288,23 @@ async fn selection_dialog_hides_the_editor_native_cursor() {
         let mut app = cursor_app(true, shape, block_rendering, "#[a|]#b\n");
         keys(&mut app, "<esc>").await;
         assert_editor_cursor(&app, true);
-        let request = serde_json::from_value(serde_json::json!({
-            "jsonrpc": "2.0", "id": 1, "method": "window/showMessageRequest",
-            "params": {"type": 3, "message": "Choose", "actions": [{"title": "OK"}]}
-        }))
-        .unwrap();
-        app.handle_language_server_message(request, Default::default())
+        app.job_sender()
+            .send(|compositor, _| {
+                compositor.replace_or_push(
+                    "lsp-show-message-request",
+                    term::ui::Select::new(
+                        "Choose",
+                        [lsp_client::lsp::MessageActionItem {
+                            title: "OK".into(),
+                            properties: Default::default(),
+                        }],
+                        (),
+                        |_, _, _| {},
+                    ),
+                );
+            })
             .await;
+        super::helpers::run_event_loop_until_idle(&mut app).await;
         keys(&mut app, "<down>").await;
         assert!(!app.terminal_backend().cursor_visible());
         keys(&mut app, "<esc>").await;
