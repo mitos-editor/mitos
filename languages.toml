@@ -225,6 +225,15 @@ command = "astro-ls"
 args = [ "--stdio" ]
 config = { typescript = { tsdk = "node_modules/typescript/lib" } }
 
+# https://github.com/olrtg/emmet-language-server
+[language-server.emmet-language-server]
+command = "emmet-language-server"
+args = ["--stdio"]
+
+# https://github.com/olrtg/emmet-language-server#configuration
+[language-server.emmet-language-server.config]
+showSuggestionsAsSnippets = true
+
 [language-server.lua-language-server]
 command = "lua-language-server"
 
@@ -1201,7 +1210,10 @@ scope = "text.html.basic"
 injection-regex = "html"
 file-types = ["html", "htm", "shtml", "xhtml", "xht", "jsp", "asp", "aspx", "jshtm", "volt", "rhtml", "cshtml"]
 block-comment-tokens = { start = "<!--", end = "-->" }
-language-servers = [{ alternatives = ["vscode-html-language-server", "superhtml"] }]
+language-servers = [
+  { alternatives = ["vscode-html-language-server", "superhtml"] },
+  "emmet-language-server",
+]
 auto-format = true
 indent = { tab-width = 2, unit = "  " }
 
