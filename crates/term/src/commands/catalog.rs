@@ -1340,7 +1340,7 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
         aliases: &[],
         doc: "Create a worktree in a new folder. Give an existing branch name, or omit it to use the current commit without a branch.",
         action: CommandAction::Committed(super::vcs::typed::worktree_create),
-        args: CommandArgs::new(&[completers::none], &[completers::none]),
+        args: CommandArgs::new(&[completers::directory], &[completers::none]),
     },
     TypableCommand {
         name: "vcs-worktree-open",

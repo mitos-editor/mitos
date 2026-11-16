@@ -564,13 +564,19 @@ pub mod completers {
         input: &str,
         git_ignore: bool,
     ) -> CompletionResult {
-        filename_impl(editor, input, git_ignore, |entry| {
-            if entry.path().is_dir() {
-                FileMatch::AcceptIncomplete
-            } else {
-                FileMatch::Accept
-            }
-        })
+        filename_impl(
+            editor,
+            input,
+            stdx::env::current_working_dir(),
+            git_ignore,
+            |entry| {
+                if entry.path().is_dir() {
+                    FileMatch::AcceptIncomplete
+                } else {
+                    FileMatch::Accept
+                }
+            },
+        )
     }
 
     pub fn language(editor: &Editor, input: &str) -> CompletionResult {
@@ -648,7 +654,17 @@ pub mod completers {
         input: &str,
         git_ignore: bool,
     ) -> CompletionResult {
-        filename_impl(editor, input, git_ignore, |entry| {
+        directory_at(editor, input, stdx::env::current_working_dir(), git_ignore)
+    }
+
+    /// Complete directories relative to the same base used to resolve the prompt's input.
+    pub fn directory_at(
+        editor: &Editor,
+        input: &str,
+        base: std::path::PathBuf,
+        git_ignore: bool,
+    ) -> CompletionResult {
+        filename_impl(editor, input, base, git_ignore, |entry| {
             if entry.path().is_dir() {
                 FileMatch::Accept
             } else {
@@ -671,6 +687,7 @@ pub mod completers {
     fn filename_impl<F>(
         editor: &Editor,
         input: &str,
+        base: std::path::PathBuf,
         git_ignore: bool,
         filter_fn: F,
     ) -> CompletionResult
@@ -688,10 +705,10 @@ pub mod completers {
             filename_completions(
                 handle,
                 &input,
+                &base,
                 git_ignore,
                 require_git,
-                directory_style,
-                symlink_style,
+                (directory_style, symlink_style),
                 filter_fn,
             )
         })
@@ -701,10 +718,10 @@ pub mod completers {
     fn filename_completions<F>(
         handle: &TaskHandle,
         input: &str,
+        base: &std::path::Path,
         git_ignore: bool,
         require_git: bool,
-        directory_style: Style,
-        symlink_style: Style,
+        (directory_style, symlink_style): (Style, Style),
         filter_fn: F,
     ) -> Vec<Completion>
     where
@@ -737,12 +754,14 @@ pub mod completers {
                 match path.parent() {
                     Some(path) if !path.as_os_str().is_empty() => Cow::Borrowed(path),
                     // Path::new("h")'s parent is Some("")...
-                    _ => Cow::Owned(stdx::env::current_working_dir()),
+                    _ => Cow::Borrowed(base),
                 }
             };
 
             (path, file_name)
         };
+
+        let dir = base.join(dir);
 
         let end = input.len()..;
 
