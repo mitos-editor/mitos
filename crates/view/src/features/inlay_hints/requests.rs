@@ -8,7 +8,9 @@ use language_config::LanguageServerFeature;
 use lsp_client::{lsp, OffsetEncoding};
 use text_layout::text_annotations::InlineAnnotation;
 
-use super::state::{CacheKey, CachedHint, DocumentInlayHints, DocumentInlayHintsId, HintStyle};
+use super::state::{
+    CacheKey, CachedHint, DisplayedHint, DocumentInlayHints, DocumentInlayHintsId, HintStyle,
+};
 use crate::{
     callbacks::EditorCallbackSender, features::request::ViewRequest, Document, Editor, View,
 };
@@ -177,6 +179,7 @@ fn annotations(
     let mut retained = Vec::new();
     let mut ordered = Vec::new();
     let mut styles = Vec::new();
+    let mut labels = Vec::new();
 
     for hint in hints {
         let char_idx = match lsp_client::util::lsp_pos_to_pos(text, hint.position, offset_encoding)
@@ -187,6 +190,7 @@ fn annotations(
         };
 
         let mut label = super::label(&hint.label);
+        let mut label_bytes = label.len();
         // Truncate the hint if too long
         if let Some(limit) = length_limit {
             // Limit on displayed width
@@ -207,6 +211,7 @@ fn annotations(
                 }
 
                 label.truncate(floor_boundary);
+                label_bytes = floor_boundary;
                 label.push('…');
             }
         }
@@ -223,9 +228,14 @@ fn annotations(
             padding_before_inlay_hints.push(InlineAnnotation::new(char_idx, " "));
             ordered.push(InlineAnnotation::new(char_idx, " "));
             styles.push(HintStyle::Padding);
+            labels.push(None);
         }
 
         ordered.push(InlineAnnotation::new(char_idx, label.clone()));
+        labels.push(Some(DisplayedHint {
+            hint: retained.len(),
+            label_bytes,
+        }));
         styles.push(match hint.kind {
             Some(lsp::InlayHintKind::TYPE) => HintStyle::Type,
             Some(lsp::InlayHintKind::PARAMETER) => HintStyle::Parameter,
@@ -237,6 +247,7 @@ fn annotations(
             padding_after_inlay_hints.push(InlineAnnotation::new(char_idx, " "));
             ordered.push(InlineAnnotation::new(char_idx, " "));
             styles.push(HintStyle::Padding);
+            labels.push(None);
         }
         retained.push(CachedHint {
             char_idx,
@@ -254,7 +265,72 @@ fn annotations(
             padding_after_inlay_hints,
             ordered,
             styles,
+            labels,
         },
         retained,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use text_layout::{
+        doc_formatter::{DocumentFormatter, TextFormat},
+        text_annotations::{Conceal, TextAnnotations},
+    };
+
+    #[test]
+    fn displayed_label_metadata_excludes_padding_other_sources_and_truncation_ellipsis() {
+        let text = editor_core::Rope::from_str("😀 tail");
+        let hint = |label| lsp::InlayHint {
+            position: lsp::Position::new(0, 3),
+            label: lsp::InlayHintLabel::String(label),
+            kind: None,
+            text_edits: None,
+            tooltip: None,
+            padding_left: Some(true),
+            padding_right: Some(true),
+            data: None,
+        };
+        let (display, retained) = annotations(
+            &text,
+            DocumentInlayHintsId {
+                first_line: 0,
+                last_line: 1,
+            },
+            OffsetEncoding::Utf16,
+            Some(3.try_into().unwrap()),
+            vec![
+                hint("界e\u{301} suffix".into()),
+                hint("界e\u{301} suffix".into()),
+            ],
+        );
+        assert_eq!(retained.len(), 2);
+        let other = [InlineAnnotation::new(2, "界e\u{301}…")];
+        let conceals = [Conceal { range: 1..3 }];
+        let mut annotations = TextAnnotations::default();
+        annotations
+            .add_inline_annotations(&display.ordered, None)
+            .add_inline_annotations(&other, None);
+        let format = TextFormat::default();
+        let glyphs =
+            DocumentFormatter::new_at_prev_checkpoint(text.slice(..), &format, &annotations, 0)
+                .collect::<Vec<_>>();
+        let hits = glyphs
+            .into_iter()
+            .filter_map(|glyph| display.hint_for_annotation(glyph.inline_annotation?))
+            .collect::<Vec<_>>();
+        assert_eq!(hits, [(0, 0), (0, 3), (1, 0), (1, 3)]);
+        annotations.set_conceals(&conceals);
+        assert!(DocumentFormatter::new_at_prev_checkpoint(
+            text.slice(..),
+            &format,
+            &annotations,
+            0
+        )
+        .all(|glyph| glyph
+            .inline_annotation
+            .and_then(|source| display.hint_for_annotation(source))
+            .is_none()));
+    }
 }

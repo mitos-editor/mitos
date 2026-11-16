@@ -5,8 +5,10 @@ use crate::graphics::Rect;
 use editor_core::RopeSlice;
 use stdx::rope::RopeExt as _;
 use text_layout::{
-    char_idx_at_visual_offset, doc_formatter::TextFormat, text_annotations::TextAnnotations,
-    visual_offset_from_anchor, DisplayPosition, VisualOffsetError,
+    char_idx_at_visual_offset,
+    doc_formatter::{DocumentFormatter, InlineAnnotationSource, TextFormat},
+    text_annotations::TextAnnotations,
+    visual_offset_from_anchor, visual_offset_from_block, DisplayPosition, VisualOffsetError,
 };
 
 /// An operation-local layout. The document remains borrowed while its annotations are used.
@@ -20,6 +22,69 @@ pub struct ViewLayout<'a> {
 }
 
 impl ViewLayout<'_> {
+    /// Exact inline text displayed at a screen cell. Padding from clipping a
+    /// wide glyph is excluded; a visible tab still owns each of its cells.
+    pub fn inline_annotation_at_screen_coords(
+        &self,
+        row: u16,
+        column: u16,
+    ) -> Option<InlineAnnotationSource<'_>> {
+        if row < self.viewport.top()
+            || row >= self.viewport.bottom()
+            || column < self.viewport.left()
+            || column >= self.viewport.right()
+        {
+            return None;
+        }
+        let first_row = visual_offset_from_block(
+            self.text,
+            self.offset.anchor,
+            self.offset.anchor,
+            &self.format,
+            &self.annotations,
+        )
+        .0
+        .row;
+        let row = first_row + self.offset.vertical_offset + usize::from(row - self.viewport.y);
+        let column = self.offset.horizontal_offset + usize::from(column - self.viewport.x);
+        let mut formatter = DocumentFormatter::new_at_prev_checkpoint(
+            self.text,
+            &self.format,
+            &self.annotations,
+            self.offset.anchor,
+        );
+        while let Some(grapheme) = formatter.next() {
+            if grapheme.visual_pos.row < row {
+                // Preceding unwrapped rows may have arbitrarily long tails.
+                // Reuse the renderer's conservative annotation-aware fast path.
+                formatter.skip_unwrapped_line_tail();
+                continue;
+            }
+            if grapheme.visual_pos.row > row {
+                break;
+            }
+            if grapheme.visual_pos.col > column {
+                break;
+            }
+            if grapheme.visual_pos.row == row
+                && grapheme.visual_pos.col <= column
+                && column < grapheme.visual_pos.col + grapheme.width()
+            {
+                // Rendering suppresses a wide glyph that crosses either edge.
+                // Tabs are rendered as individual cells and may be clipped.
+                if !matches!(grapheme.raw, editor_core::graphemes::Grapheme::Tab { .. })
+                    && (grapheme.visual_pos.col < self.offset.horizontal_offset
+                        || grapheme.visual_pos.col + grapheme.width()
+                            > self.offset.horizontal_offset + usize::from(self.viewport.width))
+                {
+                    return None;
+                }
+                return grapheme.inline_annotation;
+            }
+        }
+        None
+    }
+
     /// Source line that begins the display block containing this position.
     pub fn block_line_at_pos(&self, pos: usize) -> usize {
         self.text
@@ -256,6 +321,121 @@ mod tests {
         assert_eq!(
             layout.display_position_at_pos(0),
             Some(DisplayPosition::new(0, 0))
+        );
+    }
+
+    #[test]
+    fn inline_hits_follow_wrapped_rows_scroll_offsets_and_viewport_edges() {
+        let text = Rope::from_str("before\na tail\nnext");
+        let inline = [InlineAnnotation::new(8, "界e\u{301} long 😀 label")];
+        let mut layout = plain_layout(&text, Rect::new(7, 9, 6, 2));
+        layout.offset.anchor = 7;
+        layout.offset.vertical_offset = 1;
+        layout.format = TextFormat {
+            soft_wrap: true,
+            viewport_width: 6,
+            max_wrap: 0,
+            max_indent_retain: 0,
+            ..Default::default()
+        };
+        layout.annotations.add_inline_annotations(&inline, None);
+        let glyphs = DocumentFormatter::new_at_prev_checkpoint(
+            layout.text,
+            &layout.format,
+            &layout.annotations,
+            7,
+        )
+        .collect::<Vec<_>>();
+        let mut hits = 0;
+        for glyph in glyphs {
+            let Some(source) = glyph.inline_annotation else {
+                continue;
+            };
+            if !(1..3).contains(&glyph.visual_pos.row) {
+                continue;
+            }
+            for col in glyph.visual_pos.col..glyph.visual_pos.col + glyph.width() {
+                let hit = layout
+                    .inline_annotation_at_screen_coords(
+                        9 + (glyph.visual_pos.row - 1) as u16,
+                        7 + col as u16,
+                    )
+                    .unwrap();
+                assert!(std::ptr::eq(hit.annotation, &inline[0]));
+                assert_eq!(hit.byte_offset, source.byte_offset);
+                hits += 1;
+            }
+        }
+        assert!(hits > 5);
+        for (row, col) in [(8, 7), (9, 6), (9, 13), (11, 7)] {
+            assert!(layout
+                .inline_annotation_at_screen_coords(row, col)
+                .is_none());
+        }
+    }
+
+    #[test]
+    fn inline_hits_exclude_clipped_wide_glyphs_and_include_visible_tab_cells() {
+        let text = Rope::from_str("x");
+        let inline = [InlineAnnotation::new(0, "界a😀b")];
+        let mut layout = plain_layout(&text, Rect::new(5, 7, 4, 1));
+        layout.annotations.add_inline_annotations(&inline, None);
+        layout.offset.horizontal_offset = 1;
+        assert!(layout.inline_annotation_at_screen_coords(7, 5).is_none());
+        assert_eq!(
+            layout
+                .inline_annotation_at_screen_coords(7, 6)
+                .unwrap()
+                .byte_offset,
+            3
+        );
+        for col in [7, 8] {
+            assert_eq!(
+                layout
+                    .inline_annotation_at_screen_coords(7, col)
+                    .unwrap()
+                    .byte_offset,
+                4
+            );
+        }
+        layout.offset.horizontal_offset = 2;
+        layout.viewport.width = 2;
+        assert_eq!(
+            layout
+                .inline_annotation_at_screen_coords(7, 5)
+                .unwrap()
+                .byte_offset,
+            3
+        );
+        assert!(layout.inline_annotation_at_screen_coords(7, 6).is_none());
+
+        let tab = [InlineAnnotation::new(0, "A\tB")];
+        let mut layout = plain_layout(&text, Rect::new(5, 7, 2, 1));
+        layout.annotations.add_inline_annotations(&tab, None);
+        layout.offset.horizontal_offset = 2;
+        for col in [5, 6] {
+            assert_eq!(
+                layout
+                    .inline_annotation_at_screen_coords(7, col)
+                    .unwrap()
+                    .byte_offset,
+                1
+            );
+        }
+    }
+
+    #[test]
+    fn inline_hits_skip_long_unwrapped_tails_before_the_target_row() {
+        let text = Rope::from_str(&format!("{}\na", "x".repeat(20_000_000)));
+        let inline = [InlineAnnotation::new(20_000_001, "hint")];
+        let mut layout = plain_layout(&text, Rect::new(0, 0, 80, 2));
+        layout.annotations.add_inline_annotations(&inline, None);
+        let started = std::time::Instant::now();
+        let source = layout.inline_annotation_at_screen_coords(1, 1).unwrap();
+        assert_eq!(source.byte_offset, 1);
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(1),
+            "offscreen source tails must not be formatted on every mouse move"
         );
     }
 }

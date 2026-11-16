@@ -21,7 +21,7 @@ use unicode_segmentation::{Graphemes, UnicodeSegmentation};
 
 use stdx::rope::{RopeExt as _, RopeGraphemes, RopeSliceExt};
 
-use crate::text_annotations::{AnnotationCursor, TextAnnotations};
+use crate::text_annotations::{AnnotationCursor, InlineAnnotation, TextAnnotations};
 use crate::DisplayPosition;
 use editor_core::graphemes::{Grapheme, GraphemeStr};
 use editor_core::highlight::Highlight;
@@ -63,6 +63,9 @@ impl GraphemeSource {
 pub struct FormattedGrapheme<'a> {
     pub raw: Grapheme<'a>,
     pub source: GraphemeSource,
+    /// The exact inline entry and byte offset that produced this glyph.
+    /// Wrapping indicators, document text, overlays and conceals have no entry.
+    pub inline_annotation: Option<InlineAnnotationSource<'a>>,
     pub visual_pos: DisplayPosition,
     /// Document line at the start of the grapheme
     pub line_idx: usize,
@@ -71,6 +74,15 @@ pub struct FormattedGrapheme<'a> {
     pub block_line_idx: usize,
     /// Document char position at the start of the grapheme
     pub char_idx: usize,
+}
+
+/// Provenance within an inline annotation, independent of its document anchor.
+/// Several annotations may share one anchor and remain distinct after wrapping.
+#[derive(Debug, Clone, Copy)]
+pub struct InlineAnnotationSource<'a> {
+    pub annotation: &'a InlineAnnotation,
+    /// UTF-8 byte offset of the grapheme in the annotation's original text.
+    pub byte_offset: usize,
 }
 
 impl FormattedGrapheme<'_> {
@@ -99,6 +111,7 @@ impl FormattedGrapheme<'_> {
 struct GraphemeWithSource<'a> {
     grapheme: Grapheme<'a>,
     source: GraphemeSource,
+    inline_annotation: Option<InlineAnnotationSource<'a>>,
     concealed_lines: usize,
 }
 
@@ -108,10 +121,12 @@ impl<'a> GraphemeWithSource<'a> {
         visual_x: usize,
         tab_width: u16,
         source: GraphemeSource,
+        inline_annotation: Option<InlineAnnotationSource<'a>>,
     ) -> GraphemeWithSource<'a> {
         GraphemeWithSource {
             grapheme: Grapheme::new(g, visual_x, tab_width),
             source,
+            inline_annotation,
             concealed_lines: 0,
         }
     }
@@ -119,6 +134,7 @@ impl<'a> GraphemeWithSource<'a> {
         GraphemeWithSource {
             grapheme: Grapheme::Other { g: " ".into() },
             source: GraphemeSource::Document { codepoints: 0 },
+            inline_annotation: None,
             concealed_lines: 0,
         }
     }
@@ -146,6 +162,14 @@ impl<'a> GraphemeWithSource<'a> {
     fn is_word_boundary(&self) -> bool {
         self.grapheme.is_word_boundary()
     }
+}
+
+#[derive(Debug)]
+struct InlineAnnotationIter<'a> {
+    annotation: &'a InlineAnnotation,
+    graphemes: Graphemes<'a>,
+    highlight: Option<Highlight>,
+    byte_offset: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -189,7 +213,7 @@ pub struct DocumentFormatter<'t> {
     block_line_pos: usize,
     exhausted: bool,
 
-    inline_annotation_graphemes: Option<(Graphemes<'t>, Option<Highlight>)>,
+    inline_annotation_graphemes: Option<InlineAnnotationIter<'t>>,
 
     // softwrap specific
     /// The indentation of the current line
@@ -247,22 +271,28 @@ impl<'t> DocumentFormatter<'t> {
     fn next_inline_annotation_grapheme(
         &mut self,
         char_pos: usize,
-    ) -> Option<(&'t str, Option<Highlight>)> {
+    ) -> Option<(&'t str, Option<Highlight>, InlineAnnotationSource<'t>)> {
         loop {
-            if let Some(&mut (ref mut annotation, highlight)) =
-                self.inline_annotation_graphemes.as_mut()
-                && let Some(grapheme) = annotation.next()
+            if let Some(current) = self.inline_annotation_graphemes.as_mut()
+                && let Some(grapheme) = current.graphemes.next()
             {
-                return Some((grapheme, highlight));
+                let source = InlineAnnotationSource {
+                    annotation: current.annotation,
+                    byte_offset: current.byte_offset,
+                };
+                current.byte_offset += grapheme.len();
+                return Some((grapheme, current.highlight, source));
             }
 
             if let Some((annotation, highlight)) =
                 self.annotation_cursor.next_inline_annotation_at(char_pos)
             {
-                self.inline_annotation_graphemes = Some((
-                    UnicodeSegmentation::graphemes(&*annotation.text, true),
+                self.inline_annotation_graphemes = Some(InlineAnnotationIter {
+                    annotation,
+                    graphemes: UnicodeSegmentation::graphemes(&*annotation.text, true),
                     highlight,
-                ))
+                    byte_offset: 0,
+                })
             } else {
                 return None;
             }
@@ -279,38 +309,51 @@ impl<'t> DocumentFormatter<'t> {
                 source: GraphemeSource::Document {
                     codepoints: end - char_pos,
                 },
+                inline_annotation: None,
                 concealed_lines: self.text.char_to_line_idx(end)
                     - self.text.char_to_line_idx(char_pos),
             });
         }
-        let (grapheme, source) =
-            if let Some((grapheme, highlight)) = self.next_inline_annotation_grapheme(char_pos) {
-                (grapheme.into(), GraphemeSource::VirtualText { highlight })
-            } else if let Some(grapheme) = self.graphemes.next() {
-                let codepoints = grapheme.len_chars();
+        let (grapheme, source, inline_annotation) = if let Some((grapheme, highlight, annotation)) =
+            self.next_inline_annotation_grapheme(char_pos)
+        {
+            (
+                grapheme.into(),
+                GraphemeSource::VirtualText { highlight },
+                Some(annotation),
+            )
+        } else if let Some(grapheme) = self.graphemes.next() {
+            let codepoints = grapheme.len_chars();
 
-                let overlay = self.annotation_cursor.overlay_at(char_pos);
-                let grapheme = match overlay {
-                    Some((overlay, _)) => overlay.grapheme.as_str().into(),
-                    None => Cow::from(grapheme).into(),
-                };
-
-                (grapheme, GraphemeSource::Document { codepoints })
-            } else {
-                if self.exhausted {
-                    return None;
-                }
-                self.exhausted = true;
-                // EOF grapheme is required for rendering
-                // and correct position computations
-                return Some(GraphemeWithSource {
-                    grapheme: Grapheme::Other { g: " ".into() },
-                    source: GraphemeSource::Document { codepoints: 0 },
-                    concealed_lines: 0,
-                });
+            let overlay = self.annotation_cursor.overlay_at(char_pos);
+            let grapheme = match overlay {
+                Some((overlay, _)) => overlay.grapheme.as_str().into(),
+                None => Cow::from(grapheme).into(),
             };
 
-        let grapheme = GraphemeWithSource::new(grapheme, col, self.text_fmt.tab_width, source);
+            (grapheme, GraphemeSource::Document { codepoints }, None)
+        } else {
+            if self.exhausted {
+                return None;
+            }
+            self.exhausted = true;
+            // EOF grapheme is required for rendering
+            // and correct position computations
+            return Some(GraphemeWithSource {
+                grapheme: Grapheme::Other { g: " ".into() },
+                source: GraphemeSource::Document { codepoints: 0 },
+                inline_annotation: None,
+                concealed_lines: 0,
+            });
+        };
+
+        let grapheme = GraphemeWithSource::new(
+            grapheme,
+            col,
+            self.text_fmt.tab_width,
+            source,
+            inline_annotation,
+        );
 
         Some(grapheme)
     }
@@ -449,7 +492,7 @@ impl<'t> DocumentFormatter<'t> {
             || self
                 .inline_annotation_graphemes
                 .as_ref()
-                .is_some_and(|(items, _)| !items.as_str().is_empty())
+                .is_some_and(|current| !current.graphemes.as_str().is_empty())
         {
             return false;
         }
@@ -509,6 +552,7 @@ impl<'t> Iterator for DocumentFormatter<'t> {
         let grapheme = FormattedGrapheme {
             raw: grapheme.grapheme,
             source: grapheme.source,
+            inline_annotation: grapheme.inline_annotation,
             visual_pos: self.visual_pos,
             line_idx: self.line_pos,
             block_line_idx: self.block_line_pos,
