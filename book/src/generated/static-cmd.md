@@ -124,11 +124,11 @@
 | `symbol_picker` | Open symbol picker |  |
 | `syntax_symbol_picker` | Open symbol picker from syntax information |  |
 | `lsp_or_syntax_symbol_picker` | Open symbol picker from LSP or syntax information | normal: `` <space>s ``, select: `` <space>s `` |
-| `vcs_show_change` | Show hunk diff | normal: `` <space>i ``, `` <space>gi ``, select: `` <space>i ``, `` <space>gi `` |
+| `vcs_show_change` | Show hunk diff | normal: `` <space>gi ``, select: `` <space>gi `` |
 | `vcs_goto_next_conflict` | Go to the next unresolved conflict | normal: `` ]m ``, select: `` ]m `` |
 | `vcs_goto_previous_conflict` | Go to the previous unresolved conflict | normal: `` [m ``, select: `` [m `` |
 | `vcs_blame_line` | Show line blame | normal: `` <space>gb ``, select: `` <space>gb `` |
-| `vcs_toggle_inline_blame` | Toggle inline blame | normal: `` <space>B ``, `` <space>gt ``, select: `` <space>B ``, `` <space>gt `` |
+| `vcs_toggle_inline_blame` | Toggle inline blame | normal: `` <space>gt ``, select: `` <space>gt `` |
 | `vcs_history_picker` | Browse commits | normal: `` <space>gl ``, select: `` <space>gl `` |
 | `vcs_file_history_picker` | Browse file history | normal: `` <space>gf ``, select: `` <space>gf `` |
 | `vcs_stash_picker` | Browse stashes | normal: `` <space>gS ``, select: `` <space>gS `` |

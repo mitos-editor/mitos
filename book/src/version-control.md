@@ -24,7 +24,18 @@ currently the only supported provider.
 
 Find other version-control commands by searching for `vcs-` in the command palette (`Space ?`).
 
-`Space i` also inspects a change, and `Space B` toggles inline blame.
+The `Space i` and `Space B` aliases have been removed. Use `Space g i` and
+`Space g t` instead, or restore the aliases in `config.toml`:
+
+```toml
+[keys.normal.space]
+i = "vcs_show_change"
+B = "vcs_toggle_inline_blame"
+
+[keys.select.space]
+i = "vcs_show_change"
+B = "vcs_toggle_inline_blame"
+```
 
 Previously, `Space g` opened changed files directly; that action is now
 `Space g s`. To open changed files directly again, replace the
@@ -161,7 +172,7 @@ large files may be rejected, or their diffs shortened with a notice.
 
 ### Inspecting the current change
 
-Press `Space i` or run `:vcs-show-change` to inspect the change at the cursor in a
+Press `Space g i` or run `:vcs-show-change` to inspect the change at the cursor in a
 popup. It compares `HEAD` with the current buffer, including unsaved edits, and
 shows added and removed lines with context and line numbers.
 
@@ -477,7 +488,7 @@ accepts repeated `blame.ignoreRevs` values for individual revisions.
 
 ## Inline blame
 
-Show who last changed the current line with `Space B`. Press it again to hide
+Show who last changed the current line with `Space g t`. Press it again to hide
 annotations. To show them by default, add this to `config.toml`:
 
 ```toml
