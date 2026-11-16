@@ -111,6 +111,340 @@ impl Fixture {
         let transaction = Transaction::insert(doc.text(), &Selection::point(0), "new ".into());
         view::editing::apply(doc, &transaction, view.id).unwrap();
     }
+
+    async fn inlays(&mut self) -> anyhow::Result<view::ViewId> {
+        inlay_hints::refresh(&mut self.app.editor);
+        self.response().await?(&mut self.app.editor);
+        Ok(current_ref!(self.app.editor).0.id)
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn inlay_details_resolve_exact_original_hint_once_and_retain_metadata() -> anyhow::Result<()>
+{
+    use lsp_client::{lsp as protocol, OffsetEncoding};
+    let dir = tempfile::tempdir()?;
+    let mut f = Fixture::with_args(dir.path(), &["--inlay-details"]).await?;
+    let view = f.inlays().await?;
+    let request = f.wait_message("initialize").await?;
+    assert_eq!(
+        request["params"]["capabilities"]["textDocument"]["inlayHint"]["resolveSupport"]
+            ["properties"],
+        serde_json::json!(["tooltip", "label.tooltip"])
+    );
+    assert!(!lsp::read_log(&f.log)?
+        .iter()
+        .any(|message| message["method"] == "inlayHint/resolve"));
+    let item = inlay_hints::hints_on_line(&f.app.editor, view, 0).remove(0);
+    assert_eq!(item.label, "界é suffix");
+    let result = inlay_hints::resolve(&mut f.app.editor, item.target.clone())
+        .unwrap()
+        .await
+        .unwrap();
+    assert!(result.is_current(&f.app.editor));
+    assert_eq!(result.offset_encoding(), OffsetEncoding::Utf16);
+    let request = f.wait_message("inlayHint/resolve").await?;
+    assert_eq!(
+        request["params"]["position"],
+        serde_json::json!({"line": 0, "character": 3})
+    );
+    assert_eq!(
+        request["params"]["data"],
+        serde_json::json!({"server": "alpha", "opaque": [null, {"nested": "value"}]})
+    );
+    assert_eq!(request["params"]["label"][0]["tooltip"], "eager *part*");
+    let protocol::InlayHintLabel::LabelParts(parts) = &result.hint().label else {
+        panic!("structured label lost")
+    };
+    assert!(parts[0].location.is_some());
+    assert_eq!(parts[0].command.as_ref().unwrap().command, "inlay.inspect");
+    assert_eq!(parts[0].value, "界é");
+    assert!(result.hint().text_edits.is_some());
+    assert!(
+        matches!(&result.hint().tooltip, Some(protocol::InlayHintTooltip::MarkupContent(markup)) if markup.kind == protocol::MarkupKind::PlainText)
+    );
+    result.cache(&mut f.app.editor);
+    let second = inlay_hints::resolve(&mut f.app.editor, item.target)
+        .unwrap()
+        .await
+        .unwrap();
+    assert!(second.is_current(&f.app.editor));
+    assert_eq!(
+        lsp::read_log(&f.log)?
+            .iter()
+            .filter(|message| message["method"] == "inlayHint/resolve")
+            .count(),
+        1
+    );
+    assert!(!result.is_current(&f.app.editor)); // selecting another hint cancels the old interaction
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn inlay_details_reject_stale_targets_and_queued_results() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let mut f = Fixture::with_args(dir.path(), &["--inlay-details"]).await?;
+    let view = f.inlays().await?;
+    let item = inlay_hints::hints_on_line(&f.app.editor, view, 0).remove(0);
+    let result = inlay_hints::resolve(&mut f.app.editor, item.target.clone())
+        .unwrap()
+        .await
+        .unwrap();
+    current!(f.app.editor)
+        .1
+        .set_selection(view, Selection::point(3));
+    assert!(!result.is_current(&f.app.editor));
+    assert!(inlay_hints::resolve(&mut f.app.editor, item.target).is_none());
+    let target = inlay_hints::hints_on_line(&f.app.editor, view, 0)
+        .remove(0)
+        .target;
+    let server = result.language_server_id();
+    inlay_hints::refresh_for_language_server(&mut f.app.editor, server);
+    f.response().await?(&mut f.app.editor);
+    assert!(!target.is_current(&f.app.editor)); // same version and viewport, different cache
+    let target = inlay_hints::hints_on_line(&f.app.editor, view, 0)
+        .remove(0)
+        .target;
+    f.edit();
+    assert!(!target.is_current(&f.app.editor));
+    assert!(inlay_hints::hints_on_line(&f.app.editor, view, 0).is_empty());
+    assert!(current_ref!(f.app.editor).1.inlay_hints(view).is_some()); // mapped display remains
+    assert!(current!(f.app.editor).1.undo());
+    assert_eq!(
+        current_ref!(f.app.editor).1.text().to_string(),
+        "😀 original\n"
+    );
+    assert!(!target.is_current(&f.app.editor));
+    assert!(inlay_hints::hints_on_line(&f.app.editor, view, 0).is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn inlay_details_reject_view_reuse_and_provider_detachment() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let mut f = Fixture::with_args(dir.path(), &["--inlay-details"]).await?;
+    let view = f.inlays().await?;
+    let target = inlay_hints::hints_on_line(&f.app.editor, view, 0)
+        .remove(0)
+        .target;
+    let result = inlay_hints::resolve(&mut f.app.editor, target.clone())
+        .unwrap()
+        .await
+        .unwrap();
+    let document = result.document_id();
+    f.app.editor.new_file(Action::Replace);
+    assert!(!result.is_current(&f.app.editor));
+    assert!(!target.is_current(&f.app.editor));
+    f.app.editor.switch(document, Action::Replace);
+    let target = inlay_hints::hints_on_line(&f.app.editor, view, 0)
+        .remove(0)
+        .target;
+    current!(f.app.editor)
+        .1
+        .remove_language_server_by_name("alpha");
+    assert!(!target.is_current(&f.app.editor));
+    assert!(inlay_hints::resolve(&mut f.app.editor, target).is_none());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn inlay_resolution_is_canceled_by_edits_while_waiting() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let gate = Gate::new(dir.path().join("resolve-ready"));
+    let mut f = Fixture::with_args(
+        dir.path(),
+        &[
+            "--inlay-details",
+            "--resolve-gate",
+            gate.path().to_str().unwrap(),
+        ],
+    )
+    .await?;
+    let view = f.inlays().await?;
+    let target = inlay_hints::hints_on_line(&f.app.editor, view, 0)
+        .remove(0)
+        .target;
+    let future = inlay_hints::resolve(&mut f.app.editor, target).unwrap();
+    f.wait_message("inlayHint/resolve").await?;
+    f.edit();
+    assert!(tokio::time::timeout(Duration::from_secs(5), future)
+        .await?
+        .is_none());
+    gate.release()?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn dismissing_pending_inlay_details_prevents_late_popups() -> anyhow::Result<()> {
+    use super::helpers::{keys, screen};
+    let dir = tempfile::tempdir()?;
+    let gate = Gate::new(dir.path().join("resolve-ready"));
+    let mut f = Fixture::with_args(
+        dir.path(),
+        &[
+            "--inlay-details",
+            "--resolve-gate",
+            gate.path().to_str().unwrap(),
+        ],
+    )
+    .await?;
+    let view = f.inlays().await?;
+    let selection = current_ref!(f.app.editor).1.selection(view).clone();
+    keys(&mut f.app, "<space>?inlay_hints<ret>").await?;
+    f.wait_message("inlayHint/resolve").await?;
+    assert!(screen(&f.app).contains("Loading inlay hint"));
+    keys(&mut f.app, "<esc>").await?;
+    assert_eq!(current_ref!(f.app.editor).1.selection(view), &selection);
+    assert!(!screen(&f.app).contains("Loading inlay hint"));
+    gate.release()?;
+    f.hover().await?; // transport barrier after the delayed resolve response
+    keys(&mut f.app, "").await?;
+    assert!(!screen(&f.app).contains("literal whole hint"));
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn replacing_pending_inlay_details_keeps_only_the_new_interaction() -> anyhow::Result<()> {
+    use super::helpers::{keys, screen};
+    let dir = tempfile::tempdir()?;
+    let gate = Gate::new(dir.path().join("resolve-ready"));
+    let mut f = Fixture::with_args(
+        dir.path(),
+        &[
+            "--inlay-details",
+            "--resolve-gate",
+            gate.path().to_str().unwrap(),
+        ],
+    )
+    .await?;
+    f.inlays().await?;
+    keys(&mut f.app, "<space>?inlay_hints<ret>").await?;
+    f.wait_message("inlayHint/resolve").await?;
+    keys(&mut f.app, "<esc><space>?inlay_hints<ret>").await?;
+    assert!(screen(&f.app).contains("Loading inlay hint"));
+    gate.release()?;
+    f.hover().await?;
+    keys(&mut f.app, "").await?;
+    assert!(screen(&f.app).contains("literal whole hint"));
+    assert!(!screen(&f.app).contains("Loading inlay hint"));
+    assert_eq!(
+        lsp::read_log(&f.log)?
+            .iter()
+            .filter(|message| message["method"] == "inlayHint/resolve")
+            .count(),
+        2
+    );
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn inlay_hints_preserve_same_anchor_kind_order_and_per_hint_padding() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let mut f = Fixture::with_args(dir.path(), &["--mixed-inlays"]).await?;
+    let view_id = f.inlays().await?;
+    let (view, doc) = current_ref!(f.app.editor);
+    let labels: Vec<_> = inlay_hints::hints_on_line(&f.app.editor, view_id, 0)
+        .into_iter()
+        .map(|hint| hint.label)
+        .collect();
+    assert_eq!(labels, ["P", "T", "O"]);
+    let layout = view.layout(doc, Some(&f.app.editor.theme));
+    let text: String = text_layout::doc_formatter::DocumentFormatter::new_at_prev_checkpoint(
+        layout.text,
+        &layout.format,
+        &layout.annotations,
+        0,
+    )
+    .filter(|grapheme| grapheme.is_virtual())
+    .map(|grapheme| grapheme.raw.to_string())
+    .collect();
+    assert_eq!(text, " P  TO ");
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn inlay_details_command_renders_markup_and_closes_stale_details() -> anyhow::Result<()> {
+    use super::helpers::{keys, screen};
+    let dir = tempfile::tempdir()?;
+    let mut f = Fixture::with_args(dir.path(), &["--inlay-details"]).await?;
+    let view = f.inlays().await?;
+    keys(&mut f.app, "<space>?inlay_hints<ret>").await?;
+    f.wait_message("inlayHint/resolve").await?;
+    keys(&mut f.app, "").await?;
+    let contents = screen(&f.app);
+    // The test backend stores a blank trailing cell for the wide first grapheme.
+    assert!(contents.contains("é suffix"), "{contents}");
+    assert!(contents.contains("**literal whole hint**"), "{contents}");
+    assert!(contents.contains("resolved part"), "{contents}");
+    assert!(!contents.contains("**resolved part**"), "{contents}");
+    let server = current_ref!(f.app.editor)
+        .1
+        .language_servers()
+        .next()
+        .unwrap()
+        .id();
+    inlay_hints::refresh_for_language_server(&mut f.app.editor, server);
+    f.response().await?(&mut f.app.editor);
+    keys(&mut f.app, "").await?;
+    assert!(!screen(&f.app).contains("literal whole hint"));
+    assert_eq!(inlay_hints::hints_on_line(&f.app.editor, view, 0).len(), 1);
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn inlay_details_command_chooses_one_hint_in_response_order() -> anyhow::Result<()> {
+    use super::helpers::{keys, screen};
+    let dir = tempfile::tempdir()?;
+    let mut f = Fixture::with_args(dir.path(), &["--mixed-inlays"]).await?;
+    f.inlays().await?;
+    keys(&mut f.app, "<space>?inlay_hints<ret><down><ret>").await?;
+    keys(&mut f.app, "").await?;
+    assert!(screen(&f.app).contains("Type documentation"));
+    assert!(!screen(&f.app).contains("Parameter documentation"));
+    assert!(!lsp::read_log(&f.log)?
+        .iter()
+        .any(|message| message["method"] == "inlayHint/resolve"));
+    keys(&mut f.app, "<esc>").await?;
+    assert!(!screen(&f.app).contains("Type documentation"));
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn inlay_details_work_without_a_resolve_provider_and_retry_errors() -> anyhow::Result<()> {
+    for args in [
+        vec!["--inlay-details", "--no-inlay-resolve"],
+        vec!["--inlay-details", "--resolve-error"],
+        vec!["--inlay-details", "--changed-hint"],
+    ] {
+        let dir = tempfile::tempdir()?;
+        let mut f = Fixture::with_args(dir.path(), &args).await?;
+        let view = f.inlays().await?;
+        let target = inlay_hints::hints_on_line(&f.app.editor, view, 0)
+            .remove(0)
+            .target;
+        for _ in 0..2 {
+            let result = inlay_hints::resolve(&mut f.app.editor, target.clone())
+                .unwrap()
+                .await
+                .unwrap();
+            assert!(result.is_current(&f.app.editor));
+            assert!(result.hint().tooltip.is_none());
+            result.cache(&mut f.app.editor);
+        }
+        let expected = if args.contains(&"--no-inlay-resolve") {
+            0
+        } else {
+            2
+        };
+        assert_eq!(
+            lsp::read_log(&f.log)?
+                .iter()
+                .filter(|message| message["method"] == "inlayHint/resolve")
+                .count(),
+            expected
+        );
+    }
+    Ok(())
 }
 
 #[tokio::test(flavor = "multi_thread")]

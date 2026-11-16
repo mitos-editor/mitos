@@ -269,10 +269,11 @@ fn reset_pos<A, M>(layers: &mut [LayerCursor<A, M>], pos: usize, get_pos: impl F
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug)]
 enum InlineHighlights<'a> {
     Uniform(Option<Highlight>),
     PerItem(&'a [Highlight]),
+    Owned(Vec<Option<Highlight>>),
 }
 
 /// Annotations that change what is displayed when the document is rendered.
@@ -450,6 +451,22 @@ impl<'a> TextAnnotations<'a> {
         self
     }
 
+    /// Add sorted annotations with independently styled entries, including
+    /// unstyled padding. Highlights are owned so callers can derive them from
+    /// the current theme without retaining a separate allocation.
+    pub fn add_inline_annotations_with_optional_highlights(
+        &mut self,
+        layer: &'a [InlineAnnotation],
+        highlights: Vec<Option<Highlight>>,
+    ) -> &mut Self {
+        assert_eq!(layer.len(), highlights.len());
+        if !layer.is_empty() {
+            self.inline_annotations
+                .push((layer, InlineHighlights::Owned(highlights)).into());
+        }
+        self
+    }
+
     /// Add new grapheme overlays.
     ///
     /// The overlaid grapheme will be rendered with `highlight`
@@ -516,9 +533,10 @@ impl<'a> AnnotationCursor<'a> {
         self.inline_annotations.iter_mut().find_map(|layer| {
             let index = layer.current_index;
             let annotation = layer.consume(char_idx, |annot| annot.char_idx)?;
-            let highlight = match layer.layer.metadata {
-                InlineHighlights::Uniform(highlight) => highlight,
+            let highlight = match &layer.layer.metadata {
+                InlineHighlights::Uniform(highlight) => *highlight,
                 InlineHighlights::PerItem(highlights) => Some(highlights[index]),
+                InlineHighlights::Owned(highlights) => highlights[index],
             };
             Some((annotation, highlight))
         })
