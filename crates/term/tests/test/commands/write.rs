@@ -1405,3 +1405,54 @@ async fn test_force_write_quit_save_error_keeps_buffer_open() -> anyhow::Result<
     }
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn ctrl_s_saves_without_changing_mode() -> anyhow::Result<()> {
+    use view::document::Mode;
+
+    for (enter, mode) in [("", Mode::Normal), ("v", Mode::Select), ("i", Mode::Insert)] {
+        let file = tempfile::NamedTempFile::new()?;
+        let mut app = AppBuilder::new().with_file(file.path(), None).build()?;
+        helpers::keys(&mut app, &format!("ihello<esc>{enter}<C-s>")).await?;
+        assert_eq!(
+            std::fs::read_to_string(file.path())?,
+            format!("hello{}", editor_core::NATIVE_LINE_ENDING.as_str())
+        );
+        assert_eq!(app.editor.mode(), mode);
+        assert!(app.close().await.is_empty());
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn cancelling_insert_prefixes_does_not_insert_control_keys_or_restart_them(
+) -> anyhow::Result<()> {
+    for sequence in ["i<C-g><esc>x", "i<C-g>!x"] {
+        let mut app = AppBuilder::new().build()?;
+        helpers::keys(&mut app, sequence).await?;
+        let expected = if sequence.contains('!') {
+            "!x\n"
+        } else {
+            "x\n"
+        };
+        assert_eq!(
+            view::doc!(app.editor).text().to_string(),
+            expected.replace('\n', editor_core::NATIVE_LINE_ENDING.as_str())
+        );
+        assert_eq!(app.editor.mode(), view::document::Mode::Insert);
+        assert!(app.close().await.is_empty());
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn insert_checkpoint_splits_undo_without_leaving_insert_mode() -> anyhow::Result<()> {
+    let mut app = AppBuilder::new().build()?;
+    helpers::keys(&mut app, "ione<C-g>utwo<esc>u").await?;
+    assert_eq!(
+        view::doc!(app.editor).text().to_string(),
+        format!("one{}", editor_core::NATIVE_LINE_ENDING.as_str())
+    );
+    assert!(app.close().await.is_empty());
+    Ok(())
+}

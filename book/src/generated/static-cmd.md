@@ -118,7 +118,7 @@
 | `file_explorer_in_current_working_directory` | Open file explorer at current working directory |  |
 | `code_action` | Perform code action | normal: `` <space>a ``, select: `` <space>a `` |
 | `buffer_picker` | Open buffer picker | normal: `` <space>b ``, select: `` <space>b `` |
-| `jumplist_picker` | Open jumplist picker | normal: `` <space>j ``, select: `` <space>j `` |
+| `jumplist_picker` | Open jumplist picker | normal: `` <space>jj ``, select: `` <space>jj `` |
 | `quicklist_picker` | Open quicklist picker | normal: `` <space>q ``, select: `` <space>q `` |
 | `add_to_quicklist` | Add current location to quicklist | normal: `` <A-q> ``, select: `` <A-q> `` |
 | `symbol_picker` | Open symbol picker |  |
@@ -239,7 +239,7 @@
 | `redo` | Redo change | normal: `` U ``, select: `` U `` |
 | `earlier` | Move backward in history | normal: `` g<minus> ``, select: `` g<minus> `` |
 | `later` | Move forward in history | normal: `` g+ ``, select: `` g+ `` |
-| `commit_undo_checkpoint` | Start a new undo step without leaving insert mode | insert: `` <C-s> `` |
+| `commit_undo_checkpoint` | Start a new undo step without leaving insert mode | insert: `` <C-g>u `` |
 | `yank` | Yank selection | normal: `` y ``, select: `` y `` |
 | `yank_to_clipboard` | Yank selections to clipboard | normal: `` <space>y ``, select: `` <space>y `` |
 | `yank_to_primary_clipboard` | Yank selections to primary clipboard |  |
@@ -293,7 +293,7 @@
 | `select_all_children` | Select all children of the current node | normal: `` <A-I> ``, `` <S-A-down> ``, select: `` <A-I> ``, `` <S-A-down> `` |
 | `jump_forward` | Jump forward on jumplist | normal: `` <C-i> ``, `` <tab> ``, select: `` <C-i> ``, `` <tab> `` |
 | `jump_backward` | Jump backward on jumplist | normal: `` <C-o> ``, select: `` <C-o> `` |
-| `save_selection` | Record current selections in the jumplist | normal: `` <C-s> ``, select: `` <C-s> `` |
+| `save_selection` | Record current selections in the jumplist | normal: `` <space>js ``, select: `` <space>js `` |
 | `jump_view_right` | Jump to right split | normal: `` <C-w>l ``, `` <space>wl ``, `` <C-w><C-l> ``, `` <C-w><right> ``, `` <space>w<C-l> ``, `` <space>w<right> ``, select: `` <C-w>l ``, `` <space>wl ``, `` <C-w><C-l> ``, `` <C-w><right> ``, `` <space>w<C-l> ``, `` <space>w<right> `` |
 | `jump_view_left` | Jump to left split | normal: `` <C-w>h ``, `` <space>wh ``, `` <C-w><C-h> ``, `` <C-w><left> ``, `` <space>w<C-h> ``, `` <space>w<left> ``, select: `` <C-w>h ``, `` <space>wh ``, `` <C-w><C-h> ``, `` <C-w><left> ``, `` <space>w<C-h> ``, `` <space>w<left> `` |
 | `toggle_sidebar` | Toggle file explorer sidebar | normal: `` <C-w>b ``, `` <space>wb ``, select: `` <C-w>b ``, `` <space>wb `` |

@@ -187,7 +187,7 @@ async fn test_changes_in_splits_apply_to_all_views() -> anyhow::Result<()> {
     //                Both views look at the same doc.
     // * [<space>     Add a line ending to the beginning of the document.
     //                The cursor is now at line 2 in window 2.
-    // * <C-s>        Save that selection to the jumplist in window 2.
+    // * <space>js   Save that selection to the jumplist in window 2.
     // * <C-w>w       Switch to window 1.
     // * kd           Delete line 1 in window 1.
     // * <C-w>q       Close window 1, focusing window 2.
@@ -197,7 +197,7 @@ async fn test_changes_in_splits_apply_to_all_views() -> anyhow::Result<()> {
     // was not updated and after the `kd` step, pointed outside of the document.
     test((
         "#[|]#",
-        "<C-w>v[<space><C-s><C-w>wkd<C-w>qd",
+        "<C-w>v[<space><space>js<C-w>wkd<C-w>qd",
         "#[|]#",
         LineFeedHandling::AsIs,
     ))
@@ -222,7 +222,7 @@ async fn test_changes_in_splits_apply_to_all_views() -> anyhow::Result<()> {
     // panics.
     // The key sequence:
     // * 3[<space>    Create three empty lines so we are at the end of the document.
-    // * <C-w>v<C-s>  Create a split and save that point at the end of the document
+    // * <C-w>v<space>js  Create a split and save that point at the end of the document
     //                in the jumplist.
     // * <C-w>w       Switch back to the first window.
     // * uu           Undo twice (not three times which would bring us back to the
@@ -234,7 +234,7 @@ async fn test_changes_in_splits_apply_to_all_views() -> anyhow::Result<()> {
     // * %d           Clean up the buffer.
     test((
         "#[|]#",
-        "3[<space><C-w>v<C-s><C-w>wuu3[<space><C-w>q%d",
+        "3[<space><C-w>v<space>js<C-w>wuu3[<space><C-w>q%d",
         "#[|]#",
         LineFeedHandling::AsIs,
     ))

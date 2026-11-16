@@ -206,17 +206,18 @@ impl EditorView {
         if let Some(keyresult) = self.handle_keymap_event(Mode::Insert, cx, event) {
             match keyresult {
                 KeymapResult::NotFound => {
-                    if let Some(ch) = event.char() {
+                    if let Some(ch) = event.text_char() {
                         commands::insert::try_insert_char(cx, ch)?
                     }
                 }
                 KeymapResult::Cancelled(pending) => {
                     for ev in pending {
-                        match ev.char() {
+                        match ev.text_char() {
                             Some(ch) => commands::insert::try_insert_char(cx, ch)?,
                             None => {
-                                if let KeymapResult::Matched(command) =
-                                    self.keymaps.get(Mode::Insert, ev)
+                                let maps = self.keymaps.map();
+                                if let Some(crate::keymap::KeyTrie::Action(command)) =
+                                    maps[&Mode::Insert].search(&[ev])
                                 {
                                     command.execute(cx);
                                 }

@@ -120,7 +120,7 @@
 | `` <C-i> `` | Jump forward on jumplist | `` jump_forward `` |
 | `` <tab> `` | Jump forward on jumplist | `` jump_forward `` |
 | `` <C-o> `` | Jump backward on jumplist | `` jump_backward `` |
-| `` <C-s> `` | Record current selections in the jumplist | `` save_selection `` |
+| `` <C-s> `` | Write changes to disk. Accepts an optional path (`:write some/path.txt`). | `` :write `` |
 | `` <space> `` | Space | Prefix |
 | `` z `` | View | Prefix |
 | `` Z `` | View (sticky; Escape to exit) | Prefix |
@@ -284,7 +284,7 @@
 | `` <space>e `` | Open file explorer in workspace root | `` file_explorer `` |
 | `` <space>E `` | Open file explorer at current buffer's directory | `` file_explorer_in_current_buffer_directory `` |
 | `` <space>b `` | Open buffer picker | `` buffer_picker `` |
-| `` <space>j `` | Open jumplist picker | `` jumplist_picker `` |
+| `` <space>j `` | Jumps | Prefix |
 | `` <space>q `` | Open quicklist picker | `` quicklist_picker `` |
 | `` <space>s `` | Open symbol picker from LSP or syntax information | `` lsp_or_syntax_symbol_picker `` |
 | `` <space>S `` | Open workspace symbol picker from LSP or syntax information | `` lsp_or_syntax_workspace_symbol_picker `` |
@@ -313,6 +313,13 @@
 | `` <space>? `` | Open command palette | `` command_palette `` |
 | `` <space>B `` | Toggle inline blame | `` vcs_toggle_inline_blame `` |
 | `` <space>i `` | Show hunk diff | `` vcs_show_change `` |
+
+#### `` <space>j `` — Jumps
+
+| Key | Description | Command |
+| --- | --- | --- |
+| `` <space>jj `` | Open jumplist picker | `` jumplist_picker `` |
+| `` <space>js `` | Record current selections in the jumplist | `` save_selection `` |
 
 #### `` <space>g `` — Version control
 
