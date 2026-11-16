@@ -1,18 +1,21 @@
-//! Plain-text and Markdown tooltips for complete, structured inlay hints.
+//! Details and explicit actions for complete, structured inlay hints.
+
+use std::sync::Arc;
 
 use crate::{
-    compositor::{Component, Compositor, Context, DrawContext},
+    compositor::{Component, Compositor, Context, DrawContext, Event, EventResult},
     job::Callback,
-    ui::{self, Popup},
+    ui::{self, Popup, PromptEvent},
 };
 use lsp_client::lsp;
 use tui::{
     buffer::Buffer,
     text::{Line, Text},
-    widgets::Widget,
+    widgets::{Row, Widget},
 };
 use view::{
-    features::inlay_hints::{self, InlayHintTarget, ResolvedInlayHint},
+    editor::Action,
+    features::inlay_hints::{self, InlayHintAction, InlayHintTarget, ResolvedInlayHint},
     graphics::Rect,
     Editor,
 };
@@ -49,13 +52,7 @@ pub(crate) fn request(compositor: &mut Compositor, cx: &mut Context, target: Inl
                 return;
             }
             resolved.cache(cx.editor);
-            let details = HintDetails::new(resolved, cx.editor);
-            compositor.replace_or_push(
-                HintDetails::ID,
-                Popup::new(HintDetails::ID, details)
-                    .with_border(ui::PopupBorder::Hover)
-                    .auto_close(true),
-            );
+            present(compositor, cx, Arc::new(resolved), None);
         }))
         .await;
     });
@@ -102,20 +99,173 @@ impl Component for PendingHint {
     }
 }
 
+/// Present a hint, optionally limiting label-part actions to the clicked part.
+pub(crate) fn present(
+    compositor: &mut Compositor,
+    cx: &mut Context,
+    resolved: Arc<ResolvedInlayHint>,
+    part: Option<usize>,
+) {
+    if !resolved.is_current(cx.editor) {
+        return;
+    }
+    let actions: Vec<_> = resolved
+        .actions()
+        .into_iter()
+        .filter(|action| match action {
+            InlayHintAction::LabelLocation(index) | InlayHintAction::LabelCommand(index) => {
+                part.is_none_or(|part| part == *index)
+            }
+            InlayHintAction::ApplyTextEdits => true,
+        })
+        .collect();
+    if actions.is_empty() {
+        show_details(compositor, cx.editor, resolved);
+        return;
+    }
+    let mut items = vec![HintMenuItem {
+        title: "Show details".into(),
+        action: None,
+    }];
+    for action in actions {
+        let title = match action {
+            InlayHintAction::LabelLocation(index) => {
+                format!("Go to {}", part_label(&resolved, index))
+            }
+            InlayHintAction::LabelCommand(index) => {
+                let lsp::InlayHintLabel::LabelParts(parts) = &resolved.hint().label else {
+                    unreachable!()
+                };
+                format!(
+                    "Run {} ({})",
+                    parts[index].command.as_ref().unwrap().title,
+                    part_label(&resolved, index)
+                )
+            }
+            InlayHintAction::ApplyTextEdits => "Apply hint text edits".into(),
+        };
+        items.push(HintMenuItem {
+            title,
+            action: Some(action),
+        });
+    }
+    let jobs = cx.jobs.sender();
+    let result = resolved.clone();
+    let mut menu = ui::Menu::new(
+        items,
+        (),
+        move |editor, item: Option<&HintMenuItem>, event| {
+            if event != PromptEvent::Validate {
+                return;
+            }
+            let Some(item) = item else { return };
+            if let Some(action) = item.action {
+                if let Err(error) = result.execute(editor, action, Action::Replace) {
+                    editor.set_error(|| format!("Failed to use inlay hint: {error}"));
+                }
+            } else {
+                let result = result.clone();
+                jobs.enqueue(Callback::ui(move |compositor, cx| {
+                    if result.is_current(cx.editor) {
+                        show_details(compositor, cx.editor, result);
+                    }
+                }));
+            }
+        },
+    );
+    menu.move_down();
+    let contents = HintActions { resolved, menu };
+    compositor.replace_or_push(
+        HintActions::ID,
+        Popup::new(HintActions::ID, contents)
+            .with_border(ui::PopupBorder::Hover)
+            .with_scrollbar(false)
+            .auto_close(true),
+    );
+}
+
+fn part_label(hint: &ResolvedInlayHint, index: usize) -> &str {
+    match &hint.hint().label {
+        lsp::InlayHintLabel::LabelParts(parts) => &parts[index].value,
+        _ => unreachable!(),
+    }
+}
+
+fn show_details(compositor: &mut Compositor, editor: &Editor, resolved: Arc<ResolvedInlayHint>) {
+    compositor.replace_or_push(
+        HintDetails::ID,
+        Popup::new(HintDetails::ID, HintDetails::new(resolved, editor))
+            .with_border(ui::PopupBorder::Hover)
+            .auto_close(true),
+    );
+}
+
+struct HintMenuItem {
+    title: String,
+    action: Option<InlayHintAction>,
+}
+
+impl ui::menu::Item for HintMenuItem {
+    type Data = ();
+    fn format(&self, _: &()) -> Row<'_> {
+        self.title.as_str().into()
+    }
+}
+
+struct HintActions {
+    resolved: Arc<ResolvedInlayHint>,
+    menu: ui::Menu<HintMenuItem>,
+}
+
+impl HintActions {
+    const ID: &'static str = "inlay-hint-actions";
+}
+
+impl Component for HintActions {
+    fn update(&mut self, _: Rect, cx: &mut Context) {
+        if !self.resolved.is_current(cx.editor) {
+            cx.jobs.sender().enqueue(Callback::ui(|compositor, cx| {
+                if compositor
+                    .find_id::<Popup<HintActions>>(HintActions::ID)
+                    .is_some_and(|popup| !popup.contents().resolved.is_current(cx.editor))
+                {
+                    compositor.remove(HintActions::ID);
+                }
+            }));
+        }
+    }
+
+    fn has_pending_keys(&self) -> bool {
+        self.menu.has_pending_keys()
+    }
+
+    fn handle_event(&mut self, event: &Event, cx: &mut Context) -> EventResult {
+        self.menu.handle_event(event, cx)
+    }
+
+    fn render(&mut self, area: Rect, surface: &mut Buffer, cx: &mut DrawContext) {
+        self.menu.render(area, surface, cx);
+    }
+
+    fn required_size(&mut self, viewport: (u16, u16)) -> Option<(u16, u16)> {
+        self.menu.required_size(viewport)
+    }
+}
+
 enum Content {
     Plain(String),
     Markdown(ui::Markdown),
 }
 
-pub(crate) struct HintDetails {
-    resolved: ResolvedInlayHint,
+struct HintDetails {
+    resolved: Arc<ResolvedInlayHint>,
     sections: Vec<Content>,
 }
 
 impl HintDetails {
-    pub(crate) const ID: &'static str = "inlay-hint-details";
+    const ID: &'static str = "inlay-hint-details";
 
-    pub(crate) fn new(resolved: ResolvedInlayHint, editor: &Editor) -> Self {
+    fn new(resolved: Arc<ResolvedInlayHint>, editor: &Editor) -> Self {
         let mut sections = vec![Content::Plain(inlay_hints::label(&resolved.hint().label))];
         let content = |kind, value: String| {
             if kind == lsp::MarkupKind::Markdown {
