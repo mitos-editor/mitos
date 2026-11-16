@@ -5693,6 +5693,7 @@ dependencies = [
  "futures-util",
  "fuzzy",
  "globset",
+ "indexmap",
  "jiff",
  "language",
  "language-config",

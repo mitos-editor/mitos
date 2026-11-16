@@ -333,6 +333,11 @@ Saving, autosave, reloads, and native watching are configured in the
 
 The bufferline scrolls horizontally to keep the active buffer visible when the tabs exceed the window width.
 
+Use `:buffer-move-previous`, `:buffer-move-next`, `:buffer-move-start`, and
+`:buffer-move-end` to reorder the current buffer. This order also applies to
+`:buffer-next` and `:buffer-previous`, even when the bufferline is hidden.
+The buffer picker continues to sort by most recent use.
+
 ### `[editor.files.save]`
 
 | Key | Type / accepted values | Default | Description |

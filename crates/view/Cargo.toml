@@ -51,6 +51,7 @@ dap.workspace = true
 debugger.workspace = true
 vcs.workspace = true
 
+indexmap.workspace = true
 foldhash.workspace = true
 anyhow.workspace = true
 uuid.workspace = true

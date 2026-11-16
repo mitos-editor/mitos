@@ -181,12 +181,7 @@ mod tests {
 pub(super) mod typed {
     //! Typable buffers commands.
 
-    use crate::{
-        commands::navigation::{
-            goto_buffer, move_buffer_down, move_buffer_to_end, move_buffer_to_start, move_buffer_up,
-        },
-        compositor,
-    };
+    use crate::{commands::navigation::goto_buffer, compositor};
     use ::command_line::Args;
     use anyhow::bail;
     use editor_core::movement::Direction;
@@ -344,39 +339,49 @@ pub(super) mod typed {
         Ok(())
     }
 
+    fn move_buffer(editor: &mut Editor, target: impl FnOnce(usize, usize) -> usize) {
+        let current = view!(editor).document_id();
+        let position = editor
+            .documents
+            .keys()
+            .position(|id| *id == current)
+            .unwrap();
+        editor.move_document(current, target(position, editor.documents.len() - 1));
+    }
+
     #[cold]
-    pub(in crate::commands) fn buffer_order_increment(
+    pub(in crate::commands) fn buffer_move_previous(
         cx: &mut compositor::Context,
         _args: Args,
     ) -> anyhow::Result<()> {
-        move_buffer_up(cx.editor);
+        move_buffer(cx.editor, |position, _| position.saturating_sub(1));
         Ok(())
     }
 
     #[cold]
-    pub(in crate::commands) fn buffer_order_decrement(
+    pub(in crate::commands) fn buffer_move_next(
         cx: &mut compositor::Context,
         _args: Args,
     ) -> anyhow::Result<()> {
-        move_buffer_down(cx.editor);
+        move_buffer(cx.editor, |position, _| position.saturating_add(1));
         Ok(())
     }
 
     #[cold]
-    pub(in crate::commands) fn buffer_order_start(
+    pub(in crate::commands) fn buffer_move_start(
         cx: &mut compositor::Context,
         _args: Args,
     ) -> anyhow::Result<()> {
-        move_buffer_to_start(cx.editor);
+        move_buffer(cx.editor, |_, _| 0);
         Ok(())
     }
 
     #[cold]
-    pub(in crate::commands) fn buffer_order_end(
+    pub(in crate::commands) fn buffer_move_end(
         cx: &mut compositor::Context,
         _args: Args,
     ) -> anyhow::Result<()> {
-        move_buffer_to_end(cx.editor);
+        move_buffer(cx.editor, |_, last| last);
         Ok(())
     }
 
