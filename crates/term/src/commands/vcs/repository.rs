@@ -421,6 +421,7 @@ fn create_prompt<T: 'static>(
     worktree: bool,
 ) -> PickerCallbackResult<T, RepositoryData> {
     let repo = repo.clone();
+    let completion_root = repo.root().to_owned();
     let workspace = workspace.to_owned();
     PickerCallbackResult::KeepOpenWithCallback(Box::new(move |compositor, _| {
         compositor.push(Box::new(ui::Prompt::new_with_callback(
@@ -431,7 +432,13 @@ fn create_prompt<T: 'static>(
             }
             .into(),
             None,
-            ui::completers::none,
+            move |editor, input| {
+                if worktree {
+                    ui::completers::directory_at(editor, input, completion_root.clone(), true)
+                } else {
+                    ui::completers::none(editor, input)
+                }
+            },
             move |cx, input, event| {
                 if event != ui::PromptEvent::Validate || input.trim().is_empty() {
                     return None;
