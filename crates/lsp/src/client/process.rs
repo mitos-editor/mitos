@@ -412,7 +412,13 @@ impl Client {
                     inlay_hint: Some(lsp::InlayHintClientCapabilities {
                         dynamic_registration: Some(false),
                         resolve_support: Some(lsp::InlayHintResolveClientCapabilities {
-                            properties: vec!["tooltip".into(), "label.tooltip".into()],
+                            properties: vec![
+                                "tooltip".into(),
+                                "label.tooltip".into(),
+                                "label.location".into(),
+                                "label.command".into(),
+                                "textEdits".into(),
+                            ],
                         }),
                     }),
                     document_link: Some(lsp::DocumentLinkClientCapabilities {

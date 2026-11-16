@@ -134,7 +134,9 @@ Hints in hidden buffers refresh when those buffers are shown again.
 
 Use `inlay_hints` from the command palette to read complete labels and tooltips
 on the current line, including labels shortened by `length-limit`. When several
-hints share a line, choose one with the arrow keys and Enter. Details are loaded
+hints share a line, choose one with the arrow keys and Enter. If the hint offers
+actions, choose **Show details**, a label part's location or command, or **Apply
+hint text edits**. Hint edits form one undo step. Details and actions are loaded
 on demand when the server supports it. The details popup uses the usual popup
 controls: Ctrl-d/Ctrl-u scroll and Escape closes it. Plain-text tooltips keep
 literal punctuation; Markdown tooltips use Markdown formatting.
