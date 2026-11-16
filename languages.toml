@@ -1633,7 +1633,7 @@ language-servers = [ "beancount-language-server" ]
 
 [[grammar]]
 name = "beancount"
-source = { git = "https://github.com/polarmutex/tree-sitter-beancount", rev = "c8a9780610dbe8ade4888045b1f2caa7a0a9d8aa" }
+source = { git = "https://github.com/polarmutex/tree-sitter-beancount", rev = "97e38a1f9a20ec3d34ea9381bb45f2ba988c0de0" }
 
 [[language]]
 name = "ocaml"
@@ -2301,7 +2301,7 @@ language-servers = [ "metals" ]
 
 [[grammar]]
 name = "scala"
-source = { git = "https://github.com/tree-sitter/tree-sitter-scala", rev = "ce959c63a66bf10c82eebf1c42d755ea11950c09" }
+source = { git = "https://github.com/tree-sitter/tree-sitter-scala", rev = "91cdff7829b1e49567379aa0c2200cf2366faed1" }
 
 [[language]]
 name = "dockerfile"
@@ -2504,7 +2504,7 @@ indent = { tab-width = 2, unit = "  " }
 
 [[grammar]]
 name = "rescript"
-source = { git = "https://github.com/rescript-lang/tree-sitter-rescript", rev = "cc6a15ee6297d493089134cb661a54fc7a13e376" }
+source = { git = "https://github.com/rescript-lang/tree-sitter-rescript", rev = "d93f5cb4187bc233e8d76d2b19f4a2fe3084bce7" }
 
 [[language]]
 name = "erlang"
@@ -2811,7 +2811,7 @@ auto-format = false
 
 [[grammar]]
 name = "nu"
-source = { git = "https://github.com/nushell/tree-sitter-nu", rev = "4f577aaa735154f934594b598a69ed7b1b707cf6" }
+source = { git = "https://github.com/nushell/tree-sitter-nu", rev = "0c3f6dfbc30d7713dcbb15b10954f2dee86ef63c" }
 
 [[language]]
 name = "vala"
@@ -2945,7 +2945,7 @@ comment-token = "#"
 
 [[grammar]]
 name = "ssh_client_config"
-source = { git = "https://github.com/metio/tree-sitter-ssh-client-config", rev = "499fa3d1a48579589b83a617e3dd23a703663853" }
+source = { git = "https://github.com/metio/tree-sitter-ssh-client-config", rev = "23c00eb36c3658b428433a1d1139fb120d0539ac" }
 
 [[language]]
 name = "scheme"
@@ -3008,7 +3008,7 @@ language-servers = ["svlangserver", "verible-verilog-ls"]
 
 [[grammar]]
 name = "systemverilog"
-source = { git = "https://github.com/gmlarumbe/tree-sitter-systemverilog", rev = "08c5e379b9b6022d4c433a9249e6d54dedd051ba" }
+source = { git = "https://github.com/gmlarumbe/tree-sitter-systemverilog", rev = "73d7620ffdc467aab3c2089be9be5cbbc1be2eaa" }
 
 [[language]]
 name = "edoc"
@@ -3136,7 +3136,7 @@ language-servers = [ "fortls" ]
 
 [[grammar]]
 name = "fortran"
-source = { git = "https://github.com/stadelmanma/tree-sitter-fortran", rev = "72f8759dea28ff6671e0868a9ed5ad4a18413917" }
+source = { git = "https://github.com/stadelmanma/tree-sitter-fortran", rev = "d05165a6f0bd044ba1f89865927a752dd5168e66" }
 
 [[language]]
 name = "ungrammar"
@@ -3206,7 +3206,7 @@ language-servers = [ "slint-lsp" ]
 
 [[grammar]]
 name = "slint"
-source = { git = "https://github.com/slint-ui/tree-sitter-slint", rev = "b494447aeb10e540b9f0fbde08748c052859e42d" }
+source = { git = "https://github.com/slint-ui/tree-sitter-slint", rev = "b22bb31bd1cf1dfc47e7432197a9474b62d05b14" }
 
 [[language]]
 name = "task"
@@ -3647,7 +3647,7 @@ formatter = { command = "inko", args = ["fmt", "-"] }
 
 [[grammar]]
 name = "inko"
-source = { git = "https://github.com/inko-lang/tree-sitter-inko", rev = "a2bef1fc87e64adbf65f353b86e10275e693b5fe" }
+source = { git = "https://github.com/inko-lang/tree-sitter-inko", rev = "c982d0da981e4fe134cd7fd57e346099440a7942" }
 
 [[language]]
 name = "bicep"
@@ -3943,7 +3943,7 @@ injection-regex = "vhdl"
 
 [[grammar]]
 name = "vhdl"
-source = { git = "https://github.com/jpt13653903/tree-sitter-vhdl", rev = "0d5d60b269c7f9861c2bada7cef58fe62e6e7879" }
+source = { git = "https://github.com/jpt13653903/tree-sitter-vhdl", rev = "9227191efb27264fd10544936126a26cb21522da" }
 
 [[language]]
 name = "rego"
@@ -4039,7 +4039,7 @@ formatter = { command = "just", args = ["--fmt", "--justfile", "-"] }
 
 [[grammar]]
 name = "just"
-source = { git = "https://codeberg.org/poliorcetics/tree-sitter-just", rev = "fe6fd684fe5e7f3cb88beeed45a02f358ed37cf7" }
+source = { git = "https://codeberg.org/poliorcetics/tree-sitter-just", rev = "c54b851bf895599349257d8c16e9b901250cd2fb" }
 
 [[language]]
 name = "gn"
@@ -4110,7 +4110,7 @@ indent = { tab-width = 2, unit = "  " }
 
 [[grammar]]
 name = "t32"
-source = { git = "https://gitlab.com/xasc/tree-sitter-t32", rev = "11947ac01ba681fb6f62667cb1447354833f4a5b" }
+source = { git = "https://gitlab.com/xasc/tree-sitter-t32", rev = "ee52a02aa28820bd01f448f056fa8a20a55ae254" }
 
 [[language]]
 name = "webc"
@@ -4556,7 +4556,7 @@ indent = { tab-width = 4, unit = "    " }
 
 [[grammar]]
 name = "tcl"
-source = { git = "https://github.com/tree-sitter-grammars/tree-sitter-tcl", rev = "a04c20a68d933e8f7f6b33f542bab8ddadaabfd6" }
+source = { git = "https://github.com/tree-sitter-grammars/tree-sitter-tcl", rev = "90e87ed495a04fd0bf18db4be12b7033cd7402f6" }
 
 [[language]]
 name = "supercollider"
@@ -4578,7 +4578,7 @@ comment-token = "#"
 
 [[grammar]]
 name = "rpmspec"
-source = { git = "https://gitlab.com/cryptomilk/tree-sitter-rpmspec", rev = "7d1557162655f677729dca90cc180aca657053ec", subpath = "rpmspec" }
+source = { git = "https://gitlab.com/cryptomilk/tree-sitter-rpmspec", rev = "ea82a3995d079055fa08133319a1f22aa68c5b4d", subpath = "rpmspec" }
 
 [[language]]
 name = "pkgbuild"
@@ -5273,7 +5273,7 @@ auto-format = true
 
 [[grammar]]
 name = "caddyfile"
-source = { git = "https://github.com/caddyserver/tree-sitter-caddyfile", rev = "53c0cf6521c2b562f448d59c0a4ba6fa77933928" }
+source = { git = "https://github.com/caddyserver/tree-sitter-caddyfile", rev = "0be921fae0bcf9b163645899db0db730afae8aee" }
 
 [[language]]
 name = "properties"
@@ -5723,7 +5723,7 @@ comment-token = "//"
 
 [[grammar]]
 name = "tql"
-source = { git = "https://github.com/tenzir/tree-sitter-tql", rev = "90c5ce2bbda14ca044d1dd4453a7eec0f892af04" }
+source = { git = "https://github.com/tenzir/tree-sitter-tql", rev = "caef7097a75e75c677205de931b56ba4825985ed" }
 
 [[language]]
 name = "moonbit"
