@@ -345,8 +345,6 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
             "C" => toggle_block_comments,
             "A-c" => toggle_line_comments,
             "?" => command_palette,
-            "B" => vcs_toggle_inline_blame,
-            "i" => vcs_show_change,
         },
         "z" => (view),
         "Z" => (sticky_view),
