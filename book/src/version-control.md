@@ -161,7 +161,7 @@ large files may be rejected, or their diffs shortened with a notice.
 
 ### Inspecting the current change
 
-Press `Space i` or run `:vcs-show-change` to inspect the change at the cursor in a
+Press `Space g i` or run `:vcs-show-change` to inspect the change at the cursor in a
 popup. It compares `HEAD` with the current buffer, including unsaved edits, and
 shows added and removed lines with context and line numbers.
 
@@ -477,7 +477,7 @@ accepts repeated `blame.ignoreRevs` values for individual revisions.
 
 ## Inline blame
 
-Show who last changed the current line with `Space B`. Press it again to hide
+Show who last changed the current line with `Space g t`. Press it again to hide
 annotations. To show them by default, add this to `config.toml`:
 
 ```toml

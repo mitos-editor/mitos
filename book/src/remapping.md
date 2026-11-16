@@ -15,7 +15,7 @@ use `C-` for Ctrl, `A-` for Alt, and `S-` for Shift. For example:
 
 ```toml
 [keys.normal]
-C-s = ":write"
+F3 = ":write-all"
 ret = ["open_below", "normal_mode"]
 A-x = "@x<A-d>" # Select a line and delete it without yanking.
 
@@ -191,7 +191,7 @@ Windows/Linux key or the Command key.
 
 ```toml
 [keys.normal]
-C-s = ":write" # Ctrl and 's' to write
+F3 = ":write-all" # Save every modified buffer
 Cmd-s = ":write" # Cmd or Win or Meta and 's' to write
 ```
 

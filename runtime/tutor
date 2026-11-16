@@ -142,6 +142,9 @@
  4. Type : to enter Command mode.
  5. Type w or write, and press Enter to save the file.
 
+ Ctrl-s saves from Normal, Select, or Insert mode. Space w also
+ saves; Space W saves all modified buffers.
+
  You can also type wq or write-quit to save and exit.
 
  Note: You can optionally enter a file path after the w / write
@@ -1025,13 +1028,13 @@ lines.
  searching or jumping to the definition of a function in code. It
  stores these in what's called the jumplist.
 
- Pressing Ctrl-s manually saves your current position to
+ Pressing Space j s manually saves your current position to
  the jumplist.
 
  Pressing Ctrl-i ("in") and Ctrl-o ("out") moves forward and
  backwards in the jumplist respectively.
 
- 1. Press Ctrl-s somewhere.
+ 1. Press Space, j, then s somewhere.
  2. Move far away in the file.
  3. Press Ctrl-o (just once!) to come back to where you saved.
 
@@ -1070,7 +1073,7 @@ lines.
  * Type n / N in Select mode to add selections on each search
    match.
 
- * Press Ctrl-s to save position to the jumplist.
+ * Press Space j s to save position to the jumplist.
    * Press Ctrl-i and Ctrl-o to go forward and backward in the
      jumplist.
 

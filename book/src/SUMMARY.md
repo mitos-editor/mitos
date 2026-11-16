@@ -52,6 +52,7 @@
 # Reference and help
 
 - [Keymap](./keymap.md)
+- [Keybinding migration](./keybinding-migration.md)
 - [Commands](./commands.md)
 - [Command mode syntax](./command-line.md)
 - [Starting Mitos](./invocation.md)

@@ -36,7 +36,7 @@ for the setup and available language support.
 While reading a function, you may want to inspect a call without losing your
 place:
 
-1. Press `Ctrl-s` in normal mode to save your location in the jumplist.
+1. Press `Space j s` in normal mode to save your location in the jumplist.
    This saves a location, not the file; use `:write` to save text.
 2. Put the cursor on the called function and press `gd` to go to its definition
    when a language server provides it. Otherwise, use `Space /` to search for

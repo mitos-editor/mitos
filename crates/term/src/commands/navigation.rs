@@ -108,7 +108,16 @@ pub(super) fn push_jump(view: &mut View, doc: &mut Document) {
 }
 
 pub(super) fn goto_line(cx: &mut Context) {
-    goto_line_impl(cx, Movement::Move);
+    let movement = if cx.editor.mode() == Mode::Select {
+        Movement::Extend
+    } else {
+        Movement::Move
+    };
+    if cx.count.is_some() {
+        goto_line_impl(cx, movement);
+    } else {
+        goto_last_line_impl(cx, movement);
+    }
 }
 
 fn goto_line_impl(cx: &mut Context, movement: Movement) {

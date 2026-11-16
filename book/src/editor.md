@@ -17,7 +17,7 @@ line-number = "relative"
 insert = "bar"
 
 [keys.normal]
-C-s = ":write"
+F3 = ":write-all"
 ```
 
 Save the file and run `:config-reload`. Unknown editor settings and invalid
