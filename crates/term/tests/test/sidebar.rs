@@ -833,60 +833,75 @@ async fn document_resize_uses_sidebar_neighbor_and_preserves_split_boundaries() 
     {
         return Ok(());
     }
-    let mut config = test_config();
-    let configured = term::config::Config::load(
-        Ok(&"[keys.normal]\nF6 = 'resize_view_right'".to_owned()),
-        Err(Default::default()),
-    )
-    .unwrap();
-    config.keys = configured.keys;
-    let (mut app, _dir, _root) = sidebar_with_config(config).await?;
-    keys(&mut app, "<C-e>").await?;
-    let original = app.editor.tree.area();
-    keys(&mut app, "<C-w>r1h<ret>").await?;
-    assert_eq!(app.editor.tree.area().x, original.x - 1);
-    keys(&mut app, "<C-w>r1l<esc>").await?;
-    assert_eq!(app.editor.tree.area().x, original.x - 1);
-    // Direct directional commands use the same boundary dispatch.
-    keys(&mut app, "1<F6>").await?;
-    assert_eq!(app.editor.tree.area(), original);
-    app.editor.new_file(Action::VerticalSplit);
-    let sidebar_edge = app.editor.tree.area().x;
-    // A regular split boundary stays authoritative, even when constrained.
-    keys(&mut app, "<C-w>r99999l<ret>").await?;
-    assert_eq!(app.editor.tree.area().x, sidebar_edge);
-    keys(&mut app, "<C-w>r99999l<ret>").await?;
-    assert_eq!(app.editor.tree.area().x, sidebar_edge);
-    // Restore room on both sides, then change the internal split and the
-    // sidebar in one interaction. Escape restores both entry snapshots.
-    keys(&mut app, "<C-w>r=<ret>").await?;
-    let root_before = app.editor.tree.area();
-    let left = app
-        .editor
-        .tree
-        .views()
-        .min_by_key(|(view, _)| view.area.x)
-        .unwrap()
-        .0
-        .id;
-    app.editor.focus(left);
-    let panes = |app: &TestApplication| {
-        app.editor
+    for strategy in [
+        editor_config::SplitStrategy::EqualSiblings,
+        editor_config::SplitStrategy::Balanced,
+    ] {
+        let mut config = test_config();
+        config.editor.splits.strategy = strategy;
+        let configured = term::config::Config::load(
+            Ok(&"[keys.normal]\nF6 = 'resize_view_right'".to_owned()),
+            Err(Default::default()),
+        )
+        .unwrap();
+        config.keys = configured.keys;
+        let (mut app, _dir, _root) = sidebar_with_config(config).await?;
+        keys(&mut app, "<C-e>").await?;
+        let original = app.editor.tree.area();
+        keys(&mut app, "<C-w>r1h<ret>").await?;
+        assert_eq!(app.editor.tree.area().x, original.x - 1);
+        keys(&mut app, "<C-w>r1l<esc>").await?;
+        assert_eq!(app.editor.tree.area().x, original.x - 1);
+        // Direct directional commands use the same boundary dispatch.
+        keys(&mut app, "1<F6>").await?;
+        assert_eq!(app.editor.tree.area(), original);
+        app.editor.new_file(Action::VerticalSplit);
+        let sidebar_edge = app.editor.tree.area().x;
+        let right_before = current_ref!(app.editor).0.area;
+        keys(&mut app, "<C-w>r1h<ret>").await?;
+        assert_eq!(
+            current_ref!(app.editor).0.area.width,
+            right_before.width + 1
+        );
+        assert_eq!(app.editor.tree.area().x, sidebar_edge);
+        keys(&mut app, "<C-w>r1l<ret>").await?;
+        assert_eq!(current_ref!(app.editor).0.area, right_before);
+        // A regular split boundary stays authoritative, even when constrained.
+        keys(&mut app, "<C-w>r99999l<ret>").await?;
+        assert_eq!(app.editor.tree.area().x, sidebar_edge);
+        keys(&mut app, "<C-w>r99999l<ret>").await?;
+        assert_eq!(app.editor.tree.area().x, sidebar_edge);
+        // Restore room on both sides, then change the internal split and the
+        // sidebar in one interaction. Escape restores both entry snapshots.
+        keys(&mut app, "<C-w>r=<ret>").await?;
+        let root_before = app.editor.tree.area();
+        let left = app
+            .editor
             .tree
             .views()
-            .map(|(view, _)| view.area)
-            .collect::<Vec<_>>()
-    };
-    let panes_before = panes(&app);
-    assert_eq!(current_ref!(app.editor).0.area.x, root_before.x);
-    keys(&mut app, "<C-w>r1l").await?;
-    assert_eq!(app.editor.tree.area(), root_before);
-    assert_ne!(panes(&app), panes_before);
-    keys(&mut app, "1h").await?;
-    assert_eq!(app.editor.tree.area().x, root_before.x - 1);
-    keys(&mut app, "<esc>").await?;
-    assert_eq!(app.editor.tree.area(), root_before);
-    assert_eq!(panes(&app), panes_before);
+            .min_by_key(|(view, _)| view.area.x)
+            .unwrap()
+            .0
+            .id;
+        app.editor.focus(left);
+        let panes = |app: &TestApplication| {
+            app.editor
+                .tree
+                .views()
+                .map(|(view, _)| view.area)
+                .collect::<Vec<_>>()
+        };
+        let panes_before = panes(&app);
+        assert_eq!(current_ref!(app.editor).0.area.x, root_before.x);
+        keys(&mut app, "<C-w>r1l").await?;
+        assert_eq!(app.editor.tree.area(), root_before);
+        assert_ne!(panes(&app), panes_before);
+        keys(&mut app, "1h").await?;
+        assert_eq!(app.editor.tree.area().x, root_before.x - 1);
+        keys(&mut app, "<esc>").await?;
+        assert_eq!(app.editor.tree.area(), root_before);
+        assert_eq!(panes(&app), panes_before);
+    }
     Ok(())
 }
 
