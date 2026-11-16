@@ -50,10 +50,12 @@ command; sticky groups stay open until Escape. See
 
 {{#include ./generated/keymap-normal.md}}
 
+Save the current buffer with `Ctrl-s` in normal, select, or insert mode.
+
 ## Insert mode
 
 Press `i` in normal mode to enter insert mode. An insert session normally
-forms one undo step when you return to normal mode. `Ctrl-s` starts another
+forms one undo step when you return to normal mode. `Ctrl-g u` starts another
 undo step without leaving insert mode; see [Macros and undo](./macros.md#undo-and-redo).
 
 Tab uses [smart tab](./completion.md#smart-tab). To disable a binding, map

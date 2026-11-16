@@ -49,6 +49,8 @@ after it. Type normally, then press `Esc` to finish the insertion.
 Other useful entry points are `I` and `A` for the start and end of the line,
 and `o` / `O` for a new line below or above.
 
+Save the current buffer with `Ctrl-s` without leaving normal, select, or insert mode.
+
 ## Select, then act
 
 Mitos uses a **selection → action** editing model. A cursor is a one-character
