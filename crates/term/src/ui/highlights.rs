@@ -20,6 +20,33 @@ pub(crate) fn document_syntax_styles<'a>(
     ranges: &'a [ops::Range<usize>],
     theme: &'a Theme,
 ) -> impl Iterator<Item = (usize, theme::Style)> + 'a {
+    let pager = doc.source().pager_styles();
+    let pager_styles = pager.into_iter().flat_map(move |styles| {
+        ranges.iter().flat_map(move |range| {
+            let start = doc.text().byte_to_char_idx(range.start);
+            let end = doc.text().byte_to_char_idx(range.end);
+            let first = styles.partition_point(|(pos, _)| *pos <= start);
+            let base = theme.get("ui.text");
+            let initial = first
+                .checked_sub(1)
+                .map_or(base, |i| base.patch(styles[i].1));
+            std::iter::once((start, initial)).chain(
+                styles[first..]
+                    .iter()
+                    .take_while(move |(pos, _)| *pos < end)
+                    .map(move |(pos, style)| (*pos, base.patch(*style))),
+            )
+        })
+    });
+    let ranges = if pager.is_some() { &[] } else { ranges };
+    pager_styles.chain(syntax_styles_for_ranges(doc, ranges, theme))
+}
+
+fn syntax_styles_for_ranges<'a>(
+    doc: PresentedDocument<'a>,
+    ranges: &'a [ops::Range<usize>],
+    theme: &'a Theme,
+) -> impl Iterator<Item = (usize, theme::Style)> + 'a {
     ranges.iter().flat_map(move |range| {
         let highlighter = doc.syntax().map(|syntax| {
             syntax.highlighter(

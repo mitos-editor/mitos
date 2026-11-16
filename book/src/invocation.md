@@ -44,6 +44,30 @@ Use `ms +42` to start piped input at line 42, or `ms +` to start at its
 last line. Use `:write <path>` to save the text. This requires an interactive terminal
 for the editor interface.
 
+Use `--pager` to view colored command output in a read-only buffer:
+
+```sh
+git diff --color=always | ms --pager
+```
+
+Search, select, and copy text with the usual editor commands. Copies contain
+plain text without escape codes. Press `q` in normal mode to close the pager
+view, or use `:quit`.
+
+To use Mitos as your default pager, set `PAGER='ms --pager'`. Programs may
+require their own option to emit colors when writing to a pipe. For example,
+`MANPAGER='ms --pager' man git` also supports the backspace bold and underline
+formatting used by man pages.
+
+Pager mode supports ANSI foreground and background colors (including 256-color
+and RGB colors), bold, dim, italic, underline, reverse, and strikethrough.
+It consumes other escape sequences; hyperlinks retain their visible text.
+It does not reproduce cursor movement, screen clearing, or interactive terminal
+applications. Input is loaded into memory and displayed after EOF, so this mode
+is intended for finite output rather than live streams such as `tail -f`.
+It requires piped input and an interactive terminal, and cannot be combined
+with file arguments or `--tutor`.
+
 ## Setup and troubleshooting flags
 
 | Flag | Purpose |

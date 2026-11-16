@@ -56,6 +56,7 @@ mod test {
     mod lsp_workspace;
     mod movement;
     mod navigation;
+    mod pager;
     mod paste_all;
     mod picker_layout;
     mod prompt_completion;

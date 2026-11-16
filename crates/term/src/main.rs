@@ -47,6 +47,7 @@ ARGS:
 FLAGS:
     -h, --help                     Print help information
     --strict                       Bail on error for commands that can fail.
+    --pager                        Read piped ANSI text in a read-only buffer; q closes it
     --tutor                        Load the tutorial
     --health [CATEGORY]            Check for potential errors in editor setup
                                    CATEGORY can be a language or one of 'clipboard', 'languages',

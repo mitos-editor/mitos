@@ -32,6 +32,7 @@ text-layout.workspace = true
 clipboard.workspace = true
 language.workspace = true
 theme.workspace = true
+vte.workspace = true
 workspace.workspace = true
 globset.workspace = true
 file-watch.workspace = true
