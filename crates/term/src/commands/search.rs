@@ -341,6 +341,7 @@ fn global_search_picker(
              ..
          }| { Some((path.as_path().into(), Some((*line_start, *line_end)))) },
     )
+    .with_search_preview()
     .with_quicklist(|_editor, item| {
         Some(QuicklistEntry {
             target: QuicklistTarget::Path(item.path.clone()),
