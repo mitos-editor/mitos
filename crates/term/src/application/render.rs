@@ -146,6 +146,7 @@ where
         let config = self.config.load();
         let mut draw = compositor::DrawContext {
             hyperlinks: Default::default(),
+            cursor_exclusions: Vec::new(),
             config: &config,
             editor: &self.editor,
             interaction: &self.interaction,

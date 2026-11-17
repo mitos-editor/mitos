@@ -491,6 +491,7 @@ impl Component for Completion {
 
         // clear area
         let background = cx.editor.theme.get("ui.popup");
+        cx.exclude_cursor(doc_area);
         cx.hyperlinks.borrow_mut().clear(doc_area);
         surface.clear_with(doc_area, background);
 

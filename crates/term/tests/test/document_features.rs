@@ -259,6 +259,7 @@ async fn terminal_links_use_resolved_server_targets_and_clear_when_a_server_deta
         let config = test_config();
         let mut cx = DrawContext {
             hyperlinks: Default::default(),
+            cursor_exclusions: Vec::new(),
             config: &config,
             editor: &fixture.app.editor,
             interaction: &fixture.app.interaction,
