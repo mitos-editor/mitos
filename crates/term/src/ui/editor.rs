@@ -906,6 +906,7 @@ impl Component for EditorView {
         // A message replaces the whole statusline; transient indicators replace only
         // their own cells so an idle command line leaves the statusline visible.
         if overlay && cx.editor.status_msg.is_some() {
+            cx.exclude_cursor(layout.commandline);
             cx.hyperlinks.borrow_mut().clear(layout.commandline);
             surface.clear_with(layout.commandline, background);
         }
@@ -943,6 +944,7 @@ impl Component for EditorView {
                 .unwrap_or(&disp);
             if !overlay || !disp.is_empty() {
                 if overlay {
+                    cx.exclude_cursor(pending_area);
                     cx.hyperlinks.borrow_mut().clear(pending_area);
                     surface.clear_with(pending_area, background);
                 }
@@ -954,6 +956,7 @@ impl Component for EditorView {
 
             if restricted {
                 if overlay {
+                    cx.exclude_cursor(trust_area);
                     cx.hyperlinks.borrow_mut().clear(trust_area);
                     surface.clear_with(trust_area, background);
                 }
@@ -966,6 +969,7 @@ impl Component for EditorView {
             }
             if let Some((reg, _)) = cx.interaction.macro_recording {
                 if overlay {
+                    cx.exclude_cursor(macro_area);
                     cx.hyperlinks.borrow_mut().clear(macro_area);
                     surface.clear_with(macro_area, background);
                 }

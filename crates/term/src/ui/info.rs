@@ -16,7 +16,7 @@ impl Component for Info {
 }
 use tui::buffer::BufferExt as _;
 
-pub(super) fn render(info: &Info, viewport: Rect, surface: &mut Surface, cx: &DrawContext) {
+pub(super) fn render(info: &Info, viewport: Rect, surface: &mut Surface, cx: &mut DrawContext) {
     let text_style = cx.editor.theme.get("ui.text.info");
     let popup_style = cx.editor.theme.get("ui.popup.info");
 
@@ -26,6 +26,7 @@ pub(super) fn render(info: &Info, viewport: Rect, surface: &mut Surface, cx: &Dr
         Layout::horizontal([Constraint::Min(0), Constraint::Length(width)]).areas(viewport);
     let [_top, area] =
         Layout::vertical([Constraint::Min(0), Constraint::Length(height)]).areas(area);
+    cx.exclude_cursor(area);
     cx.hyperlinks.borrow_mut().clear(area);
     surface.clear_with(area, popup_style);
 
