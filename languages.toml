@@ -1262,7 +1262,7 @@ roots = ["pyproject.toml", "setup.py", "poetry.lock", "pyrightconfig.json"]
 comment-token = "#"
 language-servers = [
   { alternatives = ["ty", "basedpyright", "pyright", "pylsp", "jedi", "zuban"] },
-  { name = "ruff", only-features = ["diagnostics", "code-action", "format"] },
+  "ruff",
 ]
 # TODO: pyls needs utf-8 offsets
 indent = { tab-width = 4, unit = "    " }
@@ -2221,7 +2221,7 @@ file-types = ["md", "livemd", "markdown", "mkd", "mkdn", "mdwn", "mdown", "markd
 roots = [".marksman.toml"]
 language-servers = [
   { alternatives = ["marksman", "markdown-oxide"] },
-  { name = "rumdl", only-features = ["diagnostics", "code-action", "format"] },
+  "rumdl",
 ]
 indent = { tab-width = 2, unit = "  " }
 block-comment-tokens = { start = "<!--", end = "-->" }

@@ -179,7 +179,7 @@ List other servers separately to run them alongside it:
 name = "python"
 language-servers = [
   { alternatives = ["ty", "basedpyright", "pylsp"] },
-  { name = "ruff", only-features = ["diagnostics", "code-action", "format"] },
+  "ruff",
 ]
 ```
 
