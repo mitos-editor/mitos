@@ -528,6 +528,40 @@ async fn cancellation_removes_partial_subscriptions_and_ignores_late_batches() {
 }
 
 #[tokio::test]
+async fn document_diagnostics_keep_streamed_items_with_roslyns_empty_final_report() {
+    use crate::client::{collect, start_request};
+    use serde_json::json;
+
+    let mut fixture = Fixture::new(4096, true);
+    let stream = start_request::<lsp::request::DocumentDiagnosticRequest>(
+        &fixture.transport.pending_requests,
+        &fixture.sender,
+        jsonrpc::Id::Num(1),
+        serde_json::from_value(json!({"textDocument":{"uri":"file:///Program.cs"}})).unwrap(),
+        20,
+    );
+    let sent = fixture.next().await;
+    let token = sent["params"]["partialResultToken"].clone();
+    assert!(token.is_string());
+    let report = json!({"kind":"full","resultId":"roslyn","items":[{
+        "range":{"start":{"line":0,"character":0},"end":{"line":0,"character":1}},
+        "message":"Unknown identifier", "severity":1
+    }]});
+    fixture
+        .respond(json!({"jsonrpc":"2.0","method":"$/progress",
+        "params":{"token":token,"value":report}}))
+        .await;
+    fixture
+        .respond(json!({"jsonrpc":"2.0","id":1,
+        "result":{"kind":"full","items":[]}}))
+        .await;
+    let result = collect(stream).await.unwrap();
+    assert_eq!(serde_json::to_value(result).unwrap(), report);
+    assert_eq!(fixture.pending(), 0);
+    assert!(fixture.finish().await.is_empty());
+}
+
+#[tokio::test]
 async fn supported_partial_requests_keep_typed_results_with_an_empty_final_response() {
     use crate::client::{collect, start_request};
     use lsp::request::*;
