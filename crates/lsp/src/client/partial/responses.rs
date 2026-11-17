@@ -357,8 +357,8 @@ impl PartialResponse for lsp::DocumentDiagnosticReport {
     }
     fn finish(mut state: Self::State, response: Option<Self>) -> Result<Self> {
         if let Some(response) = response {
-            // Roslyn finishes with an empty full report after streaming the primary.
-            // It must not replace the streamed diagnostics or their result ID.
+            // After partial results, the final response is empty in terms of
+            // result values. Preserve the streamed report and its result ID.
             let empty = matches!(&response, Self::Full(report)
                 if report.full_document_diagnostic_report.items.is_empty()
                     && report.full_document_diagnostic_report.result_id.is_none()

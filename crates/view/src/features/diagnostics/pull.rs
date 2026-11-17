@@ -51,6 +51,8 @@ pub(crate) struct PullDiagnosticResults {
 #[derive(Default)]
 struct DiagnosticReport {
     request: u64,
+    // The latest request may be pending while an older report is still visible.
+    published_request: u64,
     result_id: Option<String>,
     has_report: bool,
 }
@@ -230,20 +232,12 @@ fn request_document_diagnostics_for_language_servers(
                         .await;
                 }
                 Err(err) => {
-                    let retrigger = if let lsp_client::Error::Rpc(error) = err {
-                        error
-                            .data
-                            .and_then(|data| {
-                                serde_json::from_value::<lsp::DiagnosticServerCancellationData>(
-                                    data,
-                                )
-                                .ok()
-                            })
-                            .is_some_and(|data| data.retrigger_request)
+                    let retrigger = should_retry(&err);
+                    if retrigger {
+                        log::debug!("Pull diagnostic request canceled: {err}");
                     } else {
                         log::error!("Pull diagnostic request failed: {err}");
-                        false
-                    };
+                    }
                     if !retrigger
                         || cancelable_future(
                             tokio::time::sleep(Duration::from_millis(500)),
@@ -269,6 +263,20 @@ fn request_document_diagnostics_for_language_servers(
             }
         });
     }
+}
+
+fn should_retry(error: &lsp_client::Error) -> bool {
+    let lsp_client::Error::Rpc(error) = error else {
+        return false;
+    };
+    error.code.code() == lsp::error_codes::SERVER_CANCELLED
+        && error
+            .data
+            .as_ref()
+            .and_then(|data| {
+                serde_json::from_value::<lsp::DiagnosticServerCancellationData>(data.clone()).ok()
+            })
+            .is_none_or(|data| data.retrigger_request)
 }
 
 /// Refresh this provider's open documents and restart its workspace pull.
@@ -471,16 +479,58 @@ fn apply_report(
     match report {
         lsp::DocumentDiagnosticReportKind::Full(report) => {
             cached.request = request_id;
+            cached.published_request = request_id;
             cached.result_id = report.result_id;
             cached.has_report = true;
             editor.handle_lsp_diagnostics(provider, uri, None, report.items);
         }
         lsp::DocumentDiagnosticReportKind::Unchanged(report) if cached.has_report => {
             cached.request = request_id;
+            cached.published_request = request_id;
             cached.result_id = Some(report.result_id);
         }
         // A previous full report may have been discarded as stale. Without its
         // diagnostics, retaining this ID could make subsequent pulls skip them.
         lsp::DocumentDiagnosticReportKind::Unchanged(_) => {}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn diagnostic_retries_follow_server_cancellation_data() {
+        for (code, data, expected) in [
+            (lsp::error_codes::SERVER_CANCELLED, None, true),
+            (
+                lsp::error_codes::SERVER_CANCELLED,
+                Some(serde_json::json!({"retriggerRequest":true})),
+                true,
+            ),
+            (
+                lsp::error_codes::SERVER_CANCELLED,
+                Some(serde_json::json!({"retriggerRequest":false})),
+                false,
+            ),
+            (
+                lsp::error_codes::REQUEST_CANCELLED,
+                Some(serde_json::json!({"retriggerRequest":true})),
+                false,
+            ),
+            (
+                -32603,
+                Some(serde_json::json!({"retriggerRequest":true})),
+                false,
+            ),
+        ] {
+            let error = lsp_client::Error::Rpc(lsp_client::jsonrpc::Error {
+                code: code.into(),
+                message: "diagnostic request failed".into(),
+                data,
+            });
+            assert_eq!(should_retry(&error), expected);
+        }
+        assert!(!should_retry(&lsp_client::Error::StreamClosed));
     }
 }

@@ -528,7 +528,7 @@ async fn cancellation_removes_partial_subscriptions_and_ignores_late_batches() {
 }
 
 #[tokio::test]
-async fn document_diagnostics_keep_streamed_items_with_roslyns_empty_final_report() {
+async fn document_diagnostics_keep_streamed_items_with_an_empty_final_report() {
     use crate::client::{collect, start_request};
     use serde_json::json;
 
@@ -543,7 +543,7 @@ async fn document_diagnostics_keep_streamed_items_with_roslyns_empty_final_repor
     let sent = fixture.next().await;
     let token = sent["params"]["partialResultToken"].clone();
     assert!(token.is_string());
-    let report = json!({"kind":"full","resultId":"roslyn","items":[{
+    let report = json!({"kind":"full","resultId":"diagnostics","items":[{
         "range":{"start":{"line":0,"character":0},"end":{"line":0,"character":1}},
         "message":"Unknown identifier", "severity":1
     }]});
