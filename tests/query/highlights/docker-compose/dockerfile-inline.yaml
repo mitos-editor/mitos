@@ -1,0 +1,25 @@
+services:
+  plain:
+    build:
+      dockerfile_inline: |
+        FROM alpine
+        # ^^ @keyword
+        RUN echo hello
+        # ^ @keyword
+        #   ^^^^ @function.builtin
+  double-quoted:
+    build:
+      "dockerfile_inline": |
+        FROM alpine
+        # ^^ @keyword
+        RUN echo hello
+        # ^ @keyword
+        #   ^^^^ @function.builtin
+  single-quoted:
+    build:
+      'dockerfile_inline': |
+        FROM alpine
+        # ^^ @keyword
+        RUN echo hello
+        # ^ @keyword
+        #   ^^^^ @function.builtin
