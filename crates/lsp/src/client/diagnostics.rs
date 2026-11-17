@@ -1,7 +1,7 @@
 //! Workspace diagnostic streams keep partial reports in wire order with completion.
 
 use super::{Client, PartialResultRequest, RequestUpdate};
-use crate::{lsp, Result};
+use crate::lsp;
 
 /// One workspace pull. Dropping the stream cancels its request and subscription.
 pub struct WorkspaceDiagnosticRequest {
@@ -10,12 +10,12 @@ pub struct WorkspaceDiagnosticRequest {
 
 impl WorkspaceDiagnosticRequest {
     /// Partial batches are delivered before the final response, even when both
-    /// have already arrived. A malformed partial batch does not end the request.
-    pub async fn next(&mut self) -> Option<Result<lsp::WorkspaceDiagnosticReport>> {
-        match self.request.next().await? {
-            RequestUpdate::Partial(batch) => Some(batch),
-            RequestUpdate::Response(response) => Some(response.map(Option::unwrap_or_default)),
-        }
+    /// have already arrived. Only a response ends the request, so callers can
+    /// distinguish malformed partial batches from terminal failures.
+    pub async fn next(
+        &mut self,
+    ) -> Option<RequestUpdate<lsp::WorkspaceDiagnosticReport, lsp::WorkspaceDiagnosticReport>> {
+        self.request.next().await
     }
 }
 

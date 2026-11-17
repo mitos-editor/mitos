@@ -357,10 +357,18 @@ impl PartialResponse for lsp::DocumentDiagnosticReport {
     }
     fn finish(mut state: Self::State, response: Option<Self>) -> Result<Self> {
         if let Some(response) = response {
-            Self::append(
-                &mut state,
-                lsp::DocumentDiagnosticReportProgress::Report(response),
-            )?;
+            // After partial results, the final response is empty in terms of
+            // result values. Preserve the streamed report and its result ID.
+            let empty = matches!(&response, Self::Full(report)
+                if report.full_document_diagnostic_report.items.is_empty()
+                    && report.full_document_diagnostic_report.result_id.is_none()
+                    && report.related_documents.as_ref().is_none_or(|related| related.is_empty()));
+            if state.primary.is_none() || !empty {
+                Self::append(
+                    &mut state,
+                    lsp::DocumentDiagnosticReportProgress::Report(response),
+                )?;
+            }
         }
         let mut report = state.primary.ok_or_else(|| {
             Error::from(anyhow::anyhow!(

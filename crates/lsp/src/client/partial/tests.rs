@@ -152,6 +152,39 @@ fn diagnostic_progress_retains_primary_report_and_related_documents() {
 }
 
 #[test]
+fn diagnostic_progress_accepts_an_empty_final_report() {
+    let empty = json!({"kind":"full","items":[]});
+    let diagnostic = json!({
+        "range":{"start":{"line":0,"character":0},"end":{"line":0,"character":1}},
+        "message":"Unknown identifier", "severity":1
+    });
+    let related = json!({"relatedDocuments":{"file:///related.cs":{
+        "kind":"full","items":[diagnostic],"resultId":"related"
+    }}});
+    for primary in [
+        json!({"kind":"full","items":[diagnostic],"resultId":"primary"}),
+        json!({"kind":"unchanged","resultId":"primary"}),
+    ] {
+        let mut expected = primary.clone();
+        expected["relatedDocuments"] = related["relatedDocuments"].clone();
+        let response = accumulate::<lsp::DocumentDiagnosticReport>(
+            vec![primary.clone(), related.clone()],
+            empty.clone(),
+        )
+        .unwrap();
+        assert_eq!(serde_json::to_value(response).unwrap(), expected);
+
+        // A second substantive report is still incompatible.
+        assert!(
+            accumulate::<lsp::DocumentDiagnosticReport>(vec![primary.clone()], primary).is_err()
+        );
+    }
+    // Without a streamed primary, an empty final report clears diagnostics.
+    let response = accumulate::<lsp::DocumentDiagnosticReport>(vec![], empty.clone()).unwrap();
+    assert_eq!(serde_json::to_value(response).unwrap(), empty);
+}
+
+#[test]
 fn final_workspace_symbols_preserve_resolve_data_and_legacy_deprecation() {
     let range = json!({"start":{"line":0,"character":0},"end":{"line":1,"character":0}});
     let symbols = json!([

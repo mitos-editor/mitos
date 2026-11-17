@@ -476,12 +476,16 @@ pub fn run() -> anyhow::Result<()> {
                 .or_default();
             *count += 1;
             if text.contains("retry") && *count == 1 {
+                let mut error = json!({
+                    "code": crate::lsp::error_codes::SERVER_CANCELLED,
+                    "message": "retry once"
+                });
+                if !text.contains("retry-default") {
+                    error["data"] = json!({"retriggerRequest": true});
+                }
                 respond(
                     &mut output,
-                    json!({"jsonrpc": "2.0", "id": id, "error": {
-                        "code": crate::lsp::error_codes::SERVER_CANCELLED,
-                        "message": "retry once", "data": {"retriggerRequest": true}
-                    }}),
+                    json!({"jsonrpc": "2.0", "id": id, "error": error}),
                 )?;
                 continue;
             }
@@ -499,6 +503,24 @@ pub fn run() -> anyhow::Result<()> {
             };
             if let Some(index) = args.iter().position(|arg| arg == "--related-diagnostics") {
                 result["relatedDocuments"] = diagnostic_reports(&args[index + 1])?;
+            }
+            if text.contains("stream-diagnostics") {
+                let related = result.as_object_mut().unwrap().remove("relatedDocuments");
+                respond(
+                    &mut output,
+                    json!({"jsonrpc":"2.0", "method":"$/progress", "params":{
+                        "token":params["partialResultToken"], "value":result
+                    }}),
+                )?;
+                if let Some(related) = related {
+                    respond(
+                        &mut output,
+                        json!({"jsonrpc":"2.0", "method":"$/progress", "params":{
+                            "token":params["partialResultToken"], "value":{"relatedDocuments":related}
+                        }}),
+                    )?;
+                }
+                result = json!({"kind":"full", "items":[]});
             }
             respond_result(&mut output, id, result)?;
             continue;
