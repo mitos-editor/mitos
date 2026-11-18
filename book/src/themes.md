@@ -268,7 +268,8 @@ A language can exclude a particular server from semantic highlighting using
 `except-features = ["semantic-tokens"]` in its `language-servers` entry. If
 several servers support the feature, Mitos uses the first configured provider.
 Full-document and range-only providers are supported. Requests are debounced
-after edits; stale tokens are cleared immediately, and responses are discarded
+after edits. Tokens touched by an edit are cleared immediately, while other
+tokens track their text until a fresh response arrives. Responses are discarded
 when their document snapshot or server binding has changed. Unsupported server
 extensions fall back to syntax highlighting. Delta updates and dynamic
 semantic-token registration are not advertised.

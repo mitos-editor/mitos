@@ -271,6 +271,23 @@ async fn semantic_publication_invalidates_an_already_rendered_viewport() -> anyh
         before
     );
     assert_eq!(color(&mut f.app).await, theme::Color::Blue);
+
+    let (view, doc) = current!(f.app.editor);
+    let transaction = Transaction::change(doc.text(), [(0, 0, Some("😀".into()))].into_iter());
+    view::editing::apply(doc, &transaction, view.id)?;
+    assert_eq!(
+        doc.semantic_tokens()
+            .first()
+            .map(|token| token.range.clone()),
+        Some(3..6)
+    );
+    assert_eq!(color(&mut f.app).await, theme::Color::Blue);
+
+    let (view, doc) = current!(f.app.editor);
+    let transaction = Transaction::change(doc.text(), [(3, 3, Some("x".into()))].into_iter());
+    view::editing::apply(doc, &transaction, view.id)?;
+    assert!(doc.semantic_tokens().is_empty());
+    assert_eq!(color(&mut f.app).await, theme::Color::Red);
     assert!(f.app.close().await.is_empty());
     Ok(())
 }

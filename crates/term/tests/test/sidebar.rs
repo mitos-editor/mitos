@@ -18,14 +18,16 @@ async fn selection_follows_files_opened_outside_the_sidebar() -> anyhow::Result<
     {
         return Ok(());
     }
-    let (mut app, _dir, root) = sidebar().await?;
-    keys(&mut app, "/b.txt<ret><ret>").await?;
+    let (mut app, _dir, root) = sidebar_fixture(test_config())?;
+    let first = root.join("b.txt");
+    app.editor.open(&first, Action::Replace)?;
+    keys(&mut app, "<C-w>e<C-e>").await?;
     let name = root.file_name().unwrap().to_str().unwrap();
     let relative = PathBuf::from(name).join("sub").join("deep").join("d.txt");
     keys(&mut app, &format!("<space>f{}<ret>", relative.display())).await?;
     let nested = root.join("sub").join("deep").join("d.txt");
     assert_eq!(current_ref!(app.editor).1.path(), Some(nested.as_path()));
-    for expected in [nested, root.join("b.txt")] {
+    for expected in [nested, first] {
         keys(&mut app, "<C-w>e<A-y><C-e>").await?;
         let selected: Vec<_> = app.editor.registers.read('"').unwrap().collect();
         assert_eq!(
@@ -40,6 +42,18 @@ async fn selection_follows_files_opened_outside_the_sidebar() -> anyhow::Result<
 async fn sidebar_with_config(
     config: term::config::Config,
 ) -> anyhow::Result<(TestApplication, tempfile::TempDir, PathBuf)> {
+    let (mut app, dir, root) = sidebar_fixture(config)?;
+    app.editor.open(&root.join("a.txt"), Action::Replace)?;
+    keys(&mut app, "<C-w>e").await?;
+    let name = root.file_name().unwrap().to_str().unwrap();
+    keys(&mut app, &format!("/{name}<ret><ret>")).await?;
+    assert!(screen(&app).contains("a.txt"));
+    Ok((app, dir, root))
+}
+
+fn sidebar_fixture(
+    config: term::config::Config,
+) -> anyhow::Result<(TestApplication, tempfile::TempDir, PathBuf)> {
     // Keep the fixture under the workspace so it can be reached without changing
     // the process-wide working directory of concurrently running tests.
     let dir = tempfile::Builder::new()
@@ -51,12 +65,7 @@ async fn sidebar_with_config(
     std::fs::create_dir_all(root.join("sub/deep"))?;
     std::fs::write(root.join("sub/c.txt"), "charlie\n")?;
     std::fs::write(root.join("sub/deep/d.txt"), "delta\n")?;
-    let mut app = AppBuilder::new().with_config(config).build()?;
-    app.editor.open(&root.join("a.txt"), Action::Replace)?;
-    keys(&mut app, "<C-w>e").await?;
-    let name = root.file_name().unwrap().to_str().unwrap();
-    keys(&mut app, &format!("/{name}<ret><ret>")).await?;
-    assert!(screen(&app).contains("a.txt"));
+    let app = AppBuilder::new().with_config(config).build()?;
     Ok((app, dir, root))
 }
 
