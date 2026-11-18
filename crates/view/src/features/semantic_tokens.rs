@@ -5,7 +5,7 @@ mod delta;
 
 use std::{ops::Range, sync::Arc};
 
-use editor_core::Rope;
+use editor_core::{ChangeSet, Rope};
 use event::{cancelable_future, register_hook, TaskController};
 use language_config::LanguageServerFeature;
 use lsp_client::{lsp, LanguageServerId, OffsetEncoding};
@@ -22,7 +22,7 @@ use crate::{
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SemanticToken {
-    /// Character offsets in the exact document snapshot used by the server.
+    /// Character offsets in the current document, mapped through intervening edits.
     pub range: Range<usize>,
     pub scope: String,
 }
@@ -45,14 +45,32 @@ struct DeltaBase {
 impl SemanticTokens {
     pub(crate) fn invalidate(&mut self) {
         self.base = None;
-        self.invalidate_highlights();
-    }
-
-    /// Edits invalidate displayed ranges, but a retained protocol result remains
-    /// a valid delta base for the next version of this document session.
-    pub(crate) fn invalidate_highlights(&mut self) {
         self.request.cancel();
         self.cache.clear();
+        self.revision = self.revision.wrapping_add(1);
+    }
+
+    pub(crate) fn apply_changes(&mut self, changes: &ChangeSet) {
+        self.request.cancel();
+        // Both streams are ordered. Within each retained span, positions move
+        // by the difference between the preceding edit's old and new ends.
+        let mut edits = changes.changed_ranges(0).peekable();
+        let (mut old_end, mut new_end) = (0, 0);
+        self.cache.retain_mut(|token| {
+            while let Some((old, new)) = edits.next_if(|(old, _)| old.end < token.range.start) {
+                (old_end, new_end) = (old.end, new.end);
+            }
+            // An edit at either boundary can merge adjacent text into the token.
+            if edits
+                .peek()
+                .is_some_and(|(old, _)| old.start <= token.range.end)
+            {
+                return false;
+            }
+            token.range =
+                (token.range.start - old_end + new_end)..(token.range.end - old_end + new_end);
+            true
+        });
         self.revision = self.revision.wrapping_add(1);
     }
 
@@ -470,15 +488,26 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn edits_clear_semantics_and_cancel_queued_publications() {
-        let mut doc = crate::document::test_document("foo");
+    async fn edits_cancel_queued_publications_and_remap_untouched_tokens() {
+        let mut doc = crate::document::test_document("foo bar baz qux");
         let cancel = doc.semantic_tokens.request.restart();
-        doc.semantic_tokens.cache.push(SemanticToken {
-            range: 0..3,
-            scope: "function".into(),
-        });
-        doc.semantic_tokens.invalidate();
+        doc.semantic_tokens.cache = (0..4)
+            .map(|i| SemanticToken {
+                range: 4 * i..4 * i + 3,
+                scope: "function".into(),
+            })
+            .collect();
+        let edit = editor_core::Transaction::change(
+            doc.text(),
+            [(1, 2, None), (9, 10, Some("xyz".into()))].into_iter(),
+        );
+        doc.semantic_tokens.apply_changes(edit.changes());
         assert!(cancel.is_canceled());
-        assert!(doc.semantic_tokens().is_empty());
+        let ranges: Vec<_> = doc
+            .semantic_tokens()
+            .iter()
+            .map(|token| token.range.clone())
+            .collect();
+        assert_eq!(ranges, [3..6, 13..16]);
     }
 }
