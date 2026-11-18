@@ -73,7 +73,7 @@ impl<W: Write> Output<W> {
         }
     }
 
-    fn marker(&self, status: Status) -> Stylized<'static> {
+    pub(super) fn marker(&self, status: Status) -> Stylized<'static> {
         let (marker, color) = match status {
             Status::Ok => ("✓", ColorSpec::BRIGHT_GREEN),
             Status::Warning => ("!", ColorSpec::BRIGHT_YELLOW),
@@ -197,7 +197,36 @@ impl<T: Display> Display for Dimmed<T> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Options, Output, Status};
+    use super::{Options, Output, Status, Stylized};
+
+    #[test]
+    fn language_query_marks_use_individual_colors() {
+        let plain = "✓ ✘ ✓";
+        let colored = if Stylized::is_ansi_color_disabled() {
+            plain
+        } else {
+            "\x1b[0;92m✓\x1b[m \x1b[0;91m✘\x1b[m \x1b[0;92m✓\x1b[m"
+        };
+        let rows = [
+            vec!["Language".into(), "H T I N R F".into()],
+            vec!["ada".into(), plain.into()],
+        ];
+        for (columns, prefix) in [(80, "ada       "), (12, "  H T I N R F: ")] {
+            for (color, expected) in [(true, colored), (false, plain)] {
+                let mut output = Output {
+                    writer: Vec::new(),
+                    options: Options::default(),
+                    color,
+                };
+                super::super::write_table(&mut output, &rows, columns).unwrap();
+                let output = String::from_utf8(output.into_inner()).unwrap();
+                assert!(
+                    output.ends_with(&format!("{prefix}{expected}\n")),
+                    "{output:?}"
+                );
+            }
+        }
+    }
 
     #[test]
     fn capability_lists_wrap_at_display_width_without_losing_names() {
