@@ -18,7 +18,7 @@ use view::{
 };
 
 use super::helpers::lsp::{self, Gate, ServerConfig};
-use super::helpers::{run_event_loop_until_idle, test_config};
+use super::helpers::{keys, run_event_loop_until_idle, screen, test_config};
 
 struct Fixture {
     app: TestApplication,
@@ -167,6 +167,29 @@ impl Fixture {
         self.app.handle_terminal_events(Ok(event)).await;
         Ok(())
     }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn signature_help_renders_documentation_when_enabled() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let mut f = Fixture::new(dir.path(), "call(\n", &["alpha"]).await?;
+
+    for enabled in [false, true] {
+        let mut config = (*f.app.editor.config()).clone();
+        config.lsp.signature_help.show_documentation = enabled;
+        f.app
+            .apply_config_update(term::config::ConfigEvent::UpdateEditor(Box::new(config)));
+        f.trigger(SignatureHelpInvoked::Manual);
+        f.response().await?(&mut f.app.editor);
+        keys(&mut f.app, "").await?;
+
+        let rendered = screen(&f.app);
+        assert!(rendered.contains("alpha: call("));
+        assert_eq!(rendered.contains("first signature"), enabled);
+    }
+
+    assert!(f.app.close().await.is_empty());
+    Ok(())
 }
 
 #[tokio::test(flavor = "multi_thread")]
