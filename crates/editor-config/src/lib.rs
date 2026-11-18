@@ -529,12 +529,14 @@ impl Config {
     }
 }
 
-#[derive(Debug, Default, PartialEq, Eq, PartialOrd, Ord, Deserialize, Serialize, Clone, Copy)]
+#[derive(Debug, Default, PartialEq, Eq, PartialOrd, Ord, Deserialize, Serialize, Clone)]
 #[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
 pub struct BreadcrumbConfig {
     pub enable: bool,
     #[serde(default)]
     pub path: BreadcrumbPathOptions,
+    #[serde(default)]
+    pub separator: Option<String>,
 }
 
 #[derive(Debug, Default, PartialEq, Eq, PartialOrd, Ord, Deserialize, Serialize, Clone, Copy)]

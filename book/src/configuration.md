@@ -381,6 +381,7 @@ The `smart-tab` subsection controls syntax-aware Tab behavior.
 | --- | --- | --- | --- |
 | `enable` | boolean | `false` | Show the breadcrumb bar. |
 | `path` | `"full"`, `"file"`, or `"none"` | `"full"` | Include the full path, only the file name, or no path before symbols. |
+| `separator` | string | `" > "` | The string used to separate each segment in the breadcrumb trail. |
 
 ### `[editor.clipboard.provider]`
 

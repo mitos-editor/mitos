@@ -686,7 +686,7 @@ impl PaneRenderer {
 
         let mut x = viewport.x.saturating_add(1);
 
-        let separator = " > ";
+        let separator = config.breadcrumb.separator.as_deref().unwrap_or(" > ");
         let separator_style = editor.theme.get("ui.breadcrumb.separator");
         let mut draw_separator = false;
 
