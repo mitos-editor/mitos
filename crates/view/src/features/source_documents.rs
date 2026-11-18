@@ -34,11 +34,6 @@ impl SourceDocuments {
             !matches!(key, SourceDocumentKey::LanguageServer(owner, _) if *owner == server)
         });
     }
-
-    pub(super) fn remove_language_servers(&mut self) {
-        self.documents
-            .retain(|key, _| !matches!(key, SourceDocumentKey::LanguageServer(..)));
-    }
 }
 
 impl Editor {

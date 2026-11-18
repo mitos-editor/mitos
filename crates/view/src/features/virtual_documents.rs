@@ -297,23 +297,19 @@ impl Editor {
             )),
             Action::Load,
             |editor| {
+                let loader = editor.syn_loader.load_full();
                 let mut doc = Document::from(
                     Rope::from(text),
                     None,
                     editor.config.clone(),
-                    editor.syn_loader.load_full(),
+                    loader.clone(),
                 )
                 .with_language_server_source(DocumentSource {
                     uri: uri.clone(),
                     server,
                     workspace: client.root_path().to_path_buf(),
                 });
-                let loader = editor.syn_loader.load_full();
-                let filename = uri.as_str().split(['?', '#']).next().unwrap_or_default();
-                if let Some(language) = loader.language_for_filename(std::path::Path::new(filename))
-                {
-                    doc.set_language(Some(loader.language(language).config().clone()), &loader);
-                }
+                doc.language = doc.detect_language_config(&loader);
                 doc.attach_content_server(client);
                 doc
             },
@@ -323,15 +319,10 @@ impl Editor {
 
     /// Invalidate this server's content generation and update an existing buffer in place.
     pub fn refresh_language_server_document(&mut self, server: LanguageServerId, uri: lsp::Uri) {
-        let key = (server, uri.as_str().into());
-        let Some(old) = self.virtual_documents.entries.remove(&key) else {
+        self.virtual_documents.remove(server, uri.as_str());
+        if !self.config().lsp.enable || self.language_server_document(server, &uri).is_none() {
             return;
-        };
-        drop(old);
-        let Some(_) = self.language_server_document(server, &uri) else {
-            return;
-        };
-        self.virtual_documents.entries.insert(key, Entry::new());
+        }
         let (current, future) = match self.content_request(server, uri.clone()) {
             Ok(request) => request,
             Err(error) => {
@@ -373,9 +364,9 @@ pub(crate) fn register_hooks(events: &event::EventHub) {
         Ok(())
     });
     register_hook!(events => move |event: &mut ConfigDidChange<'_>| {
-        if !event.new.lsp.enable {
+        if event.old.lsp.enable && !event.new.lsp.enable {
+            // Invalidate content requests while retaining open document identities.
             event.editor.virtual_documents.entries.clear();
-            event.editor.source_documents.remove_language_servers();
         }
         Ok(())
     });
