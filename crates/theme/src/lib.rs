@@ -438,6 +438,15 @@ impl Theme {
             highlights.push(style);
         }
 
+        for scope in ["diff.plus.word", "diff.minus.word"] {
+            if !styles.contains_key(scope) {
+                let style = Style::default().add_modifier(Modifier::BOLD);
+                styles.insert(scope.into(), style);
+                scopes.push(scope.into());
+                highlights.push(style);
+            }
+        }
+
         // Compile composed syntax styles once, keeping the render loop an indexed
         // lookup. The inventory is generated from bundled queries; custom theme keys
         // are retained and custom scopes still support ordinary prefix fallback.
@@ -665,6 +674,22 @@ impl TryFrom<Value> for ThemePalette {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn diff_word_styles_default_to_bold_and_preserve_empty_overrides() {
+        let theme = Theme::from(Value::Table(toml::toml! {
+            "diff.plus" = "green"
+            "diff.minus" = "red"
+            "diff.minus.word" = {}
+        }));
+        let added = theme.find_highlight_exact("diff.plus.word").unwrap();
+        let removed = theme.find_highlight_exact("diff.minus.word").unwrap();
+        assert_eq!(
+            theme.highlight(added),
+            Style::default().add_modifier(Modifier::BOLD)
+        );
+        assert_eq!(theme.highlight(removed), Style::default());
+    }
 
     #[test]
     fn symbol_highlights_default_to_a_weaker_selection_background() {
