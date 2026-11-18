@@ -10,31 +10,35 @@ use language::loader::{default_lang_config, parse_lang_config};
 use language::support::LanguageSupport;
 use loader::syntax::Resources;
 use std::{collections::HashSet, io::Write};
-use termina::{
-    style::{ColorSpec, StyleExt as _, Stylized},
-    Terminal as _,
-};
+use termina::{style::ColorSpec, Terminal as _};
 
-fn status_cell(output: &Output<impl Write>, value: &str) -> Stylized<'static> {
-    let color = if let Some((installed, configured)) = value.split_once('/') {
-        if installed == "0" {
-            Some(ColorSpec::BRIGHT_RED)
+fn write_status_cell(stdout: &mut Output<impl Write>, value: &str) -> std::io::Result<()> {
+    if let Some((installed, configured)) = value.split_once('/') {
+        let color = if installed == "0" {
+            ColorSpec::BRIGHT_RED
         } else if installed == configured {
-            Some(ColorSpec::BRIGHT_GREEN)
+            ColorSpec::BRIGHT_GREEN
         } else {
-            Some(ColorSpec::BRIGHT_YELLOW)
-        }
-    } else if value.contains('✘') {
-        Some(ColorSpec::BRIGHT_RED)
-    } else if value.contains('✓') {
-        Some(ColorSpec::BRIGHT_GREEN)
-    } else {
-        None
-    };
-    match color {
-        Some(color) => output.styled(value, color),
-        None => value.to_owned().stylized(),
+            ColorSpec::BRIGHT_YELLOW
+        };
+        return write!(stdout, "{}", stdout.styled(value, color));
     }
+
+    for (index, mark) in value.split(' ').enumerate() {
+        if index != 0 {
+            write!(stdout, " ")?;
+        }
+        let status = match mark {
+            "✓" => Status::Ok,
+            "✘" => Status::Error,
+            _ => {
+                write!(stdout, "{mark}")?;
+                continue;
+            }
+        };
+        write!(stdout, "{}", stdout.marker(status))?;
+    }
+    Ok(())
 }
 
 fn language_sources() -> std::io::Result<loader::config::LanguageSources> {
@@ -331,7 +335,9 @@ fn write_table(
         for row in &rows[1..] {
             writeln!(stdout, "\n{}", row[0])?;
             for (heading, value) in headings[1..].iter().zip(&row[1..]) {
-                writeln!(stdout, "  {heading}: {}", status_cell(stdout, value))?;
+                write!(stdout, "  {heading}: ")?;
+                write_status_cell(stdout, value)?;
+                writeln!(stdout)?;
             }
         }
         return Ok(());
@@ -341,14 +347,13 @@ fn write_table(
             if column != 0 {
                 write!(stdout, "  ")?;
             }
-            let cell = if index == 0 {
-                stdout.bold(value)
+            if index == 0 {
+                write!(stdout, "{}", stdout.bold(value))?;
             } else if column == 0 {
-                value.clone().stylized()
+                write!(stdout, "{value}")?;
             } else {
-                status_cell(stdout, value)
-            };
-            write!(stdout, "{cell}")?;
+                write_status_cell(stdout, value)?;
+            }
             if column + 1 < row.len() {
                 write!(stdout, "{}", " ".repeat(width - value.width()))?;
             }
