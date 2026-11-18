@@ -162,7 +162,9 @@ impl ReviewView {
                     style
                 },
                 if syntax.is_some() {
-                    theme::Style::default().add_modifier(view::graphics::Modifier::BOLD)
+                    word_scope(line.kind)
+                        .and_then(|scope| theme.try_get_exact(scope))
+                        .unwrap_or_default()
                 } else {
                     style.add_modifier(view::graphics::Modifier::BOLD)
                 },
@@ -215,6 +217,14 @@ impl Component for ReviewView {
                 EventResult::Consumed(None)
             }
         }
+    }
+}
+
+fn word_scope(kind: ReviewLineKind) -> Option<&'static str> {
+    match kind {
+        ReviewLineKind::Added => Some("diff.plus.word"),
+        ReviewLineKind::Removed => Some("diff.minus.word"),
+        _ => None,
     }
 }
 

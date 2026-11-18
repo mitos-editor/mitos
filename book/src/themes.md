@@ -291,8 +291,9 @@ Inline diagnostic text uses `ui.diagnostic.inline.error`, `.warning`, `.info`,
 and `.hint`. Diagnostic underlines in the editing area use `diagnostic.error`,
 `diagnostic.warning`, and related keys.
 
-To keep syntax colors visible in review buffers, give `diff.plus.word` and
-`diff.minus.word` a background or text modifier without setting a foreground.
+Changed words in syntax-highlighted diffs keep their syntax colors and are bold
+by default. Use `diff.plus.word` and `diff.minus.word` to override that style.
+Set a background or text modifier to preserve syntax foreground colors.
 
 Automatic symbol references use `ui.highlight.symbol`. Bundled themes can use a
 subdued background from their palette without changing syntax colors. Otherwise,
