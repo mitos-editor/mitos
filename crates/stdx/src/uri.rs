@@ -130,7 +130,7 @@ impl Url {
         Ok(url)
     }
 
-    /// Convert a `file://` URI back to a filesystem path.
+    /// Convert a `file:` URI back to a filesystem path.
     #[allow(clippy::result_unit_err)]
     pub fn to_file_path(&self) -> Result<PathBuf, ()> {
         // Schemes are case-insensitive (RFC3986 §3.1), so accept any casing.
@@ -139,16 +139,23 @@ impl Url {
         if !self.scheme().eq_ignore_ascii_case("file") {
             return Err(());
         }
-        let rest = self.0["file:".len()..].strip_prefix("//").ok_or(())?;
-        let authority = rest.find('/').map_or(rest, |i| &rest[..i]);
+        let rest = &self.0["file:".len()..];
+        let authority = rest
+            .strip_prefix("//")
+            .map(|rest| rest.split('/').next().unwrap_or_default());
         let path = self.path();
-        let local_host = authority.is_empty() || authority.eq_ignore_ascii_case("localhost");
+        // RFC 8089 allows an absolute path directly after the scheme.
+        if authority.is_none() && !path.starts_with('/') {
+            return Err(());
+        }
+        let remote_host =
+            authority.filter(|host| !host.is_empty() && !host.eq_ignore_ascii_case("localhost"));
 
         #[cfg(not(windows))]
         {
             use std::ffi::OsStr;
             use std::os::unix::ffi::OsStrExt;
-            if !local_host {
+            if remote_host.is_some() {
                 return Err(());
             }
             let bytes = percent_decode(path.as_bytes()).collect::<Vec<u8>>();
@@ -162,20 +169,24 @@ impl Url {
             let decoded = percent_decode(path.as_bytes())
                 .decode_utf8()
                 .map_err(|_| ())?;
-            if local_host {
+            if let Some(host) = remote_host {
+                // UNC: `file://server/share/...` -> `\\server\share\...`
+                Ok(PathBuf::from(format!(
+                    "\\\\{}{}",
+                    host,
+                    decoded.replace('/', "\\")
+                )))
+            } else {
                 // `/C:/dir/file` -> `C:\dir\file`
                 let path = decoded.strip_prefix('/').unwrap_or(&decoded);
                 if path.is_empty() {
                     return Err(());
                 }
-                Ok(PathBuf::from(path.replace('/', "\\")))
-            } else {
-                // UNC: `file://server/share/...` -> `\\server\share\...`
-                Ok(PathBuf::from(format!(
-                    "\\\\{}{}",
-                    authority,
-                    decoded.replace('/', "\\")
-                )))
+                let path = PathBuf::from(path.replace('/', "\\"));
+                if authority.is_none() && !path.is_absolute() {
+                    return Err(());
+                }
+                Ok(path)
             }
         }
     }
@@ -366,6 +377,30 @@ mod tests {
         for suffix in ["", "?query=value", "#line-1", "?query=value#line-1"] {
             let url = Url::parse(&format!("{uri}{suffix}")).unwrap();
             assert_eq!(url.to_file_path().unwrap(), expected);
+        }
+    }
+
+    #[test]
+    fn file_path_conversion_accepts_an_absolute_path_without_authority() {
+        #[cfg(not(windows))]
+        let (uri, expected) = ("file:/tmp/a%20b%23c.rs", Path::new("/tmp/a b#c.rs"));
+        #[cfg(windows)]
+        let (uri, expected) = ("file:/C:/tmp/a%20b%23c.rs", Path::new(r"C:\tmp\a b#c.rs"));
+
+        assert_eq!(Url::parse(uri).unwrap().to_file_path().unwrap(), expected);
+    }
+
+    #[test]
+    fn file_path_conversion_rejects_a_relative_path_without_authority() {
+        for uri in [
+            "file:tmp/test.rs",
+            "file:%2Ftmp/test.rs",
+            #[cfg(windows)]
+            "file:/tmp/test.rs",
+            #[cfg(windows)]
+            "file:/C:tmp/test.rs",
+        ] {
+            assert!(Url::parse(uri).unwrap().to_file_path().is_err(), "{uri}");
         }
     }
 
