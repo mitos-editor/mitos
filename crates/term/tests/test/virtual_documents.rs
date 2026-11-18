@@ -320,6 +320,89 @@ async fn content_refresh_updates_in_place_and_rejects_queued_older_generations(
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn toggling_lsp_preserves_virtual_identity_and_invalidates_old_content() -> anyhow::Result<()>
+{
+    let directory = tempfile::tempdir()?;
+    let mut f = Fixture::new(directory.path(), &["alpha"], &[]).await?;
+    let document = f.open("alpha", Action::Replace).await?;
+    let server = f.server("alpha");
+    let uri: lsp::Uri = URI.parse()?;
+
+    f.content("alpha", "stale refresh\n")?;
+    f.app
+        .editor
+        .refresh_language_server_document(server, uri.clone());
+    let stale = f.response().await?;
+    for enabled in [false, true] {
+        let mut config = (*f.app.editor.config()).clone();
+        config.lsp.enable = enabled;
+        f.app
+            .apply_config_update(term::config::ConfigEvent::UpdateEditor(Box::new(config)));
+    }
+
+    stale(&mut f.app.editor);
+    assert_eq!(
+        f.app.editor.document(document).unwrap().text(),
+        "😀 generated alpha\n"
+    );
+    assert_eq!(
+        f.app.editor.language_server_document(server, &uri),
+        Some(document)
+    );
+
+    f.content("alpha", "fresh content\n")?;
+    f.call(
+        "alpha",
+        "content-refresh-after-toggle",
+        "workspace/textDocumentContent/refresh",
+        json!({"uri":URI}),
+    )
+    .await?;
+    f.response().await?(&mut f.app.editor);
+    assert_eq!(
+        f.app.editor.document(document).unwrap().text(),
+        "fresh content\n"
+    );
+    assert_eq!(f.open("alpha", Action::Replace).await?, document);
+    assert_eq!(
+        f.messages("alpha")?
+            .iter()
+            .filter(|message| {
+                message["method"] == "textDocument/didOpen"
+                    && message["params"]["textDocument"]["uri"] == URI
+            })
+            .count(),
+        1
+    );
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn reloading_language_config_redetects_an_open_virtual_document() -> anyhow::Result<()> {
+    let directory = tempfile::tempdir()?;
+    let mut f = Fixture::new(directory.path(), &["alpha"], &[]).await?;
+    let result = f.request(
+        "alpha",
+        "test-source:/generated.virtual-test?provider=alpha#source",
+        None,
+        Action::Replace,
+    )?;
+    let document = f.finish(result).await?;
+    assert_eq!(
+        f.app.editor.document(document).unwrap().language_id(),
+        Some("virtual-test")
+    );
+
+    let loader = fixture_lsp::syntax_loader("updated-language", "virtual-test", &[], "");
+    let theme = f.app.editor.theme.clone();
+    f.app.editor.apply_language_config(loader, theme)?;
+    let doc = f.app.editor.document(document).unwrap();
+    assert_eq!(doc.language_id(), Some("updated-language"));
+    assert!(doc.path().is_none() && doc.source_path().is_none());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn unsupported_content_schemes_fail_without_fetching_or_changing_focus() -> anyhow::Result<()>
 {
     let directory = tempfile::tempdir()?;
