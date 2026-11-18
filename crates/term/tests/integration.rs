@@ -53,6 +53,7 @@ mod test {
     mod movement;
     mod navigation;
     mod paste_all;
+    mod persistence;
     mod picker_layout;
     mod prompt_completion;
     mod pull_diagnostics;

@@ -42,10 +42,9 @@ impl Args {
             // Before setting the working directory, resolve all the paths in args.files
             let filename = stdx::path::canonicalize(filename);
 
-            args.files
-                .entry(filename)
-                .and_modify(|positions| positions.push(position))
-                .or_insert_with(|| vec![position]);
+            // A file without a position reopens where it was left, when that is saved.
+            let positions = args.files.entry(filename).or_default();
+            positions.extend(position);
         };
 
         argv.next(); // skip the program, we don't care about that
@@ -134,14 +133,12 @@ impl Args {
         }
 
         if line_number != 0 {
-            if let Some(first_position) = args
-                .files
-                .first_mut()
-                .and_then(|(_, positions)| positions.first_mut())
-            {
-                first_position.row = line_number;
-            } else {
-                args.stdin_position.row = line_number;
+            match args.files.first_mut() {
+                Some((_, positions)) => match positions.first_mut() {
+                    Some(first_position) => first_position.row = line_number,
+                    None => positions.push(Position::new(line_number, 0)),
+                },
+                None => args.stdin_position.row = line_number,
             }
         }
 
@@ -153,14 +150,15 @@ impl Args {
     }
 }
 
-/// Parse arg into [`PathBuf`] and position.
-pub(crate) fn parse_file(s: &str) -> (PathBuf, Position) {
-    let def = || (PathBuf::from(s), Position::default());
+/// Parse arg into [`PathBuf`] and position, if one was given.
+pub(crate) fn parse_file(s: &str) -> (PathBuf, Option<Position>) {
+    let def = || (PathBuf::from(s), None);
     if Path::new(s).exists() {
         return def();
     }
     split_path_row_col(s)
         .or_else(|| split_path_row(s))
+        .map(|(path, position)| (path, Some(position)))
         .unwrap_or_else(def)
 }
 
@@ -190,6 +188,19 @@ fn split_path_row(s: &str) -> Option<(PathBuf, Position)> {
 #[cfg(test)]
 mod tests {
     use super::Args;
+
+    #[test]
+    fn files_have_positions_only_when_given() {
+        let args =
+            Args::parse_args_from(["ms", "a.rs", "b.rs:3", "a.rs:2:4"].map(str::to_owned)).unwrap();
+        let positions: Vec<_> = args.files.values().map(|p| p.len()).collect();
+        assert_eq!(positions, [1, 1]);
+        assert!(args.files.values().all(|p| p.iter().all(|p| p.row > 0)));
+        let args = Args::parse_args_from(["ms", "+5", "c.rs"].map(str::to_owned)).unwrap();
+        assert_eq!(args.files.values().next().unwrap()[0].row, 4);
+        let args = Args::parse_args_from(["ms", "c.rs"].map(str::to_owned)).unwrap();
+        assert!(args.files.values().next().unwrap().is_empty());
+    }
 
     #[test]
     fn line_positions_apply_to_stdin_without_file_arguments() {
