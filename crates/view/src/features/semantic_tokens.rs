@@ -330,6 +330,14 @@ pub(crate) fn refresh_document(editor: &mut Editor, doc: DocumentId) {
     request(editor, doc, None);
 }
 
+/// Request fresh tokens after a configuration reload cleared the document caches.
+pub fn refresh_after_config_reload(editor: &mut Editor) {
+    let docs: Vec<_> = editor.documents().map(Document::id).collect();
+    for doc in docs {
+        request(editor, doc, None);
+    }
+}
+
 pub fn refresh_for_language_server(editor: &mut Editor, server: LanguageServerId) {
     let docs: Vec<_> = editor
         .documents()
