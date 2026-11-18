@@ -178,8 +178,15 @@ If you are making a package of Mitos for end users, to provide a good out of
 the box experience, you should set the `MITOS_DEFAULT_RUNTIME` environment
 variable at build time (before invoking `cargo build`) to a directory which
 will store the final runtime files after installation. For example, say you want
-to package the runtime into `/usr/lib/mitos/runtime`. The rough steps a build
-script could follow are:
+to package the runtime into `/usr/lib/mitos/runtime`.
+
+Since Mitos 0.2.0, `cargo build` no longer fetches or compiles grammars. When
+updating an older package recipe, add both explicit grammar commands before
+copying the runtime. A runtime with queries but no compiled grammars cannot
+provide syntax highlighting, even if the query columns in `ms --health` show
+checkmarks.
+
+The rough steps a build script could follow are:
 
 1. `export MITOS_DEFAULT_RUNTIME=/usr/lib/mitos/runtime`
 1. Fetch and compile grammars with the explicit commands above.

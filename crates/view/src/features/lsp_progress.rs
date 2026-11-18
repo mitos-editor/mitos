@@ -38,7 +38,10 @@ impl Editor {
         let lsp::ProgressParams {
             token,
             value: lsp::ProgressParamsValue::WorkDone(work),
-        } = params;
+        } = params
+        else {
+            return None;
+        };
         let map = &mut self.handlers.lsp_progress;
         let title = map.title(server, &token).cloned();
         let (title, message, percentage) = match &work {

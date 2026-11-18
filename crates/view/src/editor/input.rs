@@ -35,6 +35,7 @@ impl Editor {
         let (view, doc) = current!(self);
         editing::insert::insert_newline(doc, view.id, self.auto_pairs.as_ref())?;
         self.input_applied(InputKind::Other);
+        features::formatting::on_type_input(self, Some('\n'));
         Ok(())
     }
 
@@ -101,6 +102,13 @@ impl Editor {
         if matches!(kind, InputKind::Character(_)) {
             features::signature_help::post_insert_char(self);
         }
+        features::formatting::on_type_input(
+            self,
+            match kind {
+                InputKind::Character(character) => Some(character),
+                _ => None,
+            },
+        );
         self.events()
             .clone()
             .dispatch(InputApplied { editor: self, kind })

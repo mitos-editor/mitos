@@ -309,7 +309,7 @@ fn changed_file_picker_for_scope(cx: &mut Context, scope: vcs::ChangedFileScope)
             FileChange::Renamed { .. } => ("> ", icons.vcs().renamed(), data.style_renamed),
         };
         if data.icons {
-            icon.map(|icon| Span::styled(icon.with_no_left_padding().to_string(), style))
+            Some(Span::styled(icon.with_no_left_padding().to_string(), style))
         } else {
             Some(Span::styled(plain, style))
         }
@@ -416,10 +416,13 @@ fn changed_file_picker_for_scope(cx: &mut Context, scope: vcs::ChangedFileScope)
                 cancel,
             )
         },
+        view::features::workspace_changes::Policy {
+            contents: true,
+            vcs: true,
+            ..Default::default()
+        },
     )
-    .with_item_key(|entry| entry.status.path().to_path_buf())
-    .refresh_on_content_changes()
-    .refresh_on_vcs_changes();
+    .with_item_key(|entry| entry.status.path().to_path_buf());
     #[cfg(feature = "git")]
     let picker = {
         let action_scope = scope.clone();
@@ -856,9 +859,10 @@ mod file_refresh_tests {
             Ok(())
         };
         git(&["init", "-q"])?;
-        let path = dir.path().join("new.txt");
+        let root = stdx::path::normalize(dir.path());
+        let path = root.join("new.txt");
         std::fs::write(&path, "new\n")?;
-        let scope = vcs::ChangedFileScope::Directory(dir.path().to_owned());
+        let scope = vcs::ChangedFileScope::Directory(root);
         let mut task = event::TaskController::new();
         let entries = refresh_changed_files(
             vcs::DiffProviderRegistry::default(),

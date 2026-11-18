@@ -391,6 +391,7 @@ mod lsp_prefix_tests {
             tab_width: 4,
             indent_style: IndentStyle::Spaces(4),
             line_ending: "\n",
+            adjust_indentation: true,
         };
         let (transaction, _) =
             generate_transaction_from_snippet(&doc, &selection, None, false, &snippet, &mut ctx);

@@ -9,11 +9,15 @@ impl Document {
     pub(super) fn invalidate_language_features(&mut self) {
         for state in self.view_states.values_mut() {
             state.expansion_history.clear();
+            state.structural_request.cancel();
+            state.structural_repeat = None;
             state.folds = Default::default();
         }
         self.cancel_view_requests(|state| &mut state.hover);
         self.cancel_view_requests(|state| &mut state.navigation);
+        self.cancel_view_requests(|state| &mut state.on_type_formatting);
         self.rename.cancel();
+        self.linked_editing.clear();
         self.cancel_view_requests(|state| &mut state.code_actions);
         self.workspace_symbols.cancel();
         self.reset_all_inlay_hints();
@@ -23,6 +27,7 @@ impl Document {
         self.document_links.invalidate();
         self.code_lenses.clear();
         self.semantic_tokens.invalidate();
+        self.folding_ranges.invalidate();
         self.invalidate_document_symbols();
         self.clear_all_document_highlights();
         self.clear_all_code_action_hints();

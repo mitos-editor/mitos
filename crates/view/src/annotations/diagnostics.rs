@@ -41,8 +41,6 @@ fn diagnostic_text_format(
         tab_width: 4,
         max_wrap: config.max_wrap.min(width / 4),
         max_indent_retain: 0,
-        wrap_indicator: Box::from(""),
-        wrap_indicator_highlight: None,
         viewport_width: width,
         soft_wrap_at_text_width: true,
     }
@@ -103,6 +101,11 @@ impl<'a> InlineDiagnosticAccumulator<'a> {
     pub fn clear(&mut self) {
         self.cursor_line = false;
         self.stack.clear();
+    }
+
+    /// Whether painting this line still needs a diagnostic block or label.
+    pub fn has_pending_diagnostics(&self) -> bool {
+        !self.stack.is_empty()
     }
 
     fn process_anchor_impl(

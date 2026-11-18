@@ -1,49 +1,55 @@
 # Releases
 
-[release-plz](https://release-plz.dev/) opens and updates a release PR on pushes
-to `main`. Merging that PR creates a draft GitHub release and a version tag such as `v0.2.1`;
-the tag triggers `.github/workflows/release.yml` to build and upload the binary
-archives, Linux AppImages, Debian package, SHA-256 checksums, and provenance attestations.
-The release stays in draft until you publish it manually. Artifact uploads find
-the existing draft by ID and refuse to proceed if it is already published.
+[git-cliff](https://git-cliff.org/) generates one changelog for the entire
+repository. Maintainers prepare and curate a release PR, then create its draft
+GitHub release and version tag manually. Pushing a tag such as `v0.2.2` starts
+`.github/workflows/release.yml`, which builds and uploads the binary archives,
+Linux AppImages, Debian package, SHA-256 checksums, and provenance attestations.
+The release stays in draft until a maintainer publishes it. Artifact uploads
+find the existing draft by ID and refuse to proceed if it is already published.
 
-Releases use Git tags only; release-plz does not publish crates to crates.io.
-The `term` package owns the release and root changelog. Its version is inherited
-from `workspace.package.version`, so the editor's internal workspace crates
-remain on the same version. External dependencies, including `lsp-types`, retain
-their upstream versions.
+Mitos has one application version from `workspace.package.version`; internal
+crates inherit it. Independently versioned crates, including the vendored
+`crates/lsp-types`, keep their versions. No crates are published to crates.io.
 
-## Version baseline
+## Prepare a release PR
 
-Mitos uses semantic versions starting at **0.1.0**, independently of Helix's
-release history. Tags use the form `v0.1.0`. Inherited Helix tags must not be
-pushed back into this repository.
+Install git-cliff 2.14.2, cargo-edit 0.13.14 (which provides `cargo set-version`),
+and the repository's Rust toolchain. Start from a clean branch based on current
+`main`, with the repository's tags fetched:
 
-With no existing release tags, release-plz treats `0.1.0` as the initial
-release and keeps that version in its first release PR. Subsequent versions
-follow release-plz's semantic version bumps from commit messages.
-`release_always = false` ensures draft release creation happens only after a
-release PR is merged. `git_release_draft = true` keeps the release unpublished.
+```sh
+git fetch origin --tags
+git cliff --unreleased --bumped-version
+```
 
-## Repository setup
+Choose the version using that suggestion, for example `v0.2.2`, then prepare
+the files for review:
 
-Create a fine-grained personal access token (PAT) for `mitos-editor/mitos`
-from an account with write access to the repository. Grant repository
-**Contents: read and write** and **Pull requests: read and write** permissions,
-and save the token as the repository Actions secret `RELEASE_PAT`.
+```sh
+tag=v0.2.2
+cargo set-version --package term "${tag#v}"
+git cliff --unreleased --tag "$tag" --prepend CHANGELOG.md
+```
 
-The PAT allows release PRs to trigger CI and version tags to trigger the binary
-build workflow. See the [release-plz token setup guide](https://release-plz.dev/docs/github/token).
+`cargo set-version` updates the shared workspace version and lockfile while
+preserving independently versioned crates. The native `--prepend` operation
+keeps historical entries and moves handwritten `Unreleased` notes into the new
+release entry alongside the generated notes.
 
-## Release checklist
+`cliff.toml` includes commits across the repository, including grammars, themes,
+and packaging. It considers stable `vX.Y.Z` tags on the current branch and
+ignores nightly, prerelease, and unrelated upstream tags. Below 1.0, features
+and fixes suggest a patch bump; breaking changes suggest a minor bump. Mitos's
+version history is independent of Helix's. Do not push inherited Helix tags back
+into this repository.
 
-1. Review the release PR's version, `Cargo.lock`, and `CHANGELOG.md`. All workspace
-   packages must share `workspace.package.version`; keep external dependency
-   versions unchanged. For a minor release such as 0.2.0, set that version in
-   `Cargo.toml` and regenerate the lockfile with Cargo.
-2. Curate the changelog in plain English, including runtime, grammar, theme, and
-   packaging changes outside Rust packages. Link feature documentation and
-   upstream libraries, and explain breaking changes and how to upgrade.
+1. Review `Cargo.toml`, `Cargo.lock`, and `CHANGELOG.md`. Editor crates must share
+   `workspace.package.version`; keep vendored versions and external dependency
+   versions unchanged.
+2. Curate the changelog in plain English. Add custom notes, link feature
+   documentation and upstream libraries, and explain breaking changes and how
+   to upgrade. The generated entries are a starting point.
 3. Add a release entry to `contrib/Mitos.appdata.xml` following the
    [AppStream release metadata specification](https://www.freedesktop.org/software/appstream/docs/sect-Metadata-Releases.html).
    This metadata and the desktop icon are included in Debian, AppImage, and Nix
@@ -52,22 +58,50 @@ build workflow. See the [release-plz token setup guide](https://release-plz.dev/
    and validate release workflow changes with `actionlint`. Check
    `nix/grammar-sources.json` against `languages.toml`; regenerate changed pins
    with `cargo xtask update-nix-grammar-sources` on a machine with Nix installed.
-5. Wait for CI and merge the release PR.
-6. Verify the Release-plz and Release workflows finish. Check all six platform
-   archives, both Linux AppImages, the x86_64 Debian package, source archive,
-   `SHA256SUMS`, and provenance attestations on the draft GitHub release. The source
-   archive includes pinned grammar sources and excludes Git metadata and CI
-   build artifacts. Test `ms --version` and `ms --health rust` from an extracted
-   archive outside the checkout. Download draft assets while authenticated with
-   `gh release download v0.2.1 --repo mitos-editor/mitos` (replace the version).
-7. When the Release workflow is green and the draft has all artifacts, open it
-   in [GitHub Releases](https://github.com/mitos-editor/mitos/releases), review
-   the notes, and click **Publish release**. Alternatively, run
-   `gh release edit v0.2.1 --repo mitos-editor/mitos --draft=false --latest`.
-8. Test the hosted installers with the newly published version. Public download
+5. Open the release PR, wait for CI, and merge it. Merging does not create a tag
+   or release. If release-plz already opened a PR, it can be curated and merged
+   manually in the same way.
+
+## Tag and publish
+
+Use the merged release PR's full commit SHA, so later commits on `main` do not
+enter the release accidentally. Save the curated version entry from
+`CHANGELOG.md`, without its heading or older entries, to
+`/tmp/mitos-release-notes.md`.
+
+Set the prepared version and merged commit below, then save the draft release
+before pushing the tag:
+
+```sh
+tag=v0.2.2
+release_commit=FULL_MERGED_RELEASE_COMMIT_SHA
+gh release create "$tag" --repo mitos-editor/mitos \
+  --target "$release_commit" --title "Mitos ${tag#v}" \
+  --notes-file /tmp/mitos-release-notes.md --draft --latest=false
+git tag -a "$tag" "$release_commit" -m "Mitos ${tag#v}"
+git push origin "refs/tags/$tag"
+```
+
+A saved draft does not publish the release. The explicit tag push starts the
+Release workflow; the draft must exist before its artifact uploads run. Use
+an account with repository write access. Release preparation no longer needs
+an automation token; `RELEASE_PAT` may still be used by other workflows such as
+grammar updates.
+
+1. Verify the Release workflow finishes. Check all six platform archives, both
+   Linux AppImages, the x86_64 Debian package, source archive, `SHA256SUMS`, and
+   provenance attestations on the draft release. The source archive includes
+   pinned grammar sources and excludes Git metadata and CI build artifacts.
+   Test `ms --version` and `ms --health rust` from an extracted archive outside
+   the checkout. Download draft assets while authenticated with
+   `gh release download v0.2.2 --repo mitos-editor/mitos` (replace the version).
+2. Open the draft in [GitHub Releases](https://github.com/mitos-editor/mitos/releases),
+   review the notes, and click **Publish release**. Alternatively, run
+   `gh release edit v0.2.2 --repo mitos-editor/mitos --draft=false --latest`.
+3. Test the hosted installers with the newly published version. Public download
    URLs and the latest-release installer do not expose draft releases; the
    previous published release stays available while the new draft builds.
-9. Check that the Stable branch workflow moved `stable` to the latest release commit.
+4. Check that the Stable branch workflow moved `stable` to the latest release commit.
 
 If a build fails, the release stays in draft. Retry the failed jobs before
 publishing; do not move the version tag. Uploads and reruns never publish the
@@ -75,7 +109,7 @@ release automatically. A rerun after manual publication fails the draft check
 rather than changing the published release.
 
 Manual dispatch of the Release workflow remains a preview build and uploads CI
-artifacts. Manual dispatch of Release-plz on `main` reruns release automation.
+artifacts.
 
 ## Branches and channels
 
@@ -130,7 +164,7 @@ Stable publication is manual. If you automate it later with `GITHUB_TOKEN`,
 call the stable update explicitly: its release event will not start another
 workflow. Publishing with a GitHub App token or PAT also permits that trigger.
 
-Validate release automation without publishing anything:
+Validate the existing release and installer automation without publishing anything:
 
 ```sh
 python3 -m unittest discover -s tests/releases -v

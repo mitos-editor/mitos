@@ -33,16 +33,43 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
             "C-v" | "v" => split_vertical_new,
         },
     });
-    let view = keymap!({ "View"
-        "f" => { "Folding"
-            "c" => fold_close,
-            "o" => fold_open,
-            "a" => fold_toggle,
-            "s" => fold_selection,
-            "m" => fold_all,
-            "r" => unfold_all,
+    let debug = keymap!({ "Debug"
+        "l" => debug_launch_picker,
+        "r" => debug_restart,
+        "b" => debug_toggle_breakpoints,
+        "c" => debug_continue,
+        "h" => debug_pause,
+        "i" => debug_step_in,
+        "o" => debug_step_out,
+        "n" => debug_step_over,
+        "v" => debug_variables,
+        "t" => debug_terminate,
+        "B" => { "Breakpoint settings"
+            "c" => debug_edit_breakpoint_condition,
+            "l" => debug_edit_breakpoint_log_message,
         },
-        "z" | "c" => center_view_vertically,
+        "s" => { "Switch"
+            "s" => debug_session_picker,
+            "t" => debug_thread_picker,
+            "f" => debug_stack_frame_picker,
+            // sl, sb
+        },
+        "e" => debug_enable_exception_breakpoints,
+        "E" => debug_disable_exception_breakpoints,
+    });
+    let mut sticky_debug = debug.clone();
+    if let KeyTrie::Node(node) = &mut sticky_debug {
+        node.is_sticky = true;
+    }
+    let view = keymap!({ "View"
+        "c" => fold_close,
+        "o" => fold_open,
+        "a" => fold_toggle,
+        "f" => fold_selection,
+        "C" => fold_all,
+        "O" => unfold_all,
+        "A" => fold_toggle_all,
+        "z" => center_view_vertically,
         "t" => align_view_top,
         "b" => align_view_bottom,
         "m" => center_view_horizontally,
@@ -301,28 +328,8 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
             "a" => code_action,
             "l" => show_code_lenses_under_cursor,
             "'" => last_picker,
-            "G" => { "Debug (experimental)" sticky=true
-                "l" => debug_launch_picker,
-                "r" => debug_restart,
-                "b" => debug_toggle_breakpoints,
-                "c" => debug_continue,
-                "h" => debug_pause,
-                "i" => debug_step_in,
-                "o" => debug_step_out,
-                "n" => debug_step_over,
-                "v" => debug_variables,
-                "t" => debug_terminate,
-                "C-c" => debug_edit_breakpoint_condition,
-                "C-l" => debug_edit_breakpoint_log_message,
-                "s" => { "Switch"
-                    "s" => debug_session_picker,
-                    "t" => debug_thread_picker,
-                    "f" => debug_stack_frame_picker,
-                    // sl, sb
-                },
-                "e" => debug_enable_exception_breakpoints,
-                "E" => debug_disable_exception_breakpoints,
-            },
+            "x" => (debug),
+            "X" => (sticky_debug),
             "w" => (window),
             "y" => yank_to_clipboard,
             "Y" => yank_primary_selection_to_clipboard,
@@ -338,8 +345,6 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
             "C" => toggle_block_comments,
             "A-c" => toggle_line_comments,
             "?" => command_palette,
-            "B" => vcs_toggle_inline_blame,
-            "i" => vcs_show_change,
         },
         "z" => (view),
         "Z" => (sticky_view),

@@ -20,6 +20,10 @@ Typing another character normally accepts the selected suggestion and continues
 typing. Mitos previews the selected suggestion in the document by default.
 Disable this with `editor.completion.preview-insert = false`.
 
+When a language server provides label details, the menu shows the signature or
+type beside the name and its module or file path in a separate column. These
+details help distinguish suggestions and are not inserted into the document.
+
 To request suggestions only with `Ctrl-x`:
 
 ```toml
@@ -73,7 +77,10 @@ enable = false
 Servers supporting inline completion can show suggestions as faint text after
 the cursor. These suggestions leave the document unchanged until accepted.
 They disappear when you edit, move, leave insert mode, or switch documents.
-Inline suggestions pause while you preview an item in the completion menu.
+When you select a plain-text item in the completion menu, the server can extend
+that item with an inline suggestion. Selecting a different item refreshes the
+suggestion. Items with snippet placeholders, additional edits, or commands keep
+their ordinary completion preview.
 
 There are no default keys for inline suggestions. Add these to `config.toml`:
 

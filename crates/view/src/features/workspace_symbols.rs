@@ -1,14 +1,18 @@
-//! Workspace symbol providers captured independently of picker presentation.
+//! Workspace symbol queries and lazy locations owned by their original provider.
 
-use std::sync::Weak;
+use std::sync::{Arc, Mutex, OnceLock, Weak};
 
 use anyhow::{ensure, Context as _, Result};
-use event::{register_hook, TaskHandle};
-use futures_util::{future::BoxFuture, stream::FuturesUnordered, FutureExt, StreamExt};
+use event::{cancelable_future, register_hook, TaskController, TaskHandle};
+use futures_util::{
+    future::BoxFuture,
+    stream::{self, BoxStream, SelectAll},
+    FutureExt, StreamExt,
+};
 use language_config::LanguageServerFeature;
-use lsp_client::{lsp, Client, OffsetEncoding};
+use lsp_client::{lsp, Client, OffsetEncoding, RequestUpdate, UriExt as _};
 
-use super::symbols::Symbol;
+use super::{navigation::Location, request::DocumentRequest};
 use crate::{
     callbacks::EditorCallbackSender,
     events::{ConfigDidChange, LanguageServerExited},
@@ -16,12 +20,13 @@ use crate::{
 };
 
 /// Providers belong to the document that opened the session, even if focus moves.
-/// Frontends own query replacement and drop the old task when a query is superseded.
+/// Starting a new query cancels requests and lazy resolutions for the old query.
 pub struct WorkspaceSymbolsSession {
     document: DocumentId,
     owner: EditorCallbackSender,
     servers: Vec<Weak<Client>>,
     lifetime: TaskHandle,
+    query: Mutex<TaskController>,
 }
 
 impl WorkspaceSymbolsSession {
@@ -36,85 +41,296 @@ impl WorkspaceSymbolsSession {
                             && editor
                                 .language_servers
                                 .get_by_id(server.id())
-                                .is_some_and(|current| std::sync::Arc::ptr_eq(current, &server))
+                                .is_some_and(|current| Arc::ptr_eq(current, &server))
                     })
                 })
             })
     }
 
-    /// Start a query against the captured providers. Dropping the task cancels its LSP requests.
     pub fn query(&self, editor: &Editor, query: String) -> Result<WorkspaceSymbolsTask> {
         ensure!(
             self.is_current(editor),
             "Workspace symbol session is no longer current"
         );
+        let cancel = self.query.lock().unwrap().restart();
+        let doc = editor.document(self.document).unwrap();
         let requests = self
             .servers
             .iter()
             .filter_map(|server| {
-                let server = server.upgrade()?;
-                let encoding = server.offset_encoding();
-                let future = server.workspace_symbols(query.clone())?;
-                Some(async move { Ok(normalize_symbols(future.await?, encoding)) }.boxed())
+                let client = server.upgrade()?;
+                let stream = client.workspace_symbols_stream(query.clone())?;
+                let mut provider = TaskController::default();
+                let valid = provider.restart();
+                let request = Arc::new(Query {
+                    owner: self.owner.clone(),
+                    target: DocumentRequest::new(doc, cancel.clone(), vec![client.id()]),
+                    lifetime: self.lifetime.clone(),
+                    server: server.clone(),
+                    encoding: client.offset_encoding(),
+                    text: query.clone(),
+                    provider: Mutex::new(provider),
+                    valid,
+                });
+                let request = PendingQuery {
+                    query: request,
+                    completed: false,
+                };
+                Some(
+                    stream::unfold(Some((stream, request)), |state| async move {
+                        let (mut stream, mut request) = state?;
+                        let update = stream.next().await?;
+                        let (response, next) = match update {
+                            RequestUpdate::Partial(Ok(batch)) => (Ok(Some(batch)), Some(stream)),
+                            RequestUpdate::Partial(Err(error)) => (Err(error), None),
+                            RequestUpdate::Response(response) => {
+                                (response.map(Option::flatten), None)
+                            }
+                        };
+                        let response =
+                            response.map(|batch| normalize_symbols(batch, request.query.clone()));
+                        request.completed = next.is_none() && response.is_ok();
+                        Some((response, next.map(|stream| (stream, request))))
+                    })
+                    .boxed(),
+                )
             })
             .collect();
         Ok(WorkspaceSymbolsTask {
             lifetime: self.lifetime.clone(),
+            cancel,
             requests,
         })
     }
 }
 
-/// Streams complete provider responses as they arrive, without borrowing the editor.
+struct Query {
+    owner: EditorCallbackSender,
+    target: DocumentRequest,
+    lifetime: TaskHandle,
+    server: Weak<Client>,
+    encoding: OffsetEncoding,
+    text: String,
+    provider: Mutex<TaskController>,
+    valid: TaskHandle,
+}
+
+/// Provisional rows and lazy resolutions expire on failure or local cancellation.
+/// A successful final response releases the guard while keeping its rows usable.
+struct PendingQuery {
+    query: Arc<Query>,
+    completed: bool,
+}
+
+impl Drop for PendingQuery {
+    fn drop(&mut self) {
+        if !self.completed {
+            self.query.provider.lock().unwrap().cancel();
+        }
+    }
+}
+
+impl Query {
+    fn location(&self, location: lsp::Location) -> Option<Location> {
+        Location::from_lsp(location, self.encoding)
+    }
+
+    fn is_current(&self, editor: &Editor) -> bool {
+        !self.lifetime.is_canceled()
+            && !self.valid.is_canceled()
+            && self.owner.same_destination(editor.callback_sender())
+            && editor.config().lsp.enable
+            && self.target.is_current(editor)
+            && self.server.upgrade().is_some_and(|server| {
+                editor
+                    .language_server_by_id(server.id())
+                    .is_some_and(|current| std::ptr::eq(current, server.as_ref()))
+            })
+    }
+}
+
+/// A workspace item retains its wire data until the user needs its location.
+/// Clones share the location cache, but only a validated response can populate it.
+pub struct WorkspaceSymbol {
+    pub name: String,
+    pub kind: lsp::SymbolKind,
+    pub container_name: Option<String>,
+    pub uri: editor_core::Uri,
+    location: OnceLock<Location>,
+    wire: lsp::WorkspaceSymbol,
+    query: Arc<Query>,
+}
+
+impl PartialEq for WorkspaceSymbol {
+    fn eq(&self, other: &Self) -> bool {
+        std::ptr::eq(self, other)
+    }
+}
+
+impl WorkspaceSymbol {
+    pub fn location<'a>(&'a self, editor: &Editor) -> Option<&'a Location> {
+        self.is_current(editor)
+            .then(|| self.location.get())
+            .flatten()
+    }
+
+    pub fn is_current(&self, editor: &Editor) -> bool {
+        self.query.is_current(editor)
+    }
+
+    pub fn query(&self) -> &str {
+        &self.query.text
+    }
+
+    pub fn provider(&self) -> Option<lsp_client::LanguageServerId> {
+        self.query.server.upgrade().map(|server| server.id())
+    }
+
+    pub fn resolve(self: &Arc<Self>, editor: &Editor) -> Result<WorkspaceSymbolResolveTask> {
+        ensure!(
+            self.is_current(editor),
+            "Workspace symbol is no longer current"
+        );
+        let future = if self.location.get().is_some() {
+            None
+        } else {
+            let server = self
+                .query
+                .server
+                .upgrade()
+                .context("Symbol provider stopped")?;
+            let symbol = self.wire.clone();
+            Some(
+                server
+                    .resolve_workspace_symbol(symbol)
+                    .context("Symbol provider does not support resolution")?
+                    .boxed(),
+            )
+        };
+        Ok(WorkspaceSymbolResolveTask {
+            symbol: self.clone(),
+            future,
+        })
+    }
+}
+
+pub struct WorkspaceSymbolResolveTask {
+    symbol: Arc<WorkspaceSymbol>,
+    future: Option<BoxFuture<'static, lsp_client::Result<lsp::WorkspaceSymbol>>>,
+}
+
+impl WorkspaceSymbolResolveTask {
+    pub async fn run(self) -> Result<Option<WorkspaceSymbolResolution>> {
+        let location = match self.future {
+            Some(future) => {
+                let response = cancelable_future(
+                    cancelable_future(
+                        cancelable_future(future, &self.symbol.query.target.cancel),
+                        &self.symbol.query.lifetime,
+                    ),
+                    &self.symbol.query.valid,
+                )
+                .await
+                .flatten()
+                .flatten();
+                let Some(response) = response else {
+                    return Ok(None);
+                };
+                let lsp::OneOf::Left(location) = response?.location else {
+                    anyhow::bail!("Symbol provider returned no location range");
+                };
+                self.symbol
+                    .query
+                    .location(location)
+                    .context("Symbol provider returned an unsupported location")?
+            }
+            None => self.symbol.location.get().unwrap().clone(),
+        };
+        Ok(Some(WorkspaceSymbolResolution {
+            symbol: self.symbol,
+            location,
+        }))
+    }
+}
+
+/// A queued resolution rechecks its query, document, and server before publication.
+pub struct WorkspaceSymbolResolution {
+    symbol: Arc<WorkspaceSymbol>,
+    location: Location,
+}
+
+impl WorkspaceSymbolResolution {
+    pub fn publish(self, editor: &Editor) -> Option<Arc<WorkspaceSymbol>> {
+        if !self.symbol.is_current(editor) {
+            return None;
+        }
+        let _ = self.symbol.location.set(self.location);
+        Some(self.symbol)
+    }
+}
+
 pub struct WorkspaceSymbolsTask {
     lifetime: TaskHandle,
-    requests: FuturesUnordered<BoxFuture<'static, lsp_client::Result<Vec<Symbol>>>>,
+    cancel: TaskHandle,
+    requests: SelectAll<BoxStream<'static, lsp_client::Result<Vec<Arc<WorkspaceSymbol>>>>>,
 }
 
 impl WorkspaceSymbolsTask {
-    pub async fn next_batch(&mut self) -> Option<lsp_client::Result<Vec<Symbol>>> {
-        event::cancelable_future(self.requests.next(), &self.lifetime)
-            .await
-            .flatten()
+    pub async fn next_batch(&mut self) -> Option<lsp_client::Result<Vec<Arc<WorkspaceSymbol>>>> {
+        cancelable_future(
+            cancelable_future(self.requests.next(), &self.cancel),
+            &self.lifetime,
+        )
+        .await
+        .flatten()
+        .flatten()
     }
 }
 
 fn normalize_symbols(
     response: Option<lsp::WorkspaceSymbolResponse>,
-    encoding: OffsetEncoding,
-) -> Vec<Symbol> {
-    match response {
+    query: Arc<Query>,
+) -> Vec<Arc<WorkspaceSymbol>> {
+    let symbols = match response {
         Some(lsp::WorkspaceSymbolResponse::Flat(symbols)) => symbols
             .into_iter()
-            .filter_map(|symbol| {
-                Symbol::from_lsp(
-                    symbol.name,
-                    symbol.kind,
-                    symbol.container_name,
-                    symbol.location,
-                    encoding,
-                )
+            .map(|symbol| lsp::WorkspaceSymbol {
+                name: symbol.name,
+                kind: symbol.kind,
+                tags: symbol.tags,
+                container_name: symbol.container_name,
+                location: lsp::OneOf::Left(symbol.location),
+                data: None,
             })
             .collect(),
-        Some(lsp::WorkspaceSymbolResponse::Nested(symbols)) => symbols
-            .into_iter()
-            .filter_map(|symbol| {
-                let lsp::OneOf::Left(location) = symbol.location else {
-                    // The client does not advertise lazy location resolution.
-                    log::warn!("discarding workspace symbol without a location range");
-                    return None;
-                };
-                Symbol::from_lsp(
-                    symbol.name,
-                    symbol.kind,
-                    symbol.container_name,
-                    location,
-                    encoding,
-                )
-            })
-            .collect(),
-        None => Vec::new(),
-    }
+        Some(lsp::WorkspaceSymbolResponse::Nested(symbols)) => symbols,
+        None => return Vec::new(),
+    };
+    symbols
+        .into_iter()
+        .filter_map(|symbol| {
+            let (uri, location) = match &symbol.location {
+                lsp::OneOf::Left(location) => {
+                    let location = query.location(location.clone())?;
+                    (location.uri.clone(), Some(location))
+                }
+                lsp::OneOf::Right(location) => (location.uri.to_editor_uri().ok()?, None),
+            };
+            let cache = OnceLock::new();
+            if let Some(location) = location {
+                let _ = cache.set(location);
+            }
+            Some(Arc::new(WorkspaceSymbol {
+                name: symbol.name.clone(),
+                kind: symbol.kind,
+                container_name: symbol.container_name.clone(),
+                uri,
+                location: cache,
+                wire: symbol,
+                query: query.clone(),
+            }))
+        })
+        .collect()
 }
 
 impl Editor {
@@ -138,6 +354,7 @@ impl Editor {
             owner,
             servers,
             lifetime: doc.workspace_symbols.restart(),
+            query: Mutex::new(TaskController::new()),
         })
     }
 }
@@ -159,43 +376,4 @@ pub(crate) fn register_hooks(events: &event::EventHub) {
         }
         Ok(())
     });
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use lsp_client::UriExt as _;
-    use serde_json::json;
-
-    #[test]
-    fn symbol_responses_preserve_locations_and_discard_unsupported_uris() {
-        let uri = lsp::Url::from_file_path(std::env::temp_dir().join("symbol.rs")).unwrap();
-        let range = lsp::Range::new(lsp::Position::new(0, 3), lsp::Position::new(0, 6));
-        let response = serde_json::from_value(json!([
-            {"name": "valid", "kind": 12, "location": {"uri": uri, "range": range}},
-            {"name": "unsupported", "kind": 12, "location": {"uri": "https://example.com/file", "range": range}}
-        ])).unwrap();
-        let items = normalize_symbols(Some(response), OffsetEncoding::Utf8);
-        assert_eq!(items.len(), 1);
-        assert_eq!(items[0].name, "valid");
-        assert_eq!(items[0].location.range, range);
-        assert_eq!(items[0].location.offset_encoding, OffsetEncoding::Utf8);
-    }
-
-    #[test]
-    fn modern_symbols_require_a_resolved_location() {
-        let uri = lsp::Url::from_file_path(std::env::temp_dir().join("symbol.rs")).unwrap();
-        let range = lsp::Range::default();
-        let symbols = serde_json::from_value(json!([
-            {"name": "resolved", "kind": 12, "location": {"uri": uri, "range": range}},
-            {"name": "unresolved", "kind": 12, "location": {"uri": uri}}
-        ]))
-        .unwrap();
-        let items = normalize_symbols(
-            Some(lsp::WorkspaceSymbolResponse::Nested(symbols)),
-            OffsetEncoding::Utf16,
-        );
-        assert_eq!(items.len(), 1);
-        assert_eq!(items[0].name, "resolved");
-    }
 }

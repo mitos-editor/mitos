@@ -2,15 +2,18 @@
 
 use std::{path::Path, sync::Arc};
 
-use event::{TaskController, TaskHandle};
+use event::TaskHandle;
 use futures_util::future::BoxFuture;
 use tokio::sync::oneshot;
 use view::{
-    features::workspace_changes::{Documents, Policy, WorkspaceChanges},
+    features::workspace_changes::{Policy, WorkspaceChanges},
     Editor,
 };
 
-use super::Picker;
+use super::{
+    updates::{Invalidation, PickerSource, SourceInput, SourceKind, Update, UpdateContext},
+    Picker,
+};
 
 type Refresh<T, D> =
     fn(&str, &Editor, Arc<D>, TaskHandle) -> BoxFuture<'static, anyhow::Result<Vec<T>>>;
@@ -19,16 +22,8 @@ pub(super) struct FileUpdates<T, D> {
     changes: WorkspaceChanges,
     root: fn(&D) -> &Path,
     refresh: Refresh<T, D>,
-    same: fn(&T, &T) -> bool,
     dirty: bool,
-    task: TaskController,
     pending: Option<Pending<T, D>>,
-    generation: Option<Generation>,
-}
-
-struct Generation {
-    current: fn(&Editor) -> u64,
-    observed: u64,
 }
 
 struct Pending<T, D> {
@@ -37,33 +32,13 @@ struct Pending<T, D> {
     result: oneshot::Receiver<anyhow::Result<Vec<T>>>,
 }
 
-impl<T, D> FileUpdates<T, D> {
-    pub(super) fn is_pending(&self) -> bool {
-        self.dirty || self.pending.is_some()
-    }
-
-    pub(super) fn mark_documents_refreshed(&mut self, editor: &Editor) {
-        self.changes.mark_documents_refreshed(editor);
-    }
-
-    pub(super) fn query_changed(&mut self) {
-        self.task.cancel();
-        self.dirty |= self.pending.take().is_some();
-    }
-
-    pub(super) fn stop(&mut self) {
-        self.task.cancel();
-        self.pending = None;
-        self.dirty = true;
-    }
-}
-
 impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
     pub(crate) fn with_file_updates(
         mut self,
         editor: &Editor,
         root: fn(&D) -> &Path,
         refresh: Refresh<T, D>,
+        mut policy: Policy,
     ) -> Self
     where
         T: PartialEq,
@@ -74,106 +49,46 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                 .position(|item| item.data == selected.data)
                 .map(|index| index as u32)
         }));
-        self.file_updates = Some(FileUpdates {
-            changes: WorkspaceChanges::new(
-                editor,
-                root(&self.results.editor_data),
-                Policy {
-                    ignore_files: true,
-                    ..Policy::default()
-                },
-            ),
+        policy.ignore_files = true;
+        let source = FileUpdates {
+            changes: WorkspaceChanges::new(editor, root(&self.results.editor_data), policy),
             root,
             refresh,
-            same: T::eq,
             dirty: false,
-            task: TaskController::new(),
             pending: None,
-            generation: None,
-        });
-        self
-    }
-
-    /// Start an owner-scoped read for a picker whose initial rows have not been loaded.
-    #[cfg(feature = "git")]
-    pub(crate) fn refresh_on_open(mut self) -> Self {
-        if let Some(updates) = &mut self.file_updates {
-            updates.dirty = true;
-        }
-        self
-    }
-
-    /// Search and VCS rows depend on file contents as well as directory membership.
-    pub(crate) fn refresh_on_content_changes(mut self) -> Self {
-        if let Some(updates) = &mut self.file_updates {
-            updates.changes.policy.contents = true;
-        }
-        self
-    }
-
-    /// Text search also depends on unsaved editor buffers, independently of disk events.
-    pub(crate) fn refresh_on_document_changes(mut self) -> Self {
-        if let Some(updates) = &mut self.file_updates {
-            updates.changes.policy.documents = Documents::Workspace;
-        }
-        self
-    }
-
-    /// Linked-worktree metadata can live outside the picker's worktree root.
-    pub(crate) fn refresh_on_vcs_changes(mut self) -> Self {
-        if let Some(updates) = &mut self.file_updates {
-            updates.changes.policy.vcs = true;
-        }
-        self
-    }
-
-    /// Refresh after an explicit operation even when filesystem watching and polling are disabled.
-    pub(crate) fn with_refresh_generation(
-        mut self,
-        editor: &Editor,
-        generation: fn(&Editor) -> u64,
-    ) -> Self {
-        if let Some(updates) = &mut self.file_updates {
-            updates.generation = Some(Generation {
-                current: generation,
-                observed: generation(editor),
-            });
-        }
-        self
-    }
-
-    pub(super) fn refresh_files(&mut self, editor: &Editor) {
-        if self.replacement_pending() {
-            return;
-        }
-        use oneshot::error::TryRecvError as ResultError;
-
-        let Some(mut updates) = self.file_updates.take() else {
-            return;
         };
-        updates.dirty |= updates
-            .changes
-            .changed(editor, (updates.root)(&self.results.editor_data));
-        if let Some(generation) = &mut updates.generation {
-            let current = (generation.current)(editor);
-            if current != generation.observed {
-                generation.observed = current;
-                updates.stop();
-                if let Some(preview) = &mut self.custom_preview {
-                    preview.invalidate();
-                }
-            }
-        }
+        self.with_updates(source, SourceKind::Files)
+    }
+}
 
+impl<T: Send + Sync + 'static, D: Send + Sync + 'static> PickerSource<T, D> for FileUpdates<T, D> {
+    fn is_pending(&self) -> bool {
+        self.dirty || self.pending.is_some()
+    }
+
+    fn documents_refreshed(&mut self, editor: &Editor) {
+        self.changes.mark_documents_refreshed(editor);
+    }
+
+    fn invalidate(&mut self, reason: Invalidation) {
+        self.dirty |= self.pending.take().is_some() || matches!(reason, Invalidation::Refresh);
+    }
+
+    fn suspend(&mut self) {
+        self.invalidate(Invalidation::Refresh);
+    }
+
+    fn update(&mut self, cx: UpdateContext<'_, T>, input: SourceInput<'_, D>) -> Option<Update<T>> {
+        use oneshot::error::TryRecvError as ResultError;
+        let updates = self;
+        let editor = &*cx.editor;
+        updates.dirty |= updates.changes.changed(editor, (updates.root)(input.data));
+        let mut rows = None;
         if updates.pending.as_ref().is_some_and(|pending| {
-            !Arc::ptr_eq(&pending.data, &self.results.editor_data)
-                || pending.version
-                    != self
-                        .results
-                        .version
-                        .load(std::sync::atomic::Ordering::Relaxed)
+            !Arc::ptr_eq(&pending.data, input.data) || pending.version != input.version
         }) {
-            updates.stop();
+            cx.task.cancel();
+            updates.invalidate(Invalidation::Refresh);
         }
         if let Some(pending) = &mut updates.pending {
             match pending.result.try_recv() {
@@ -184,21 +99,11 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                     // Keep dirty set so another scan follows without starving results.
                     match result {
                         Ok(options) => {
-                            self.results.source.set(super::source::State::Complete);
-                            self.results.tick(0);
-                            let snapshot = self.results.matcher.snapshot();
-                            let same = snapshot.item_count() as usize == options.len()
-                                && options.iter().enumerate().all(|(index, item)| {
-                                    snapshot
-                                        .get_item(index as u32)
-                                        .is_some_and(|old| (updates.same)(old.data, item))
-                                });
-                            if !same {
-                                self.refresh_options(options, self.results.editor_data.clone());
-                            }
+                            input.progress.set(super::source::State::Complete);
+                            rows = Some(Update::Replace(options));
                         }
                         Err(error) => {
-                            self.results.source.set(super::source::State::Failed);
+                            input.progress.set(super::source::State::Failed);
                             editor.status_sender().report_blocking(error);
                         }
                     }
@@ -208,36 +113,29 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             }
         }
 
+        // The shared publisher must install these rows before a follow-up scan
+        // captures its generation. Unchanged rows still need another update.
+        if rows.is_some() {
+            if updates.dirty {
+                editor.redraw().request();
+            }
+            return rows;
+        }
         if updates.pending.is_none() && updates.changes.poll_due(editor) {
             updates.dirty = true;
         }
-        if updates.dirty
-            && self.pending_query.is_none()
-            && !self.dynamic_query_pending()
-            && updates.pending.is_none()
-            && self.results.matcher.active_injectors() == 0
-            && !self.results.is_refreshing()
-        {
+        if updates.dirty && input.can_load && updates.pending.is_none() {
             updates.dirty = false;
             updates.changes.mark_refreshed();
-            let cancel = updates.task.restart();
-            let version = self
-                .results
-                .version
-                .load(std::sync::atomic::Ordering::Relaxed);
-            let load = (updates.refresh)(
-                &self.primary_query(),
-                editor,
-                self.results.editor_data.clone(),
-                cancel.clone(),
-            );
+            let cancel = cx.task.restart();
+            let load = (updates.refresh)(input.query, editor, input.data.clone(), cancel.clone());
             let (tx, result) = oneshot::channel();
             updates.pending = Some(Pending {
-                version,
-                data: self.results.editor_data.clone(),
+                version: input.version,
+                data: input.data.clone(),
                 result,
             });
-            let redraw = self.redraw.clone();
+            let redraw = editor.redraw().clone();
             tokio::spawn(async move {
                 let work = async {
                     let result = load.await;
@@ -247,7 +145,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                 event::cancelable_future(work, cancel).await;
             });
         }
-        self.file_updates = Some(updates);
+        rows
     }
 }
 

@@ -69,6 +69,8 @@ pub struct Context<'a> {
 /// Drawing reads editor state; background work belongs to Component::update.
 pub struct DrawContext<'a> {
     pub hyperlinks: std::cell::RefCell<ui_core::hyperlinks::HyperlinkBuffer>,
+    /// Opaque overlays at or above the active cursor owner's layer.
+    pub cursor_exclusions: Vec<Rect>,
     pub config: &'a crate::config::Config,
     pub editor: &'a Editor,
     pub interaction: &'a InteractionState,
@@ -78,10 +80,18 @@ pub struct DrawContext<'a> {
     pub is_cursor_owner: bool,
 }
 
+impl DrawContext<'_> {
+    /// Hide the active cursor where an opaque overlay covers its layer.
+    pub fn exclude_cursor(&mut self, area: Rect) {
+        self.cursor_exclusions.push(area);
+    }
+}
+
 impl Context<'_> {
     pub fn draw_context(&self) -> DrawContext<'_> {
         DrawContext {
             hyperlinks: Default::default(),
+            cursor_exclusions: Vec::new(),
             config: self.config.current,
             editor: self.editor,
             interaction: self.interaction,
@@ -129,6 +139,7 @@ pub trait Component: Any + AnyComponent {
 
     /// Claim the active cursor, even when it is offscreen or hidden. The topmost
     /// claimant wins; decorative layers leave ownership with the layer below.
+    /// Opaque decorative overlays register their bounds with DrawContext::exclude_cursor.
     fn owns_cursor(&self) -> bool {
         false
     }
@@ -330,13 +341,26 @@ impl Compositor {
 
     pub fn render(&mut self, area: Rect, surface: &mut Surface, cx: &mut DrawContext) -> Cursor {
         *cx.hyperlinks.get_mut() = ui_core::hyperlinks::HyperlinkBuffer::new(area);
+        cx.cursor_exclusions.clear();
         let owner = self.layers.iter().rposition(|layer| layer.owns_cursor());
         for (index, layer) in self.layers.iter_mut().enumerate() {
             cx.is_cursor_owner = owner == Some(index);
+            if cx.is_cursor_owner {
+                // Overlays behind the active component cannot cover its cursor.
+                cx.cursor_exclusions.clear();
+            }
             layer.render(area, surface, cx);
         }
         cx.is_cursor_owner = false;
-        owner.map_or(Cursor::Hidden, |index| self.layers[index].cursor(area, cx))
+        let cursor = owner.map_or(Cursor::Hidden, |index| self.layers[index].cursor(area, cx));
+        match cursor {
+            Cursor::Native(pos, _) | Cursor::Software(pos)
+                if cx.cursor_exclusions.iter().any(|area| area.contains(pos)) =>
+            {
+                Cursor::Hidden
+            }
+            _ => cursor,
+        }
     }
 
     pub fn has_component<T: Any>(&self) -> bool {

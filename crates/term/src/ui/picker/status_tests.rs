@@ -20,7 +20,7 @@ async fn source_status_preserves_search_input_and_result_rows() -> anyhow::Resul
     picker.prompt.set_line("needle".into(), &app.editor);
     let before = frame(&mut picker, &mut app);
     let result_rows = picker.completion_height;
-    picker.editor_updates.as_mut().unwrap().status = Some("More history available".into());
+    picker.updates.as_mut().unwrap().status = Some("More history available".into());
     let after = frame(&mut picker, &mut app);
     let row = |surface: &Surface, y| {
         (0..surface.area.width)

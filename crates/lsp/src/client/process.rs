@@ -125,7 +125,7 @@ impl Client {
 
         #[allow(deprecated)]
         let params = lsp::InitializeParams {
-            process_id: Some(std::process::id()),
+            process_id: std::process::id().try_into().ok(),
             workspace_folders: Some(self.workspace_folders.lock().clone()),
             // root_path is obsolete, but some clients like pyright still use it so we specify both.
             // clients will prefer _uri if possible
@@ -134,6 +134,10 @@ impl Client {
             initialization_options: self.config.clone(),
             capabilities: lsp::ClientCapabilities {
                 workspace: Some(lsp::WorkspaceClientCapabilities {
+                    text_document_content: None,
+                    folding_range: Some(lsp::FoldingRangeWorkspaceClientCapabilities {
+                        refresh_support: Some(true),
+                    }),
                     configuration: Some(true),
                     did_change_configuration: Some(lsp::DynamicRegistrationClientCapabilities {
                         dynamic_registration: Some(false),
@@ -142,6 +146,9 @@ impl Client {
                     apply_edit: Some(true),
                     symbol: Some(lsp::WorkspaceSymbolClientCapabilities {
                         dynamic_registration: Some(false),
+                        resolve_support: Some(lsp::WorkspaceSymbolResolveSupportCapability {
+                            properties: vec!["location.range".into()],
+                        }),
                         symbol_kind: Some(lsp::SymbolKindCapability {
                             value_set: Some(SYMBOL_KINDS.to_vec()),
                         }),
@@ -151,13 +158,15 @@ impl Client {
                         dynamic_registration: Some(false),
                     }),
                     inlay_hint: Some(lsp::InlayHintWorkspaceClientCapabilities {
-                        refresh_support: Some(false),
+                        refresh_support: Some(true),
                     }),
                     inline_value: Some(lsp::InlineValueWorkspaceClientCapabilities {
                         refresh_support: Some(true),
                     }),
                     workspace_edit: Some(lsp::WorkspaceEditClientCapabilities {
+                        metadata_support: None,
                         document_changes: Some(true),
+                        snippet_edit_support: Some(true),
                         resource_operations: Some(vec![
                             lsp::ResourceOperationKind::Create,
                             lsp::ResourceOperationKind::Rename,
@@ -165,7 +174,11 @@ impl Client {
                         ]),
                         failure_handling: Some(lsp::FailureHandlingKind::Abort),
                         normalizes_line_endings: Some(false),
-                        change_annotation_support: None,
+                        change_annotation_support: Some(
+                            lsp::ChangeAnnotationWorkspaceEditClientCapabilities {
+                                groups_on_label: Some(false),
+                            },
+                        ),
                     }),
                     did_change_watched_files: Some(lsp::DidChangeWatchedFilesClientCapabilities {
                         dynamic_registration: Some(true),
@@ -180,7 +193,7 @@ impl Client {
                         did_delete: Some(true),
                         ..Default::default()
                     }),
-                    diagnostic: Some(lsp::DiagnosticWorkspaceClientCapabilities {
+                    diagnostics: Some(lsp::DiagnosticWorkspaceClientCapabilities {
                         refresh_support: Some(true),
                     }),
                     semantic_tokens: Some(lsp::SemanticTokensWorkspaceClientCapabilities {
@@ -191,11 +204,35 @@ impl Client {
                     }),
                 }),
                 text_document: Some(lsp::TextDocumentClientCapabilities {
+                    synchronization: Some(lsp::TextDocumentSyncClientCapabilities {
+                        dynamic_registration: Some(false),
+                        will_save: Some(true),
+                        will_save_wait_until: Some(true),
+                        did_save: Some(true),
+                    }),
+                    folding_range: Some(lsp::FoldingRangeClientCapabilities {
+                        dynamic_registration: Some(false),
+                        line_folding_only: Some(false),
+                        folding_range_kind: Some(lsp::FoldingRangeKindCapability {
+                            value_set: Some(vec![
+                                lsp::FoldingRangeKind::Comment,
+                                lsp::FoldingRangeKind::Imports,
+                                lsp::FoldingRangeKind::Region,
+                            ]),
+                        }),
+                        folding_range: Some(lsp::FoldingRangeCapability {
+                            collapsed_text: Some(true),
+                        }),
+                        ..Default::default()
+                    }),
+                    selection_range: Some(lsp::SelectionRangeClientCapabilities {
+                        dynamic_registration: Some(false),
+                    }),
                     semantic_tokens: Some(lsp::SemanticTokensClientCapabilities {
                         dynamic_registration: Some(false),
                         requests: lsp::SemanticTokensClientCapabilitiesRequests {
-                            range: Some(true),
-                            full: Some(lsp::SemanticTokensFullOptions::Bool(true)),
+                            range: Some(lsp::OneOf::Left(true)),
+                            full: Some(lsp::SemanticTokensFullOptions::Delta { delta: Some(true) }),
                         },
                         token_types: [
                             "namespace",
@@ -250,6 +287,8 @@ impl Client {
                     completion: Some(lsp::CompletionClientCapabilities {
                         completion_item: Some(lsp::CompletionItemCapability {
                             snippet_support: Some(enable_snippets),
+                            preselect_support: Some(true),
+                            label_details_support: Some(true),
                             resolve_support: Some(lsp::CompletionItemCapabilityResolveSupport {
                                 properties: vec![
                                     String::from("documentation"),
@@ -258,6 +297,13 @@ impl Client {
                                 ],
                             }),
                             insert_replace_support: Some(true),
+                            commit_characters_support: Some(true),
+                            insert_text_mode_support: Some(lsp::InsertTextModeSupport {
+                                value_set: vec![
+                                    lsp::InsertTextMode::AS_IS,
+                                    lsp::InsertTextMode::ADJUST_INDENTATION,
+                                ],
+                            }),
                             deprecated_support: Some(true),
                             tag_support: Some(lsp::TagSupport {
                                 value_set: vec![lsp::CompletionItemTag::DEPRECATED],
@@ -267,7 +313,18 @@ impl Client {
                         completion_item_kind: Some(lsp::CompletionItemKindCapability {
                             ..Default::default()
                         }),
-                        context_support: None, // additional context information Some(true)
+                        insert_text_mode: Some(lsp::InsertTextMode::ADJUST_INDENTATION),
+                        completion_list: Some(lsp::CompletionListCapability {
+                            item_defaults: Some(vec![
+                                "commitCharacters".into(),
+                                "editRange".into(),
+                                "insertTextFormat".into(),
+                                "insertTextMode".into(),
+                                "data".into(),
+                            ]),
+                            apply_kind_support: Some(true),
+                        }),
+                        context_support: Some(true),
                         ..Default::default()
                     }),
                     hover: Some(lsp::HoverClientCapabilities {
@@ -277,12 +334,14 @@ impl Client {
                         ..Default::default()
                     }),
                     signature_help: Some(lsp::SignatureHelpClientCapabilities {
+                        context_support: Some(true),
                         signature_information: Some(lsp::SignatureInformationSettings {
                             documentation_format: Some(vec![lsp::MarkupKind::Markdown]),
                             parameter_information: Some(lsp::ParameterInformationSettings {
                                 label_offset_support: Some(true),
                             }),
                             active_parameter_support: Some(true),
+                            no_active_parameter_support: Some(true),
                         }),
                         ..Default::default()
                     }),
@@ -290,12 +349,23 @@ impl Client {
                         dynamic_registration: Some(false),
                         prepare_support: Some(true),
                         prepare_support_default_behavior: None,
-                        honors_change_annotations: Some(false),
+                        honors_change_annotations: Some(true),
                     }),
                     formatting: Some(lsp::DocumentFormattingClientCapabilities {
                         dynamic_registration: Some(false),
                     }),
+                    range_formatting: Some(lsp::DocumentRangeFormattingClientCapabilities {
+                        dynamic_registration: Some(false),
+                        ranges_support: Some(true),
+                    }),
+                    on_type_formatting: Some(lsp::DocumentOnTypeFormattingClientCapabilities {
+                        dynamic_registration: Some(false),
+                    }),
                     code_action: Some(lsp::CodeActionClientCapabilities {
+                        documentation_support: Some(true),
+                        tag_support: Some(lsp::CodeActionTagOptions {
+                            value_set: vec![lsp::CodeActionTag::LLM_GENERATED],
+                        }),
                         code_action_literal_support: Some(lsp::CodeActionLiteralSupport {
                             code_action_kind: lsp::CodeActionKindLiteralSupport {
                                 value_set: [
@@ -314,6 +384,7 @@ impl Client {
                                 .collect(),
                             },
                         }),
+                        honors_change_annotations: Some(true),
                         is_preferred_support: Some(true),
                         disabled_support: Some(true),
                         data_support: Some(true),
@@ -323,6 +394,7 @@ impl Client {
                         ..Default::default()
                     }),
                     diagnostic: Some(lsp::DiagnosticClientCapabilities {
+                        markup_message_support: None,
                         dynamic_registration: Some(false),
                         related_document_support: Some(true),
                     }),
@@ -344,6 +416,9 @@ impl Client {
                     }),
                     code_lens: Some(lsp::CodeLensClientCapabilities {
                         dynamic_registration: Some(false),
+                        resolve_support: Some(lsp::ClientCodeLensResolveOptions {
+                            properties: vec!["command".into()],
+                        }),
                     }),
                     inlay_hint: Some(lsp::InlayHintClientCapabilities {
                         dynamic_registration: Some(false),
@@ -351,9 +426,12 @@ impl Client {
                     }),
                     document_link: Some(lsp::DocumentLinkClientCapabilities {
                         dynamic_registration: Some(false),
-                        tooltip_support: Some(false),
+                        tooltip_support: Some(true),
                     }),
                     call_hierarchy: Some(lsp::DynamicRegistrationClientCapabilities {
+                        dynamic_registration: Some(false),
+                    }),
+                    linked_editing_range: Some(lsp::LinkedEditingRangeClientCapabilities {
                         dynamic_registration: Some(false),
                     }),
                     document_symbol: Some(lsp::DocumentSymbolClientCapabilities {

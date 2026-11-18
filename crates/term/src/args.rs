@@ -10,6 +10,7 @@ pub struct Args {
     pub display_version: bool,
     pub health: bool,
     pub health_arg: Option<String>,
+    pub health_options: crate::health::Options,
     pub load_tutor: bool,
     pub fetch_grammars: bool,
     pub build_grammars: bool,
@@ -56,6 +57,8 @@ impl Args {
                 "--version" => args.display_version = true,
                 "--help" => args.display_help = true,
                 "--strict" => args.strict = true,
+                "--summary" => args.health_options.summary = true,
+                "--no-color" => args.health_options.no_color = true,
                 "--tutor" => args.load_tutor = true,
                 "--vsplit" => match args.split {
                     Some(_) => anyhow::bail!("can only set a split once of a specific type"),
@@ -117,6 +120,9 @@ impl Args {
                         }
                     }
                 }
+                arg if args.health && args.health_arg.is_none() => {
+                    args.health_arg = Some(arg.to_owned())
+                }
                 "+" => line_number = usize::MAX,
                 arg if arg.starts_with('+') => {
                     match arg[1..].parse::<usize>() {
@@ -148,6 +154,10 @@ impl Args {
         anyhow::ensure!(
             args.migrate_config.is_some() == args.stdout,
             "Use --migrate-config <file> --stdout to export configuration without rewriting it"
+        );
+        anyhow::ensure!(
+            args.health || !(args.health_options.summary || args.health_options.no_color),
+            "--summary and --no-color require --health"
         );
         Ok(args)
     }
@@ -190,6 +200,26 @@ fn split_path_row(s: &str) -> Option<(PathBuf, Position)> {
 #[cfg(test)]
 mod tests {
     use super::Args;
+
+    #[test]
+    fn health_options_work_before_and_after_the_category() {
+        for arguments in [
+            vec!["ms", "--health", "rust", "--summary", "--no-color"],
+            vec!["ms", "--summary", "--no-color", "--health", "rust"],
+            vec!["ms", "--health", "--summary", "--no-color", "rust"],
+        ] {
+            let args = Args::parse_args_from(arguments.into_iter().map(str::to_owned)).unwrap();
+            assert!(args.health && args.health_options.summary && args.health_options.no_color);
+            assert_eq!(args.health_arg.as_deref(), Some("rust"));
+            assert!(args.files.is_empty());
+        }
+        for option in ["--summary", "--no-color"] {
+            let args =
+                Args::parse_args_from(["ms", "--health", option].map(str::to_owned)).unwrap();
+            assert!(args.health_arg.is_none());
+            assert!(Args::parse_args_from(["ms", option].map(str::to_owned)).is_err());
+        }
+    }
 
     #[test]
     fn line_positions_apply_to_stdin_without_file_arguments() {

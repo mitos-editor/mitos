@@ -45,7 +45,6 @@ impl Styles {
 }
 
 pub struct InlineDiagnostics<'a> {
-    inactive: bool,
     state: InlineDiagnosticAccumulator<'a>,
     eol_diagnostics: DiagnosticFilter,
     styles: Styles,
@@ -62,7 +61,6 @@ impl<'a> InlineDiagnostics<'a> {
         icons: bool,
     ) -> Self {
         InlineDiagnostics {
-            inactive: doc.diagnostics().is_empty(),
             state: InlineDiagnosticAccumulator::new(cursor, doc.diagnostics(), config),
             styles: Styles::new(theme),
             eol_diagnostics,
@@ -129,7 +127,7 @@ impl InlineDiagnostics<'_> {
 
 impl Decoration for InlineDiagnostics<'_> {
     fn can_skip_unwrapped_tail(&self) -> bool {
-        self.inactive
+        !self.state.has_pending_diagnostics()
     }
 
     fn render_virt_lines(

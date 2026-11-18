@@ -59,6 +59,9 @@ jobs:
       - name: Run cargo test
         run: cargo test --workspace --features term/runtime-grammars --profile integration --locked
 
+      - name: Run headless LSP dispatch tests
+        run: cargo test -p view --features integration --test handler_setup lsp_dispatch --profile integration --locked
+
       - name: Run process integration tests
         run: cargo integration-test --locked
 

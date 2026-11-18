@@ -31,16 +31,12 @@ pub(super) mod typed {
     use crate::{
         commands::{
             buffers::typed::buffers_remaining_impl,
-            catalog::{WRITE_NO_CODE_ACTIONS_FLAG, WRITE_NO_FORMAT_FLAG},
-            files::typed::{write_all_impl, write_impl},
+            files::typed::{write_all_impl, write_all_options, write_impl, write_options},
         },
         compositor, job,
     };
     use ::command_line::Args;
-    use view::{
-        editor::Action,
-        save::{WriteAllOptions, WriteOptions},
-    };
+    use view::editor::Action;
 
     #[cold]
     pub(in crate::commands) fn exit<const FORCE: bool>(
@@ -48,15 +44,7 @@ pub(super) mod typed {
         args: Args,
     ) -> anyhow::Result<()> {
         if doc!(cx.editor).is_modified() {
-            write_impl(
-                cx,
-                args.first(),
-                WriteOptions {
-                    force: FORCE,
-                    auto_format: !args.has_flag(WRITE_NO_FORMAT_FLAG.name),
-                    code_actions: !args.has_flag(WRITE_NO_CODE_ACTIONS_FLAG.name),
-                },
-            )?;
+            write_impl(cx, args.first(), write_options(&args, FORCE))?;
         }
         quit::<false>(cx, Args::default())
     }
@@ -90,15 +78,7 @@ pub(super) mod typed {
         cx: &mut compositor::Context,
         args: Args,
     ) -> anyhow::Result<()> {
-        write_impl(
-            cx,
-            args.first(),
-            WriteOptions {
-                force: false,
-                auto_format: !args.has_flag(WRITE_NO_FORMAT_FLAG.name),
-                code_actions: !args.has_flag(WRITE_NO_CODE_ACTIONS_FLAG.name),
-            },
-        )?;
+        write_impl(cx, args.first(), write_options(&args, false))?;
         quit::<false>(cx, Args::default())
     }
 
@@ -107,15 +87,7 @@ pub(super) mod typed {
         cx: &mut compositor::Context,
         args: Args,
     ) -> anyhow::Result<()> {
-        write_impl(
-            cx,
-            args.first(),
-            WriteOptions {
-                force: true,
-                auto_format: !args.has_flag(WRITE_NO_FORMAT_FLAG.name),
-                code_actions: !args.has_flag(WRITE_NO_CODE_ACTIONS_FLAG.name),
-            },
-        )?;
+        write_impl(cx, args.first(), write_options(&args, true))?;
         let view = view!(cx.editor);
         let (view_id, binding) = (view.id, view.binding_revision());
         let doc_id = doc!(cx.editor).id();
@@ -142,15 +114,7 @@ pub(super) mod typed {
         cx: &mut compositor::Context,
         args: Args,
     ) -> anyhow::Result<()> {
-        write_all_impl(
-            cx.editor,
-            WriteAllOptions {
-                force: FORCE,
-                write_scratch: true,
-                auto_format: !args.has_flag(WRITE_NO_FORMAT_FLAG.name),
-                code_actions: !args.has_flag(WRITE_NO_CODE_ACTIONS_FLAG.name),
-            },
-        )?;
+        write_all_impl(cx.editor, write_all_options(&args, FORCE, true))?;
         quit_all::<false>(cx, Args::default())
     }
 

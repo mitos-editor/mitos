@@ -32,6 +32,7 @@ Features live with the state they change; frontends adapt input and present resu
 | `file-watch` | Native watches, ignore filtering, coverage, and metadata polling |
 | `spelling` | Dictionary operations, scanning, suggestions, and word persistence |
 | `lsp`, `dap`, `vcs` | Language-server, debugger, and repository integration |
+| `lsp-types` | Vendored Language Server Protocol data types and wire-format tests |
 | `debugger` | Session membership and selection history, thread/frame transitions, and breakpoint models |
 | `dap-types` | Debug Adapter Protocol data types |
 | `command-line`, `parsec`, `snippets` | Command argument parsing, parser combinators, and snippet parsing/state |
@@ -54,8 +55,10 @@ bindings and lifecycle transitions. Startup, execution, inspection, and shutdown
 retain separate cancellation scopes; shutdown results do not depend on thread or
 frame selection. `view` owns request cancellation, workspace trust, callbacks, and source
 navigation. Debugger widgets and launch prompts belong to `term`.
-Component keymap parsing and prefix lookup live in `ui-core`; action definitions,
-defaults, configuration composition, and execution belong to `term`. Buffer picker
+Editor and component keymaps share tree storage, parsing, merging, and prefix lookup
+in `ui-core`. Terminal parsing policy retains command labels and macro restrictions;
+component policy retains `no_op` and `unbound` actions. Action definitions, defaults,
+configuration composition, and execution belong to `term`. Buffer picker
 item actions call editor lifecycle operations from `term::commands::buffers`.
 Editor mode keymaps and their menu and binding labels also belong to `term`,
 where static commands, typable commands, and macros are resolved and executed.
@@ -701,11 +704,16 @@ is mapped through edits and consumed when a view next displays the document.
 
 `term::application` retains application state, shutdown, signals, and the event
 loop. Its private modules separate startup, live configuration, editor/terminal
-event adaptation, LSP presentation and dispatch, and frame rendering. Adapter
+event adaptation, LSP presentation, and frame rendering. Adapter
 methods remain available through `Application`; component state stays private.
 
-`term::Application` decodes incoming notifications and calls these operations;
-exit status text, progress displays, and interactive prompts stay in the frontend.
+`Editor::handle_language_server_message` decodes incoming LSP messages, applies
+editor effects, and sends ordinary replies and protocol errors. It returns concrete
+`view::handlers::lsp::HostAction` values for progress, messages, choices, and document
+display. `term::Application` presents these actions and owns prompt, focus, and
+external-URL policy. Interactive requests carry a consume-once `DeferredReply`
+weakly bound to the original client instance. Completion checks that the client is
+still active in the same editor; dropping or replacing a prompt sends no reply.
 `view::features::lsp_progress` owns work tokens and completion-triggered diagnostic
 refreshes. It processes notifications even while a prompt suppresses status text,
 and server cleanup removes its tokens. Terminal spinners follow the shared active
@@ -716,8 +724,8 @@ application results, and dynamic file-watcher registration. It uses the server's
 negotiated position encoding, preserves partial edit failures, and adds relative
 watch roots before registering interests. `lsp::Client::configuration` resolves
 ordered configuration sections; workspace folders remain on the client.
-`term::Application` decodes requests, calls these typed operations, and serializes
-and sends replies. Diagnostic refresh uses the existing shared pull-diagnostic
+The editor's inbound dispatcher calls these typed operations and serializes their
+replies. Diagnostic refresh uses the existing shared pull-diagnostic
 entry point. Unsupported capability registrations retain their compatibility
 acknowledgement; progress presentation and interactive requests stay with the frontend.
 
@@ -1126,11 +1134,12 @@ completion applies the written revision and path through
 returning the first failure. Required frontend jobs likewise finish their callbacks
 and followups before reporting an error.
 
-The LSP client uses upstream `lsp-types` wire definitions. `lsp::UriExt` adapts
+The LSP client uses wire definitions maintained in `crates/lsp-types`, vendored
+from the Mitos fork with its MIT license and protocol tests. `lsp::UriExt` adapts
 protocol URIs through `stdx` for the editor's RFC3986 file encoding and path
 conversion. Symbol queries expose one normalized editor location per symbol. Icon names
 belong to the frontend; the client advertises the supported wire kinds without
-extending protocol types. Incoming URI syntax is validated by the upstream
+extending protocol types. Incoming URI syntax is validated by the protocol
 wire type; editor navigation additionally requires an absolute URI.
 
 ## Protocol and repository integrations

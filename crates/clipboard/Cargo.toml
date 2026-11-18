@@ -16,8 +16,13 @@ serde.workspace = true
 thiserror.workspace = true
 log.workspace = true
 
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+tokio = { workspace = true, features = ["rt", "time", "process", "io-util", "macros"] }
+
 [target.'cfg(windows)'.dependencies]
 clipboard-win = { workspace = true, features = ["std"] }
+tokio = { workspace = true, features = ["net"] }
+windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_System_IO"] }
 
 [target.'cfg(unix)'.dependencies]
 libc.workspace = true

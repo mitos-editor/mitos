@@ -21,12 +21,12 @@ use view::{
 
 use super::helpers::{
     lsp::{self, Gate, ServerConfig},
-    test_config, AppBuilder,
+    test_config,
 };
 
 struct Fixture {
     app: TestApplication,
-    callbacks: mpsc::UnboundedReceiver<EditorCallback>,
+    callbacks: mpsc::UnboundedReceiver<(bool, EditorCallback)>,
     log: PathBuf,
 }
 
@@ -36,36 +36,39 @@ impl Fixture {
     }
 
     async fn with_args(dir: &Path, args: &[&str]) -> anyhow::Result<Self> {
+        Self::with_servers(dir, args, &["alpha"]).await
+    }
+
+    async fn with_servers(dir: &Path, args: &[&str], names: &[&str]) -> anyhow::Result<Self> {
         let gate = Gate::new(dir.join("initialize-ready"));
-        let mut server =
-            ServerConfig::feature("alpha", "--language-features", dir).initialize_gate(&gate);
-        for arg in args {
-            server = server.arg(arg);
-        }
-        let servers = server.toml();
+        let servers = names
+            .iter()
+            .map(|name| {
+                let mut server =
+                    ServerConfig::feature(name, "--language-features", dir).initialize_gate(&gate);
+                for arg in args {
+                    server = server.arg(arg);
+                }
+                server.toml()
+            })
+            .collect::<String>();
         let mut config = test_config();
-        config.editor.lsp.enable = true;
         config.editor.lsp.inlay_hints.enable = true;
         config.editor.lsp.inlay_hints.length_limit = Some(3.try_into().unwrap());
-        let (sender, callbacks) = super::helpers::callbacks::unbounded(|_, callback| callback);
-        let mut app = AppBuilder::new()
-            .with_config(config)
-            .with_lang_loader(lsp::syntax_loader(
-                "hover-test",
-                "hover-test",
-                &["alpha"],
-                &servers,
-            ))
-            .with_handler_setup(move |handlers, _| {
+        let (mut app, callbacks) = lsp::feature_app_with_servers(
+            dir,
+            "😀 original\n",
+            "hover-test",
+            names,
+            config,
+            &servers,
+            |handlers, sender, _| {
                 handlers.hover = HoverHandler::new(sender.clone());
                 handlers.inlay_hints = InlayHintsHandler::new(sender);
-            })
-            .build()?;
-        let path = dir.join("document.hover-test");
-        std::fs::write(&path, "😀 original\n")?;
-        app.editor.open(&path, Action::Replace)?;
+            },
+        )?;
         gate.release()?;
-        lsp::initialize(&mut app, 1).await?;
+        lsp::initialize(&mut app, names.len()).await?;
         Ok(Self {
             app,
             callbacks,
@@ -80,6 +83,7 @@ impl Fixture {
     async fn response(&mut self) -> anyhow::Result<EditorCallback> {
         tokio::time::timeout(Duration::from_secs(5), self.callbacks.recv())
             .await?
+            .map(|(_, callback)| callback)
             .context("feature callback queue closed")
     }
 
@@ -87,6 +91,19 @@ impl Fixture {
         hover::request(&mut self.app.editor);
         self.response().await?(&mut self.app.editor);
         hover::next_update(&self.app.editor).context("hover update missing")
+    }
+
+    async fn refresh_inlay_hints(&mut self) -> anyhow::Result<()> {
+        let (server, call) = tokio::time::timeout(
+            Duration::from_secs(5),
+            self.app.editor.next_language_server_message(),
+        )
+        .await?
+        .context("LSP message stream closed")?;
+        anyhow::ensure!(matches!(&call, lsp_client::Call::MethodCall(call)
+            if call.method == "workspace/inlayHint/refresh"));
+        self.app.handle_language_server_message(call, server).await;
+        Ok(())
     }
 
     fn edit(&mut self) {
@@ -205,6 +222,121 @@ async fn inlay_hints_reject_edits_and_reuse_pending_and_completed_requests() -> 
             .count(),
         2
     );
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn inlay_hint_server_refresh_rejects_queued_hints_without_an_edit() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let mut f = Fixture::with_args(dir.path(), &["--inlay-refresh"]).await?;
+    let (_, doc) = current_ref!(f.app.editor);
+    let document = doc.id();
+    let version = doc.version();
+    f.app.editor.switch(document, Action::HorizontalSplit);
+    inlay_hints::refresh(&mut f.app.editor);
+    let old = f.response().await?;
+    let other_old = f.response().await?;
+    f.refresh_inlay_hints().await?;
+    old(&mut f.app.editor);
+    other_old(&mut f.app.editor);
+    let views: Vec<_> = f.app.editor.tree.views().map(|(view, _)| view.id).collect();
+    let doc = f.app.editor.document(document).unwrap();
+    assert!(views.iter().all(|&view| doc.inlay_hints(view).is_none()));
+    f.response().await?(&mut f.app.editor);
+    f.response().await?(&mut f.app.editor);
+    let doc = f.app.editor.document(document).unwrap();
+    assert!(views.iter().all(|&view| doc.inlay_hints(view).is_some()));
+    assert_eq!(doc.version(), version);
+    // A hover response is a transport barrier for the refresh acknowledgement.
+    f.hover().await?;
+    let requests = lsp::read_log(&f.log)?;
+    assert!(requests
+        .iter()
+        .any(|request| request["id"] == "inlay-refresh"
+            && request
+                .get("result")
+                .is_some_and(serde_json::Value::is_null)
+            && request.get("error").is_none()));
+    assert_eq!(
+        requests
+            .iter()
+            .filter(|request| request["method"] == "textDocument/inlayHint")
+            .count(),
+        4
+    );
+    let initialize = requests
+        .iter()
+        .find(|request| request["method"] == "initialize")
+        .unwrap();
+    assert_eq!(
+        initialize["params"]["capabilities"]["workspace"]["inlayHint"]["refreshSupport"],
+        true
+    );
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn inlay_hint_server_refresh_invalidates_hidden_document_caches() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let mut f = Fixture::with_args(dir.path(), &["--inlay-refresh"]).await?;
+    inlay_hints::refresh(&mut f.app.editor);
+    f.response().await?(&mut f.app.editor);
+    let (view, doc) = current_ref!(f.app.editor);
+    let document = doc.id();
+    let view_id = view.id;
+    assert!(doc.inlay_hints(view_id).is_some());
+    f.app.editor.new_file(Action::Replace);
+    assert!(f
+        .app
+        .editor
+        .document(document)
+        .unwrap()
+        .inlay_hints(view_id)
+        .is_some());
+    f.refresh_inlay_hints().await?;
+    assert!(f
+        .app
+        .editor
+        .document(document)
+        .unwrap()
+        .inlay_hints(view_id)
+        .is_none());
+    assert!(f.callbacks.try_recv().is_err());
+    f.app.editor.switch(document, Action::Replace);
+    inlay_hints::refresh(&mut f.app.editor);
+    f.response().await?(&mut f.app.editor);
+    assert!(f
+        .app
+        .editor
+        .document(document)
+        .unwrap()
+        .inlay_hints(view_id)
+        .is_some());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn inlay_hint_refresh_from_an_unselected_provider_preserves_pending_hints(
+) -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let mut f = Fixture::with_servers(dir.path(), &[], &["alpha", "beta"]).await?;
+    inlay_hints::refresh(&mut f.app.editor);
+    let response = f.response().await?;
+    let server = current_ref!(f.app.editor)
+        .1
+        .language_servers()
+        .find(|server| server.name() == "beta")
+        .unwrap()
+        .id();
+    let call = lsp_client::Call::MethodCall(serde_json::from_value(serde_json::json!({
+        "jsonrpc": "2.0", "id": "unselected-refresh", "method": "workspace/inlayHint/refresh", "params": null
+    }))?);
+    f.app.handle_language_server_message(call, server).await;
+    response(&mut f.app.editor);
+    let (view, doc) = current_ref!(f.app.editor);
+    assert!(doc.inlay_hints(view.id).is_some());
+    inlay_hints::refresh(&mut f.app.editor);
+    assert!(f.callbacks.try_recv().is_err());
     Ok(())
 }
 

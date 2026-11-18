@@ -3,7 +3,9 @@
 use language_config::LanguageServerFeature;
 use lsp_client::lsp;
 
-pub(crate) fn supports_feature(
+/// Whether the server advertises a feature used by Mitos.
+/// Push diagnostics have no capability flag and are always permitted.
+pub fn supports_feature(
     capabilities: &lsp::ServerCapabilities,
     feature: LanguageServerFeature,
 ) -> bool {
@@ -29,7 +31,8 @@ pub(crate) fn supports_feature(
             capabilities.type_definition_provider,
             Some(
                 TypeDefinitionProviderCapability::Simple(true)
-                    | TypeDefinitionProviderCapability::Options(_),
+                    | TypeDefinitionProviderCapability::Options(_)
+                    | TypeDefinitionProviderCapability::RegistrationOptions(_),
             )
         ),
         LanguageServerFeature::GotoReference => matches!(
@@ -40,7 +43,8 @@ pub(crate) fn supports_feature(
             capabilities.implementation_provider,
             Some(
                 ImplementationProviderCapability::Simple(true)
-                    | ImplementationProviderCapability::Options(_),
+                    | ImplementationProviderCapability::Options(_)
+                    | ImplementationProviderCapability::RegistrationOptions(_),
             )
         ),
         LanguageServerFeature::SignatureHelp => capabilities.signature_help_provider.is_some(),
@@ -82,7 +86,7 @@ pub(crate) fn supports_feature(
         ),
         LanguageServerFeature::InlayHints => matches!(
             capabilities.inlay_hint_provider,
-            Some(OneOf::Left(true) | OneOf::Right(InlayHintServerCapabilities::Options(_)))
+            Some(OneOf::Left(true) | OneOf::Right(_))
         ),
         LanguageServerFeature::DocumentColors => matches!(
             capabilities.color_provider,
@@ -97,6 +101,7 @@ pub(crate) fn supports_feature(
             Some(
                 CallHierarchyServerCapability::Simple(true)
                     | CallHierarchyServerCapability::Options(_)
+                    | CallHierarchyServerCapability::RegistrationOptions(_)
             )
         ),
         LanguageServerFeature::SemanticTokens => capabilities
@@ -111,7 +116,7 @@ pub(crate) fn supports_feature(
                         options,
                     ) => &options.semantic_tokens_options,
                 };
-                options.range == Some(true)
+                matches!(options.range, Some(OneOf::Left(true) | OneOf::Right(_)))
                     || matches!(
                         options.full,
                         Some(
@@ -120,14 +125,61 @@ pub(crate) fn supports_feature(
                         )
                     )
             }),
+        LanguageServerFeature::LinkedEditing => matches!(
+            capabilities.linked_editing_range_provider,
+            Some(
+                LinkedEditingRangeServerCapabilities::Simple(true)
+                    | LinkedEditingRangeServerCapabilities::Options(_)
+                    | LinkedEditingRangeServerCapabilities::RegistrationOptions(_)
+            )
+        ),
+        LanguageServerFeature::FoldingRanges => matches!(
+            capabilities.folding_range_provider,
+            Some(
+                FoldingRangeProviderCapability::Simple(true)
+                    | FoldingRangeProviderCapability::FoldingProvider(_)
+                    | FoldingRangeProviderCapability::Options(_)
+            )
+        ),
+        LanguageServerFeature::SelectionRanges => matches!(
+            capabilities.selection_range_provider,
+            Some(
+                SelectionRangeProviderCapability::Simple(true)
+                    | SelectionRangeProviderCapability::Options(_)
+                    | SelectionRangeProviderCapability::RegistrationOptions(_)
+            )
+        ),
         LanguageServerFeature::CodeLens => capabilities.code_lens_provider.is_some(),
-        LanguageServerFeature::InlineValues => capabilities.inline_value_provider.is_some(),
+        LanguageServerFeature::InlineValues => matches!(
+            capabilities.inline_value_provider,
+            Some(OneOf::Left(true) | OneOf::Right(_))
+        ),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn navigation_registration_options_enable_the_provider() {
+        for (field, feature) in [
+            (
+                "typeDefinitionProvider",
+                LanguageServerFeature::GotoTypeDefinition,
+            ),
+            (
+                "implementationProvider",
+                LanguageServerFeature::GotoImplementation,
+            ),
+        ] {
+            let capabilities = serde_json::from_value(serde_json::json!({
+                field: {"documentSelector": null, "id": "navigation", "workDoneProgress": true}
+            }))
+            .unwrap();
+            assert!(supports_feature(&capabilities, feature));
+        }
+    }
 
     #[test]
     fn advertised_features_respect_boolean_and_option_capabilities() {
@@ -154,6 +206,24 @@ mod tests {
             &capabilities,
             LanguageServerFeature::RenameSymbol
         ));
+    }
+
+    #[test]
+    fn registration_options_and_range_objects_enable_features() {
+        let capabilities: lsp::ServerCapabilities = serde_json::from_value(serde_json::json!({
+            "implementationProvider": {"documentSelector": null, "id": "implementation"},
+            "typeDefinitionProvider": {"documentSelector": null, "id": "types"},
+            "callHierarchyProvider": {"documentSelector": null, "id": "calls"},
+            "semanticTokensProvider": {"legend": {"tokenTypes": [], "tokenModifiers": []}, "range": {}}
+        })).unwrap();
+        for feature in [
+            LanguageServerFeature::GotoImplementation,
+            LanguageServerFeature::GotoTypeDefinition,
+            LanguageServerFeature::CallHierarchy,
+            LanguageServerFeature::SemanticTokens,
+        ] {
+            assert!(supports_feature(&capabilities, feature));
+        }
     }
 
     #[test]

@@ -203,7 +203,7 @@ pub(super) fn picker(
             position: QuicklistPosition::None,
         })
     })
-    .with_file_updates(editor, |data| &data.root, tree::refresh)
+    .with_file_updates(editor, |data| &data.root, tree::refresh, Default::default())
     .with_refresh_generation(editor, Editor::file_operation_revision)
     .with_item_key(|(path, _)| path.clone())
     .with_item_data_actions(|maps| &maps.file_explorer, action);

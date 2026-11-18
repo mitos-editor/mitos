@@ -1,22 +1,23 @@
 //! Registered document storage and editor-local ID allocation.
 
 use crate::{Document, DocumentId};
-use std::{collections::BTreeMap, ops::Index};
+use indexmap::IndexMap;
+use std::ops::Index;
 
-/// Documents registered with an editor.
+/// Documents registered with an editor, in buffer navigation order.
 ///
 /// Individual documents can be borrowed independently of the editor's other
 /// fields. Registration, removal, and ID allocation stay private so callers
 /// cannot bypass service attachment, write tracking, or close notifications.
 pub struct Documents {
-    documents: BTreeMap<DocumentId, Document>,
+    documents: IndexMap<DocumentId, Document>,
     next_id: DocumentId,
 }
 
 impl Documents {
     pub(super) fn new() -> Self {
         Self {
-            documents: BTreeMap::new(),
+            documents: IndexMap::new(),
             next_id: DocumentId::default(),
         }
     }
@@ -30,7 +31,20 @@ impl Documents {
     }
 
     pub(super) fn remove(&mut self, id: &DocumentId) -> Option<Document> {
-        self.documents.remove(id)
+        self.documents.shift_remove(id)
+    }
+
+    /// Move a document to a zero-based position, clamping to the last buffer.
+    pub(super) fn move_to(&mut self, id: DocumentId, target: usize) -> bool {
+        let Some(current) = self.documents.get_index_of(&id) else {
+            return false;
+        };
+        let target = target.min(self.len() - 1);
+        if current == target {
+            return false;
+        }
+        self.documents.move_index(current, target);
+        true
     }
 
     pub fn get(&self, id: &DocumentId) -> Option<&Document> {

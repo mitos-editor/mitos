@@ -284,14 +284,6 @@ impl From<Notification> for Call {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-#[serde(untagged)]
-pub enum Request {
-    Single(Call),
-    Batch(Vec<Call>),
-}
-
 // https://www.jsonrpc.org/specification#response_object
 
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
@@ -326,25 +318,6 @@ impl From<Output> for Result<Value, Error> {
             Output::Success(success) => Ok(success.result),
             Output::Failure(failure) => Err(failure.error),
         }
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
-#[serde(untagged)]
-pub enum Response {
-    Single(Output),
-    Batch(Vec<Output>),
-}
-
-impl From<Failure> for Response {
-    fn from(failure: Failure) -> Self {
-        Response::Single(Output::Failure(failure))
-    }
-}
-
-impl From<Success> for Response {
-    fn from(success: Success) -> Self {
-        Response::Single(Output::Success(success))
     }
 }
 

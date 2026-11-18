@@ -7,7 +7,7 @@ use editor_core::{
 };
 use language::object;
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SelectionAction {
     Expand,
     Shrink,

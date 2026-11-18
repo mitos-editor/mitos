@@ -24,6 +24,8 @@ use crate::{Document, DocumentId, Editor};
 /// same menu without the menu knowing where they came from.
 pub struct Action {
     title: Cow<'static, str>,
+    tooltip: Option<String>,
+    llm_generated: bool,
     /// Sort key; higher priority actions are shown first. See `lsp_code_action_priority`.
     pub priority: u8,
     action: Box<dyn Fn(&mut Editor) + Send + Sync + 'static>,
@@ -46,6 +48,8 @@ impl Action {
     ) -> Self {
         Self {
             title: title.into(),
+            tooltip: None,
+            llm_generated: false,
             priority,
             action: Box::new(action),
         }
@@ -53,6 +57,20 @@ impl Action {
 
     pub fn title(&self) -> &str {
         &self.title
+    }
+
+    pub fn tooltip(&self) -> Option<&str> {
+        self.tooltip.as_deref()
+    }
+
+    pub fn is_llm_generated(&self) -> bool {
+        self.llm_generated
+    }
+
+    fn with_lsp_details(mut self, tooltip: Option<String>, llm_generated: bool) -> Self {
+        self.tooltip = tooltip;
+        self.llm_generated = llm_generated;
+        self
     }
 
     pub fn execute(&self, editor: &mut Editor) {
@@ -73,6 +91,7 @@ impl Action {
             );
         }
         let title = actions[0].title.clone();
+        let llm_generated = actions.iter().any(is_llm_generated);
         let priority = actions
             .iter()
             .map(|a| lsp_code_action_priority(&CodeActionOrCommand::CodeAction(a.clone())))
@@ -99,7 +118,6 @@ impl Action {
                     }
                 })
                 .collect();
-            let encoding = server.offset_encoding();
             let callbacks = editor.handlers.callbacks.clone();
             let context = context.clone();
             tokio::spawn(async move {
@@ -118,14 +136,18 @@ impl Action {
                                 edits.push(edit);
                             }
                         }
-                        editor.apply_code_action_edits(encoding, edits)
+                        Ok(edits)
                     });
-                    if let Err(error) = result {
-                        editor.set_error(|| format!("Failed to apply code actions: {error}"));
+                    match result {
+                        Ok(edits) => editor.request_code_action_edits(server_id, edits, Some(context), |editor, result| {
+                            if let Err(error) = result { editor.set_error(|| format!("Failed to apply code actions: {error}")); }
+                        }),
+                        Err(error) => editor.set_error(|| format!("Failed to apply code actions: {error}")),
                     }
                 }).await;
             });
         })
+        .with_lsp_details(None, llm_generated)
     }
 
     /// Builds an action bound to the document snapshot used to request it.
@@ -139,6 +161,16 @@ impl Action {
             lsp::CodeActionOrCommand::Command(command) => command.title.clone(),
         };
         let priority = lsp_code_action_priority(&action);
+        let (tooltip, llm_generated) = match &action {
+            CodeActionOrCommand::Command(command) => (command.tooltip.clone(), false),
+            CodeActionOrCommand::CodeAction(action) => (
+                action
+                    .command
+                    .as_ref()
+                    .and_then(|command| command.tooltip.clone()),
+                is_llm_generated(action),
+            ),
+        };
 
         Self::new(title, priority, move |editor| {
             if !context.is_current(editor, server_id) {
@@ -172,7 +204,9 @@ impl Action {
                                         return;
                                     }
                                     match result {
-                                        Ok(action) => apply_lsp_action(editor, server_id, &action),
+                                        Ok(action) => {
+                                            apply_lsp_action(editor, server_id, &action, context)
+                                        }
                                         Err(err) => editor.set_error(|| {
                                             format!("Failed to resolve code action: {err}")
                                         }),
@@ -181,12 +215,20 @@ impl Action {
                                 .await;
                         });
                     } else {
-                        apply_lsp_action(editor, server_id, action);
+                        apply_lsp_action(editor, server_id, action, context.clone());
                     }
                 }
             }
         })
+        .with_lsp_details(tooltip, llm_generated)
     }
+}
+
+fn is_llm_generated(action: &lsp::CodeAction) -> bool {
+    action
+        .tags
+        .as_ref()
+        .is_some_and(|tags| tags.contains(&lsp::CodeActionTag::LLM_GENERATED))
 }
 
 /// The originating document snapshot, captured before requesting LSP code actions.
@@ -201,6 +243,7 @@ struct LspActionSnapshot {
     doc: DocumentId,
     buffer: buffer::Snapshot,
     uri: Option<Uri>,
+    language: Option<String>,
     servers: Vec<Weak<lsp_client::Client>>,
 }
 
@@ -210,6 +253,9 @@ impl LspActionContext {
             doc: doc.id(),
             buffer: doc.snapshot(),
             uri: doc.uri(),
+            language: doc
+                .language_config()
+                .map(|language| language.language_id.clone()),
             servers: doc
                 .language_servers
                 .values()
@@ -235,20 +281,40 @@ impl LspActionContext {
             && editor.document(snapshot.doc).is_some_and(|doc| {
                 snapshot.buffer.is_current(&doc.buffer)
                     && doc.path() == snapshot.uri.as_ref().and_then(Uri::as_path)
+                    && snapshot.language.as_deref()
+                        == doc
+                            .language_config()
+                            .map(|language| language.language_id.as_str())
                     && doc.supports_language_server(server_id)
             })
     }
 }
 
-fn apply_lsp_action(editor: &mut Editor, server_id: LanguageServerId, action: &lsp::CodeAction) {
+fn apply_lsp_action(
+    editor: &mut Editor,
+    server_id: LanguageServerId,
+    action: &lsp::CodeAction,
+    context: LspActionContext,
+) {
     if action.disabled.is_some() {
         return;
     }
-    let server = editor.language_server_by_id(server_id).unwrap();
-    if let Some(edit) = &action.edit
-        && let Err(err) = editor.apply_workspace_edit(server.offset_encoding(), edit)
-    {
-        editor.set_error(|| format!("Failed to apply code action: {}", err.kind));
+    if let Some(edit) = &action.edit {
+        let command = action.command.clone();
+        editor.request_workspace_edit(
+            server_id,
+            edit.clone(),
+            Some(context),
+            move |editor, result| match result {
+                Ok(true) => {
+                    if let Some(command) = command {
+                        editor.execute_lsp_command(command, server_id);
+                    }
+                }
+                Ok(false) => (),
+                Err(error) => editor.set_error(|| format!("Failed to apply code action: {error}")),
+            },
+        );
         return;
     }
     // Commands may depend on the edit, so never execute one after an edit failure.

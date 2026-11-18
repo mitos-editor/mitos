@@ -5,7 +5,7 @@ use crate::graphics::Rect;
 use editor_core::RopeSlice;
 use stdx::rope::RopeExt as _;
 use text_layout::{
-    char_idx_at_visual_offset, doc_formatter::TextFormat, text_annotations::TextAnnotations,
+    doc_formatter::TextFormat, hit_test, text_annotations::TextAnnotations,
     visual_offset_from_anchor, DisplayPosition, VisualOffsetError,
 };
 
@@ -70,15 +70,16 @@ impl ViewLayout<'_> {
         let range = self.visible_byte_range();
         let mut start = range.start;
         let mut ranges = Vec::new();
-        for conceal in self.annotations.conceals() {
+        let conceals = self.annotations.conceals();
+        let char_start = self.text.byte_to_char_idx(start);
+        let char_end = self.text.byte_to_char_idx(range.end);
+        let first = conceals.partition_point(|c| c.range.end <= char_start);
+        for conceal in conceals[first..]
+            .iter()
+            .take_while(|c| c.range.start < char_end)
+        {
             let hidden_start = self.text.char_to_byte_idx(conceal.range.start);
             let hidden_end = self.text.char_to_byte_idx(conceal.range.end);
-            if hidden_end <= start {
-                continue;
-            }
-            if hidden_start >= range.end {
-                break;
-            }
             if start < hidden_start {
                 ranges.push(start..hidden_start);
             }
@@ -138,7 +139,7 @@ impl ViewLayout<'_> {
         column: u16,
         ignore_virtual_text: bool,
     ) -> Option<usize> {
-        let (position, virtual_lines) = char_idx_at_visual_offset(
+        let hit = hit_test(
             self.text,
             self.offset.anchor,
             (row as usize + self.offset.vertical_offset) as isize,
@@ -146,7 +147,7 @@ impl ViewLayout<'_> {
             &self.format,
             &self.annotations,
         );
-        (virtual_lines == 0 || !ignore_virtual_text).then_some(position)
+        (!hit.is_virtual || !ignore_virtual_text).then_some(hit.char_idx)
     }
 
     /// Last visible visual row relative to the viewport, clamped to the end of the text.

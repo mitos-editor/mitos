@@ -107,6 +107,31 @@ impl Matcher {
         query.0.match_list(items, self.engine())
     }
 
+    /// Score matching items in input order, reusing the scoring and Unicode buffers.
+    pub fn score_list<T: AsRef<str>>(
+        &mut self,
+        pattern: &str,
+        items: impl IntoIterator<Item = T>,
+    ) -> Vec<(T, u16)> {
+        if pattern.is_empty() {
+            return items.into_iter().map(|item| (item, 0)).collect();
+        }
+        let query = self.query(pattern);
+        let inner = self
+            .inner
+            .get_or_insert_with(|| nucleo_matcher::Matcher::new(self.kind.config()));
+        let scratch = &mut self.scratch;
+        items
+            .into_iter()
+            .filter_map(|item| {
+                query
+                    .0
+                    .score(Utf32Str::new(item.as_ref(), scratch), inner)
+                    .map(|score| (item, score))
+            })
+            .collect()
+    }
+
     /// Append highlight indices for a query from an asynchronous Nucleo picker.
     pub fn indices(
         &mut self,

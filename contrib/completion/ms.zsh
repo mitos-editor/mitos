@@ -5,6 +5,8 @@ _ms() {
 	_arguments -C \
 		"-h[Prints help information]" \
 		"--help[Prints help information]" \
+		"--summary[Show compact health results (requires --health)]" \
+		"--no-color[Disable health output styling (requires --health)]" \
 		"--strict[Bail on error for commands that can fail]" \
 		"-v[Increase logging verbosity]" \
 		"-vv[Increase logging verbosity]" \

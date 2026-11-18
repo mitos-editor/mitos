@@ -45,6 +45,40 @@ impl Search {
         })
     }
 
+    /// Nonempty character ranges within a visible byte range of a search target.
+    /// Retain one character of context on each side so document and word anchors
+    /// do not treat viewport edges as the beginning or end of the document.
+    pub fn match_ranges(
+        &self,
+        text: editor_core::RopeSlice<'_>,
+        visible: std::ops::Range<usize>,
+    ) -> Vec<std::ops::Range<usize>> {
+        let start = text.char_to_byte_idx(text.byte_to_char_idx(visible.start).saturating_sub(1));
+        let end =
+            text.char_to_byte_idx((text.byte_to_char_idx(visible.end) + 1).min(text.len_chars()));
+        let excerpt = text.slice(start..end).to_string();
+        let mut ranges = Vec::new();
+        self.matcher
+            .find_iter_at(excerpt.as_bytes(), visible.start - start, |matched| {
+                if start + matched.start() >= visible.end {
+                    return false;
+                }
+                if !matched.is_empty()
+                    && start + matched.end() <= visible.end
+                    && excerpt.is_char_boundary(matched.start())
+                    && excerpt.is_char_boundary(matched.end())
+                {
+                    ranges.push(
+                        text.byte_to_char_idx(start + matched.start())
+                            ..text.byte_to_char_idx(start + matched.end()),
+                    );
+                }
+                true
+            })
+            .expect("regex matching is infallible");
+        ranges
+    }
+
     /// Expand captures into character-indexed edits, optionally for one exact match.
     pub fn replacement_changes(
         &self,

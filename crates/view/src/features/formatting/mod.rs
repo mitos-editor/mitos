@@ -1,11 +1,13 @@
 //! Explicit formatting operations. Frontends drive tasks and apply their validated updates.
 
+mod on_type;
 mod provider;
+pub(crate) use on_type::{register_hooks, request as on_type_input};
 pub use provider::FormatterError;
 
 use std::sync::Arc;
 
-use anyhow::{bail, Context};
+use anyhow::Context;
 use editor_core::{indent::IndentStyle, Transaction, Uri};
 use futures_util::{future::BoxFuture, FutureExt};
 use language::syntax;
@@ -22,10 +24,11 @@ pub(crate) struct FormatSnapshot {
     language: Option<String>,
     loader: Arc<syntax::Loader>,
     owner: EditorCallbackSender,
+    server: Option<LanguageServerId>,
 }
 
 impl FormatSnapshot {
-    pub(crate) fn new(editor: &Editor, doc: &Document) -> Self {
+    pub(crate) fn new(editor: &Editor, doc: &Document, server: Option<LanguageServerId>) -> Self {
         Self {
             document: doc.id(),
             buffer: doc.snapshot(),
@@ -35,6 +38,7 @@ impl FormatSnapshot {
                 .map(|config| config.language_id.clone()),
             loader: editor.syn_loader.load_full(),
             owner: editor.callback_sender().clone(),
+            server,
         }
     }
 
@@ -48,6 +52,10 @@ impl FormatSnapshot {
                 .map(|config| config.language_id.as_str())
                 == self.language.as_deref()
             && Arc::ptr_eq(&self.loader, &editor.syn_loader.load_full())
+            && self.server.is_none_or(|server| {
+                editor.language_server_by_id(server).is_some()
+                    && doc.supports_language_server(server)
+            })
     }
 }
 
@@ -55,6 +63,7 @@ impl FormatSnapshot {
 enum FormatKind {
     Document,
     Selections,
+    OnType,
 }
 
 /// One explicit formatting operation. Dropping the task abandons its pending result.
@@ -68,8 +77,8 @@ struct FormatTarget {
     snapshot: FormatSnapshot,
     view: ViewId,
     binding_revision: u64,
-    server: Option<LanguageServerId>,
     kind: FormatKind,
+    selection: Option<editor_core::Selection>,
 }
 
 /// A completed formatting operation, including errors bound to its original target.
@@ -96,8 +105,8 @@ impl FormattingUpdate {
             snapshot,
             view,
             binding_revision,
-            server,
             kind,
+            selection,
         } = self.target;
         let Some(doc) = editor.document(snapshot.document) else {
             return Ok(false);
@@ -106,10 +115,14 @@ impl FormattingUpdate {
             || editor.tree.try_get(view).is_none_or(|view| {
                 view.doc != snapshot.document || view.binding_revision() != binding_revision
             })
-            || server.is_some_and(|server| {
-                editor.language_server_by_id(server).is_none()
-                    || !doc.supports_language_server(server)
-            })
+            || selection
+                .as_ref()
+                .is_some_and(|selection| doc.try_selection(view) != Some(selection))
+            || matches!(kind, FormatKind::OnType)
+                && (!editor.config().lsp.enable
+                    || !editor.config().format.on_type
+                    || editor.mode() != crate::document::Mode::Insert
+                    || editor.tree.focus() != view)
         {
             return Ok(false);
         }
@@ -118,6 +131,7 @@ impl FormattingUpdate {
         };
         let scrolloff = editor.config().scroll.padding;
         let doc = doc_mut!(editor, &snapshot.document);
+        doc.linked_editing.clear();
         crate::editing::apply(doc, &transaction, view)?;
         if matches!(kind, FormatKind::Document) {
             let view = view_mut!(editor, view);
@@ -126,6 +140,7 @@ impl FormattingUpdate {
             doc.detect_indent_and_line_ending();
             view.ensure_cursor_in_view(doc, scrolloff);
         }
+        crate::features::linked_editing::refresh(editor);
         Ok(true)
     }
 }
@@ -143,36 +158,35 @@ fn prepare_target(
         .document(view.doc)
         .context("Formatting document is closed")?;
     let target = FormatTarget {
-        snapshot: FormatSnapshot::new(editor, doc),
+        snapshot: FormatSnapshot::new(editor, doc, None),
         view: view.id,
         binding_revision: view.binding_revision(),
-        server: None,
         kind,
+        selection: None,
     };
     Ok((target, doc))
 }
 
 /// Prepare whole-document formatting using the document's configured formatter.
 pub fn prepare_document(editor: &Editor, view: ViewId) -> anyhow::Result<FormattingTask> {
-    let (target, doc) = prepare_target(editor, view, FormatKind::Document)?;
+    let (mut target, doc) = prepare_target(editor, view, FormatKind::Document)?;
     let format = doc
         .format_snapshot(editor, target.snapshot.buffer.clone(), Some(view))
         .context(
             "A formatter isn't available, and no language server provides formatting capabilities",
         )?;
+    target.snapshot.server = format.server;
     Ok(FormattingTask {
         target,
-        future: async move { Ok(Some(format.await?)) }.boxed(),
+        future: async move { Ok(Some(format.future.await?)) }.boxed(),
     })
 }
 
-/// Prepare LSP range formatting for the view's single selection.
+/// Format selections from one snapshot, using LSP 3.18 for multiple ranges.
 pub fn prepare_selections(editor: &Editor, view: ViewId) -> anyhow::Result<FormattingTask> {
     let (mut target, doc) = prepare_target(editor, view, FormatKind::Selections)?;
     let selection = doc.selection(view);
-    if selection.len() != 1 {
-        bail!("format_selections only supports a single selection for now");
-    }
+    let multiple = selection.len() > 1;
     // Range-only servers need not advertise whole-document formatting. Honor
     // the configured Format feature, then check this operation's capability.
     let server = doc
@@ -184,31 +198,42 @@ pub fn prepare_selections(editor: &Editor, view: ViewId) -> anyhow::Result<Forma
         .filter(|attachment| attachment.opened)
         .map(|attachment| &attachment.client)
         .find(|server| {
-            matches!(
-                server.capabilities().document_range_formatting_provider,
-                Some(lsp::OneOf::Left(true) | lsp::OneOf::Right(_))
-            )
+            (!multiple || server.supports_ranges_formatting())
+                && matches!(
+                    server.capabilities().document_range_formatting_provider,
+                    Some(lsp::OneOf::Left(true) | lsp::OneOf::Right(_))
+                )
         })
-        .context("No configured language server supports range formatting")?;
-    target.server = Some(server.id());
+        .with_context(|| {
+            if multiple {
+                "No configured language server supports formatting multiple ranges"
+            } else {
+                "No configured language server supports range formatting"
+            }
+        })?;
+    target.snapshot.server = Some(server.id());
     let encoding = server.offset_encoding();
-    let range = lsp_client::util::range_to_lsp_range(
-        target.snapshot.buffer.text(),
-        selection.primary(),
-        encoding,
-    );
-    let request = server
-        .text_document_range_formatting(
-            doc.identifier(),
-            range,
-            lsp::FormattingOptions {
-                tab_size: doc.indent_width() as u32,
-                insert_spaces: matches!(doc.indent_style, IndentStyle::Spaces(_)),
-                ..Default::default()
-            },
-            None,
-        )
-        .context("Language server rejected range formatting")?;
+    let ranges: Vec<_> = selection
+        .iter()
+        .map(|range| {
+            lsp_client::util::range_to_lsp_range(target.snapshot.buffer.text(), *range, encoding)
+        })
+        .collect();
+    let options = lsp::FormattingOptions {
+        tab_size: doc.indent_width() as u32,
+        insert_spaces: matches!(doc.indent_style, IndentStyle::Spaces(_)),
+        ..Default::default()
+    };
+    let request = if multiple {
+        server
+            .text_document_ranges_formatting(doc.identifier(), ranges, options, None)
+            .map(FutureExt::boxed)
+    } else {
+        server
+            .text_document_range_formatting(doc.identifier(), ranges[0], options, None)
+            .map(FutureExt::boxed)
+    }
+    .context("Language server rejected range formatting")?;
     let text = target.snapshot.buffer.text().clone();
     Ok(FormattingTask {
         target,

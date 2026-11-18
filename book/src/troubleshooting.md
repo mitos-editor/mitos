@@ -10,6 +10,32 @@ It reports the runtime paths Mitos searches, clipboard support, configured
 languages, and tools it could not find. For one language, run
 `ms --health <language>`; for example, `ms --health rust`.
 
+Add `--summary` for compact status rows, for example
+`ms --health rust --summary`. Summary mode hides routine paths, arguments, and
+capability names; it keeps feature counts, actionable problems, and capability
+caveats. It runs the same checks as detailed mode, so probe timeouts still apply.
+The overview's language table is already compact and stays visible.
+
+Add `--no-color` to disable all styling. Styling is also disabled when output is
+piped, when `NO_COLOR` is set, or when `TERM=dumb`.
+
+The overview shows installed/configured language-server counts, tool availability,
+and readable Tree-sitter queries. It does not start servers. On narrow terminals
+it uses labeled entries instead of a table.
+
+A language-specific check starts each applicable configured language server
+(including alternatives) and its debug adapter to query capabilities. It uses the
+current project's root and trusted configuration, with a five-second limit per
+process. Debug adapters can use stdio or TCP; the check does not launch or attach
+to a program. Each probe process is stopped afterward.
+
+The report separates supported features, features not advertised at initialization,
+and LSP features disabled by `only-features` or `except-features`. These are
+initial capabilities, not a test of every request or file type. Push diagnostics
+have no LSP capability flag, so their support cannot be determined this way.
+Missing executables, failed initialization, and timeouts leave capabilities
+unknown. An adapter may advertise features that Mitos does not expose.
+
 ## Language features are missing
 
 Language servers are separate programs and must be installed on your system.

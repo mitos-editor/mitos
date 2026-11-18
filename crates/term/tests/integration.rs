@@ -39,6 +39,7 @@ mod test {
     mod diagnostics;
     mod document_features;
     mod document_symbols;
+    mod editing_hooks;
     mod file_explorer;
     mod file_operations;
     mod folding;
@@ -48,7 +49,9 @@ mod test {
     mod goto_hover;
     mod inline_completion;
     mod language_features;
+    mod linked_editing;
     mod lsp_alternatives;
+    mod lsp_interactions;
     mod lsp_lifecycle;
     mod lsp_workspace;
     mod movement;
@@ -63,11 +66,14 @@ mod test {
     mod selection_undo;
     mod semantic_tokens;
     mod signature_help;
+    mod smooth_scroll;
     mod spelling;
     mod splits;
     mod startup;
     mod statusline;
+    mod structural_ranges;
     mod user_snippets;
+    mod workspace_confirmations;
     mod workspace_symbols;
     mod workspace_trust;
 }

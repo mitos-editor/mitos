@@ -177,19 +177,6 @@ impl BreakpointBindings {
         self.bindings.remove(&identity);
     }
 
-    pub fn apply_response(
-        &mut self,
-        path: &Path,
-        definitions: &[Breakpoint],
-        response: Vec<dap_types::Breakpoint>,
-    ) {
-        self.apply_source_response(
-            &BreakpointSource::File(path.to_owned()),
-            definitions,
-            response,
-        );
-    }
-
     pub fn apply_source_response(
         &mut self,
         source: &BreakpointSource,
@@ -213,20 +200,6 @@ impl BreakpointBindings {
                 ),
             );
         }
-    }
-
-    pub fn handle_event(&mut self, reason: &str, response: dap_types::Breakpoint) {
-        let source = response
-            .source
-            .as_ref()
-            .filter(|source| {
-                source
-                    .source_reference
-                    .is_none_or(|reference| reference == 0)
-            })
-            .and_then(|source| source.path.clone())
-            .map(BreakpointSource::File);
-        self.handle_source_event(reason, response, source);
     }
 
     pub fn handle_source_event(
@@ -494,8 +467,8 @@ mod edit_tests {
             .source(path.clone())
             .map_positions(|breakpoint| (breakpoint.line + 1, breakpoint.column));
         let mut bindings = BreakpointBindings::default();
-        bindings.apply_response(
-            &path,
+        bindings.apply_source_response(
+            &BreakpointSource::File(path.clone()),
             &submitted,
             vec![
                 serde_json::from_value(serde_json::json!({"id":1,"verified":true,"line":3}))

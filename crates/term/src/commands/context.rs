@@ -79,6 +79,13 @@ impl<'a> Context<'a> {
             }));
     }
 
+    /// Replace a named interaction, dropping any requests owned by its previous UI.
+    pub(crate) fn replace_or_push_layer<T: Component>(&mut self, id: &'static str, component: T) {
+        self.callback.push(Box::new(move |compositor, _| {
+            compositor.replace_or_push(id, component);
+        }));
+    }
+
     #[inline]
     pub fn on_next_key(
         &mut self,

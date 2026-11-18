@@ -67,6 +67,8 @@ impl Document {
         origin: Option<ViewId>,
     ) -> Result<(), EditError> {
         self.validate_changes(transaction.changes())?;
+        let expanded = crate::features::linked_editing::expand(self, transaction, origin);
+        let transaction = expanded.as_ref().unwrap_or(transaction);
         let change = self.buffer.apply(transaction.changes())?;
         self.publish_change(&change, transaction.selection(), origin);
         Ok(())
@@ -109,12 +111,13 @@ impl Document {
         self.document_colors.apply_changes(changes);
         self.document_links.apply_changes(changes);
         self.code_lenses.apply_changes(changes);
-        self.semantic_tokens.invalidate();
+        self.semantic_tokens.invalidate_highlights();
         self.inline_completions.clear();
         self.map_snippet(changes);
 
         self.cancel_view_requests(|state| &mut state.hover);
         self.cancel_view_requests(|state| &mut state.navigation);
+        self.cancel_view_requests(|state| &mut state.on_type_formatting);
 
         // Install an explicit transaction selection before observers inspect the new state.
         if let (Some(selection), Some(view_id)) = (selection, view_id) {

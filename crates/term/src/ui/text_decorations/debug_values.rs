@@ -44,7 +44,7 @@ impl<'a> DebugValues<'a> {
 
 impl Decoration for DebugValues<'_> {
     fn can_skip_unwrapped_tail(&self) -> bool {
-        self.values.is_empty()
+        self.ready.is_none()
     }
 
     fn reset_pos(&mut self, pos: usize) -> usize {
@@ -124,6 +124,7 @@ mod tests {
                 range: Default::default(),
                 data: None,
                 command: Some(lsp_client::lsp::Command {
+                    tooltip: None,
                     title: "Run".into(),
                     command: "run".into(),
                     arguments: None,
@@ -154,7 +155,7 @@ mod tests {
             &mut renderer,
             doc.text().slice(..),
             0,
-            &doc.text_format(width, Some(&theme)),
+            &doc.text_format(width),
             &Default::default(),
             std::iter::empty(),
             vec![],

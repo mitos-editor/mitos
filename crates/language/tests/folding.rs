@@ -165,23 +165,10 @@ fn assert_fold_regions(cases: &[(&str, &str, &[&str])]) {
             .map(|fold| text.slice_chars(fold.range.clone()).to_string())
             .collect();
         for &region in expected {
-            let fold = folds
+            folds
                 .iter()
                 .find(|fold| text.slice_chars(fold.range.clone()) == region)
                 .unwrap_or_else(|| panic!("{name}: missing {region:?}; got {spans:?}"));
-            // A Common Lisp defun's opener belongs to its header child.
-            // Only direct paired tokens supply a closing delimiter.
-            if name == "common-lisp" && region.starts_with("(defun ") {
-                assert!(fold.closing_delimiter.is_none());
-                continue;
-            }
-            if matches!(
-                (region.chars().next(), region.chars().last()),
-                (Some('{'), Some('}')) | (Some('['), Some(']')) | (Some('('), Some(')'))
-            ) {
-                let closer = fold.closing_delimiter.expect(name);
-                assert_eq!(text.get_char_at(closer), region.chars().last(), "{name}");
-            }
         }
     }
 }

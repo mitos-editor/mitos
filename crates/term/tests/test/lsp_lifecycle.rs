@@ -93,6 +93,17 @@ async fn initialization_sends_configuration_before_open_and_feature_requests() -
         messages[config]["params"]["settings"],
         json!({"lifecycle": "alpha"})
     );
+    let capabilities = &messages[index("initialize")]["params"]["capabilities"];
+    assert_eq!(
+        capabilities["workspace"]["diagnostics"]["refreshSupport"],
+        true
+    );
+    assert!(capabilities["workspace"].get("diagnostic").is_none());
+    assert_eq!(
+        capabilities["textDocument"]["signatureHelp"]["signatureInformation"]
+            ["noActiveParameterSupport"],
+        true
+    );
     assert!(f.app.close().await.is_empty());
     Ok(())
 }
@@ -127,7 +138,10 @@ async fn pushes_reject_uninitialized_unknown_invalid_and_stale_updates() -> anyh
             .editor
             .handle_publish_diagnostics(id, params(&uri, Some(stale), "stale"));
         assert_eq!(f.messages(), ["current"]);
-        assert_eq!(f.app.editor.diagnostics()[&uri][0].0.message, "current");
+        assert_eq!(
+            f.app.editor.diagnostics()[&uri][0].0.message.as_str(),
+            "current"
+        );
     }
     let mut invalid = params(&uri, None, "invalid URI");
     invalid.uri = "https://example.test/diagnostic".parse()?;
@@ -237,7 +251,10 @@ async fn exit_cleans_open_and_unopened_diagnostics_before_hooks_and_registry_rem
     assert_eq!(f.messages(), ["beta", "spelling"]);
     assert!(!f.app.editor.diagnostics().contains_key(&alpha_only));
     assert_eq!(f.app.editor.diagnostics()[&shared].len(), 1);
-    assert_eq!(f.app.editor.diagnostics()[&shared][0].0.message, "beta");
+    assert_eq!(
+        f.app.editor.diagnostics()[&shared][0].0.message.as_str(),
+        "beta"
+    );
     f.app.editor.handle_language_server_exit(alpha);
     assert_eq!(exits.load(Ordering::SeqCst), 1);
     assert!(f.app.close().await.is_empty());
@@ -321,7 +338,10 @@ async fn restart_clears_selected_server_document_and_workspace_diagnostics() -> 
     assert_eq!(other_doc.diagnostics()[0].message.as_ref(), "beta");
     assert!(!f.app.editor.diagnostics().contains_key(&alpha_only));
     assert_eq!(f.app.editor.diagnostics()[&shared].len(), 1);
-    assert_eq!(f.app.editor.diagnostics()[&shared][0].0.message, "beta");
+    assert_eq!(
+        f.app.editor.diagnostics()[&shared][0].0.message.as_str(),
+        "beta"
+    );
     // Late notifications from the retired process cannot restore its diagnostics.
     f.app
         .editor
@@ -393,7 +413,10 @@ async fn stop_clears_workspace_diagnostics_for_unopened_files() -> anyhow::Resul
     assert!(f.app.editor.language_server_by_id(beta).is_some());
     assert!(!f.app.editor.diagnostics().contains_key(&alpha_only));
     assert_eq!(f.app.editor.diagnostics()[&shared].len(), 1);
-    assert_eq!(f.app.editor.diagnostics()[&shared][0].0.message, "beta");
+    assert_eq!(
+        f.app.editor.diagnostics()[&shared][0].0.message.as_str(),
+        "beta"
+    );
     f.app.editor.refresh_language_servers(document);
     assert!(f.app.editor.language_server_by_id(alpha).is_none());
     assert!(current_ref!(f.app.editor)
@@ -733,6 +756,15 @@ async fn progress_tokens_are_scoped_to_servers_and_removed_on_stop() -> anyhow::
     }
     assert!(f.app.editor.language_server_is_progressing(alpha));
     assert!(f.app.editor.language_server_is_progressing(beta));
+    let partial: lsp::ProgressParams = serde_json::from_value(json!({
+        "token": "shared", "value": {"items": []}
+    }))?;
+    assert!(f
+        .app
+        .editor
+        .handle_language_server_progress(alpha, partial)
+        .is_none());
+    assert!(f.app.editor.language_server_is_progressing(alpha));
     let document = current_ref!(f.app.editor).1.id();
     f.app.editor.stop_language_servers(document, &["alpha"])?;
     assert!(!f.app.editor.language_server_is_progressing(alpha));
@@ -794,6 +826,105 @@ async fn server_document_requests_respect_prompts_and_explicit_focus() -> anyhow
                 .unwrap();
             assert_eq!(hidden.view_ids().count(), 0);
         }
+    }
+    assert!(f.app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn server_prompts_accept_abort_replace_and_drop_without_duplicate_replies(
+) -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let mut f = Fixture::new(dir.path(), &["alpha"])?;
+    f.initialize().await?;
+    let server = f.server("alpha");
+    for (id, keys) in [
+        ("accept", "<ret>"),
+        ("abort", "<esc>"),
+        ("replaced", ""),
+        ("replacement", "<ret>"),
+        ("dropped", ""),
+    ] {
+        let call = serde_json::from_value(json!({
+            "jsonrpc": "2.0", "id": id, "method": "window/showMessageRequest",
+            "params": {"type": 3, "message": "Choose", "actions": [{"title": "Yes"}]}
+        }))?;
+        f.app.handle_language_server_message(call, server).await;
+        if !keys.is_empty() {
+            super::helpers::keys(&mut f.app, keys).await?;
+        }
+    }
+    f.app
+        .job_sender()
+        .send(|compositor, _| {
+            compositor.pop();
+        })
+        .await;
+    super::helpers::run_event_loop_until_idle(&mut f.app).await;
+    f.app
+        .editor
+        .language_server_by_id(server)
+        .unwrap()
+        .shutdown()
+        .await?;
+    let records = read_log(&f.logs[0])?;
+    for id in ["accept", "abort", "replacement"] {
+        let replies: Vec<_> = records.iter().filter(|r| r["id"] == id).collect();
+        assert_eq!(replies.len(), 1, "{id}");
+        assert_eq!(
+            replies[0]["result"],
+            if id == "abort" {
+                Value::Null
+            } else {
+                json!({"title": "Yes"})
+            }
+        );
+    }
+    assert!(!records
+        .iter()
+        .any(|r| r["id"] == "replaced" || r["id"] == "dropped"));
+    assert!(f.app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn progress_updates_state_while_a_command_prompt_is_open() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let mut f = Fixture::new(dir.path(), &["alpha"])?;
+    f.initialize().await?;
+    let server = f.server("alpha");
+    super::helpers::keys(&mut f.app, ":").await?;
+    f.app
+        .job_sender()
+        .send(|compositor, _| assert!(compositor.has_component::<term::ui::Prompt>()))
+        .await;
+    super::helpers::run_event_loop_until_idle(&mut f.app).await;
+    for kind in ["begin", "end"] {
+        let value = if kind == "begin" {
+            json!({"kind": kind, "title": "Indexing"})
+        } else {
+            json!({"kind": kind})
+        };
+        f.app.editor.set_status("prompt status");
+        f.app
+            .handle_language_server_message(
+                notification("$/progress", json!({"token": "prompt", "value": value})),
+                server,
+            )
+            .await;
+        assert_eq!(
+            f.app.editor.get_status().unwrap().0.as_ref(),
+            "prompt status"
+        );
+        assert_eq!(
+            f.app.editor.language_server_is_progressing(server),
+            kind == "begin"
+        );
+        f.app
+            .job_sender()
+            .send(|compositor, _| assert!(compositor.has_component::<term::ui::Prompt>()))
+            .await;
+        super::helpers::run_event_loop_until_idle(&mut f.app).await;
     }
     assert!(f.app.close().await.is_empty());
     Ok(())

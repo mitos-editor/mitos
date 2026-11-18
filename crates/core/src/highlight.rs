@@ -94,23 +94,35 @@ impl Overlay {
         })
     }
 
-    fn current(&self) -> Option<(Highlight, ops::Range<usize>)> {
+    fn get(&self, index: usize) -> Option<(Highlight, ops::Range<usize>)> {
         match &self.highlights {
-            OverlayHighlights::Homogeneous { highlight, ranges } => ranges
-                .get(self.idx)
-                .map(|range| (*highlight, range.clone())),
-            OverlayHighlights::Heterogenous { highlights } => highlights.get(self.idx).cloned(),
+            OverlayHighlights::Homogeneous { highlight, ranges } => {
+                ranges.get(index).map(|range| (*highlight, range.clone()))
+            }
+            OverlayHighlights::Heterogenous { highlights } => highlights.get(index).cloned(),
         }
     }
 
     fn start(&self) -> Option<usize> {
-        match &self.highlights {
+        self.get(self.idx).map(|(_, range)| range.start)
+    }
+
+    fn advance_to(&mut self, pos: usize) {
+        let skipped = match &self.highlights {
             OverlayHighlights::Homogeneous { ranges, .. } => {
-                ranges.get(self.idx).map(|range| range.start)
+                ranges[self.idx..].partition_point(|range| range.start <= pos)
             }
-            OverlayHighlights::Heterogenous { highlights } => highlights
-                .get(self.idx)
-                .map(|(_highlight, range)| range.start),
+            OverlayHighlights::Heterogenous { highlights } => {
+                highlights[self.idx..].partition_point(|(_, range)| range.start <= pos)
+            }
+        };
+        if skipped != 0 {
+            self.idx += skipped;
+            let (highlight, range) = self.get(self.idx - 1).unwrap();
+            self.active_highlight = Some((highlight, range.end));
+        }
+        if self.active_highlight.is_some_and(|(_, end)| end <= pos) {
+            self.active_highlight = None;
         }
     }
 }
@@ -149,14 +161,34 @@ impl OverlayHighlighter {
         self.next_highlight_start.min(self.next_highlight_end)
     }
 
-    pub fn advance(&mut self) -> (HighlightEvent, impl Iterator<Item = Highlight> + '_) {
-        let mut refresh = false;
-        let prev_stack_size = self
+    /// Seek forward to a source position without replaying invisible events.
+    /// Ranges within each overlay must be sorted and non-overlapping. Empty
+    /// ranges are consumed just as they are by repeated calls to `advance`.
+    pub fn advance_to(&mut self, pos: usize) -> impl Iterator<Item = Highlight> + '_ {
+        for overlay in &mut self.overlays {
+            overlay.advance_to(pos);
+        }
+        self.next_highlight_start = self
             .overlays
             .iter()
-            .filter(|overlay| overlay.active_highlight.is_some())
-            .count();
+            .filter_map(Overlay::start)
+            .min()
+            .unwrap_or(usize::MAX);
+        self.next_highlight_end = self
+            .overlays
+            .iter()
+            .filter_map(|overlay| Some(overlay.active_highlight?.1))
+            .min()
+            .unwrap_or(usize::MAX);
+        self.overlays
+            .iter()
+            .filter_map(|overlay| overlay.active_highlight.map(|(highlight, _)| highlight))
+    }
+
+    /// Advance to the next event and return all active highlights in overlay order.
+    pub fn advance(&mut self) -> impl Iterator<Item = Highlight> + '_ {
         let pos = self.next_event_offset();
+        assert_ne!(pos, usize::MAX, "overlay highlighter is exhausted");
 
         if self.next_highlight_end == pos {
             for overlay in self.overlays.iter_mut() {
@@ -167,14 +199,11 @@ impl OverlayHighlighter {
                     overlay.active_highlight.take();
                 }
             }
-
-            refresh = true;
         }
 
         while self.next_highlight_start == pos {
-            let mut activated_idx = usize::MAX;
-            for (idx, overlay) in self.overlays.iter_mut().enumerate() {
-                let Some((highlight, range)) = overlay.current() else {
+            for overlay in self.overlays.iter_mut() {
+                let Some((highlight, range)) = overlay.get(overlay.idx) else {
                     continue;
                 };
                 if range.start != self.next_highlight_start {
@@ -185,23 +214,7 @@ impl OverlayHighlighter {
                 // and increment the cursor position within the overlay.
                 overlay.active_highlight = Some((highlight, range.end));
                 overlay.idx += 1;
-
-                activated_idx = activated_idx.min(idx);
             }
-
-            // If `self.next_highlight_start == pos` that means that some overlay was ready to
-            // emit a highlight, so `activated_idx` must have been set to an existing index.
-            assert!(
-                (0..self.overlays.len()).contains(&activated_idx),
-                "expected an overlay to highlight (at pos {pos}, there are {} overlays)",
-                self.overlays.len()
-            );
-
-            // If any overlays are active after the (lowest) one which was just activated, the
-            // highlights need to be refreshed.
-            refresh |= self.overlays[activated_idx..]
-                .iter()
-                .any(|overlay| overlay.active_highlight.is_some());
 
             self.next_highlight_start = self
                 .overlays
@@ -218,26 +231,49 @@ impl OverlayHighlighter {
             .min()
             .unwrap_or(usize::MAX);
 
-        let (event, start) = if refresh {
-            (HighlightEvent::Refresh, 0)
-        } else {
-            (HighlightEvent::Push, prev_stack_size)
-        };
-
-        (
-            event,
-            self.overlays
-                .iter()
-                .flat_map(|overlay| overlay.active_highlight)
-                .map(|(highlight, _end)| highlight)
-                .skip(start),
-        )
+        self.overlays
+            .iter()
+            .flat_map(|overlay| overlay.active_highlight)
+            .map(|(highlight, _end)| highlight)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn seeking_matches_event_replay_at_boundaries_and_across_gaps() {
+        let overlays = || {
+            [
+                OverlayHighlights::single(Highlight::new(0), 0..20),
+                OverlayHighlights::Heterogenous {
+                    highlights: vec![
+                        (Highlight::new(1), 0..2),
+                        (Highlight::new(2), 2..2),
+                        (Highlight::new(3), 3..5),
+                        (Highlight::new(4), 8..12),
+                    ],
+                },
+                OverlayHighlights::Homogeneous {
+                    highlight: Highlight::new(5),
+                    ranges: vec![1..4, 6..8, 12..12, 14..18],
+                },
+            ]
+        };
+        let mut sequential = OverlayHighlighter::new(overlays());
+        let mut seeking = OverlayHighlighter::new(overlays());
+        let mut expected = Vec::new();
+        for pos in [0, 0, 1, 2, 9, 12, 14, 24, usize::MAX] {
+            while sequential.next_event_offset() != usize::MAX
+                && sequential.next_event_offset() <= pos
+            {
+                expected = sequential.advance().collect();
+            }
+            assert_eq!(seeking.advance_to(pos).collect::<Vec<_>>(), expected);
+            assert_eq!(seeking.next_event_offset(), sequential.next_event_offset());
+        }
+    }
 
     #[test]
     fn highlight_ids_preserve_boundary_values_and_compact_optional_storage() {
@@ -257,7 +293,6 @@ mod tests {
             OverlayHighlights::single(outer, 0..4),
             OverlayHighlights::single(inner, 1..3),
         ]);
-        let mut active = Vec::new();
         for (position, expected) in [
             (0, vec![outer]),
             (1, vec![outer, inner]),
@@ -265,12 +300,31 @@ mod tests {
             (4, vec![]),
         ] {
             assert_eq!(cursor.next_event_offset(), position);
-            let (event, highlights) = cursor.advance();
-            if event == HighlightEvent::Refresh {
-                active.clear();
-            }
-            active.extend(highlights);
-            assert_eq!(active, expected);
+            assert_eq!(cursor.advance().collect::<Vec<_>>(), expected);
+        }
+        assert_eq!(cursor.next_event_offset(), usize::MAX);
+    }
+
+    #[test]
+    fn overlay_boundaries_keep_order_and_process_empty_ranges() {
+        let first = Highlight::new(1);
+        let second = Highlight::new(2);
+        let third = Highlight::new(3);
+        let mut cursor = OverlayHighlighter::new([
+            OverlayHighlights::Heterogenous {
+                highlights: vec![(first, 0..2), (third, 2..4)],
+            },
+            OverlayHighlights::single(second, 2..2),
+        ]);
+
+        for (position, expected) in [
+            (0, vec![first]),
+            (2, vec![third, second]),
+            (2, vec![third]),
+            (4, vec![]),
+        ] {
+            assert_eq!(cursor.next_event_offset(), position);
+            assert_eq!(cursor.advance().collect::<Vec<_>>(), expected);
         }
         assert_eq!(cursor.next_event_offset(), usize::MAX);
     }

@@ -246,6 +246,11 @@ pub fn request(editor: &mut Editor, kind: NavigationKind) {
     };
     editor.handlers.navigation.target = Some(target);
     let callbacks = (*shared).clone();
+    let label = match kind {
+        NavigationKind::References | NavigationKind::SelectReferences => "References",
+        _ => "Navigating",
+    };
+    let activity = editor.start_activity(label, Some(target.0));
     tokio::spawn(async move {
         let mut locations = Vec::new();
         let mut highlights = None;
@@ -266,6 +271,7 @@ pub fn request(editor: &mut Editor, kind: NavigationKind) {
         }
         callbacks
             .send(move |editor| {
+                let _activity = activity;
                 if !request.is_current(editor) {
                     return;
                 }

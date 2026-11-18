@@ -45,6 +45,7 @@ pub(crate) fn apply_update(
             if matches!((completion_area, signature_help_area), (Some(a), Some(b)) if a.intersects(b))
             {
                 compositor.remove(SignatureHelp::ID);
+                editor.handlers().signature_hints.set_active_help(None);
             }
         }
         CompletionChange::Provider {
@@ -52,7 +53,7 @@ pub(crate) fn apply_update(
             is_incomplete,
         } => {
             if let Some(completion) = &mut ui.completion {
-                completion.replace_provider_completions(&mut response, is_incomplete);
+                completion.replace_provider_completions(editor, &mut response, is_incomplete);
                 if completion.is_empty() {
                     ui.clear_completion(editor);
                     trigger_auto_completion(editor, false);
@@ -61,7 +62,7 @@ pub(crate) fn apply_update(
         }
         CompletionChange::Resolved { old, item } => {
             if let Some(completion) = &mut ui.completion {
-                completion.replace_item(&*old, *item);
+                completion.replace_item(editor, &*old, *item);
             }
         }
     }

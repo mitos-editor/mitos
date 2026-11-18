@@ -26,6 +26,12 @@ pub struct Snippet {
 }
 
 impl Snippet {
+    /// Render literal text with snippet indentation handling, without parsing
+    /// variables or placeholders from the supplied text.
+    pub fn from_text(text: &str) -> Self {
+        Self::new(vec![parser::SnippetElement::Text(text.into())])
+    }
+
     /// Parses LSP snippet syntax and elaborates it into the editing model.
     ///
     /// The error includes the unconsumed suffix at which parsing stopped.

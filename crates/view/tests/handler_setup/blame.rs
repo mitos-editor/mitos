@@ -410,6 +410,8 @@ async fn repeated_requests_share_pending_work_and_display_the_latest_line() -> a
     }
     // The trailing empty line has no committed blame.
     f.editor.blame_line(doc_id, 2);
+    // The blame callback needs the independently computed document diff to be ready.
+    wait_for_diff(&f).await?;
     callback(&mut f.editor);
     assert_eq!(
         f.editor.get_status().unwrap().0.as_ref(),

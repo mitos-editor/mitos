@@ -21,6 +21,7 @@ pub(crate) struct PendingRequests {
 struct PendingRequest {
     sender: oneshot::Sender<Result<Value>>,
     started: bool,
+    partial: Option<(String, UnboundedSender<Value>)>,
 }
 
 impl Default for PendingRequests {
@@ -43,6 +44,20 @@ impl PendingRequests {
     where
         R::Params: serde::Serialize,
     {
+        self.request_with_partial::<R>(sender, id, params, timeout_secs, None)
+    }
+
+    pub(crate) fn request_with_partial<R: lsp::request::Request>(
+        self: &Arc<Self>,
+        sender: &UnboundedSender<Payload>,
+        id: jsonrpc::Id,
+        params: &R::Params,
+        timeout_secs: u64,
+        partial: Option<(String, UnboundedSender<Value>)>,
+    ) -> impl Future<Output = Result<R::Result>> + use<R>
+    where
+        R::Params: serde::Serialize,
+    {
         let cancellation = RequestCancellation {
             sender: sender.downgrade(),
             pending_requests: self.clone(),
@@ -59,7 +74,7 @@ impl PendingRequests {
                     method: R::METHOD.to_owned(),
                     params: params.into(),
                 };
-                self.enqueue(sender, request)
+                self.enqueue(sender, request, partial)
             });
         let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(timeout_secs);
         async move {
@@ -79,16 +94,17 @@ impl PendingRequests {
         sender: &UnboundedSender<Payload>,
         request: jsonrpc::MethodCall,
     ) -> Result<()> {
-        self.enqueue(sender, request).map(drop)
+        self.enqueue(sender, request, None).map(drop)
     }
 
     fn enqueue(
         &self,
         sender: &UnboundedSender<Payload>,
         request: jsonrpc::MethodCall,
+        partial: Option<(String, UnboundedSender<Value>)>,
     ) -> Result<oneshot::Receiver<Result<Value>>> {
         let id = request.id.clone();
-        let receiver = self.register(id.clone())?;
+        let receiver = self.register(id.clone(), partial)?;
         if sender.send(Payload::Request(request)).is_err() {
             self.cancel(&id);
             return Err(Error::StreamClosed);
@@ -120,7 +136,11 @@ impl PendingRequests {
         }
     }
 
-    fn register(&self, id: jsonrpc::Id) -> Result<oneshot::Receiver<Result<Value>>> {
+    fn register(
+        &self,
+        id: jsonrpc::Id,
+        partial: Option<(String, UnboundedSender<Value>)>,
+    ) -> Result<oneshot::Receiver<Result<Value>>> {
         let (sender, receiver) = oneshot::channel();
         self.requests
             .lock()
@@ -131,9 +151,50 @@ impl PendingRequests {
                 PendingRequest {
                     sender,
                     started: false,
+                    partial,
                 },
             );
         Ok(receiver)
+    }
+
+    /// Deliver partial results on the reader task before the final response.
+    /// Keeping the subscription on the request gives cancellation and shutdown
+    /// the same lifetime as ordinary response tracking.
+    pub(super) fn partial_result(&self, params: &jsonrpc::Params) -> bool {
+        let jsonrpc::Params::Map(params) = params else {
+            return false;
+        };
+        let Some(token) = params.get("token").and_then(Value::as_str) else {
+            return false;
+        };
+        // Servers choose arbitrary work-done tokens. Only discard a late
+        // client-owned partial batch when it is not work-done progress.
+        if params
+            .get("value")
+            .and_then(|value| value.get("kind"))
+            .and_then(Value::as_str)
+            .is_some_and(|kind| matches!(kind, "begin" | "report" | "end"))
+        {
+            return false;
+        }
+        let retired_partial = token.starts_with(super::PARTIAL_RESULT_TOKEN_PREFIX);
+        let requests = self.requests.lock();
+        let Some(requests) = requests.as_ref() else {
+            return retired_partial;
+        };
+        for request in requests.values() {
+            if let Some((expected, sender)) = &request.partial
+                && expected == token
+            {
+                if let Some(value) = params.get("value") {
+                    let _ = sender.send(value.clone());
+                }
+                return true;
+            }
+        }
+        // Servers may race cancellation or send a late batch after completion.
+        // These client-owned tokens are never work-done progress for the UI.
+        retired_partial
     }
 
     /// Removes the response handler and reports whether transmission has started.

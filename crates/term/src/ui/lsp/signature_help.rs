@@ -77,11 +77,16 @@ impl Component for SignatureHelp {
     }
 
     fn handle_event(&mut self, event: &Event, cx: &mut Context) -> EventResult {
-        self.page.handle_event(
+        let result = self.page.handle_event(
             event,
             &cx.config.current.component_keys.signature_help,
             self.signatures.len(),
-        )
+        );
+        cx.editor
+            .handlers()
+            .signature_hints
+            .set_active_signature(self.page.index);
+        result
     }
 
     fn render(&mut self, area: Rect, surface: &mut Buffer, cx: &mut DrawContext) {

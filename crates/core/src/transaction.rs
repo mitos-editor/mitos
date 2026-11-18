@@ -385,21 +385,6 @@ impl ChangeSet {
         changes
     }
 
-    /// Given another change set starting in the same document, maps this
-    /// change set over the other, producing a new change set that can be
-    /// applied to the document produced by applying `other`. When
-    /// `before` is `true`, order changes as if `this` comes before
-    /// `other`, otherwise (the default) treat `other` as coming first.
-    ///
-    /// Given two changes `A` and `B`, `A.compose(B.map(A))` and
-    /// `B.compose(A.map(B, true))` will produce the same document. This
-    /// provides a basic form of [operational
-    /// transformation](https://en.wikipedia.org/wiki/Operational_transformation),
-    /// and can be used for collaborative editing.
-    pub fn map(self, _other: Self) -> Self {
-        unimplemented!()
-    }
-
     /// Returns a new changeset that reverts this one. Useful for `undo` implementation.
     /// The document parameter expects the original document before this change was applied.
     pub fn invert(&self, original_doc: &Rope) -> Self {

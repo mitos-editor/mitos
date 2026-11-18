@@ -48,21 +48,27 @@ pub fn document_line_at_offset(
     // even when that header wraps into several visual rows.
     match dir {
         Direction::Forward => {
-            for conceal in conceals {
+            let anchor = slice.line_to_char_idx(line_idx);
+            let first = conceals.partition_point(|c| c.range.start < anchor);
+            for conceal in &conceals[first..] {
                 let start = slice.char_to_line_idx(conceal.range.start);
-                if start >= line_idx && start < new_line_idx {
-                    new_line_idx = new_line_idx
-                        .saturating_add(slice.char_to_line_idx(conceal.range.end) - start);
+                if start >= new_line_idx {
+                    break;
                 }
+                new_line_idx =
+                    new_line_idx.saturating_add(slice.char_to_line_idx(conceal.range.end) - start);
             }
         }
         Direction::Backward => {
-            for conceal in conceals.iter().rev() {
+            let anchor = slice.line_to_char_idx(line_idx);
+            let last = conceals.partition_point(|c| c.range.end < anchor);
+            for conceal in conceals[..last].iter().rev() {
                 let end = slice.char_to_line_idx(conceal.range.end);
-                if end < line_idx && end >= new_line_idx {
-                    new_line_idx = new_line_idx
-                        .saturating_sub(end - slice.char_to_line_idx(conceal.range.start));
+                if end < new_line_idx {
+                    break;
                 }
+                new_line_idx =
+                    new_line_idx.saturating_sub(end - slice.char_to_line_idx(conceal.range.start));
             }
         }
     }
@@ -114,8 +120,13 @@ pub fn move_vertically_visual(
         text_fmt,
         annotations,
     );
-    if dir == Direction::Forward {
-        new_pos += (virtual_rows != 0) as usize;
+    if dir == Direction::Forward && virtual_rows != 0 {
+        // A collapsed label has one cursor anchor even when it wraps. Skip
+        // its remaining rows rather than repeatedly selecting the same anchor
+        // or stepping into the hidden document text.
+        new_pos = annotations
+            .conceal_at(new_pos)
+            .map_or(new_pos + 1, |fold| fold.range.end);
     }
 
     // Special-case to avoid moving to the end of the last non-empty line.

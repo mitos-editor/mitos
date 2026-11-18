@@ -29,6 +29,7 @@ use view::{
     Align, Editor,
 };
 mod symbol_updates;
+mod workspace_symbols;
 
 /// Gets the first language server that is attached to a document which supports a specific feature.
 /// If there is no configured language server that supports the feature, this displays a status message.
@@ -54,8 +55,21 @@ impl ui::menu::Item for CodeLensCommand {
     type Data = ();
 
     fn format(&self, _: &Self::Data) -> Row<'_> {
-        self.command.title.as_str().into()
+        command_row(&self.command.title, self.command.tooltip.as_deref(), false)
     }
+}
+
+fn command_row<'a>(title: &'a str, tooltip: Option<&str>, llm_generated: bool) -> Row<'a> {
+    let mut title = Line::from(title);
+    if llm_generated {
+        title.spans.push(Span::raw(" [AI generated]"));
+    }
+    let tooltip = tooltip
+        .unwrap_or_default()
+        .lines()
+        .collect::<Vec<_>>()
+        .join(" ");
+    Row::new([Cell::from(title), Cell::from(tooltip)])
 }
 
 pub fn show_code_lenses_under_cursor(cx: &mut Context) {
@@ -71,47 +85,57 @@ pub fn show_code_lenses_under_cursor(cx: &mut Context) {
         cx.editor.set_error(|| "No code lenses available");
         return;
     };
-    cx.jobs.callback(async move {
-        let resolved = future.await;
-        Ok(Callback::ui(move |compositor, cx| {
-            let editor = &mut *cx.editor;
-            let Some(mut resolved) = resolved else { return };
-            let is_current = move |editor: &Editor| {
-                editor.tree.focus() == view_id
-                    && editor
-                        .tree
-                        .try_get(view_id)
-                        .is_some_and(|view| view.document_id() == doc_id)
-                    && editor
-                        .document(doc_id)
-                        .is_some_and(|doc| doc.selection(view_id) == &selection)
-            };
-            if !resolved.is_current(editor) || !is_current(editor) {
-                return;
-            }
-            if resolved.commands.is_empty() {
-                editor.set_error(|| "No code lenses available");
-                return;
-            }
-            resolved.cache(editor);
-            let commands = std::mem::take(&mut resolved.commands);
-            let mut menu = ui::Menu::new(commands, (), move |editor, lens, event| {
-                if event == PromptEvent::Validate
-                    && resolved.is_current(editor)
-                    && is_current(editor)
-                    && let Some(lens) = lens
-                {
-                    editor.execute_lsp_command(lens.command.clone(), lens.language_server_id);
+    cx.replace_or_push_layer(
+        "code-lens",
+        ui::Pending::new(
+            "code-lens",
+            "Loading code lenses...",
+            cx.editor.redraw().clone(),
+            future,
+            move |compositor, cx, resolved| {
+                let editor = &mut *cx.editor;
+                let Some(mut resolved) = resolved else {
+                    return false;
+                };
+                let is_current = move |editor: &Editor| {
+                    editor.tree.focus() == view_id
+                        && editor
+                            .tree
+                            .try_get(view_id)
+                            .is_some_and(|view| view.document_id() == doc_id)
+                        && editor
+                            .document(doc_id)
+                            .is_some_and(|doc| doc.selection(view_id) == &selection)
+                };
+                if !resolved.is_current(editor) || !is_current(editor) {
+                    return false;
                 }
-            });
-            menu.move_down();
-            let popup = Popup::new("code-lens", menu)
-                .with_border(ui::PopupBorder::CodeLenses)
-                .with_scrollbar(false)
-                .auto_close(true);
-            compositor.replace_or_push("code-lens", popup);
-        }))
-    });
+                if resolved.commands.is_empty() {
+                    editor.set_error(|| "No code lenses available");
+                    return false;
+                }
+                resolved.cache(editor);
+                let commands = std::mem::take(&mut resolved.commands);
+                let mut menu = ui::Menu::new(commands, (), move |editor, lens, event| {
+                    if event == PromptEvent::Validate
+                        && resolved.is_current(editor)
+                        && is_current(editor)
+                        && let Some(lens) = lens
+                    {
+                        editor.execute_lsp_command(lens.command.clone(), lens.language_server_id);
+                    }
+                });
+                menu.move_down();
+                let popup = Popup::new("code-lens", menu)
+                    .with_border(ui::PopupBorder::CodeLenses)
+                    .with_scrollbar(false)
+                    .auto_close(true);
+                compositor.replace_or_push("code-lens", popup);
+                true
+            },
+        )
+        .with_border(ui::PopupBorder::CodeLenses),
+    );
 }
 
 #[derive(PartialEq)]
@@ -312,11 +336,11 @@ fn symbol_container_cell<'a>(
     .into()
 }
 
-fn symbol_path_cell<'a>(item: &'a SymbolInformationItem, data: &'a SymbolPickerData) -> Cell<'a> {
-    let path = if let Some(path) = item.symbol.location.uri.as_path() {
+fn symbol_path_cell<'a>(uri: &editor_core::Uri, data: &'a SymbolPickerData) -> Cell<'a> {
+    let path = if let Some(path) = uri.as_path() {
         path::get_relative_path(path).to_string_lossy().to_string()
     } else {
-        item.symbol.location.uri.to_string()
+        uri.to_string()
     };
     Span::styled(path, data.theme.get("ui.text.directory")).into()
 }
@@ -399,7 +423,7 @@ mod symbol_picker_tests {
         let kind = symbol_kind_cell(&item, &data);
         let name = symbol_name_cell(&item, &data);
         let container = symbol_container_cell(&item, &data);
-        let path = symbol_path_cell(&item, &data);
+        let path = symbol_path_cell(&item.symbol.location.uri, &data);
 
         assert_eq!(
             kind.content.lines[0].spans[0].style,
@@ -480,135 +504,32 @@ mod symbol_picker_tests {
 }
 
 pub fn symbol_picker(cx: &mut Context) {
+    if !cx.editor.config().lsp.enable {
+        cx.editor.set_error(|| "Language servers are disabled");
+        return;
+    }
     let picker_data = SymbolPickerData {
         show_icons: cx.editor.config().icons,
         theme: cx.editor.theme.clone(),
     };
     let (view, doc) = current_ref!(cx.editor);
+    if doc
+        .language_servers_with_feature(LanguageServerFeature::DocumentSymbols)
+        .next()
+        .is_none()
+    {
+        cx.editor
+            .set_error(|| "No configured language server supports document symbols");
+        return;
+    }
     let (document, view) = (doc.id(), view.id);
-    let task = match cx.editor.document_symbols(document, view) {
-        Ok(task) => task,
-        Err(error) => {
-            cx.editor.set_error(|| error.to_string());
-            return;
-        }
-    };
-    cx.jobs.callback(async move {
-        let update = task.run().await;
-        let call = move |editor: &mut Editor, compositor: &mut Compositor| {
-            let Some(symbols) = update.and_then(|update| update.into_symbols(editor)) else {
-                return;
-            };
-            let mut items = Vec::new();
-            for symbol in symbols {
-                nested_symbol_to_flat(&mut items, symbol, "", None);
-            }
-            let columns = [
-                ui::PickerColumn::new("kind", symbol_kind_cell).with_prefix(symbol_kind_icon),
-                // Nested document symbols include their fully expanded tree guide in
-                // the name column. Legacy flat responses remain unprefixed.
-                ui::PickerColumn::new("name", symbol_name_cell),
-                ui::PickerColumn::new("container", symbol_container_cell),
-            ];
-
-            let picker = Picker::new(
-                editor.redraw().clone(),
-                columns,
-                1, // name column
-                items,
-                picker_data,
-                move |cx, item, action| {
-                    jump_to_location(cx.editor, &item.symbol.location, action);
-                },
-            )
-            .with_item_key(symbol_updates::symbol_key)
-            .with_editor_updates(symbol_updates::document_updates(editor, document, view))
-            .with_title("Document Symbols")
-            .with_preview(move |_editor, item| location_to_file_location(&item.symbol.location))
-            .with_quicklist(move |_editor, item| location_to_quicklist_entry(&item.symbol.location))
-            .truncate_start(false);
-
-            compositor.push(Box::new(overlaid(picker)))
-        };
-
-        Ok(Callback::ui(move |compositor, cx| {
-            call(cx.editor, compositor)
-        }))
-    });
-}
-
-struct WorkspaceSymbolPickerData {
-    style: SymbolPickerData,
-    symbols: std::sync::Arc<
-        arc_swap::ArcSwap<view::features::workspace_symbols::WorkspaceSymbolsSession>,
-    >,
-}
-
-pub fn workspace_symbol_picker(cx: &mut Context) {
-    use crate::ui::picker::Injector;
-
-    let document = doc!(cx.editor).id();
-    let session = match cx.editor.workspace_symbols(document) {
-        Ok(session) => session,
-        Err(error) => {
-            cx.editor.set_error(|| error.to_string());
-            return;
-        }
-    };
-    let get_symbols = |pattern: &str,
-                       editor: &mut Editor,
-                       data: std::sync::Arc<WorkspaceSymbolPickerData>,
-                       injector: &Injector<_, _>| {
-        let request = data.symbols.load().query(editor, pattern.to_owned());
-        let injector = injector.clone();
-        async move {
-            let mut task = request?;
-            while let Some(response) = task.next_batch().await {
-                match response {
-                    Ok(items) => {
-                        for item in items {
-                            injector.push(SymbolInformationItem {
-                                symbol: item,
-                                tree_prefix: String::new(),
-                            })?;
-                        }
-                    }
-                    Err(error) => {
-                        injector.fail();
-                        log::error!("Error requesting workspace symbols: {error}");
-                    }
-                }
-            }
-            Ok(())
-        }
-        .boxed()
-    };
-    let session = std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(session));
     let columns = [
-        ui::PickerColumn::new("kind", |item, data: &WorkspaceSymbolPickerData| {
-            symbol_kind_cell(item, &data.style)
-        })
-        .with_prefix(|item, data| symbol_kind_icon(item, &data.style)),
-        ui::PickerColumn::new("name", |item, data: &WorkspaceSymbolPickerData| {
-            symbol_name_cell(item, &data.style)
-        })
-        .without_filtering(),
-        ui::PickerColumn::new("container", |item, data: &WorkspaceSymbolPickerData| {
-            symbol_container_cell(item, &data.style)
-        }),
-        ui::PickerColumn::new("path", |item, data: &WorkspaceSymbolPickerData| {
-            symbol_path_cell(item, &data.style)
-        }),
+        ui::PickerColumn::new("kind", symbol_kind_cell).with_prefix(symbol_kind_icon),
+        // Nested document symbols include their fully expanded tree guide in
+        // the name column. Legacy flat responses remain unprefixed.
+        ui::PickerColumn::new("name", symbol_name_cell),
+        ui::PickerColumn::new("container", symbol_container_cell),
     ];
-
-    let picker_data = WorkspaceSymbolPickerData {
-        style: SymbolPickerData {
-            show_icons: cx.editor.config().icons,
-            theme: cx.editor.theme.clone(),
-        },
-        symbols: session.clone(),
-    };
-
     let picker = Picker::new(
         cx.editor.redraw().clone(),
         columns,
@@ -616,58 +537,73 @@ pub fn workspace_symbol_picker(cx: &mut Context) {
         [],
         picker_data,
         move |cx, item, action| {
-            if !session.load().is_current(cx.editor) {
-                return;
-            }
             jump_to_location(cx.editor, &item.symbol.location, action);
         },
     )
-    .with_preview(|_editor, item| location_to_file_location(&item.symbol.location))
-    .with_quicklist(|_editor, item| location_to_quicklist_entry(&item.symbol.location))
-    .with_title("Workspace Symbols")
-    .with_dynamic_query(get_symbols, None, cx.jobs)
     .with_item_key(symbol_updates::symbol_key)
-    .with_query_updates(symbol_updates::workspace_updates(cx.editor, document))
+    .with_editor_updates(symbol_updates::document_updates(document, view))
+    .with_title("Document Symbols")
+    .with_preview(move |_editor, item| location_to_file_location(&item.symbol.location))
+    .with_quicklist(move |_editor, item| location_to_quicklist_entry(&item.symbol.location))
     .truncate_start(false);
-
     cx.push_layer(Box::new(overlaid(picker)));
+}
+
+struct WorkspaceSymbolPickerData {
+    style: SymbolPickerData,
+    published: std::sync::Arc<std::sync::Mutex<workspace_symbols::PublishedSymbols>>,
+    symbols: std::sync::Arc<
+        arc_swap::ArcSwap<view::features::workspace_symbols::WorkspaceSymbolsSession>,
+    >,
+}
+
+pub fn workspace_symbol_picker(cx: &mut Context) {
+    workspace_symbols::picker(cx);
 }
 
 impl ui::menu::Item for CodeActionItem {
     type Data = ();
     fn format(&self, _data: &Self::Data) -> Row<'_> {
-        Row::new([self.title()])
+        command_row(self.title(), self.tooltip(), self.is_llm_generated())
     }
 }
 
 pub fn code_action(cx: &mut Context) {
     let task = cx.editor.request_code_actions();
-    cx.jobs.callback(async move {
-        let update = task.run().await;
-        Ok(Callback::ui(move |compositor, cx| {
-            let editor = &mut *cx.editor;
-            let Some(actions) = update.and_then(|update| update.into_actions(editor)) else {
-                return;
-            };
-            if actions.is_empty() {
-                editor.set_error(|| "No code actions available");
-                return;
-            }
-            let mut picker = ui::Menu::new(actions, (), move |editor, action, event| {
-                if event == PromptEvent::Validate
-                    && let Some(action) = action
-                {
-                    action.execute(editor);
+    cx.replace_or_push_layer(
+        "code-action",
+        ui::Pending::new(
+            "code-action",
+            "Loading code actions...",
+            cx.editor.redraw().clone(),
+            task.run(),
+            move |compositor, cx, update| {
+                let editor = &mut *cx.editor;
+                let Some(actions) = update.and_then(|update| update.into_actions(editor)) else {
+                    return false;
+                };
+                if actions.is_empty() {
+                    editor.set_error(|| "No code actions available");
+                    return false;
                 }
-            });
-            picker.move_down();
-            let popup = Popup::new("code-action", picker)
-                .with_border(ui::PopupBorder::CodeActions)
-                .with_scrollbar(false)
-                .auto_close(true);
-            compositor.replace_or_push("code-action", popup);
-        }))
-    });
+                let mut picker = ui::Menu::new(actions, (), move |editor, action, event| {
+                    if event == PromptEvent::Validate
+                        && let Some(action) = action
+                    {
+                        action.execute(editor);
+                    }
+                });
+                picker.move_down();
+                let popup = Popup::new("code-action", picker)
+                    .with_border(ui::PopupBorder::CodeActions)
+                    .with_scrollbar(false)
+                    .auto_close(true);
+                compositor.replace_or_push("code-action", popup);
+                true
+            },
+        )
+        .with_border(ui::PopupBorder::CodeActions),
+    );
 }
 
 /// Precondition: `locations` should be non-empty.
@@ -757,39 +693,46 @@ pub fn rename_symbol(cx: &mut Context) {
         }
     };
     let history_register = cx.register;
-    cx.jobs.callback(async move {
-        let update = task.run().await;
-        Ok(Callback::ui(move |compositor, cx| {
-            let editor = &mut *cx.editor;
-            let Some(result) = update.and_then(|update| update.into_result(editor)) else {
-                return;
-            };
-            let session = match result {
-                Ok(session) => session,
-                Err(error) => {
-                    editor.set_error(|| error.to_string());
-                    return;
-                }
-            };
-            let prefill = session.prefill().to_owned();
-            let mut session = Some(session);
-            let prompt = ui::Prompt::new(
-                "rename-to:".into(),
-                history_register,
-                ui::completers::none,
-                move |cx, input, event| {
-                    if event == PromptEvent::Validate
-                        && let Some(session) = session.take()
-                        && let Err(error) = cx.editor.rename_symbol(session, input.to_owned())
-                    {
-                        cx.editor.set_error(|| error.to_string());
+    cx.replace_or_push_layer(
+        "prepare-rename",
+        ui::Pending::new(
+            "prepare-rename",
+            "Preparing rename...",
+            cx.editor.redraw().clone(),
+            task.run(),
+            move |compositor, cx, update| {
+                let editor = &mut *cx.editor;
+                let Some(result) = update.and_then(|update| update.into_result(editor)) else {
+                    return false;
+                };
+                let session = match result {
+                    Ok(session) => session,
+                    Err(error) => {
+                        editor.set_error(|| error.to_string());
+                        return false;
                     }
-                },
-            )
-            .with_line(prefill, editor);
-            compositor.push(Box::new(prompt));
-        }))
-    });
+                };
+                let prefill = session.prefill().to_owned();
+                let mut session = Some(session);
+                let prompt = ui::Prompt::new(
+                    "rename-to:".into(),
+                    history_register,
+                    ui::completers::none,
+                    move |cx, input, event| {
+                        if event == PromptEvent::Validate
+                            && let Some(session) = session.take()
+                            && let Err(error) = cx.editor.rename_symbol(session, input.to_owned())
+                        {
+                            cx.editor.set_error(|| error.to_string());
+                        }
+                    },
+                )
+                .with_line(prefill, editor);
+                compositor.push(Box::new(prompt));
+                true
+            },
+        ),
+    );
 }
 
 pub fn select_references_to_symbol_under_cursor(cx: &mut Context) {
@@ -831,6 +774,7 @@ pub(super) mod typed {
                     (
                         ls_id,
                         lsp_client::lsp::Command {
+                            tooltip: None,
                             title: command.clone(),
                             command: command.clone(),
                             arguments: None,
@@ -881,6 +825,7 @@ pub(super) mod typed {
 
                     cx.editor.execute_lsp_command(
                         lsp_client::lsp::Command {
+                            tooltip: None,
                             title: command.clone(),
                             arguments,
                             command,
@@ -921,5 +866,28 @@ pub(super) mod typed {
         let document = doc!(cx.editor).id();
         let servers: Vec<_> = args.iter().map(|arg| arg.as_ref()).collect();
         cx.editor.stop_language_servers(document, &servers)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::command_row;
+    use tui::{
+        buffer::Buffer,
+        layout::Constraint,
+        widgets::{Table, Widget},
+    };
+    use view::graphics::Rect;
+
+    #[test]
+    fn command_menus_show_generation_tags_and_plain_tooltips() {
+        let area = Rect::new(0, 0, 80, 1);
+        let mut surface = Buffer::empty(area);
+        let row = command_row("Apply fix", Some("Explain *this*\non the next line"), true);
+        Table::new([row], [Constraint::Length(30), Constraint::Length(49)])
+            .render(area, &mut surface);
+        let line: String = surface.content.iter().map(|cell| cell.symbol()).collect();
+        assert!(line.contains("Apply fix [AI generated]"));
+        assert!(line.contains("Explain *this* on the next line"));
     }
 }

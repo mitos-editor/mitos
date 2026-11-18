@@ -80,12 +80,43 @@ impl Overlay {
     }
 }
 
-/// A character range replaced by a single selectable ellipsis. Ranges must be
+/// A character range replaced by selectable text (an ellipsis by default). Ranges must be
 /// nonempty, disjoint, sorted, and aligned to grapheme boundaries. Text after the
 /// range, including retained closing tokens and line endings, stays in the stream.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Conceal {
     pub range: Range<usize>,
+    text: Option<Tendril>,
+}
+
+impl Conceal {
+    pub fn new(range: Range<usize>) -> Self {
+        Self { range, text: None }
+    }
+
+    /// Keep labels on the document's display row. Empty labels retain the
+    /// selectable default; controls and line separators cannot alter layout.
+    pub fn with_text(mut self, text: &str) -> Self {
+        if !text.is_empty() {
+            self.text = Some(
+                text.chars()
+                    .map(|c| {
+                        if c.is_control() || matches!(c, '\u{2028}' | '\u{2029}') {
+                            ' '
+                        } else {
+                            c
+                        }
+                    })
+                    .collect::<String>()
+                    .into(),
+            );
+        }
+        self
+    }
+
+    pub fn text(&self) -> &str {
+        self.text.as_deref().unwrap_or("…")
+    }
 }
 
 /// Line annotations allow inserting virtual text lines between normal text
@@ -264,10 +295,15 @@ impl Debug for TextAnnotations<'_> {
 }
 
 impl<'a> TextAnnotations<'a> {
-    /// Skipping raw text cannot bypass layout-dependent annotations. Empty
-    /// layers are harmless; folds and virtual-line sessions require traversal.
+    /// Skipping raw text cannot bypass annotations in the discarded tail.
+    /// Virtual-line sessions and overlays retain their ordinary traversal.
     pub(crate) fn can_skip_unwrapped_tail(&self, range: Range<usize>) -> bool {
-        self.conceals.is_empty()
+        let next_fold = self
+            .conceals
+            .partition_point(|c| c.range.end <= range.start);
+        self.conceals
+            .get(next_fold)
+            .is_none_or(|c| c.range.start >= range.end)
             && self.line_annotations.is_empty()
             && self.inline_annotations.iter().all(|layer| {
                 let next = layer
@@ -536,6 +572,17 @@ mod tests {
     use crate::doc_formatter::{DocumentFormatter, TextFormat};
     use editor_core::Rope;
 
+    #[test]
+    fn unrelated_folds_do_not_block_tail_skipping() {
+        let conceals = [Conceal::new(0..10), Conceal::new(40..50)];
+        let mut annotations = TextAnnotations::default();
+        annotations.set_conceals(&conceals);
+        assert!(annotations.can_skip_unwrapped_tail(20..30));
+        assert!(annotations.can_skip_unwrapped_tail(10..40));
+        assert!(!annotations.can_skip_unwrapped_tail(9..20));
+        assert!(!annotations.can_skip_unwrapped_tail(30..41));
+    }
+
     #[derive(Clone)]
     struct Gap {
         pending: bool,
@@ -629,7 +676,7 @@ mod tests {
         ];
         let clear = [Overlay::new(0, "D"), Overlay::new(2, "E")];
         let top = [Overlay::new(2, "F")];
-        let conceals = [Conceal { range: 3..5 }];
+        let conceals = [Conceal::new(3..5)];
         let mut annotations = TextAnnotations::default();
         annotations.set_conceals(&conceals);
         annotations

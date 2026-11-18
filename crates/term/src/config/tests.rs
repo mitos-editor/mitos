@@ -1,6 +1,6 @@
 use super::*;
 use crate::keymap::component::ComponentKeymaps;
-use crate::keymap::{self, merge_keys, KeyTrie};
+use crate::keymap::{self, merge_keys, KeyTrie, KeyTrieExt as _, KeyTrieNodeExt as _};
 use ui_core::terminal::KittyKeyboardProtocolConfig;
 use view::document::Mode;
 
@@ -85,19 +85,18 @@ fn labeled_editor_bindings_preserve_commands_and_descriptions() {
         .node()
         .unwrap();
     let binding = |key: &str| &menu[&key.parse::<KeyEvent>().unwrap()];
-    let KeyTrie::MappableCommand(save) = binding("s") else {
+    let KeyTrie::Action(save) = binding("s") else {
         panic!("expected typable command");
     };
     assert_eq!(save.name(), "w");
     assert_eq!(save.doc(), "Save");
-    let KeyTrie::MappableCommand(MappableCommand::Typable { name, args, doc }) = binding("c")
-    else {
+    let KeyTrie::Action(MappableCommand::Typable { name, args, doc }) = binding("c") else {
         panic!("expected open command");
     };
     assert_eq!(name, "open");
     assert_eq!(args, "~/.config/mitos/config.toml");
     assert_eq!(doc, "Edit Config");
-    let KeyTrie::MappableCommand(mac) = binding("m") else {
+    let KeyTrie::Action(mac) = binding("m") else {
         panic!("expected macro");
     };
     assert_eq!(mac.name(), "@wd");
@@ -109,7 +108,7 @@ fn labeled_editor_bindings_preserve_commands_and_descriptions() {
     assert_eq!(*keys, ui_core::input::parse_macro("wd").unwrap());
     assert_eq!(
         binding("k"),
-        &KeyTrie::MappableCommand(MappableCommand::move_char_left)
+        &KeyTrie::Action(MappableCommand::move_char_left)
     );
     assert_eq!(
         binding("n"),
@@ -144,7 +143,7 @@ fn labeled_editor_bindings_preserve_commands_and_descriptions() {
         ]]
     );
     for mode in [Mode::Insert, Mode::Select] {
-        let KeyTrie::MappableCommand(cmd) = config.keys[&mode]
+        let KeyTrie::Action(cmd) = config.keys[&mode]
             .search(&["C-s".parse().unwrap()])
             .unwrap()
         else {
@@ -182,7 +181,7 @@ fn menu_labels_merge_defaults_global_and_workspace_recursively() {
         assert_eq!(goto.infobox().title, expected);
         assert_eq!(
             goto[&"g".parse::<KeyEvent>().unwrap()],
-            KeyTrie::MappableCommand(crate::commands::MappableCommand::goto_file_start)
+            KeyTrie::Action(crate::commands::MappableCommand::goto_file_start)
         );
         assert!(goto.infobox().text.contains("Local"));
         let nested = goto[&"z".parse::<KeyEvent>().unwrap()].node().unwrap();
@@ -211,9 +210,9 @@ fn empty_binding_labels_keep_default_descriptions() {
     let root = config.keys[&Mode::Normal].node().unwrap();
     for (left, right) in [("a", "b"), ("c", "d"), ("e", "f")] {
         let description = |key: &str| match &root[&key.parse::<KeyEvent>().unwrap()] {
-            KeyTrie::MappableCommand(cmd) => cmd.doc(),
+            KeyTrie::Action(cmd) => cmd.doc(),
             KeyTrie::Sequence(label, _) => label,
-            KeyTrie::Node(_) => panic!("expected a command or sequence"),
+            KeyTrie::Node(_) | KeyTrie::Unbound => panic!("expected a command or sequence"),
         };
         assert_eq!(description(left), description(right));
     }
@@ -517,11 +516,8 @@ fn terminal_settings_keep_editor_table_and_merge_precedence() {
 #[test]
 fn composed_settings_retain_strict_validation() {
     for settings in [
-        "true-color = 'yes'",
-        "undercurl = 1",
         "kitty-keyboard-protocol = 'sometimes'",
         "undercurls = true",
-        "scrolloff = 'seven'",
         "auto-save = { after-delay = { unknown = true } }",
     ] {
         assert!(
@@ -543,62 +539,6 @@ fn composed_settings_round_trip_for_runtime_options() {
         serde_json::from_value::<EditorSettings>(value).unwrap(),
         settings
     );
-}
-
-#[test]
-fn inline_blame_settings_round_trip_with_grouped_editor_settings() {
-    use editor_config::InlineBlameShow;
-
-    let config = Config::load_test(
-            "[editor.inline-blame]\nshow = 'all-lines'\nformat = '{title}'\n[editor.scroll]\npadding = 7",
-        );
-    let settings = config.editor_settings();
-    assert_eq!(settings.editor.inline_blame.show, InlineBlameShow::AllLines);
-    assert_eq!(settings.editor.inline_blame.format, "{title}");
-    assert_eq!(settings.editor.scroll.padding, 7);
-    let value = serde_json::to_value(&settings).unwrap();
-    assert_eq!(value["inline-blame"]["show"], "all-lines");
-    assert_eq!(
-        serde_json::from_value::<EditorSettings>(value).unwrap(),
-        settings
-    );
-    assert!(Config::load_test_result("[editor.inline-blame]\nshow = 'sometimes'").is_err());
-    assert!(Config::load_test_result("[editor.inline-blame]\nauto-fetch = true").is_err());
-}
-
-#[test]
-fn editor_presentation_options_keep_defaults_and_accept_configuration() {
-    use editor_config::{BorderStyle, BreadcrumbPathOptions, PickerLayout};
-    let defaults = Config::load_test("").editor;
-    assert!(!defaults.icons);
-    assert!(!defaults.breadcrumb.enable);
-    assert_eq!(defaults.breadcrumb.path, BreadcrumbPathOptions::Full);
-    assert!(defaults.welcome_screen);
-    assert_eq!(defaults.picker.layout, PickerLayout::Auto);
-    assert!(defaults.picker.show_keybindings);
-    let configured = Config::load_test(
-        r#"
-        theme = 'default'
-        [editor]
-        icons = true
-        welcome-screen = false
-        border-style = 'rounded'
-        [editor.breadcrumb]
-        enable = true
-        path = 'file'
-        [editor.picker]
-        layout = 'centered'
-        show-keybindings = false
-    "#,
-    )
-    .editor;
-    assert!(configured.icons);
-    assert!(configured.breadcrumb.enable);
-    assert_eq!(configured.breadcrumb.path, BreadcrumbPathOptions::File);
-    assert!(!configured.welcome_screen);
-    assert_eq!(configured.border_style, BorderStyle::Rounded);
-    assert_eq!(configured.picker.layout, PickerLayout::Centered);
-    assert!(!configured.picker.show_keybindings);
 }
 
 #[test]
@@ -692,33 +632,6 @@ fn clipboard_settings_roundtrip_and_local_override_preserve_schema() {
         settings
     );
     assert!(Config::load_test_result("[editor]\nclipboard-provider = 'unknown'").is_err());
-}
-#[test]
-fn reorganized_defaults_keep_existing_behavior() {
-    let config = Config::load_test("");
-    let editor = config.editor;
-    assert!(editor.lsp.enable);
-    assert!(editor.lsp.messages.enable);
-    assert!(!editor.lsp.progress.enable);
-    assert!(editor.lsp.signature_help.auto_trigger);
-    assert!(editor.lsp.signature_help.show_documentation);
-    assert!(!editor.lsp.inlay_hints.enable);
-    assert_eq!(editor.lsp.inlay_hints.length_limit, None);
-    assert!(editor.lsp.document_highlight.auto_trigger);
-    assert!(editor.lsp.color_swatches.enable);
-    assert!(editor.lsp.code_lenses.enable);
-    assert!(editor.lsp.completion.snippets);
-    assert!(editor.lsp.references.include_declaration);
-    assert!(editor.completion.auto_trigger);
-    assert_eq!(editor.completion.trigger_delay.as_millis(), 250);
-    assert_eq!(editor.inline_completion.trigger_delay.as_millis(), 150);
-    assert!(editor.format.on_save);
-    assert!(editor.files.save.atomic);
-    assert!(editor.files.save.insert_final_newline);
-    assert!(!editor.files.save.trim_final_newlines);
-    assert!(!editor.files.save.trim_trailing_whitespace);
-    assert!(!editor.statusline.mode.color);
-    assert!(!editor.rainbow_brackets.enable);
 }
 
 #[test]

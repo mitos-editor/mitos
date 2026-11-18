@@ -24,6 +24,10 @@ struct Fixture {
 
 impl Fixture {
     async fn new(range_only: bool) -> anyhow::Result<Self> {
+        Self::with_args(range_only, &[]).await
+    }
+
+    async fn with_args(range_only: bool, args: &[&str]) -> anyhow::Result<Self> {
         let dir = tempfile::tempdir()?;
         let (mut app, callbacks, gate) = lsp::feature_app(
             dir.path(),
@@ -32,7 +36,10 @@ impl Fixture {
             &["semantic"],
             test_config(),
             |name| {
-                let server = ServerConfig::feature(name, "--semantic-tokens", dir.path());
+                let mut server = ServerConfig::feature(name, "--semantic-tokens", dir.path());
+                for arg in args {
+                    server = server.arg(arg);
+                }
                 if range_only {
                     server.arg("--range-only")
                 } else {
@@ -71,8 +78,12 @@ impl Fixture {
 #[tokio::test(flavor = "multi_thread")]
 async fn full_and_range_only_servers_refine_highlights_using_negotiated_utf16() -> anyhow::Result<()>
 {
-    for range_only in [false, true] {
-        let mut f = Fixture::new(range_only).await?;
+    for (range_only, args) in [
+        (false, &[][..]),
+        (true, &[][..]),
+        (true, &["--range-options"][..]),
+    ] {
+        let mut f = Fixture::with_args(range_only, args).await?;
         let response = f.response().await?;
         response(&mut f.app.editor);
         let tokens = f.app.editor.document(f.doc).unwrap().semantic_tokens();
@@ -87,7 +98,7 @@ async fn full_and_range_only_servers_refine_highlights_using_negotiated_utf16() 
         assert_eq!(
             initialize["params"]["capabilities"]["textDocument"]["semanticTokens"]["requests"]
                 ["full"],
-            true
+            serde_json::json!({"delta": true})
         );
         let method = if range_only {
             "textDocument/semanticTokens/range"
@@ -221,5 +232,241 @@ async fn semantic_publication_invalidates_an_already_rendered_viewport() -> anyh
     );
     assert_eq!(color(&mut f.app).await, theme::Color::Blue);
     assert!(f.app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn semantic_deltas_use_the_last_published_result_across_edits() -> anyhow::Result<()> {
+    let mut f = Fixture::with_args(false, &["--deltas"]).await?;
+    let response = f.response().await?;
+    response(&mut f.app.editor);
+    f.edit("😀 x\n");
+    let response = f.response().await?;
+    response(&mut f.app.editor);
+    assert_eq!(
+        f.app.editor.document(f.doc).unwrap().semantic_tokens()[0].range,
+        2..3
+    );
+    f.edit("😀 foo\n");
+    let response = f.response().await?;
+    response(&mut f.app.editor);
+    assert_eq!(
+        f.app.editor.document(f.doc).unwrap().semantic_tokens()[0].range,
+        2..5
+    );
+    let requests = semantic_requests(&f)?;
+    assert_eq!(
+        requests
+            .iter()
+            .map(|m| m["method"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        [
+            "textDocument/semanticTokens/full",
+            "textDocument/semanticTokens/full/delta",
+            "textDocument/semanticTokens/full/delta"
+        ]
+    );
+    assert_eq!(requests[1]["params"]["previousResultId"], "full-1");
+    assert_eq!(requests[2]["params"]["previousResultId"], "delta-2");
+    assert!(f.app.close().await.is_empty());
+    Ok(())
+}
+
+fn semantic_requests(f: &Fixture) -> anyhow::Result<Vec<serde_json::Value>> {
+    Ok(lsp::read_log(&f.log)?
+        .into_iter()
+        .filter(|message| {
+            message["method"]
+                .as_str()
+                .is_some_and(|method| method.starts_with("textDocument/semanticTokens/"))
+        })
+        .collect())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn invalid_or_malformed_semantic_deltas_retry_a_full_snapshot() -> anyhow::Result<()> {
+    for mode in ["--invalid-delta", "--malformed-delta"] {
+        let mut f = Fixture::with_args(false, &["--deltas", mode]).await?;
+        let response = f.response().await?;
+        response(&mut f.app.editor);
+        f.edit("😀 x\n");
+        let response = f.response().await?;
+        response(&mut f.app.editor);
+        assert_eq!(
+            f.app.editor.document(f.doc).unwrap().semantic_tokens()[0].range,
+            2..3
+        );
+        let requests = semantic_requests(&f)?;
+        assert_eq!(requests.len(), 3);
+        assert_eq!(
+            requests[1]["method"],
+            "textDocument/semanticTokens/full/delta"
+        );
+        assert_eq!(requests[2]["method"], "textDocument/semanticTokens/full");
+        f.edit("😀 foo\n");
+        let response = f.response().await?;
+        response(&mut f.app.editor);
+        let requests = semantic_requests(&f)?;
+        assert_eq!(requests[3]["params"]["previousResultId"], "full-3");
+        assert!(f.app.close().await.is_empty());
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn semantic_delta_responses_can_replace_or_clear_the_full_snapshot() -> anyhow::Result<()> {
+    for mode in ["--delta-full", "--null-delta"] {
+        let mut f = Fixture::with_args(false, &["--deltas", mode]).await?;
+        let response = f.response().await?;
+        response(&mut f.app.editor);
+        f.edit("😀 x\n");
+        let response = f.response().await?;
+        response(&mut f.app.editor);
+        let tokens = f.app.editor.document(f.doc).unwrap().semantic_tokens();
+        if mode == "--null-delta" {
+            assert!(tokens.is_empty());
+        } else {
+            assert_eq!(tokens[0].range, 2..3);
+        }
+        f.edit("😀 xyz\n");
+        let response = f.response().await?;
+        response(&mut f.app.editor);
+        let requests = semantic_requests(&f)?;
+        if mode == "--null-delta" {
+            assert_eq!(requests[2]["method"], "textDocument/semanticTokens/full");
+        } else {
+            assert_eq!(requests[2]["params"]["previousResultId"], "delta-2");
+        }
+        assert!(f.app.close().await.is_empty());
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn missing_or_unpublished_semantic_result_ids_cannot_be_delta_bases() -> anyhow::Result<()> {
+    for missing_id in [false, true] {
+        let args = if missing_id {
+            vec!["--deltas", "--no-result-id"]
+        } else {
+            vec!["--deltas"]
+        };
+        let mut f = Fixture::with_args(false, &args).await?;
+        let mut queued = Some(f.response().await?);
+        if missing_id {
+            queued.take().unwrap()(&mut f.app.editor);
+        }
+        f.edit("😀 x\n");
+        if !missing_id {
+            queued.take().unwrap()(&mut f.app.editor);
+        }
+        let response = f.response().await?;
+        response(&mut f.app.editor);
+        let requests = semantic_requests(&f)?;
+        assert!(requests
+            .iter()
+            .all(|m| m["method"] == "textDocument/semanticTokens/full"));
+        assert!(f.app.close().await.is_empty());
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn queued_semantic_deltas_cannot_replace_the_retained_base_after_an_edit(
+) -> anyhow::Result<()> {
+    let mut f = Fixture::with_args(false, &["--deltas"]).await?;
+    let response = f.response().await?;
+    response(&mut f.app.editor);
+    f.edit("😀 x\n");
+    let queued = f.response().await?;
+    f.edit("😀 foo\n");
+    queued(&mut f.app.editor);
+    assert!(f
+        .app
+        .editor
+        .document(f.doc)
+        .unwrap()
+        .semantic_tokens()
+        .is_empty());
+    let response = f.response().await?;
+    response(&mut f.app.editor);
+    assert_eq!(
+        f.app.editor.document(f.doc).unwrap().semantic_tokens()[0].range,
+        2..5
+    );
+    let requests = semantic_requests(&f)?;
+    assert_eq!(requests[1]["params"]["previousResultId"], "full-1");
+    assert_eq!(requests[2]["params"]["previousResultId"], "full-1");
+    assert!(f.app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn semantic_delta_bases_are_reset_when_the_feature_is_disabled_or_the_uri_changes(
+) -> anyhow::Result<()> {
+    for rename in [false, true] {
+        let mut f = Fixture::with_args(false, &["--deltas"]).await?;
+        let response = f.response().await?;
+        response(&mut f.app.editor);
+        f.edit("😀 x\n");
+        let queued = f.response().await?;
+        if rename {
+            let path = f._dir.path().join("renamed.semantic-test");
+            f.app.editor.set_doc_path(f.doc, &path);
+        } else {
+            let mut config = f.app.editor.config().clone();
+            config.lsp.semantic_tokens.enable = false;
+            f.app
+                .apply_config_update(term::config::ConfigEvent::UpdateEditor(Box::new(
+                    config.clone(),
+                )));
+            queued(&mut f.app.editor);
+            config.lsp.semantic_tokens.enable = true;
+            f.app
+                .apply_config_update(term::config::ConfigEvent::UpdateEditor(Box::new(config)));
+            let response = f.response().await?;
+            response(&mut f.app.editor);
+            assert_eq!(
+                semantic_requests(&f)?.last().unwrap()["method"],
+                "textDocument/semanticTokens/full"
+            );
+            assert!(f.app.close().await.is_empty());
+            continue;
+        }
+        queued(&mut f.app.editor);
+        let response = f.response().await?;
+        response(&mut f.app.editor);
+        assert_eq!(
+            semantic_requests(&f)?.last().unwrap()["method"],
+            "textDocument/semanticTokens/full"
+        );
+        assert!(f.app.close().await.is_empty());
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn semantic_deltas_require_full_delta_support_even_when_results_have_ids(
+) -> anyhow::Result<()> {
+    for range_only in [false, true] {
+        let mut f = Fixture::with_args(range_only, &["--deltas", "--no-delta-support"]).await?;
+        let response = f.response().await?;
+        response(&mut f.app.editor);
+        f.edit("😀 x\n");
+        let response = f.response().await?;
+        response(&mut f.app.editor);
+        let method = if range_only {
+            "textDocument/semanticTokens/range"
+        } else {
+            "textDocument/semanticTokens/full"
+        };
+        let requests = semantic_requests(&f)?;
+        assert_eq!(requests.len(), 2);
+        assert!(requests.iter().all(|m| m["method"] == method));
+        assert_eq!(
+            f.app.editor.document(f.doc).unwrap().semantic_tokens()[0].range,
+            2..3
+        );
+        assert!(f.app.close().await.is_empty());
+    }
     Ok(())
 }

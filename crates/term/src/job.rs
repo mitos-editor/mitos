@@ -85,6 +85,7 @@ pub struct Jobs {
     sender: JobSender,
     editor_callbacks: EditorCallbackSender,
     pub(crate) command_expansion: event::TaskController,
+    pub(crate) smooth_scroll: crate::smooth_scroll::SmoothScroll,
     /// jobs that need to complete before we exit.
     pub wait_futures: FuturesUnordered<JobFuture>,
     pub callbacks: Receiver<Callback>,
@@ -113,6 +114,25 @@ impl Job {
         self.wait = true;
         self
     }
+
+    /// Retain user activity until its completion is applied or discarded.
+    pub fn with_activity(mut self, activity: view::activity::ActivityGuard) -> Self {
+        let future = self.future;
+        self.future = async move {
+            let callback = future.await?;
+            Ok(callback.map(|callback| {
+                Callback::Ui(Box::new(move |compositor, cx| {
+                    let _activity = activity;
+                    match callback {
+                        Callback::Editor(callback) => Ok(callback(cx.editor)),
+                        Callback::Ui(callback) => callback(compositor, cx),
+                    }
+                }))
+            }))
+        }
+        .boxed();
+        self
+    }
 }
 
 impl Jobs {
@@ -138,6 +158,7 @@ impl Jobs {
             sender,
             editor_callbacks,
             command_expansion: event::TaskController::new(),
+            smooth_scroll: Default::default(),
             wait_futures: FuturesUnordered::new(),
             callbacks: rx,
             interactive_executor: interactive_executor(interactive_sender),

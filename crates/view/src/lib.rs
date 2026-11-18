@@ -14,6 +14,7 @@
 pub mod macros;
 
 pub mod action;
+pub mod activity;
 pub mod annotations;
 pub mod callbacks;
 pub mod clipboard;

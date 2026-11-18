@@ -44,6 +44,8 @@ set edit:completion:arg-completer[ms] = {|@args|
   }
   edit:complete-filename $args[-1] | each { |v| put $v[stem]}
   $candidate "--help" "(Prints help information)"
+  $candidate "--summary" "(Show compact health results; requires --health)"
+  $candidate "--no-color" "(Disable health output styling; requires --health)"
   $candidate "--strict" "(Bail on error for commands that can fail)"
   $candidate "--version" "(Prints version information)"
   $candidate "--tutor" "(Loads the tutorial)"

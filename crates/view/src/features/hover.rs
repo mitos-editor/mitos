@@ -3,7 +3,7 @@
 use std::sync::{Arc, Weak};
 
 use event::{cancelable_future, register_hook};
-use futures_util::{stream::FuturesUnordered, StreamExt};
+use futures_util::{stream::FuturesUnordered, FutureExt, StreamExt};
 use language_config::LanguageServerFeature;
 use lsp_client::lsp;
 
@@ -122,10 +122,55 @@ pub fn request_with(editor: &mut Editor, display: HoverDisplay) {
                     None,
                 )
                 .unwrap();
-            async move { (name, future.await) }
+            async move { (name, future.await) }.boxed()
         })
         .collect();
-    if futures.is_empty() {
+    let cursor = doc
+        .selection(view.id)
+        .primary()
+        .cursor(doc.text().slice(..));
+    let mut hovers = Vec::new();
+    for link in doc
+        .document_links()
+        .iter()
+        .filter(|link| link.start <= cursor && cursor < link.end)
+    {
+        let Some(server) = doc
+            .language_servers_with_feature(LanguageServerFeature::DocumentLinks)
+            .find(|server| server.id() == link.language_server_id)
+        else {
+            continue;
+        };
+        if let Some(tooltip) = &link.link.tooltip {
+            if !tooltip.is_empty() {
+                servers.push(server.id());
+                hovers.push((server.name().to_owned(), link_hover(tooltip.clone())));
+            }
+        } else if server
+            .capabilities()
+            .document_link_provider
+            .as_ref()
+            .is_some_and(|options| options.resolve_provider == Some(true))
+            && let Some(resolve) = server.resolve_document_link(link.link.clone())
+        {
+            servers.push(server.id());
+            let name = server.name().to_owned();
+            futures.push(
+                async move {
+                    (
+                        name,
+                        resolve.await.map(|link| {
+                            link.tooltip
+                                .filter(|tooltip| !tooltip.is_empty())
+                                .map(link_hover)
+                        }),
+                    )
+                }
+                .boxed(),
+            );
+        }
+    }
+    if futures.is_empty() && hovers.is_empty() {
         editor.set_error(|| "No configured language server supports hover");
         return;
     }
@@ -138,7 +183,6 @@ pub fn request_with(editor: &mut Editor, display: HoverDisplay) {
     editor.handlers.hover.target = Some(target);
     let callbacks = (*shared).clone();
     tokio::spawn(async move {
-        let mut hovers = Vec::new();
         loop {
             match cancelable_future(futures.next(), request.target.cancel_handle()).await {
                 Some(Some((name, Ok(Some(hover))))) => hovers.push((name, hover)),
@@ -156,6 +200,16 @@ pub fn request_with(editor: &mut Editor, display: HoverDisplay) {
             })
             .await;
     });
+}
+
+fn link_hover(tooltip: String) -> lsp::Hover {
+    lsp::Hover {
+        contents: lsp::HoverContents::Markup(lsp::MarkupContent {
+            kind: lsp::MarkupKind::PlainText,
+            value: tooltip,
+        }),
+        range: None,
+    }
 }
 
 /// A queued frontend result. Validate again when the frontend presents it.

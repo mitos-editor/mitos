@@ -92,12 +92,14 @@ pub struct Editor {
 
     writes: WriteQueue,
     saves: crate::save::Operations,
+    pub(crate) activities: crate::activity::Activities,
     file_operation: event::TaskController,
     file_operation_revision: u64,
 
     pub registers: Registers,
     pub(crate) language_servers: crate::language_servers::Registry,
     pub(crate) diagnostics: LspDiagnostics,
+    pub(crate) pull_diagnostics: crate::features::diagnostics::pull::PullDiagnosticResults,
     pub diff_providers: DiffProviderRegistry,
 
     pub(crate) debugger: crate::debugger::DebuggerState,
@@ -149,6 +151,7 @@ pub enum EditorEvent {
     ConfigEvent(ConfigEvent),
     ReloadConfirmation(crate::features::auto_reload::ReloadRequest),
     WorkspaceTrust(crate::features::workspace_trust::TrustRequest),
+    WorkspaceEditConfirmation(crate::workspace_edit::confirmation::ConfirmationRequest),
     SignatureHelp(crate::features::signature_help::SignatureHelpUpdate),
     Hover(crate::features::hover::HoverUpdate),
     BlameDetails(crate::features::blame::BlameDetailsUpdate),
@@ -229,15 +232,17 @@ impl Editor {
 
         Self {
             mode: Mode::Normal,
-            tree: Tree::new(area),
+            tree: Tree::new(area, conf.splits.strategy),
             documents: Documents::new(),
             writes: WriteQueue::default(),
             saves: crate::save::Operations::default(),
+            activities: crate::activity::Activities::default(),
             file_operation: event::TaskController::default(),
             file_operation_revision: 0,
             theme: theme_loader.default_theme(),
             language_servers,
             diagnostics: LspDiagnostics::new(),
+            pull_diagnostics: Default::default(),
             diff_providers,
             debugger: crate::debugger::DebuggerState::default(),
             syn_loader,
@@ -702,6 +707,9 @@ impl Editor {
                 EditorEvent::WorkspaceTrust(request) if !request.is_current(self) => {
                     crate::features::workspace_trust::dismiss_request(self, request)
                 }
+                EditorEvent::WorkspaceEditConfirmation(request) if !request.is_current(self) => {
+                    request.resolve(self, false);
+                }
                 _ => return Some(update),
             }
         }
@@ -1027,7 +1035,7 @@ impl Editor {
         let selection = match &entry.position {
             QuicklistPosition::None => return true,
             QuicklistPosition::Selection(selection) => {
-                selection.clone().ensure_invariants(text.slice(..))
+                crate::quicklist::clamp_selection(selection, text.slice(..))
             }
             QuicklistPosition::LineRange { start, end } => {
                 if *start >= text.len_lines(stdx::rope::LINE_TYPE) {
@@ -1055,12 +1063,16 @@ impl Editor {
                     });
                     return false;
                 }
-                Selection::single(
-                    text.line_to_char_idx(*start_line)
-                        .saturating_add(*start_col),
-                    text.line_to_char_idx(*end_line).saturating_add(*end_col),
-                )
-                .ensure_invariants(text.slice(..))
+                let position = |line, column| {
+                    text.line_to_char_idx(line).saturating_add(column).min(
+                        editor_core::line_ending::line_end_char_index(&text.slice(..), line),
+                    )
+                };
+                let selection = Selection::single(
+                    position(*start_line, *start_col),
+                    position(*end_line, *end_col),
+                );
+                crate::quicklist::clamp_selection(&selection, text.slice(..))
             }
             QuicklistPosition::LspRange {
                 range,

@@ -4,9 +4,14 @@ use view::{
     Editor,
 };
 
-use crate::compositor::Compositor;
+use crate::{compositor::Compositor, job::Jobs};
 
-pub fn show(editor: &mut Editor, compositor: &mut Compositor, update: NavigationUpdate) {
+pub fn show(
+    editor: &mut Editor,
+    compositor: &mut Compositor,
+    jobs: &mut Jobs,
+    update: NavigationUpdate,
+) {
     let title = match update.kind() {
         NavigationKind::Declaration => "Declarations",
         NavigationKind::Definition => "Definitions",
@@ -15,6 +20,8 @@ pub fn show(editor: &mut Editor, compositor: &mut Compositor, update: Navigation
         NavigationKind::References | NavigationKind::SelectReferences => "References",
     };
     if let Some(locations) = update.resolve(editor) {
-        crate::commands::lsp::goto_impl(title, editor, compositor, locations);
+        crate::smooth_scroll::animate(editor, jobs, |editor| {
+            crate::commands::lsp::goto_impl(title, editor, compositor, locations)
+        });
     }
 }

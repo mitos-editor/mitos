@@ -31,7 +31,7 @@ impl ConflictView {
         if width == 0 {
             return 0;
         }
-        let format = self.doc.text_format(width, Some(theme));
+        let format = self.doc.text_format(width);
         if let Some((_, height)) = self
             .height
             .borrow()
@@ -76,7 +76,7 @@ impl ConflictView {
             return;
         }
         let doc = &self.doc;
-        let format = doc.text_format(viewport.width, Some(&cx.editor.theme));
+        let format = doc.text_format(viewport.width);
         let mut annotations = TextAnnotations::default();
         doc.annotate_conflicts(Some(&cx.editor.theme), &mut annotations);
         let (anchor, _) = char_idx_at_visual_offset(

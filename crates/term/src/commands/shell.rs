@@ -54,7 +54,7 @@ pub(super) mod typed {
     use crate::{
         commands::shell::{run_shell, shell, ShellBehavior},
         compositor,
-        job::{self, Callback},
+        job::{self, Callback, Job},
         ui::{self, Popup},
     };
     use ::command_line::Args;
@@ -131,7 +131,9 @@ pub(super) mod typed {
             });
             Ok(call)
         };
-        cx.jobs.callback(callback);
+        let activity = cx.editor.start_activity("Shell", None);
+        cx.jobs
+            .add(Job::with_callback(callback).with_activity(activity));
 
         Ok(())
     }

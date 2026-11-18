@@ -11,5 +11,6 @@ repository.workspace = true
 homepage.workspace = true
 
 [dependencies]
+serde.workspace = true
 slotmap.workspace = true
 ui-core.workspace = true

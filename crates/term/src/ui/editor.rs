@@ -1,4 +1,5 @@
 use crate::compositor::DrawContext;
+use crate::keymap::KeyTrieNodeExt as _;
 mod render;
 mod resize;
 use super::highlights::primary_native_cursor_kind;
@@ -147,7 +148,7 @@ impl EditorView {
         let mut last_mode = mode;
         self.pseudo_pending.extend(self.keymaps.pending());
         let key_result = self.keymaps.get(mode, event);
-        cxt.editor.autoinfo = self.keymaps.sticky().map(|node| node.infobox());
+        cxt.editor.autoinfo = self.keymaps.sticky();
 
         let mut execute_command = |command: &commands::MappableCommand| {
             command.execute(cxt);
@@ -698,15 +699,25 @@ impl Component for EditorView {
                             // let completion swallow the event if necessary
                             let mut consumed = false;
                             if let Some(completion) = &mut self.completion {
+                                let preserves_completion =
+                                    self.keymaps.preserves_completion(mode, key);
+                                let pending_command = !self.keymaps.pending().is_empty()
+                                    || self.keymaps.sticky().is_some();
                                 let res = {
                                     // use a fake context here
                                     let mut cx = cx.as_ui();
 
-                                    match completion.handle_event(event, &mut cx) {
+                                    let result = if pending_command {
+                                        EventResult::Ignored(None)
+                                    } else {
+                                        completion.handle_event(event, &mut cx)
+                                    };
+                                    match result {
                                         EventResult::Consumed(callback) => {
                                             consumed = true;
                                             Some(callback)
                                         }
+                                        _ if preserves_completion => None,
                                         _ => match completion.accept(&mut cx) {
                                             EventResult::Consumed(callback) => Some(callback),
                                             _ => None,
@@ -895,6 +906,7 @@ impl Component for EditorView {
         // A message replaces the whole statusline; transient indicators replace only
         // their own cells so an idle command line leaves the statusline visible.
         if overlay && cx.editor.status_msg.is_some() {
+            cx.exclude_cursor(layout.commandline);
             cx.hyperlinks.borrow_mut().clear(layout.commandline);
             surface.clear_with(layout.commandline, background);
         }
@@ -932,6 +944,7 @@ impl Component for EditorView {
                 .unwrap_or(&disp);
             if !overlay || !disp.is_empty() {
                 if overlay {
+                    cx.exclude_cursor(pending_area);
                     cx.hyperlinks.borrow_mut().clear(pending_area);
                     surface.clear_with(pending_area, background);
                 }
@@ -943,6 +956,7 @@ impl Component for EditorView {
 
             if restricted {
                 if overlay {
+                    cx.exclude_cursor(trust_area);
                     cx.hyperlinks.borrow_mut().clear(trust_area);
                     surface.clear_with(trust_area, background);
                 }
@@ -955,6 +969,7 @@ impl Component for EditorView {
             }
             if let Some((reg, _)) = cx.interaction.macro_recording {
                 if overlay {
+                    cx.exclude_cursor(macro_area);
                     cx.hyperlinks.borrow_mut().clear(macro_area);
                     surface.clear_with(macro_area, background);
                 }

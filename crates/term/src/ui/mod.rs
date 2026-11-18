@@ -19,6 +19,7 @@ mod markdown;
 pub mod menu;
 pub mod overlay;
 mod panel;
+mod pending;
 pub mod picker;
 pub mod popup;
 pub mod prompt;
@@ -26,6 +27,7 @@ mod select;
 mod sidebar;
 mod spinner;
 mod statusline;
+pub(crate) use statusline::{activity_matches, ACTIVITY_DELAY};
 mod text;
 mod text_decorations;
 
@@ -33,26 +35,30 @@ use crate::job::Callback;
 use crate::ui::completers::CompletionResult;
 pub use completion::Completion;
 pub use editor::EditorView;
+use editor_core::search::SearchSyntax;
 pub(crate) use icons::icon_span;
 pub use markdown::Markdown;
 pub use menu::Menu;
 pub use panel::PopupBorder;
+pub(crate) use pending::Pending;
 pub use picker::{Column as PickerColumn, FileLocation, Picker};
 pub use popup::Popup;
 pub use prompt::{Prompt, PromptEvent};
 pub use select::Select;
-pub use spinner::{ProgressSpinners, Spinner};
+pub use spinner::ProgressSpinners;
 use stdx::rope;
 pub use text::Text;
 use theme::icons::ICONS;
 use theme::Theme;
-use view::{graphics::RectExt as _, Editor};
+use view::{graphics::RectExt as _, register::SearchHistoryEntry, Editor};
 
 use tui::text::{Line, Span};
 
 use std::{
+    cell::Cell,
     error::Error,
     path::{Path, PathBuf},
+    rc::Rc,
     sync::Arc,
 };
 
@@ -136,6 +142,8 @@ fn search_prompt_impl(
     fun: impl Fn(&mut crate::compositor::Context, view::features::buffer_search::Query, &str, PromptEvent)
         + 'static,
 ) {
+    let syntax = highlight_search.then(|| Rc::new(Cell::new(SearchSyntax::Regex)));
+    let callback_syntax = syntax.clone();
     let (view, doc) = current!(cx.editor);
     let doc_id = view.document_id();
     let view_id = view.id;
@@ -180,8 +188,12 @@ fn search_prompt_impl(
                     }
 
                     let is_crlf = doc!(cx.editor).line_ending == editor_core::LineEnding::Crlf;
+                    let syntax = callback_syntax
+                        .as_ref()
+                        .map_or(SearchSyntax::Regex, |syntax| syntax.get());
+                    let pattern = syntax.pattern(input);
                     match view::features::buffer_search::Query::new(
-                        input,
+                        &pattern,
                         config.search.smart_case,
                         is_crlf,
                     ) {
@@ -193,6 +205,22 @@ fn search_prompt_impl(
                             doc.set_selection(view.id, snapshot.clone());
 
                             if event == PromptEvent::Validate {
+                                if highlight_search
+                                    && let Some(register) = history_register
+                                    && let Err(err) = cx.editor.registers.push_search(
+                                        register,
+                                        SearchHistoryEntry {
+                                            text: input.to_owned(),
+                                            syntax,
+                                        },
+                                    )
+                                {
+                                    doc_mut!(cx.editor, &doc_id).finish_selection_preview(view_id);
+                                    cx.editor.set_error(|| err.to_string());
+                                    return;
+                                }
+                                let doc = doc!(cx.editor);
+                                let view = view_mut!(cx.editor, view_id);
                                 // Equivalent to push_jump to store selection just before jump
                                 view.push_jump(doc, (doc_id, snapshot.clone()));
                             }
@@ -240,7 +268,8 @@ fn search_prompt_impl(
             }
         },
     )
-    .with_language("regex", std::sync::Arc::clone(&cx.editor.syn_loader));
+    .with_language("regex", std::sync::Arc::clone(&cx.editor.syn_loader))
+    .with_search_syntax(syntax);
     // Calculate initial completion
     prompt.recalculate_completion(cx.editor);
     // prompt
@@ -338,6 +367,7 @@ pub fn file_picker(editor: &Editor, root: PathBuf) -> FilePicker {
                 .await?)
             })
         },
+        Default::default(),
     )
     .with_item_key(|path| path.clone());
     let injector = picker.injector();
@@ -534,13 +564,19 @@ pub mod completers {
         input: &str,
         git_ignore: bool,
     ) -> CompletionResult {
-        filename_impl(editor, input, git_ignore, |entry| {
-            if entry.path().is_dir() {
-                FileMatch::AcceptIncomplete
-            } else {
-                FileMatch::Accept
-            }
-        })
+        filename_impl(
+            editor,
+            input,
+            stdx::env::current_working_dir(),
+            git_ignore,
+            |entry| {
+                if entry.path().is_dir() {
+                    FileMatch::AcceptIncomplete
+                } else {
+                    FileMatch::Accept
+                }
+            },
+        )
     }
 
     pub fn language(editor: &Editor, input: &str) -> CompletionResult {
@@ -618,7 +654,17 @@ pub mod completers {
         input: &str,
         git_ignore: bool,
     ) -> CompletionResult {
-        filename_impl(editor, input, git_ignore, |entry| {
+        directory_at(editor, input, stdx::env::current_working_dir(), git_ignore)
+    }
+
+    /// Complete directories relative to the same base used to resolve the prompt's input.
+    pub fn directory_at(
+        editor: &Editor,
+        input: &str,
+        base: std::path::PathBuf,
+        git_ignore: bool,
+    ) -> CompletionResult {
+        filename_impl(editor, input, base, git_ignore, |entry| {
             if entry.path().is_dir() {
                 FileMatch::Accept
             } else {
@@ -641,6 +687,7 @@ pub mod completers {
     fn filename_impl<F>(
         editor: &Editor,
         input: &str,
+        base: std::path::PathBuf,
         git_ignore: bool,
         filter_fn: F,
     ) -> CompletionResult
@@ -658,10 +705,10 @@ pub mod completers {
             filename_completions(
                 handle,
                 &input,
+                &base,
                 git_ignore,
                 require_git,
-                directory_style,
-                symlink_style,
+                (directory_style, symlink_style),
                 filter_fn,
             )
         })
@@ -671,10 +718,10 @@ pub mod completers {
     fn filename_completions<F>(
         handle: &TaskHandle,
         input: &str,
+        base: &std::path::Path,
         git_ignore: bool,
         require_git: bool,
-        directory_style: Style,
-        symlink_style: Style,
+        (directory_style, symlink_style): (Style, Style),
         filter_fn: F,
     ) -> Vec<Completion>
     where
@@ -707,12 +754,14 @@ pub mod completers {
                 match path.parent() {
                     Some(path) if !path.as_os_str().is_empty() => Cow::Borrowed(path),
                     // Path::new("h")'s parent is Some("")...
-                    _ => Cow::Owned(stdx::env::current_working_dir()),
+                    _ => Cow::Borrowed(base),
                 }
             };
 
             (path, file_name)
         };
+
+        let dir = base.join(dir);
 
         let end = input.len()..;
 

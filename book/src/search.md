@@ -5,6 +5,23 @@
 Press `/`, type a regular expression, and press `Enter`. Use `n` and `N` to
 select the next and previous matches. `?` starts a backward search.
 
+Each new search starts in regex mode. Press `Alt-r` in the search prompt to toggle
+literal matching: `foo.bar` then matches a dot rather than any character. The
+prompt shows `[regex]` or `[literal]`; toggling leaves the input unchanged. Literal
+mode also accepts unmatched brackets and other regex punctuation as ordinary text.
+
+History navigation (`Up`/`Down` or `Ctrl-p`/`Ctrl-n`) restores both the entered text
+and its syntax. Returning from history restores the draft's text and syntax.
+`Enter` in an empty prompt repeats the previous search with its original syntax;
+`Right` inserts that search for editing. `Tab` completes history entries in the
+current syntax. `n` and `N` preserve literal matching after the prompt closes.
+The search register exposes an escaped regex pattern for literal searches, so
+existing register-based commands continue to work.
+
+The toggle action can be remapped as `toggle_search_syntax` under `[keys.prompt]`.
+It applies to buffer search prompts; selection regex prompts and project search
+keep their existing syntax.
+
 To search for selected text, press `*`, then `n`. Mitos treats the text
 literally and adds word boundaries where appropriate. Use `Alt-*` to search
 without adding word boundaries.
@@ -21,8 +38,8 @@ the previous search.
 
 Highlighting covers complete visible source lines, including horizontally
 scrolled text. Multiline matches crossing the viewport boundary or a fold may
-be omitted. Workspace search and replacement previews retain their existing
-result-line highlighting.
+be omitted. Workspace search and replacement previews also highlight visible
+matches, while keeping the selected result's line highlighted.
 
 ## Replace several matches
 

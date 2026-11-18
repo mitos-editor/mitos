@@ -16,7 +16,8 @@ mod folding;
 mod mutation;
 mod selection_undo;
 mod view_state;
-pub use folding::FoldAction;
+pub(crate) use folding::FoldRange;
+pub use folding::{FoldAction, FoldKind};
 use view_state::DocumentViewState;
 
 pub use crate::features::blame::LineBlameError;
@@ -187,10 +188,12 @@ pub struct Document {
     // Document-wide feature state. View-bound request controllers live in view_states.
     // Dropping either owner cancels its in-flight work.
     pub(crate) rename: event::TaskController,
+    pub(crate) linked_editing: crate::features::linked_editing::State,
     pub(crate) inline_completions: InlineCompletions,
     pub(crate) accepted_completions: crate::features::completion::AcceptedCompletions,
     pub(crate) document_colors: DocumentColors,
     pub(crate) code_lenses: DocumentCodeLenses,
+    pub(crate) folding_ranges: crate::features::structural_ranges::FoldingRanges,
     pub(crate) semantic_tokens: crate::features::semantic_tokens::SemanticTokens,
     pub(crate) document_links: DocumentLinks,
     pub(crate) conflicts:
@@ -293,6 +296,7 @@ impl Document {
             view_states: HashMap::default(),
             pending_navigation: None,
             rename: Default::default(),
+            linked_editing: Default::default(),
             inline_completions: Default::default(),
             accepted_completions: Default::default(),
             breakpoint_source: None,
@@ -323,6 +327,7 @@ impl Document {
             document_colors: Default::default(),
             code_lenses: Default::default(),
             semantic_tokens: Default::default(),
+            folding_ranges: Default::default(),
             document_symbols: Default::default(),
             workspace_symbols: Default::default(),
             syntax_loader,

@@ -25,6 +25,7 @@ impl Document {
     }
 
     pub(crate) fn install_snippet(&mut self, view: ViewId, rendered: RenderedSnippet) {
+        self.linked_editing.clear();
         let active = match self.snippet.take().filter(|session| session.view == view) {
             Some(session) => session.active.insert_subsnippet(rendered),
             None => ActiveSnippet::new(rendered),
