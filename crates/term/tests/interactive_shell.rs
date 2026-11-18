@@ -368,11 +368,15 @@ fn termination_pending_on_resume_exits_the_editor() -> anyhow::Result<()> {
     editor.suspend()?;
     editor.signal(libc::SIGTERM)?;
     editor.signal(libc::SIGCONT)?;
-    editor.wait("shutdown after suspension", |editor| !editor.raw())?;
-    // Waiting for exit, rather than restored modes alone, checks that the
-    // exclusive signal wait still honors shutdown.
+    // The terminal is already cooked from suspension. Keep reading the PTY
+    // until the editor exits so final terminal writes can drain during shutdown.
     let deadline = Instant::now() + Duration::from_secs(10);
-    while editor.child.try_wait()?.is_none() {
+    loop {
+        editor.drain()?;
+        if let Some(status) = editor.child.try_wait()? {
+            anyhow::ensure!(status.success(), "editor exited with {status}");
+            break;
+        }
         anyhow::ensure!(Instant::now() < deadline, "editor did not shut down");
         thread::sleep(Duration::from_millis(5));
     }
