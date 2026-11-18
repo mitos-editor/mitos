@@ -17,6 +17,9 @@ use crate::ui::{panel, Markdown};
 
 use crate::ui::Popup;
 
+const SEPARATOR_HEIGHT: u16 = 1;
+const DOCUMENTATION_SPACING: u16 = 1;
+
 pub struct Signature {
     pub signature: String,
     pub signature_doc: Option<String>,
@@ -132,15 +135,13 @@ impl Component for SignatureHelp {
             return;
         }
 
-        let [_sig_text_area, separator_area, _spacing, sig_doc_area, _bottom_border] =
-            Layout::vertical([
-                Constraint::Length(sig_text_area.height),
-                Constraint::Length(1),
-                Constraint::Length(1),
-                Constraint::Min(0),
-                Constraint::Length(1),
-            ])
-            .areas(area);
+        let [_sig_text_area, separator_area, _spacing, sig_doc_area] = Layout::vertical([
+            Constraint::Length(sig_text_area.height),
+            Constraint::Length(SEPARATOR_HEIGHT),
+            Constraint::Length(DOCUMENTATION_SPACING),
+            Constraint::Min(0),
+        ])
+        .areas(area);
         panel::top_border(
             cx.editor.theme.get("ui.window"),
             panel::PopupBorder::SignatureHelp.resolve(&cx.editor.config()),
@@ -160,7 +161,6 @@ impl Component for SignatureHelp {
 
     fn required_size(&mut self, viewport: (u16, u16)) -> Option<(u16, u16)> {
         const PADDING: u16 = 2;
-        const SEPARATOR_HEIGHT: u16 = 1;
 
         let signature = self
             .signatures
@@ -188,7 +188,7 @@ impl Component for SignatureHelp {
                     crate::ui::text::required_size(&doc_text, max_text_width);
                 (
                     sig_width.max(doc_width),
-                    sig_height + SEPARATOR_HEIGHT + doc_height,
+                    sig_height + SEPARATOR_HEIGHT + DOCUMENTATION_SPACING + doc_height,
                 )
             }
             None => (sig_width, sig_height),
