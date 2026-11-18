@@ -162,6 +162,8 @@
 | `ui.background` | Editor interface style. |
 | `ui.background.separator` | Picker separator below input line |
 | `ui.border` | Panel and popup borders; falls back to `ui.text` |
+| `ui.breadcrumb` | Style for the breadcrumb |
+| `ui.breadcrumb.separator` | Style for the breadcrumb separator |
 | `ui.bufferline` | Style for the buffer line |
 | `ui.bufferline.active` | Style for the active buffer in buffer line |
 | `ui.bufferline.background` | Style for bufferline background |
