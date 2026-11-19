@@ -21,6 +21,7 @@ mod test {
     mod auto_reload;
     mod auto_save;
     mod buffer_picker;
+    mod buffer_search_picker;
     mod code_action_hints;
     mod code_actions;
     mod code_lenses;

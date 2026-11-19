@@ -254,9 +254,9 @@ impl<T: Send + Sync + 'static, D: Send + Sync + 'static> Picker<T, D> {
         }
         self.request_dynamic_refresh(true);
         editor.set_status(if self.case_sensitive.as_ref().unwrap().enabled {
-            "Global search is case-sensitive"
+            "Search is case-sensitive"
         } else {
-            "Global search is using smart case"
+            "Search is using smart case"
         });
     }
 

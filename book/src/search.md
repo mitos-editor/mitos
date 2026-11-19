@@ -41,6 +41,25 @@ scrolled text. Multiline matches crossing the viewport boundary or a fold may
 be omitted. Workspace search and replacement previews also highlight visible
 matches, while keeping the selected result's line highlighted.
 
+## Browse matches in the current buffer
+
+To open the buffer search picker, add a binding in `config.toml`:
+
+```toml
+[keys.normal.space]
+L = "search_picker_in_current_buffer"
+
+[keys.select.space]
+L = "search_picker_in_current_buffer"
+```
+
+Press `Space L` and enter a regular expression. Each match has its own row with
+a line and column number. Press `Enter` to select the match. The picker searches
+the current buffer, including unsaved edits and scratch buffers.
+
+Press `Alt-c` to toggle case sensitivity, or `Ctrl-q` to copy the results to the
+[quicklist](./quicklist.md). `Space '` reopens the picker for the same buffer.
+
 ## Replace several matches
 
 1. Press `%` to select the whole file, or select the region you want to edit.

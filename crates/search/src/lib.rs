@@ -14,8 +14,9 @@ mod file_index;
 mod walk;
 pub use file_index::FileIndex;
 use std::{
+    borrow::Cow,
     collections::HashMap,
-    ops::ControlFlow,
+    ops::{ControlFlow, Range},
     path::{Path, PathBuf},
     sync::atomic::{AtomicBool, Ordering},
 };
@@ -158,6 +159,33 @@ impl Search {
             },
         )?;
         Ok(results)
+    }
+
+    /// Stream individual matches as character ranges in an in-memory document.
+    pub fn run_document_matches(
+        &self,
+        text: &Rope,
+        cancelled: impl Fn() -> bool,
+        mut emit: impl FnMut(Range<usize>) -> ControlFlow<()>,
+    ) {
+        if cancelled() {
+            return;
+        }
+        let haystack = Cow::from(text.slice(..));
+        self.matcher
+            .find_iter(haystack.as_bytes(), |matched| {
+                if cancelled() {
+                    return false;
+                }
+                let start = matched.start();
+                let end = matched.end();
+                // Byte regexes can match inside a UTF-8 scalar, which has no editor position.
+                if !haystack.is_char_boundary(start) || !haystack.is_char_boundary(end) {
+                    return true;
+                }
+                emit(text.byte_to_char_idx(start)..text.byte_to_char_idx(end)).is_continue()
+            })
+            .unwrap();
     }
 
     /// Stream results until traversal finishes, cancellation is requested, or the sink stops.
@@ -530,6 +558,37 @@ mod tests {
             }]
         );
         assert!(collect(dir.path(), &options(), &documents, "disk").is_empty());
+    }
+
+    #[test]
+    fn document_match_stream_observes_cancellation_and_sink_stop() {
+        let search = Search::new("needle", true).unwrap();
+        let text = Rope::from("needle needle needle\n");
+        search.run_document_matches(&text, || true, |_| panic!("search was canceled"));
+
+        let count = std::cell::Cell::new(0);
+        search.run_document_matches(
+            &text,
+            || count.get() == 1,
+            |matched| {
+                assert_eq!(matched, 0..6);
+                count.set(count.get() + 1);
+                ControlFlow::Continue(())
+            },
+        );
+        assert_eq!(count.get(), 1);
+
+        count.set(0);
+        search.run_document_matches(
+            &text,
+            || false,
+            |matched| {
+                assert_eq!(matched, 0..6);
+                count.set(count.get() + 1);
+                ControlFlow::Break(())
+            },
+        );
+        assert_eq!(count.get(), 1);
     }
 
     #[test]
