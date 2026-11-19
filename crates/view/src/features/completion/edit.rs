@@ -661,6 +661,7 @@ mod rejection_tests {
             let (view, doc) = current!(editor);
             doc.set_selection(view.id, Selection::point(2));
             let trigger = Trigger {
+                started: None,
                 pos: 2,
                 doc: doc.id(),
                 view: view.id,

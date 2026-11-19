@@ -165,6 +165,8 @@ pub struct Completion {
     popup: Popup<Menu<CompletionItem>>,
     filter: String,
     matcher: Matcher,
+    performance_sample: Option<view::performance::Sample>,
+    painted: bool,
     // Documentation resolution follows the highlighted menu item.
     resolve_handler: ResolveHandler,
 }
@@ -172,7 +174,16 @@ pub struct Completion {
 impl Completion {
     pub const ID: &'static str = "completion";
 
+    pub(crate) fn take_painted_sample(&mut self) -> Option<view::performance::Sample> {
+        if self.painted {
+            self.performance_sample.take()
+        } else {
+            None
+        }
+    }
+
     pub fn new(editor: &Editor, items: Vec<CompletionItem>, session: CompletionSession) -> Self {
+        let performance_sample = session.performance_sample(editor);
         let preview_completion_insert = editor.config().completion.preview_insert;
 
         let data = CompletionData {
@@ -239,6 +250,8 @@ impl Completion {
             // and avoid allocation during matching
             filter: String::from(fragment),
             matcher: Matcher::new(MatchKind::Completion),
+            performance_sample,
+            painted: false,
             resolve_handler: ResolveHandler::new(),
         };
 
@@ -386,6 +399,9 @@ impl Component for Completion {
 
     fn render(&mut self, area: Rect, surface: &mut Surface, cx: &mut DrawContext) {
         self.popup.render(area, surface, cx);
+        if self.performance_sample.is_some() {
+            self.painted = !self.popup.rendered_area().is_empty();
+        }
 
         // if we have a selection, render a markdown popup on top/below with info
         let option = match self.popup.contents_mut().selection_mut() {

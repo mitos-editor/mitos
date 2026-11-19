@@ -17,6 +17,8 @@ pub(super) struct RenderState {
     /// Documents presented in the previous frame, including unfocused splits.
     visible_documents: HashSet<DocumentId>,
     pub(super) requested: Option<Instant>,
+    pub(super) input_sample: Option<(view::performance::Sample, u64)>,
+    preparation_us: u64,
     syntax_deadline: Option<Instant>,
     activity_deadline: Option<Instant>,
 }
@@ -103,6 +105,11 @@ where
     }
 
     pub(super) fn update_components(&mut self) {
+        let started = self
+            .render_state
+            .input_sample
+            .as_ref()
+            .map(|_| std::time::Instant::now());
         // Preparation may spawn work that finishes before drawing starts. Clear
         // only requests preceding this update; later completions need another turn.
         self.editor.begin_frame();
@@ -122,12 +129,20 @@ where
         };
         self.compositor.update(area, &mut cx);
         view::features::code_lenses::prepare_visible_code_lenses(cx.editor);
+        if let Some(started) = started {
+            self.render_state.preparation_us += view::performance::micros(started.elapsed());
+        }
     }
 
     pub(super) fn draw_frame(&mut self) {
         if self.editor.should_close() {
             return;
         }
+        let started = self
+            .render_state
+            .input_sample
+            .as_ref()
+            .map(|_| std::time::Instant::now());
         self.terminal
             .backend_mut()
             .start_sync()
@@ -163,6 +178,28 @@ where
 
         self.terminal.backend_mut().end_sync().unwrap();
         self.terminal.backend_mut().flush().unwrap();
+        let flushed = view::performance::start();
+        if let Some(flushed) = flushed
+            && let Some((sample, handling_us)) = self.render_state.input_sample.take()
+        {
+            sample.record_at(
+                flushed,
+                view::performance::Details {
+                    handling_us: Some(handling_us),
+                    preparation_us: Some(std::mem::take(&mut self.render_state.preparation_us)),
+                    draw_us: started
+                        .map(|started| view::performance::micros(flushed.duration_since(started))),
+                    ..Default::default()
+                },
+            );
+        }
+        if let Some(flushed) = flushed
+            && let Some(editor_view) = self.compositor.find::<crate::ui::EditorView>()
+            && let Some(completion) = editor_view.completion.as_mut()
+            && let Some(sample) = completion.take_painted_sample()
+        {
+            sample.record_at(flushed, view::performance::Details::default());
+        }
         self.render_state.requested = None;
         self.render_state.syntax_deadline = None;
         self.render_state.activity_deadline = None;

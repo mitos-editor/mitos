@@ -30,8 +30,19 @@ pub(super) enum TriggerKind {
     Manual,
 }
 
+impl TriggerKind {
+    pub(super) fn name(self) -> &'static str {
+        match self {
+            Self::Auto => "automatic",
+            Self::TriggerChar => "trigger_character",
+            Self::Manual => "manual",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub(super) struct Trigger {
+    pub(super) started: Option<std::time::Instant>,
     pub(super) pos: usize,
     pub(super) view: ViewId,
     pub(super) doc: DocumentId,
@@ -60,11 +71,11 @@ impl Debounce {
 }
 
 impl event::AsyncHook for Debounce {
-    type Event = (CompletionEvent, u64);
+    type Event = (CompletionEvent, u64, Option<std::time::Instant>);
 
     fn handle_event(
         &mut self,
-        (event, epoch): Self::Event,
+        (event, epoch, started): Self::Event,
         _old_timeout: Option<Instant>,
     ) -> Option<Instant> {
         self.epoch = epoch;
@@ -85,6 +96,7 @@ impl event::AsyncHook for Debounce {
                     .is_none_or(|trigger| trigger.doc != doc || trigger.view != view)
                 {
                     self.trigger = Some(Trigger {
+                        started,
                         pos: trigger_pos,
                         view,
                         doc,
@@ -96,6 +108,7 @@ impl event::AsyncHook for Debounce {
                 // immediately request completions and drop all auto completion requests
                 self.task_controller.cancel();
                 self.trigger = Some(Trigger {
+                    started,
                     pos: cursor,
                     view,
                     doc,
@@ -105,6 +118,7 @@ impl event::AsyncHook for Debounce {
             CompletionEvent::ManualTrigger { cursor, doc, view } => {
                 // immediately request completions and drop all auto completion requests
                 self.trigger = Some(Trigger {
+                    started,
                     pos: cursor,
                     view,
                     doc,
@@ -204,6 +218,7 @@ pub(super) fn request_completions(
     // rely on the trigger offset and primary cursor matching for multi-cursor completions so this
     // is definitely necessary from our side too.
     trigger.pos = cursor;
+    let semantic_tokens = editor.config().lsp.enable && editor.config().lsp.semantic_tokens.enable;
     let doc = doc_mut!(editor, &doc.id());
     let savepoint = doc.savepoint(view.id);
     let text = doc.text();
@@ -251,6 +266,7 @@ pub(super) fn request_completions(
             context,
             -(priority as i8),
             savepoint.clone(),
+            (trigger.kind.name(), semantic_tokens),
         ));
     }
     if let Some(path_completion_request) = path_completion(
@@ -323,6 +339,7 @@ fn request_completions_from_language_server(
     context: lsp::CompletionContext,
     priority: i8,
     savepoint: Arc<SavePoint>,
+    (variant, semantic_tokens): (&'static str, bool),
 ) -> impl Future<Output = CompletionResponse> + use<> {
     let provider = ls.id();
     let offset_encoding = ls.offset_encoding();
@@ -333,10 +350,19 @@ fn request_completions_from_language_server(
 
     // it's important that this is before the async block (and that this is not an async function)
     // to ensure the request is dispatched right away before any new edit notifications
+    let sample = crate::performance::start().map(|started| crate::performance::Sample {
+        started,
+        operation: "completion_lsp",
+        variant,
+        context: crate::performance::Context::new(doc, semantic_tokens),
+    });
     let completion_response = ls.completion(doc_id, pos, None, context).unwrap();
     async move {
-        let response: Option<lsp::CompletionResponse> = completion_response
-            .await
+        let result = completion_response.await;
+        if let Some(sample) = sample {
+            sample.record(crate::performance::Details::default());
+        }
+        let response: Option<lsp::CompletionResponse> = result
             .inspect_err(|err| log::error!("completion request failed: {err}"))
             .ok()
             .flatten();
@@ -376,6 +402,7 @@ pub fn request_incomplete_completion_list(editor: &mut Editor) {
         return;
     };
     let handle = editor.handlers.completions.request_controller.restart();
+    let semantic_tokens = editor.config().lsp.enable && editor.config().lsp.semantic_tokens.enable;
     let handler = &mut editor.handlers.completions;
     let mut requests = JoinSet::new();
     let mut savepoint = None;
@@ -404,6 +431,7 @@ pub fn request_incomplete_completion_list(editor: &mut Editor) {
             },
             context.priority,
             savepoint,
+            ("incomplete", semantic_tokens),
         );
         requests.spawn(request);
     }

@@ -168,6 +168,8 @@ where
     }
 
     pub async fn handle_terminal_events(&mut self, event: std::io::Result<TerminalEvent>) {
+        let started = view::performance::start();
+        let mut sample = None;
         self.jobs.smooth_scroll.finish(&mut self.editor);
         #[cfg(not(windows))]
         use termina::escape::csi;
@@ -252,13 +254,56 @@ where
             }) => false,
             #[cfg(not(windows))]
             event if event.is_escape() => false,
-            event => self
-                .compositor
-                .handle_event(&tui::backend::native::adapt(event), &mut cx),
+            event => {
+                let event = tui::backend::native::adapt(event);
+                if let Some(started) = started {
+                    use view::input::MouseEventKind;
+                    let variant = match &event {
+                        Event::Key(_) if cx.editor.mode() == view::document::Mode::Insert => {
+                            Some("insert_key")
+                        }
+                        Event::Key(_) => Some("key"),
+                        Event::Mouse(event)
+                            if matches!(
+                                event.kind,
+                                MouseEventKind::ScrollUp
+                                    | MouseEventKind::ScrollDown
+                                    | MouseEventKind::ScrollLeft
+                                    | MouseEventKind::ScrollRight
+                            ) =>
+                        {
+                            Some("scroll")
+                        }
+                        _ => None,
+                    };
+                    if let Some(variant) = variant
+                        && let Some(view) = cx.editor.tree.try_get(cx.editor.tree.focus())
+                        && let Some(doc) = cx.editor.document(view.document_id())
+                    {
+                        sample = Some(view::performance::Sample {
+                            started,
+                            operation: "input_to_flush",
+                            variant,
+                            context: view::performance::Context::new(
+                                doc,
+                                config.editor.lsp.semantic_tokens.enable
+                                    && config.editor.lsp.enable,
+                            ),
+                        });
+                    }
+                }
+                self.compositor.handle_event(&event, &mut cx)
+            }
         };
 
         should_redraw |= self.apply_pending_config_updates();
         if should_redraw && !self.editor.should_close() {
+            if let Some(sample) = sample
+                && self.render_state.input_sample.is_none()
+            {
+                let handling_us = view::performance::micros(sample.started.elapsed());
+                self.render_state.input_sample = Some((sample, handling_us));
+            }
             self.request_frame();
         }
 
