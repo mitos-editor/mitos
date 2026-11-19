@@ -37,10 +37,12 @@ where
     B: crate::backend::Backend + crate::backend::BackendExt,
     B::Error: std::error::Error + Send + Sync + 'static,
 {
+    terminal.autoresize().map_err(std::io::Error::other)?;
     draw_with_hyperlinks(terminal, |buffer| (render(buffer), Default::default()))
 }
 
-/// Apply the final hyperlink layer as part of the same incremental frame.
+/// Draw into the current buffer and apply its final hyperlink layer.
+/// The caller must resize the terminal before preparing layout for this buffer.
 /// Metadata changes repaint cells even when their glyph and style are unchanged.
 pub fn draw_with_hyperlinks<B>(
     terminal: &mut ratatui::Terminal<B>,
@@ -50,7 +52,6 @@ where
     B: crate::backend::Backend + crate::backend::BackendExt,
     B::Error: std::error::Error + Send + Sync + 'static,
 {
-    terminal.autoresize().map_err(std::io::Error::other)?;
     let buffer = terminal.current_buffer_mut();
     let (mut cursor, links) = render(buffer);
     let position = match cursor {

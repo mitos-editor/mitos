@@ -102,11 +102,16 @@ where
         }
     }
 
-    pub(super) fn update_components(&mut self) {
+    pub(super) fn update_components(&mut self) -> Rect {
         // Preparation may spawn work that finishes before drawing starts. Clear
         // only requests preceding this update; later completions need another turn.
         self.editor.begin_frame();
         let area = Rect::from(self.terminal.size().expect("Cannot read terminal size"));
+        self.prepare_components(area);
+        area
+    }
+
+    fn prepare_components(&mut self, area: Rect) {
         let config = self.config.load();
         let mut cx = compositor::Context {
             config: crate::config::Context {
@@ -124,7 +129,7 @@ where
         view::features::code_lenses::prepare_visible_code_lenses(cx.editor);
     }
 
-    pub(super) fn draw_frame(&mut self) {
+    pub(super) fn draw_frame(&mut self, prepared_area: Rect) {
         if self.editor.should_close() {
             return;
         }
@@ -141,6 +146,15 @@ where
                 .resize(area)
                 .expect("Cannot clear the terminal");
             self.compositor.full_redraw = false;
+        } else {
+            self.terminal.autoresize().expect("Cannot resize terminal");
+        }
+
+        // The terminal can resize between preparation and drawing. Rebuild the
+        // layout for the actual buffer while preserving redraws raised during preparation.
+        let area = self.terminal.current_buffer_mut().area;
+        if area != prepared_area {
+            self.prepare_components(area);
         }
 
         let config = self.config.load();
