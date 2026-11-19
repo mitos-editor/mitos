@@ -92,3 +92,39 @@ path for a reproducible report, start Mitos with `--log <file>`.
 When reporting a problem, include the output of `ms --version`, the relevant
 `ms --health` check, your operating system and terminal, and the smallest steps
 that reproduce it.
+
+## Collect local performance measurements
+
+Start a session with an output directory to enable performance recording.
+
+```sh
+MITOS_PERFORMANCE_DIR="$HOME/mitos-performance" ms
+```
+
+Mitos creates the directory if needed and writes one cumulative JSON report per
+process. It updates the report once a minute and when you quit. The report
+contains timings and counts. It omits keystrokes, paths to edited files,
+document text, and language-server payloads. Reports stay on your machine until
+you share them.
+
+- `input_to_flush` measures from receiving a key or scroll event to flushing
+  its frame to the terminal. If several events share a frame, Mitos measures the
+  first one that requested a redraw. Terminal display time is outside this
+  measurement.
+- `completion_to_menu` ends at the first frame with suggestions.
+  `completion_lsp` measures each completed language-server request, including
+  ones that return an error. Trigger types are reported separately.
+- `semantic_remap` measures shifting or removing cached tokens after an edit.
+  `semantic_lsp`, `semantic_reconstruct`, and `semantic_decode` measure the
+  completed requests and subsequent processing. Visibility is recorded at
+  request time.
+
+Measurements include estimated percentiles, sample counts, and exact counts
+above 16 and 50 ms. The slowest sample in each group includes available phase
+timings or token counts. Read the sample count alongside the percentiles,
+especially for rarely used actions.
+
+To compare semantic tokens, use the same workspace and repeat the same editing
+and completion actions with `:set lsp.semantic-tokens.enable true` and
+`:set lsp.semantic-tokens.enable false`. Let highlighting settle after changing
+the setting. The report groups samples by the setting so you can compare them.

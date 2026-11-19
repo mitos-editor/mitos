@@ -55,7 +55,7 @@ struct Shared {
 
 pub struct CompletionHandler {
     shared: Arc<Shared>,
-    event_tx: Sender<(CompletionEvent, u64)>,
+    event_tx: Sender<(CompletionEvent, u64, Option<std::time::Instant>)>,
     pub active_completions: HashMap<CompletionProvider, ResponseContext>,
     request_controller: TaskController,
     session_controller: TaskController,
@@ -92,6 +92,7 @@ impl CompletionHandler {
     }
 
     pub fn event(&self, event: CompletionEvent) {
+        let started = crate::performance::start();
         let mut trigger = self.shared.trigger.lock();
         let invalidate = match &event {
             CompletionEvent::Cancel => {
@@ -101,6 +102,7 @@ impl CompletionHandler {
             CompletionEvent::ManualTrigger { cursor, doc, view }
             | CompletionEvent::TriggerChar { cursor, doc, view } => {
                 *trigger = Some(Trigger {
+                    started,
                     pos: *cursor,
                     doc: *doc,
                     view: *view,
@@ -117,6 +119,7 @@ impl CompletionHandler {
                     trigger.is_none_or(|trigger| trigger.doc != *doc || trigger.view != *view);
                 if changed {
                     *trigger = Some(Trigger {
+                        started,
                         pos: *cursor,
                         doc: *doc,
                         view: *view,
@@ -138,7 +141,7 @@ impl CompletionHandler {
         }
         let epoch = self.shared.epoch.load(Ordering::Relaxed);
         drop(trigger);
-        send_blocking(&self.event_tx, (event, epoch));
+        send_blocking(&self.event_tx, (event, epoch, started));
     }
 
     /// Dismiss the displayed session without canceling a newly scheduled trigger.
@@ -196,6 +199,21 @@ pub struct CompletionSession {
 }
 
 impl CompletionSession {
+    pub fn performance_sample(&self, editor: &Editor) -> Option<crate::performance::Sample> {
+        let started = self.trigger.started?;
+        let doc = editor.document(self.trigger.doc)?;
+        let config = editor.config();
+        Some(crate::performance::Sample {
+            started,
+            operation: "completion_to_menu",
+            variant: self.trigger.kind.name(),
+            context: crate::performance::Context::new(
+                doc,
+                config.lsp.enable && config.lsp.semantic_tokens.enable,
+            ),
+        })
+    }
+
     fn new(editor: &mut Editor, trigger: Trigger, epoch: u64) -> Self {
         let uri = editor.document(trigger.doc).and_then(|doc| doc.uri());
         let doc = editor

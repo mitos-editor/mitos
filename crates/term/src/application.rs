@@ -11,6 +11,7 @@ mod events;
 mod input;
 mod interactive;
 mod lsp;
+mod performance;
 mod render;
 #[cfg(not(windows))]
 mod signals;
@@ -264,7 +265,15 @@ where
             );
         }
 
+        let reporter = self
+            .terminal_input
+            .is_some()
+            .then(performance::Reporter::start)
+            .flatten();
         self.event_loop(input_stream).await;
+        if let Some(reporter) = reporter {
+            reporter.finish();
+        }
 
         let close_errs = self.close().await;
 

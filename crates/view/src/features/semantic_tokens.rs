@@ -17,6 +17,7 @@ use crate::{
         LanguageServerExited, LanguageServerInitialized,
     },
     features::{debounce::debounce_documents, request::DocumentRequest},
+    performance::{self, Context, Details, Sample},
     Document, DocumentId, Editor,
 };
 
@@ -109,6 +110,13 @@ fn request(editor: &mut Editor, doc_id: DocumentId, exited: Option<LanguageServe
         return;
     }
     let callbacks = editor.handlers.semantic_tokens.callbacks.clone();
+    let started = performance::start();
+    let visible = started.map(|_| {
+        editor
+            .tree
+            .views()
+            .any(|(view, _)| view.document_id() == doc_id)
+    });
     let Some(doc) = editor.document_mut(doc_id) else {
         return;
     };
@@ -152,31 +160,82 @@ fn request(editor: &mut Editor, doc_id: DocumentId, exited: Option<LanguageServe
     let full_request = delta_request
         .is_none()
         .then(|| server.semantic_tokens(identifier.clone(), end).unwrap());
+    let full_variant = if matches!(
+        server.semantic_tokens_options().unwrap().full,
+        Some(
+            lsp::SemanticTokensFullOptions::Bool(true)
+                | lsp::SemanticTokensFullOptions::Delta { .. }
+        )
+    ) {
+        "full"
+    } else {
+        "range"
+    };
+    let context = started.map(|_| Context::new(doc, true));
     let snapshot = DocumentRequest::new(doc, cancel, vec![server_id]);
     tokio::spawn(async move {
+        let measure = |started: Option<std::time::Instant>, operation, variant, token_count| {
+            if let Some((started, context)) = started.zip(context.as_ref()) {
+                Sample {
+                    started,
+                    operation,
+                    variant,
+                    context: context.clone(),
+                }
+                .record(Details {
+                    token_count,
+                    visible,
+                    ..Default::default()
+                });
+            }
+        };
         let future = async {
+            let mut full_started = started;
             if let Some(request) = delta_request {
-                match request.await {
+                let response = request.await;
+                measure(started, "semantic_lsp", "delta", None);
+                let reconstruct_started = performance::start();
+                match response {
                     Ok(Some(response)) => {
                         if let Some(result) = delta::reconstruct(&base.unwrap().data, response) {
-                            return Ok(Some(result));
+                            measure(
+                                reconstruct_started,
+                                "semantic_reconstruct",
+                                "delta",
+                                Some(result.data.len()),
+                            );
+                            return (Ok(Some(result)), "delta");
                         }
                         log::warn!("invalid semantic token delta; retrying full request");
                     }
-                    Ok(None) => return Ok(None),
+                    Ok(None) => return (Ok(None), "delta"),
                     Err(error) => {
                         log::debug!("semantic token delta failed; retrying full request: {error}")
                     }
                 }
+                full_started = performance::start();
+            }
+            let result = if let Some(request) = full_request {
+                request.await
+            } else {
                 client
                     .semantic_tokens(identifier.clone(), end)
                     .unwrap()
                     .await
-            } else {
-                full_request.unwrap().await
-            }
+            };
+            measure(
+                full_started,
+                "semantic_lsp",
+                full_variant,
+                result
+                    .as_ref()
+                    .ok()
+                    .and_then(|value| value.as_ref())
+                    .map(|tokens| tokens.data.len()),
+            );
+            (result, full_variant)
         };
-        let Some(result) = cancelable_future(future, &snapshot.cancel).await else {
+        let Some((result, variant)) = cancelable_future(future, &snapshot.cancel).await else {
             return;
         };
         let result = match result {
@@ -187,7 +246,10 @@ fn request(editor: &mut Editor, doc_id: DocumentId, exited: Option<LanguageServe
             }
         };
         let tokens = result.as_ref().map_or_else(Vec::new, |result| {
-            decode(&text, &result.data, &legend, encoding)
+            let started = performance::start();
+            let tokens = decode(&text, &result.data, &legend, encoding);
+            measure(started, "semantic_decode", variant, Some(result.data.len()));
+            tokens
         });
         callbacks
             .send(move |editor| {

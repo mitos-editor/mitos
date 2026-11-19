@@ -111,7 +111,21 @@ impl Document {
         self.document_colors.apply_changes(changes);
         self.document_links.apply_changes(changes);
         self.code_lenses.apply_changes(changes);
+        let token_count = self.semantic_tokens().len();
+        let remap_started = (token_count > 0).then(crate::performance::start).flatten();
         self.semantic_tokens.apply_changes(changes);
+        if let Some(started) = remap_started {
+            crate::performance::Sample {
+                started,
+                operation: "semantic_remap",
+                variant: "edit",
+                context: crate::performance::Context::new(self, true),
+            }
+            .record(crate::performance::Details {
+                token_count: Some(token_count),
+                ..Default::default()
+            });
+        }
         self.inline_completions.clear();
         self.map_snippet(changes);
 
