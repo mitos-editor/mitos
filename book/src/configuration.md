@@ -149,6 +149,7 @@ For common examples, see [Configure Mitos](./editor.md).
 | `info` | table | `{ border-style = "inherit" }` | Contextual information popup appearance. See [`[editor.info]`](#editorinfo). |
 | `shell-output` | table | `{ border-style = "inherit" }` | Shell command output popup appearance. See [`[editor.shell-output]`](#editorshell-output). |
 | `picker` | table | See below | Shared picker appearance. See [`[editor.picker]`](#editorpicker). |
+| `splits` | table | See below | Pane sizing. See [`[editor.splits]`](#editorsplits). |
 | `file-picker` | table | See below | File-picker and global-search traversal. See [`[editor.file-picker]`](#editorfile-picker). |
 | `file-explorer` | table | See below | File-explorer traversal. See [`[editor.file-explorer]`](#editorfile-explorer). |
 | `buffer-picker` | table | See below | Initial selection in the buffer picker. See [`[editor.buffer-picker]`](#editorbuffer-picker). |
@@ -164,7 +165,6 @@ For common examples, see [Configure Mitos](./editor.md).
 | `soft-wrap` | table | See below | Soft wrapping. See [`[editor.soft-wrap]`](#editorsoft-wrap). |
 | `jump-label-alphabet` | string of unique characters | `"abcdefghijklmnopqrstuvwxyz"` | Alphabet used to generate two-character jump labels. Earlier characters are used first. |
 | `inline-blame` | table | See below | Git blame rendered at the end of buffer lines. See [`[editor.inline-blame]`](#editorinline-blame). |
-| `diff` | table | `engine = "line"` | Review comparison engine: `line`, `syntax`, or `auto`. See [syntax-aware review](./version-control.md#syntax-aware-review). |
 | `workspace-trust` | table | See below | Implicit workspace trust policy. See [`[editor.workspace-trust]`](#editorworkspace-trust). |
 | `bufferline` | table | See below | See [`[editor.bufferline]`](#editorbufferline). |
 | `clipboard` | table | See below | See [`[editor.clipboard]`](#editorclipboard). |
@@ -249,6 +249,8 @@ preference. `:get lsp.hover.border-style` reports the current value, and
 | --- | --- | --- | --- |
 | `padding` | integer | `5` | Minimum screen lines kept above and below the cursor when possible. |
 | `wheel-lines` | integer | `3` | Lines moved by one scroll-wheel step. |
+| `smooth` | boolean | `false` | Animate page scrolling, view alignment and LSP gotos.|
+| `animation-duration` | milliseconds | `180` | Duration of one smooth scroll animation. `0` jumps immediately. |
 
 ### `[editor.mouse]`
 
@@ -301,6 +303,7 @@ completion has its own [`[editor.completion.word]`](#editorcompletionword) table
 | Key | Type / accepted values | Default | Description |
 | --- | --- | --- | --- |
 | `on-save` | boolean | `true` | Format on save when the current language also enables `auto-format`. |
+| `on-type` | boolean | `false` | Ask the language server to format after its trigger characters are typed. Uses a single cursor. |
 
 ### `[editor.files]`
 
@@ -329,6 +332,11 @@ Saving, autosave, reloads, and native watching are configured in the
 | `show` | `"never"`, `"always"`, or `"multiple"` | `"never"` | When to show open buffers at the top of the editor. |
 
 The bufferline scrolls horizontally to keep the active buffer visible when the tabs exceed the window width.
+
+Use `:buffer-move-previous`, `:buffer-move-next`, `:buffer-move-start`, and
+`:buffer-move-end` to reorder the current buffer. This order also applies to
+`:buffer-next` and `:buffer-previous`, even when the bufferline is hidden.
+The buffer picker continues to sort by most recent use.
 
 ### `[editor.files.save]`
 
@@ -426,8 +434,8 @@ single statusline at the bottom of the editor for the focused view.
 | Key | Type | Default |
 | --- | --- | --- |
 | `global` | boolean | `false` |
-| `left` | array of element names | `["mode", "spinner", "file-name", "read-only-indicator", "file-modification-indicator", "branch", "debug-session"]` |
-| `right` | array of element names | `["diagnostics", "selections", "register", "search-position", "file-type", "position", "file-encoding"]` |
+| `left` | array of element names | `["mode", "activity", "file-name", "read-only-indicator", "file-modification-indicator", "branch", "debug-session"]` |
+| `right` | array of element names | `["diagnostics", "selections", "register", "search-position", "spinner", "file-type", "position", "file-encoding"]` |
 | `separator` | string | `"│"` |
 | `mode.color` | boolean | `false` |
 | `mode.normal` | string | `"NOR"` |
@@ -444,14 +452,19 @@ Diagnostics describe the current file by default. To show counts across files,
 replace `"diagnostics"` with `"workspace-diagnostics"` in `right`. This can be useful
 with `global = true`; counts reflect the diagnostics currently reported to Mitos.
 
+The `activity` element shows when a command is taking a while, with a label such
+as `Formatting` or `Renaming`. It is hidden while idle. The separate `spinner`
+element shows language-server progress, such as indexing.
+
 Available statusline elements:
 
 | Key    | Description |
 | ------ | ----------- |
 | `mode` | The current editor mode (`mode.normal`/`mode.insert`/`mode.select`) |
 | `spinner` | A progress spinner indicating LSP activity |
+| `activity` | A spinner and label while a user command is running |
 | `branch` | The current branch name or detached commit hash of the opened workspace |
-| `file-name` | The path/name of the opened file |
+| `file-name` | The opened file's path relative to the editor workspace; external paths use `~` for the home directory when possible |
 | `file-absolute-path` | The absolute path/name of the opened file |
 | `file-base-name` | The basename of the opened file |
 | `current-working-directory` | The current working directory  |
@@ -496,6 +509,7 @@ Available statusline elements:
 | `signature-help.border-style` | border style or `"inherit"` | `"inherit"` | Signature help popup borders and documentation separators. See [popup borders](#popup-borders). |
 | `inlay-hints.enable` | boolean | `false` | Render inlay hints. The server may also require configuration. |
 | `document-highlight.auto-trigger` | boolean | `true` | Highlight references to the symbol at the cursor. |
+| `linked-editing` | boolean | `true` | Automatically edit linked names together, such as opening and closing tags. Requires server support. |
 | `inlay-hints.length-limit` | non-zero integer or unset | Unset | Truncate displayed inlay hints to this length. |
 | `color-swatches.enable` | boolean | `true` | Render swatches beside document colors. |
 | `code-actions.border-style` | border style or `"inherit"` | `"inherit"` | Code action menu borders. See [popup borders](#popup-borders). |
@@ -606,6 +620,29 @@ git-ignore = true
 git-global = true
 max-depth = 10
 ```
+
+### `[editor.splits]`
+
+| Key | Type / accepted values | Default | Description |
+| --- | --- | --- | --- |
+| `strategy` | `"equal-siblings"` or `"balanced"` | `"equal-siblings"` | How split pane sizes are balanced. |
+
+`equal-siblings` shares space equally between adjacent panes or groups of panes.
+Individual panes within a group can remain smaller than their neighbors.
+
+`balanced` keeps neighboring panes at equal widths or heights as you split,
+close, resize, or rearrange them. For example, closing a pane in a row of four
+leaves three equal-width columns. Two stacked panes beside a full-height pane
+keep two equal-width columns. Sizes may differ slightly to fit whole terminal
+cells and separators. Changing the strategy keeps the pane arrangement and focus.
+
+```toml
+[editor.splits]
+strategy = "balanced"
+```
+
+Use `:set splits.strategy balanced` to apply it immediately to existing panes.
+Use `:set splits.strategy equal-siblings` to return to the default sizing.
 
 ### `[editor.picker]`
 
@@ -798,7 +835,7 @@ breakpoints; the code-action gutter indicates available actions.
 | `show` | string | `"never"` | Display blame on `"cursor-line"`, `"all-lines"`, or hide it with `"never"`. |
 | `format` | string | `"{author}, {time-ago} • {title} • {commit}"` | Blame message format. See [inline blame formatting](./version-control.md#format). |
 
-Press `Space B` to toggle inline blame off and on, preserving your choice of `"all-lines"` or `"cursor-line"`. If you have not chosen a display mode, turning it on uses `"cursor-line"`. Blank lines and lines with uncommitted changes do not show inline blame.
+Press `Space g t` to toggle inline blame off and on, preserving your choice of `"all-lines"` or `"cursor-line"`. If you have not chosen a display mode, turning it on uses `"cursor-line"`. Blank lines and lines with uncommitted changes do not show inline blame.
 
 ### `[editor.diagnostics.inline]`
 
@@ -942,7 +979,6 @@ applies to `config.toml` for now.
 | `formatter` | table; unset | External formatter. `command` is required; `args` defaults to `[]`. |
 | `path-completion` | boolean; inherits editor | Override `editor.completion.path.enable`. |
 | `spelling` | table; inherits editor | `languages` and `min-word-length` replace global values; `words` and `ignore-regexes` extend them. See [spell checking](./spell-checking.md). |
-| `diff-engine` | `line`, `syntax`, or `auto`; inherits editor | Overrides `editor.diff.engine` for review views. See [syntax-aware review](./version-control.md#syntax-aware-review). |
 | `word-completion` | table; inherits editor | Override `enable` and/or `trigger-length` from `editor.completion.word`. |
 | `diagnostic-severity` | `"hint"`, `"info"`, `"warning"`, or `"error"`; `"hint"` | Minimum accepted diagnostic severity. |
 | `grammar` | string; defaults to `name` | Tree-sitter grammar name. |

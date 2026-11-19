@@ -1,50 +1,14 @@
+use super::super::test_support::{git, key, screen};
 use super::*;
 use crate::{
     application::TestApplication,
-    compositor::{self, Event},
+    compositor,
     job::Jobs,
     ui::picker::test::{all_items, application, draw, frame, until},
 };
 use vcs::operations::repository::BRANCH_PAGE_SIZE;
 use view::graphics::Color;
 
-fn git(root: &Path, args: &[&str]) {
-    let output = std::process::Command::new("git")
-        .arg("-C")
-        .arg(root)
-        .args(["-c", "commit.gpgsign=false"])
-        .args(args)
-        .env_remove("GIT_DIR")
-        .output()
-        .unwrap();
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-}
-fn key(
-    app: &mut TestApplication,
-    compositor: &mut compositor::Compositor,
-    jobs: &mut Jobs,
-    key: &str,
-) {
-    let config = crate::config::Config::default();
-    let updates = tokio::sync::mpsc::unbounded_channel().0;
-    let mut cx = Context {
-        config: crate::config::Context {
-            current: &config,
-            updates: &updates,
-        },
-        editor: &mut app.editor,
-        interaction: &mut app.interaction,
-        jobs,
-        scroll: None,
-        image_picker: None,
-        is_cursor_owner: true,
-    };
-    assert!(compositor.handle_event(&Event::Key(key.parse().unwrap()), &mut cx));
-}
 async fn finish(
     app: &mut TestApplication,
     compositor: &mut compositor::Compositor,
@@ -90,6 +54,35 @@ fn create_actions_work_without_a_selected_row() -> Result<()> {
         worktree_action(&repo, dir.path(), None, PickerItemAction::RemoveWorktree),
         PickerCallbackResult::KeepOpen
     ));
+    for action in [
+        PickerItemAction::LockWorktree,
+        PickerItemAction::UnlockWorktree,
+    ] {
+        assert!(matches!(
+            worktree_action(&repo, dir.path(), None, action),
+            PickerCallbackResult::KeepOpen
+        ));
+        let main = Worktree {
+            path: dir.path().into(),
+            branch: None,
+            main: true,
+            locked: false,
+            prunable: false,
+            divergence: None,
+        };
+        assert!(matches!(
+            worktree_action(&repo, dir.path(), Some(&main), action),
+            PickerCallbackResult::KeepOpen
+        ));
+        let linked = Worktree {
+            main: false,
+            ..main
+        };
+        assert!(matches!(
+            worktree_action(&repo, dir.path(), Some(&linked), action),
+            PickerCallbackResult::KeepOpenWithCallback(_)
+        ));
+    }
     Ok(())
 }
 
@@ -111,6 +104,109 @@ fn footer_hints_follow_remapped_and_unbound_actions() {
         ],
     );
     assert_eq!(hints, ["<C-t> create"]);
+}
+
+#[test]
+fn repository_picker_keymaps_omit_loading_controls_and_preserve_other_shared_bindings() {
+    use crate::keymap::component::action_hint;
+    let config = crate::config::Config::default();
+    for keys in [
+        &config.component_keys.branch_picker,
+        &config.component_keys.worktree_picker,
+    ] {
+        assert_eq!(action_hint(keys, &PickerAction::ToggleLoading), "unbound");
+    }
+    let source = "[keys.picker]\nC-l = 'move_end'\nF4 = 'toggle_loading'".to_owned();
+    let config = crate::config::Config::load(Ok(&source), Ok(String::new())).unwrap();
+    for keys in [
+        &config.component_keys.branch_picker,
+        &config.component_keys.worktree_picker,
+    ] {
+        assert_eq!(action_hint(keys, &PickerAction::ToggleLoading), "unbound");
+        assert!(matches!(
+            keys.bindings
+                .get(&"C-l".parse::<ui_core::input::KeyEvent>().unwrap()),
+            Some(ui_core::keymap::Binding::Action(PickerAction::MoveEnd))
+        ));
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn pickers_render_divergence_against_main() -> Result<()> {
+    let parent = tempfile::tempdir()?;
+    let root = parent.path().join("repo");
+    std::fs::create_dir(&root)?;
+    git(&root, &["init", "-b", "main"]);
+    git(&root, &["config", "user.name", "test"]);
+    git(&root, &["config", "user.email", "test@example.com"]);
+    git(&root, &["commit", "--allow-empty", "-m", "initial"]);
+    git(&root, &["switch", "-c", "topic"]);
+    git(&root, &["commit", "--allow-empty", "-m", "topic"]);
+    git(&root, &["switch", "main"]);
+    git(&root, &["commit", "--allow-empty", "-m", "main"]);
+    let linked = parent.path().join("linked");
+    git(
+        &root,
+        &[
+            "worktree",
+            "add",
+            "--detach",
+            linked.to_str().unwrap(),
+            "topic",
+        ],
+    );
+    let repo = GitRepository::discover(&root)?;
+    let mut app = application(true)?;
+    let mut picker = branches(&app.editor, repo.clone(), root.clone());
+    until(&mut picker, &mut app, |picker| {
+        all_items(picker).count() == 2
+    })
+    .await?;
+    let rendered = screen(&mut picker, &mut app);
+    assert!(rendered.contains("vs base"), "{rendered}");
+    assert!(rendered.contains("↑0 ↓0"), "{rendered}");
+    assert!(rendered.contains("↑1 ↓1"), "{rendered}");
+    assert!(!rendered.contains("↓0 main"), "{rendered}");
+    assert!(!rendered.contains("↓1 main"), "{rendered}");
+    assert!(rendered.contains("● main"), "{rendered}");
+    assert!(!rendered.contains("● topic"), "{rendered}");
+    assert!(!rendered.contains("current"), "{rendered}");
+    git(&root, &["commit", "--allow-empty", "-m", "advance main"]);
+    until(&mut picker, &mut app, |picker| {
+        all_items(picker).any(|branch| {
+            branch.name == "topic"
+                && branch
+                    .divergence
+                    .as_ref()
+                    .is_some_and(|counts| counts.behind == 2)
+        })
+    })
+    .await?;
+    assert!(screen(&mut picker, &mut app).contains("↑1 ↓2"));
+    let mut picker = worktrees(&app.editor, repo, root);
+    until(&mut picker, &mut app, |picker| {
+        all_items(picker).count() == 2
+    })
+    .await?;
+    let rendered = screen(&mut picker, &mut app);
+    assert!(rendered.contains("vs base"), "{rendered}");
+    assert!(rendered.contains("↑0 ↓0"), "{rendered}");
+    assert!(rendered.contains("↑1 ↓2"), "{rendered}");
+    assert!(!rendered.contains("↓0 main"), "{rendered}");
+    assert!(!rendered.contains("↓2 main"), "{rendered}");
+    assert!(rendered.contains("● main"), "{rendered}");
+    assert!(!rendered.contains("● (detached)"), "{rendered}");
+    assert!(rendered.contains("(detached)"), "{rendered}");
+    let repo = GitRepository::discover(&linked)?;
+    let mut picker = worktrees(&app.editor, repo, linked);
+    until(&mut picker, &mut app, |picker| {
+        all_items(picker).count() == 2
+    })
+    .await?;
+    let rendered = screen(&mut picker, &mut app);
+    assert!(rendered.contains("● (detached)"), "{rendered}");
+    assert!(!rendered.contains("● main"), "{rendered}");
+    Ok(())
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -179,6 +275,39 @@ async fn branch_picker_creates_confirms_deletion_and_refreshes() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn worktree_command_completes_directories_and_keeps_the_branch_argument() -> Result<()> {
+    use crate::commands::{catalog::TYPABLE_COMMAND_MAP, complete_command_args};
+    use crate::ui::completers::CompletionResult;
+
+    let parent = tempfile::tempdir()?;
+    std::fs::create_dir(parent.path().join("work trees"))?;
+    std::fs::write(parent.path().join("work-file"), "")?;
+    let app = application(false)?;
+    let command = TYPABLE_COMMAND_MAP.get("vcs-worktree-create").unwrap();
+    let input = parent.path().join("work").to_string_lossy().into_owned();
+    let result = complete_command_args(&app.editor, &command.args, &input, 0);
+    let CompletionResult::Deferred(compute) = result else {
+        panic!("directory completion should run in the background");
+    };
+    let mut controller = event::TaskController::new();
+    let completions = compute(&controller.restart());
+    assert_eq!(completions.len(), 1);
+    let (range, completion) = &completions[0];
+    let mut completed = input.clone();
+    completed.replace_range(range.clone(), &completion.content);
+    let args = command_line::Args::parse(&completed, command.args.signature(), true, |token| {
+        Ok(token.content)
+    })
+    .unwrap();
+    assert_eq!(Path::new(&args[0]), parent.path().join("work trees"));
+
+    let result =
+        complete_command_args(&app.editor, &command.args, &format!("{completed} topic"), 0);
+    assert!(matches!(result, CompletionResult::Immediate(items) if items.is_empty()));
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn worktree_picker_creates_on_a_branch_and_confirms_removal() -> Result<()> {
     let parent = tempfile::tempdir()?;
     let root = parent.path().join("repo");
@@ -188,6 +317,8 @@ async fn worktree_picker_creates_on_a_branch_and_confirms_removal() -> Result<()
     git(&root, &["config", "user.email", "test@example.com"]);
     git(&root, &["commit", "--allow-empty", "-m", "initial"]);
     git(&root, &["branch", "topic"]);
+    std::fs::create_dir(parent.path().join("work trees"))?;
+    std::fs::write(parent.path().join("work-file"), "")?;
     let repo = GitRepository::discover(&root)?;
     let mut app = application(false)?;
     let mut compositor = compositor::Compositor::new(view::graphics::Rect::new(0, 0, 80, 24));
@@ -196,7 +327,42 @@ async fn worktree_picker_creates_on_a_branch_and_confirms_removal() -> Result<()
     until(&mut picker, &mut app, |picker| picker.selection().is_some()).await?;
     compositor.push(Box::new(overlaid(picker)));
     key(&mut app, &mut compositor, &mut jobs, "A-n");
-    for ch in "../linked".chars() {
+    for ch in "../work".chars() {
+        key(&mut app, &mut compositor, &mut jobs, &ch.to_string());
+    }
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        while compositor
+            .find::<ui::Prompt>()
+            .unwrap()
+            .has_pending_render()
+        {
+            let config = crate::config::Config::default();
+            let updates = tokio::sync::mpsc::unbounded_channel().0;
+            compositor.update(
+                view::graphics::Rect::new(0, 0, 80, 24),
+                &mut Context {
+                    config: crate::config::Context {
+                        current: &config,
+                        updates: &updates,
+                    },
+                    editor: &mut app.editor,
+                    interaction: &mut app.interaction,
+                    jobs: &mut jobs,
+                    scroll: None,
+                    image_picker: None,
+                    is_cursor_owner: true,
+                },
+            );
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        }
+    })
+    .await?;
+    key(&mut app, &mut compositor, &mut jobs, "tab");
+    assert_eq!(
+        compositor.find::<ui::Prompt>().unwrap().line(),
+        "../work trees"
+    );
+    for ch in "/linked".chars() {
         key(&mut app, &mut compositor, &mut jobs, &ch.to_string());
     }
     key(&mut app, &mut compositor, &mut jobs, "ret");
@@ -207,7 +373,7 @@ async fn worktree_picker_creates_on_a_branch_and_confirms_removal() -> Result<()
     }
     key(&mut app, &mut compositor, &mut jobs, "ret");
     finish(&mut app, &mut compositor, &mut jobs).await?;
-    let linked = stdx::path::canonicalize_existing(&parent.path().join("linked"));
+    let linked = stdx::path::canonicalize_existing(&parent.path().join("work trees/linked"));
     assert!(repo
         .worktrees()
         .await?
@@ -266,33 +432,8 @@ fn repository() -> Result<(tempfile::TempDir, GitRepository)> {
 }
 
 fn press(picker: &mut Picker<Arc<Branch>, RepositoryData>, app: &mut TestApplication, key: &str) {
-    let config = crate::config::Config::default();
-    let updates = tokio::sync::mpsc::unbounded_channel().0;
-    let mut jobs = crate::job::Jobs::new();
-    picker.handle_event(
-        &Event::Key(key.parse().unwrap()),
-        &mut Context {
-            config: crate::config::Context {
-                current: &config,
-                updates: &updates,
-            },
-            editor: &mut app.editor,
-            interaction: &mut app.interaction,
-            jobs: &mut jobs,
-            scroll: None,
-            image_picker: None,
-            is_cursor_owner: true,
-        },
-    );
+    super::super::test_support::press(picker, app, key);
     draw(picker, app);
-}
-
-fn screen(picker: &mut Picker<Arc<Branch>, RepositoryData>, app: &mut TestApplication) -> String {
-    frame(picker, app)
-        .content
-        .iter()
-        .map(|cell| cell.symbol())
-        .collect()
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -304,7 +445,11 @@ async fn branches_load_on_scroll_and_search_beyond_the_first_page() -> Result<()
         all_items(p).count() == BRANCH_PAGE_SIZE
     })
     .await?;
-    assert!(screen(&mut picker, &mut app).contains("More branches available"));
+    let rendered = screen(&mut picker, &mut app);
+    assert!(rendered.contains("More branches available"));
+    assert!(!rendered.contains("<C-l>"));
+    assert!(!rendered.contains("pause"));
+    press(&mut picker, &mut app, "C-l");
     assert!(screen(&mut picker, &mut app).contains("100/?"));
     for _ in 0..5 {
         draw(&mut picker, &mut app);
@@ -404,7 +549,7 @@ fn assert_colour(surface: &tui::buffer::Buffer, text: &str, colour: Color) {
             .collect();
         if let Some(offset) = row.find(text) {
             let offset = row[..offset].chars().count();
-            for x in offset..offset + text.len() {
+            for x in offset..offset + text.chars().count() {
                 assert_eq!(
                     surface[(x as u16, y)].fg,
                     colour,
@@ -447,10 +592,101 @@ async fn repository_pickers_preserve_semantic_colours_on_selected_rows() -> Resu
     until(&mut branches, &mut app, |p| p.selection().is_some()).await?;
     let surface = frame(&mut branches, &mut app);
     assert_colour(&surface, "main", Color::Green);
-    assert_colour(&surface, "*", Color::Green);
+    assert_colour(&surface, "●", Color::Green);
+    assert!(screen(&mut branches, &mut app).contains("—"));
     let mut worktrees = worktrees(&app.editor, repo, dir.path().into());
     until(&mut worktrees, &mut app, |p| p.selection().is_some()).await?;
     let surface = frame(&mut worktrees, &mut app);
+    assert_colour(&surface, "●", Color::Green);
     assert_colour(&surface, std::path::MAIN_SEPARATOR_STR, Color::Blue);
+    assert!(screen(&mut worktrees, &mut app).contains("—"));
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn resumed_branch_picker_replaces_the_live_generation_atomically() -> Result<()> {
+    let (dir, repo) = repository()?;
+    let mut app = application(true)?;
+    let mut picker = branches(&app.editor, repo.clone(), repo.root().to_owned());
+    until(&mut picker, &mut app, |p| all_items(p).count() == 100).await?;
+    press(&mut picker, &mut app, "down");
+    let selected = picker.selection().unwrap().name.clone();
+    picker.suspend();
+    for index in 0..205 {
+        let name = format!("topic-{index:03}");
+        if name != selected {
+            std::fs::remove_file(dir.path().join(format!(".git/refs/heads/{name}")))?;
+        }
+    }
+    std::fs::write(
+        dir.path().join(".git/refs/heads/replacement"),
+        "1111111111111111111111111111111111111111\n",
+    )?;
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        loop {
+            draw(&mut picker, &mut app);
+            let count = all_items(&picker).count();
+            assert!(count == 100 || count == 2);
+            assert_eq!(picker.selection().unwrap().name, selected);
+            if count == 2 {
+                assert!(all_items(&picker).any(|branch| branch.name == "replacement"));
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn worktree_picker_opt_d_removes_missing_worktrees_after_confirmation() -> Result<()> {
+    let parent = tempfile::tempdir()?;
+    let root = parent.path().join("repo");
+    let linked = parent.path().join("missing");
+    std::fs::create_dir(&root)?;
+    git(&root, &["init", "-b", "main"]);
+    git(&root, &["config", "user.name", "test"]);
+    git(&root, &["config", "user.email", "test@example.com"]);
+    git(&root, &["commit", "--allow-empty", "-m", "initial"]);
+    git(
+        &root,
+        &["worktree", "add", "-b", "topic", linked.to_str().unwrap()],
+    );
+    std::fs::remove_dir_all(&linked)?;
+    let repo = GitRepository::discover(&root)?;
+    let mut app = application(false)?;
+    let mut compositor = compositor::Compositor::new(view::graphics::Rect::new(0, 0, 80, 24));
+    let mut jobs = Jobs::new();
+    let mut picker = worktrees(&app.editor, repo.clone(), root);
+    until(&mut picker, &mut app, |picker| {
+        crate::ui::picker::test::items(picker).count() == 2
+    })
+    .await?;
+    picker.to_end();
+    assert!(picker.selection().unwrap().prunable);
+    compositor.push(Box::new(overlaid(picker)));
+    key(&mut app, &mut compositor, &mut jobs, "A-d");
+    key(&mut app, &mut compositor, &mut jobs, "ret");
+    assert_eq!(repo.worktrees().await?.len(), 2);
+    assert!(!app.editor.handlers().git_operations.busy());
+    key(&mut app, &mut compositor, &mut jobs, "A-d");
+    key(&mut app, &mut compositor, &mut jobs, "down");
+    key(&mut app, &mut compositor, &mut jobs, "ret");
+    finish(&mut app, &mut compositor, &mut jobs).await?;
+    assert_eq!(repo.worktrees().await?.len(), 1);
+    assert!(repo
+        .branches()
+        .await?
+        .iter()
+        .any(|branch| branch.name == "topic"));
+    let picker = &mut compositor
+        .find::<ui::overlay::Overlay<Picker<Worktree, RepositoryData>>>()
+        .unwrap()
+        .content;
+    until(picker, &mut app, |picker| {
+        crate::ui::picker::test::items(picker).count() == 1
+    })
+    .await?;
     Ok(())
 }

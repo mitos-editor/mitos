@@ -1,10 +1,55 @@
 use std::{borrow::Cow, collections::HashMap, iter};
 
 use anyhow::Result;
-use editor_core::NATIVE_LINE_ENDING;
+use editor_core::{search::SearchSyntax, NATIVE_LINE_ENDING};
 
 use crate::clipboard::Clipboard;
 use ::clipboard::{ClipboardBackend, ClipboardError, ClipboardType};
+
+/// Search history retains the entered text as well as its interpretation.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SearchHistoryEntry {
+    pub text: String,
+    pub syntax: SearchSyntax,
+}
+
+impl SearchHistoryEntry {
+    pub fn regex(text: String) -> Self {
+        Self {
+            text,
+            syntax: SearchSyntax::Regex,
+        }
+    }
+}
+
+#[derive(PartialEq, Eq)]
+struct RegisterValue {
+    value: String,
+    // Registers expose regex patterns to existing consumers, while search prompts
+    // restore literal input without exposing or repeatedly escaping the pattern.
+    literal: Option<String>,
+}
+
+impl From<String> for RegisterValue {
+    fn from(value: String) -> Self {
+        Self {
+            value,
+            literal: None,
+        }
+    }
+}
+
+impl RegisterValue {
+    fn search_entry(&self) -> SearchHistoryEntry {
+        match &self.literal {
+            Some(text) => SearchHistoryEntry {
+                text: text.clone(),
+                syntax: SearchSyntax::Literal,
+            },
+            None => SearchHistoryEntry::regex(self.value.clone()),
+        }
+    }
+}
 
 /// A key-value store for saving sets of values.
 ///
@@ -23,7 +68,7 @@ pub struct Registers {
     /// Values are stored in reverse order when inserted with `Registers::write`.
     /// The order is reversed again in `Registers::read`. This allows us to
     /// efficiently prepend new values in `Registers::push`.
-    inner: HashMap<char, Vec<String>>,
+    inner: HashMap<char, Vec<RegisterValue>>,
     clipboard: Clipboard,
     pub last_search_register: char,
 }
@@ -51,10 +96,14 @@ impl Registers {
                 self.inner.get(&name),
                 clipboard_type(name).unwrap(),
             )),
-            _ => self
-                .inner
-                .get(&name)
-                .map(|values| RegisterValues::new(values.iter().map(Cow::from).rev())),
+            _ => self.inner.get(&name).map(|values| {
+                RegisterValues::new(
+                    values
+                        .iter()
+                        .map(|entry| Cow::Borrowed(entry.value.as_str()))
+                        .rev(),
+                )
+            }),
         }
     }
 
@@ -69,11 +118,16 @@ impl Registers {
                 .set_contents(&values.join(NATIVE_LINE_ENDING.as_str()), clipboard_type)?;
         }
         values.reverse();
-        self.inner.insert(name, values);
+        self.inner
+            .insert(name, values.into_iter().map(RegisterValue::from).collect());
         Ok(())
     }
 
     pub fn push(&mut self, name: char, value: String) -> Result<()> {
+        self.push_value(name, value.into())
+    }
+
+    fn push_value(&mut self, name: char, value: RegisterValue) -> Result<()> {
         match name {
             '_' => Ok(()),
             '#' | '.' | '%' => Err(anyhow::anyhow!("Register {name} does not support pushing")),
@@ -86,7 +140,7 @@ impl Registers {
                     anyhow::bail!("Failed to push to register {name}: clipboard does not match register contents");
                 }
 
-                let mut updated = value.clone();
+                let mut updated = value.value.clone();
                 if !contents.is_empty() {
                     updated.push_str(NATIVE_LINE_ENDING.as_str());
                 }
@@ -110,9 +164,60 @@ impl Registers {
             return self.push(name, value);
         }
         let values = self.inner.entry(name).or_default();
-        values.retain(|entry| entry != &value);
-        values.push(value);
+        values.retain(|entry| entry.value != value);
+        values.push(value.into());
         Ok(())
+    }
+
+    /// Store search input while retaining a regex-compatible register value.
+    pub fn push_search(&mut self, name: char, entry: SearchHistoryEntry) -> Result<()> {
+        let value = RegisterValue {
+            value: entry.syntax.pattern(&entry.text).into_owned(),
+            literal: (entry.syntax == SearchSyntax::Literal).then_some(entry.text),
+        };
+        if !matches!(name, '_' | '#' | '.' | '%' | '*' | '+') {
+            self.inner
+                .entry(name)
+                .or_default()
+                .retain(|saved| saved != &value);
+        }
+        self.push_value(name, value)
+    }
+
+    /// Saved search input, newest first. External clipboard edits are ordinary regex text.
+    pub fn search_history(
+        &self,
+        name: char,
+    ) -> Box<dyn DoubleEndedIterator<Item = SearchHistoryEntry> + '_> {
+        if !matches!(name, '*' | '+') {
+            return Box::new(
+                self.inner
+                    .get(&name)
+                    .into_iter()
+                    .flatten()
+                    .rev()
+                    .map(RegisterValue::search_entry),
+            );
+        }
+        let values = self
+            .read(name)
+            .map(|values| values.collect::<Vec<_>>())
+            .unwrap_or_default();
+        if let Some(saved) = self.inner.get(&name)
+            && saved.len() == values.len()
+            && saved
+                .iter()
+                .rev()
+                .zip(&values)
+                .all(|(entry, value)| entry.value == **value)
+        {
+            return Box::new(saved.iter().rev().map(RegisterValue::search_entry));
+        }
+        Box::new(
+            values
+                .into_iter()
+                .map(|value| SearchHistoryEntry::regex(value.into_owned())),
+        )
     }
 
     pub fn iter_preview(&self) -> impl Iterator<Item = (char, &str)> {
@@ -122,7 +227,7 @@ impl Registers {
             .map(|(name, values)| {
                 let preview = values
                     .last()
-                    .and_then(|s| s.lines().next())
+                    .and_then(|entry| entry.value.lines().next())
                     .unwrap_or("<empty>");
 
                 (*name, preview)
@@ -184,7 +289,7 @@ impl Registers {
 
 fn read_from_clipboard<'a>(
     provider: &Clipboard,
-    saved_values: Option<&'a Vec<String>>,
+    saved_values: Option<&'a Vec<RegisterValue>>,
     clipboard_type: ClipboardType,
 ) -> RegisterValues<'a> {
     match provider.get_contents(clipboard_type) {
@@ -197,13 +302,23 @@ fn read_from_clipboard<'a>(
             };
 
             if contents_are_saved(values, &contents) {
-                RegisterValues::new(values.iter().map(Cow::from).rev())
+                RegisterValues::new(
+                    values
+                        .iter()
+                        .map(|entry| Cow::Borrowed(entry.value.as_str()))
+                        .rev(),
+                )
             } else {
                 RegisterValues::new(iter::once(contents.into()))
             }
         }
         Err(ClipboardError::ReadingNotSupported) => match saved_values {
-            Some(values) => RegisterValues::new(values.iter().map(Cow::from).rev()),
+            Some(values) => RegisterValues::new(
+                values
+                    .iter()
+                    .map(|entry| Cow::Borrowed(entry.value.as_str()))
+                    .rev(),
+            ),
             None => RegisterValues::new(iter::empty()),
         },
         Err(err) => {
@@ -220,21 +335,23 @@ fn read_from_clipboard<'a>(
     }
 }
 
-fn contents_are_saved(saved_values: &[String], mut contents: &str) -> bool {
+fn contents_are_saved(saved_values: &[RegisterValue], mut contents: &str) -> bool {
     let line_ending = NATIVE_LINE_ENDING.as_str();
     let mut values = saved_values.iter().rev();
 
     match values.next() {
-        Some(first) if contents.starts_with(first) => {
-            contents = &contents[first.len()..];
+        Some(first) if contents.starts_with(&first.value) => {
+            contents = &contents[first.value.len()..];
         }
         None if contents.is_empty() => return true,
         _ => return false,
     }
 
     for value in values {
-        if contents.starts_with(line_ending) && contents[line_ending.len()..].starts_with(value) {
-            contents = &contents[line_ending.len() + value.len()..];
+        if contents.starts_with(line_ending)
+            && contents[line_ending.len()..].starts_with(&value.value)
+        {
+            contents = &contents[line_ending.len() + value.value.len()..];
         } else {
             return false;
         }

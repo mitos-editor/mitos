@@ -9,7 +9,7 @@ mod display;
 mod document_settings;
 mod document_store;
 mod documents;
-use document_store::Documents;
+pub use document_store::Documents;
 pub use text_layout::DisplayPosition;
 mod editing;
 mod filesystem;
@@ -92,12 +92,14 @@ pub struct Editor {
 
     writes: WriteQueue,
     saves: crate::save::Operations,
+    pub(crate) activities: crate::activity::Activities,
     file_operation: event::TaskController,
     file_operation_revision: u64,
 
     pub registers: Registers,
     pub(crate) language_servers: crate::language_servers::Registry,
     pub(crate) diagnostics: LspDiagnostics,
+    pub(crate) pull_diagnostics: crate::features::diagnostics::pull::PullDiagnosticResults,
     pub diff_providers: DiffProviderRegistry,
 
     pub(crate) debugger: crate::debugger::DebuggerState,
@@ -149,6 +151,7 @@ pub enum EditorEvent {
     ConfigEvent(ConfigEvent),
     ReloadConfirmation(crate::features::auto_reload::ReloadRequest),
     WorkspaceTrust(crate::features::workspace_trust::TrustRequest),
+    WorkspaceEditConfirmation(crate::workspace_edit::confirmation::ConfirmationRequest),
     SignatureHelp(crate::features::signature_help::SignatureHelpUpdate),
     Hover(crate::features::hover::HoverUpdate),
     BlameDetails(crate::features::blame::BlameDetailsUpdate),
@@ -205,6 +208,7 @@ impl Editor {
         mut handlers: Handlers,
         workspace_trust: WorkspaceTrust,
     ) -> Self {
+        handlers.bind_document_hooks();
         let language_servers = crate::language_servers::Registry::new(syn_loader.clone());
         let conf = config.load();
         let auto_pairs = (&conf.auto_pairs).into();
@@ -228,15 +232,17 @@ impl Editor {
 
         Self {
             mode: Mode::Normal,
-            tree: Tree::new(area),
+            tree: Tree::new(area, conf.splits.strategy),
             documents: Documents::new(),
             writes: WriteQueue::default(),
             saves: crate::save::Operations::default(),
+            activities: crate::activity::Activities::default(),
             file_operation: event::TaskController::default(),
             file_operation_revision: 0,
             theme: theme_loader.default_theme(),
             language_servers,
             diagnostics: LspDiagnostics::new(),
+            pull_diagnostics: Default::default(),
             diff_providers,
             debugger: crate::debugger::DebuggerState::default(),
             syn_loader,
@@ -644,8 +650,9 @@ impl Editor {
         let doc = self.completion_presentation(doc);
         let text = doc.text().slice(..);
         let cursor = doc.selection(view.id).primary().cursor(text);
-        if let Some(mut pos) = view.screen_coords_at_pos(doc, cursor) {
-            let inner = view.inner_area(doc);
+        let layout = view.layout_presented(doc, None);
+        if let Some(mut pos) = layout.display_position_at_pos(cursor) {
+            let inner = layout.viewport;
             pos.col += inner.x as usize;
             pos.row += inner.y as usize;
             let cursorkind = self.mode.cursor_shape(&config.cursor.shape);
@@ -699,6 +706,9 @@ impl Editor {
                 }
                 EditorEvent::WorkspaceTrust(request) if !request.is_current(self) => {
                     crate::features::workspace_trust::dismiss_request(self, request)
+                }
+                EditorEvent::WorkspaceEditConfirmation(request) if !request.is_current(self) => {
+                    request.resolve(self, false);
                 }
                 _ => return Some(update),
             }
@@ -806,16 +816,14 @@ impl Editor {
     pub fn refresh_vcs_watches(&mut self) {
         use crate::file_watcher::Demand;
         let watch_vcs = self.config().files.watch.watch_vcs;
-        let mut workspace = Demand::default();
+        let mut repositories = Vec::new();
         if watch_vcs {
             let root = self.workspace.root();
             let trusted = self
                 .workspace_trust
                 .query(root, workspace::trust::TrustQuery::Git)
                 .is_trusted();
-            let watches = self.diff_providers.repository_watches(root, trusted);
-            workspace.metadata = watches.paths;
-            workspace.files = watches.files;
+            repositories.push((root.to_owned(), trusted));
         }
         let documents = self
             .documents
@@ -839,14 +847,22 @@ impl Editor {
                         .workspace_trust
                         .query(root, workspace::trust::TrustQuery::Git)
                         .is_trusted();
-                    let watches = self.diff_providers.repository_watches(path, trusted);
-                    workspace.metadata.extend(watches.paths);
-                    workspace.files.extend(watches.files);
+                    repositories.push((path.to_owned(), trusted));
                 }
                 (doc.id(), demand)
             })
             .filter(|(_, demand)| !demand.is_empty())
             .collect();
+        let watches = self.diff_providers.repository_watches_for_paths(
+            repositories
+                .iter()
+                .map(|(path, trusted)| (path.as_path(), *trusted)),
+        );
+        let workspace = Demand {
+            metadata: watches.paths,
+            files: watches.files,
+            ..Demand::default()
+        };
         self.file_watcher.set_document_demands(workspace, documents);
     }
 
@@ -909,33 +925,31 @@ impl Editor {
     }
 
     pub fn jump_forward(&mut self, view_id: ViewId, count: usize) {
-        if let Some((doc_id, selection)) = view_mut!(self, view_id).jumps.forward(count).cloned() {
+        if let Some((doc_id, selection)) = view_mut!(self, view_id)
+            .jumps
+            .forward(count, &self.documents)
+            .cloned()
+        {
             self.jump_to(view_id, doc_id, selection);
         }
     }
 
     pub fn jump_backward(&mut self, view_id: ViewId, count: usize) {
         let view = view_mut!(self, view_id);
-        let doc = doc_mut!(self, &view.doc);
-        // `backward` may push the current selection (valid at the document's
-        // current revision) onto the jumplist. Sync first so the view's
-        // `doc_revisions` matches, otherwise that entry would be left ahead of
-        // it and a later sync would map it out of bounds.
-        view.sync_changes(doc);
-        if let Some((doc_id, selection)) = view.jumps.backward(view_id, doc, count).cloned() {
+        let doc = &self.documents[&view.doc];
+        if let Some((doc_id, selection)) = view
+            .jumps
+            .backward(view_id, doc, count, &self.documents)
+            .cloned()
+        {
             self.jump_to(view_id, doc_id, selection);
         }
     }
 
-    fn jump_to(&mut self, view_id: ViewId, dest_doc_id: DocumentId, mut selection: Selection) {
+    fn jump_to(&mut self, view_id: ViewId, dest_doc_id: DocumentId, selection: Selection) {
         let view = view_mut!(self, view_id);
         let old_doc_id = view.doc;
         if old_doc_id != dest_doc_id {
-            let new_doc = doc_mut!(self, &dest_doc_id);
-            if let Some(transaction) = view.changes_to_sync(new_doc) {
-                let text = new_doc.text().slice(..);
-                selection = selection.map(transaction.changes()).ensure_invariants(text);
-            }
             self.replace_document_in_view(view_id, dest_doc_id);
             self.events()
                 .clone()
@@ -1021,7 +1035,7 @@ impl Editor {
         let selection = match &entry.position {
             QuicklistPosition::None => return true,
             QuicklistPosition::Selection(selection) => {
-                selection.clone().ensure_invariants(text.slice(..))
+                crate::quicklist::clamp_selection(selection, text.slice(..))
             }
             QuicklistPosition::LineRange { start, end } => {
                 if *start >= text.len_lines(stdx::rope::LINE_TYPE) {
@@ -1049,12 +1063,16 @@ impl Editor {
                     });
                     return false;
                 }
-                Selection::single(
-                    text.line_to_char_idx(*start_line)
-                        .saturating_add(*start_col),
-                    text.line_to_char_idx(*end_line).saturating_add(*end_col),
-                )
-                .ensure_invariants(text.slice(..))
+                let position = |line, column| {
+                    text.line_to_char_idx(line).saturating_add(column).min(
+                        editor_core::line_ending::line_end_char_index(&text.slice(..), line),
+                    )
+                };
+                let selection = Selection::single(
+                    position(*start_line, *start_col),
+                    position(*end_line, *end_col),
+                );
+                crate::quicklist::clamp_selection(&selection, text.slice(..))
             }
             QuicklistPosition::LspRange {
                 range,

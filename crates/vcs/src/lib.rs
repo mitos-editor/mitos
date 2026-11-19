@@ -100,6 +100,22 @@ pub struct RepositoryWatches {
     pub files: Vec<PathBuf>,
 }
 
+fn collect_repository_watches<'a>(
+    paths: impl IntoIterator<Item = (&'a Path, bool)>,
+    mut inspect: impl FnMut(&Path, bool) -> RepositoryWatches,
+) -> RepositoryWatches {
+    let mut seen = std::collections::BTreeSet::new();
+    let mut watches = RepositoryWatches::default();
+    for (path, trusted) in paths {
+        if seen.insert((path, trusted)) {
+            let inputs = inspect(path, trusted);
+            watches.paths.extend(inputs.paths);
+            watches.files.extend(inputs.files);
+        }
+    }
+    watches
+}
+
 impl DiffProviderRegistry {
     /// Read one provider's independent decorations with one discovery and current trust/configuration.
     /// Binary documents skip blob reads and worktree filters.
@@ -129,18 +145,15 @@ impl DiffProviderRegistry {
         watches
     }
 
-    /// Enumerate changed files on a blocking worker. Returning false stops iteration.
-    pub fn for_each_changed_file(
-        self,
-        scope: ChangedFileScope,
-        trust_full: bool,
-        f: impl Fn(&Path, Result<FileChange>) -> bool + Send + 'static,
-    ) {
-        drop(
-            self.for_each_file_status(scope, trust_full, move |root, status| {
-                f(root, status.map(|status| status.change().clone()))
-            }),
-        );
+    /// Combine watch inputs for one refresh, inspecting each directory and trust pair once.
+    /// Entries never survive this call, so configuration and trust changes are read afresh.
+    pub fn repository_watches_for_paths<'a>(
+        &self,
+        paths: impl IntoIterator<Item = (&'a Path, bool)>,
+    ) -> RepositoryWatches {
+        collect_repository_watches(paths, |path, trusted| {
+            self.repository_watches(path, trusted)
+        })
     }
 
     /// Enumerate with the first successful provider, reporting one terminal error if none succeeds.
@@ -151,14 +164,10 @@ impl DiffProviderRegistry {
         f: impl Fn(&Path, Result<FileStatus>) -> bool + Send + 'static,
     ) -> tokio::task::JoinHandle<()> {
         tokio::task::spawn_blocking(move || {
-            if self
-                .query(|provider| provider.for_each_file_status(&scope, trust_full, &f))
-                .is_err()
+            if let Err(error) =
+                self.query(|provider| provider.for_each_file_status(&scope, trust_full, &f))
             {
-                f(
-                    scope.path(),
-                    Err(anyhow!("no diff provider returns success")),
-                );
+                f(scope.path(), Err(error));
             }
         })
     }

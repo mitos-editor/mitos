@@ -46,6 +46,7 @@
 | cylc | ✓ | ✓ | ✓ |  |  |  |  |
 | cython | ✓ |  | ✓ | ✓ |  | ✓ |  |
 | d | ✓ | ✓ | ✓ |  |  |  | `serve-d` |
+| d2 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |  |
 | dart | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | `dart` |
 | dbml | ✓ |  |  |  |  |  |  |
 | debian | ✓ |  |  |  |  |  | `debian-lsp` |
@@ -129,7 +130,7 @@
 | hocon | ✓ | ✓ | ✓ |  |  |  |  |
 | hoon | ✓ |  |  |  |  |  |  |
 | hosts | ✓ |  |  |  |  |  |  |
-| html | ✓ | ✓ | ✓ |  | ✓ | ✓ | first available: `vscode-html-language-server` → `superhtml` |
+| html | ✓ | ✓ | ✓ |  | ✓ | ✓ | first available: `vscode-html-language-server` → `superhtml`, `emmet-language-server` |
 | htmldjango | ✓ |  |  |  |  |  | `djlsp`, first available: `vscode-html-language-server` → `superhtml` |
 | hurl | ✓ | ✓ | ✓ |  |  |  |  |
 | hy | ✓ |  |  |  |  |  | `hyuga` |
@@ -203,7 +204,7 @@
 | nickel | ✓ |  | ✓ |  |  |  | `nls` |
 | nim | ✓ | ✓ | ✓ |  | ✓ |  | `nimlangserver` |
 | nix | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | first available: `nixd` → `nil` |
-| nu | ✓ | ✓ | ✓ |  |  | ✓ | `nu`, `nu-lint` |
+| nu | ✓ | ✓ | ✓ |  | ✓ | ✓ | `nu`, `nu-lint` |
 | nunjucks | ✓ |  |  |  |  |  |  |
 | ocaml | ✓ | ✓ | ✓ |  | ✓ | ✓ | `ocamllsp` |
 | ocaml-interface | ✓ |  |  |  |  | ✓ | `ocamllsp` |
@@ -285,6 +286,7 @@
 | starlark | ✓ | ✓ | ✓ |  | ✓ | ✓ | `starpls`, `buck2` |
 | strace | ✓ |  |  |  |  |  |  |
 | strictdoc | ✓ |  |  | ✓ |  |  |  |
+| structurizr | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | `strz` |
 | styx | ✓ | ✓ | ✓ |  | ✓ |  | `styx` |
 | supercollider | ✓ |  |  |  |  | ✓ |  |
 | svelte | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | `svelteserver` |
@@ -309,7 +311,7 @@
 | tolk | ✓ |  | ✓ |  |  |  |  |
 | toml | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | first available: `tombi` → `taplo` |
 | tql | ✓ |  | ✓ |  |  |  |  |
-| tsq | ✓ |  |  |  | ✓ | ✓ | `ts_query_ls` |
+| tsq | ✓ | ✓ |  |  | ✓ | ✓ | `ts_query_ls` |
 | tsx | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | first available: `tsc` → `typescript-language-server` → `vtsls` |
 | twig | ✓ | ✓ |  |  |  |  |  |
 | typescript | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | first available: `tsc` → `typescript-language-server` → `vtsls` |

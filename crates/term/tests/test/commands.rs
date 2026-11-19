@@ -7,11 +7,13 @@ use view::{
 
 use super::*;
 
+mod buffers;
 mod insert;
 mod movement;
 mod replace;
 mod reverse_selection_contents;
 mod rotate_selection_contents;
+mod search;
 mod sort;
 #[cfg(feature = "git")]
 mod vcs;
@@ -1084,7 +1086,6 @@ async fn test_insert_newline_after_last_gdscript_body_line() -> anyhow::Result<(
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_join_selections() -> anyhow::Result<()> {
-    // normal join
     test((
         indoc! {"\
             #[a|]#bc
@@ -1097,26 +1098,11 @@ async fn test_join_selections() -> anyhow::Result<()> {
     ))
     .await?;
 
-    // join with empty line
     test((
         indoc! {"\
             #[a|]#bc
 
             def
-        "},
-        "JJ",
-        indoc! {"\
-            #[a|]#bc def
-        "},
-    ))
-    .await?;
-
-    // join with additional space in non-empty line
-    test((
-        indoc! {"\
-            #[a|]#bc
-
-                def
         "},
         "JJ",
         indoc! {"\
@@ -1130,7 +1116,6 @@ async fn test_join_selections() -> anyhow::Result<()> {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_join_selections_space() -> anyhow::Result<()> {
-    // join with empty lines panic
     test((
         indoc! {"\
             #[a
@@ -1150,7 +1135,6 @@ async fn test_join_selections_space() -> anyhow::Result<()> {
     ))
     .await?;
 
-    // normal join
     test((
         indoc! {"\
             #[a|]#bc
@@ -1159,51 +1143,6 @@ async fn test_join_selections_space() -> anyhow::Result<()> {
         "<A-J>",
         indoc! {"\
             abc#[ |]#def
-        "},
-    ))
-    .await?;
-
-    // join with empty line
-    test((
-        indoc! {"\
-            #[a|]#bc
-
-            def
-        "},
-        "<A-J>",
-        indoc! {"\
-            #[a|]#bc
-            def
-        "},
-    ))
-    .await?;
-
-    // join with additional space in non-empty line
-    test((
-        indoc! {"\
-            #[a|]#bc
-
-                def
-        "},
-        "<A-J><A-J>",
-        indoc! {"\
-            abc#[ |]#def
-        "},
-    ))
-    .await?;
-
-    // join with retained trailing spaces
-    test((
-        indoc! {"\
-            #[aaa   
-
-            bb  
-
-            c |]#
-        "},
-        "<A-J>",
-        indoc! {"\
-            aaa   #[ |]#bb  #( |)#c 
         "},
     ))
     .await?;
@@ -1575,121 +1514,6 @@ async fn nested_macro_can_supply_count_to_outer_macro() -> anyhow::Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn test_move_selection_single_selection_up() -> anyhow::Result<()> {
-    test((
-        indoc! {"
-            aaaaaa
-            bbbbbb
-            cc#[|c]#ccc
-            dddddd
-            "},
-        "<C-k>",
-        indoc! {"
-            aaaaaa
-            cc#[|c]#ccc
-            bbbbbb
-            dddddd
-            "},
-    ))
-    .await?;
-    Ok(())
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn test_move_selection_single_selection_down() -> anyhow::Result<()> {
-    test((
-        indoc! {"
-            aa#[|a]#aaa
-            bbbbbb
-            cccccc
-            dddddd
-            "},
-        "<C-j>",
-        indoc! {"
-            bbbbbb
-            aa#[|a]#aaa
-            cccccc
-            dddddd
-            "},
-    ))
-    .await?;
-    Ok(())
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn test_move_selection_single_selection_top_up() -> anyhow::Result<()> {
-    // if already on top of the file and going up, nothing should change
-    test((
-        indoc! {"
-            aa#[|a]#aaa
-            bbbbbb
-            cccccc
-            dddddd"},
-        "<C-k>",
-        indoc! {"
-            aa#[|a]#aaa
-            bbbbbb
-            cccccc
-            dddddd"},
-    ))
-    .await?;
-    Ok(())
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn test_move_selection_single_selection_bottom_down() -> anyhow::Result<()> {
-    // If going down on the bottom line, nothing should change. `AsIs` keeps
-    // the document without a trailing newline, so the last line really is at
-    // the edge (the default handling appends one, leaving an empty trailing
-    // line for the move to swap with).
-    test((
-        "aaaaaa\nbbbbbb\ncccccc\ndd#[|d]#ddd",
-        "<C-j>",
-        "aaaaaa\nbbbbbb\ncccccc\ndd#[|d]#ddd",
-        LineFeedHandling::AsIs,
-    ))
-    .await?;
-    Ok(())
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn test_move_selection_multiple_cursors_top_up() -> anyhow::Result<()> {
-    // The run at the top edge stays put, while the other run still moves.
-    test((
-        indoc! {"
-            #[|a]#aaaaa
-            bbbbbb
-            #(c|)#ccccc
-            dddddd
-            "},
-        "<C-k>",
-        indoc! {"
-            #[|a]#aaaaa
-            #(c|)#ccccc
-            bbbbbb
-            dddddd
-            "},
-    ))
-    .await?;
-    Ok(())
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn test_move_selection_multiple_cursors_bottom_down() -> anyhow::Result<()> {
-    // The run at the bottom edge stays put, while the other run still moves.
-    // `AsIs` keeps the document without a trailing newline, so the last line
-    // really is at the edge.
-    test((
-        "aaaaaa\n#[|b]#bbbbb\ncccccc\n#(d|)#ddddd",
-        "<C-j>",
-        "aaaaaa\ncccccc\n#[|b]#bbbbb\n#(d|)#ddddd",
-        LineFeedHandling::AsIs,
-    ))
-    .await?;
-    Ok(())
-}
-
-#[tokio::test(flavor = "multi_thread")]
 async fn test_move_selection_block_ending_in_empty_line_down() -> anyhow::Result<()> {
     test((
         "\nblock_1-line_1\nblock_1-line_2\n#[|]#block_1-line_3\nblock_1-line_4\nblock_1-line_5\n\n\
@@ -1698,75 +1522,6 @@ async fn test_move_selection_block_ending_in_empty_line_down() -> anyhow::Result
         "\nblock_2-line_1\nblock_2-line_2\nblock_2-line_3\nblock_2-line_4\nblock_2-line_5\n\n\
          #[block_1-line_1\nblock_1-line_2\nblock_1-line_3\nblock_1-line_4\nblock_1-line_5\n\n|]#",
         LineFeedHandling::AsIs,
-    ))
-    .await?;
-    Ok(())
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn test_move_selection_block_up() -> anyhow::Result<()> {
-    test((
-        indoc! {"
-            aaaaaa
-            bb#[bbbb
-            ccc|]#ccc
-            dddddd
-            eeeeee
-            "},
-        "<C-k>",
-        indoc! {"
-            bb#[bbbb
-            ccc|]#ccc
-            aaaaaa
-            dddddd
-            eeeeee
-            "},
-    ))
-    .await?;
-    Ok(())
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn test_move_selection_block_down() -> anyhow::Result<()> {
-    test((
-        indoc! {"
-            #[|aaaaaa
-            bbbbbb
-            ccc]#ccc
-            dddddd
-            eeeeee
-            "},
-        "<C-j>",
-        indoc! {"
-            dddddd
-            #[|aaaaaa
-            bbbbbb
-            ccc]#ccc
-            eeeeee
-            "},
-    ))
-    .await?;
-    Ok(())
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn test_move_two_cursors_down() -> anyhow::Result<()> {
-    test((
-        indoc! {"
-            aaaaaa
-            bb#[|b]#bbb
-            cccccc
-            d#(dd|)#ddd
-            eeeeee
-            "},
-        "<C-j>",
-        indoc! {"
-            aaaaaa
-            cccccc
-            bb#[|b]#bbb
-            eeeeee
-            d#(dd|)#ddd
-            "},
     ))
     .await?;
     Ok(())
@@ -1785,24 +1540,6 @@ async fn move_lines_counts_and_history() -> anyhow::Result<()> {
     ] {
         test((input, keys, expected, LineFeedHandling::AsIs)).await?;
     }
-    Ok(())
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn move_lines_preserves_empty_tail_at_eof() -> anyhow::Result<()> {
-    for input in ["#[a\n\n|]#b", "#[a\r\n\r\n|]#b"] {
-        test((input, "<C-j>", input, LineFeedHandling::AsIs)).await?;
-        test((input, "<C-j><C-k>", input, LineFeedHandling::AsIs)).await?;
-    }
-    test(("#[\n|]#b", "<C-j><C-k>", "#[\n|]#b", LineFeedHandling::AsIs)).await?;
-    test(("a\n#[|]#", "<C-k><C-j>", "a\n#[|]#", LineFeedHandling::AsIs)).await?;
-    test((
-        "#[a\n\n|]#b\nc",
-        "99<C-j>",
-        "b\n#[a\n\n|]#c",
-        LineFeedHandling::AsIs,
-    ))
-    .await?;
     Ok(())
 }
 

@@ -9,7 +9,7 @@ use event::TaskController;
 use super::Query;
 
 /// This state lives in DocumentViewState. Removing the relationship cancels its
-/// request; presentation copies retain values without copying live services.
+/// request. Search results remain tied to their live buffer snapshot.
 #[derive(Debug, Default)]
 pub(crate) struct State {
     pub(super) query: Option<Query>,
@@ -25,17 +25,6 @@ impl State {
         self.snapshot
             .as_ref()
             .is_some_and(|snapshot| snapshot.is_current(buffer))
-    }
-
-    pub(crate) fn presentation(&self) -> Self {
-        Self {
-            query: self.query.clone(),
-            snapshot: self.snapshot.clone(),
-            limit: self.limit,
-            statistics: self.statistics.clone(),
-            target: self.target,
-            ..Self::default()
-        }
     }
 
     pub(crate) fn clear_position(&mut self) {

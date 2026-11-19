@@ -27,6 +27,7 @@ pub enum PromptAction {
     CompletePrevious,
     ExitSelection,
     InsertRegister,
+    ToggleSearchSyntax,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
@@ -78,6 +79,8 @@ pub enum PickerItemAction {
     DeleteBranch,
     CreateWorktree,
     RemoveWorktree,
+    LockWorktree,
+    UnlockWorktree,
     CreatePath,
     MovePath,
     CopyPath,
@@ -157,6 +160,8 @@ impl PickerAction {
                 PickerItemAction::DeleteBranch => "Delete branch",
                 PickerItemAction::CreateWorktree => "Create worktree",
                 PickerItemAction::RemoveWorktree => "Remove worktree",
+                PickerItemAction::LockWorktree => "Lock worktree",
+                PickerItemAction::UnlockWorktree => "Unlock worktree",
             },
         }
     }
@@ -230,8 +235,8 @@ fn bindings<A: Copy>(entries: &[(&str, A)]) -> Keymap<A> {
     let mut keys = Keymap::default();
     for &(key, action) in entries {
         assert!(
-            keys.0
-                .insert(key.parse().unwrap(), Binding::Actions(vec![action]))
+            keys.bindings
+                .insert(key.parse().unwrap(), Binding::Action(action))
                 .is_none(),
             "duplicate default binding: {key}"
         );
@@ -276,8 +281,8 @@ impl ComponentKeymaps {
             ("b", S::Hide),
             ("r", S::Resize),
         ]);
-        keys.0
-            .insert("C-w".parse().unwrap(), Binding::Keys(windows));
+        keys.bindings
+            .insert("C-w".parse().unwrap(), Binding::Node(windows));
         keys
     }
     pub fn git_picker(mut shared: Keymap<PickerAction>) -> Keymap<PickerAction> {
@@ -314,6 +319,9 @@ impl ComponentKeymaps {
     }
 
     pub fn branch_picker(mut shared: Keymap<PickerAction>) -> Keymap<PickerAction> {
+        shared
+            .bindings
+            .retain(|_, binding| binding.actions() != Some(&[PickerAction::ToggleLoading]));
         shared.merge(bindings(&[
             ("A-n", PickerAction::Item(PickerItemAction::CreateBranch)),
             ("A-d", PickerAction::Item(PickerItemAction::DeleteBranch)),
@@ -322,9 +330,14 @@ impl ComponentKeymaps {
     }
 
     pub fn worktree_picker(mut shared: Keymap<PickerAction>) -> Keymap<PickerAction> {
+        shared
+            .bindings
+            .retain(|_, binding| binding.actions() != Some(&[PickerAction::ToggleLoading]));
         shared.merge(bindings(&[
             ("A-n", PickerAction::Item(PickerItemAction::CreateWorktree)),
             ("A-d", PickerAction::Item(PickerItemAction::RemoveWorktree)),
+            ("A-l", PickerAction::Item(PickerItemAction::LockWorktree)),
+            ("A-u", PickerAction::Item(PickerItemAction::UnlockWorktree)),
         ]));
         shared
     }
@@ -420,6 +433,7 @@ impl Default for ComponentKeymaps {
                 ("S-tab", P::CompletePrevious),
                 ("C-q", P::ExitSelection),
                 ("C-r", P::InsertRegister),
+                ("A-r", P::ToggleSearchSyntax),
             ]),
             buffer_picker: picker.clone(),
             quicklist_picker: quicklist_picker_keymap(&picker),
@@ -471,14 +485,12 @@ impl Default for ComponentKeymaps {
 }
 
 pub(crate) fn action_hint<A: PartialEq>(keys: &Keymap<A>, action: &A) -> String {
-    keys.0
+    keys.bindings
         .iter()
         .filter_map(|(key, binding)| {
             let suffix = match binding {
-                Binding::Actions(actions) if actions.as_slice() == std::slice::from_ref(action) => {
-                    String::new()
-                }
-                Binding::Keys(keys) => {
+                binding if binding.actions() == Some(std::slice::from_ref(action)) => String::new(),
+                Binding::Node(keys) => {
                     let hint = action_hint(keys, action);
                     if hint == "unbound" {
                         return None;

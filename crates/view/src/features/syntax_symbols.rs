@@ -98,8 +98,9 @@ impl WorkspaceSymbols {
         let search_root = editor
             .document(document)
             .and_then(Document::path)
-            .map(|path| workspace::find_workspace_in(path).0)
-            .unwrap_or_else(|| workspace::find_workspace().0);
+            .map(workspace::ResolvedWorkspace::resolve)
+            .unwrap_or_else(workspace::ResolvedWorkspace::current)
+            .into_root();
         let refresh = Mutex::new(WorkspaceChanges::new(
             editor,
             &search_root,

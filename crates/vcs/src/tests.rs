@@ -70,13 +70,13 @@ async fn enumeration_uses_one_provider_and_stops_on_successful_empty_results() {
 
 #[tokio::test]
 async fn empty_or_unavailable_registries_report_one_terminal_error() {
-    for providers in [registry(&[]), registry(&[None, None])] {
+    for (providers, expected) in [
+        (registry(&[]), "No VCS provider available"),
+        (registry(&[None, None]), "test provider unavailable"),
+    ] {
         let results = statuses(providers).await;
         assert_eq!(results.len(), 1);
-        assert_eq!(
-            results[0].as_ref().unwrap_err().to_string(),
-            "no diff provider returns success"
-        );
+        assert_eq!(results[0].as_ref().unwrap_err().to_string(), expected);
     }
     #[cfg(not(feature = "git"))]
     assert!(DiffProviderRegistry::default().providers.is_empty());
@@ -104,4 +104,36 @@ fn fallback_keeps_git_diff_status_and_comparison_behavior() {
         .unwrap();
     assert_eq!(comparison.before, b"before");
     assert_eq!(comparison.after, b"after");
+}
+
+#[test]
+fn watch_refresh_inspects_each_directory_and_trust_pair_once() {
+    let mut inspected = Vec::new();
+    let paths = [
+        (Path::new("repo"), false),
+        (Path::new("repo"), false),
+        (Path::new("repo/nested"), false),
+        (Path::new("repo"), true),
+        (Path::new("linked"), false),
+    ];
+    let watches = super::collect_repository_watches(paths, |path, trusted| {
+        inspected.push((path.to_owned(), trusted));
+        RepositoryWatches {
+            paths: vec![path.join("index")],
+            files: vec![path.join("ignored-revs")],
+        }
+    });
+    assert_eq!(inspected.len(), 4);
+    assert_eq!(watches.paths.len(), 4);
+    assert_eq!(watches.files.len(), 4);
+    assert!(inspected.contains(&(Path::new("repo").to_owned(), false)));
+    assert!(inspected.contains(&(Path::new("repo").to_owned(), true)));
+    assert!(inspected.contains(&(Path::new("repo/nested").to_owned(), false)));
+    assert!(inspected.contains(&(Path::new("linked").to_owned(), false)));
+    // A subsequent refresh inspects again rather than retaining configuration or trust.
+    super::collect_repository_watches(paths, |path, trusted| {
+        inspected.push((path.to_owned(), trusted));
+        RepositoryWatches::default()
+    });
+    assert_eq!(inspected.len(), 8);
 }

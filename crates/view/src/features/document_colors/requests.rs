@@ -1,7 +1,5 @@
 //! Shared coordination for LSP document colors results.
 
-use std::collections::HashSet;
-
 use event::register_hook;
 use futures_util::stream::FuturesUnordered;
 use language_config::LanguageServerFeature;
@@ -57,11 +55,11 @@ fn request_document_colors(
     let cancel = doc.document_colors.request.restart();
 
     // Exit hooks run before the server is removed from the registry.
-    let mut seen_language_servers = HashSet::new();
+    let mut servers = Vec::new();
     let futures: FuturesUnordered<_> = doc
         .language_servers_with_feature(LanguageServerFeature::DocumentColors)
         .filter(|ls| Some(ls.id()) != exited_server)
-        .filter(|ls| seen_language_servers.insert(ls.id()))
+        .inspect(|server| servers.push(server.id()))
         .map(|language_server| {
             let text = doc.text().clone();
             let offset_encoding = language_server.offset_encoding();
@@ -91,7 +89,7 @@ fn request_document_colors(
         return;
     }
 
-    let request = DocumentRequest::new(doc, cancel, seen_language_servers.into_iter().collect());
+    let request = DocumentRequest::new(doc, cancel, servers);
 
     tokio::spawn(async move {
         let Some(all_colors) = collect_responses(futures, &request.cancel, "document color").await
@@ -149,7 +147,7 @@ fn attach_document_colors(
     });
 }
 
-pub(crate) fn register_hooks(events: &event::EventHub) {
+pub(crate) fn register_hooks(events: &event::EventHub, hooks: crate::handlers::DocumentHooks) {
     register_hook!(events => move |event: &mut DocumentLanguageDidChange<'_>| {
         request_document_colors(event.editor, event.doc, None);
         Ok(())
@@ -164,7 +162,11 @@ pub(crate) fn register_hooks(events: &event::EventHub) {
     register_hook!(events => move |event: &mut DocumentDidChange<'_>| {
         // Cancel the ongoing request, if present.
         event.doc.document_colors.request.cancel();
-        if let Some(handler) = &event.doc.document_colors.handler {
+        if !event.doc.is_content_readonly()
+            && let Some(services) = hooks.upgrade()
+            && let Some(services) = services.get()
+        {
+            let handler = &services.document_colors;
             event::send_blocking(&handler.events, event.doc.id());
         }
 

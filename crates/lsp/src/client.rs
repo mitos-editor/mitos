@@ -1,10 +1,17 @@
 //! Shared client state and JSON-RPC request, notification, and response dispatch.
 
+mod diagnostics;
 mod document;
 mod file_operations;
+mod partial;
 mod process;
 mod requests;
 mod workspace;
+
+pub use diagnostics::WorkspaceDiagnosticRequest;
+#[cfg(test)]
+pub(crate) use partial::{collect, start_request};
+pub use partial::{PartialResultRequest, RequestUpdate};
 
 use crate::{
     file_operations::FileOperationsInterest,

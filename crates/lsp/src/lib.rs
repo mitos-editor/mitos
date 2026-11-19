@@ -13,15 +13,16 @@
 //! bug for non-ASCII text.
 //!
 //! Protocol wire types are available under [`lsp`] and intentionally remain in
-//! the upstream `lsp-types` dependency, with editor URI adapters in [`UriExt`].
+//! the workspace's `lsp-types` crate, with editor URI adapters in [`UriExt`].
 
 mod client;
+mod completion;
 pub mod file_event;
 mod file_operations;
 pub mod jsonrpc;
 mod transport;
 
-pub use client::Client;
+pub use client::{Client, PartialResultRequest, RequestUpdate, WorkspaceDiagnosticRequest};
 pub use futures_executor::block_on;
 pub use jsonrpc::Call;
 pub use lsp::{Position, Url};
@@ -103,8 +104,10 @@ pub enum MethodCall {
     ShowDocument(lsp::ShowDocumentParams),
     WorkspaceDiagnosticRefresh,
     CodeLensRefresh,
+    FoldingRangeRefresh,
     SemanticTokensRefresh,
     InlineValueRefresh,
+    InlayHintRefresh,
     ShowMessageRequest(lsp::ShowMessageRequestParams),
 }
 
@@ -139,8 +142,10 @@ impl MethodCall {
             }
             lsp::request::WorkspaceDiagnosticRefresh::METHOD => Self::WorkspaceDiagnosticRefresh,
             lsp::request::CodeLensRefresh::METHOD => Self::CodeLensRefresh,
+            lsp::request::FoldingRangeRefreshRequest::METHOD => Self::FoldingRangeRefresh,
             lsp::request::SemanticTokensRefresh::METHOD => Self::SemanticTokensRefresh,
             lsp::request::InlineValueRefreshRequest::METHOD => Self::InlineValueRefresh,
+            lsp::request::InlayHintRefreshRequest::METHOD => Self::InlayHintRefresh,
             lsp::request::ShowMessageRequest::METHOD => {
                 let params: lsp::ShowMessageRequestParams = params.parse()?;
                 Self::ShowMessageRequest(params)
@@ -237,14 +242,6 @@ impl LspProgressMap {
         self.0.remove(&server);
     }
 
-    /// Returns a map of all tokens corresponding to the language server with `id`.
-    pub fn progress_map(
-        &self,
-        id: LanguageServerId,
-    ) -> Option<&HashMap<lsp::ProgressToken, ProgressStatus>> {
-        self.0.get(&id)
-    }
-
     pub fn is_progressing(&self, id: LanguageServerId) -> bool {
         self.0.get(&id).map(|it| !it.is_empty()).unwrap_or_default()
     }
@@ -263,14 +260,6 @@ impl LspProgressMap {
             ProgressStatus::Created => None,
             ProgressStatus::Started { title, .. } => Some(title),
         })
-    }
-
-    /// Checks if progress `token` for server with `id` is created.
-    pub fn is_created(&mut self, id: LanguageServerId, token: &lsp::ProgressToken) -> bool {
-        self.0
-            .get(&id)
-            .map(|values| values.get(token).is_some())
-            .unwrap_or_default()
     }
 
     pub fn create(&mut self, id: LanguageServerId, token: lsp::ProgressToken) {
@@ -324,3 +313,6 @@ impl LspProgressMap {
             });
     }
 }
+
+#[cfg(feature = "test-support")]
+pub mod test_support;

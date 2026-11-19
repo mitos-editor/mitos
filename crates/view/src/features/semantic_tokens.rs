@@ -1,9 +1,11 @@
 //! Snapshot-bound semantic highlighting. Servers refine syntax; they do not
 //! replace it. A document uses the first configured provider, deterministically.
 
-use std::ops::Range;
+mod delta;
 
-use editor_core::Rope;
+use std::{ops::Range, sync::Arc};
+
+use editor_core::{ChangeSet, Rope};
 use event::{cancelable_future, register_hook, TaskController};
 use language_config::LanguageServerFeature;
 use lsp_client::{lsp, LanguageServerId, OffsetEncoding};
@@ -20,7 +22,7 @@ use crate::{
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SemanticToken {
-    /// Character offsets in the exact document snapshot used by the server.
+    /// Character offsets in the current document, mapped through intervening edits.
     pub range: Range<usize>,
     pub scope: String,
 }
@@ -30,13 +32,45 @@ pub(crate) struct SemanticTokens {
     cache: Vec<SemanticToken>,
     revision: u64,
     request: TaskController,
-    pub(crate) handler: Option<SemanticTokensHandler>,
+    base: Option<DeltaBase>,
+}
+
+struct DeltaBase {
+    server: LanguageServerId,
+    uri: lsp::Url,
+    legend: lsp::SemanticTokensLegend,
+    result: Arc<lsp::SemanticTokens>,
 }
 
 impl SemanticTokens {
     pub(crate) fn invalidate(&mut self) {
+        self.base = None;
         self.request.cancel();
         self.cache.clear();
+        self.revision = self.revision.wrapping_add(1);
+    }
+
+    pub(crate) fn apply_changes(&mut self, changes: &ChangeSet) {
+        self.request.cancel();
+        // Both streams are ordered. Within each retained span, positions move
+        // by the difference between the preceding edit's old and new ends.
+        let mut edits = changes.changed_ranges(0).peekable();
+        let (mut old_end, mut new_end) = (0, 0);
+        self.cache.retain_mut(|token| {
+            while let Some((old, new)) = edits.next_if(|(old, _)| old.end < token.range.start) {
+                (old_end, new_end) = (old.end, new.end);
+            }
+            // An edit at either boundary can merge adjacent text into the token.
+            if edits
+                .peek()
+                .is_some_and(|(old, _)| old.start <= token.range.end)
+            {
+                return false;
+            }
+            token.range =
+                (token.range.start - old_end + new_end)..(token.range.end - old_end + new_end);
+            true
+        });
         self.revision = self.revision.wrapping_add(1);
     }
 
@@ -89,34 +123,96 @@ fn request(editor: &mut Editor, doc_id: DocumentId, exited: Option<LanguageServe
     let server_id = server.id();
     let encoding = server.offset_encoding();
     let legend = server.semantic_tokens_options().unwrap().legend.clone();
+    let supports_delta = matches!(
+        server.semantic_tokens_options().unwrap().full,
+        Some(lsp::SemanticTokensFullOptions::Delta { delta: Some(true) })
+    );
+    let identifier = doc.identifier();
+    let base = doc
+        .semantic_tokens
+        .base
+        .as_ref()
+        .filter(|base| {
+            base.server == server_id && base.uri == identifier.uri && base.legend == legend
+        })
+        .map(|base| base.result.clone());
+    let delta_request = base
+        .as_ref()
+        .and_then(|base| server.semantic_tokens_delta(identifier.clone(), base.result_id.clone()?));
+    // Retain the client only for this cancelable request, so an invalid delta can
+    // be retried with a full request without eagerly sending that request too.
+    let client = doc
+        .language_servers
+        .get(server.name())
+        .unwrap()
+        .client
+        .clone();
     let text = doc.text().clone();
     let end = lsp_client::util::pos_to_lsp_pos(&text, text.len_chars(), encoding);
-    let Some(future) = server.semantic_tokens(doc.identifier(), end) else {
-        return;
-    };
+    let full_request = delta_request
+        .is_none()
+        .then(|| server.semantic_tokens(identifier.clone(), end).unwrap());
     let snapshot = DocumentRequest::new(doc, cancel, vec![server_id]);
     tokio::spawn(async move {
+        let future = async {
+            if let Some(request) = delta_request {
+                match request.await {
+                    Ok(Some(response)) => {
+                        if let Some(result) = delta::reconstruct(&base.unwrap().data, response) {
+                            return Ok(Some(result));
+                        }
+                        log::warn!("invalid semantic token delta; retrying full request");
+                    }
+                    Ok(None) => return Ok(None),
+                    Err(error) => {
+                        log::debug!("semantic token delta failed; retrying full request: {error}")
+                    }
+                }
+                client
+                    .semantic_tokens(identifier.clone(), end)
+                    .unwrap()
+                    .await
+            } else {
+                full_request.unwrap().await
+            }
+        };
         let Some(result) = cancelable_future(future, &snapshot.cancel).await else {
             return;
         };
-        let tokens = match result {
-            Ok(tokens) => decode(&text, &tokens, &legend, encoding),
+        let result = match result {
+            Ok(tokens) => tokens,
             Err(error) => {
                 log::error!("semantic tokens request failed: {error}");
                 return;
             }
         };
+        let tokens = result.as_ref().map_or_else(Vec::new, |result| {
+            decode(&text, &result.data, &legend, encoding)
+        });
         callbacks
             .send(move |editor| {
                 if snapshot.is_current(editor)
                     && editor.config().lsp.enable
                     && editor.config().lsp.semantic_tokens.enable
+                    && editor.document(doc_id).is_some_and(|doc| {
+                        doc.language_servers_with_feature(LanguageServerFeature::SemanticTokens)
+                            .next()
+                            .is_some_and(|server| {
+                                server.id() == server_id
+                                    && server.semantic_tokens_options().unwrap().legend == legend
+                            })
+                    })
                 {
-                    editor
-                        .document_mut(doc_id)
-                        .unwrap()
-                        .semantic_tokens
-                        .publish(tokens);
+                    let state = &mut editor.document_mut(doc_id).unwrap().semantic_tokens;
+                    state.base = result
+                        .filter(|result| supports_delta && result.result_id.is_some())
+                        .map(|result| DeltaBase {
+                            server: server_id,
+                            uri: identifier.uri,
+                            legend,
+                            result: Arc::new(result),
+                        });
+                    state.publish(tokens);
                     editor.redraw().request();
                 }
             })
@@ -252,6 +348,14 @@ pub(crate) fn refresh_document(editor: &mut Editor, doc: DocumentId) {
     request(editor, doc, None);
 }
 
+/// Request fresh tokens after a configuration reload cleared the document caches.
+pub fn refresh_after_config_reload(editor: &mut Editor) {
+    let docs: Vec<_> = editor.documents().map(Document::id).collect();
+    for doc in docs {
+        request(editor, doc, None);
+    }
+}
+
 pub fn refresh_for_language_server(editor: &mut Editor, server: LanguageServerId) {
     let docs: Vec<_> = editor
         .documents()
@@ -263,11 +367,17 @@ pub fn refresh_for_language_server(editor: &mut Editor, server: LanguageServerId
     }
 }
 
-pub(crate) fn register_hooks(events: &event::EventHub) {
+pub(crate) fn register_hooks(events: &event::EventHub, hooks: crate::handlers::DocumentHooks) {
     register_hook!(events => move |event: &mut DocumentDidOpen<'_>| { request(event.editor, event.doc, None); Ok(()) });
     register_hook!(events => move |event: &mut DocumentLanguageDidChange<'_>| { request(event.editor, event.doc, None); Ok(()) });
     register_hook!(events => move |event: &mut DocumentDidChange<'_>| {
-        if let Some(handler) = &event.doc.semantic_tokens.handler { event::send_blocking(&handler.events, event.doc.id()); }
+        if !event.doc.is_content_readonly()
+            && let Some(services) = hooks.upgrade()
+            && let Some(services) = services.get()
+        {
+            let handler = &services.semantic_tokens;
+            event::send_blocking(&handler.events, event.doc.id());
+        }
         Ok(())
     });
     register_hook!(events => move |event: &mut LanguageServerInitialized<'_>| { refresh_for_language_server(event.editor, event.server_id); Ok(()) });
@@ -378,15 +488,26 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn edits_clear_semantics_and_cancel_queued_publications() {
-        let mut doc = crate::document::test_document("foo");
+    async fn edits_cancel_queued_publications_and_remap_untouched_tokens() {
+        let mut doc = crate::document::test_document("foo bar baz qux");
         let cancel = doc.semantic_tokens.request.restart();
-        doc.semantic_tokens.cache.push(SemanticToken {
-            range: 0..3,
-            scope: "function".into(),
-        });
-        doc.semantic_tokens.invalidate();
+        doc.semantic_tokens.cache = (0..4)
+            .map(|i| SemanticToken {
+                range: 4 * i..4 * i + 3,
+                scope: "function".into(),
+            })
+            .collect();
+        let edit = editor_core::Transaction::change(
+            doc.text(),
+            [(1, 2, None), (9, 10, Some("xyz".into()))].into_iter(),
+        );
+        doc.semantic_tokens.apply_changes(edit.changes());
         assert!(cancel.is_canceled());
-        assert!(doc.semantic_tokens().is_empty());
+        let ranges: Vec<_> = doc
+            .semantic_tokens()
+            .iter()
+            .map(|token| token.range.clone())
+            .collect();
+        assert_eq!(ranges, [3..6, 13..16]);
     }
 }

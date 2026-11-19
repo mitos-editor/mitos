@@ -104,33 +104,23 @@ fn execute_inner(
             upstream = upstream.with_url_without_url_rewrite(url)?;
         }
     }
-    let expected = format!("+refs/heads/*:refs/remotes/{name}/*");
     let specs = upstream.refspecs(gix::remote::Direction::Fetch);
-    if branch.is_some() {
-        // Pull replaces these specs with one explicit branch request below. Keep
-        // custom mappings and exclusions with Git rather than silently overriding them.
-        if specs.len() != 1 || specs[0].to_ref().to_bstring() != expected.as_bytes() {
-            return Ok(NativeOutcome::Unsupported("fetch refspecs"));
-        }
-    } else {
-        use gix::refspec::{instruction::Fetch, Instruction};
-        let destination = format!("refs/remotes/{name}/");
-        let mut has_mapping = false;
-        for spec in specs {
-            match spec.to_ref().instruction() {
-                Instruction::Fetch(Fetch::AndUpdate { src, dst, .. })
-                    if src.starts_with(b"refs/heads/")
-                        && dst.starts_with(destination.as_bytes()) =>
-                {
-                    has_mapping = true;
-                }
-                Instruction::Fetch(Fetch::Exclude { src }) if src.starts_with(b"refs/heads/") => {}
-                _ => return Ok(NativeOutcome::Unsupported("fetch refspecs")),
+    use gix::refspec::{instruction::Fetch, Instruction};
+    let destination = format!("refs/remotes/{name}/");
+    let mut has_mapping = false;
+    for spec in specs {
+        match spec.to_ref().instruction() {
+            Instruction::Fetch(Fetch::AndUpdate { src, dst, .. })
+                if src.starts_with(b"refs/heads/") && dst.starts_with(destination.as_bytes()) =>
+            {
+                has_mapping = true;
             }
+            Instruction::Fetch(Fetch::Exclude { src }) if src.starts_with(b"refs/heads/") => {}
+            _ => return Ok(NativeOutcome::Unsupported("fetch refspecs")),
         }
-        if !has_mapping {
-            return Ok(NativeOutcome::Unsupported("fetch refspecs"));
-        }
+    }
+    if !has_mapping {
+        return Ok(NativeOutcome::Unsupported("fetch refspecs"));
     }
     let merge: Vec<BString> = if let Some(branch) = branch {
         vec![format!("refs/heads/{branch}").into()]
@@ -158,8 +148,16 @@ fn execute_inner(
         return Ok(NativeOutcome::Unsupported("upstream refspec"));
     }
     let upstream = if let Some(branch) = branch {
-        let spec = format!("+refs/heads/{branch}:refs/remotes/{name}/{branch}");
-        upstream.with_refspecs([spec.as_str()], gix::remote::Direction::Fetch)?
+        let source = format!("refs/heads/{branch}");
+        let Some(selected) = pull_refspecs(specs, source.as_bytes().as_bstr(), repo.object_hash())?
+        else {
+            return Ok(NativeOutcome::Unsupported("fetch refspecs"));
+        };
+        upstream.replace_refspecs(
+            selected.iter().map(|spec| spec.as_bstr()),
+            gix::remote::Direction::Fetch,
+        )?;
+        upstream
     } else if !merge.is_empty() {
         // Git also fetches the configured upstream into FETCH_HEAD when no mapping
         // covers it. Keep these source-only requests in the same group so negative
@@ -170,10 +168,11 @@ fn execute_inner(
             .map(|spec| spec.to_ref().to_bstring())
             .chain(merge.iter().cloned())
             .collect();
-        upstream.with_refspecs(
+        upstream.replace_refspecs(
             specs.iter().map(|spec| spec.as_bstr()),
             gix::remote::Direction::Fetch,
-        )?
+        )?;
+        upstream
     } else {
         upstream
     };
@@ -343,4 +342,76 @@ fn record_default_head(
         .with_deref(false),
     )?;
     Ok(())
+}
+
+/// Specialize configured tracking mappings to one explicitly requested branch.
+fn pull_refspecs(
+    specs: &[gix::refspec::RefSpec],
+    source: &gix::bstr::BStr,
+    hash: gix::hash::Kind,
+) -> Result<Option<Vec<BString>>> {
+    use gix::refspec::{instruction::Fetch, Instruction};
+    // Match configured mappings rather than inventing a conventional tracking
+    // name. Specializing to this source avoids fetching unrelated branches.
+    let item = gix::refspec::match_group::Item {
+        full_ref_name: source,
+        target: hash.null_ref(),
+        object: None,
+    };
+    let outcome =
+        gix::refspec::MatchGroup::from_fetch_specs(specs.iter().map(|spec| spec.to_ref()))
+            .match_lhs(std::iter::once(item));
+    // An explicit Git fetch overrides configured exclusions. Keep that existing
+    // porcelain behavior in the fallback, before contacting the remote.
+    let request = gix::refspec::parse(source, gix::refspec::parse::Operation::Fetch)?;
+    if gix::refspec::MatchGroup::from_fetch_specs(std::iter::once(request).chain(
+        specs.iter().map(|spec| spec.to_ref()).filter(|spec| {
+            matches!(
+                spec.instruction(),
+                Instruction::Fetch(Fetch::Exclude { .. })
+            )
+        }),
+    ))
+    .match_lhs(std::iter::once(item))
+    .mappings
+    .is_empty()
+    {
+        return Ok(None);
+    }
+    let mut selected = vec![source.to_owned()];
+    for mapping in outcome.mappings {
+        if let Some(destination) = mapping.rhs {
+            let mut spec = BString::default();
+            if specs[mapping.spec_index].allow_non_fast_forward() {
+                spec.push(b'+');
+            }
+            spec.extend_from_slice(source);
+            spec.push(b':');
+            spec.extend_from_slice(&destination);
+            selected.push(spec);
+        }
+    }
+    Ok(Some(selected))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pull_mappings_preserve_non_utf8_destination_bytes() -> Result<()> {
+        let raw = b"+refs/heads/main:refs/remotes/origin/non-utf8-\xff";
+        let spec =
+            gix::refspec::parse(raw.as_bstr(), gix::refspec::parse::Operation::Fetch)?.to_owned();
+        let selected =
+            pull_refspecs(&[spec], "refs/heads/main".into(), gix::hash::Kind::Sha1)?.unwrap();
+        assert_eq!(
+            selected,
+            vec![
+                BString::from("refs/heads/main"),
+                BString::from(raw.as_slice())
+            ]
+        );
+        Ok(())
+    }
 }

@@ -1,4 +1,7 @@
 use text_layout::DisplayPosition;
+use view::document::PresentedDocument;
+#[cfg(test)]
+use view::Document;
 
 use ::diagnostics::Diagnostic;
 use ::diagnostics::Severity;
@@ -9,7 +12,6 @@ use view::annotations::diagnostics::InlineDiagnosticAccumulator;
 use theme::icons::ICONS;
 use theme::Style;
 use theme::Theme;
-use view::Document;
 
 use crate::ui::document::{LinePos, TextRenderer};
 use crate::ui::text_decorations::Decoration;
@@ -51,7 +53,7 @@ pub struct InlineDiagnostics<'a> {
 
 impl<'a> InlineDiagnostics<'a> {
     pub fn new(
-        doc: &'a Document,
+        doc: PresentedDocument<'a>,
         theme: &Theme,
         cursor: usize,
         config: InlineDiagnosticsConfig,
@@ -124,6 +126,10 @@ impl InlineDiagnostics<'_> {
 }
 
 impl Decoration for InlineDiagnostics<'_> {
+    fn can_skip_unwrapped_tail(&self) -> bool {
+        !self.state.has_pending_diagnostics()
+    }
+
     fn render_virt_lines(
         &mut self,
         renderer: &mut TextRenderer,
@@ -222,7 +228,7 @@ mod tests {
         let mut surface = tui::buffer::Buffer::empty(tui::layout::Rect::new(0, 0, 50, 10));
         let mut decorations = super::super::DecorationManager::default();
         decorations.add_decoration(InlineDiagnostics::new(
-            &doc,
+            (&doc).into(),
             &theme,
             0,
             inline,
@@ -231,7 +237,7 @@ mod tests {
         ));
         crate::ui::document::render_document_with_styles(
             &mut surface,
-            &doc,
+            (&doc).into(),
             &layout,
             Vec::new(),
             &theme,

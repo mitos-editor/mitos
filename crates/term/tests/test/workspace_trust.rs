@@ -324,7 +324,8 @@ async fn explicit_decisions_invalidate_queued_and_visible_prompts() -> anyhow::R
     ] {
         for delivered in [false, true] {
             WorkspaceTrust::new(Config::default(), loader::workspace_trust_dir())
-                .untrust(&workspace);
+                .untrust(&workspace)
+                .unwrap();
             let mut app = app(&root)?;
             let request = delivered.then(|| next_request(&mut app.editor).unwrap());
             apply_decision(&mut app.editor, &workspace, decision)?;

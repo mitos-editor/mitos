@@ -14,12 +14,34 @@ use crate::{
 };
 use editor_config::Config;
 use event::register_hook;
+use std::sync::{Arc, OnceLock, Weak};
 
 // Feature implementations live in `features`; this module composes their services
 // and retains protocol bridges and registry setup.
 pub mod dap;
 pub mod lsp;
 mod snippet;
+
+/// Document hooks retain their registration order while services may still be
+/// replaced before editor construction. The hub holds only a weak binding.
+pub(crate) type DocumentHooks = Weak<OnceLock<DocumentServices>>;
+
+pub(crate) struct DocumentServices {
+    pub document_colors: document_colors::DocumentColorsHandler,
+    pub document_links: document_links::DocumentLinksHandler,
+    pub code_lenses: code_lenses::DocumentCodeLensesHandler,
+    pub document_symbols: document_symbols::DocumentSymbolsHandler,
+    pub semantic_tokens: semantic_tokens::SemanticTokensHandler,
+    pub document_highlight: document_highlight::DocumentHighlightHandler,
+    pub linked_editing: crate::features::linked_editing::LinkedEditingHandler,
+    pub code_action_hint: code_action_hint::CodeActionHintHandler,
+    pub signature_help: signature_help::SignatureHelpTrigger,
+    pub word_index: word_index::WordIndexTrigger,
+    pub auto_save: auto_save::AutoSaveTrigger,
+    pub review: crate::features::change_review::ReviewTrigger,
+    pub spelling: tokio::sync::mpsc::Sender<spelling::SpellingEvent>,
+    pub pull_diagnostics: diagnostics::pull::PullDiagnosticsHandler,
+}
 
 /// Services configured before an editor takes ownership. Access owned services through
 /// [`Editor::handlers()`]; use explicit editor methods when replacing a running service.
@@ -28,6 +50,7 @@ pub struct Handlers {
     pub config_requests: Option<crate::editor::ConfigRequests>,
     pub(crate) presentations: crate::presentation::Inbox,
     events: event::EventHub,
+    document_hooks: Arc<OnceLock<DocumentServices>>,
     pub(crate) lsp_progress: lsp_client::LspProgressMap,
     pub(crate) callbacks: EditorCallbackSender,
     pub(crate) status: event::status::StatusSender,
@@ -44,6 +67,8 @@ pub struct Handlers {
     pub inline_completions: inline_completion::InlineCompletionHandler,
     pub hover: hover::HoverHandler,
     pub navigation: navigation::NavigationHandler,
+    pub structural_ranges: crate::features::structural_ranges::StructuralRangesHandler,
+    pub linked_editing: crate::features::linked_editing::LinkedEditingHandler,
     pub inlay_hints: inlay_hints::InlayHintsHandler,
     pub signature_hints: signature_help::SignatureHelpHandler,
     pub auto_save: auto_save::AutoSaveHandler,
@@ -87,12 +112,14 @@ impl Handlers {
         callbacks: EditorCallbackSender,
         events: event::EventHub,
     ) -> Self {
-        register_hooks(&events);
+        let document_hooks = Arc::new(OnceLock::new());
+        register_hooks(&events, Arc::downgrade(&document_hooks));
         let presentations = crate::presentation::Inbox::default();
         let (status, status_messages) = event::status::StatusSender::channel();
         Self {
             config_requests: None,
             events,
+            document_hooks,
             lsp_progress: Default::default(),
             status,
             status_messages,
@@ -110,6 +137,12 @@ impl Handlers {
             inline_completions: inline_completion::InlineCompletionHandler::new(callbacks.clone()),
             hover: hover::HoverHandler::new(callbacks.clone()),
             navigation: navigation::NavigationHandler::new(callbacks.clone()),
+            structural_ranges: crate::features::structural_ranges::StructuralRangesHandler::new(
+                callbacks.clone(),
+            ),
+            linked_editing: crate::features::linked_editing::LinkedEditingHandler::new(
+                callbacks.clone(),
+            ),
             inlay_hints: inlay_hints::InlayHintsHandler::new(callbacks.clone()),
             signature_hints: signature_help::SignatureHelpHandler::new(
                 callbacks.clone(),
@@ -131,38 +164,46 @@ impl Handlers {
         }
     }
 
+    /// Bind hooks once the editor takes ownership of the final configured services.
+    pub(crate) fn bind_document_hooks(&self) {
+        assert!(
+            self.document_hooks
+                .set(DocumentServices {
+                    document_colors: self.document_colors.clone(),
+                    document_links: self.document_links.clone(),
+                    code_lenses: self.code_lenses.clone(),
+                    document_symbols: self.document_symbols.clone(),
+                    semantic_tokens: self.semantic_tokens.clone(),
+                    document_highlight: self.document_highlight.clone(),
+                    linked_editing: self.linked_editing.clone(),
+                    code_action_hint: self.code_action_hint.clone(),
+                    signature_help: self.signature_hints.document_trigger(),
+                    word_index: self.word_index.document_trigger(),
+                    auto_save: self.auto_save.trigger(),
+                    review: self.change_review.document_trigger(),
+                    spelling: self.spelling.event_tx.clone(),
+                    pull_diagnostics: self.pull_diagnostics.clone(),
+                })
+                .is_ok(),
+            "document hooks already bound"
+        );
+    }
+
     /// Attach every document-scoped service before opening or initializing a document.
     pub(crate) fn attach_document(&self, doc: &mut crate::Document) {
         doc.events = self.events.clone();
         doc.bind_signals(self.callbacks.redraw().clone(), self.status.clone());
-        if doc.historical.is_some() {
+        if doc.historical().is_some() {
             doc.syntax_handler = Some(self.syntax.clone());
         }
         if doc.is_content_readonly() {
             return;
         }
-        doc.document_colors
-            .bind_handler(self.document_colors.clone());
-        doc.code_lenses.bind_handler(self.code_lenses.clone());
-        doc.semantic_tokens.handler = Some(self.semantic_tokens.clone());
-        doc.document_links.bind_handler(self.document_links.clone());
-        doc.document_highlights
-            .bind_handler(self.document_highlight.clone());
-        doc.document_symbols
-            .bind_handler(self.document_symbols.clone());
-        doc.pull_diagnostics
-            .bind_handler(self.pull_diagnostics.clone());
-        doc.code_action_hints
-            .bind_handler(self.code_action_hint.clone());
+        doc.document_links.cancel_navigation();
         doc.inline_completions
             .bind_handler(&self.inline_completions);
-        doc.signature_help_trigger = Some(self.signature_hints.document_trigger());
-        doc.auto_save_trigger = Some(self.auto_save.trigger());
-        doc.review_trigger = Some(self.change_review.document_trigger());
-        doc.word_index_trigger = Some(self.word_index.document_trigger());
         doc.syntax_handler = Some(self.syntax.clone());
         doc.blame.bind_handler(self.blame.clone());
-        doc.spelling_events = Some(self.spelling.event_tx.clone());
     }
 
     /// Manually trigger completion (c-x)
@@ -201,14 +242,17 @@ impl Editor {
 }
 
 // Install shared hooks once when constructing the services owned by an editor.
-fn register_hooks(events: &event::EventHub) {
+fn register_hooks(events: &event::EventHub, document_hooks: DocumentHooks) {
     auto_reload::register_hooks(events);
-    auto_save::register_hooks(events);
+    auto_save::register_hooks(events, document_hooks.clone());
     blame::register_hooks(events);
-    crate::features::change_review::register_hooks(events);
-    signature_help::register_hooks(events);
+    crate::features::change_review::register_hooks(events, document_hooks.clone());
+    signature_help::register_hooks(events, document_hooks.clone());
     hover::register_hooks(events);
     navigation::register_hooks(events);
+    crate::features::structural_ranges::register_hooks(events);
+    crate::features::linked_editing::register_hooks(events, document_hooks.clone());
+    crate::features::formatting::register_hooks(events);
     crate::features::shell::register_hooks(events);
     rename::register_hooks(events);
     buffer_search::register_hooks(events);
@@ -217,22 +261,22 @@ fn register_hooks(events: &event::EventHub) {
     inlay_hints::register_hooks(events);
     completion::register_hooks(events);
     crate::debugger::register_hooks(events);
-    word_index::register_hooks(events);
+    word_index::register_hooks(events, document_hooks.clone());
     register_hook!(events => move |event: &mut ConfigDidChange<'_>| {
         event.editor.file_watcher.reload(&event.new.files.watch, &event.editor.workspace);
         event.editor.refresh_vcs_watches();
         Ok(())
     });
-    document_highlight::register_hooks(events);
-    code_action_hint::register_hooks(events);
-    document_symbols::register_hooks(events);
-    diagnostics::pull::register_hooks(events);
+    document_highlight::register_hooks(events, document_hooks.clone());
+    code_action_hint::register_hooks(events, document_hooks.clone());
+    document_symbols::register_hooks(events, document_hooks.clone());
+    diagnostics::pull::register_hooks(events, document_hooks.clone());
     snippet::register_hooks(events);
-    document_colors::register_hooks(events);
-    code_lenses::register_hooks(events);
-    semantic_tokens::register_hooks(events);
-    document_links::register_hooks(events);
+    document_colors::register_hooks(events, document_hooks.clone());
+    code_lenses::register_hooks(events, document_hooks.clone());
+    semantic_tokens::register_hooks(events, document_hooks.clone());
+    document_links::register_hooks(events, document_hooks.clone());
     inline_completion::register_hooks(events);
-    spelling::register_hooks(events);
+    spelling::register_hooks(events, document_hooks);
     workspace_trust::register_hooks(events);
 }

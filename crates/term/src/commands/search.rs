@@ -10,12 +10,9 @@ use editor_core::{
     LineEnding, RopeSlice, Selection,
 };
 use futures_util::FutureExt;
-use std::{
-    ops::ControlFlow,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc,
-    },
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
 };
 use stdx::rope::RopeExt as _;
 use view::{
@@ -28,15 +25,6 @@ use view::{
     quicklist::{QuicklistEntry, QuicklistPosition, QuicklistTarget},
     Align, Editor,
 };
-
-fn search_completions(cx: &mut Context, reg: Option<char>) -> Vec<String> {
-    let mut items = reg
-        .and_then(|reg| cx.editor.read_register(reg))
-        .map_or(Vec::new(), |reg| reg.take(200).collect());
-    items.sort_unstable();
-    items.dedup();
-    items.into_iter().map(|value| value.to_string()).collect()
-}
 
 pub(super) fn search(cx: &mut Context) {
     searcher(cx, Direction::Forward)
@@ -56,20 +44,11 @@ fn searcher(cx: &mut Context, direction: Direction) {
         Movement::Move
     };
 
-    // TODO: could probably share with select_on_matches?
-    let completions = search_completions(cx, Some(reg));
-
     ui::search_prompt(
         cx,
         "search:".into(),
         Some(reg),
-        move |_editor: &Editor, input: &str| {
-            completions
-                .iter()
-                .filter(|comp| comp.starts_with(input))
-                .map(|comp| (0.., comp.clone().into()))
-                .collect()
-        },
+        ui::completers::none,
         move |cx, query, _, event| {
             if event == PromptEvent::Validate {
                 cx.editor.registers.last_search_register = reg;
@@ -94,17 +73,11 @@ fn search_next_or_prev_impl(cx: &mut Context, movement: Movement, direction: Dir
         let is_crlf = doc!(cx.editor).line_ending == LineEnding::Crlf;
         match Query::new(&query, search_config.smart_case, is_crlf) {
             Ok(query) => {
-                match cx
-                    .editor
-                    .search_buffer(&query, movement, direction, count, wrap_around)
+                if let view::editor::SearchOutcome::NotFound =
+                    cx.editor
+                        .search_buffer(&query, movement, direction, count, wrap_around)
                 {
-                    view::editor::SearchOutcome::Found { wrapped: true } => {
-                        cx.editor.set_status("Wrapped around document")
-                    }
-                    view::editor::SearchOutcome::NotFound => {
-                        cx.editor.set_error(|| "No more matches")
-                    }
-                    view::editor::SearchOutcome::Found { wrapped: false } => {}
+                    cx.editor.set_error(|| "No more matches")
                 }
             }
             _ => {
@@ -239,15 +212,14 @@ fn query_global_search(
             return Ok(());
         };
         let cancelled = injector.clone();
-        request
-            .run(
-                move || cancelled.is_shutdown(),
-                move |matched| match injector.push(display_match(matched)) {
-                    Ok(()) => ControlFlow::Continue(()),
-                    Err(_) => ControlFlow::Break(()),
-                },
-            )
-            .await
+        // Use the same ordering as refreshes, including when restoring this picker.
+        let matches = request.collect(move || cancelled.is_shutdown()).await?;
+        for matched in matches {
+            if injector.push(display_match(matched)).is_err() {
+                break;
+            }
+        }
+        Ok(())
     }
     .boxed()
 }
@@ -368,6 +340,7 @@ fn global_search_picker(
              ..
          }| { Some((path.as_path().into(), Some((*line_start, *line_end)))) },
     )
+    .with_search_preview()
     .with_quicklist(|_editor, item| {
         Some(QuicklistEntry {
             target: QuicklistTarget::Path(item.path.clone()),
@@ -426,10 +399,17 @@ fn global_search_picker(
     .with_title("Search")
     .with_history_register(Some(reg))
     .with_dynamic_query(query_global_search, Some(275), jobs)
-    .with_file_updates(editor, |config| &config.search.root, refresh_global_search)
+    .with_file_updates(
+        editor,
+        |config| &config.search.root,
+        refresh_global_search,
+        view::features::workspace_changes::Policy {
+            contents: true,
+            documents: view::features::workspace_changes::Documents::Workspace,
+            ..Default::default()
+        },
+    )
     .with_item_key(|item| (item.path.clone(), item.line_start, item.match_start_col))
-    .refresh_on_content_changes()
-    .refresh_on_document_changes()
 }
 
 pub(super) fn selection_for_global_search_match(
@@ -457,6 +437,61 @@ pub(super) fn selection_for_global_search_match(
 mod tests {
     use super::*;
     use editor_core::Rope;
+
+    #[tokio::test]
+    async fn global_search_queries_and_refreshes_have_the_same_order() -> anyhow::Result<()> {
+        use crate::ui::picker::test::{all_items, application, items, until};
+
+        let mut app = application(false)?;
+        let dir = tempfile::tempdir()?;
+        let root = stdx::path::canonicalize(dir.path());
+        for index in (0..32).rev() {
+            std::fs::write(root.join(format!("{index:02}.txt")), "needle\n  needle\n")?;
+        }
+        let search = Arc::new(WorkspaceSearch {
+            root,
+            smart_case: true,
+            options: ::search::Options::default(),
+        });
+        let config = || GlobalSearchConfig {
+            search: search.clone(),
+            case_sensitive: AtomicBool::new(false),
+            style: PathStyleConfig::new(&app.editor),
+        };
+        let data = Arc::new(config());
+        let mut picker = Picker::new(
+            app.editor.redraw().clone(),
+            [
+                PickerColumn::new("path", |item: &::search::Match, _: &GlobalSearchConfig| {
+                    item.path.to_string_lossy().into_owned().into()
+                }),
+                PickerColumn::hidden("contents"),
+            ],
+            1,
+            [],
+            config(),
+            |_, _, _| {},
+        );
+        let injector = picker.injector();
+        query_global_search("needle", &mut app.editor, data.clone(), &injector).await?;
+        drop(injector);
+        until(&mut picker, &mut app, |picker| {
+            all_items(picker).count() == 64
+        })
+        .await?;
+        let initial: Vec<_> = items(&picker).cloned().collect();
+
+        let mut task = event::TaskController::new();
+        let refreshed =
+            refresh_global_search("needle", &app.editor, data.clone(), task.restart()).await?;
+        assert_eq!(initial, refreshed);
+
+        picker.refresh_options(refreshed, data);
+        until(&mut picker, &mut app, |picker| items(picker).count() == 64).await?;
+        assert_eq!(items(&picker).cloned().collect::<Vec<_>>(), initial);
+        Ok(())
+    }
+
     #[test]
     fn global_search_match_selection_uses_match_range() {
         let text = Rope::from("héllo search term world\n");

@@ -53,6 +53,8 @@ FLAGS:
                                    'all-languages' or 'all'. 'languages' is filtered according to
                                    user config, 'all-languages' and 'all' are not. If not specified,
                                    the default is the same as 'all', but with languages filtering.
+    --summary                     Show compact health results (requires --health)
+    --no-color                    Disable health output styling (requires --health)
     -g, --grammar {{fetch|build}}    Fetch or builds tree-sitter grammars listed in languages.toml.
     -c, --config <file>            Specify a file to use for configuration
     --migrate-config <file> --stdout
@@ -97,7 +99,7 @@ FLAGS:
     }
 
     if args.health {
-        if let Err(err) = term::health::print_health(args.health_arg) {
+        if let Err(err) = term::health::print_health(args.health_arg, args.health_options).await {
             // Piping to for example `head -10` requires special handling:
             // https://stackoverflow.com/a/65760807/7115678
             if err.kind() != std::io::ErrorKind::BrokenPipe {

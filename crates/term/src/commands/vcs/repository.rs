@@ -11,9 +11,9 @@ use std::{
     path::{Path, PathBuf},
     sync::Arc,
 };
-use tui::text::Span;
+use tui::text::{Line, Span};
 use vcs::operations::{
-    repository::{Branch, BranchCursor, Worktree},
+    repository::{Branch, BranchCursor, Divergence, Worktree},
     GitRepository, RepositoryOperation,
 };
 use view::{features::git_operations::GitAction, Editor};
@@ -121,35 +121,74 @@ impl RepositoryData {
     }
 }
 
+fn branch_cell(
+    name: Option<&str>,
+    current: bool,
+    data: &RepositoryData,
+) -> tui::widgets::Cell<'static> {
+    Span::styled(
+        format!(
+            "{}{}",
+            if current { "● " } else { "  " },
+            name.unwrap_or("(detached)")
+        ),
+        data.theme.get(if current {
+            "diff.plus"
+        } else if name.is_some() {
+            "string.special.symbol"
+        } else {
+            "ui.text.inactive"
+        }),
+    )
+    .into()
+}
+
+fn divergence_cell(
+    divergence: Option<&Divergence>,
+    data: &RepositoryData,
+) -> tui::widgets::Cell<'static> {
+    let Some(divergence) = divergence else {
+        return Span::styled("—", data.theme.get("ui.text.inactive")).into();
+    };
+    Line::from(vec![
+        Span::styled(
+            format!("↑{}", divergence.ahead),
+            data.theme.get(if divergence.ahead == 0 {
+                "ui.text.inactive"
+            } else {
+                "diff.plus"
+            }),
+        ),
+        Span::raw(" "),
+        Span::styled(
+            format!("↓{}", divergence.behind),
+            data.theme.get(if divergence.behind == 0 {
+                "ui.text.inactive"
+            } else {
+                "diff.minus"
+            }),
+        ),
+    ])
+    .into()
+}
+
 fn branches(
     editor: &Editor,
     repo: GitRepository,
     workspace: PathBuf,
 ) -> Picker<Arc<Branch>, RepositoryData> {
     let actions = repo.clone();
-    let mut pager = BranchPager::new(editor, repo.clone());
+    let pager = BranchPager::new(editor, repo.clone());
     let action_repo = repo.clone();
     let action_workspace = workspace.clone();
     Picker::new_with_callback_result(
         editor.redraw().clone(),
         [
             PickerColumn::new("branch", |branch: &Arc<Branch>, data: &RepositoryData| {
-                Span::styled(
-                    branch.name.as_str(),
-                    data.theme.get(if branch.current {
-                        "diff.plus"
-                    } else {
-                        "string.special.symbol"
-                    }),
-                )
-                .into()
+                branch_cell(Some(&branch.name), branch.current, data)
             }),
-            PickerColumn::new("current", |branch: &Arc<Branch>, data| {
-                Span::styled(
-                    if branch.current { "*" } else { "" },
-                    data.theme.get("diff.plus"),
-                )
-                .into()
+            PickerColumn::new("vs base", |branch: &Arc<Branch>, data| {
+                divergence_cell(branch.divergence.as_ref(), data)
             }),
             PickerColumn::new("upstream", |branch: &Arc<Branch>, data| {
                 Span::styled(branch.upstream.as_str(), data.theme.get("string.special")).into()
@@ -193,7 +232,7 @@ fn branches(
             )
         },
     )
-    .with_paged_updates(move |cx| pager.update(cx))
+    .with_source_updates(pager)
     .with_item_key(|branch| branch.name.clone())
 }
 
@@ -207,23 +246,11 @@ fn worktrees(
     Picker::new_with_callback_result(
         editor.redraw().clone(),
         [
-            PickerColumn::new("path", |tree: &Worktree, data: &RepositoryData| {
-                Span::styled(
-                    tree.path.display().to_string(),
-                    data.theme.get("ui.text.directory"),
-                )
-                .into()
+            PickerColumn::new("branch", |tree: &Worktree, data: &RepositoryData| {
+                branch_cell(tree.branch.as_deref(), tree.path == data.repo.root(), data)
             }),
-            PickerColumn::new("branch", |tree: &Worktree, data| {
-                Span::styled(
-                    tree.branch.as_deref().unwrap_or("(detached)"),
-                    data.theme.get(if tree.branch.is_some() {
-                        "string.special.symbol"
-                    } else {
-                        "ui.text.inactive"
-                    }),
-                )
-                .into()
+            PickerColumn::new("vs base", |tree: &Worktree, data| {
+                divergence_cell(tree.divergence.as_ref(), data)
             }),
             PickerColumn::new("state", |tree: &Worktree, data| {
                 let (label, scope) = if tree.locked {
@@ -237,8 +264,15 @@ fn worktrees(
                 };
                 Span::styled(label, data.theme.get(scope)).into()
             }),
+            PickerColumn::new("path", |tree: &Worktree, data| {
+                Span::styled(
+                    tree.path.display().to_string(),
+                    data.theme.get("ui.text.directory"),
+                )
+                .into()
+            }),
         ],
-        0,
+        3,
         Vec::<Worktree>::new(),
         RepositoryData::new(editor, repo),
         move |_, tree, _| {
@@ -255,6 +289,11 @@ fn worktrees(
             &maps.worktree_picker,
             &[
                 (PickerAction::Accept, "open"),
+                (PickerAction::Item(PickerItemAction::LockWorktree), "lock"),
+                (
+                    PickerAction::Item(PickerItemAction::UnlockWorktree),
+                    "unlock",
+                ),
                 (
                     PickerAction::Item(PickerItemAction::CreateWorktree),
                     "create",
@@ -274,10 +313,13 @@ fn worktrees(
         editor,
         |data| data.repo.root(),
         |_, _, data, _| Box::pin(async move { data.repo.worktrees().await }),
+        view::features::workspace_changes::Policy {
+            vcs: true,
+            ..Default::default()
+        },
     )
     .with_refresh_generation(editor, super::actions::generation)
     .with_item_key(|tree| tree.path.display().to_string())
-    .refresh_on_vcs_changes()
     .refresh_on_open()
 }
 
@@ -340,6 +382,22 @@ fn worktree_action(
 ) -> PickerCallbackResult<Worktree, RepositoryData> {
     match action {
         PickerItemAction::CreateWorktree => create_prompt(repo, workspace, true),
+        PickerItemAction::LockWorktree | PickerItemAction::UnlockWorktree => {
+            let Some(tree) = tree.filter(|tree| !tree.main) else {
+                return PickerCallbackResult::KeepOpen;
+            };
+            let repo = repo.clone();
+            let workspace = workspace.to_owned();
+            let path = tree.path.clone();
+            let operation = if action == PickerItemAction::LockWorktree {
+                RepositoryOperation::LockWorktree { path }
+            } else {
+                RepositoryOperation::UnlockWorktree { path }
+            };
+            PickerCallbackResult::KeepOpenWithCallback(Box::new(move |_, cx| {
+                super::actions::start(cx, workspace, GitAction::Repository(repo, operation));
+            }))
+        }
         PickerItemAction::RemoveWorktree => {
             let Some(tree) = tree else {
                 return PickerCallbackResult::KeepOpen;
@@ -363,6 +421,7 @@ fn create_prompt<T: 'static>(
     worktree: bool,
 ) -> PickerCallbackResult<T, RepositoryData> {
     let repo = repo.clone();
+    let completion_root = repo.root().to_owned();
     let workspace = workspace.to_owned();
     PickerCallbackResult::KeepOpenWithCallback(Box::new(move |compositor, _| {
         compositor.push(Box::new(ui::Prompt::new_with_callback(
@@ -373,7 +432,13 @@ fn create_prompt<T: 'static>(
             }
             .into(),
             None,
-            ui::completers::none,
+            move |editor, input| {
+                if worktree {
+                    ui::completers::directory_at(editor, input, completion_root.clone(), true)
+                } else {
+                    ui::completers::none(editor, input)
+                }
+            },
             move |cx, input, event| {
                 if event != ui::PromptEvent::Validate || input.trim().is_empty() {
                     return None;
@@ -443,7 +508,12 @@ impl BranchPager {
                 |branch: &Arc<Branch>| {
                     std::mem::size_of::<Branch>()
                         + 128
-                        + 5 * (branch.name.len() + branch.upstream.len())
+                        + 5 * (branch.name.len()
+                            + branch.upstream.len()
+                            + branch
+                                .divergence
+                                .as_ref()
+                                .map_or(0, |counts| counts.base.len() + 40))
                 },
                 |cursor, _cancel| {
                     Box::pin(async move {
@@ -454,7 +524,9 @@ impl BranchPager {
                         })
                     })
                 },
-            ),
+            )
+            .automatic()
+            .with_suspend(BranchCursor::suspend),
             changes: WorkspaceChanges::new(
                 editor,
                 repo.root(),
@@ -469,10 +541,17 @@ impl BranchPager {
             dirty: false,
         }
     }
+}
+
+impl crate::ui::picker::PickerSource<Arc<Branch>, RepositoryData> for BranchPager {
+    fn suspend(&mut self) {
+        self.pages.suspend();
+    }
 
     fn update(
         &mut self,
         cx: crate::ui::picker::UpdateContext<'_, Arc<Branch>>,
+        _input: crate::ui::picker::SourceInput<'_, RepositoryData>,
     ) -> Option<crate::ui::picker::Update<Arc<Branch>>> {
         let generation = super::actions::generation(cx.editor);
         self.dirty |= self.changes.changed(cx.editor, self.repo.root());

@@ -43,7 +43,18 @@ runs:
     - name: Fetch pinned grammar sources
       if: inputs.cache-grammars == 'true'
       shell: bash
-      run: cargo run --locked --package grammar-build --bin grammar-fetch
+      run: |
+        # Successful fetches are reused, so retries only download missing sources.
+        for attempt in 1 2 3; do
+          if cargo run --locked --package grammar-build --bin grammar-fetch; then
+            exit 0
+          fi
+          if [ "$attempt" -eq 3 ]; then
+            exit 1
+          fi
+          echo "::warning::Grammar fetch failed (attempt $attempt/3); retrying"
+          sleep "$((attempt * 15))"
+        done
 
     - name: Compile runtime grammars
       if: inputs.cache-grammars == 'true'

@@ -14,6 +14,324 @@ async fn execute(repo: &GitRepository, operation: RepositoryOperation) -> Result
 }
 
 #[tokio::test]
+async fn branch_switch_without_attributes_preserves_identical_trees_and_local_edits() -> Result<()>
+{
+    let dir = empty_git_repo();
+    std::fs::write(dir.path().join("file.txt"), "initial\n")?;
+    create_commit_with_message(dir.path(), true, "initial");
+    exec_git_cmd(&["branch", "topic"], dir.path());
+    let repo = GitRepository::discover(dir.path())?;
+    for branch in ["topic", "main"] {
+        std::fs::write(dir.path().join("file.txt"), "local edit\n")?;
+        execute(
+            &repo,
+            RepositoryOperation::SwitchBranch {
+                name: branch.into(),
+            },
+        )
+        .await?;
+        assert_eq!(
+            repo.open_read(true)?.head_name()?.unwrap().shorten(),
+            branch
+        );
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("file.txt"))?,
+            "local edit\n"
+        );
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn write_hook(path: &Path, body: &str) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::write(path, format!("#!/bin/sh\n{body}\n"))?;
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755))?;
+    Ok(())
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn branch_actions_honor_reference_transaction_and_post_checkout_hooks() -> Result<()> {
+    for custom in [false, true] {
+        let dir = initial()?;
+        let root = dir.path();
+        exec_git_cmd(&["branch", "topic"], root);
+        let hooks = root.join(if custom { "custom-hooks" } else { ".git/hooks" });
+        std::fs::create_dir_all(&hooks)?;
+        if custom {
+            exec_git_cmd(&["config", "core.hooksPath", hooks.to_str().unwrap()], root);
+        }
+        write_hook(
+            &hooks.join("reference-transaction"),
+            "test \"$1\" != prepared",
+        )?;
+        let repo = GitRepository::discover(root)?;
+        for action in [
+            RepositoryOperation::CreateBranch {
+                name: "rejected".into(),
+            },
+            RepositoryOperation::DeleteBranch {
+                name: "topic".into(),
+            },
+            RepositoryOperation::SwitchBranch {
+                name: "topic".into(),
+            },
+        ] {
+            assert!(execute(&repo, action).await.is_err());
+        }
+        assert!(repo
+            .open_read(true)?
+            .try_find_reference("refs/heads/rejected")?
+            .is_none());
+        assert!(repo
+            .open_read(true)?
+            .try_find_reference("refs/heads/topic")?
+            .is_some());
+        assert_eq!(
+            repo.open_read(true)?.head_name()?.unwrap().shorten(),
+            "main"
+        );
+        std::fs::remove_file(hooks.join("reference-transaction"))?;
+        write_hook(
+            &hooks.join("post-checkout"),
+            "printf '%s\\n' \"$3\" > \"$(git rev-parse --git-common-dir)/post-checkout-ran\"",
+        )?;
+        execute(
+            &repo,
+            RepositoryOperation::SwitchBranch {
+                name: "topic".into(),
+            },
+        )
+        .await?;
+        assert_eq!(
+            std::fs::read_to_string(root.join(".git/post-checkout-ran"))?,
+            "1\n"
+        );
+        std::fs::remove_file(root.join(".git/post-checkout-ran"))?;
+        let parent = tempfile::tempdir()?;
+        let linked = parent.path().join("linked");
+        execute(
+            &repo,
+            RepositoryOperation::CreateWorktree {
+                path: linked.clone(),
+                branch: Some("main".into()),
+            },
+        )
+        .await?;
+        assert_eq!(
+            std::fs::read_to_string(linked.join("file.txt"))?,
+            "initial\n"
+        );
+        assert_eq!(
+            std::fs::read_to_string(root.join(".git/post-checkout-ran"))?,
+            "1\n"
+        );
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn divergence_matches_git_for_criss_cross_merges_and_detached_worktrees() -> Result<()> {
+    let dir = initial()?;
+    let root = dir.path();
+    exec_git_cmd(&["branch", "behind"], root);
+    exec_git_cmd(&["branch", "right"], root);
+    exec_git_cmd(&["commit", "--allow-empty", "-m", "left"], root);
+    exec_git_cmd(&["branch", "left-tip"], root);
+    exec_git_cmd(&["switch", "right"], root);
+    exec_git_cmd(&["commit", "--allow-empty", "-m", "right"], root);
+    exec_git_cmd(&["branch", "right-tip"], root);
+    exec_git_cmd(&["switch", "main"], root);
+    exec_git_cmd(&["merge", "--no-ff", "right-tip", "-m", "left merge"], root);
+    exec_git_cmd(&["switch", "right"], root);
+    exec_git_cmd(&["merge", "--no-ff", "left-tip", "-m", "right merge"], root);
+    exec_git_cmd(&["switch", "main"], root);
+    let parent = tempfile::tempdir()?;
+    let detached = parent.path().join("detached");
+    exec_git_cmd(
+        &[
+            "worktree",
+            "add",
+            "--detach",
+            detached.to_str().unwrap(),
+            "right",
+        ],
+        root,
+    );
+    exec_git_cmd(
+        &["commit", "--allow-empty", "-m", "detached commit"],
+        &detached,
+    );
+    let repo = GitRepository::discover(root)?;
+    let branches = repo.branches().await?;
+    for branch in &branches {
+        let output = std::process::Command::new("git")
+            .arg("-C")
+            .arg(root)
+            .args([
+                "rev-list",
+                "--left-right",
+                "--count",
+                &format!("{}...main", branch.name),
+            ])
+            .output()?;
+        assert!(output.status.success());
+        let expected: Vec<usize> = String::from_utf8(output.stdout)?
+            .split_whitespace()
+            .map(|count| count.parse().unwrap())
+            .collect();
+        let counts = branch.divergence.as_ref().unwrap();
+        assert_eq!(counts.base.as_ref(), "main");
+        assert_eq!(
+            [counts.ahead, counts.behind],
+            expected.as_slice(),
+            "{}",
+            branch.name
+        );
+    }
+    let right = branches
+        .iter()
+        .find(|branch| branch.name == "right")
+        .unwrap()
+        .divergence
+        .as_ref()
+        .unwrap();
+    assert_eq!((right.ahead, right.behind), (1, 1));
+    let trees = repo.worktrees().await?;
+    let counts = trees
+        .iter()
+        .find(|tree| !tree.main)
+        .unwrap()
+        .divergence
+        .as_ref()
+        .unwrap();
+    assert_eq!((counts.ahead, counts.behind), (2, 1));
+    assert_eq!(
+        GitRepository::discover(&detached)?.worktrees().await?,
+        trees
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn divergence_resolves_custom_default_local_and_remote_fallbacks() -> Result<()> {
+    let dir = initial()?;
+    let root = dir.path();
+    exec_git_cmd(&["branch", "trunk"], root);
+    exec_git_cmd(&["remote", "add", "upstream", "."], root);
+    exec_git_cmd(
+        &[
+            "config",
+            "remote.upstream.fetch",
+            "+refs/heads/*:refs/remotes/upstream/custom/*",
+        ],
+        root,
+    );
+    exec_git_cmd(
+        &["update-ref", "refs/remotes/upstream/custom/trunk", "HEAD"],
+        root,
+    );
+    exec_git_cmd(
+        &[
+            "symbolic-ref",
+            "refs/remotes/upstream/HEAD",
+            "refs/remotes/upstream/custom/trunk",
+        ],
+        root,
+    );
+    exec_git_cmd(&["switch", "trunk"], root);
+    exec_git_cmd(&["commit", "--allow-empty", "-m", "local trunk"], root);
+    exec_git_cmd(&["switch", "main"], root);
+    let repo = GitRepository::discover(root)?;
+    let counts = repo
+        .branches()
+        .await?
+        .into_iter()
+        .find(|branch| branch.current)
+        .unwrap()
+        .divergence
+        .unwrap();
+    assert_eq!(counts.base.as_ref(), "trunk");
+    assert_eq!((counts.ahead, counts.behind), (0, 1));
+    exec_git_cmd(&["branch", "-D", "trunk"], root);
+    let counts = repo.branches().await?[0].divergence.clone().unwrap();
+    assert_eq!(counts.base.as_ref(), "upstream/custom/trunk");
+    assert_eq!((counts.ahead, counts.behind), (0, 0));
+    exec_git_cmd(
+        &["symbolic-ref", "--delete", "refs/remotes/upstream/HEAD"],
+        root,
+    );
+    assert_eq!(
+        repo.branches().await?[0]
+            .divergence
+            .as_ref()
+            .unwrap()
+            .base
+            .as_ref(),
+        "main"
+    );
+    exec_git_cmd(&["branch", "-m", "master"], root);
+    assert_eq!(
+        repo.branches().await?[0]
+            .divergence
+            .as_ref()
+            .unwrap()
+            .base
+            .as_ref(),
+        "master"
+    );
+    exec_git_cmd(&["branch", "-m", "topic"], root);
+    assert!(repo.branches().await?[0].divergence.is_none());
+    exec_git_cmd(&["update-ref", "refs/remotes/upstream/main", "HEAD"], root);
+    assert_eq!(
+        repo.branches().await?[0]
+            .divergence
+            .as_ref()
+            .unwrap()
+            .base
+            .as_ref(),
+        "upstream/main"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn divergence_is_optional_for_unborn_shallow_and_missing_history() -> Result<()> {
+    let dir = empty_git_repo();
+    let repo = GitRepository::discover(dir.path())?;
+    assert!(repo.branches().await?.is_empty());
+    assert!(repo.worktrees().await?[0].divergence.is_none());
+    exec_git_cmd(&["commit", "--allow-empty", "-m", "initial"], dir.path());
+    std::fs::write(
+        dir.path().join(".git/refs/heads/broken"),
+        "1111111111111111111111111111111111111111\n",
+    )?;
+    let branches = repo.branches().await?;
+    assert!(branches
+        .iter()
+        .find(|branch| branch.name == "broken")
+        .unwrap()
+        .divergence
+        .is_none());
+    assert!(branches
+        .iter()
+        .find(|branch| branch.name == "main")
+        .unwrap()
+        .divergence
+        .is_some());
+    let head = repo.open_read(false)?.head_id()?.to_string();
+    std::fs::write(dir.path().join(".git/shallow"), format!("{head}\n"))?;
+    assert!(repo
+        .branches()
+        .await?
+        .iter()
+        .all(|branch| branch.divergence.is_none()));
+    assert!(repo.worktrees().await?[0].divergence.is_none());
+    Ok(())
+}
+
+#[tokio::test]
 async fn branches_switch_without_losing_dirty_work_and_reject_untrusted_or_stale_actions(
 ) -> Result<()> {
     let dir = initial()?;
@@ -813,10 +1131,6 @@ fn native_fetch_custom_branch_refspecs_match_git() -> Result<()> {
         );
         assert!(git.head()?.is_unborn());
         assert!(!native.path().join("file.txt").exists());
-        // Pull must preserve the custom refspec policy through its existing fallback.
-        assert!(fetch::execute(&repo, "origin", Some("main"))?
-            .into_applied()
-            .is_none());
     }
     Ok(())
 }
@@ -996,7 +1310,13 @@ async fn branch_pages_publish_before_a_later_ref_error() -> Result<()> {
     assert_eq!(first.branches.len(), BRANCH_PAGE_SIZE);
     let second = first.next.unwrap().next_page().await?;
     assert_eq!(second.branches.len(), BRANCH_PAGE_SIZE);
-    assert!(second.next.unwrap().next_page().await.is_err());
+    let cursor = second.next.unwrap();
+    assert!(cursor.next_page().await.is_err());
+    exec_git_cmd(&["config", "--unset", "branch.topic-204.merge"], dir.path());
+    let recovered = cursor.next_page().await?;
+    assert_eq!(recovered.branches.len(), 6);
+    assert_eq!(recovered.branches.last().unwrap().name, "topic-204");
+    assert!(recovered.next.is_none());
     Ok(())
 }
 
@@ -1011,6 +1331,10 @@ async fn branch_pages_report_initialization_errors_and_empty_repositories() -> R
     std::fs::rename(dir.path().join(".git"), dir.path().join("old.git"))?;
     let error = cursor.next_page().await.err().unwrap().to_string();
     assert!(error.contains("discover git repo"), "{error}");
+    std::fs::rename(dir.path().join("old.git"), dir.path().join(".git"))?;
+    let recovered = cursor.next_page().await?;
+    assert!(recovered.branches.is_empty());
+    assert!(recovered.next.is_none());
     Ok(())
 }
 
@@ -2074,5 +2398,455 @@ async fn branch_pages_bound_each_page_and_share_replayed_metadata() -> Result<()
         &replay.branches[0],
         &first.branches[0]
     ));
+    Ok(())
+}
+
+#[tokio::test]
+async fn native_worktree_locks_preserve_reasons_and_reject_stale_or_untrusted_actions() -> Result<()>
+{
+    let dir = initial()?;
+    let parent = tempfile::tempdir()?;
+    let path = parent.path().join("linked");
+    let repo = GitRepository::discover(dir.path())?;
+    execute(
+        &repo,
+        RepositoryOperation::CreateWorktree {
+            path: path.clone(),
+            branch: None,
+        },
+    )
+    .await?;
+    let lock = || RepositoryOperation::LockWorktree { path: path.clone() };
+    let unlock = || RepositoryOperation::UnlockWorktree { path: path.clone() };
+    assert!(repo.prepare_repository(lock(), false).is_err());
+    for main in [
+        RepositoryOperation::LockWorktree {
+            path: dir.path().into(),
+        },
+        RepositoryOperation::UnlockWorktree {
+            path: dir.path().into(),
+        },
+    ] {
+        assert!(repo.prepare_repository(main, true).is_err());
+    }
+    let prepared = repo.prepare_repository(lock(), true)?;
+    assert!(!prepared.changes_worktree());
+    assert!(prepared.affected_paths().is_empty());
+    prepared.execute().await?;
+    assert!(repo
+        .worktrees()
+        .await?
+        .iter()
+        .any(|tree| !tree.main && tree.locked));
+    // Git observes native locks and cannot remove the protected checkout.
+    assert!(!std::process::Command::new("git")
+        .args(["worktree", "remove"])
+        .arg(&path)
+        .current_dir(dir.path())
+        .output()?
+        .status
+        .success());
+    execute(&repo, unlock()).await?;
+    exec_git_cmd(
+        &[
+            "worktree",
+            "lock",
+            "--reason",
+            "portable drive",
+            path.to_str().unwrap(),
+        ],
+        dir.path(),
+    );
+    execute(&repo, lock()).await?;
+    let git = repo.open_read(true)?;
+    let target = git.worktrees()?.remove(0);
+    assert_eq!(
+        target.lock_reason().unwrap().as_bstr(),
+        "portable drive".as_bytes().as_bstr()
+    );
+    let stale = repo.prepare_repository(unlock(), true)?;
+    std::fs::write(target.git_dir().join("locked"), "a different reason\n")?;
+    assert!(stale.execute().await.is_err());
+    assert_eq!(
+        target.lock_reason().unwrap().as_bstr(),
+        "a different reason".as_bytes().as_bstr()
+    );
+    execute(&repo, unlock()).await?;
+    assert!(!target.is_locked());
+    // Registration-based locking also works while a removable checkout is unavailable.
+    std::fs::remove_dir_all(&path)?;
+    execute(&repo, lock()).await?;
+    assert!(target.is_locked());
+    execute(&repo, unlock()).await?;
+    assert!(!target.is_locked());
+    Ok(())
+}
+
+#[tokio::test]
+async fn branch_cursor_suspension_releases_replay_rows_and_can_resume() -> Result<()> {
+    let dir = initial()?;
+    let repo = GitRepository::discover(dir.path())?;
+    let cursor = repo.branch_cursor();
+    let page = cursor.next_page().await?;
+    let name = page.branches[0].name.clone();
+    let retained = std::sync::Arc::downgrade(&page.branches[0]);
+    drop(page);
+    assert!(retained.upgrade().is_some());
+    cursor.suspend();
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        while retained.upgrade().is_some() {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await?;
+    assert_eq!(cursor.next_page().await?.branches[0].name, name);
+    Ok(())
+}
+
+#[tokio::test]
+async fn removing_missing_worktrees_keeps_files_branches_and_other_registrations() -> Result<()> {
+    let dir = initial()?;
+    let parent = tempfile::tempdir()?;
+    let repo = GitRepository::discover(dir.path())?;
+    exec_git_cmd(&["branch", "topic"], dir.path());
+    let parent_path = stdx::path::canonicalize_existing(parent.path());
+    let missing = parent_path.join("missing");
+    let other = parent_path.join("other");
+    for (path, branch) in [(&missing, Some("topic".into())), (&other, None)] {
+        execute(
+            &repo,
+            RepositoryOperation::CreateWorktree {
+                path: path.clone(),
+                branch,
+            },
+        )
+        .await?;
+    }
+    let remove = || RepositoryOperation::RemoveWorktree {
+        path: missing.clone(),
+    };
+    assert!(repo.prepare_repository(remove(), false).is_err());
+    std::fs::write(missing.join("keep.txt"), "keep me")?;
+    assert!(execute(&repo, remove()).await.is_err());
+    std::fs::remove_file(missing.join(".git"))?;
+    assert!(repo
+        .worktrees()
+        .await?
+        .iter()
+        .any(|tree| tree.path == missing && tree.prunable));
+    let prepared = repo.prepare_repository(remove(), true)?;
+    assert!(prepared.changes_worktree());
+    assert_eq!(prepared.affected_paths(), vec![missing.clone()]);
+    prepared.execute().await?;
+    assert_eq!(
+        std::fs::read_to_string(missing.join("keep.txt"))?,
+        "keep me"
+    );
+    let trees = repo.worktrees().await?;
+    assert_eq!(trees.len(), 2);
+    assert!(trees.iter().any(|tree| tree.path == other));
+    assert!(repo
+        .branches()
+        .await?
+        .iter()
+        .any(|branch| branch.name == "topic"));
+    assert!(execute(&repo, remove()).await.is_err());
+    assert!(execute(
+        &repo,
+        RepositoryOperation::RemoveWorktree {
+            path: dir.path().into()
+        }
+    )
+    .await
+    .is_err());
+    Ok(())
+}
+
+#[tokio::test]
+async fn removing_missing_git_created_worktree_accepts_canonical_paths() -> Result<()> {
+    let dir = initial()?;
+    let parent = tempfile::tempdir()?;
+    let path = parent.path().join("missing");
+    exec_git_cmd(
+        &[
+            "worktree",
+            "add",
+            "-b",
+            "topic",
+            dunce::simplified(&path).to_str().unwrap(),
+        ],
+        dir.path(),
+    );
+    std::fs::remove_dir_all(&path)?;
+    let repo = GitRepository::discover(dir.path())?;
+    let canonical = stdx::path::canonicalize_existing(&path);
+    assert!(repo
+        .worktrees()
+        .await?
+        .iter()
+        .any(|tree| tree.path == canonical && tree.prunable));
+    execute(
+        &repo,
+        RepositoryOperation::RemoveWorktree { path: canonical },
+    )
+    .await?;
+    assert_eq!(repo.worktrees().await?.len(), 1);
+    assert!(repo
+        .branches()
+        .await?
+        .iter()
+        .any(|branch| branch.name == "topic"));
+    Ok(())
+}
+
+#[tokio::test]
+async fn removing_missing_worktrees_rejects_locks_and_reappearing_checkouts() -> Result<()> {
+    let dir = initial()?;
+    let parent = tempfile::tempdir()?;
+    let path = parent.path().join("missing");
+    let repo = GitRepository::discover(dir.path())?;
+    execute(
+        &repo,
+        RepositoryOperation::CreateWorktree {
+            path: path.clone(),
+            branch: None,
+        },
+    )
+    .await?;
+    let backlink = std::fs::read(path.join(".git"))?;
+    std::fs::remove_dir_all(&path)?;
+    let remove = || RepositoryOperation::RemoveWorktree { path: path.clone() };
+    let prepared = repo.prepare_repository(remove(), true)?;
+    execute(
+        &repo,
+        RepositoryOperation::LockWorktree { path: path.clone() },
+    )
+    .await?;
+    assert!(prepared.execute().await.is_err());
+    assert!(execute(&repo, remove()).await.is_err());
+    execute(
+        &repo,
+        RepositoryOperation::UnlockWorktree { path: path.clone() },
+    )
+    .await?;
+    let prepared = repo.prepare_repository(remove(), true)?;
+    std::fs::create_dir(&path)?;
+    std::fs::write(path.join(".git"), &backlink)?;
+    assert!(prepared.execute().await.is_err());
+    assert!(execute(&repo, remove()).await.is_err());
+    std::fs::remove_dir_all(&path)?;
+    execute(&repo, remove()).await?;
+    assert_eq!(repo.worktrees().await?.len(), 1);
+    Ok(())
+}
+
+#[test]
+fn native_fetch_for_pull_respects_custom_tracking_mappings() -> Result<()> {
+    let source = initial()?;
+    exec_git_cmd(&["branch", "other"], source.path());
+    for specs in [
+        vec!["+refs/heads/main:refs/remotes/origin/trunk"],
+        vec![
+            "+refs/heads/*:refs/remotes/origin/branches/*",
+            "+refs/heads/main:refs/remotes/origin/trunk",
+        ],
+        vec!["+refs/heads/*:refs/remotes/origin/*", "^refs/heads/other"],
+        vec!["+refs/heads/other:refs/remotes/origin/other"],
+    ] {
+        let native = empty_git_repo();
+        let oracle = empty_git_repo();
+        for root in [native.path(), oracle.path()] {
+            exec_git_cmd(
+                &["remote", "add", "origin", source.path().to_str().unwrap()],
+                root,
+            );
+            for key in [
+                "fetch.prune",
+                "fetch.pruneTags",
+                "fetch.writeCommitGraph",
+                "fetch.fsckObjects",
+                "transfer.fsckObjects",
+            ] {
+                exec_git_cmd(&["config", key, "false"], root);
+            }
+            exec_git_cmd(&["config", "--unset-all", "remote.origin.fetch"], root);
+            for spec in &specs {
+                exec_git_cmd(&["config", "--add", "remote.origin.fetch", spec], root);
+            }
+        }
+        let repository = GitRepository::discover(native.path())?;
+        let outcome = fetch::execute(&repository, "origin", Some("main"))?
+            .into_applied()
+            .unwrap();
+        let expected = gix::open(source.path())?.head_id()?.to_string();
+        assert_eq!(
+            outcome.target.unwrap(),
+            history::RevisionId::parse(&expected)?
+        );
+        exec_git_cmd(
+            &[
+                "fetch",
+                "--no-recurse-submodules",
+                "origin",
+                "refs/heads/main",
+            ],
+            oracle.path(),
+        );
+        let refs = |root: &Path| -> Result<Vec<_>> {
+            let repo = gix::open(root)?;
+            let mut refs = Vec::new();
+            for reference in repo.references()?.all()? {
+                let mut reference = reference?;
+                if reference.name().as_bstr().starts_with(b"refs/remotes/") {
+                    refs.push((
+                        reference.name().as_bstr().to_owned(),
+                        reference.peel_to_id()?.detach(),
+                    ));
+                }
+            }
+            refs.sort();
+            Ok(refs)
+        };
+        assert_eq!(refs(native.path())?, refs(oracle.path())?, "{specs:?}");
+        let fetch_head = |root: &Path| -> Result<Vec<String>> {
+            Ok(std::fs::read_to_string(root.join(".git/FETCH_HEAD"))?
+                .lines()
+                .map(|line| line.split_once(" of ").unwrap().0.to_owned())
+                .collect())
+        };
+        assert_eq!(
+            fetch_head(native.path())?,
+            fetch_head(oracle.path())?,
+            "{specs:?}"
+        );
+        assert!(repository.open_read(true)?.head()?.is_unborn());
+        assert!(!native.path().join("file.txt").exists());
+    }
+    Ok(())
+}
+
+#[test]
+fn native_fetch_for_pull_defers_excluded_upstreams_before_network() -> Result<()> {
+    let dir = initial()?;
+    exec_git_cmd(
+        &[
+            "remote",
+            "add",
+            "origin",
+            "unavailable-protocol://example.invalid/repo",
+        ],
+        dir.path(),
+    );
+    exec_git_cmd(
+        &["config", "--add", "remote.origin.fetch", "^refs/heads/main"],
+        dir.path(),
+    );
+    for key in [
+        "fetch.prune",
+        "fetch.pruneTags",
+        "fetch.writeCommitGraph",
+        "fetch.fsckObjects",
+        "transfer.fsckObjects",
+    ] {
+        exec_git_cmd(&["config", key, "false"], dir.path());
+    }
+    let repository = GitRepository::discover(dir.path())?;
+    assert!(fetch::execute(&repository, "origin", Some("main"))?
+        .into_applied()
+        .is_none());
+    assert!(!repository.git_dir.join("FETCH_HEAD").exists());
+    Ok(())
+}
+
+#[tokio::test]
+async fn pull_with_excluded_upstream_preserves_explicit_git_fetch_behavior() -> Result<()> {
+    let source = initial()?;
+    let directory = tempfile::tempdir()?;
+    let root = directory.path().join("checkout");
+    exec_git_cmd(
+        &[
+            "clone",
+            source.path().to_str().unwrap(),
+            root.to_str().unwrap(),
+        ],
+        directory.path(),
+    );
+    exec_git_cmd(
+        &["config", "--add", "remote.origin.fetch", "^refs/heads/main"],
+        &root,
+    );
+    for key in [
+        "fetch.prune",
+        "fetch.pruneTags",
+        "fetch.writeCommitGraph",
+        "fetch.fsckObjects",
+        "transfer.fsckObjects",
+    ] {
+        exec_git_cmd(&["config", key, "false"], &root);
+    }
+    std::fs::write(source.path().join("file.txt"), "remote update\n")?;
+    create_commit_with_message(source.path(), true, "remote update");
+    let repo = GitRepository::discover(&root)?;
+    assert!(fetch::execute(&repo, "origin", Some("main"))?
+        .into_applied()
+        .is_none());
+    execute(&repo, RepositoryOperation::Pull { remote: None }).await?;
+    assert_eq!(
+        repo.open_read(true)?.head_id()?.detach(),
+        gix::open(source.path())?.head_id()?.detach()
+    );
+    assert_eq!(
+        std::fs::read_to_string(root.join("file.txt"))?,
+        "remote update\n"
+    );
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn native_fetch_for_pull_preserves_non_utf8_tracking_names() -> Result<()> {
+    use std::io::Write;
+    let source = initial()?;
+    let native = empty_git_repo();
+    let oracle = empty_git_repo();
+    for root in [native.path(), oracle.path()] {
+        exec_git_cmd(
+            &["remote", "add", "origin", source.path().to_str().unwrap()],
+            root,
+        );
+        exec_git_cmd(&["config", "--unset-all", "remote.origin.fetch"], root);
+        for key in [
+            "fetch.prune",
+            "fetch.pruneTags",
+            "fetch.writeCommitGraph",
+            "fetch.fsckObjects",
+            "transfer.fsckObjects",
+        ] {
+            exec_git_cmd(&["config", key, "false"], root);
+        }
+        std::fs::OpenOptions::new().append(true).open(root.join(".git/config"))?
+            .write_all(b"\n[remote \"origin\"]\nfetch = +refs/heads/main:refs/remotes/origin/non-utf8-\xff\n")?;
+    }
+    let repository = GitRepository::discover(native.path())?;
+    assert!(fetch::execute(&repository, "origin", Some("main"))?
+        .into_applied()
+        .is_some());
+    exec_git_cmd(&["fetch", "origin", "refs/heads/main"], oracle.path());
+    let refs = |root: &Path| -> Result<Vec<_>> {
+        let repo = gix::open(root)?;
+        let mut refs = Vec::new();
+        for reference in repo.references()?.all()? {
+            let mut reference = reference?;
+            if reference.name().as_bstr().starts_with(b"refs/remotes/") {
+                refs.push((
+                    reference.name().as_bstr().to_owned(),
+                    reference.peel_to_id()?.detach(),
+                ));
+            }
+        }
+        refs.sort();
+        Ok(refs)
+    };
+    assert_eq!(refs(native.path())?, refs(oracle.path())?);
     Ok(())
 }

@@ -341,7 +341,7 @@ pub(crate) mod tests {
         );
         apply(&mut doc, &edit, view.id).unwrap();
         doc.commit_changes();
-        view.sync_changes(&mut doc);
+        view.sync_changes(&doc);
         assert_eq!(last_edit_pos(&mut doc), Some(7));
     }
 
@@ -500,7 +500,7 @@ pub(crate) mod tests {
                 cursor
             );
             doc.commit_changes();
-            view.sync_changes(&mut doc);
+            view.sync_changes(&doc);
             assert!(undo(&mut doc, view.id));
             assert_eq!(doc.text(), newline);
             assert_eq!(doc.selection(view.id), &original_selection);

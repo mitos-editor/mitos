@@ -130,6 +130,8 @@
 "ui.cursorline.primary" = { bg = "cursorline" }
 
 "ui.highlight" = { bg = "surface1", modifiers = ["bold"] }
+# One surface below upstream LSP references, since surface1 is used for selections.
+"ui.highlight.symbol" = { bg = "surface0" }
 
 "ui.menu" = { fg = "overlay2", bg = "surface0" }
 "ui.menu.selected" = { fg = "text", bg = "surface1", modifiers = ["bold"] }

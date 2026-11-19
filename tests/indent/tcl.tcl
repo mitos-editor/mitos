@@ -5,3 +5,9 @@ proc greet {name} {
         puts "bye"
     }
 }
+
+regsub \
+    -all \
+    {foo} \
+    $input \
+    {bar}

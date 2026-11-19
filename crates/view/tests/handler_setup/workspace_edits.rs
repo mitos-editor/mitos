@@ -7,7 +7,7 @@ use view::{current, current_ref, editing::EditError, workspace_edit::ApplyEditEr
 fn text_edit(uri: Url, version: Option<i32>, new_text: &str) -> lsp::TextDocumentEdit {
     lsp::TextDocumentEdit {
         text_document: lsp::OptionalVersionedTextDocumentIdentifier { uri, version },
-        edits: vec![lsp::OneOf::Left(lsp::TextEdit {
+        edits: vec![lsp::DocumentTextEdit::Plain(lsp::TextEdit {
             range: lsp::Range::default(),
             new_text: new_text.into(),
         })],

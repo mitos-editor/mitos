@@ -198,7 +198,6 @@ async fn diff_command_creates_a_review_buffer_and_native_history_returns_to_sour
     Ok(())
 }
 
-#[cfg(feature = "syntax-diff")]
 #[tokio::test(flavor = "multi_thread")]
 async fn native_review_renderer_keeps_unicode_token_styles_and_wrapped_row_backgrounds(
 ) -> anyhow::Result<()> {
@@ -214,7 +213,6 @@ async fn native_review_renderer_keeps_unicode_token_styles_and_wrapped_row_backg
     let mut config = test_config();
     config.editor.soft_wrap.enable = Some(true);
     config.editor.cursor.highlight_line = false;
-    config.editor.diff.engine = editor_config::DiffEngine::Syntax;
     let languages = language::Loader::new(
         toml::from_str(
             r#"
@@ -254,15 +252,14 @@ async fn native_review_renderer_keeps_unicode_token_styles_and_wrapped_row_backg
     // Reset the idle timer and bound settling, even if the callback completed
     // during the preceding idle pass.
     keys(&mut app, "").await?;
-    assert_eq!(
-        current_ref!(app.editor)
-            .1
-            .review()
-            .unwrap()
-            .review()
-            .provider,
-        Some("syntax")
-    );
+    assert!(current_ref!(app.editor)
+        .1
+        .review()
+        .unwrap()
+        .review()
+        .lines
+        .iter()
+        .any(|line| line.changes.is_some()));
     let buffer = app.terminal_backend().buffer();
     use tui::style::{Color, Modifier};
     assert!(buffer.content.iter().any(|cell| cell.symbol() == "2"
@@ -304,14 +301,88 @@ async fn native_review_renderer_keeps_unicode_token_styles_and_wrapped_row_backg
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn review_syntax_uses_each_source_context_in_both_engines_and_follows_theme_changes(
-) -> anyhow::Result<()> {
+async fn history_diff_word_style_takes_precedence_over_whitespace_style() -> anyhow::Result<()> {
     use tui::style::Color;
-    for (engine, extension) in [
-        (editor_config::DiffEngine::Line, "rs"),
-        (editor_config::DiffEngine::Syntax, "rs"),
-        (editor_config::DiffEngine::Line, "md"),
-    ] {
+
+    let dir = tempfile::tempdir()?;
+    git(dir.path(), &["init"]);
+    git(dir.path(), &["config", "core.autocrlf", "false"]);
+    let path = dir.path().join("sample.json");
+    std::fs::write(&path, r#"{"a":"λx y"}"#)?;
+    git(dir.path(), &["add", "."]);
+    git(dir.path(), &["commit", "-m", "initial"]);
+    std::fs::write(&path, r#"{"a":"λx  y"}"#)?;
+    git(dir.path(), &["add", "."]);
+    git(dir.path(), &["commit", "-m", "change string spacing"]);
+
+    let mut config = test_config();
+    config.editor.cursor.highlight_line = false;
+    let languages = language::Loader::new(
+        toml::from_str(
+            r#"
+            [[language]]
+            name = "json"
+            scope = "source.json"
+            file-types = ["json"]
+            grammar = "json"
+        "#,
+        )?,
+        Default::default(),
+    )?;
+    let mut app = AppBuilder::new()
+        .with_config(config)
+        .with_lang_loader(languages)
+        .with_file(&path, None)
+        .build()?;
+    app.editor
+        .set_theme(theme::Theme::from(toml::from_str::<toml::Value>(
+            r#"
+            "ui.text" = "white"
+            "ui.cursor" = "white"
+            "ui.selection" = "white"
+            "ui.virtual.whitespace" = { fg = "blue", bg = "blue" }
+            "string" = "cyan"
+            "diff.plus.word" = { fg = "green", bg = "green" }
+        "#,
+        )?))?;
+
+    let assert_word_style = |app: &TestApplication| {
+        let buffer = app.terminal_backend().buffer();
+        let (x, y) = (0..buffer.area.height)
+            .find_map(|y| {
+                let text: String = (0..buffer.area.width)
+                    .map(|x| buffer[(x, y)].symbol())
+                    .collect();
+                let marker = text.find('+')?;
+                text[marker..]
+                    .find("x  y")
+                    .map(|offset| (text[..marker + offset].chars().count() as u16, y))
+            })
+            .expect("changed string in review");
+        let cell = &buffer[(x + 1, y)];
+        let opened = current_ref!(app.editor).1.review().is_some();
+        assert_eq!(cell.fg, Color::Green, "foreground with opened={opened}");
+        assert_eq!(cell.bg, Color::Green, "background with opened={opened}");
+    };
+
+    keys(&mut app, ":vcs-history<ret>change string spacing").await?;
+    preview_contains(&mut app, "change string spacing").await?;
+    keys(&mut app, "<ret>sample.json").await?;
+    preview_contains(&mut app, "λx  y").await?;
+    assert_word_style(&app);
+
+    keys(&mut app, "<C-s>").await?;
+    ready(&mut app).await?;
+    keys(&mut app, "").await?;
+    assert_word_style(&app);
+    assert!(app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn review_syntax_uses_each_source_context_and_follows_theme_changes() -> anyhow::Result<()> {
+    use tui::style::Color;
+    for extension in ["rs", "md"] {
         let dir = tempfile::tempdir()?;
         git(dir.path(), &["init"]);
         git(dir.path(), &["config", "core.autocrlf", "false"]);
@@ -335,7 +406,6 @@ async fn review_syntax_uses_each_source_context_in_both_engines_and_follows_them
         git(dir.path(), &["commit", "-m", "initial"]);
         std::fs::write(&path, after)?;
         let mut config = test_config();
-        config.editor.diff.engine = engine;
         config.editor.cursor.highlight_line = false;
         let mut app = AppBuilder::new()
             .with_config(config)
@@ -374,8 +444,6 @@ async fn review_syntax_uses_each_source_context_in_both_engines_and_follows_them
                 "constant.numeric" = "yellow"
                 "diff.plus" = "green"
                 "diff.minus" = "red"
-                "diff.plus.word" = {{ modifiers = ["bold"] }}
-                "diff.minus.word" = {{ modifiers = ["bold"] }}
                 "diff.plus.line" = {{ bg = "#103010" }}
                 "diff.minus.line" = {{ bg = "#301010" }}
             "##
@@ -400,10 +468,20 @@ async fn review_syntax_uses_each_source_context_in_both_engines_and_follows_them
                         text.find(contents)
                             .map(|byte| (text[..byte].chars().count() as u16, y))
                     })
-                    .unwrap_or_else(|| panic!("Missing {contents:?} in {engine:?} review"));
+                    .unwrap_or_else(|| panic!("Missing {contents:?} in {extension:?} review"));
                 let cell = &buffer[row];
-                assert_eq!(cell.fg, color, "{contents:?}, {engine:?}");
-                assert_eq!(cell.bg, background, "{contents:?}, {engine:?}");
+                assert_eq!(cell.fg, color, "{contents:?}, {extension:?}");
+                assert_eq!(cell.bg, background, "{contents:?}, {extension:?}");
+                let identifier = &buffer[(row.0 + 4, row.1)];
+                assert_eq!(
+                    identifier.fg,
+                    if contents == "let old" {
+                        comment
+                    } else {
+                        Color::Cyan
+                    }
+                );
+                assert!(identifier.modifier.contains(tui::style::Modifier::BOLD));
             }
         };
         assert_colors(&app, Color::Blue, Color::Magenta);
@@ -417,7 +495,7 @@ async fn review_syntax_uses_each_source_context_in_both_engines_and_follows_them
         assert!(source
             .syntax_for_row(
                 source
-                    .compute(Some(engine), &|| false)
+                    .compute(&|| false)
                     .lines
                     .iter()
                     .find(|row| row.text.contains("let old"))
@@ -436,6 +514,21 @@ async fn review_syntax_uses_each_source_context_in_both_engines_and_follows_them
                 .source()
                 .unwrap()
         ));
+        // Opening the same committed change from history must keep the
+        // preview's source colors and changed-word emphasis.
+        git(dir.path(), &["add", "."]);
+        git(dir.path(), &["commit", "-m", "highlighting regression"]);
+        let live_review = current_ref!(app.editor).1.id();
+        keys(&mut app, ":vcs-history<ret>highlighting regression").await?;
+        preview_contains(&mut app, "highlighting regression").await?;
+        keys(&mut app, &format!("<ret>source.{extension}")).await?;
+        preview_contains(&mut app, "let old").await?;
+        assert_colors(&app, Color::Red, Color::Green);
+        keys(&mut app, "<C-s>").await?;
+        assert_ne!(current_ref!(app.editor).1.id(), live_review);
+        ready(&mut app).await?;
+        keys(&mut app, "").await?;
+        assert_colors(&app, Color::Red, Color::Green);
         assert!(app.close().await.is_empty());
     }
     Ok(())
@@ -480,12 +573,8 @@ async fn review_names_stay_short_in_tabs_and_picker_with_live_details_in_statusl
     let (view, doc) = current_ref!(app.editor);
     let status = row(&app, view.statusline_area(doc).y);
     assert!(status.contains("note.txt") && status.contains("DIFF HEAD"));
-    assert!(status.contains("+1") && status.contains("−1") && status.contains("line"));
-    keys(
-        &mut app,
-        ":set diff.engine syntax<ret>:vcs-diff-refresh<ret>",
-    )
-    .await?;
+    assert!(status.contains("+1") && status.contains("−1"));
+    keys(&mut app, ":vcs-diff-refresh<ret>").await?;
     ready(&mut app).await?;
     assert_eq!(current_ref!(app.editor).1.display_name(), name);
     keys(&mut app, ":vcs-diff-refresh<ret>").await?;
@@ -744,7 +833,7 @@ async fn review_highlighting_follows_visible_rows_after_a_large_fold() -> anyhow
         .document_mut(id)
         .unwrap()
         .set_selection(view_id, selection);
-    keys(&mut app, "zfs").await?;
+    keys(&mut app, "zf").await?;
     let (view, doc) = current_ref!(app.editor);
     assert_eq!(doc.folded_ranges(view.id).len(), 1);
     let area = view.inner_area(doc);
@@ -787,8 +876,7 @@ async fn changed_file_and_history_previews_share_scroll_keys_and_scrollbars() ->
     git(&workspace, &["add", "."]);
     git(&workspace, &["commit", "-m", "initial"]);
     std::fs::write(&path, text("new"))?;
-    let mut config = test_config();
-    config.editor.diff.engine = editor_config::DiffEngine::Line;
+    let config = test_config();
     let mut app = AppBuilder::new()
         .with_config(config)
         .with_file(&path, None)

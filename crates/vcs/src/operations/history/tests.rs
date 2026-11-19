@@ -122,6 +122,7 @@ async fn continuation_is_pinned_and_tracks_a_rename_across_pages() -> Result<()>
         .history_page(repo.history_cursor(Some(&root.join("new.txt")))?.unwrap())
         .await?;
     assert_eq!(first.commits.len(), HISTORY_PAGE_SIZE);
+    first.next.as_ref().unwrap().suspend();
     let repository_page = repo
         .history_page(repo.history_cursor(None)?.unwrap())
         .await?;
@@ -331,5 +332,205 @@ async fn history_reads_work_without_git_executable() -> Result<()> {
         String::from_utf8_lossy(&child.stdout),
         String::from_utf8_lossy(&child.stderr)
     );
+    Ok(())
+}
+
+#[tokio::test]
+async fn file_history_modifications_ignore_unrelated_commit_display_limit() -> Result<()> {
+    let dir = empty_git_repo();
+    let root = dir.path();
+    let selected = root.join("selected.txt");
+    std::fs::write(&selected, "before\n")?;
+    commit(root, "initial");
+    // Exercise the display limit without creating thousands of worktree files.
+    // A single existing blob can back every unrelated entry in a synthetic tree.
+    let repo = GitRepository::discover(root)?;
+    let git = repo.open(false)?;
+    let before = git.head_commit()?.tree()?;
+    let blob = before
+        .lookup_entry_by_path("selected.txt")?
+        .unwrap()
+        .object_id();
+    let mut tree = gix::objs::Tree::default();
+    for index in 0..20_001 {
+        tree.entries.push(gix::objs::tree::Entry {
+            mode: gix::objs::tree::EntryKind::Blob.into(),
+            filename: format!("unrelated-{index:05}.txt").into(),
+            oid: blob,
+        });
+    }
+    let unrelated = git.write_object(&tree)?.detach();
+    let modified = git.write_blob(b"after\n")?.detach();
+    let tree = gix::objs::Tree {
+        entries: vec![
+            gix::objs::tree::Entry {
+                mode: gix::objs::tree::EntryKind::Blob.into(),
+                filename: "selected.txt".into(),
+                oid: modified,
+            },
+            gix::objs::tree::Entry {
+                mode: gix::objs::tree::EntryKind::Tree.into(),
+                filename: "unrelated".into(),
+                oid: unrelated,
+            },
+        ],
+    };
+    let tree = git.write_object(&tree)?.to_string();
+    exec_git_cmd(&["read-tree", &tree], root);
+    create_commit_with_message(root, false, "selected and many unrelated changes");
+    let page = repo
+        .history_page(repo.history_cursor(Some(&selected))?.unwrap())
+        .await?;
+    assert_eq!(page.commits.len(), 2);
+    assert_eq!(
+        page.commits[0].subject,
+        "selected and many unrelated changes"
+    );
+    let file = page.commits[0].file.as_ref().unwrap();
+    assert_eq!(file.status, "M");
+    assert_eq!(file.before.as_deref(), Some(Path::new("selected.txt")));
+    assert_eq!(file.after, file.before);
+    // The repository-wide browser retains its explicit display budget.
+    assert!(repo.commit_files(&page.commits[0], 0).await.is_err());
+    Ok(())
+}
+
+#[tokio::test]
+async fn file_history_preserves_mode_and_type_changes() -> Result<()> {
+    let dir = empty_git_repo();
+    let root = dir.path();
+    let selected = root.join("selected.txt");
+    std::fs::write(&selected, "target\n")?;
+    commit(root, "initial");
+    exec_git_cmd(&["update-index", "--chmod=+x", "selected.txt"], root);
+    create_commit_with_message(root, false, "executable");
+    let repo = GitRepository::discover(root)?;
+    let git = repo.open(false)?;
+    let blob = git
+        .head_commit()?
+        .tree()?
+        .lookup_entry_by_path("selected.txt")?
+        .unwrap()
+        .object_id();
+    exec_git_cmd(
+        &[
+            "update-index",
+            "--cacheinfo",
+            &format!("120000,{blob},selected.txt"),
+        ],
+        root,
+    );
+    create_commit_with_message(root, false, "symlink");
+    let page = repo
+        .history_page(repo.history_cursor(Some(&selected))?.unwrap())
+        .await?;
+    assert_eq!(page.commits.len(), 3);
+    assert_eq!(
+        page.commits
+            .iter()
+            .map(|row| row.file.as_ref().unwrap().status.as_str())
+            .collect::<Vec<_>>(),
+        ["T", "M", "A"]
+    );
+    for row in &page.commits {
+        let files = repo.commit_files(row, 0).await?;
+        assert_eq!(files.len(), 1);
+        let actual = row.file.as_ref().unwrap();
+        assert_eq!(actual.status, files[0].status);
+        assert_eq!(actual.before, files[0].before);
+        assert_eq!(actual.after, files[0].after);
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn file_history_modifications_follow_only_the_first_merge_parent() -> Result<()> {
+    let dir = empty_git_repo();
+    let root = dir.path();
+    let selected = root.join("selected.txt");
+    std::fs::write(&selected, "before\n")?;
+    commit(root, "initial");
+    exec_git_cmd(&["checkout", "-b", "side"], root);
+    std::fs::write(&selected, "after\n")?;
+    commit(root, "side edit");
+    exec_git_cmd(&["checkout", "-"], root);
+    std::fs::write(root.join("other.txt"), "main\n")?;
+    commit(root, "unrelated main edit");
+    exec_git_cmd(&["merge", "--no-ff", "side", "-m", "merge"], root);
+    let repo = GitRepository::discover(root)?;
+    let page = repo
+        .history_page(repo.history_cursor(Some(&selected))?.unwrap())
+        .await?;
+    assert_eq!(
+        page.commits
+            .iter()
+            .map(|row| row.subject.as_str())
+            .collect::<Vec<_>>(),
+        ["merge", "initial"]
+    );
+    assert_eq!(page.commits[0].file.as_ref().unwrap().status, "M");
+    assert_eq!(page.commits[0].parents.len(), 2);
+    Ok(())
+}
+
+#[tokio::test]
+async fn history_cursor_suspension_releases_replay_rows_and_preserves_pinned_head() -> Result<()> {
+    let dir = empty_git_repo();
+    let root = dir.path();
+    let selected = root.join("selected.txt");
+    std::fs::write(&selected, "before\n")?;
+    commit(root, "initial");
+    let repo = GitRepository::discover(root)?;
+    let cursor = repo.history_cursor(Some(&selected))?.unwrap();
+    std::fs::rename(root.join(".git"), root.join("saved.git"))?;
+    assert!(repo.history_page(cursor.clone()).await.is_err());
+    std::fs::rename(root.join("saved.git"), root.join(".git"))?;
+    let page = repo.history_page(cursor.clone()).await?;
+    let pinned = page.commits[0].id.clone();
+    let retained = std::sync::Arc::downgrade(&page.commits[0]);
+    drop(page);
+    assert!(retained.upgrade().is_some());
+    cursor.suspend();
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        while retained.upgrade().is_some() {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await?;
+    std::fs::write(&selected, "after\n")?;
+    commit(root, "new head");
+    assert_eq!(repo.history_page(cursor).await?.commits[0].id, pinned);
+    Ok(())
+}
+
+#[tokio::test]
+async fn resumed_history_budget_counts_only_the_requested_page() -> Result<()> {
+    let dir = empty_git_repo();
+    std::fs::write(dir.path().join("file.txt"), "initial\n")?;
+    commit(dir.path(), "initial");
+    let repo = GitRepository::discover(dir.path())?;
+    let git = repo.open(false)?;
+    let head = git.head_commit()?;
+    let mut object = head.decode()?.to_owned()?;
+    let mut previous = head.id;
+    // Each page is under 1 MiB; replaying two pages exceeds it in aggregate.
+    object.message = "😀".repeat(1000).into();
+    object.author.name = "😀".repeat(1000).into();
+    for _ in 0..205 {
+        object.parents = [previous].into_iter().collect();
+        previous = git.write_object(&object)?.detach();
+    }
+    exec_git_cmd(&["update-ref", "HEAD", &previous.to_string()], dir.path());
+    let first = repo
+        .history_page(repo.history_cursor(None)?.unwrap())
+        .await?;
+    assert_eq!(first.commits.len(), HISTORY_PAGE_SIZE);
+    let second = repo.history_page(first.next.unwrap()).await?;
+    assert_eq!(second.commits.len(), HISTORY_PAGE_SIZE);
+    let cursor = second.next.unwrap();
+    cursor.suspend();
+    let third = repo.history_page(cursor).await?;
+    assert_eq!(third.commits.len(), 6);
+    assert!(third.next.is_none());
     Ok(())
 }

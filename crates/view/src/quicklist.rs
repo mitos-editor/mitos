@@ -68,7 +68,9 @@ impl QuicklistPosition {
     /// Returns a best-effort zero-based line range for preview and display.
     pub fn line_range(&self, text: Option<RopeSlice<'_>>) -> Option<(usize, usize)> {
         match self {
-            Self::Selection(selection) => text.map(|text| selection.primary().line_range(text)),
+            Self::Selection(selection) => {
+                text.map(|text| clamp_selection(selection, text).primary().line_range(text))
+            }
             Self::LineRange { start, end } => Some((*start, *end)),
             Self::LineColRange {
                 start_line,
@@ -81,6 +83,17 @@ impl QuicklistPosition {
             Self::None => None,
         }
     }
+}
+
+pub(crate) fn clamp_selection(selection: &Selection, text: RopeSlice<'_>) -> Selection {
+    selection
+        .clone()
+        .transform(|mut range| {
+            range.anchor = range.anchor.min(text.len_chars());
+            range.head = range.head.min(text.len_chars());
+            range
+        })
+        .ensure_invariants(text)
 }
 
 /// A stored location in the quicklist.
@@ -298,6 +311,19 @@ mod tests {
         let position = QuicklistPosition::Selection(Selection::single(6, 10));
 
         assert_eq!(position.line_range(Some(text.slice(..))), Some((1, 1)));
+    }
+
+    #[test]
+    fn quicklist_selection_reports_line_range_after_text_is_shortened() {
+        let position = QuicklistPosition::Selection(Selection::single(15, 10));
+        for (text, expected) in [("x\n", (1, 1)), ("", (0, 0)), ("a\u{301}", (0, 0))] {
+            let text = Rope::from(text);
+            assert_eq!(position.line_range(Some(text.slice(..))), Some(expected));
+        }
+        assert_eq!(
+            position,
+            QuicklistPosition::Selection(Selection::single(15, 10))
+        );
     }
 
     #[test]

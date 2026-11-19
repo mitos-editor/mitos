@@ -14,6 +14,12 @@ use text_layout::{doc_formatter::FormattedGrapheme, DisplayPosition};
 /// To reserve space for virtual text lines (which is then filled by this trait) emit appropriate
 /// [`LineAnnotation`](text_layout::text_annotations::LineAnnotation)s in the caller's text annotation preparation
 pub trait Decoration {
+    /// Opt in only when virtual-line rendering does not require the exact text
+    /// width. The manager also checks that no grapheme anchor would be skipped.
+    fn can_skip_unwrapped_tail(&self) -> bool {
+        false
+    }
+
     /// Called **before** a **visual** line is rendered. A visual line does not
     /// necessarily correspond to a single line in a document as soft wrapping can
     /// spread a single document line across multiple visual lines.
@@ -75,6 +81,10 @@ pub trait Decoration {
 }
 
 impl<F: FnMut(&mut TextRenderer, LinePos)> Decoration for F {
+    fn can_skip_unwrapped_tail(&self) -> bool {
+        true
+    }
+
     fn decorate_line(&mut self, renderer: &mut TextRenderer, pos: LinePos) {
         self(renderer, pos);
     }
@@ -83,6 +93,7 @@ impl<F: FnMut(&mut TextRenderer, LinePos)> Decoration for F {
 #[derive(Default)]
 pub struct DecorationManager<'a> {
     decorations: Vec<(Box<dyn Decoration + 'a>, usize)>,
+    next_anchor: usize,
 }
 
 impl<'a> DecorationManager<'a> {
@@ -90,10 +101,17 @@ impl<'a> DecorationManager<'a> {
         self.decorations.push((Box::new(decoration), 0));
     }
 
+    pub(crate) fn can_skip_unwrapped_tail(&self, end: usize) -> bool {
+        self.decorations
+            .iter()
+            .all(|(decoration, anchor)| *anchor >= end && decoration.can_skip_unwrapped_tail())
+    }
+
     pub(crate) fn prepare_for_rendering(&mut self, first_visible_char: usize) {
         for (decoration, next_position) in &mut self.decorations {
             *next_position = decoration.reset_pos(first_visible_char)
         }
+        self.update_next_anchor();
     }
 
     pub(crate) fn decorate_grapheme(
@@ -101,6 +119,9 @@ impl<'a> DecorationManager<'a> {
         renderer: &mut TextRenderer,
         grapheme: &FormattedGrapheme,
     ) {
+        if grapheme.char_idx < self.next_anchor {
+            return;
+        }
         for (decoration, hook_char_idx) in &mut self.decorations {
             loop {
                 match (*hook_char_idx).cmp(&grapheme.char_idx) {
@@ -116,6 +137,16 @@ impl<'a> DecorationManager<'a> {
                 }
             }
         }
+        self.update_next_anchor();
+    }
+
+    fn update_next_anchor(&mut self) {
+        self.next_anchor = self
+            .decorations
+            .iter()
+            .map(|(_, anchor)| *anchor)
+            .min()
+            .unwrap_or(usize::MAX);
     }
 
     pub(crate) fn decorate_line(&mut self, renderer: &mut TextRenderer, pos: LinePos) {

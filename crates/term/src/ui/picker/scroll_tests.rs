@@ -1,8 +1,8 @@
 use super::{
-    test::{application, until},
+    test::{application, event_with_config, frame_with_area, until},
     *,
 };
-use crate::{application::TestApplication, config::Config, job::Jobs};
+use crate::{application::TestApplication, config::Config};
 use std::path::PathBuf;
 use ui_core::input::{KeyModifiers, MouseEvent, MouseEventKind};
 
@@ -49,23 +49,7 @@ impl Fixture {
     }
 
     fn event(&mut self, event: Event) {
-        let updates = tokio::sync::mpsc::unbounded_channel().0;
-        let mut jobs = Jobs::new();
-        self.picker.handle_event(
-            &event,
-            &mut Context {
-                config: crate::config::Context {
-                    current: &self.config,
-                    updates: &updates,
-                },
-                editor: &mut self.app.editor,
-                interaction: &mut self.app.interaction,
-                jobs: &mut jobs,
-                scroll: None,
-                image_picker: None,
-                is_cursor_owner: true,
-            },
-        );
+        event_with_config(&mut self.picker, &mut self.app, &self.config, event);
     }
 
     fn key(&mut self, key: &str) {
@@ -73,27 +57,12 @@ impl Fixture {
     }
 
     fn draw(&mut self, width: u16, height: u16) -> Surface {
-        let updates = tokio::sync::mpsc::unbounded_channel().0;
-        let mut jobs = Jobs::new();
-        let area = Rect::new(0, 0, width, height);
-        let mut surface = Surface::empty(area);
-        self.picker.update_and_render(
-            area,
-            &mut surface,
-            &mut Context {
-                config: crate::config::Context {
-                    current: &self.config,
-                    updates: &updates,
-                },
-                editor: &mut self.app.editor,
-                interaction: &mut self.app.interaction,
-                jobs: &mut jobs,
-                scroll: None,
-                image_picker: None,
-                is_cursor_owner: true,
-            },
-        );
-        surface
+        frame_with_area(
+            &mut self.picker,
+            &mut self.app,
+            &self.config,
+            Rect::new(0, 0, width, height),
+        )
     }
 
     fn preview_text(&mut self) -> String {

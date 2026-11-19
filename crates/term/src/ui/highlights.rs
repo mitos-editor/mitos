@@ -10,17 +10,17 @@ use editor_core::{
 use language::syntax;
 use std::ops;
 use theme::Theme;
-use view::{document::Mode, graphics::CursorKind, Document, View};
+use view::document::PresentedDocument;
+use view::{document::Mode, graphics::CursorKind, View};
 
 /// Resolve styles only for visible source ranges. Starting a fresh highlighter
 /// after each fold restores enclosing syntax scopes without visiting its body.
 pub(crate) fn document_syntax_styles<'a>(
-    doc: &'a Document,
-    layout: &view::view::ViewLayout,
+    doc: PresentedDocument<'a>,
+    ranges: &'a [ops::Range<usize>],
     theme: &'a Theme,
 ) -> impl Iterator<Item = (usize, theme::Style)> + 'a {
-    let ranges = layout.visible_byte_ranges();
-    ranges.into_iter().flat_map(move |range| {
+    ranges.iter().flat_map(move |range| {
         let highlighter = doc.syntax().map(|syntax| {
             syntax.highlighter(
                 doc.text().slice(..),
@@ -97,8 +97,12 @@ fn merge_semantic_styles<'a>(
     })
 }
 
-pub(crate) fn overlay_highlights(layout: &view::view::ViewLayout) -> OverlayHighlights {
-    let range = layout.visible_byte_range();
+pub(crate) fn overlay_highlights(
+    layout: &view::view::ViewLayout,
+    ranges: &[ops::Range<usize>],
+) -> OverlayHighlights {
+    let range =
+        ranges.first().map_or(0, |range| range.start)..ranges.last().map_or(0, |range| range.end);
     layout.annotations.collect_overlay_highlights(
         layout.text.byte_to_char_idx(range.start)..layout.text.byte_to_char_idx(range.end),
     )
@@ -108,19 +112,19 @@ pub(crate) fn overlay_highlights(layout: &view::view::ViewLayout) -> OverlayHigh
 pub(crate) fn search_highlights(
     query: &view::features::buffer_search::Query,
     layout: &view::view::ViewLayout,
+    visible: &[ops::Range<usize>],
     theme: &Theme,
 ) -> Option<OverlayHighlights> {
     use stdx::rope::RopeSliceExt as _;
     let highlight = theme
         .find_highlight_exact("ui.cursor.match")
         .or_else(|| theme.find_highlight_exact("ui.selection"))?;
-    let ranges = layout
-        .visible_byte_ranges()
-        .into_iter()
+    let ranges = visible
+        .iter()
         .flat_map(|range| {
             query
                 .regex()
-                .find_iter(layout.text.regex_input_at_bytes(range))
+                .find_iter(layout.text.regex_input_at_bytes(range.clone()))
                 .filter(|matched| !matched.is_empty())
                 .map(|matched| {
                     layout.text.byte_to_char_idx(matched.start())
@@ -132,29 +136,27 @@ pub(crate) fn search_highlights(
 }
 
 pub(crate) fn rainbow_highlights(
-    doc: &Document,
-    layout: &view::view::ViewLayout,
+    doc: PresentedDocument<'_>,
+    ranges: &[ops::Range<usize>],
     theme: &Theme,
 ) -> Option<OverlayHighlights> {
     let syntax = doc.syntax()?;
     let text = doc.text().slice(..);
-    let visible_range = layout.visible_byte_range();
-    let start = syntax::child_for_byte_range(
-        &syntax.tree().root_node(),
-        visible_range.start as u32..visible_range.end as u32,
+    Some(
+        syntax.rainbow_highlights(
+            text,
+            theme.rainbow_length(),
+            doc.syntax_loader(),
+            ranges
+                .iter()
+                .map(|range| range.start as u32..range.end as u32),
+        ),
     )
-    .map_or(visible_range.start as u32, |node| node.start_byte());
-    Some(syntax.rainbow_highlights(
-        text,
-        theme.rainbow_length(),
-        doc.syntax_loader(),
-        start..visible_range.end as u32,
-    ))
 }
 
 /// Get highlight spans for document diagnostics
 pub(crate) fn diagnostic_highlights(
-    doc: &Document,
+    doc: PresentedDocument<'_>,
     theme: &Theme,
     overlay_highlights: &mut Vec<OverlayHighlights>,
 ) {
@@ -296,7 +298,7 @@ pub(crate) fn diagnostic_highlights(
 }
 
 pub(crate) fn document_highlights(
-    doc: &Document,
+    doc: PresentedDocument<'_>,
     view: &View,
     theme: &Theme,
 ) -> Option<OverlayHighlights> {
@@ -305,10 +307,7 @@ pub(crate) fn document_highlights(
         return None;
     }
 
-    let highlight = theme
-        .find_highlight_exact("ui.highlight")
-        .or_else(|| theme.find_highlight_exact("ui.selection"))
-        .or_else(|| theme.find_highlight_exact("ui.cursor"))?;
+    let highlight = theme.find_highlight_exact("ui.highlight.symbol")?;
 
     Some(OverlayHighlights::Homogeneous {
         highlight,
@@ -316,7 +315,10 @@ pub(crate) fn document_highlights(
     })
 }
 
-pub(crate) fn document_link_highlights(doc: &Document, theme: &Theme) -> Option<OverlayHighlights> {
+pub(crate) fn document_link_highlights(
+    doc: PresentedDocument<'_>,
+    theme: &Theme,
+) -> Option<OverlayHighlights> {
     let highlight = theme.find_highlight_exact("ui.link")?;
 
     if doc.document_links().is_empty() {
@@ -347,7 +349,7 @@ pub(crate) fn document_link_highlights(doc: &Document, theme: &Theme) -> Option<
 /// Get highlight spans for selections in a document view.
 pub(crate) fn selection_highlights(
     mode: Mode,
-    doc: &Document,
+    doc: PresentedDocument<'_>,
     view: &View,
     theme: &Theme,
     cursor_config: &CursorConfig,
@@ -457,7 +459,7 @@ pub(crate) fn selection_highlights(
 /// Render brace match, etc (meant for the focused view only)
 pub(crate) fn matching_bracket_highlight(
     view: &View,
-    doc: &Document,
+    doc: PresentedDocument<'_>,
     theme: &Theme,
 ) -> Option<OverlayHighlights> {
     // Highlight matching braces
@@ -469,12 +471,20 @@ pub(crate) fn matching_bracket_highlight(
     Some(OverlayHighlights::single(highlight, pos..pos + 1))
 }
 
-pub(crate) fn tabstop_highlights(doc: &Document, theme: &Theme) -> Option<OverlayHighlights> {
+pub(crate) fn tabstop_highlights(
+    doc: PresentedDocument<'_>,
+    theme: &Theme,
+) -> Option<OverlayHighlights> {
     let snippet = doc.active_snippet()?;
     let highlight = theme.find_highlight_exact("tabstop")?;
     let mut ranges = Vec::new();
     for tabstop in snippet.tabstops() {
-        ranges.extend(tabstop.ranges.iter().map(|range| range.start..range.end));
+        ranges.extend(
+            tabstop
+                .ranges
+                .iter()
+                .map(|entry| entry.range.start..entry.range.end),
+        );
     }
     Some(OverlayHighlights::Homogeneous { highlight, ranges })
 }
@@ -533,15 +543,11 @@ fn classified_spans(
             }
         }
         while overlays.next_event_offset() <= position {
-            let (event, highlights) = overlays.advance();
-            let previous = if event == HighlightEvent::Refresh {
-                theme::Style::default()
-            } else {
-                overlay_style
-            };
-            overlay_style = highlights.fold(previous, |style, highlight| {
-                style.patch(theme.highlight(highlight))
-            });
+            overlay_style = overlays
+                .advance()
+                .fold(theme::Style::default(), |style, highlight| {
+                    style.patch(theme.highlight(highlight))
+                });
         }
         let end = syntax
             .as_ref()
@@ -604,6 +610,95 @@ mod tests {
     use super::*;
     use BlockCursorRendering::{Native, Software};
     use CursorKind::{Bar, Block, Underline};
+
+    #[tokio::test]
+    async fn symbol_highlights_keep_partial_selections_visible_in_reported_themes() {
+        use std::sync::Arc;
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../runtime");
+        let loader = theme::Loader::new(loader::theme::Resources::new(vec![root]));
+        for name in [
+            "onelight",
+            "acme",
+            "ayu_light",
+            "adwaita-dark",
+            "default",
+            "base16_default_light",
+            "akari-dawn",
+            "modus_operandi",
+            "modus_vivendi_tinted",
+            "catppuccin_mocha",
+            "catppuccin_latte",
+            "kanagawa",
+            "ayu_dark",
+            "ayu_mirage",
+        ] {
+            let theme = loader.load(name).unwrap();
+            let mut doc = view::Document::from(
+                editor_core::Rope::from("aaaaaaaa = 1\naaaaaaaa = 2\naaaaaaaa = 3\n"),
+                None,
+                Arc::new(arc_swap::ArcSwap::from_pointee(
+                    editor_config::Config::default(),
+                )),
+                Arc::new(language::syntax::Loader::default()),
+            );
+            let view = View::new(doc.id(), Default::default(), Default::default());
+            doc.ensure_view_init(view.id);
+            doc.set_document_highlights(view.id, vec![0..8, 13..21, 26..34]);
+            doc.set_selection(
+                view.id,
+                editor_core::Selection::new(
+                    vec![
+                        editor_core::Range::new(14, 18),
+                        editor_core::Range::new(27, 31),
+                    ]
+                    .into(),
+                    0,
+                ),
+            );
+            let base = theme.get("ui.background").patch(theme.get("ui.text"));
+            let references = document_highlights((&doc).into(), &view, &theme).unwrap();
+            let selection = selection_highlights(
+                Mode::Select,
+                (&doc).into(),
+                &view,
+                &theme,
+                &CursorConfig::default(),
+                true,
+                true,
+            );
+            let spans: Vec<_> = styled_spans(
+                None,
+                [references, selection],
+                &theme,
+                base,
+                doc.text().len_chars(),
+            )
+            .collect();
+            let style_at = |pos| {
+                spans
+                    .iter()
+                    .find(|(range, _)| range.contains(&pos))
+                    .unwrap()
+                    .1
+            };
+            assert_ne!(
+                style_at(13),
+                style_at(15),
+                "{name}: selection must be visible"
+            );
+            assert_eq!(
+                style_at(13),
+                base.patch(theme.get("ui.highlight.symbol")),
+                "{name}: reference highlights must preserve source colors"
+            );
+            assert_eq!(style_at(13), style_at(0));
+            assert_eq!(style_at(13), style_at(26));
+            assert_ne!(style_at(26), style_at(28), "{name}: secondary selection");
+            assert_eq!(style_at(13).fg, base.fg, "{name}: syntax foreground");
+            assert_eq!(style_at(8), base);
+        }
+    }
 
     #[test]
     fn semantic_symbol_kinds_preserve_syntactic_call_roles() {
@@ -713,14 +808,14 @@ mod tests {
         };
         let query = view::features::buffer_search::Query::new("cat", true, false).unwrap();
         let Some(OverlayHighlights::Homogeneous { ranges, .. }) =
-            search_highlights(&query, &layout, &theme)
+            search_highlights(&query, &layout, &layout.visible_byte_ranges(), &theme)
         else {
             panic!("missing search overlay")
         };
         assert_eq!(ranges, vec![2..5, 6..9, 10..13]);
         let query = view::features::buffer_search::Query::new("^", true, false).unwrap();
         let Some(OverlayHighlights::Homogeneous { ranges, .. }) =
-            search_highlights(&query, &layout, &theme)
+            search_highlights(&query, &layout, &layout.visible_byte_ranges(), &theme)
         else {
             panic!("missing search overlay")
         };
@@ -748,7 +843,7 @@ mod tests {
         let ranges = |pattern| {
             let query = view::features::buffer_search::Query::new(pattern, false, false).unwrap();
             let Some(OverlayHighlights::Homogeneous { ranges, .. }) =
-                search_highlights(&query, &layout, &theme)
+                search_highlights(&query, &layout, &layout.visible_byte_ranges(), &theme)
             else {
                 panic!("missing search overlay")
             };
@@ -762,7 +857,7 @@ mod tests {
         layout.viewport.height = 1;
         let query = view::features::buffer_search::Query::new("right\\ncat", false, false).unwrap();
         let Some(OverlayHighlights::Homogeneous { ranges, .. }) =
-            search_highlights(&query, &layout, &theme)
+            search_highlights(&query, &layout, &layout.visible_byte_ranges(), &theme)
         else {
             panic!("missing search overlay")
         };

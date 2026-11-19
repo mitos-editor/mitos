@@ -12,10 +12,12 @@ use crossterm::event::Event;
 #[cfg(not(windows))]
 use termina::event::Event;
 
-use super::super::helpers::{run_event_loop_until_idle, test_config, AppBuilder};
+use super::super::helpers::{
+    run_event_loop_until_idle, screen as review_screen, test_config, AppBuilder,
+};
 
-async fn press_space_b(app: &mut TestApplication) -> anyhow::Result<()> {
-    press_keys(app, "<space>B").await
+async fn press_inline_blame_toggle(app: &mut TestApplication) -> anyhow::Result<()> {
+    press_keys(app, "<space>gt").await
 }
 
 async fn repository_status(app: &mut TestApplication, prefix: &str) -> anyhow::Result<()> {
@@ -72,7 +74,7 @@ async fn repository_commands_target_the_current_buffer_and_protect_unsaved_edits
     press_keys(&mut app, ":vcs-branches<ret>").await?;
     wait_for_review_screen(&mut app, "Git branches", "main").await?;
     press_keys(&mut app, "main").await?;
-    wait_for_review_screen(&mut app, "Git branches", "> main").await?;
+    wait_for_review_screen(&mut app, "Git branches", ">   main").await?;
     press_keys(&mut app, "<ret>").await?;
     repository_status(&mut app, "Switch branch complete").await?;
     assert!(repo
@@ -231,7 +233,7 @@ fn git(dir: &Path, args: &[&str]) {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn space_b_toggles_inline_blame_and_reuses_the_cached_snapshot() -> anyhow::Result<()> {
+async fn inline_blame_binding_toggles_and_reuses_the_cached_snapshot() -> anyhow::Result<()> {
     let dir = tempfile::tempdir()?;
     let path = dir.path().join("file.txt");
     std::fs::write(&path, "committed\n")?;
@@ -246,7 +248,7 @@ async fn space_b_toggles_inline_blame_and_reuses_the_cached_snapshot() -> anyhow
     );
     assert!(current_ref!(app.editor).1.file_blame().is_none());
 
-    press_space_b(&mut app).await?;
+    press_inline_blame_toggle(&mut app).await?;
     assert_eq!(
         app.editor.config().inline_blame.show,
         InlineBlameShow::CursorLine
@@ -269,12 +271,12 @@ async fn space_b_toggles_inline_blame_and_reuses_the_cached_snapshot() -> anyhow
         "initial"
     );
 
-    press_space_b(&mut app).await?;
+    press_inline_blame_toggle(&mut app).await?;
     assert_eq!(
         app.editor.config().inline_blame.show,
         InlineBlameShow::Never
     );
-    press_space_b(&mut app).await?;
+    press_inline_blame_toggle(&mut app).await?;
     assert_eq!(
         app.editor.config().inline_blame.show,
         InlineBlameShow::CursorLine
@@ -291,13 +293,13 @@ async fn space_b_toggles_inline_blame_and_reuses_the_cached_snapshot() -> anyhow
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn space_b_restores_the_configured_inline_blame_mode() -> anyhow::Result<()> {
+async fn inline_blame_binding_restores_the_configured_inline_blame_mode() -> anyhow::Result<()> {
     for show in [InlineBlameShow::CursorLine, InlineBlameShow::AllLines] {
         let mut config = test_config();
         config.editor.inline_blame.show = show;
         let mut app = AppBuilder::new().with_config(config).build()?;
 
-        for keys in ["<space>B", "<space>gt", ":vcs-toggle-inline-blame<ret>"] {
+        for keys in ["<space>gt", ":vcs-toggle-inline-blame<ret>"] {
             press_keys(&mut app, keys).await?;
             assert_eq!(
                 app.editor.config().inline_blame.show,
@@ -322,12 +324,12 @@ async fn space_b_restores_the_configured_inline_blame_mode() -> anyhow::Result<(
         };
         let updated_show = config.inline_blame.show;
         app.apply_config_update(term::config::ConfigEvent::UpdateEditor(Box::new(config)));
-        press_space_b(&mut app).await?;
+        press_inline_blame_toggle(&mut app).await?;
         assert_eq!(
             app.editor.config().inline_blame.show,
             InlineBlameShow::Never
         );
-        press_space_b(&mut app).await?;
+        press_inline_blame_toggle(&mut app).await?;
         assert_eq!(app.editor.config().inline_blame.show, updated_show);
         assert!(app.close().await.is_empty());
     }
@@ -685,7 +687,7 @@ async fn show_change_displays_deleted_and_unsaved_text_without_writing() -> anyh
     let (dir, path) = committed_file()?;
     let mut app = AppBuilder::new().with_file(&path, None).build()?;
     press_keys(&mut app, "Iunsaved-<esc>").await?;
-    for keys in [":vcs-show-change<ret>", "<space>i", "<space>gi"] {
+    for keys in [":vcs-show-change<ret>", "<space>gi"] {
         press_keys(&mut app, keys).await?;
         wait_for_review_screen(&mut app, "Current change", "− committed").await?;
         let screen = review_screen(&app);
@@ -724,7 +726,7 @@ async fn change_popup_restores_with_default_and_remapped_shortcuts() -> anyhow::
             .with_config(config)
             .with_file(&path, None)
             .build()?;
-        press_keys(&mut app, "Iunsaved-<esc><space>i").await?;
+        press_keys(&mut app, "Iunsaved-<esc><space>gi").await?;
         wait_for_review_screen(&mut app, "Current change", "restore hunk from HEAD").await?;
         if shortcut == "<A-r>" {
             assert!(review_screen(&app).contains("<A-r> restore"));
@@ -745,11 +747,8 @@ async fn change_popup_restores_with_default_and_remapped_shortcuts() -> anyhow::
     Ok(())
 }
 
-#[cfg(feature = "syntax-diff")]
 #[tokio::test(flavor = "multi_thread")]
-async fn syntax_hunk_reviews_follow_configuration_and_keep_captured_snapshots() -> anyhow::Result<()>
-{
-    use editor_config::DiffEngine;
+async fn hunk_reviews_refine_syntax_and_keep_captured_snapshots() -> anyhow::Result<()> {
     let dir = tempfile::tempdir()?;
     let path = dir.path().join("file.json");
     std::fs::write(&path, "{\"value\": 1}\n")?;
@@ -759,21 +758,20 @@ async fn syntax_hunk_reviews_follow_configuration_and_keep_captured_snapshots() 
     git(dir.path(), &["commit", "-m", "initial"]);
     std::fs::write(&path, "{\n  \"value\": 2\n}\n")?;
     let index = std::fs::read(dir.path().join(".git/index"))?;
-    let mut config = test_config();
-    config.editor.diff.engine = DiffEngine::Syntax;
+    let config = test_config();
     let mut app = AppBuilder::new()
         .with_config(config)
         .with_file(&path, None)
         .build()?;
     press_keys(&mut app, ":vcs-show-change<ret>").await?;
-    wait_for_review_screen(&mut app, "syntax · Current change", "\"value\": 2").await?;
+    wait_for_review_screen(&mut app, "Current change", "\"value\": 2").await?;
     let (view, doc) = current_ref!(app.editor);
     let selection = doc.selection(view.id).clone();
     let version = doc.version();
-    // Scrolling an open popup keeps the configured engine and captured text.
+    // Scrolling an open popup keeps the captured text.
     std::fs::write(&path, "{\"value\": 999}\n")?;
     press_keys(&mut app, "<right><left>").await?;
-    wait_for_review_screen(&mut app, "syntax · Current change", "\"value\": 2").await?;
+    wait_for_review_screen(&mut app, "Current change", "\"value\": 2").await?;
     let (view, doc) = current_ref!(app.editor);
     assert_eq!(doc.selection(view.id), &selection);
     assert_eq!(doc.version(), version);
@@ -783,12 +781,11 @@ async fn syntax_hunk_reviews_follow_configuration_and_keep_captured_snapshots() 
     Ok(())
 }
 
-#[cfg(feature = "syntax-diff")]
 #[tokio::test(flavor = "multi_thread")]
-async fn syntax_picker_reviews_toggle_comparisons_open_buffers_and_report_fallbacks(
+async fn picker_reviews_toggle_comparisons_open_buffers_and_keep_invalid_syntax_literal(
 ) -> anyhow::Result<()> {
     let Some(root) = super::super::helpers::isolation::workspace(
-        "test::commands::vcs::syntax_picker_reviews_toggle_comparisons_open_buffers_and_report_fallbacks",
+        "test::commands::vcs::picker_reviews_toggle_comparisons_open_buffers_and_keep_invalid_syntax_literal",
     )? else { return Ok(()); };
     let repo = root.join("workspace");
     let path = repo.join("file.json");
@@ -801,33 +798,32 @@ async fn syntax_picker_reviews_toggle_comparisons_open_buffers_and_report_fallba
     git(&repo, &["add", "file.json"]);
     std::fs::write(&path, "{\"value\": 3}\n")?;
     let index = std::fs::read(repo.join(".git/index"))?;
-    let mut config = test_config();
-    config.editor.diff.engine = editor_config::DiffEngine::Syntax;
+    let config = test_config();
     let mut app = AppBuilder::new()
         .with_config(config)
         .with_file(&path, None)
         .build()?;
     press_keys(&mut app, "<space>gsfile.json").await?;
-    wait_for_review_screen(&mut app, "syntax · Unstaged", "\"value\": 3").await?;
+    wait_for_review_screen(&mut app, "Unstaged", "\"value\": 3").await?;
     press_keys(&mut app, "<A-d>").await?;
-    wait_for_review_screen(&mut app, "syntax · Unstaged", "\"value\": 3").await?;
-    // Opening a buffer uses the configured engine and keeps the picker for restoration.
+    wait_for_review_screen(&mut app, "Unstaged", "\"value\": 3").await?;
+    // Opening a buffer keeps the picker for restoration.
     press_keys(&mut app, "<A-o>").await?;
-    wait_for_review_buffer(&mut app, "syntax", "\"value\": 3").await?;
+    wait_for_review_buffer(&mut app, "\"value\": 3").await?;
     press_keys(&mut app, "<space>'").await?;
-    wait_for_review_screen(&mut app, "syntax · Unstaged", "\"value\": 3").await?;
+    wait_for_review_screen(&mut app, "Unstaged", "\"value\": 3").await?;
     press_keys(&mut app, "<A-left>").await?;
-    wait_for_review_screen(&mut app, "syntax · Staged", "\"value\": 1").await?;
+    wait_for_review_screen(&mut app, "Staged", "\"value\": 1").await?;
     press_keys(&mut app, "<A-o>").await?;
-    wait_for_review_buffer(&mut app, "syntax", "\"value\": 2").await?;
-    // A hidden preview also opens a review using the configured engine.
+    wait_for_review_buffer(&mut app, "\"value\": 2").await?;
+    // A hidden preview also opens a review using its captured sources.
     press_keys(&mut app, "<space>'<C-t><A-o>").await?;
-    wait_for_review_buffer(&mut app, "syntax", "\"value\": 2").await?;
+    wait_for_review_buffer(&mut app, "\"value\": 2").await?;
     press_keys(&mut app, "<space>'<C-t><esc>").await?;
     assert_eq!(std::fs::read(repo.join(".git/index"))?, index);
     std::fs::write(&path, "{]\n")?;
     press_keys(&mut app, "<space>gsfile.json").await?;
-    wait_for_review_screen(&mut app, "line · Unstaged", "parse errors").await?;
+    wait_for_review_screen(&mut app, "Unstaged", "{]").await?;
     assert!(review_screen(&app).contains("{]"));
     press_keys(&mut app, "<esc>").await?;
     assert!(app.close().await.is_empty());
@@ -872,9 +868,9 @@ async fn changed_file_review_switches_layers_opens_deletions_and_preserves_the_i
     wait_for_review_screen(&mut app, "Unstaged · index", "working contents").await?;
     assert!(review_screen(&app).contains("staged contents"));
     press_keys(&mut app, "<A-o>").await?;
-    wait_for_review_buffer(&mut app, "line", "working contents").await?;
+    wait_for_review_buffer(&mut app, "working contents").await?;
     press_keys(&mut app, "<C-o><space>'<C-t><A-o>").await?;
-    wait_for_review_buffer(&mut app, "line", "working contents").await?;
+    wait_for_review_buffer(&mut app, "working contents").await?;
     press_keys(&mut app, "<C-o><space>'<C-t><esc>").await?;
     assert_eq!(std::fs::read(repo.join(".git/index"))?, index);
     assert_eq!(std::fs::read_to_string(&path)?, "working contents\n");
@@ -885,7 +881,7 @@ async fn changed_file_review_switches_layers_opens_deletions_and_preserves_the_i
     wait_for_review_screen(&mut app, "Unstaged · index", "staged contents").await?;
     let documents = app.editor.documents().count();
     press_keys(&mut app, "<ret>").await?;
-    wait_for_review_buffer(&mut app, "line", "staged contents").await?;
+    wait_for_review_buffer(&mut app, "staged contents").await?;
     assert_eq!(app.editor.documents().count(), documents + 1);
     assert!(current_ref!(app.editor).1.path().is_none());
     assert!(!path.exists());
@@ -893,26 +889,12 @@ async fn changed_file_review_switches_layers_opens_deletions_and_preserves_the_i
     Ok(())
 }
 
-fn review_screen(app: &TestApplication) -> String {
-    app.terminal_backend()
-        .buffer()
-        .content
-        .iter()
-        .map(|cell| cell.symbol())
-        .collect()
-}
-
-async fn wait_for_review_buffer(
-    app: &mut TestApplication,
-    engine: &str,
-    contents: &str,
-) -> anyhow::Result<()> {
+async fn wait_for_review_buffer(app: &mut TestApplication, contents: &str) -> anyhow::Result<()> {
     tokio::time::timeout(Duration::from_secs(10), async {
         loop {
             let (_, doc) = current_ref!(app.editor);
-            if doc.review().is_some_and(|review| {
-                !review.is_loading() && review.review().provider.unwrap_or("line") == engine
-            }) && doc.text().to_string().contains(contents)
+            if doc.review().is_some_and(|review| !review.is_loading())
+                && doc.text().to_string().contains(contents)
             {
                 break;
             }
@@ -920,7 +902,7 @@ async fn wait_for_review_buffer(
         }
     })
     .await
-    .map_err(|_| anyhow::anyhow!("Missing review buffer using {engine:?} with {contents:?}"))
+    .map_err(|_| anyhow::anyhow!("Missing review buffer with {contents:?}"))
 }
 
 async fn wait_for_review_screen(

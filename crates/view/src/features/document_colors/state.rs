@@ -4,43 +4,24 @@ use editor_core::{Assoc, ChangeSet};
 use event::TaskController;
 use text_layout::text_annotations::InlineAnnotation;
 
-use super::DocumentColorsHandler;
 use crate::Document;
 
 #[derive(Default)]
 pub(crate) struct DocumentColors {
     pub(super) cache: Option<DocumentColorSwatches>,
     pub(super) request: TaskController,
-    pub(super) handler: Option<DocumentColorsHandler>,
 }
 
 impl DocumentColors {
-    pub(crate) fn presentation(&self) -> Self {
-        Self {
-            cache: self.cache.clone(),
-            ..Self::default()
-        }
-    }
-
     pub(crate) fn invalidate(&mut self) {
         self.request.cancel();
         self.clear_cache();
     }
 
-    pub(crate) fn bind_handler(&mut self, handler: DocumentColorsHandler) {
-        self.handler = Some(handler);
-    }
-
     /// Keep cached anchors consistent before document-change observers run.
     pub(crate) fn apply_changes(&mut self, changes: &ChangeSet) {
         if let Some(cache) = &mut self.cache {
-            for annotations in [&mut cache.color_swatches, &mut cache.color_swatches_padding] {
-                changes.update_positions(
-                    annotations
-                        .iter_mut()
-                        .map(|annotation| (&mut annotation.char_idx, Assoc::After)),
-                );
-            }
+            cache.apply_changes(changes);
         }
     }
 
@@ -55,6 +36,18 @@ pub struct DocumentColorSwatches {
     pub color_swatches: Vec<InlineAnnotation>,
     pub colors: Vec<editor_core::highlight::Highlight>,
     pub color_swatches_padding: Vec<InlineAnnotation>,
+}
+
+impl DocumentColorSwatches {
+    pub(crate) fn apply_changes(&mut self, changes: &ChangeSet) {
+        for annotations in [&mut self.color_swatches, &mut self.color_swatches_padding] {
+            changes.update_positions(
+                annotations
+                    .iter_mut()
+                    .map(|annotation| (&mut annotation.char_idx, Assoc::After)),
+            );
+        }
+    }
 }
 
 impl Document {

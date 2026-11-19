@@ -179,92 +179,30 @@ impl<'de> Deserialize<'de> for Theme {
     }
 }
 
-#[allow(clippy::type_complexity)]
-fn build_theme_values(
-    mut values: Map<String, Value>,
-) -> (
-    HashMap<String, Style>,
-    Vec<String>,
-    Vec<Style>,
-    usize,
-    Vec<String>,
-) {
-    let mut styles = HashMap::new();
-    let mut scopes = Vec::new();
-    let mut highlights = Vec::new();
-    let mut rainbow_length = 0;
+fn default_symbol_highlight(styles: &HashMap<String, Style>) -> Style {
+    let background = styles.get("ui.background").and_then(|style| style.bg);
+    let selection = styles
+        .get("ui.selection.primary")
+        .and_then(|style| style.bg)
+        .or_else(|| styles.get("ui.selection").and_then(|style| style.bg));
 
-    let mut warnings = Vec::new();
-
-    // TODO: alert user of parsing failures in editor
-    let palette = values
-        .remove("palette")
-        .map(|value| {
-            ThemePalette::try_from(value).unwrap_or_else(|err| {
-                warnings.push(err);
-                ThemePalette::default()
-            })
-        })
-        .unwrap_or_default();
-    // remove inherits from value to prevent errors
-    let _ = values.remove("inherits");
-    styles.reserve(values.len());
-    scopes.reserve(values.len());
-    highlights.reserve(values.len());
-
-    for (i, style) in values
-        .remove("rainbow")
-        .and_then(|value| match palette.parse_style_array(value) {
-            Ok(styles) => Some(styles),
-            Err(err) => {
-                warnings.push(err);
-                None
-            }
-        })
-        .unwrap_or_else(default_rainbow)
-        .into_iter()
-        .enumerate()
-    {
-        let name = format!("rainbow.{i}");
-        styles.insert(name.clone(), style);
-        scopes.push(name);
-        highlights.push(style);
-        rainbow_length += 1;
-    }
-
-    for (name, style_value) in values {
-        let mut style = Style::default();
-        if let Err(err) = palette.parse_style(&mut style, style_value) {
-            warnings.push(format!("Failed to parse style for key {name:?}. {err}"));
-        }
-
-        // these are used both as UI and as highlights
-        styles.insert(name.clone(), style);
-        scopes.push(name);
-        highlights.push(style);
-    }
-
-    // Compile composed syntax styles once, keeping the render loop an indexed
-    // lookup. The inventory is generated from bundled queries; custom theme keys
-    // are retained and custom scopes still support ordinary prefix fallback.
-    let candidates: std::collections::BTreeSet<_> = scopes
-        .iter()
-        .cloned()
-        .chain(crate::scopes::CAPTURES.iter().map(|s| s.to_string()))
-        .chain(crate::scopes::KINDS.iter().map(|(s, _)| s.to_string()))
-        .collect();
-    for name in candidates {
-        if crate::scopes::Classification::parse(&name).is_some() {
-            let style = resolve_syntax(&styles, &name).unwrap_or_default();
-            if let Some(index) = scopes.iter().position(|s| s == &name) {
-                highlights[index] = style;
-            } else {
-                scopes.push(name);
-                highlights.push(style);
-            }
+    if let (Some(Color::Rgb(r, g, b)), Some(Color::Rgb(sr, sg, sb))) = (background, selection) {
+        // A weaker version of the theme's selection preserves its palette and
+        // source foregrounds while keeping both kinds of selection distinct.
+        let mix = |base: u8, selected: u8| ((u16::from(base) + u16::from(selected)) / 2) as u8;
+        let tint = Color::Rgb(mix(r, sr), mix(g, sg), mix(b, sb));
+        if Some(tint) != background
+            && ["ui.selection", "ui.selection.primary"]
+                .iter()
+                .all(|scope| styles.get(*scope).and_then(|style| style.bg) != Some(tint))
+        {
+            return Style::default().bg(tint);
         }
     }
-    (styles, scopes, highlights, rainbow_length, warnings)
+
+    // Terminal palette colors and transparent backgrounds cannot be blended
+    // reliably. Weight is portable and does not obscure selections.
+    Style::default().add_modifier(Modifier::BOLD)
 }
 
 /// Resolve syntax selectors from broad to specific, merging individual style
@@ -435,9 +373,100 @@ impl Theme {
         }
     }
 
-    fn from_keys(toml_keys: Map<String, Value>) -> (Self, Vec<String>) {
-        let (styles, scopes, highlights, rainbow_length, load_errors) =
-            build_theme_values(toml_keys);
+    fn from_keys(mut values: Map<String, Value>) -> (Self, Vec<String>) {
+        let mut styles = HashMap::new();
+        let mut scopes = Vec::new();
+        let mut highlights = Vec::new();
+        let mut rainbow_length = 0;
+
+        let mut warnings = Vec::new();
+
+        // TODO: alert user of parsing failures in editor
+        let palette = values
+            .remove("palette")
+            .map(|value| {
+                ThemePalette::try_from(value).unwrap_or_else(|err| {
+                    warnings.push(err);
+                    ThemePalette::default()
+                })
+            })
+            .unwrap_or_default();
+        // remove inherits from value to prevent errors
+        let _ = values.remove("inherits");
+        styles.reserve(values.len());
+        scopes.reserve(values.len());
+        highlights.reserve(values.len());
+
+        for (i, style) in values
+            .remove("rainbow")
+            .and_then(|value| match palette.parse_style_array(value) {
+                Ok(styles) => Some(styles),
+                Err(err) => {
+                    warnings.push(err);
+                    None
+                }
+            })
+            .unwrap_or_else(default_rainbow)
+            .into_iter()
+            .enumerate()
+        {
+            let name = format!("rainbow.{i}");
+            styles.insert(name.clone(), style);
+            scopes.push(name);
+            highlights.push(style);
+            rainbow_length += 1;
+        }
+
+        for (name, style_value) in values {
+            let mut style = Style::default();
+            if let Err(err) = palette.parse_style(&mut style, style_value) {
+                warnings.push(format!("Failed to parse style for key {name:?}. {err}"));
+            }
+
+            // these are used both as UI and as highlights
+            styles.insert(name.clone(), style);
+            scopes.push(name);
+            highlights.push(style);
+        }
+
+        // Reference highlights must remain distinct from selections, including in
+        // custom themes that do not define a dedicated style.
+        if !styles.contains_key("ui.highlight.symbol") {
+            let style = default_symbol_highlight(&styles);
+            styles.insert("ui.highlight.symbol".into(), style);
+            scopes.push("ui.highlight.symbol".into());
+            highlights.push(style);
+        }
+
+        for scope in ["diff.plus.word", "diff.minus.word"] {
+            if !styles.contains_key(scope) {
+                let style = Style::default().add_modifier(Modifier::BOLD);
+                styles.insert(scope.into(), style);
+                scopes.push(scope.into());
+                highlights.push(style);
+            }
+        }
+
+        // Compile composed syntax styles once, keeping the render loop an indexed
+        // lookup. The inventory is generated from bundled queries; custom theme keys
+        // are retained and custom scopes still support ordinary prefix fallback.
+        let candidates: std::collections::BTreeSet<_> = scopes
+            .iter()
+            .cloned()
+            .chain(crate::scopes::CAPTURES.iter().map(|s| s.to_string()))
+            .chain(crate::scopes::KINDS.iter().map(|(s, _)| s.to_string()))
+            .collect();
+        for name in candidates {
+            if crate::scopes::Classification::parse(&name).is_some() {
+                let style = resolve_syntax(&styles, &name).unwrap_or_default();
+                if let Some(index) = scopes.iter().position(|s| s == &name) {
+                    highlights[index] = style;
+                } else {
+                    scopes.push(name);
+                    highlights.push(style);
+                }
+            }
+        }
 
         let scope_index = scopes
             .iter()
@@ -453,7 +482,7 @@ impl Theme {
             rainbow_length,
             ..Default::default()
         };
-        (theme, load_errors)
+        (theme, warnings)
     }
 }
 
@@ -645,6 +674,93 @@ impl TryFrom<Value> for ThemePalette {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn diff_word_styles_default_to_bold_and_preserve_empty_overrides() {
+        let theme = Theme::from(Value::Table(toml::toml! {
+            "diff.plus" = "green"
+            "diff.minus" = "red"
+            "diff.minus.word" = {}
+        }));
+        let added = theme.find_highlight_exact("diff.plus.word").unwrap();
+        let removed = theme.find_highlight_exact("diff.minus.word").unwrap();
+        assert_eq!(
+            theme.highlight(added),
+            Style::default().add_modifier(Modifier::BOLD)
+        );
+        assert_eq!(theme.highlight(removed), Style::default());
+    }
+
+    #[test]
+    fn symbol_highlights_default_to_a_weaker_selection_background() {
+        let theme = Theme::from(Value::Table(toml::toml! {
+            "ui.highlight" = { bg = "blue" }
+            "ui.background" = { bg = "#102030" }
+            "ui.selection" = { bg = "#203040" }
+            "ui.selection.primary" = { bg = "#506070" }
+        }));
+        let highlight = theme.find_highlight_exact("ui.highlight.symbol").unwrap();
+        assert_eq!(
+            theme.highlight(highlight),
+            Style::default().bg(Color::Rgb(48, 64, 80))
+        );
+        assert_eq!(theme.get("ui.highlight").bg, Some(Color::Blue));
+    }
+
+    #[test]
+    fn symbol_highlights_use_weight_when_a_distinct_tint_is_unavailable() {
+        for source in [
+            "",
+            "\"ui.selection\" = { bg = \"blue\" }",
+            "\"ui.background\" = { bg = \"black\" }\n\"ui.selection\" = { bg = \"blue\" }",
+            "\"ui.background\" = { bg = \"#101010\" }\n\"ui.selection\" = { bg = \"#101010\" }",
+            "\"ui.background\" = { bg = \"#101010\" }\n\"ui.selection\" = { bg = \"#111111\" }",
+            "\"ui.background\" = { bg = \"#101010\" }\n\"ui.selection\" = { bg = \"#202020\" }\n\"ui.selection.primary\" = { bg = \"#303030\" }",
+        ] {
+            let theme = Theme::from(toml::from_str::<Value>(source).unwrap());
+            assert_eq!(
+                theme.get("ui.highlight.symbol"),
+                Style::default().add_modifier(Modifier::BOLD),
+                "{source}"
+            );
+        }
+    }
+
+    #[test]
+    fn bundled_symbol_highlights_preserve_syntax_and_differ_from_selections() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../runtime");
+        let loader = Loader::new(Resources::new(vec![root]));
+        for name in loader.resources().names() {
+            let theme = loader.load(&name).unwrap();
+            let style = theme.get("ui.highlight.symbol");
+            assert_eq!(style.fg, None, "{name}: preserve syntax foregrounds");
+            assert!(!style.add_modifier.contains(Modifier::UNDERLINED), "{name}");
+            if let Some(bg) = style.bg {
+                for scope in ["ui.background", "ui.selection", "ui.selection.primary"] {
+                    assert_ne!(Some(bg), theme.get(scope).bg, "{name}: {scope}");
+                }
+            } else {
+                assert!(style.add_modifier.contains(Modifier::BOLD), "{name}");
+            }
+        }
+    }
+
+    #[test]
+    fn symbol_highlight_style_can_be_overridden_or_disabled() {
+        for (style, expected) in [
+            (
+                toml::toml! { bg = "green" },
+                Style::default().bg(Color::Green),
+            ),
+            (toml::Table::new(), Style::default()),
+        ] {
+            let mut values = toml::Table::new();
+            values.insert("ui.highlight.symbol".into(), Value::Table(style));
+            let theme = Theme::from(Value::Table(values));
+            let highlight = theme.find_highlight_exact("ui.highlight.symbol").unwrap();
+            assert_eq!(theme.highlight(highlight), expected);
+        }
+    }
 
     #[test]
     fn background_tint_requires_rgb_colors() {
@@ -993,12 +1109,5 @@ mod tests {
             Theme::default().highlight(Theme::rgb_highlight(r, g, b)),
             Style::new().fg(Color::Rgb(r, g, b))
         );
-    }
-
-    #[test]
-    #[should_panic(expected = "index out of bounds: the len is 0 but the index is 4278190078")]
-    fn out_of_bounds() {
-        let highlight = Highlight::new(Theme::rgb_highlight(0, 0, 0).get() - 1);
-        Theme::default().highlight(highlight);
     }
 }

@@ -91,9 +91,12 @@ async fn auto_command_line_reclaims_a_row_and_restores_statuslines() -> anyhow::
                 }
 
                 // Both prompt kinds share the same last row and retain cursor ownership.
-                for (input, expected) in
-                    [(":echo hello", ":echo hello"), ("/hello", "search:hello")]
-                {
+                for (input, expected) in [
+                    (":echo hello", ":echo hello"),
+                    ("/hello", "search [regex]:hello"),
+                    ("/hello<A-r>", "search [literal]:hello"),
+                    ("/hello<A-r><A-r>", "search [regex]:hello"),
+                ] {
                     keys(&mut app, input).await?;
                     assert!(
                         bottom_text(&app).starts_with(expected),

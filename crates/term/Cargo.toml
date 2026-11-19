@@ -34,11 +34,10 @@ assets = [
 ]
 
 [features]
-default = ["git", "syntax-diff"]
-syntax-diff = ["view/syntax-diff"]
+default = ["git"]
 unicode-lines = ["core/unicode-lines", "view/unicode-lines"]
 # Enables process fixture binaries; application behavior is chosen at construction.
-integration = []
+integration = ["lsp/test-support"]
 # Runs tests that require compiled grammars in the runtime directories.
 runtime-grammars = []
 git = ["view/git"]
@@ -46,6 +45,10 @@ git = ["view/git"]
 [[bin]]
 name = "ms"
 path = "src/main.rs"
+
+[[bench]]
+name = "rendering"
+harness = false
 
 [[bin]]
 name = "mitos-test-lsp"

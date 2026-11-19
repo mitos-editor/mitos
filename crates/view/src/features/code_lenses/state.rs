@@ -5,7 +5,6 @@ use event::TaskController;
 use lsp_client::{lsp, LanguageServerId};
 use std::collections::HashMap;
 
-use super::DocumentCodeLensesHandler;
 use crate::Document;
 
 #[derive(Default)]
@@ -18,30 +17,12 @@ pub(crate) struct DocumentCodeLenses {
     /// One automatic attempt per lens and cache generation, including failures.
     /// Dropping these controllers cancels queued requests and publications.
     pub(super) titles: HashMap<usize, TaskController>,
-    pub(super) handler: Option<DocumentCodeLensesHandler>,
 }
 
 impl DocumentCodeLenses {
-    pub(crate) fn presentation(&self) -> Self {
-        Self {
-            cache: self.cache.clone(),
-            version: self.version,
-            uri: self.uri.clone(),
-            ..Self::default()
-        }
-    }
-
-    pub(crate) fn bind_handler(&mut self, handler: DocumentCodeLensesHandler) {
-        self.handler = Some(handler);
-    }
-
     /// Keep cached anchors consistent before observers run.
     pub(crate) fn apply_changes(&mut self, changes: &ChangeSet) {
-        changes.update_positions(
-            self.cache
-                .iter_mut()
-                .map(|lens| (&mut lens.char_idx, Assoc::After)),
-        );
+        CodeLens::apply_changes(&mut self.cache, changes);
         self.cancel_requests();
     }
 
@@ -67,6 +48,16 @@ pub struct CodeLens {
     /// Original protocol value retained for lazy resolution, including opaque data.
     pub lens: lsp::CodeLens,
     pub language_server_id: LanguageServerId,
+}
+
+impl CodeLens {
+    pub(crate) fn apply_changes(lenses: &mut [Self], changes: &ChangeSet) {
+        changes.update_positions(
+            lenses
+                .iter_mut()
+                .map(|lens| (&mut lens.char_idx, Assoc::After)),
+        );
+    }
 }
 
 impl Document {

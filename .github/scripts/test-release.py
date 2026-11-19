@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 
 
@@ -48,7 +49,8 @@ def check_release(source):
         subprocess.run([str(executable), '--version'], cwd=root, env=env, check=True)
         result = subprocess.run([str(executable), '--health', 'rust'], cwd=root, env=env,
                                 stdout=subprocess.PIPE, text=True, encoding='utf-8')
-        print(result.stdout, end='')
+        encoding = sys.stdout.encoding or 'utf-8'
+        print(result.stdout.encode(encoding, errors='backslashreplace').decode(encoding), end='')
         result.check_returncode()
         for label in ('Tree-sitter parser:', 'Highlight queries:'):
             if not any(label in line and '✓' in line for line in result.stdout.splitlines()):

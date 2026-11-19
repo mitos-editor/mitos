@@ -96,7 +96,7 @@ impl ActiveSnippet {
             self[self.current_tabstop]
                 .ranges
                 .iter()
-                .map(|range| (range.start, range.end)),
+                .map(|entry| (entry.range.start, entry.range.end)),
         )
     }
 
@@ -124,13 +124,16 @@ impl ActiveSnippet {
             if let Some(descendants) = &descendants
                 && descendants[i]
             {
-                tabstop.retain_ranges(|range, _| {
-                    !deletions.iter().any(|deletion| deletion.contains(*range))
+                tabstop.ranges.retain(|entry| {
+                    !deletions
+                        .iter()
+                        .any(|deletion| deletion.contains(entry.range))
                 });
             }
 
             let active = self.active_tabstops.contains(&TabstopIdx(i));
-            changes.update_positions(tabstop.ranges.iter_mut().flat_map(|range| {
+            changes.update_positions(tabstop.ranges.iter_mut().flat_map(|entry| {
+                let range = &mut entry.range;
                 let end_assoc = if active || range.is_empty() {
                     Assoc::After
                 } else {
@@ -142,7 +145,9 @@ impl ActiveSnippet {
                 ]
             }));
             let mut prev = Range { start: 0, end: 0 };
-            tabstop.retain_ranges(|range, owner| {
+            tabstop.ranges.retain_mut(|entry| {
+                let range = &mut entry.range;
+                let owner = entry.instance;
                 let snippet_range = &self.ranges[owner];
                 let retain = snippet_range.start <= snippet_range.end;
                 if retain {
@@ -346,8 +351,8 @@ impl ActiveSnippet {
             .parent
             .and_then(|parent| indices[parent.0]);
         let nested = snippet.tabstops.into_iter().map(|mut tabstop| {
-            for owner in &mut tabstop.instances {
-                *owner = owners[*owner];
+            for entry in &mut tabstop.ranges {
+                entry.instance = owners[entry.instance];
             }
             tabstop.parent = tabstop
                 .parent
@@ -422,6 +427,40 @@ mod tests {
 mod nesting_tests {
     use super::*;
     use crate::{Snippet, SnippetRenderCtx};
+
+    #[test]
+    fn nesting_only_in_the_last_instance_discards_the_outer_session() {
+        let mut text = Rope::from("\n\n");
+        let outer = Snippet::parse("${1:abcdefghij}$0").unwrap();
+        let selection = Selection::new(
+            vec![editor_core::Range::point(0), editor_core::Range::point(1)].into(),
+            0,
+        );
+        let (edit, _, rendered) = outer.render(
+            &text,
+            &selection,
+            |range| (range.head, range.head),
+            &mut SnippetRenderCtx::test_ctx(),
+        );
+        assert!(edit.apply(&mut text));
+        let mut active = ActiveSnippet::new(rendered).unwrap();
+        let inner = Snippet::parse("${1:x}$0").unwrap();
+        let selection = Selection::new(
+            vec![editor_core::Range::point(12), editor_core::Range::point(14)].into(),
+            0,
+        );
+        let (edit, _, rendered) = inner.render(
+            &text,
+            &selection,
+            |range| (range.head, range.head),
+            &mut SnippetRenderCtx::test_ctx(),
+        );
+        assert!(edit.apply(&mut text));
+        assert!(!active.map(edit.changes()));
+        let expected = rendered.clone();
+        let nested = active.insert_subsnippet(rendered).unwrap();
+        assert_eq!(nested.into_rendered(), expected);
+    }
 
     #[test]
     fn overwriting_one_parent_preserves_other_instances_and_their_primary_cursor() {

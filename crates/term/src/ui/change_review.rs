@@ -11,7 +11,9 @@ use tui::{
     widgets::{Paragraph, Widget},
 };
 use view::{
-    features::change_review::{Review, ReviewLineKind, ReviewRequest, ReviewSnapshot},
+    features::change_review::{
+        Review, ReviewLineKind, ReviewRequest, ReviewSnapshot, ReviewSource,
+    },
     graphics::Rect,
 };
 
@@ -39,6 +41,7 @@ pub use hunk::HunkReviewView;
 pub struct ReviewView {
     pub title: String,
     pub review: Arc<Review>,
+    source: Option<Arc<ReviewSource>>,
     offset: usize,
     horizontal: usize,
     keys: ui_core::keymap::KeymapState,
@@ -55,10 +58,16 @@ impl ReviewView {
         Self {
             title,
             review,
+            source: None,
             offset: 0,
             horizontal: 0,
             keys: ui_core::keymap::KeymapState::default(),
         }
+    }
+
+    pub fn with_source(mut self, source: Arc<ReviewSource>) -> Self {
+        self.source = Some(source);
+        self
     }
 
     fn scroll_action(&mut self, action: crate::keymap::component::DiffAction) -> bool {
@@ -74,26 +83,18 @@ impl ReviewView {
         true
     }
 
-    fn heading_rows(&self) -> usize {
-        1 + usize::from(self.review.fallback.is_some())
-    }
-
     fn draw(&self, area: Rect, surface: &mut Buffer, cx: &DrawContext, scroll: usize) {
         if area.is_empty() {
             return;
         }
         let theme = &cx.editor.theme;
-        let mode = self.review.provider.unwrap_or("line");
-        let layout = if self.review.provider == Some("syntax")
-            && self.review.unchanged_by_provider
-            && (self.review.additions != 0 || self.review.deletions != 0)
-        {
+        let layout = if self.review.layout_only {
             " · layout only"
         } else {
             ""
         };
         let heading = format!(
-            "{mode}{layout} · {}  +{} −{}",
+            "{}{layout}  +{} −{}",
             literal(&self.title),
             self.review.additions,
             self.review.deletions
@@ -105,18 +106,7 @@ impl ReviewView {
             area.width as usize,
             theme.get("ui.text.focus"),
         );
-        if let Some(reason) = self.review.fallback
-            && area.height > 1
-        {
-            surface.set_stringn(
-                area.x,
-                area.y + 1,
-                reason.to_string(),
-                area.width as usize,
-                theme.get("ui.text.inactive"),
-            );
-        }
-        let heading_rows = self.heading_rows() as u16;
+        let heading_rows = 1u16;
         let number_width = self.review.line_number_width();
         for (row, line) in self
             .review
@@ -156,9 +146,14 @@ impl ReviewView {
                 Span::styled(numbers, theme.get("ui.linenr")),
                 Span::styled(format!("{prefix} "), marker_style),
             ];
+            let syntax = self
+                .source
+                .as_ref()
+                .and_then(|source| document::row_syntax_styles(source, line, theme));
             spans.extend(source_spans(
                 &line.text,
                 line.changes.as_deref(),
+                syntax.as_deref(),
                 self.horizontal,
                 area.width as usize,
                 if line.changes.is_some() {
@@ -166,7 +161,13 @@ impl ReviewView {
                 } else {
                     style
                 },
-                style.add_modifier(view::graphics::Modifier::BOLD),
+                if syntax.is_some() {
+                    word_scope(line.kind)
+                        .and_then(|scope| theme.try_get_exact(scope))
+                        .unwrap_or_default()
+                } else {
+                    style.add_modifier(view::graphics::Modifier::BOLD)
+                },
             ));
             let text = Line::from(spans);
             Paragraph::new(text).render(row_area, surface);
@@ -189,8 +190,8 @@ impl Component for ReviewView {
     fn required_size(&mut self, viewport: (u16, u16)) -> Option<(u16, u16)> {
         Some((
             viewport.0,
-            (self.review.lines.len() + self.heading_rows() + panel::VERTICAL_INSET as usize)
-                .min(u16::MAX as usize) as u16,
+            (self.review.lines.len() + 1 + panel::VERTICAL_INSET as usize).min(u16::MAX as usize)
+                as u16,
         ))
     }
     fn has_pending_keys(&self) -> bool {
@@ -216,6 +217,14 @@ impl Component for ReviewView {
                 EventResult::Consumed(None)
             }
         }
+    }
+}
+
+fn word_scope(kind: ReviewLineKind) -> Option<&'static str> {
+    match kind {
+        ReviewLineKind::Added => Some("diff.plus.word"),
+        ReviewLineKind::Removed => Some("diff.minus.word"),
+        _ => None,
     }
 }
 
@@ -261,6 +270,7 @@ fn literal(text: &str) -> String {
 fn source_spans(
     text: &str,
     ranges: Option<&[std::ops::Range<usize>]>,
+    syntax: Option<&[(usize, theme::Style)]>,
     offset: usize,
     width: usize,
     normal: view::graphics::Style,
@@ -268,9 +278,17 @@ fn source_spans(
 ) -> Vec<Span<'static>> {
     let mut spans = Vec::new();
     let mut content = String::new();
-    let mut previous = false;
+    let mut previous = normal;
+    let mut syntax_index = 0;
+    let mut syntax_style = normal;
     let mut range_index = 0;
-    for (byte, ch) in text.char_indices().skip(offset).take(width) {
+    for (position, (byte, ch)) in text.char_indices().enumerate().skip(offset).take(width) {
+        if let Some(syntax) = syntax {
+            while syntax_index < syntax.len() && syntax[syntax_index].0 <= position {
+                syntax_style = syntax[syntax_index].1;
+                syntax_index += 1;
+            }
+        }
         let emphasized = ranges.is_some_and(|ranges| {
             while range_index < ranges.len() && ranges[range_index].end <= byte {
                 range_index += 1;
@@ -279,13 +297,15 @@ fn source_spans(
                 .get(range_index)
                 .is_some_and(|range| range.contains(&byte))
         });
-        if emphasized != previous && !content.is_empty() {
-            spans.push(Span::styled(
-                std::mem::take(&mut content),
-                if previous { changed } else { normal },
-            ));
+        let style = if emphasized {
+            syntax_style.patch(changed)
+        } else {
+            syntax_style
+        };
+        if style != previous && !content.is_empty() {
+            spans.push(Span::styled(std::mem::take(&mut content), previous));
         }
-        previous = emphasized;
+        previous = style;
         match ch {
             '\t' => content.push_str("    "),
             ch if ch.is_control() => content.push('�'),
@@ -293,10 +313,7 @@ fn source_spans(
         }
     }
     if !content.is_empty() {
-        spans.push(Span::styled(
-            content,
-            if previous { changed } else { normal },
-        ));
+        spans.push(Span::styled(content, previous));
     }
     spans
 }

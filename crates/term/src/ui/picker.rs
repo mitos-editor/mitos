@@ -12,6 +12,7 @@ pub(crate) mod paged;
 mod paging_tests;
 mod preview;
 mod query;
+mod query_options;
 mod replacement;
 mod results;
 pub(crate) mod scroll;
@@ -32,7 +33,6 @@ use event::AsyncHook;
 use futures_util::future::BoxFuture;
 use nucleo::{Config, Nucleo};
 use thiserror::Error;
-use tokio::sync::mpsc::Sender;
 use tui::{
     buffer::Buffer as Surface,
     layout::{Constraint, Layout, Size},
@@ -61,7 +61,7 @@ use view::{
     Editor,
 };
 
-use self::handlers::{DynamicQueryChange, DynamicQueryHandler};
+use self::handlers::{DynamicQuery, DynamicQueryChange, DynamicQueryHandler, QueryKind};
 use self::preview::{render_preview_content, FilePreview, FileScroll};
 use self::replacement::{split_picker_input_area, CaseSensitiveToggle, Replacement};
 
@@ -73,9 +73,12 @@ pub(crate) use replacement::{ReplacementStep, ReplacementTask};
 #[cfg(feature = "git")]
 pub(crate) use updates::Update;
 pub(crate) use updates::UpdateContext;
+#[cfg(any(feature = "git", test))]
+pub(crate) use updates::{PickerSource, SourceInput};
 
 type FileCallback<T> = Box<dyn for<'a> Fn(&'a Editor, &'a T) -> Option<FileLocation<'a>>>;
 type QuicklistCallback<T> = Box<dyn Fn(&Editor, &T) -> Option<QuicklistEntry>>;
+type QuicklistBatchCallback<T> = Box<dyn Fn(&mut Context, Vec<&T>, event::TaskHandle)>;
 type SelectedPreview<'picker, 'editor> = (
     Preview<'picker, 'editor>,
     Option<(usize, usize)>,
@@ -319,24 +322,22 @@ pub struct Picker<T: 'static + Send + Sync, D: 'static> {
     pub truncate_start: bool,
     preview: FilePreview,
     preview_scroll: FileScroll,
+    preview_search: Option<preview::SearchPreview>,
     custom_preview: Option<Box<dyn PickerPreview<T>>>,
     /// Given an item in the picker, return the file path and line number to display.
     file_fn: Option<FileCallback<T>>,
     /// Given an item in the picker, return an explicit quicklist entry.
     quicklist_fn: Option<QuicklistCallback<T>>,
+    quicklist_batch_fn: Option<QuicklistBatchCallback<T>>,
+    quicklist_task: event::TaskController,
     replacement: Option<Replacement<T, D>>,
     case_sensitive: Option<CaseSensitiveToggle<D>>,
-    dynamic_query_pending: bool,
-    dynamic_query_handler: Option<Sender<DynamicQueryChange>>,
-    dynamic_query_request: event::TaskController,
+    dynamic_query: Option<DynamicQuery>,
     poll: Option<PollTask>,
     matching: bool,
-    file_updates: Option<file_updates::FileUpdates<T, D>>,
-    editor_updates: Option<updates::EditorUpdates<T>>,
+    updates: Option<updates::SourceUpdates<T, D>>,
     query_updates: Option<updates::QueryUpdates<D>>,
-    query_options: Option<QueryOptions<T, D>>,
-    query_refresh: bool,
-    query_needs_refresh: bool,
+    query_options: query_options::QueryOptionsState<T, D>,
     title: Option<Line<'static>>,
 }
 
@@ -463,21 +464,19 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             widths,
             preview: FilePreview::default(),
             preview_scroll: FileScroll::default(),
+            preview_search: None,
             custom_preview: None,
             file_fn: None,
             quicklist_fn: None,
+            quicklist_batch_fn: None,
+            quicklist_task: event::TaskController::new(),
             replacement: None,
             case_sensitive: None,
-            dynamic_query_pending: false,
-            dynamic_query_handler: None,
-            dynamic_query_request: event::TaskController::new(),
+            dynamic_query: None,
             poll: None,
-            file_updates: None,
-            editor_updates: None,
+            updates: None,
             query_updates: None,
-            query_options: None,
-            query_refresh: false,
-            query_needs_refresh: false,
+            query_options: query_options::QueryOptionsState::default(),
             title: None,
             matching: true,
         }
@@ -506,7 +505,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         mut self,
         callback: impl Fn(&Editor, &str, &D, Option<&T>) -> anyhow::Result<(Vec<T>, D, usize)> + 'static,
     ) -> Self {
-        self.query_options = Some(Box::new(callback));
+        self.query_options.synchronous = Some(Box::new(callback));
         self
     }
 
@@ -524,11 +523,30 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         self
     }
 
+    /// Stop background source activity while retaining published rows and selection.
+    /// Restoring the picker resumes its sources through their existing update path.
     pub(crate) fn suspend(&mut self) {
+        self.quicklist_task.cancel();
+        self.query_options.needs_refresh |= self.query_options.pending.is_some()
+            || (self.query_options.asynchronous.is_some() && self.results.is_refreshing())
+            || (self.dynamic_query.is_some() && !self.has_file_source());
+        self.cancel_query_options();
         self.keys.clear();
+        self.cancel_replacement();
+        self.results.version.fetch_add(1, atomic::Ordering::Relaxed);
+        self.results.discard_pending();
+        self.results.spare_matcher = None;
+
+        if let Some(query) = &mut self.dynamic_query {
+            query.suspend();
+        }
+        if let Some(updates) = &mut self.updates {
+            updates.suspend();
+        }
         self.poll = None;
-        if let Some(updates) = &mut self.file_updates {
-            updates.stop();
+        self.preview.cancel_loads(None);
+        if let Some(preview) = &mut self.custom_preview {
+            preview.cancel();
         }
     }
 
@@ -577,12 +595,27 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         self
     }
 
+    /// Highlight visible matches of the primary regex query in the file preview.
+    pub fn with_search_preview(mut self) -> Self {
+        self.preview_search = Some(preview::SearchPreview::default());
+        self
+    }
+
     /// Defines how the contents of the picker are transformed into quicklist entries.
     pub fn with_quicklist(
         mut self,
         quicklist_fn: impl Fn(&Editor, &T) -> Option<QuicklistEntry> + 'static,
     ) -> Self {
         self.quicklist_fn = Some(Box::new(quicklist_fn));
+        self
+    }
+
+    /// Resolve a snapshot of matched items when the user explicitly exports them.
+    pub(crate) fn with_quicklist_batch(
+        mut self,
+        callback: impl Fn(&mut Context, Vec<&T>, event::TaskHandle) + 'static,
+    ) -> Self {
+        self.quicklist_batch_fn = Some(Box::new(callback));
         self
     }
 
@@ -594,6 +627,12 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
     pub fn with_initial_cursor(mut self, cursor: u32) -> Self {
         self.results.cursor = cursor;
         self
+    }
+
+    fn dynamic_query_pending(&self) -> bool {
+        self.dynamic_query
+            .as_ref()
+            .is_some_and(DynamicQuery::is_pending)
     }
 
     pub fn with_dynamic_query(
@@ -609,14 +648,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             self.results.version.clone(),
         )
         .spawn();
-        let event = DynamicQueryChange {
-            query: self.primary_query(),
-            // Treat the initial query as a paste.
-            is_paste: true,
-        };
-        event::send_blocking(&handler, event);
-        self.dynamic_query_pending = true;
-        self.dynamic_query_handler = Some(handler);
+        self.dynamic_query = Some(DynamicQuery::new(handler, self.primary_query()));
         self
     }
 
@@ -748,10 +780,10 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
     }
 
     fn replace_options(&mut self, options: Vec<T>, editor_data: D, editor: &Editor) {
+        self.cancel_query_options();
+        self.query_options.needs_refresh = false;
         if self.on_close.is_some() {
-            if let Some(updates) = &mut self.file_updates {
-                updates.stop();
-            }
+            self.invalidate_source(updates::Invalidation::Refresh);
             // Keep the old filtered snapshot until publication so expansion can
             // resolve the selected node before exposing the unfiltered tree.
             self.refresh_options(options, Arc::new(editor_data));
@@ -778,13 +810,11 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
     }
 
     fn reset_options(&mut self, options: Vec<T>, editor_data: D) {
-        if let Some(updates) = &mut self.file_updates {
-            if self.query_options.is_some() {
-                updates.query_changed();
-            } else {
-                updates.stop();
-            }
-        }
+        self.invalidate_source(if self.query_options.synchronous.is_some() {
+            updates::Invalidation::Query
+        } else {
+            updates::Invalidation::Refresh
+        });
         self.results.discard_pending();
         self.reset_options_shared(options, Arc::new(editor_data));
     }
@@ -878,8 +908,13 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
 
     pub(super) fn refresh_query_options(&mut self, editor: &Editor, preserve_selection: bool) {
         self.publish_options();
-        let preserve_selection = preserve_selection && !self.results.is_refreshing();
-        if let Some(source) = &self.query_options {
+        let preserve_selection = preserve_selection
+            && self.query_options.pending.is_none()
+            && !self.results.is_refreshing();
+        if self.start_query_options(editor, preserve_selection) {
+            return;
+        }
+        if let Some(source) = &self.query_options.synchronous {
             let result = source(
                 editor,
                 &self.primary_query(),
@@ -892,8 +927,9 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
 
     /// Reveal an owner-selected item, clearing any filter that could hide it.
     pub(super) fn reveal_query_item(&mut self, editor: &Editor, item: &T) {
+        self.cancel_query_options();
         self.publish_options();
-        if let Some(source) = &self.query_options {
+        if let Some(source) = &self.query_options.synchronous {
             let result = source(editor, "", &self.results.editor_data, Some(item));
             self.prompt.clear(editor);
             self.handle_prompt_change(false);
@@ -909,18 +945,12 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
     ) {
         match result {
             Ok((options, data, cursor)) => {
-                if let Some(updates) = &mut self.file_updates {
-                    updates.query_changed();
+                self.invalidate_source(updates::Invalidation::Query);
+                let data = Arc::new(data);
+                let injector = self.prepare_query_options(data.clone(), cursor, preserve_selection);
+                for item in options {
+                    inject_nucleo_item(&injector, &self.columns, item, &data);
                 }
-                self.refresh_options(options, Arc::new(data));
-                let pending = self.results.pending_options.as_mut().unwrap();
-                pending.preserve_selection = preserve_selection;
-                pending.cursor = Some(cursor as u32);
-                if !preserve_selection {
-                    self.results.offset = 0;
-                }
-                self.matching = true;
-                self.redraw.request();
             }
             Err(error) => editor.status_sender().report_blocking(error),
         }
@@ -933,7 +963,8 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         if self.query == old_query {
             return false;
         }
-        if self.query_options.is_some() {
+        self.quicklist_task.cancel();
+        if self.query_options.synchronous.is_some() {
             return true;
         }
         // If the query has meaningfully changed, reset the cursor to the top of the results.
@@ -944,16 +975,13 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                 .get(&self.columns[self.primary_column].name)
                 .map(|pattern| &**pattern)
                 .unwrap_or_default();
-        if primary_changed && self.dynamic_query_handler.is_some() {
-            if self.results.pending_options.is_some()
-                && let Some(updates) = &mut self.file_updates
-            {
-                updates.stop();
+        if primary_changed && self.dynamic_query.is_some() {
+            if self.results.pending_options.is_some() {
+                self.invalidate_source(updates::Invalidation::Refresh);
             }
             self.results.discard_pending();
 
-            self.query_refresh = false;
-            self.query_needs_refresh = false;
+            self.query_options.needs_refresh = false;
         } else if let Some(pending) = &mut self.results.pending_options {
             pending.preserve_selection = false;
         }
@@ -980,32 +1008,26 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             let is_append = pattern.starts_with(old_pattern);
             self.results.reparse(i, pattern, is_append);
         }
-        // If this is a dynamic picker, notify the query hook that the primary
-        // query might have been updated.
-        if let Some(handler) = &self.dynamic_query_handler {
-            let previous = old_query
-                .get(&self.columns[self.primary_column].name)
-                .map(|pattern| &**pattern)
-                .unwrap_or_default();
-            if &*self.primary_query() != previous {
-                self.dynamic_query_pending = true;
-                if let Some(updates) = &mut self.editor_updates {
-                    updates.task.cancel();
-                }
-                self.dynamic_query_request.cancel();
-                self.results.invalidate();
-            }
-            let event = DynamicQueryChange {
-                query: self.primary_query(),
-                is_paste,
-            };
-            event::send_blocking(handler, event);
+        // Secondary filters update the debounce input without restarting the source.
+        if primary_changed
+            && self.dynamic_query.is_some()
+            && let Some(updates) = &mut self.updates
+            && updates.kind != updates::SourceKind::Files
+        {
+            updates.task.cancel();
+        }
+        let query = self.primary_query();
+        if let Some(dynamic_query) = &mut self.dynamic_query {
+            dynamic_query.schedule(
+                DynamicQueryChange { query, is_paste },
+                primary_changed.then_some(QueryKind::Replace),
+                &self.results.version,
+            );
         }
         true
     }
 
-    /// Get (cached) preview for the currently selected item. If a document corresponding
-    /// to the path is already open in the editor, it is used instead.
+    /// Prepare the selected file's cache and background loads before rendering.
     fn prepare_preview(
         &mut self,
         editor: &Editor,
@@ -1024,7 +1046,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         };
         self.preview_scroll.select(&location);
         self.preview
-            .get::<T, D>(editor, location, jobs, image_picker, image_size);
+            .prepare::<T, D>(editor, location.0, jobs, image_picker, image_size);
     }
 
     fn get_preview<'picker, 'editor>(
@@ -1105,7 +1127,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                     "smart-case "
                 }
             }),
-            if self.dynamic_query_pending
+            if self.dynamic_query_pending()
                 || self.matching
                 || self.results.matcher.active_injectors() > 0
             {
@@ -1114,11 +1136,11 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                 ""
             },
             snapshot.matched_item_count(),
-            if self.dynamic_query_pending
+            if self.dynamic_query_pending()
                 || self.results.source.get() != source::State::Complete
                 || self.results.is_refreshing()
                 || self
-                    .editor_updates
+                    .updates
                     .as_ref()
                     .is_some_and(|updates| updates.incomplete)
             {
@@ -1156,7 +1178,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                 .render(input_areas.search_separator, surface);
         }
         if let Some(status) = self
-            .editor_updates
+            .updates
             .as_ref()
             .and_then(|updates| updates.status.as_deref())
             .or_else(|| match self.results.source.get() {
@@ -1201,7 +1223,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         } else {
             fuzzy::MatchKind::Text
         });
-        let source_pattern = self.query_options.as_ref().map(|_| {
+        let source_pattern = self.query_options.synchronous.as_ref().map(|_| {
             nucleo::pattern::Pattern::parse(
                 &self.primary_query(),
                 nucleo::pattern::CaseMatching::Smart,
@@ -1371,8 +1393,27 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             preview.render(item, inner, surface, cx);
             return;
         }
+        let pattern = self.primary_query();
+        let smart_case = self
+            .case_sensitive
+            .as_ref()
+            .map_or(cx.editor.config().search.smart_case, |toggle| {
+                !toggle.enabled
+            });
+        let search = self
+            .preview_search
+            .as_mut()
+            .and_then(|search| search.query(pattern, smart_case));
         if let Some((preview, range, scroll)) = self.get_preview(cx.editor) {
-            render_preview_content(preview, range, scroll, inner, surface, cx);
+            render_preview_content(
+                preview,
+                range,
+                search.as_deref(),
+                scroll,
+                inner,
+                surface,
+                cx,
+            );
         }
     }
 
@@ -1390,27 +1431,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                     }
                 })));
             }
-            picker.cancel_replacement();
-            picker.query_needs_refresh =
-                picker.dynamic_query_handler.is_some() && picker.file_updates.is_none();
-            picker.results.discard_pending();
-            picker.results.spare_matcher = None;
-
-            picker.dynamic_query_pending = false;
-            picker.query_refresh = false;
-            picker.dynamic_query_request.cancel();
-            if let Some(updates) = &mut picker.editor_updates {
-                updates.task.cancel();
-                updates.resumed = true;
-            }
-            picker.poll = None;
-            if let Some(updates) = &mut picker.file_updates {
-                updates.stop();
-            }
-            picker.preview.cancel_loads(None);
-            if let Some(preview) = &mut picker.custom_preview {
-                preview.cancel();
-            }
+            picker.suspend();
             // if the picker is very large don't store it as last_picker to avoid
             // excessive memory consumption
             let callback: compositor::Callback =
@@ -1420,14 +1441,6 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                         compositor.pop();
                     })
                 } else {
-                    // stop streaming in new items in the background, really we should
-                    // be restarting the stream somehow once the picker gets
-                    // reopened instead (like for an FS crawl) that would also remove the
-                    // need for the special case above but that is pretty tricky
-                    picker
-                        .results
-                        .version
-                        .fetch_add(1, atomic::Ordering::Relaxed);
                     Box::new(|compositor: &mut Compositor, _ctx| {
                         // remove the layer
                         compositor.last_picker = compositor.pop();
@@ -1442,8 +1455,13 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         };
 
         // A restored picker can receive input before its first redraw.
-        self.refresh_from_editor(ctx.editor);
-        if self.query_options.is_some() {
+        // Resume its query before any action can use the previous published rows.
+        if self.query_options.needs_refresh {
+            self.refresh_query_if_changed(ctx.editor);
+        }
+        self.poll_query_options(ctx.editor);
+        self.refresh_source(ctx.editor);
+        if self.query_options.synchronous.is_some() {
             self.results.tick(10);
         }
         if self.on_close.is_some() {
@@ -1470,11 +1488,10 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             }
             // Keep navigation available while replacements load or a resumed
             // picker waits for its old matcher before checking the current source.
-            if (self.results.is_refreshing()
-                || self
-                    .editor_updates
-                    .as_ref()
-                    .is_some_and(|updates| updates.resumed))
+            if (self.query_options.needs_refresh
+                || self.query_options.pending.is_some()
+                || self.results.is_refreshing()
+                || self.updates.as_ref().is_some_and(|updates| updates.resumed))
                 && matches!(
                     action,
                     PickerAction::Accept
@@ -1545,8 +1562,8 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                     self.to_end();
                 }
                 PickerAction::ToggleLoading => {
-                    if let Some(updates) = &mut self.editor_updates
-                        && updates.paged
+                    if let Some(updates) = &mut self.updates
+                        && updates.kind == updates::SourceKind::Paged
                     {
                         updates.toggle_loading = true;
                         self.redraw.request();
@@ -1562,6 +1579,18 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                     // Pickers can provide explicit quicklist entries when they have
                     // more precise jump data. Everything else falls back to preview
                     // locations, which are still usually just path + line span.
+                    if let Some(callback) = &self.quicklist_batch_fn {
+                        let snapshot = self.results.matcher.snapshot();
+                        callback(
+                            ctx,
+                            snapshot
+                                .matched_items(0..snapshot.matched_item_count())
+                                .map(|item| item.data)
+                                .collect(),
+                            self.quicklist_task.restart(),
+                        );
+                        continue;
+                    }
                     let entries = self.quicklist_entries(ctx.editor);
                     let count = entries.len();
                     ctx.editor.replace_quicklist(entries);
@@ -1744,15 +1773,17 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
 
 impl<I: 'static + Send + Sync, D: 'static + Send + Sync> Component for Picker<I, D> {
     fn has_pending_render(&self) -> bool {
-        self.matching || (self.on_close.is_some() && self.results.is_refreshing())
+        self.matching
+            || self.query_options.needs_refresh
+            || self.query_options.pending.is_some()
+            || (self.on_close.is_some() && self.results.is_refreshing())
     }
 
     fn update(&mut self, area: Rect, cx: &mut Context) {
         let render_preview = self.preview_visible(area);
 
         let poll = &cx.editor.config().files.reload.poll;
-        if (render_preview || self.file_updates.is_some() || self.query_updates.is_some())
-            && poll.enable
+        if (render_preview || self.has_file_source() || self.query_updates.is_some()) && poll.enable
         {
             let interval = std::time::Duration::from_millis(poll.interval.max(100));
             if self
@@ -1773,10 +1804,10 @@ impl<I: 'static + Send + Sync, D: 'static + Send + Sync> Component for Picker<I,
             self.poll = None;
         }
 
+        self.poll_query_options(cx.editor);
         self.poll_replacement(cx);
-        self.refresh_files(cx.editor);
         self.refresh_query_if_changed(cx.editor);
-        self.refresh_from_editor(cx.editor);
+        self.refresh_source(cx.editor);
 
         self.publish_options();
         let status = self.results.tick(10);
@@ -2145,25 +2176,11 @@ mod tests {
     async fn refresh_preserves_cursor_and_blocks_row_actions_until_matching_finishes(
     ) -> anyhow::Result<()> {
         use super::*;
-        use crate::{application::TestApplication, config::Config as AppConfig, job::Jobs};
+        use crate::{config::Config as AppConfig, job::Jobs};
         use std::{cell::RefCell, rc::Rc, time::Duration};
 
-        let mut config = AppConfig::default();
-        config.editor.files.watch.enable = false;
-        config.editor.files.watch.watch_vcs = false;
-        let syntax = language::syntax::Loader::new(
-            language_config::Configuration {
-                language: vec![],
-                language_server: Default::default(),
-            },
-            Default::default(),
-        )?;
-        let mut app = TestApplication::new(
-            Default::default(),
-            config.clone(),
-            syntax,
-            workspace::trust::WorkspaceTrust::fully_trusted(loader::workspace_trust_dir()),
-        )?;
+        let config = AppConfig::default();
+        let mut app = super::test::application(false)?;
         let mut jobs = Jobs::new();
         let updates = tokio::sync::mpsc::unbounded_channel().0;
         let mut cx = Context {
@@ -2283,7 +2300,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn resumed_picker_blocks_stale_row_actions_while_matcher_is_busy() -> anyhow::Result<()> {
         use super::*;
-        use crate::{application::TestApplication, config::Config as AppConfig, job::Jobs};
+        use crate::{config::Config as AppConfig, job::Jobs};
         use std::{
             cell::RefCell,
             rc::Rc,
@@ -2291,22 +2308,8 @@ mod tests {
             time::Duration,
         };
 
-        let mut config = AppConfig::default();
-        config.editor.files.watch.enable = false;
-        config.editor.files.watch.watch_vcs = false;
-        let syntax = language::syntax::Loader::new(
-            language_config::Configuration {
-                language: vec![],
-                language_server: Default::default(),
-            },
-            Default::default(),
-        )?;
-        let mut app = TestApplication::new(
-            Default::default(),
-            config.clone(),
-            syntax,
-            workspace::trust::WorkspaceTrust::fully_trusted(loader::workspace_trust_dir()),
-        )?;
+        let config = AppConfig::default();
+        let mut app = super::test::application(false)?;
         let mut jobs = Jobs::new();
         let updates = tokio::sync::mpsc::unbounded_channel().0;
         let mut cx = Context {
@@ -2415,9 +2418,7 @@ mod tests {
         tokio::time::timeout(Duration::from_secs(5), async {
             loop {
                 picker.update_and_render(area, &mut Surface::empty(area), &mut cx);
-                if !picker.results.is_refreshing()
-                    && !picker.editor_updates.as_ref().unwrap().resumed
-                {
+                if !picker.results.is_refreshing() && !picker.updates.as_ref().unwrap().resumed {
                     break;
                 }
                 tokio::task::yield_now().await;

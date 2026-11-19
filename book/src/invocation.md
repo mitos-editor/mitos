@@ -51,6 +51,8 @@ for the editor interface.
 | `--tutor` | Open the interactive tutorial |
 | `-c <file>` / `--config <file>` | Use another `config.toml` |
 | `--health [category]` | Check setup; use a language name, `clipboard`, `languages`, `all-languages`, or `all` |
+| `--summary` | With `--health`, hide routine paths, arguments, and capability lists |
+| `--no-color` | With `--health`, disable all output styling |
 | `-g fetch` / `--grammar fetch` | Download configured grammar sources |
 | `-g build` / `--grammar build` | Compile configured grammars |
 | `--strict` | Exit on an error in operations such as grammar fetching |

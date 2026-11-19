@@ -42,7 +42,7 @@ fn source_emphasis_survives_unicode_scrolling_and_control_sanitization() {
     let changed = normal.add_modifier(view::graphics::Modifier::BOLD);
     let range = 3..6;
     let ranges = Some(std::slice::from_ref(&range));
-    let spans = source_spans("λ\tnew\u{1b}end", ranges, 1, 20, normal, changed);
+    let spans = source_spans("λ\tnew\u{1b}end", ranges, None, 1, 20, normal, changed);
     assert_eq!(
         spans
             .iter()
@@ -53,7 +53,7 @@ fn source_emphasis_survives_unicode_scrolling_and_control_sanitization() {
     assert!(spans
         .iter()
         .any(|span| span.content == "new" && span.style == changed));
-    let spans = source_spans("λ\tnew\u{1b}end", ranges, 3, 2, normal, changed);
+    let spans = source_spans("λ\tnew\u{1b}end", ranges, None, 3, 2, normal, changed);
     assert_eq!(
         spans
             .iter()
@@ -62,4 +62,33 @@ fn source_emphasis_survives_unicode_scrolling_and_control_sanitization() {
         "ew"
     );
     assert!(spans.iter().all(|span| span.style == changed));
+}
+
+#[test]
+fn syntax_colors_survive_unicode_scrolling_and_changed_word_emphasis() {
+    use view::graphics::{Color, Modifier, Style};
+    let normal = Style::default().fg(Color::White);
+    let string = normal.fg(Color::Green);
+    let syntax = [(0, normal), (2, string), (6, normal)];
+    let range = 3..6;
+    let spans = source_spans(
+        "λ old end",
+        Some(std::slice::from_ref(&range)),
+        Some(&syntax),
+        3,
+        4,
+        normal,
+        Style::default().add_modifier(Modifier::BOLD),
+    );
+    assert_eq!(
+        spans
+            .iter()
+            .map(|span| span.content.as_ref())
+            .collect::<String>(),
+        "ld e"
+    );
+    assert_eq!(spans[0].content, "ld");
+    assert_eq!(spans[0].style.fg, Some(Color::Green));
+    assert!(spans[0].style.add_modifier.contains(Modifier::BOLD));
+    assert_eq!(spans.last().unwrap().style, normal);
 }

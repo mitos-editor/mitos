@@ -42,6 +42,7 @@ command; sticky groups stay open until Escape. See
 - `g` jumps to locations.
 - `m` works with [surround](./surround.md) and [textobjects](./textobjects.md).
 - `Ctrl-w` manages [split views](./files.md).
+- `Space x` opens [debugging commands](./debugging.md); `Space X` keeps that group active.
 - Space opens pickers and project tools. `Space '` reopens global search.
 - `[` and `]` move to previous and next items, including syntax textobjects.
 

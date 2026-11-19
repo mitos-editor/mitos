@@ -268,7 +268,8 @@ A language can exclude a particular server from semantic highlighting using
 `except-features = ["semantic-tokens"]` in its `language-servers` entry. If
 several servers support the feature, Mitos uses the first configured provider.
 Full-document and range-only providers are supported. Requests are debounced
-after edits; stale tokens are cleared immediately, and responses are discarded
+after edits. Tokens touched by an edit are cleared immediately, while other
+tokens track their text until a fresh response arrives. Responses are discarded
 when their document snapshot or server binding has changed. Unsupported server
 extensions fall back to syntax highlighting. Delta updates and dynamic
 semantic-token registration are not advertised.
@@ -291,8 +292,21 @@ Inline diagnostic text uses `ui.diagnostic.inline.error`, `.warning`, `.info`,
 and `.hint`. Diagnostic underlines in the editing area use `diagnostic.error`,
 `diagnostic.warning`, and related keys.
 
-To keep syntax colors visible in review buffers, give `diff.plus.word` and
-`diff.minus.word` a background or text modifier without setting a foreground.
+Changed words in syntax-highlighted diffs keep their syntax colors and are bold
+by default. Use `diff.plus.word` and `diff.minus.word` to override that style.
+Set a background or text modifier to preserve syntax foreground colors.
+
+Automatic symbol references use `ui.highlight.symbol`. Bundled themes can use a
+subdued background from their palette without changing syntax colors. Otherwise,
+the default is a background halfway between the editor and primary selection
+backgrounds, keeping selections distinct. Themes with terminal palette colors,
+transparent backgrounds, or no distinct tint use bold text instead.
+This style is independent of `ui.highlight`, which highlights picker preview
+lines. Override it in your theme, or set it to `{}` to remove the decoration:
+
+```toml
+"ui.highlight.symbol" = { bg = "#e8edf5" }
+```
 
 ### Inspecting and validating scopes
 

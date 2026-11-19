@@ -1,7 +1,10 @@
 //! Conflict sections use side-specific theme overrides with semantic color fallbacks.
 use super::Decoration;
 use theme::{Style, Theme};
-use view::{features::conflicts::ConflictSide, graphics::Rect, Document};
+use view::document::PresentedDocument;
+#[cfg(test)]
+use view::Document;
+use view::{features::conflicts::ConflictSide, graphics::Rect};
 
 pub fn side_style(theme: &Theme, side: ConflictSide) -> Style {
     theme
@@ -10,7 +13,7 @@ pub fn side_style(theme: &Theme, side: ConflictSide) -> Style {
         .unwrap_or_else(|| theme.get(side.fallback()))
 }
 
-pub fn line_backgrounds<'a>(doc: &'a Document, theme: &'a Theme) -> impl Decoration + 'a {
+pub fn line_backgrounds<'a>(doc: PresentedDocument<'a>, theme: &'a Theme) -> impl Decoration + 'a {
     move |renderer: &mut super::TextRenderer, pos: crate::ui::document::LinePos| {
         let Some(side) = doc
             .conflict_presentation()
@@ -93,10 +96,10 @@ mod tests {
             let mut surface = tui::buffer::Buffer::empty(Rect::new(0, 0, 50, 15));
             surface.set_style(surface.area, theme.get("ui.background"));
             let mut decorations = super::super::DecorationManager::default();
-            decorations.add_decoration(line_backgrounds(&doc, &theme));
+            decorations.add_decoration(line_backgrounds((&doc).into(), &theme));
             crate::ui::document::render_document_with_styles(
                 &mut surface,
-                &doc,
+                (&doc).into(),
                 &layout,
                 Vec::new(),
                 &theme,
@@ -130,10 +133,10 @@ mod tests {
             let mut surface = tui::buffer::Buffer::empty(surface.area);
             surface.set_style(surface.area, theme.get("ui.background"));
             let mut decorations = super::super::DecorationManager::default();
-            decorations.add_decoration(line_backgrounds(&doc, &theme));
+            decorations.add_decoration(line_backgrounds((&doc).into(), &theme));
             crate::ui::document::render_document_with_styles(
                 &mut surface,
-                &doc,
+                (&doc).into(),
                 &layout,
                 vec![selected],
                 &theme,

@@ -4,6 +4,8 @@ use std::{borrow::Cow, path::Path};
 
 use crate::{features::change_review::ReviewComparison, Document};
 
+use super::DocumentSource;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DocumentKind {
     File,
@@ -85,33 +87,31 @@ impl DocumentDisplay<'_> {
 
 impl Document {
     pub fn display_metadata(&self) -> DocumentDisplay<'_> {
-        if let Some(review) = self.review() {
-            return DocumentDisplay {
-                source_path: Some(review.path()),
-                revision: review.revision_label(),
-                kind: DocumentKind::Diff {
+        let (kind, revision) = match &self.source {
+            DocumentSource::Review(review) => (
+                DocumentKind::Diff {
                     comparison: review.comparison(),
                     instance: review.instance(),
                 },
-            };
-        }
-        if let Some(source) = &self.historical {
-            return DocumentDisplay {
-                source_path: Some(&source.path),
-                kind: DocumentKind::Revision,
-                revision: Some(&source.label),
-            };
-        }
+                review.revision_label(),
+            ),
+            DocumentSource::Revision(source) => {
+                (DocumentKind::Revision, Some(source.label.as_str()))
+            }
+            DocumentSource::Virtual { .. } => (DocumentKind::Virtual, None),
+            DocumentSource::FileOrScratch => (
+                if self.path().is_some() {
+                    DocumentKind::File
+                } else {
+                    DocumentKind::Scratch
+                },
+                None,
+            ),
+        };
         DocumentDisplay {
-            source_path: self.path(),
-            revision: None,
-            kind: if self.is_virtual() {
-                DocumentKind::Virtual
-            } else if self.path().is_some() {
-                DocumentKind::File
-            } else {
-                DocumentKind::Scratch
-            },
+            source_path: self.source_path(),
+            kind,
+            revision,
         }
     }
 }

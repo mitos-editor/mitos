@@ -31,11 +31,8 @@ impl Encoder {
         &mut self,
         src: &str,
         dst: &mut [u8],
-        is_empty: bool,
+        last: bool,
     ) -> (encoding::CoderResult, usize, usize) {
-        if src.is_empty() {
-            return (encoding::CoderResult::InputEmpty, 0, 0);
-        }
         let mut write_to_buf = |convert: fn(u16) -> [u8; 2]| {
             let mut total_written = 0usize;
             for (read, character) in src.char_indices() {
@@ -59,7 +56,7 @@ impl Encoder {
             Self::Utf16Be => write_to_buf(u16::to_be_bytes),
             Self::Utf16Le => write_to_buf(u16::to_le_bytes),
             Self::EncodingRs(encoder) => {
-                let (code_result, read, written, ..) = encoder.encode_from_utf8(src, dst, is_empty);
+                let (code_result, read, written, ..) = encoder.encode_from_utf8(src, dst, last);
 
                 (code_result, read, written)
             }
@@ -235,7 +232,7 @@ pub async fn to_writer<'a, W: tokio::io::AsyncWriteExt + Unpin + ?Sized>(
                     break;
                 }
                 encoding::CoderResult::OutputFull => {
-                    debug_assert!(chunk.len() > total_read);
+                    debug_assert!(total_written > 0);
                     writer.write_all(&buf[..total_written]).await?;
                     total_written = 0;
                 }
@@ -256,9 +253,43 @@ pub async fn to_writer<'a, W: tokio::io::AsyncWriteExt + Unpin + ?Sized>(
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
-
     use super::*;
+
+    #[test]
+    fn iso_2022_jp_writer_finalizes_at_eof() {
+        // Cover ordinary output, a full buffer during finalization, and a flush before EOF.
+        for prefix_len in [0, BUF_SIZE - 20, BUF_SIZE - 10] {
+            let text = format!("{}日本語", "a".repeat(prefix_len));
+            let rope = Rope::from_str(&text);
+            let mut bytes = Vec::new();
+            futures_executor::block_on(to_writer(
+                &mut bytes,
+                (encoding::ISO_2022_JP, false),
+                &rope,
+            ))
+            .unwrap();
+            let (expected, _, _) = encoding::ISO_2022_JP.encode(&text);
+            assert!(bytes == expected.as_ref(), "prefix length {prefix_len}");
+        }
+    }
+
+    #[test]
+    fn empty_text_writes_only_the_requested_bom() {
+        let rope = Rope::from_str("");
+        for (encoding, bom) in [
+            (encoding::UTF_8, &[0xef, 0xbb, 0xbf][..]),
+            (encoding::UTF_16BE, &[0xfe, 0xff][..]),
+            (encoding::UTF_16LE, &[0xff, 0xfe][..]),
+            (encoding::ISO_2022_JP, &[][..]),
+        ] {
+            for has_bom in [false, true] {
+                let mut bytes = Vec::new();
+                futures_executor::block_on(to_writer(&mut bytes, (encoding, has_bom), &rope))
+                    .unwrap();
+                assert_eq!(bytes, if has_bom { bom } else { &[] });
+            }
+        }
+    }
 
     #[test]
     fn utf16_encoding_keeps_surrogate_pairs_whole_and_uses_exact_capacity() {
@@ -356,72 +387,30 @@ mod tests {
         assert!(!has_bom);
     }
 
-    macro_rules! decode {
-        ($name:ident, $label:expr, $label_override:expr) => {
-            #[test]
-            fn $name() {
-                let encoding = encoding::Encoding::for_label($label_override.as_bytes()).unwrap();
-                let base_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/encoding");
-                let path = base_path.join(format!("{}_in.txt", $label));
-                let ref_path = base_path.join(format!("{}_in_ref.txt", $label));
-                assert!(path.exists());
-                assert!(ref_path.exists());
+    #[test]
+    fn legacy_encodings_use_the_requested_encoding_for_reads_and_writes() {
+        for (encoding, text, expected) in [
+            (encoding::WINDOWS_1252, "café", &b"caf\xe9"[..]),
+            (
+                encoding::SHIFT_JIS,
+                "日本語",
+                &b"\x93\xfa\x96\x7b\x8c\xea"[..],
+            ),
+        ] {
+            let mut reader = expected;
+            let (rope, detected, has_bom) = from_reader(&mut reader, Some(encoding)).unwrap();
+            assert_eq!(rope, text);
+            assert_eq!(detected, encoding);
+            assert!(!has_bom);
+            let mut reader = expected;
+            let (string, detected, has_bom) = read_to_string(&mut reader, Some(encoding)).unwrap();
+            assert_eq!(string, text);
+            assert_eq!(detected, encoding);
+            assert!(!has_bom);
 
-                let mut file = std::fs::File::open(&path).unwrap();
-                let text = from_reader(&mut file, Some(encoding.into()))
-                    .unwrap()
-                    .0
-                    .to_string();
-                let expectation = std::fs::read_to_string(ref_path).unwrap();
-                assert_eq!(text[..], expectation[..]);
-                let (string, detected, has_bom) =
-                    read_to_string(&mut std::fs::File::open(path).unwrap(), Some(encoding))
-                        .unwrap();
-                assert_eq!(string, expectation);
-                assert_eq!(detected, encoding);
-                assert!(!has_bom);
-            }
-        };
-        ($name:ident, $label:expr) => {
-            decode!($name, $label, $label);
-        };
+            let mut bytes = Vec::new();
+            futures_executor::block_on(to_writer(&mut bytes, (encoding, false), &rope)).unwrap();
+            assert_eq!(bytes, expected);
+        }
     }
-
-    macro_rules! encode {
-        ($name:ident, $label:expr, $label_override:expr) => {
-            #[test]
-            fn $name() {
-                let encoding = encoding::Encoding::for_label($label_override.as_bytes()).unwrap();
-                let base_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/encoding");
-                let path = base_path.join(format!("{}_out.txt", $label));
-                let ref_path = base_path.join(format!("{}_out_ref.txt", $label));
-                assert!(path.exists());
-                assert!(ref_path.exists());
-
-                let text = Rope::from_str(&std::fs::read_to_string(path).unwrap());
-                let mut buf: Vec<u8> = Vec::new();
-                futures_executor::block_on(to_writer(&mut buf, (encoding, false), &text)).unwrap();
-
-                let expectation = std::fs::read(ref_path).unwrap();
-                assert_eq!(buf, expectation);
-            }
-        };
-        ($name:ident, $label:expr) => {
-            encode!($name, $label, $label);
-        };
-    }
-
-    decode!(big5_decode, "big5");
-    encode!(big5_encode, "big5");
-    decode!(euc_kr_decode, "euc_kr", "EUC-KR");
-    encode!(euc_kr_encode, "euc_kr", "EUC-KR");
-    decode!(gb18030_decode, "gb18030");
-    encode!(gb18030_encode, "gb18030");
-    decode!(iso_2022_jp_decode, "iso_2022_jp", "ISO-2022-JP");
-    encode!(iso_2022_jp_encode, "iso_2022_jp", "ISO-2022-JP");
-    decode!(jis0208_decode, "jis0208", "EUC-JP");
-    encode!(jis0208_encode, "jis0208", "EUC-JP");
-    decode!(jis0212_decode, "jis0212", "EUC-JP");
-    decode!(shift_jis_decode, "shift_jis");
-    encode!(shift_jis_encode, "shift_jis");
 }

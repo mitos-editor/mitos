@@ -5,6 +5,23 @@
 Press `/`, type a regular expression, and press `Enter`. Use `n` and `N` to
 select the next and previous matches. `?` starts a backward search.
 
+Each new search starts in regex mode. Press `Alt-r` in the search prompt to toggle
+literal matching: `foo.bar` then matches a dot rather than any character. The
+prompt shows `[regex]` or `[literal]`; toggling leaves the input unchanged. Literal
+mode also accepts unmatched brackets and other regex punctuation as ordinary text.
+
+History navigation (`Up`/`Down` or `Ctrl-p`/`Ctrl-n`) restores both the entered text
+and its syntax. Returning from history restores the draft's text and syntax.
+`Enter` in an empty prompt repeats the previous search with its original syntax;
+`Right` inserts that search for editing. `Tab` completes history entries in the
+current syntax. `n` and `N` preserve literal matching after the prompt closes.
+The search register exposes an escaped regex pattern for literal searches, so
+existing register-based commands continue to work.
+
+The toggle action can be remapped as `toggle_search_syntax` under `[keys.prompt]`.
+It applies to buffer search prompts; selection regex prompts and project search
+keep their existing syntax.
+
 To search for selected text, press `*`, then `n`. Mitos treats the text
 literally and adds word boundaries where appropriate. Use `Alt-*` to search
 without adding word boundaries.
@@ -21,12 +38,12 @@ the previous search.
 
 Highlighting covers complete visible source lines, including horizontally
 scrolled text. Multiline matches crossing the viewport boundary or a fold may
-be omitted. Workspace search and replacement previews retain their existing
-result-line highlighting.
+be omitted. Workspace search and replacement previews also highlight visible
+matches, while keeping the selected result's line highlighted.
 
 ## Browse matches in the current buffer
 
-Buffer search has no default bind. Bind it in `config.toml`:
+To open the buffer search picker, add a binding in `config.toml`:
 
 ```toml
 [keys.normal.space]
@@ -36,17 +53,12 @@ L = "search_picker_in_current_buffer"
 L = "search_picker_in_current_buffer"
 ```
 
-Press your bound key (in the example `Space+L`) to open buffer search. Enter a regular expression to see matching
-lines and a preview, then press `Enter` to select a match. Buffer search includes
-unsaved edits and works in scratch buffers and files you have not saved yet.
+Press `Space L` and enter a regular expression. Each match has its own row with
+a line and column number. Press `Enter` to select the match. The picker searches
+the current buffer, including unsaved edits and scratch buffers.
 
 Press `Alt-c` to toggle case sensitivity, or `Ctrl-q` to copy the results to the
 [quicklist](./quicklist.md). `Space '` reopens the picker for the same buffer.
-
-Press `Alt-r` to enter replacement text. `Enter` replaces the selected match;
-`Ctrl-Enter` replaces all occurrences in the buffer. Replacements expand regex
-captures, remain unsaved, and form one undo step. See
-[Replacing search results](./pickers.md#replacing-global-search-results) for capture syntax.
 
 ## Replace several matches
 

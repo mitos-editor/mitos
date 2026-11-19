@@ -236,28 +236,11 @@ impl LanguageData {
 
 pub(crate) fn reconfigure_highlights(config: &SyntaxConfig, recognized_names: &[String]) {
     config.configure(move |capture_name| {
-        let capture_parts: Vec<_> = capture_name.split('.').collect();
-
-        let mut best_index = None;
-        let mut best_match_len = 0;
-        for (i, recognized_name) in recognized_names.iter().enumerate() {
-            let mut len = 0;
-            let mut matches = true;
-            for (i, part) in recognized_name.split('.').enumerate() {
-                match capture_parts.get(i) {
-                    Some(capture_part) if *capture_part == part => len += 1,
-                    _ => {
-                        matches = false;
-                        break;
-                    }
-                }
-            }
-            if matches && len > best_match_len {
-                best_index = Some(i);
-                best_match_len = len;
-            }
-        }
-        best_index.map(|idx| highlighter::Highlight::new(idx as u32))
+        iter::successors(Some(capture_name), |scope| {
+            scope.rsplit_once('.').map(|(parent, _)| parent)
+        })
+        .find_map(|scope| recognized_names.iter().position(|name| name == scope))
+        .map(|idx| highlighter::Highlight::new(idx as u32))
     });
 }
 
@@ -682,18 +665,12 @@ impl Syntax {
         changeset: &ChangeSet,
         loader: &Loader,
     ) -> Result<(), Error> {
-        let edits = generate_edits(old_source, changeset);
-        if edits.is_empty() {
-            Ok(())
-        } else {
-            self.revision = next_revision();
-            self.inner.update(
-                source,
-                PARSE_TIMEOUT,
-                &edits,
-                &CompiledLanguages::new(loader),
-            )
-        }
+        self.update_with_loader(
+            old_source,
+            source,
+            changeset,
+            &CompiledLanguages::new(loader),
+        )
     }
 
     pub fn update(
@@ -703,13 +680,35 @@ impl Syntax {
         changeset: &ChangeSet,
         loader: &Loader,
     ) -> Result<(), Error> {
+        self.update_with_loader(old_source, source, changeset, loader)
+    }
+
+    fn update_with_loader(
+        &mut self,
+        old_source: RopeSlice,
+        source: RopeSlice,
+        changeset: &ChangeSet,
+        loader: &impl tree_house::LanguageLoader,
+    ) -> Result<(), Error> {
+        // Read the clock only when requested. The dependency owns tree edits,
+        // parsing, and injection/local queries; report their combined cost honestly.
+        let started = log::log_enabled!(target: "mitos::syntax_update", log::Level::Debug)
+            .then(std::time::Instant::now);
         let edits = generate_edits(old_source, changeset);
-        if edits.is_empty() {
+        let prepared = started.map(|_| std::time::Instant::now());
+        let result = if edits.is_empty() {
             Ok(())
         } else {
             self.revision = next_revision();
             self.inner.update(source, PARSE_TIMEOUT, &edits, loader)
+        };
+        if let (Some(started), Some(prepared)) = (started, prepared) {
+            log::debug!(target: "mitos::syntax_update",
+                "bytes={} edits={} edit_generation_us={} syntax_update_us={} success={}",
+                source.len(), edits.len(), prepared.duration_since(started).as_micros(),
+                prepared.elapsed().as_micros(), result.is_ok());
         }
+        result
     }
 
     pub fn layer(&self, layer: Layer) -> &tree_house::LayerData {
@@ -801,8 +800,7 @@ impl Syntax {
         )
     }
 
-    /// Regions captured by `@fold`, including injected languages. Paired syntax
-    /// tokens identify closers without inspecting text for delimiter-like strings.
+    /// Regions captured by `@fold`, including injected languages.
     /// Presentation policy and closed state belong to the view.
     pub fn fold_ranges(
         &self,
@@ -836,7 +834,7 @@ impl Syntax {
         source: RopeSlice,
         rainbow_length: usize,
         loader: &Loader,
-        range: impl RangeBounds<u32>,
+        ranges: impl IntoIterator<Item = ops::Range<u32>>,
     ) -> OverlayHighlights {
         struct RainbowScope<'tree> {
             end: u32,
@@ -844,58 +842,64 @@ impl Syntax {
             highlight: Highlight,
         }
 
-        let mut scope_stack = Vec::<RainbowScope>::new();
         let mut highlights = Vec::new();
-        let mut query_iter = self.query_iter::<_, (), _>(
-            source,
-            |lang| loader.rainbow_query(lang).map(|q| &q.query),
-            range,
-        );
+        for range in ranges {
+            // Queries retain containing scope captures at each range boundary, so
+            // nesting resumes after folds without visiting their hidden brackets.
+            let mut scope_stack = Vec::<RainbowScope>::new();
+            let mut query_iter = self.query_iter::<_, (), _>(
+                source,
+                |lang| loader.rainbow_query(lang).map(|q| &q.query),
+                range.clone(),
+            );
 
-        while let Some(event) = query_iter.next() {
-            let QueryIterEvent::Match(mat) = event else {
-                continue;
-            };
+            while let Some(event) = query_iter.next() {
+                let QueryIterEvent::Match(mat) = event else {
+                    continue;
+                };
 
-            let rainbow_query = loader
-                .rainbow_query(query_iter.current_language())
-                .expect("language must have a rainbow query to emit matches");
+                let rainbow_query = loader
+                    .rainbow_query(query_iter.current_language())
+                    .expect("language must have a rainbow query to emit matches");
 
-            let byte_range = mat.node.byte_range();
-            // Pop any scopes that end before this capture begins.
-            while scope_stack
-                .last()
-                .is_some_and(|scope| byte_range.start >= scope.end)
-            {
-                scope_stack.pop();
-            }
+                let byte_range = mat.node.byte_range();
+                // Pop any scopes that end before this capture begins.
+                while scope_stack
+                    .last()
+                    .is_some_and(|scope| byte_range.start >= scope.end)
+                {
+                    scope_stack.pop();
+                }
 
-            let capture = Some(mat.capture);
-            if capture == rainbow_query.scope_capture {
-                scope_stack.push(RainbowScope {
-                    end: byte_range.end,
-                    node: if rainbow_query
-                        .include_children_patterns
-                        .contains(&mat.pattern)
-                    {
-                        None
-                    } else {
-                        Some(mat.node.clone())
-                    },
-                    highlight: Highlight::new((scope_stack.len() % rainbow_length) as u32),
-                });
-            } else if capture == rainbow_query.bracket_capture
-                && let Some(scope) = scope_stack.last()
-                && !scope
-                    .node
-                    .as_ref()
-                    .is_some_and(|node| mat.node.parent().as_ref() != Some(node))
-            {
-                let start =
-                    source.byte_to_char_idx(source.floor_char_boundary(byte_range.start as usize));
-                let end =
-                    source.byte_to_char_idx(source.ceil_char_boundary(byte_range.end as usize));
-                highlights.push((scope.highlight, start..end));
+                let capture = Some(mat.capture);
+                if capture == rainbow_query.scope_capture {
+                    scope_stack.push(RainbowScope {
+                        end: byte_range.end,
+                        node: if rainbow_query
+                            .include_children_patterns
+                            .contains(&mat.pattern)
+                        {
+                            None
+                        } else {
+                            Some(mat.node.clone())
+                        },
+                        highlight: Highlight::new((scope_stack.len() % rainbow_length) as u32),
+                    });
+                } else if capture == rainbow_query.bracket_capture
+                    && byte_range.start >= range.start
+                    && byte_range.end <= range.end
+                    && let Some(scope) = scope_stack.last()
+                    && !scope
+                        .node
+                        .as_ref()
+                        .is_some_and(|node| mat.node.parent().as_ref() != Some(node))
+                {
+                    let start = source
+                        .byte_to_char_idx(source.floor_char_boundary(byte_range.start as usize));
+                    let end =
+                        source.byte_to_char_idx(source.ceil_char_boundary(byte_range.end as usize));
+                    highlights.push((scope.highlight, start..end));
+                }
             }
         }
 
@@ -1321,38 +1325,19 @@ impl RainbowQuery {
     }
 }
 
-/// A syntax fold's source extent and optional paired closing token.
+/// A syntax fold's source extent.
 #[derive(Debug, Clone)]
 pub struct FoldRange {
     /// Full captured region in document character indices.
     pub range: ops::Range<usize>,
-    /// First character of a real paired closing token, when present.
-    pub closing_delimiter: Option<usize>,
 }
 
 impl FoldRange {
     fn new(source: RopeSlice, node: &Node) -> Self {
         let bytes = node.byte_range();
-        let closing_delimiter = node
-            .child_count()
-            .checked_sub(1)
-            .and_then(|index| node.child(index))
-            .filter(|closing| !closing.is_missing())
-            .filter(|closing| {
-                let opening = match closing.kind() {
-                    "}" => "{",
-                    "]" => "[",
-                    ")" => "(",
-                    _ => return false,
-                };
-                node.children()
-                    .any(|child| child.kind() == opening && !child.is_missing())
-            })
-            .map(|closing| source.byte_to_char_idx(closing.start_byte() as usize));
         Self {
             range: source.byte_to_char_idx(bytes.start as usize)
                 ..source.byte_to_char_idx(bytes.end as usize),
-            closing_delimiter,
         }
     }
 }

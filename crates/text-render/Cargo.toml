@@ -1,7 +1,7 @@
 [package]
 name = "text-render"
 description = "Formatted text and anchored decoration rendering into Ratatui buffers"
-include = ["src/**/*", "README.md", "LICENSE"]
+include = ["src/**/*", "benches/**/*", "README.md", "LICENSE"]
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
@@ -22,3 +22,7 @@ ratatui-core.workspace = true
 
 [dev-dependencies]
 toml.workspace = true
+
+[[bench]]
+name = "long_lines"
+harness = false

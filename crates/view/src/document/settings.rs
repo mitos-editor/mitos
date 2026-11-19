@@ -7,7 +7,6 @@ use editor_core::{
 };
 use std::collections::HashSet;
 use text_layout::doc_formatter::TextFormat;
-use theme::Theme;
 
 pub(super) const DEFAULT_INDENT: IndentStyle = IndentStyle::Tabs;
 const DEFAULT_TAB_WIDTH: usize = 4;
@@ -122,7 +121,7 @@ impl Document {
             .unwrap_or_else(|| self.config.load().text_width)
     }
 
-    pub fn text_format(&self, mut viewport_width: u16, theme: Option<&Theme>) -> TextFormat {
+    pub fn text_format(&self, mut viewport_width: u16) -> TextFormat {
         let config = self.config.load();
         let text_width = self.text_width();
         let mut soft_wrap_at_text_width = self
@@ -167,12 +166,9 @@ impl Document {
             tab_width,
             max_wrap: max_wrap.min(viewport_width / 4),
             max_indent_retain: max_indent_retain.min(viewport_width * 2 / 5),
-            wrap_indicator: Box::from(""),
             // avoid spinning forever when the window manager
             // sets the size to something tiny
             viewport_width,
-            wrap_indicator_highlight: theme
-                .and_then(|theme| theme.find_highlight("ui.virtual.wrap")),
             soft_wrap_at_text_width,
         }
     }

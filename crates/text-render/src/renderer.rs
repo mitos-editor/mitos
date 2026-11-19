@@ -4,7 +4,7 @@ use text_layout::DisplayPosition;
 
 use editor_config::{IndentGuidesConfig, WhitespaceConfig, WhitespaceRenderValue};
 use editor_core::graphemes::{render_grapheme, Grapheme};
-use editor_core::highlight::{HighlightEvent, OverlayHighlights};
+use editor_core::highlight::OverlayHighlights;
 use editor_core::line_ending::line_without_line_ending;
 use editor_core::str_utils::char_to_byte_idx;
 use editor_core::RopeSlice;
@@ -70,6 +70,7 @@ pub fn render_text(
     let mut reached_view_top = false;
     let mut trailing_line = usize::MAX;
     let mut trailing_start = 0;
+    let mut tail_skip_line = usize::MAX;
 
     loop {
         let Some(mut grapheme) = formatter.next() else {
@@ -124,8 +125,8 @@ pub fn render_text(
         {
             syntax_style = syntax_styles.next().unwrap().1;
         }
-        while grapheme.char_idx >= overlay_highlighter.pos {
-            overlay_highlighter.advance();
+        if grapheme.char_idx >= overlay_highlighter.pos {
+            overlay_highlighter.advance_to(grapheme.char_idx);
         }
 
         let grapheme_style = if let GraphemeSource::VirtualText { highlight } = grapheme.source {
@@ -137,7 +138,7 @@ pub fn render_text(
                 syntax_style: style,
                 overlay_style: Style::default(),
             }
-        } else if text_annotations.conceal_at(grapheme.char_idx).is_some() {
+        } else if matches!(grapheme.source, GraphemeSource::Conceal { .. }) {
             GraphemeStyle {
                 syntax_style: renderer.text_style.patch(theme.get("ui.virtual.fold")),
                 overlay_style: overlay_highlighter.style,
@@ -152,6 +153,7 @@ pub fn render_text(
 
         // Classify against the document line, not the visible row: a viewport
         // edge or soft wrap does not turn interior whitespace into trailing text.
+        // Collapsed labels have their own text, independent of source whitespace.
         if renderer.classify_trailing && trailing_line != grapheme.line_idx {
             trailing_line = grapheme.line_idx;
             let line = line_without_line_ending(&text, trailing_line);
@@ -163,8 +165,10 @@ pub fn render_text(
             trailing_start = text.line_to_char_idx(trailing_line) + line.len_chars() - count;
         }
         let trailing = renderer.classify_trailing
-            && !grapheme.is_virtual()
-            && !grapheme.source.is_eof()
+            && matches!(
+                grapheme.source,
+                GraphemeSource::Document { codepoints: 1.. }
+            )
             && grapheme.char_idx >= trailing_start;
         let grapheme_width = renderer.draw_grapheme(
             &grapheme,
@@ -175,6 +179,29 @@ pub fn render_text(
             grapheme.visual_pos,
         );
         last_line_end = grapheme.visual_pos.col + grapheme_width;
+
+        // Width-dependent decorations and annotation sessions keep the normal
+        // traversal. Otherwise raw line checkpoints let us avoid formatting an
+        // invisible tail while retaining all following visible document lines.
+        if !text_fmt.soft_wrap
+            && tail_skip_line != grapheme.line_idx
+            && grapheme.visual_pos.col >= renderer.offset.col + renderer.viewport.width as usize
+            && !matches!(grapheme.raw, Grapheme::Newline)
+            && !grapheme.source.is_eof()
+            && (!renderer.draw_indent_guides || !is_in_indent_area)
+        {
+            tail_skip_line = grapheme.line_idx;
+            let next_line = grapheme.line_idx + 1;
+            let has_next_line = next_line < text.len_lines(stdx::rope::LINE_TYPE);
+            let end = if has_next_line {
+                text.line_to_char_idx(next_line)
+            } else {
+                text.len_chars() + 1
+            };
+            if decorations.can_skip_unwrapped_tail(end) {
+                formatter.skip_unwrapped_line_tail();
+            }
+        }
     }
 
     renderer.draw_indent_guides(last_line_indent_level, last_line_pos.visual_line);
@@ -642,16 +669,13 @@ impl<'t> OverlayHighlighter<'t> {
         self.pos = self.inner.next_event_offset();
     }
 
-    fn advance(&mut self) {
-        let (event, highlights) = self.inner.advance();
-        let base = match event {
-            HighlightEvent::Refresh => Style::default(),
-            HighlightEvent::Push => self.style,
-        };
-
-        self.style = highlights.fold(base, |acc, highlight| {
-            acc.patch(self.theme.highlight(highlight))
-        });
+    fn advance_to(&mut self, pos: usize) {
+        self.style = self
+            .inner
+            .advance_to(pos)
+            .fold(Style::default(), |acc, highlight| {
+                acc.patch(self.theme.highlight(highlight))
+            });
         self.update_pos();
     }
 }
@@ -683,6 +707,66 @@ mod whitespace_tests {
         let annotations = [InlineAnnotation::new(1, "\x1b\u{80}")];
         let surface = render_with_annotations("ab", "", 4, false, 0, &annotations);
         assert_eq!(row(&surface, 0), "a��b");
+    }
+
+    #[test]
+    fn collapsed_label_clipping_matches_visible_document_graphemes() {
+        use text_layout::text_annotations::Conceal;
+        let conceals = [Conceal::new(9..15).with_text("界e\u{301} 😀 label")];
+        let mut annotations = TextAnnotations::default();
+        annotations.set_conceals(&conceals);
+        for wrap in [false, true] {
+            for width in [4, 12, 20] {
+                for offset in [0, 2, 3, 5, 8] {
+                    let folded = render_with_layout_annotations(
+                        "before\na[hidden]tail\nnext",
+                        "",
+                        width,
+                        wrap,
+                        offset,
+                        &annotations,
+                        true,
+                    );
+                    let plain = render(
+                        "before\na[界e\u{301} 😀 label]tail\nnext",
+                        "",
+                        width,
+                        wrap,
+                        offset,
+                    );
+                    assert_eq!(folded, plain, "width={width}, offset={offset}, wrap={wrap}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn collapsed_label_spaces_do_not_inherit_source_trailing_whitespace() {
+        use text_layout::text_annotations::Conceal;
+        for (text, range, visible) in [
+            ("header\nhidden\nlast\nnext", 6..18, "headertwo words\nnext"),
+            ("a    \nnext", 1..4, "atwo words \nnext"),
+        ] {
+            let folds = [Conceal::new(range).with_text("two words")];
+            let mut annotations = TextAnnotations::default();
+            annotations.set_conceals(&folds);
+            for mode in ["trailing", "all"] {
+                let settings = format!("[whitespace]\nrender = '{mode}'");
+                for (width, wrap) in [(12, true), (20, false)] {
+                    let folded = render_with_layout_annotations(
+                        text,
+                        &settings,
+                        width,
+                        wrap,
+                        0,
+                        &annotations,
+                        true,
+                    );
+                    let plain = render(visible, &settings, width, wrap, 0);
+                    assert_eq!(folded, plain, "text={text:?}, mode={mode}, wrap={wrap}");
+                }
+            }
+        }
     }
 
     #[test]
@@ -730,6 +814,23 @@ mod whitespace_tests {
         offset: usize,
         inline: &[text_layout::text_annotations::InlineAnnotation],
     ) -> Surface {
+        let mut annotations = TextAnnotations::default();
+        annotations.add_inline_annotations(inline, None);
+        render_with_layout_annotations(text, settings, width, wrap, offset, &annotations, true)
+    }
+
+    struct RequireFullTraversal;
+    impl crate::Decoration for RequireFullTraversal {}
+
+    fn render_with_layout_annotations(
+        text: &str,
+        settings: &str,
+        width: u16,
+        wrap: bool,
+        offset: usize,
+        annotations: &TextAnnotations,
+        allow_skip: bool,
+    ) -> Surface {
         let mut config: editor_config::Config = toml::from_str(settings).unwrap();
         config.soft_wrap.enable = Some(wrap);
         config.soft_wrap.wrap_indicator = Some(String::new());
@@ -753,8 +854,10 @@ mod whitespace_tests {
             DisplayPosition::new(0, offset),
             viewport,
         );
-        let mut annotations = TextAnnotations::default();
-        annotations.add_inline_annotations(inline, None);
+        let mut decorations = DecorationManager::default();
+        if !allow_skip {
+            decorations.add_decoration(RequireFullTraversal);
+        }
         render_text(
             &mut renderer,
             text.slice(..),
@@ -766,11 +869,11 @@ mod whitespace_tests {
                 max_indent_retain: 40.min(width * 2 / 5),
                 ..TextFormat::default()
             },
-            &annotations,
+            annotations,
             std::iter::empty(),
             vec![],
             &theme,
-            DecorationManager::default(),
+            decorations,
         );
         surface
     }
@@ -779,6 +882,329 @@ mod whitespace_tests {
         (0..surface.area.width)
             .map(|x| surface[(x, y)].symbol())
             .collect()
+    }
+
+    #[test]
+    fn invisible_tails_match_full_traversal_and_keep_following_lines() {
+        let unicode = "\t界e\u{301}\u{80} ".repeat(150);
+        for text in [
+            format!("{}\nfollowing\nlast", "x".repeat(10_000)),
+            format!("  {unicode}\r\n  next\tline\r\nend"),
+            format!("{}\nnext", " ".repeat(1_000)),
+            format!("prefix{}", "\t ".repeat(1_000)),
+        ] {
+            for settings in [
+                "",
+                "[whitespace]\nrender = 'trailing'",
+                "[indent-guides]\nrender = true",
+            ] {
+                for offset in [0, 7, 101] {
+                    for wrap in [false, true] {
+                        let annotations = TextAnnotations::default();
+                        let actual = render_with_layout_annotations(
+                            &text,
+                            settings,
+                            19,
+                            wrap,
+                            offset,
+                            &annotations,
+                            true,
+                        );
+                        let reference = render_with_layout_annotations(
+                            &text,
+                            settings,
+                            19,
+                            wrap,
+                            offset,
+                            &annotations,
+                            false,
+                        );
+                        assert_eq!(
+                            actual, reference,
+                            "offset={offset}, wrap={wrap}, settings={settings}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn skipped_styles_resume_correctly_and_pending_offscreen_hooks_are_preserved() {
+        use std::cell::Cell;
+        struct Anchor<'a> {
+            enabled: bool,
+            seen: &'a Cell<Option<usize>>,
+        }
+        impl crate::Decoration for Anchor<'_> {
+            fn can_skip_unwrapped_tail(&self) -> bool {
+                true
+            }
+            fn reset_pos(&mut self, _: usize) -> usize {
+                if self.enabled {
+                    200
+                } else {
+                    usize::MAX
+                }
+            }
+            fn decorate_grapheme(&mut self, _: &mut TextRenderer, g: &FormattedGrapheme) -> usize {
+                self.seen.set(Some(g.visual_pos.col));
+                usize::MAX
+            }
+        }
+        let text = Rope::from_str(&format!("{}\nfollowing", "x".repeat(1_000)));
+        let theme = Theme::from(
+            toml::from_str::<toml::Value>("'ui.selection' = { bg = 'yellow' }").unwrap(),
+        );
+        let config = editor_config::Config::default();
+        for anchored in [false, true] {
+            let draw = |skip: bool| {
+                let seen = Cell::new(None);
+                let viewport = Rect::new(0, 0, 12, 3);
+                let mut surface = Surface::empty(viewport);
+                let mut renderer = TextRenderer::new(
+                    &mut surface,
+                    RenderSettings {
+                        whitespace: &config.whitespace,
+                        indent_guides: &config.indent_guides,
+                        tab_width: 4,
+                        indent_width: 4,
+                    },
+                    &theme,
+                    DisplayPosition::default(),
+                    viewport,
+                );
+                let mut decorations = DecorationManager::default();
+                decorations.add_decoration(Anchor {
+                    enabled: anchored,
+                    seen: &seen,
+                });
+                if !skip {
+                    decorations.add_decoration(RequireFullTraversal);
+                }
+                render_text(
+                    &mut renderer,
+                    text.slice(..),
+                    0,
+                    &TextFormat::default(),
+                    &TextAnnotations::default(),
+                    [
+                        (0, Style::default().fg(theme::Color::Red)),
+                        (400, Style::default().fg(theme::Color::Green)),
+                        (1001, Style::default().fg(theme::Color::Blue)),
+                    ]
+                    .into_iter(),
+                    vec![OverlayHighlights::Homogeneous {
+                        highlight: theme.find_highlight_exact("ui.selection").unwrap(),
+                        ranges: std::iter::once(999..1003).collect(),
+                    }],
+                    &theme,
+                    decorations,
+                );
+                assert_eq!(seen.get(), anchored.then_some(200));
+                assert_eq!(surface[(0, 1)].fg, Color::Blue);
+                assert_eq!(surface[(0, 1)].bg, Color::Yellow);
+                surface
+            };
+            assert_eq!(draw(true), draw(false));
+        }
+    }
+
+    #[test]
+    fn line_end_hooks_and_width_decorations_keep_exact_geometry() {
+        use std::{cell::RefCell, rc::Rc};
+
+        struct EndGeometry {
+            anchor: usize,
+            width_dependent: bool,
+            hooks: Rc<RefCell<Vec<(usize, usize)>>>,
+            widths: Rc<RefCell<Vec<usize>>>,
+        }
+        impl crate::Decoration for EndGeometry {
+            fn can_skip_unwrapped_tail(&self) -> bool {
+                !self.width_dependent
+            }
+            fn reset_pos(&mut self, _: usize) -> usize {
+                self.anchor
+            }
+            fn decorate_grapheme(&mut self, _: &mut TextRenderer, g: &FormattedGrapheme) -> usize {
+                self.hooks.borrow_mut().push((g.char_idx, g.visual_pos.col));
+                usize::MAX
+            }
+            fn render_virt_lines(
+                &mut self,
+                _: &mut TextRenderer,
+                _: crate::LinePos,
+                offset: DisplayPosition,
+            ) -> DisplayPosition {
+                if self.width_dependent {
+                    self.widths.borrow_mut().push(offset.col);
+                }
+                DisplayPosition::default()
+            }
+        }
+
+        let first = format!("{}\t界", "x".repeat(1_000));
+        let end = first.chars().count();
+        let config = editor_config::Config::default();
+        let theme = Theme::default();
+        for ending in ["", "\n", "\r\n"] {
+            let source = if ending.is_empty() {
+                first.clone()
+            } else {
+                format!("{first}{ending}following")
+            };
+            let text = Rope::from_str(&source);
+            for width_dependent in [false, true] {
+                for offset in [0, 7, 101] {
+                    let draw = |force_slow| {
+                        let hooks = Rc::new(RefCell::new(Vec::new()));
+                        let widths = Rc::new(RefCell::new(Vec::new()));
+                        let viewport = Rect::new(0, 0, 19, 3);
+                        let mut surface = Surface::empty(viewport);
+                        let mut renderer = TextRenderer::new(
+                            &mut surface,
+                            RenderSettings {
+                                whitespace: &config.whitespace,
+                                indent_guides: &config.indent_guides,
+                                tab_width: 4,
+                                indent_width: 4,
+                            },
+                            &theme,
+                            DisplayPosition::new(0, offset),
+                            viewport,
+                        );
+                        let mut decorations = DecorationManager::default();
+                        decorations.add_decoration(EndGeometry {
+                            anchor: if width_dependent { usize::MAX } else { end },
+                            width_dependent,
+                            hooks: hooks.clone(),
+                            widths: widths.clone(),
+                        });
+                        if force_slow {
+                            decorations.add_decoration(RequireFullTraversal);
+                        }
+                        render_text(
+                            &mut renderer,
+                            text.slice(..),
+                            0,
+                            &TextFormat::default(),
+                            &TextAnnotations::default(),
+                            std::iter::empty(),
+                            vec![],
+                            &theme,
+                            decorations,
+                        );
+                        let hooks = hooks.borrow().clone();
+                        let widths = widths.borrow().clone();
+                        if width_dependent {
+                            // The newline or synthetic EOF occupies one more cell.
+                            assert_eq!(widths[0], 1_007);
+                        } else {
+                            assert_eq!(hooks, vec![(end, 1_006)]);
+                        }
+                        (surface, hooks, widths)
+                    };
+                    assert_eq!(draw(false), draw(true));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn tail_skipping_preserves_standalone_controls_and_unicode_separators() {
+        for separator in [
+            "\r", "\u{85}", "\u{2028}", "\u{2029}", "\x0b", "\x0c", "\0", "\x1b", "\x7f",
+        ] {
+            let text = format!(
+                "{}{separator}{}\nfollowing",
+                "x".repeat(1_000),
+                "y".repeat(1_000)
+            );
+            for offset in [0, 7, 101] {
+                let annotations = TextAnnotations::default();
+                assert_eq!(
+                    render_with_layout_annotations(
+                        &text,
+                        "",
+                        19,
+                        false,
+                        offset,
+                        &annotations,
+                        true
+                    ),
+                    render_with_layout_annotations(
+                        &text,
+                        "",
+                        19,
+                        false,
+                        offset,
+                        &annotations,
+                        false
+                    ),
+                    "separator={separator:?}, offset={offset}",
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn annotated_tails_keep_virtual_lines_overlays_and_folded_suffixes() {
+        use text_layout::text_annotations::{Conceal, InlineAnnotation, Overlay};
+        let text = format!("{}\nfolded body\nclosing\nfollowing", "x".repeat(200));
+        let inline = [InlineAnnotation::new(150, "virtual\nline")];
+        let overlays = [Overlay::new(160, "界")];
+        let conceals = [Conceal::new(180..220)];
+        #[derive(Clone)]
+        struct ExtraLine;
+        impl text_layout::text_annotations::LineAnnotation for ExtraLine {
+            fn insert_virtual_lines(
+                &mut self,
+                _: usize,
+                _: DisplayPosition,
+                _: usize,
+            ) -> DisplayPosition {
+                DisplayPosition::new(1, 0)
+            }
+        }
+        for kind in 0..4 {
+            let mut annotations = TextAnnotations::default();
+            match kind {
+                0 => {
+                    annotations.add_inline_annotations(&inline, None);
+                }
+                1 => {
+                    annotations.add_overlay(&overlays, None);
+                }
+                2 => annotations.set_conceals(&conceals),
+                _ => {
+                    annotations.add_line_annotation(ExtraLine);
+                }
+            }
+            for offset in [0, 150] {
+                assert_eq!(
+                    render_with_layout_annotations(
+                        &text,
+                        "",
+                        19,
+                        false,
+                        offset,
+                        &annotations,
+                        true
+                    ),
+                    render_with_layout_annotations(
+                        &text,
+                        "",
+                        19,
+                        false,
+                        offset,
+                        &annotations,
+                        false
+                    ),
+                    "kind={kind}, offset={offset}",
+                );
+            }
+        }
     }
 
     #[test]

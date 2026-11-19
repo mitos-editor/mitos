@@ -1,0 +1,8 @@
+value = identity<String>("hello")
+//      ^ @function
+//               ^ @type
+//              ^ @punctuation.bracket
+value = object.run<String>(1)
+//             ^ @function.method
+//                 ^ @type
+//                ^ @punctuation.bracket

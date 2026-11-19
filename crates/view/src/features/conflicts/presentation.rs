@@ -266,6 +266,20 @@ impl Document {
     }
 
     pub fn conflict_marker_line_number_hidden(&self, view: ViewId, line: usize) -> bool {
+        crate::document::PresentedDocument::from(self)
+            .conflict_marker_line_number_hidden(view, line)
+    }
+    pub fn annotate_conflicts<'a>(
+        &'a self,
+        theme: Option<&theme::Theme>,
+        annotations: &mut TextAnnotations<'a>,
+    ) {
+        crate::document::PresentedDocument::from(self).annotate_conflicts(theme, annotations);
+    }
+}
+
+impl<'a> crate::document::PresentedDocument<'a> {
+    pub fn conflict_marker_line_number_hidden(&self, view: ViewId, line: usize) -> bool {
         let markers = &self.conflict_presentation().markers;
         let index = markers.partition_point(|marker| marker.line < line);
         let Some(marker) = markers.get(index).filter(|marker| marker.line == line) else {
@@ -307,8 +321,8 @@ impl Document {
         OverlayHighlights::Heterogenous { highlights }
     }
 
-    pub fn annotate_conflicts<'a>(
-        &'a self,
+    pub fn annotate_conflicts(
+        self,
         theme: Option<&theme::Theme>,
         annotations: &mut TextAnnotations<'a>,
     ) {

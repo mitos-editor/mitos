@@ -1,24 +1,10 @@
+use super::super::test_support::{git, key};
 use super::*;
 use crate::{
     application::TestApplication,
     ui::picker::test::{application, until},
 };
 
-fn git(root: &Path, args: &[&str]) {
-    let output = std::process::Command::new("git")
-        .arg("-C")
-        .arg(root)
-        .args(["-c", "commit.gpgsign=false"])
-        .args(args)
-        .env_remove("GIT_DIR")
-        .output()
-        .unwrap();
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-}
 fn repo() -> anyhow::Result<tempfile::TempDir> {
     let dir = tempfile::tempdir()?;
     git(dir.path(), &["init"]);
@@ -29,29 +15,6 @@ fn repo() -> anyhow::Result<tempfile::TempDir> {
     git(dir.path(), &["add", "."]);
     git(dir.path(), &["commit", "-m", "initial"]);
     Ok(dir)
-}
-
-fn key(
-    app: &mut TestApplication,
-    compositor: &mut compositor::Compositor,
-    jobs: &mut crate::job::Jobs,
-    key: &str,
-) {
-    let config = crate::config::Config::default();
-    let updates = tokio::sync::mpsc::unbounded_channel().0;
-    let mut cx = Context {
-        config: crate::config::Context {
-            current: &config,
-            updates: &updates,
-        },
-        editor: &mut app.editor,
-        interaction: &mut app.interaction,
-        jobs,
-        scroll: None,
-        image_picker: None,
-        is_cursor_owner: true,
-    };
-    assert!(compositor.handle_event(&Event::Key(key.parse().unwrap()), &mut cx));
 }
 
 #[tokio::test(flavor = "multi_thread")]

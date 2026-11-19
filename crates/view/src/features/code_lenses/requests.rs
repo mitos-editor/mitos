@@ -62,12 +62,12 @@ fn request_document_code_lenses(
     doc.code_lenses.cancel_requests();
     doc.code_lenses.version = None;
     let cancel = doc.code_lenses.request.restart();
-    let mut servers = HashSet::new();
+    let mut servers = Vec::new();
     let futures: FuturesUnordered<_> = doc
         .language_servers_with_feature(LanguageServerFeature::CodeLens)
         // Exit hooks run before removal from the registry.
         .filter(|server| Some(server.id()) != exited_server)
-        .filter(|server| servers.insert(server.id()))
+        .inspect(|server| servers.push(server.id()))
         .filter_map(|server| {
             let text = doc.text().clone();
             let encoding = server.offset_encoding();
@@ -78,15 +78,15 @@ fn request_document_code_lenses(
                 let lenses: Vec<_> = lenses
                     .into_iter()
                     .filter_map(|lens| {
+                        // Servers such as haskell-language-server send multi-line ranges (an eval lens spans every `-- >>>` line of its block).
                         if lens.range.start > lens.range.end
-                            || lens.range.start.line != lens.range.end.line
-                            || lens.range.end.line as usize >= text.len_lines(stdx::rope::LINE_TYPE)
+                            || lens.range.start.line as usize
+                                >= text.len_lines(stdx::rope::LINE_TYPE)
                         {
                             return None;
                         }
                         let char_idx =
                             lsp_client::util::lsp_pos_to_pos(&text, lens.range.start, encoding)?;
-                        lsp_client::util::lsp_pos_to_pos(&text, lens.range.end, encoding)?;
                         Some(CodeLens {
                             char_idx,
                             lens,
@@ -102,7 +102,7 @@ fn request_document_code_lenses(
         doc.code_lenses.cache.clear();
         return;
     }
-    let request = DocumentRequest::new(doc, cancel, servers.into_iter().collect());
+    let request = DocumentRequest::new(doc, cancel, servers);
     tokio::spawn(async move {
         let Some(mut lenses) = collect_responses(futures, &request.cancel, "code lens").await
         else {
@@ -397,13 +397,17 @@ pub fn resolve_code_lenses(
     })
 }
 
-pub(crate) fn register_hooks(events: &event::EventHub) {
+pub(crate) fn register_hooks(events: &event::EventHub, hooks: crate::handlers::DocumentHooks) {
     register_hook!(events => move |event: &mut DocumentDidOpen<'_>| {
         request_document_code_lenses(event.editor, event.doc, None);
         Ok(())
     });
     register_hook!(events => move |event: &mut DocumentDidChange<'_>| {
-        if let Some(handler) = &event.doc.code_lenses.handler {
+        if !event.doc.is_content_readonly()
+            && let Some(services) = hooks.upgrade()
+            && let Some(services) = services.get()
+        {
+            let handler = &services.code_lenses;
             event::send_blocking(&handler.events, event.doc.id());
         }
         Ok(())

@@ -14,46 +14,7 @@ use workspace::trust::WorkspaceTrust;
 
 use super::{test_config, test_syntax_loader, AppBuilder};
 
-/// A file gate keeps server startup under the test's control.
-pub struct Gate(PathBuf);
-
-impl Gate {
-    pub fn new(path: PathBuf) -> Self {
-        Self(path)
-    }
-
-    pub fn path(&self) -> &Path {
-        &self.0
-    }
-
-    pub fn close(&self) -> anyhow::Result<()> {
-        match std::fs::remove_file(&self.0) {
-            Ok(()) => Ok(()),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-            Err(error) => Err(error.into()),
-        }
-    }
-
-    pub fn release(&self) -> anyhow::Result<()> {
-        std::fs::write(&self.0, "ready")?;
-        Ok(())
-    }
-}
-
-pub fn log_path(directory: &Path, name: &str) -> PathBuf {
-    directory.join(format!("{name}.jsonl"))
-}
-
-/// Read complete JSON records while the fixture may still be appending to its log.
-/// An unfinished trailing record can also end in the middle of a UTF-8 character.
-pub fn read_log(path: &Path) -> anyhow::Result<Vec<serde_json::Value>> {
-    std::fs::read(path)?
-        .split_inclusive(|byte| *byte == b'\n')
-        .filter(|record| record.ends_with(b"\n"))
-        .map(serde_json::from_slice)
-        .collect::<Result<_, _>>()
-        .map_err(Into::into)
-}
+pub use lsp_client::test_support::{log_path, read_log, Gate};
 
 #[test]
 fn log_snapshots_wait_for_complete_records_and_report_invalid_json() -> anyhow::Result<()> {
@@ -162,7 +123,7 @@ pub fn feature_app<'a>(
     text: &str,
     language: &str,
     names: &[&'a str],
-    mut config: term::config::Config,
+    config: term::config::Config,
     server: impl Fn(&'a str) -> ServerConfig<'a>,
     setup: impl FnOnce(
             &mut view::handlers::Handlers,
@@ -176,11 +137,34 @@ pub fn feature_app<'a>(
         .iter()
         .map(|name| server(name).initialize_gate(&gate).toml())
         .collect::<String>();
+    let (mut app, callbacks) =
+        feature_app_with_servers(dir, text, language, names, config, &servers, setup)?;
+    let (view, doc) = view::current!(app.editor);
+    doc.set_selection(
+        view.id,
+        editor_core::Selection::point(doc.text().len_chars() - 1),
+    );
+    Ok((app, callbacks, gate))
+}
+
+pub fn feature_app_with_servers(
+    dir: &Path,
+    text: &str,
+    language: &str,
+    names: &[&str],
+    mut config: term::config::Config,
+    servers: &str,
+    setup: impl FnOnce(
+            &mut view::handlers::Handlers,
+            view::callbacks::EditorCallbackSender,
+            &editor_config::Config,
+        ) + 'static,
+) -> anyhow::Result<(TestApplication, FeatureCallbacks)> {
     config.editor.lsp.enable = true;
     let (sender, callbacks) = super::callbacks::deferred(|blocking, callback| (blocking, callback));
     let mut app = AppBuilder::new()
         .with_config(config)
-        .with_lang_loader(syntax_loader(language, language, names, &servers))
+        .with_lang_loader(syntax_loader(language, language, names, servers))
         .with_handler_setup(move |handlers, config| {
             let sender = sender(handlers.redraw().clone());
             setup(handlers, sender, config);
@@ -189,12 +173,7 @@ pub fn feature_app<'a>(
     let path = dir.join(format!("document.{language}"));
     std::fs::write(&path, text)?;
     app.editor.open(&path, Action::Replace)?;
-    let (view, doc) = view::current!(app.editor);
-    doc.set_selection(
-        view.id,
-        editor_core::Selection::point(doc.text().len_chars() - 1),
-    );
-    Ok((app, callbacks, gate))
+    Ok((app, callbacks))
 }
 
 pub async fn wait_message(path: &Path, method: &str) -> anyhow::Result<serde_json::Value> {

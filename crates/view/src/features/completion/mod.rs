@@ -61,6 +61,13 @@ pub struct CompletionHandler {
     session_controller: TaskController,
     session: Option<CompletionSession>,
     edit: Option<CompletionEdit>,
+    selected: Option<SelectedCompletion>,
+}
+
+struct SelectedCompletion {
+    source: buffer::Snapshot,
+    range: editor_core::Range,
+    text: String,
 }
 
 impl CompletionHandler {
@@ -80,6 +87,7 @@ impl CompletionHandler {
             session_controller: TaskController::new(),
             session: None,
             edit: None,
+            selected: None,
         }
     }
 
@@ -138,6 +146,7 @@ impl CompletionHandler {
         self.session_controller.cancel();
         self.request_controller.cancel();
         self.session = None;
+        self.selected = None;
         self.active_completions.clear();
     }
 
@@ -485,6 +494,28 @@ pub fn has_preview(editor: &Editor) -> bool {
     )
 }
 
+/// The highlighted item's primary edit, in the live document's position encoding.
+/// Snippets and edits requiring additional changes cannot be accepted as ghost text.
+pub(crate) fn selected_completion_info(
+    editor: &Editor,
+    encoding: lsp_client::OffsetEncoding,
+) -> Option<lsp::SelectedCompletionInfo> {
+    let handler = &editor.handlers.completions;
+    let session = handler.session.as_ref()?;
+    if !session.is_current(editor) {
+        return None;
+    }
+    let doc = editor.document(session.trigger.doc)?;
+    let selected = handler.selected.as_ref()?;
+    if !selected.source.is_current(&doc.buffer) {
+        return None;
+    }
+    Some(lsp::SelectedCompletionInfo {
+        range: lsp_client::util::range_to_lsp_range(doc.text(), selected.range, encoding),
+        text: selected.text.clone(),
+    })
+}
+
 /// Whether the displayed completion session can still be used by the frontend.
 pub fn is_active(editor: &Editor) -> bool {
     editor
@@ -579,6 +610,7 @@ pub(crate) fn invalidate(editor: &mut Editor) {
     if handler.session.is_none() && handler.shared.trigger.lock().is_none() {
         return;
     }
+    crate::features::inline_completion::dismiss(editor);
     editor
         .handlers
         .completions

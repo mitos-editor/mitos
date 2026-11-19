@@ -2,16 +2,7 @@ use std::time::Duration;
 
 use term::application::TestApplication;
 
-use super::helpers::{run_event_loop_until_idle, AppBuilder};
-
-fn screen(app: &TestApplication) -> String {
-    app.terminal_backend()
-        .buffer()
-        .content()
-        .iter()
-        .map(|cell| cell.symbol())
-        .collect()
-}
+use super::helpers::{run_event_loop_until_idle, screen, AppBuilder};
 
 use super::helpers::keys;
 
@@ -81,7 +72,7 @@ async fn start_fixture(
 async fn variable_browser_expands_nested_values_and_preserves_parent_navigation(
 ) -> anyhow::Result<()> {
     let (mut app, id) = start_fixture(serde_json::json!({"inspectVariables":true})).await?;
-    keys(&mut app, "<space>Gv").await?;
+    keys(&mut app, "<space>xv").await?;
     wait_for_text(&mut app, "globals [expensive]").await?;
     assert!(!screen(&app).contains("answer"));
     keys(&mut app, "locals<ret>").await?;
@@ -135,39 +126,8 @@ async fn variable_browser_expands_nested_values_and_preserves_parent_navigation(
 
 #[tokio::test(flavor = "multi_thread")]
 async fn frame_picker_loads_deep_frames_and_preserves_its_filter() -> anyhow::Result<()> {
-    let mut app = AppBuilder::new().build()?;
-    let id = app.editor.connect_debugger(
-        None,
-        language_config::DebugAdapterConfig {
-            name: "stack fixture".into(),
-            transport: language_config::DebugAdapterTransport::Stdio,
-            command: env!("CARGO_BIN_EXE_mitos-test-dap").into(),
-            args: vec![],
-            port_arg: None,
-            templates: vec![],
-            quirks: Default::default(),
-        },
-        Some(view::debugger::DebuggerLaunch {
-            request: dap::ConnectionType::Launch,
-            arguments: serde_json::json!({"inspectStack":true}),
-        }),
-    );
-    tokio::time::timeout(Duration::from_secs(10), async {
-        loop {
-            app.editor.reset_idle_timer();
-            run_event_loop_until_idle(&mut app).await;
-            if app
-                .editor
-                .debugger()
-                .get_session(id)
-                .is_some_and(|s| s.current_stack_frame().is_some())
-            {
-                break;
-            }
-        }
-    })
-    .await?;
-    keys(&mut app, "<space>Gsf").await?;
+    let (mut app, id) = start_fixture(serde_json::json!({"inspectStack":true})).await?;
+    keys(&mut app, "<space>xsf").await?;
     wait_for_text(&mut app, "Load more").await?;
     for expected in [64, 70] {
         keys(
@@ -254,7 +214,7 @@ async fn adapter_source_navigation_opens_an_immutable_named_document() -> anyhow
         view::current_ref!(app.editor).1.text().to_string(),
         "adapter content\n"
     );
-    keys(&mut app, "<space>Gb<esc>").await?;
+    keys(&mut app, "<space>xb").await?;
     let source = app
         .editor
         .debugger_source(view::current_ref!(app.editor).1.id())
@@ -271,7 +231,7 @@ async fn adapter_source_navigation_opens_an_immutable_named_document() -> anyhow
         }
     })
     .await?;
-    keys(&mut app, "<space>Gb<esc>").await?;
+    keys(&mut app, "<space>xb").await?;
     assert!(app.editor.debugger_breakpoint_locations(&source).is_empty());
     app.editor
         .debugger_command(view::debugger::DebuggerCommand::Terminate)?;
@@ -291,7 +251,7 @@ async fn variable_request_failures_and_late_stdio_replies_leave_the_browser_and_
 ) -> anyhow::Result<()> {
     for failed in [false, true] {
         let (mut app, id) = start_fixture(serde_json::json!({"inspectVariables":true,"holdVariables":!failed,"failVariables":failed})).await?;
-        keys(&mut app, "<space>Gv").await?;
+        keys(&mut app, "<space>xv").await?;
         wait_for_text(&mut app, "globals [expensive]").await?;
         keys(&mut app, "locals<ret>").await?;
         if failed {

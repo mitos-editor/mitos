@@ -1,13 +1,11 @@
 //! Per-document/view cache ownership, freshness, cancellation, and edit mapping.
 
-use std::{collections::HashMap, fmt};
+use std::fmt;
 
 use editor_core::{ChangeSet, Uri};
 use event::{TaskController, TaskHandle};
 use lsp_client::LanguageServerId;
 use text_layout::text_annotations::InlineAnnotation;
-
-use crate::ViewId;
 
 /// Annotations for one document/view. Separate layers allow styling by hint kind
 /// and keep padding before and after the labels in rendering order.
@@ -74,114 +72,130 @@ pub(super) struct CacheKey {
 }
 
 #[derive(Debug, Default)]
-struct RequestState {
-    controller: TaskController,
-    key: Option<CacheKey>,
-    completed: bool,
+enum RequestState {
+    #[default]
+    Idle,
+    Pending {
+        key: CacheKey,
+        controller: TaskController,
+    },
+    Completed {
+        key: CacheKey,
+    },
 }
 
 impl RequestState {
     fn invalidate(&mut self) {
-        self.controller.cancel();
-        self.key = None;
-        self.completed = false;
+        // Dropping a pending controller cancels its task handles.
+        *self = Self::Idle;
     }
 }
 
+/// Cached annotations and request lifetime for one document/view.
 #[derive(Debug, Default)]
-struct ViewState {
+pub(crate) struct InlayHintsState {
     cache: Option<DocumentInlayHints>,
     request: RequestState,
 }
 
-/// One entry owns both cached annotations and their request lifetime.
-#[derive(Debug, Default)]
-pub(crate) struct InlayHintsState {
-    views: HashMap<ViewId, ViewState>,
-}
-
 impl InlayHintsState {
-    pub(crate) fn presentation(&self) -> Self {
-        Self {
-            views: self
-                .views
-                .iter()
-                .map(|(&id, state)| {
-                    (
-                        id,
-                        ViewState {
-                            cache: state.cache.clone(),
-                            request: RequestState::default(),
-                        },
-                    )
-                })
-                .collect(),
+    pub(crate) fn get(&self) -> Option<&DocumentInlayHints> {
+        self.cache.as_ref()
+    }
+
+    pub(crate) fn set(&mut self, hints: DocumentInlayHints) {
+        self.cache = Some(hints);
+    }
+
+    pub(super) fn is_current(&self, key: &CacheKey) -> bool {
+        match &self.request {
+            RequestState::Idle => false,
+            RequestState::Pending {
+                key: current,
+                controller,
+            } => current == key && controller.is_running(),
+            RequestState::Completed { key: current } => current == key,
         }
     }
 
-    pub(crate) fn get(&self, view: ViewId) -> Option<&DocumentInlayHints> {
-        self.views.get(&view)?.cache.as_ref()
+    pub(super) fn start(&mut self, key: CacheKey) -> TaskHandle {
+        let mut controller = TaskController::new();
+        let handle = controller.restart();
+        self.request = RequestState::Pending { key, controller };
+        handle
     }
 
-    pub(crate) fn set(&mut self, view: ViewId, hints: DocumentInlayHints) {
-        self.views.entry(view).or_default().cache = Some(hints);
-    }
-
-    pub(crate) fn remove_view(&mut self, view: ViewId) {
-        self.views.remove(&view);
-    }
-
-    pub(crate) fn clear(&mut self) {
-        self.views.clear();
-    }
-
-    pub(super) fn is_current(&self, view: ViewId, key: &CacheKey) -> bool {
-        self.views.get(&view).is_some_and(|state| {
-            state.request.key.as_ref() == Some(key)
-                && (state.request.completed || state.request.controller.is_running())
-        })
-    }
-
-    pub(super) fn start(&mut self, view: ViewId, key: CacheKey) -> TaskHandle {
-        let state = &mut self.views.entry(view).or_default().request;
-        state.key = Some(key);
-        state.completed = false;
-        state.controller.restart()
-    }
-
-    pub(super) fn complete(&mut self, view: ViewId, hints: DocumentInlayHints) {
-        let state = self
-            .views
-            .get_mut(&view)
-            .expect("validated inlay request owns its view state");
-        state.cache = Some(hints);
-        state.request.completed = true;
-    }
-
-    pub(super) fn retry(&mut self, view: ViewId) {
-        if let Some(state) = self.views.get_mut(&view) {
-            state.request.invalidate();
+    pub(super) fn complete(&mut self, hints: DocumentInlayHints) {
+        self.cache = Some(hints);
+        if let RequestState::Pending { key, .. } = std::mem::take(&mut self.request) {
+            self.request = RequestState::Completed { key };
         }
+    }
+
+    pub(super) fn retry(&mut self) {
+        self.request.invalidate();
     }
 
     pub(crate) fn apply_changes(&mut self, changes: &ChangeSet) {
-        for state in self.views.values_mut() {
-            state.request.invalidate();
-            if let Some(hints) = &mut state.cache {
-                for annotations in [
-                    &mut hints.padding_before_inlay_hints,
-                    &mut hints.type_inlay_hints,
-                    &mut hints.parameter_inlay_hints,
-                    &mut hints.other_inlay_hints,
-                    &mut hints.padding_after_inlay_hints,
-                ] {
-                    changes.update_positions(
-                        annotations.iter_mut().map(|annotation| {
-                            (&mut annotation.char_idx, editor_core::Assoc::After)
-                        }),
-                    );
-                }
-            }
+        self.request.invalidate();
+        if let Some(hints) = &mut self.cache {
+            hints.apply_changes(changes);
         }
+    }
+}
+
+impl DocumentInlayHints {
+    pub(crate) fn apply_changes(&mut self, changes: &ChangeSet) {
+        for annotations in [
+            &mut self.padding_before_inlay_hints,
+            &mut self.type_inlay_hints,
+            &mut self.parameter_inlay_hints,
+            &mut self.other_inlay_hints,
+            &mut self.padding_after_inlay_hints,
+        ] {
+            changes.update_positions(
+                annotations
+                    .iter_mut()
+                    .map(|annotation| (&mut annotation.char_idx, editor_core::Assoc::After)),
+            );
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use slotmap::Key as _;
+
+    #[test]
+    fn failed_and_canceled_requests_can_retry_without_losing_cached_hints() {
+        let key = CacheKey {
+            version: 1,
+            uri: None,
+            server: LanguageServerId::null(),
+            viewport: DocumentInlayHintsId {
+                first_line: 0,
+                last_line: 10,
+            },
+        };
+        let mut state = InlayHintsState::default();
+        let first = state.start(key.clone());
+        assert!(state.is_current(&key));
+        drop(first);
+        assert!(!state.is_current(&key));
+
+        let second = state.start(key.clone());
+        state.complete(DocumentInlayHints::empty_with_id(key.viewport));
+        assert!(second.is_canceled());
+        assert!(state.is_current(&key));
+        state.retry();
+        assert!(!state.is_current(&key));
+        assert!(state.get().is_some());
+
+        let third = state.start(key.clone());
+        state.retry();
+        assert!(third.is_canceled());
+        assert!(!state.is_current(&key));
+        assert!(state.get().is_some());
     }
 }

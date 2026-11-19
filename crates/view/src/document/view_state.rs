@@ -17,33 +17,18 @@ pub(crate) struct DocumentViewState {
     /// which the view's first real selection replaces without recording it.
     pub(super) selection_shown: bool,
     pub hover: Option<event::TaskController>,
+    pub(crate) structural_request: event::TaskController,
+    pub(crate) structural_repeat: Option<crate::features::structural_ranges::PendingSelection>,
     pub navigation: Option<event::TaskController>,
     pub code_actions: Option<event::TaskController>,
     pub shell_filters: Option<event::TaskController>,
+    pub on_type_formatting: Option<event::TaskController>,
+    pub inlay_hints: crate::features::inlay_hints::InlayHintsState,
+    pub document_highlights: crate::features::document_highlight::DocumentHighlightsState,
+    pub code_action_hints: crate::features::code_action_hint::CodeActionHints,
+    pub breadcrumbs: Option<Vec<crate::features::document_symbols::Crumb>>,
     pub search: crate::features::buffer_search::State,
     pub search_highlight: Option<(crate::features::buffer_search::Query, buffer::Snapshot)>,
-}
-
-impl Clone for DocumentViewState {
-    fn clone(&self) -> Self {
-        Self {
-            selection: self.selection.clone(),
-            folds: self.folds.clone(),
-            position: self.position,
-            jump_labels: self.jump_labels.clone(),
-            restore_append_cursor: self.restore_append_cursor,
-            expansion_history: self.expansion_history.clone(),
-            // Selection history belongs to the view that made the changes.
-            selection_undo: Default::default(),
-            selection_shown: self.selection_shown,
-            hover: Default::default(),
-            navigation: Default::default(),
-            code_actions: Default::default(),
-            shell_filters: Default::default(),
-            search: self.search.presentation(),
-            search_highlight: self.search_highlight.clone(),
-        }
-    }
 }
 
 impl DocumentViewState {
@@ -59,8 +44,15 @@ impl DocumentViewState {
             selection_shown: true,
             hover: Default::default(),
             navigation: Default::default(),
+            structural_request: Default::default(),
+            structural_repeat: None,
             code_actions: Default::default(),
             shell_filters: Default::default(),
+            on_type_formatting: Default::default(),
+            inlay_hints: Default::default(),
+            document_highlights: Default::default(),
+            code_action_hints: Default::default(),
+            breadcrumbs: None,
             search: Default::default(),
             search_highlight: None,
         }

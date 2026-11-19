@@ -18,12 +18,12 @@ use view::{
 
 use super::helpers::{
     lsp::{self, Gate, ServerConfig},
-    test_config, test_syntax_loader, AppBuilder,
+    test_config, test_syntax_loader,
 };
 
 struct Fixture {
     app: TestApplication,
-    callbacks: mpsc::UnboundedReceiver<EditorCallback>,
+    callbacks: mpsc::UnboundedReceiver<(bool, EditorCallback)>,
     logs: Vec<PathBuf>,
 }
 
@@ -48,24 +48,16 @@ impl Fixture {
             logs.push(lsp::log_path(dir, name));
         }
         let mut config = test_config();
-        config.editor.lsp.enable = true;
         config.editor.lsp.document_highlight.auto_trigger = false;
-        let (sender, callbacks) = super::helpers::callbacks::channel();
-        let mut app = AppBuilder::new()
-            .with_config(config)
-            .with_lang_loader(lsp::syntax_loader(
-                "navigation-test",
-                "navigation-test",
-                &names,
-                &configuration,
-            ))
-            .with_handler_setup(move |handlers, _| {
-                handlers.navigation = NavigationHandler::new(sender)
-            })
-            .build()?;
-        let path = dir.join("document.navigation-test");
-        std::fs::write(&path, "😀 foo foo\n")?;
-        app.editor.open(&path, Action::Replace)?;
+        let (mut app, callbacks) = lsp::feature_app_with_servers(
+            dir,
+            "😀 foo foo\n",
+            "navigation-test",
+            &names,
+            config,
+            &configuration,
+            |handlers, sender, _| handlers.navigation = NavigationHandler::new(sender),
+        )?;
         gate.release()?;
         lsp::initialize(&mut app, servers.len()).await?;
         Ok(Self {
@@ -78,12 +70,16 @@ impl Fixture {
     async fn response(&mut self) -> anyhow::Result<EditorCallback> {
         tokio::time::timeout(Duration::from_secs(5), self.callbacks.recv())
             .await?
+            .map(|(_, callback)| callback)
             .context("navigation queue closed")
     }
 
     async fn update(&mut self, kind: NavigationKind) -> anyhow::Result<NavigationUpdate> {
         navigation::request(&mut self.app.editor, kind);
-        self.response().await?(&mut self.app.editor);
+        let response = self.response().await?;
+        assert_eq!(self.app.editor.activities().count(), 1);
+        response(&mut self.app.editor);
+        assert_eq!(self.app.editor.activities().count(), 0);
         navigation::next_update(&self.app.editor).context("navigation result missing")
     }
 
@@ -116,7 +112,8 @@ impl Fixture {
 #[tokio::test(flavor = "multi_thread")]
 async fn navigation_normalizes_location_shapes_and_preserves_target_ranges() -> anyhow::Result<()> {
     let dir = tempfile::tempdir()?;
-    let mut f = Fixture::new(dir.path()).await?;
+    let mut f =
+        Fixture::with_servers(dir.path(), &[("alpha", &["--registration-options"])]).await?;
     for kind in [
         NavigationKind::Definition,
         NavigationKind::Declaration,
@@ -196,6 +193,7 @@ async fn navigation_rejects_edits_before_publication_and_presentation() -> anyho
     let dir = tempfile::tempdir()?;
     let mut f = Fixture::new(dir.path()).await?;
     navigation::request(&mut f.app.editor, NavigationKind::Definition);
+    assert_eq!(f.app.editor.activities().count(), 1);
     let callback = f.response().await?;
     f.replace("😀 bar bar\n");
     callback(&mut f.app.editor);
@@ -260,6 +258,12 @@ async fn navigation_cancels_inflight_requests_on_focus_loss() -> anyhow::Result<
     f.app.editor.new_file(Action::Replace);
     let cancel = f.wait_message("$/cancelRequest").await?;
     assert_eq!(cancel["params"]["id"], request["id"]);
+    tokio::time::timeout(Duration::from_secs(1), async {
+        while f.app.editor.activities().next().is_some() {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await?;
     Ok(())
 }
 

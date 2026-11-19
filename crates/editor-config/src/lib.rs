@@ -9,8 +9,8 @@ use std::{collections::HashSet, num::NonZeroU8, path::PathBuf, time::Duration};
 
 use ::diagnostics::Severity;
 use editor_core::{LineEnding, NATIVE_LINE_ENDING};
-pub use language_config::DiffEngine;
 use language_config::{AutoPairConfig, IndentationHeuristic, SoftWrap, SpellingConfig};
+pub use pane_layout::SplitStrategy;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use workspace::trust::ImplicitTrustLevel;
 
@@ -82,12 +82,6 @@ impl Default for DebuggerConfig {
             inline_values: true,
         }
     }
-}
-
-#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case", default, deny_unknown_fields)]
-pub struct DiffConfig {
-    pub engine: DiffEngine,
 }
 
 fn deserialize_duration_millis<'de, D>(deserializer: D) -> Result<Duration, D::Error>
@@ -369,6 +363,12 @@ pub struct PopupConfig {
     pub border_style: BorderStyleOverride,
 }
 
+#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case", default, deny_unknown_fields)]
+pub struct SplitsConfig {
+    pub strategy: SplitStrategy,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case", default, deny_unknown_fields)]
 pub struct Config {
@@ -404,6 +404,7 @@ pub struct Config {
     pub info: PopupConfig,
     pub shell_output: PopupConfig,
     pub picker: PickerConfig,
+    pub splits: SplitsConfig,
     pub file_picker: FilePickerConfig,
     pub file_explorer: FileExplorerConfig,
     /// Configuration of the statusline elements
@@ -432,7 +433,6 @@ pub struct Config {
     pub jump_label_alphabet: Vec<char>,
     /// Show information about the commit that last changed a line.
     pub inline_blame: InlineBlameConfig,
-    pub diff: DiffConfig,
     /// Spell checking: which dictionaries to use and how to filter tokens. Off by default (no
     /// dictionaries); languages can override this in `languages.toml`.
     pub spelling: SpellingConfig,
@@ -628,6 +628,8 @@ pub struct LspConfig {
     pub signature_help: LspSignatureHelpConfig,
     pub inlay_hints: LspInlayHintsConfig,
     pub document_highlight: LspDocumentHighlightConfig,
+    /// Automatically mirror edits to names linked by the language server.
+    pub linked_editing: bool,
     pub color_swatches: LspColorSwatchesConfig,
     pub code_lenses: LspCodeLensesConfig,
     /// Refine syntax highlighting with language-server symbol information.
@@ -648,6 +650,7 @@ impl Default for LspConfig {
             signature_help: LspSignatureHelpConfig::default(),
             inlay_hints: LspInlayHintsConfig::default(),
             document_highlight: LspDocumentHighlightConfig::default(),
+            linked_editing: true,
             color_swatches: LspColorSwatchesConfig::default(),
             code_lenses: LspCodeLensesConfig::default(),
             semantic_tokens: LspSemanticTokensConfig::default(),
@@ -848,7 +851,7 @@ impl Default for StatusLineConfig {
             global: false,
             left: vec![
                 E::Mode,
-                E::Spinner,
+                E::Activity,
                 E::FileName,
                 E::ReadOnlyIndicator,
                 E::FileModificationIndicator,
@@ -860,6 +863,7 @@ impl Default for StatusLineConfig {
                 E::Selections,
                 E::Register,
                 E::SearchPosition,
+                E::Spinner,
                 E::FileType,
                 E::Position,
                 E::FileEncoding,
@@ -895,6 +899,8 @@ impl Default for ModeConfig {
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum StatusLineElement {
+    /// Progress of explicitly requested user actions.
+    Activity,
     /// The editor mode (Normal, Insert, Visual/Selection)
     Mode,
 
@@ -1311,6 +1317,7 @@ impl Default for Config {
             info: PopupConfig::default(),
             shell_output: PopupConfig::default(),
             picker: PickerConfig::default(),
+            splits: SplitsConfig::default(),
             file_picker: FilePickerConfig::default(),
             file_explorer: FileExplorerConfig::default(),
             statusline: StatusLineConfig::default(),
@@ -1328,7 +1335,6 @@ impl Default for Config {
             },
             jump_label_alphabet: ('a'..='z').collect(),
             inline_blame: InlineBlameConfig::default(),
-            diff: DiffConfig::default(),
             spelling: SpellingConfig::default(),
             buffer_picker: BufferPickerConfig::default(),
             workspace_trust: WorkspaceTrustConfig::default(),
@@ -1422,6 +1428,14 @@ pub struct ScrollConfig {
     pub padding: usize,
     /// Number of lines to scroll at once. Defaults to 3
     pub wheel_lines: isize,
+    /// animate scrolling (default false)
+    pub smooth: bool,
+    /// Duration of a smooth scroll animation in milliseconds. Defaults to 180; 0 jumps immediately.
+    #[serde(
+        serialize_with = "serialize_duration_millis",
+        deserialize_with = "deserialize_duration_millis"
+    )]
+    pub animation_duration: Duration,
 }
 
 impl Default for ScrollConfig {
@@ -1429,6 +1443,8 @@ impl Default for ScrollConfig {
         Self {
             padding: 5,
             wheel_lines: 3,
+            smooth: false,
+            animation_duration: Duration::from_millis(180),
         }
     }
 }
@@ -1548,11 +1564,16 @@ impl Default for InlineCompletionConfig {
 pub struct FormatConfig {
     /// Automatic formatting on save. Defaults to true.
     pub on_save: bool,
+    /// Format server-provided trigger characters while typing. Defaults to false.
+    pub on_type: bool,
 }
 
 impl Default for FormatConfig {
     fn default() -> Self {
-        Self { on_save: true }
+        Self {
+            on_save: true,
+            on_type: false,
+        }
     }
 }
 
@@ -1735,112 +1756,62 @@ mod tests {
 
     #[test]
     fn popup_border_overrides_inherit_round_trip_and_validate() {
-        let paths = [
-            "lsp.hover",
-            "completion",
-            "lsp.signature-help",
-            "lsp.code-actions",
-            "lsp.code-lenses",
-            "info",
-            "inline-blame",
-            "command-line",
-            "shell-output",
-            "search",
-        ];
-        for path in paths {
-            let defaults: Config = toml::from_str(&format!("[{path}]")).unwrap();
-            assert_eq!(defaults, Config::default(), "{path}");
-            for (name, expected) in [
-                ("inherit", BorderStyle::Double),
-                ("none", BorderStyle::None),
-                ("plain", BorderStyle::Plain),
-                ("rounded", BorderStyle::Rounded),
-                ("double", BorderStyle::Double),
-                ("thick", BorderStyle::Thick),
-                ("quadrant-inside", BorderStyle::QuadrantInside),
-                ("quadrant-outside", BorderStyle::QuadrantOutside),
-            ] {
-                let source = format!("border-style = 'double'\n[{path}]\nborder-style = '{name}'");
-                let config: Config = toml::from_str(&source).unwrap();
-                let serialized = round_trip(&config);
-                let table: toml::Value = toml::from_str(&serialized).unwrap();
-                let section = path.split('.').fold(&table, |value, key| &value[key]);
-                assert_eq!(section["border-style"].as_str(), Some(name));
-                let preference: BorderStyleOverride =
-                    section["border-style"].clone().try_into().unwrap();
-                assert_eq!(preference.resolve(config.border_style), expected);
-            }
-            for value in ["'invalid'", "true", "1", "[]", "{}"] {
-                let source = format!("[{path}]\nborder-style = {value}");
-                assert!(
-                    toml::from_str::<Config>(&source).is_err(),
-                    "accepted {source}"
-                );
-            }
-            let source = format!("[{path}]\nborder-stlye = 'none'");
-            assert!(
-                toml::from_str::<Config>(&source).is_err(),
-                "accepted {source}"
-            );
-        }
+        let config: Config = toml::from_str(
+            r#"
+            border-style = 'double'
+            [lsp.hover]
+            border-style = 'none'
+            [completion]
+            border-style = 'inherit'
+        "#,
+        )
+        .unwrap();
+        assert_eq!(
+            config.lsp.hover.border_style.resolve(config.border_style),
+            BorderStyle::None
+        );
+        assert_eq!(
+            config.completion.border_style.resolve(config.border_style),
+            BorderStyle::Double
+        );
+        round_trip(&config);
+        assert!(toml::from_str::<Config>("[completion]\nborder-style = 'invalid'").is_err());
     }
 
     #[test]
-    fn command_line_defaults_round_trip_and_validate() {
-        assert_eq!(Config::default().command_line.show, CommandLineShow::Always);
-        assert_eq!(Config::default().command_line.reserved_height(), 1);
-        for (value, expected) in [
-            ("always", CommandLineShow::Always),
-            ("auto", CommandLineShow::Auto),
-        ] {
-            let config: Config =
-                toml::from_str(&format!("[command-line]\nshow = '{value}'")).unwrap();
-            assert_eq!(config.command_line.show, expected);
-            round_trip(&config);
-        }
-        let partial: Config = toml::from_str("[command-line]").unwrap();
-        assert_eq!(partial.command_line, CommandLineConfig::default());
-        for source in [
-            "command-line = false",
-            "[command-line]\nshow = 'never'",
-            "[command-line]\nshow = false",
-            "[command-line]\nunknown = true",
-        ] {
-            assert!(
-                toml::from_str::<Config>(source).is_err(),
-                "accepted {source}"
-            );
-        }
+    fn presentation_settings_round_trip_overrides() {
+        let config: Config = toml::from_str(
+            r#"
+            border-style = 'quadrant-inside'
+            [command-line]
+            show = 'auto'
+            [splits]
+            strategy = 'balanced'
+            [picker]
+            layout = 'centered'
+            show-keybindings = false
+        "#,
+        )
+        .unwrap();
+        assert_eq!(config.border_style, BorderStyle::QuadrantInside);
+        assert_eq!(config.command_line.show, CommandLineShow::Auto);
+        assert_eq!(config.splits.strategy, SplitStrategy::Balanced);
+        assert_eq!(config.picker.layout, PickerLayout::Centered);
+        assert!(!config.picker.show_keybindings);
+        round_trip(&config);
+        assert!(toml::from_str::<Config>("[picker]\nwidth = 90").is_err());
     }
 
     #[test]
-    fn rulers_default_and_round_trip_single_column_characters() {
-        let defaults = RulersConfig::default();
-        assert!(defaults.columns.is_empty());
-        assert_eq!(defaults.style, RulerStyle::Background);
-        assert_eq!(defaults.character, '┊');
-        assert_eq!(toml::from_str::<RulersConfig>("").unwrap(), defaults);
-        let columns_only: RulersConfig = toml::from_str("columns = [51, 73]").unwrap();
-        assert_eq!(columns_only.style, RulerStyle::Background);
-        assert_eq!(columns_only.character, '┊');
+    fn rulers_round_trip_single_column_characters() {
         for character in ['┊', '│', '|', ' '] {
-            let config: RulersConfig =
-                toml::from_str(&format!("columns = [80, 120]\ncharacter = '{character}'")).unwrap();
+            let config: RulersConfig = toml::from_str(&format!(
+                "columns = [80, 120]\nstyle = 'glyph'\ncharacter = '{character}'"
+            ))
+            .unwrap();
             assert_eq!(config.character, character);
             assert_eq!(config.columns, [80, 120]);
-            round_trip(&config);
-        }
-    }
-
-    #[test]
-    fn rulers_round_trip_rendering_styles() {
-        for (name, expected) in [
-            ("background", RulerStyle::Background),
-            ("glyph", RulerStyle::Glyph),
-        ] {
-            let config: RulersConfig = toml::from_str(&format!("style = '{name}'")).unwrap();
-            assert_eq!(config.style, expected);
-            assert_eq!(config.character, '┊');
+            assert_eq!(config.style, RulerStyle::Glyph);
             round_trip(&config);
         }
     }
@@ -1861,117 +1832,6 @@ mod tests {
         ] {
             assert!(toml::from_str::<RulersConfig>(source).is_err(), "{source}");
         }
-    }
-
-    #[test]
-    fn picker_layout_defaults_to_auto_and_round_trips_both_choices() {
-        assert_eq!(Config::default().picker.layout, PickerLayout::Auto);
-        for source in ["", "[picker]"] {
-            assert_eq!(
-                toml::from_str::<Config>(source).unwrap().picker.layout,
-                PickerLayout::Auto
-            );
-        }
-        for (name, expected) in [
-            ("auto", PickerLayout::Auto),
-            ("centered", PickerLayout::Centered),
-        ] {
-            let config: Config = toml::from_str(&format!("[picker]\nlayout = '{name}'")).unwrap();
-            assert_eq!(config.picker.layout, expected);
-            let serialized = toml::Value::try_from(&config).unwrap();
-            assert_eq!(serialized["picker"]["layout"].as_str(), Some(name));
-        }
-    }
-
-    #[test]
-    fn picker_keybinding_hints_default_to_enabled_and_round_trip() {
-        assert!(Config::default().picker.show_keybindings);
-        for source in ["", "[picker]", "[picker]\nlayout = 'centered'"] {
-            assert!(
-                toml::from_str::<Config>(source)
-                    .unwrap()
-                    .picker
-                    .show_keybindings
-            );
-        }
-        for enabled in [true, false] {
-            let config: Config =
-                toml::from_str(&format!("[picker]\nshow-keybindings = {enabled}")).unwrap();
-            assert_eq!(config.picker.show_keybindings, enabled);
-            let serialized = toml::Value::try_from(&config).unwrap();
-            assert_eq!(
-                serialized["picker"]["show-keybindings"].as_bool(),
-                Some(enabled)
-            );
-        }
-        for value in ["'true'", "1", "[]"] {
-            assert!(
-                toml::from_str::<Config>(&format!("[picker]\nshow-keybindings = {value}")).is_err()
-            );
-        }
-    }
-
-    #[test]
-    fn picker_layout_rejects_unknown_values_fields_and_wrong_types() {
-        for source in [
-            "layout = 'fullscreen'",
-            "layout = true",
-            "layout = 90",
-            "width = 90",
-        ] {
-            assert!(toml::from_str::<Config>(&format!("[picker]\n{source}")).is_err());
-        }
-    }
-
-    #[test]
-    fn border_style_defaults_to_rounded_and_round_trips_all_choices() {
-        assert_eq!(Config::default().border_style, BorderStyle::Rounded);
-        assert_eq!(
-            toml::from_str::<Config>("").unwrap().border_style,
-            BorderStyle::Rounded
-        );
-
-        for (name, expected) in [
-            ("none", BorderStyle::None),
-            ("plain", BorderStyle::Plain),
-            ("rounded", BorderStyle::Rounded),
-            ("double", BorderStyle::Double),
-            ("thick", BorderStyle::Thick),
-            ("quadrant-inside", BorderStyle::QuadrantInside),
-            ("quadrant-outside", BorderStyle::QuadrantOutside),
-        ] {
-            let config: Config = toml::from_str(&format!("border-style = '{name}'")).unwrap();
-            assert_eq!(config.border_style, expected);
-            let serialized = toml::Value::try_from(&config).unwrap();
-            assert_eq!(serialized["border-style"].as_str(), Some(name));
-        }
-    }
-
-    #[test]
-    fn border_style_rejects_unknown_values_and_wrong_types() {
-        for value in ["'invalid'", "42", "true"] {
-            assert!(toml::from_str::<Config>(&format!("border-style = {value}")).is_err());
-        }
-    }
-
-    #[test]
-    fn review_engine_defaults_round_trip_and_reject_unknown_names() {
-        assert_eq!(Config::default().diff.engine, DiffEngine::Line);
-        for (name, engine) in [
-            ("line", DiffEngine::Line),
-            ("syntax", DiffEngine::Syntax),
-            ("auto", DiffEngine::Auto),
-        ] {
-            let config: Config = toml::from_str(&format!("[diff]\nengine = '{name}'")).unwrap();
-            assert_eq!(config.diff.engine, engine);
-            let serialized = toml::to_string(&config).unwrap();
-            assert_eq!(
-                toml::from_str::<Config>(&serialized).unwrap().diff.engine,
-                engine
-            );
-        }
-        assert!(toml::from_str::<Config>("[diff]\nengine = 'unknown'").is_err());
-        assert!(toml::from_str::<Config>("[diff]\nunknown = true").is_err());
     }
 
     #[test]

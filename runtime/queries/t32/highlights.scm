@@ -161,7 +161,9 @@
 ; Parameter declarations
 (parameter_declaration
   command: (identifier) @keyword
-  (identifier)? @constant.builtin
+  (identifier)? @constant.builtin)
+
+(parameter_declaration
   macro: (macro) @variable.parameter)
 
 

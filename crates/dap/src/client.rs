@@ -14,7 +14,7 @@ use tokio::{
     io::{AsyncBufRead, AsyncWrite, BufReader, BufWriter},
     net::TcpStream,
     process::{Child, Command},
-    sync::mpsc::{channel, UnboundedReceiver},
+    sync::{mpsc::UnboundedReceiver, oneshot},
 };
 
 /// Build a locally managed adapter without access to the editor's controlling terminal.
@@ -60,7 +60,7 @@ impl Client {
         err: Option<Box<dyn AsyncBufRead + Unpin + Send>>,
         id: DebugAdapterId,
         process: Option<Child>,
-    ) -> Result<(Self, UnboundedReceiver<(DebugAdapterId, ClientEvent)>)> {
+    ) -> (Self, UnboundedReceiver<(DebugAdapterId, ClientEvent)>) {
         let (transport, incoming, server_tx) = Transport::start(rx, tx, err, id);
 
         let client = Self {
@@ -71,7 +71,7 @@ impl Client {
             socket: None,
         };
 
-        Ok((client, incoming))
+        (client, incoming)
     }
 
     /// Connects to an already-running TCP debug adapter.
@@ -82,7 +82,7 @@ impl Client {
         let stream = TcpStream::connect(addr).await?;
         let (rx, tx) = stream.into_split();
         let (mut client, incoming) =
-            Self::streams(Box::new(BufReader::new(rx)), Box::new(tx), None, id, None)?;
+            Self::streams(Box::new(BufReader::new(rx)), Box::new(tx), None, id, None);
         client.socket = Some(addr);
         Ok((client, incoming))
     }
@@ -112,13 +112,13 @@ impl Client {
         let reader = BufReader::new(process.stdout.take().expect("Failed to open stdout"));
         let stderr = BufReader::new(process.stderr.take().expect("Failed to open stderr"));
 
-        Self::streams(
+        Ok(Self::streams(
             Box::new(reader),
             Box::new(writer),
             Some(Box::new(stderr)),
             id,
             Some(process),
-        )
+        ))
     }
 
     /// Spawns an adapter that listens on an ephemeral loopback TCP port.
@@ -135,7 +135,7 @@ impl Client {
     ) -> Result<(Self, UnboundedReceiver<(DebugAdapterId, ClientEvent)>)> {
         let (stream, process, socket) = tcp::spawn(cmd, args, port_format).await?;
         let (rx, tx) = stream.into_split();
-        let mut result = Self::streams(
+        let (mut client, incoming) = Self::streams(
             Box::new(BufReader::new(rx)),
             Box::new(tx),
             None,
@@ -143,12 +143,9 @@ impl Client {
             Some(process),
         );
 
-        // Set the socket address for the client
-        if let Ok((client, _)) = &mut result {
-            client.socket = Some(socket);
-        }
+        client.socket = Some(socket);
 
-        result
+        Ok((client, incoming))
     }
 
     /// Returns this client's registry identifier.
@@ -407,16 +404,6 @@ impl Client {
 
         self.request::<requests::Evaluate>(args).await
     }
-
-    pub fn set_exception_breakpoints(
-        &self,
-        filters: Vec<String>,
-    ) -> impl Future<Output = Result<requests::SetExceptionBreakpointsResponse>> + use<> {
-        let args = requests::SetExceptionBreakpointsArguments { filters };
-
-        self.request_sender()
-            .request::<requests::SetExceptionBreakpoints>(args)
-    }
 }
 
 /// Cloneable request transport. It carries no selected thread, frame, or editor state.
@@ -445,7 +432,7 @@ impl RequestSender {
 
             let arguments = Some(serde_json::to_value(arguments)?);
 
-            let (callback_tx, mut callback_rx) = channel(1);
+            let (callback_tx, callback_rx) = oneshot::channel();
 
             let id = server_tx.send_request(R::COMMAND, arguments, callback_tx)?;
 
@@ -454,10 +441,10 @@ impl RequestSender {
                 sender: server_tx,
                 sequence: id,
             };
-            let response = timeout(Duration::from_secs(20), callback_rx.recv())
+            let response = timeout(Duration::from_secs(20), callback_rx)
                 .await
                 .map_err(|_| Error::Timeout(id))? // return Timeout
-                .ok_or(Error::StreamClosed)??;
+                .map_err(|_| Error::StreamClosed)??;
 
             Ok(response.body.unwrap_or_default())
         }
@@ -518,8 +505,7 @@ mod tests {
             None,
             DebugAdapterId::default(),
             None,
-        )
-        .unwrap();
+        );
         (client, incoming, adapter)
     }
 
@@ -627,6 +613,29 @@ mod tests {
         for task in tasks {
             assert!(task.await.unwrap().is_ok());
         }
+    }
+
+    #[tokio::test]
+    async fn canceled_requests_do_not_block_later_responses() {
+        let (client, _incoming, adapter) = connection();
+        let mut adapter = BufReader::new(adapter);
+        let canceled = tokio::spawn(client.request_sender().call::<requests::Threads>(None));
+        let first = read_message(&mut adapter).await;
+        canceled.abort();
+        assert!(canceled.await.unwrap_err().is_cancelled());
+
+        let next = tokio::spawn(client.request_sender().call::<requests::Threads>(None));
+        let second = read_message(&mut adapter).await;
+        reply_to(&mut adapter, &first, json!({"ignored": true})).await;
+        reply_to(&mut adapter, &second, json!({"threads": []})).await;
+        assert_eq!(
+            time::timeout(time::Duration::from_secs(5), next)
+                .await
+                .unwrap()
+                .unwrap()
+                .unwrap(),
+            json!({"threads": []})
+        );
     }
 
     #[tokio::test]
@@ -787,8 +796,7 @@ mod tests {
             Some(Box::new(tokio::io::empty())),
             DebugAdapterId::default(),
             None,
-        )
-        .unwrap();
+        );
         let body = r#"{"type":"event","event":"initialized"}"#;
         adapter
             .write_all(format!("Content-Length: {}\r\n\r\n{body}", body.len()).as_bytes())

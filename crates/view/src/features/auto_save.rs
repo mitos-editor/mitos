@@ -158,18 +158,25 @@ fn request_auto_save(editor: &mut Editor) {
 
 /// Focus-loss saves have their own setting and also run while in insert mode.
 pub fn focus_lost(editor: &mut Editor) {
-    if editor.config().files.auto_save.focus_lost {
-        request_auto_save(editor);
+    if editor.config().files.auto_save.focus_lost
+        && let Err(error) = crate::save::auto_save_with_reason(
+            editor,
+            lsp_client::lsp::TextDocumentSaveReason::FOCUS_OUT,
+        )
+    {
+        editor.set_error(|| error.to_string());
     }
 }
 
-pub(crate) fn register_hooks(events: &event::EventHub) {
+pub(crate) fn register_hooks(events: &event::EventHub, hooks: crate::handlers::DocumentHooks) {
     register_hook!(events => move |event: &mut DocumentDidChange<'_>| {
         let config = event.doc.config.load();
         if config.files.auto_save.after_delay.enable
-            && let Some(trigger) = &event.doc.auto_save_trigger
+            && !event.doc.is_content_readonly()
+            && let Some(services) = hooks.upgrade()
+            && let Some(services) = services.get()
         {
-            trigger.changed(config.files.auto_save.after_delay.timeout);
+            services.auto_save.changed(config.files.auto_save.after_delay.timeout);
         }
         Ok(())
     });

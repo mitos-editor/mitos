@@ -136,6 +136,137 @@ mod tests {
     }
 
     #[test]
+    fn selections_and_blocks_move_at_edges() {
+        for (input, direction, expected) in [
+            (
+                "#[a|]#aa\nbbb\n",
+                MoveLinesDirection::Below,
+                "bbb\n#[a|]#aa\n",
+            ),
+            (
+                "aaa\n#[b|]#bb\n",
+                MoveLinesDirection::Above,
+                "#[b|]#bb\naaa\n",
+            ),
+            (
+                "#[a|]#b#(c|)#d\nbbbb\n",
+                MoveLinesDirection::Below,
+                "bbbb\n#[a|]#b#(c|)#d\n",
+            ),
+            (
+                "#[|a]#aa\nbbb\n#(c|)#cc\n",
+                MoveLinesDirection::Above,
+                "#[|a]#aa\n#(c|)#cc\nbbb\n",
+            ),
+            (
+                "aaaa\n#[b|]#bbb\ncccc\n#(d|)#ddd\n",
+                MoveLinesDirection::Below,
+                "aaaa\ncccc\n#[b|]#bbb\n\n#(d|)#ddd",
+            ),
+            (
+                "#[|a]#aa\nbbbb\ncccc\n#(d|)#ddd\n",
+                MoveLinesDirection::Above,
+                "#[|a]#aa\nbbbb\n#(d|)#ddd\ncccc\n",
+            ),
+            (
+                "#[aaa\nbbb|]#\nccc\n",
+                MoveLinesDirection::Below,
+                "ccc\n#[aaa\nbbb|]#\n",
+            ),
+            (
+                "a\n#(b|)#bb\n#[c|]#cc\nddd\n",
+                MoveLinesDirection::Above,
+                "#(b|)#bb\n#[c|]#cc\na\nddd\n",
+            ),
+            (
+                "#[|b]#b\nccc\n",
+                MoveLinesDirection::Below,
+                "ccc\n#[|b]#b\n",
+            ),
+            (
+                "#[aaa\nbbb|]#\nccc\n",
+                MoveLinesDirection::Above,
+                "#[aaa\nbbb|]#\nccc\n",
+            ),
+            (
+                "aaa\n#[bbb\nccc|]#",
+                MoveLinesDirection::Below,
+                "aaa\n#[bbb\nccc|]#",
+            ),
+            (
+                "#[|a]#aa\nbbb\n",
+                MoveLinesDirection::Above,
+                "#[|a]#aa\nbbb\n",
+            ),
+            (
+                "aaaaaa\n#[|b]#bbbbb\ncccccc\n#(d|)#ddddd",
+                MoveLinesDirection::Below,
+                "aaaaaa\ncccccc\n#[|b]#bbbbb\n#(d|)#ddddd",
+            ),
+            (
+                "aaaaaa\nbb#[bbbb\nccc|]#ccc\ndddddd\neeeeee\n",
+                MoveLinesDirection::Above,
+                "bb#[bbbb\nccc|]#ccc\naaaaaa\ndddddd\neeeeee\n",
+            ),
+            (
+                "#[|aaaaaa\nbbbbbb\nccc]#ccc\ndddddd\neeeeee\n",
+                MoveLinesDirection::Below,
+                "dddddd\n#[|aaaaaa\nbbbbbb\nccc]#ccc\neeeeee\n",
+            ),
+            (
+                "aaaaaa\nbb#[|b]#bbb\ncccccc\nd#(dd|)#ddd\neeeeee\n",
+                MoveLinesDirection::Below,
+                "aaaaaa\ncccccc\nbb#[|b]#bbb\neeeeee\nd#(dd|)#ddd\n",
+            ),
+        ] {
+            assert_eq!(moved(input, direction, 1), expected);
+        }
+    }
+
+    #[test]
+    fn move_lines_down_with_adjacent_cursors_on_same_line() {
+        let (text, selection) = test::print("#[a|]##(b|)#\nbbbb\n");
+        let mut text = Rope::from(text);
+        let transaction = move_lines(&text, &selection, MoveLinesDirection::Below, 1);
+        assert!(transaction.apply(&mut text));
+        assert_eq!(text, "bbbb\nab\n");
+        // The markers of the two adjacent cursors share a position, so assert
+        // the selection explicitly instead of through `test::plain`.
+        let selection = transaction.selection().unwrap();
+        assert_eq!(selection.primary_index(), 0);
+        assert_eq!(
+            selection.iter().copied().collect::<Vec<_>>(),
+            vec![Range::new(5, 6), Range::new(6, 7)]
+        );
+    }
+
+    #[test]
+    fn move_lines_down_block_ending_in_empty_line_crlf() {
+        assert_eq!(
+            moved(
+                "#[aaaa\r\nbbbb\r\n \r\n|]#cccc\r\ndddd\r\neeee\r\n",
+                MoveLinesDirection::Below,
+                3
+            ),
+            "cccc\r\ndddd\r\neeee\r\n#[aaaa\r\nbbbb\r\n \r\n|]#"
+        );
+    }
+
+    #[test]
+    fn move_lines_up_block_ending_in_empty_line() {
+        assert_eq!(
+            moved(
+                "b2-line_1\nb2-line_2\nb2-line_3\nb2-line_4\nb2-line_5\n\n\
+             #[b1-line_1\nb1-line_2\nb1-line_3\nb1-line_4\nb1-line_5\n\n|]#",
+                MoveLinesDirection::Above,
+                6
+            ),
+            "#[b1-line_1\nb1-line_2\nb1-line_3\nb1-line_4\nb1-line_5\n\n|]#\
+             b2-line_1\nb2-line_2\nb2-line_3\nb2-line_4\nb2-line_5\n\n"
+        );
+    }
+
+    #[test]
     fn counts_move_whole_blocks_and_stop_at_edges() {
         for (input, direction, count, expected) in [
             (

@@ -6,7 +6,7 @@ use super::super::{
     image::{render_placeholder, ImageDocumentView},
     layout::ApplicationLayout,
     statusline,
-    text_decorations::{self, Decoration, DecorationManager, InlineDiagnostics},
+    text_decorations::{self, Decoration, DecorationManager},
     ProgressSpinners,
 };
 use diagnostics::NumberOrString;
@@ -14,7 +14,6 @@ use editor_config::{DiagnosticFilter, RulerStyle};
 use editor_core::unicode::width::UnicodeWidthStr;
 use loader::VERSION_AND_GIT_HASH;
 use std::{cell::Cell, collections::HashMap, rc::Rc, sync::LazyLock};
-use stdx::rope::RopeExt as _;
 use text_layout::{visual_offset_from_block, DisplayPosition};
 use theme::{icons::ICONS, Theme};
 use tui::{
@@ -23,12 +22,13 @@ use tui::{
     text::{Line, Span},
     widgets::{Paragraph, Row, StatefulWidget, Table, TableState, Widget},
 };
+use view::document::PresentedDocument;
 use view::{
-    document::Mode,
     graphics::{Color, Modifier, Rect, RectExt as _, Style},
     Document, Editor, View, ViewId,
 };
 
+mod decorations;
 mod syntax_cache;
 
 #[derive(Clone, Copy)]
@@ -309,41 +309,46 @@ impl PaneRenderer {
         syntax_cache: &mut syntax_cache::ViewportSyntaxCache,
         editor: &Editor,
         options: PaneOptions,
-        doc: &Document,
+        doc: PresentedDocument<'_>,
         view: &View,
         viewport: Rect,
         surface: &mut Surface,
         is_focused: bool,
         hyperlinks: &mut ui_core::hyperlinks::HyperlinkBuffer,
     ) -> Option<DisplayPosition> {
-        if doc.is_binary() || doc.review().is_some() {
+        if doc.source().is_binary() || doc.source().review().is_some() {
             *syntax_cache = syntax_cache::ViewportSyntaxCache::default();
         }
-        if doc.is_binary() {
+        if doc.source().is_binary() {
             Self::render_view_border(editor, view, viewport, surface);
             return None;
         }
-        let layout = view.layout(doc, Some(&editor.theme));
+        let layout = view.layout_presented(doc, Some(&editor.theme));
         let inner = layout.viewport;
-        let area = view.content_area(doc);
+        let area = view.content_area(doc.source());
         if area.is_empty() {
             return None;
         }
         let theme = &editor.theme;
         let config = editor.config();
+        let ranges = layout.visible_byte_ranges();
 
         let mut decorations = DecorationManager::default();
-        decorations.add_decoration(text_decorations::conflicts::line_backgrounds(doc, theme));
-        decorations.add_decoration(text_decorations::links::DocumentLinks::new(
-            doc, view.id, hyperlinks,
-        ));
-        if doc.review().is_some() {
+        if !doc.conflict_presentation().markers.is_empty() {
+            decorations.add_decoration(text_decorations::conflicts::line_backgrounds(doc, theme));
+        }
+        if !doc.document_links().is_empty() {
+            decorations.add_decoration(text_decorations::links::DocumentLinks::new(
+                doc, view.id, hyperlinks,
+            ));
+        }
+        if doc.source().review().is_some() {
             decorations.add_decoration(crate::ui::change_review::document::line_backgrounds(
                 doc, theme,
             ));
         }
 
-        if doc.breadcrumb_enabled() && !area.is_empty() {
+        if doc.source().breadcrumb_enabled() && !area.is_empty() {
             Self::render_breadcrumb(editor, doc, view, area.with_height(1), surface);
         }
 
@@ -356,7 +361,7 @@ impl PaneRenderer {
         }
 
         // Set DAP highlights, if needed.
-        if let Some(frame) = editor.debugger_frame_in_document(doc)
+        if let Some(frame) = editor.debugger_frame_in_document(doc.source())
             && let Some(dap_line) = view::debugger::source::line_index(frame.line)
         {
             let style = theme.get("ui.highlight.frameline");
@@ -370,59 +375,9 @@ impl PaneRenderer {
             decorations.add_decoration(line_decoration);
         }
 
-        let mut overlays = Vec::new();
-        if let Some(highlights) =
-            crate::ui::change_review::document::highlights(doc, &layout, theme)
-        {
-            overlays.push(highlights);
-        }
+        let overlays = Self::overlays(editor, doc, view, &layout, &ranges, options, is_focused);
 
-        if doc
-            .language_config()
-            .and_then(|config| config.rainbow_brackets)
-            .unwrap_or(config.rainbow_brackets.enable)
-            && let Some(overlay) = highlights::rainbow_highlights(doc, &layout, theme)
-        {
-            overlays.push(overlay);
-        }
-
-        if let Some(overlay) = highlights::document_link_highlights(doc, theme) {
-            overlays.push(overlay);
-        }
-
-        overlays.push(highlights::overlay_highlights(&layout));
-
-        highlights::diagnostic_highlights(doc, theme, &mut overlays);
-        if let Some(query) = doc.search_highlight(view.id)
-            && let Some(overlay) = highlights::search_highlights(query, &layout, theme)
-        {
-            overlays.push(overlay);
-        }
-
-        if is_focused {
-            if config.lsp.document_highlight.auto_trigger
-                && let Some(overlay) = highlights::document_highlights(doc, view, theme)
-            {
-                overlays.push(overlay);
-            }
-            if let Some(tabstops) = highlights::tabstop_highlights(doc, theme) {
-                overlays.push(tabstops);
-            }
-            overlays.push(highlights::selection_highlights(
-                editor.mode(),
-                doc,
-                view,
-                theme,
-                &config.cursor,
-                options.terminal_focused,
-                options.is_cursor_owner,
-            ));
-            if let Some(overlay) = highlights::matching_bracket_highlight(view, doc, theme) {
-                overlays.push(overlay);
-            }
-        }
-
-        let gutter_overflow = view.gutter_offset(doc) == 0;
+        let gutter_overflow = view.gutter_offset_presented(doc) == 0;
         if !gutter_overflow {
             Self::render_gutter(
                 editor,
@@ -449,83 +404,20 @@ impl PaneRenderer {
                 primary_cursor,
             });
         }
-        if is_focused
-            && editor.mode() == Mode::Insert
-            && let Some(completion) = doc.inline_completion(view.id)
-        {
-            let line = doc.text().char_to_line_idx(completion.cursor);
-            let line_end =
-                editor_core::line_ending::line_end_char_index(&doc.text().slice(..), line);
-            decorations.add_decoration(
-                text_decorations::inline_completion::InlineCompletionDecoration::new(
-                    completion,
-                    theme
-                        .try_get_exact("ui.virtual.inline-completion")
-                        .unwrap_or_else(|| theme.get("ui.virtual.inlay-hint")),
-                    layout.format.clone(),
-                    line_end,
-                ),
-            );
-        }
-        let width = view.inner_width(doc);
-        let document_config = doc.config.load();
-        let enable_cursor_line = view
-            .diagnostics_handler
-            .show_cursorline_diagnostics(doc, view.id);
-        let inline_diagnostic_config = view::annotations::diagnostics::prepare_inline_diagnostics(
-            &document_config.diagnostics.inline,
-            width,
-            enable_cursor_line,
-        );
-        decorations.add_decoration(InlineDiagnostics::new(
+        decorations::add(
+            editor,
+            &config,
             doc,
-            theme,
-            primary_cursor,
-            inline_diagnostic_config,
-            document_config.diagnostics.end_of_line.severity,
-            document_config.icons,
-        ));
-        if config.inline_blame.show != editor_config::InlineBlameShow::Never {
-            decorations.add_decoration(text_decorations::blame::InlineBlame::new(
-                doc,
-                view.id,
-                &config.inline_blame,
-                theme
-                    .try_get_exact("ui.virtual.inline-blame")
-                    .unwrap_or_else(|| theme.get("ui.virtual.inlay-hint")),
-            ));
-        }
-        let hidden_line = if is_focused && editor.mode() == Mode::Insert {
-            doc.inline_completion(view.id)
-                .map(|completion| doc.text().char_to_line_idx(completion.cursor))
-        } else {
-            None
-        };
-        decorations.add_decoration(text_decorations::debug_values::DebugValues::new(
-            doc.text(),
-            editor
-                .debugger_frame_in_document(doc)
-                .map_or(&[], |_| editor.debugger_inline_values(view.id)),
-            theme
-                .try_get_exact("ui.virtual.debug-value")
-                .unwrap_or_else(|| theme.get("ui.virtual.inlay-hint")),
-            hidden_line,
-        ));
-        if document_config.lsp.enable && document_config.lsp.code_lenses.enable {
-            decorations.add_decoration(text_decorations::code_lenses::CodeLensDecoration::new(
-                doc.text(),
-                doc.code_lenses(),
-                theme
-                    .try_get_exact("ui.virtual.code-lens")
-                    .unwrap_or_else(|| theme.get("ui.virtual.inlay-hint")),
-                hidden_line,
-            ));
-        }
-        if doc.review().is_some() {
+            view,
+            &layout,
+            is_focused,
+            &mut decorations,
+        );
+        if doc.source().review().is_some() {
             render_document(surface, doc, &layout, overlays, theme, decorations);
         } else {
-            let styles = syntax_cache.styles(doc, &layout, editor.theme.revision(), || {
-                highlights::document_syntax_styles(doc, &layout, theme)
+            let styles = syntax_cache.styles(doc, &ranges, editor.theme.revision(), || {
+                highlights::document_syntax_styles(doc, &ranges, theme)
             });
             super::super::document::render_document_with_styles(
                 surface,
@@ -538,7 +430,11 @@ impl PaneRenderer {
             );
         }
 
-        if editor.config().welcome_screen && doc.version() == 0 && doc.is_welcome {
+        if doc.is_live()
+            && editor.config().welcome_screen
+            && doc.source().version() == 0
+            && doc.source().is_welcome
+        {
             Self::render_welcome(theme, inner, surface, options.true_color);
         }
 
@@ -556,6 +452,75 @@ impl PaneRenderer {
         })
     }
 
+    fn overlays(
+        editor: &Editor,
+        doc: PresentedDocument<'_>,
+        view: &View,
+        layout: &view::view::ViewLayout,
+        ranges: &[std::ops::Range<usize>],
+        options: PaneOptions,
+        is_focused: bool,
+    ) -> Vec<editor_core::highlight::OverlayHighlights> {
+        let theme = &editor.theme;
+        let config = editor.config();
+        let mut overlays = Vec::new();
+        if let Some(highlights) = crate::ui::change_review::document::highlights(doc, layout, theme)
+        {
+            overlays.push(highlights);
+        }
+
+        if doc
+            .source()
+            .language_config()
+            .and_then(|config| config.rainbow_brackets)
+            .unwrap_or(config.rainbow_brackets.enable)
+            && let Some(overlay) = highlights::rainbow_highlights(doc, ranges, theme)
+        {
+            overlays.push(overlay);
+        }
+
+        if let Some(overlay) = highlights::document_link_highlights(doc, theme) {
+            overlays.push(overlay);
+        }
+
+        overlays.push(highlights::overlay_highlights(layout, ranges));
+
+        // Diagnostics and search matches take precedence over symbol references.
+        if is_focused
+            && config.lsp.document_highlight.auto_trigger
+            && let Some(overlay) = highlights::document_highlights(doc, view, theme)
+        {
+            overlays.push(overlay);
+        }
+
+        highlights::diagnostic_highlights(doc, theme, &mut overlays);
+        if let Some(query) = doc.search_highlight(view.id)
+            && let Some(overlay) = highlights::search_highlights(query, layout, ranges, theme)
+        {
+            overlays.push(overlay);
+        }
+
+        if is_focused {
+            if let Some(tabstops) = highlights::tabstop_highlights(doc, theme) {
+                overlays.push(tabstops);
+            }
+            overlays.push(highlights::selection_highlights(
+                editor.mode(),
+                doc,
+                view,
+                theme,
+                &config.cursor,
+                options.terminal_focused,
+                options.is_cursor_owner,
+            ));
+            if let Some(overlay) = highlights::matching_bracket_highlight(view, doc, theme) {
+                overlays.push(overlay);
+            }
+        }
+
+        overlays
+    }
+
     fn render_view_border(editor: &Editor, view: &View, viewport: Rect, surface: &mut Surface) {
         // if we're not at the edge of the screen, draw a right border
         if viewport.right() != view.area.right() {
@@ -571,7 +536,7 @@ impl PaneRenderer {
 
     fn render_rulers(
         editor: &Editor,
-        doc: &Document,
+        doc: PresentedDocument<'_>,
         view: &View,
         viewport: Rect,
         surface: &mut Surface,
@@ -592,6 +557,7 @@ impl PaneRenderer {
         };
 
         let rulers = doc
+            .source()
             .language_config()
             .and_then(|config| config.rulers.as_ref())
             .unwrap_or(editor_rulers);
@@ -685,7 +651,7 @@ impl PaneRenderer {
     #[allow(clippy::too_many_lines)]
     fn render_breadcrumb(
         editor: &Editor,
-        doc: &Document,
+        doc: PresentedDocument<'_>,
         view: &View,
         viewport: Rect,
         surface: &mut Surface,
@@ -725,7 +691,7 @@ impl PaneRenderer {
         let mut draw_separator = false;
 
         if matches!(config.breadcrumb.path, Full | File) {
-            if let Some(path) = doc.display_path() {
+            if let Some(path) = doc.source().display_path() {
                 let mut components = path.components().peekable();
                 let file_only = matches!(config.breadcrumb.path, File);
 
@@ -761,7 +727,7 @@ impl PaneRenderer {
                 }
             } else {
                 // Handle `[scratch]`
-                x = draw_element(surface, viewport, x, &doc.display_name(), style);
+                x = draw_element(surface, viewport, x, &doc.source().display_name(), style);
             }
         }
 
@@ -785,14 +751,14 @@ impl PaneRenderer {
 
     fn render_gutter<'d>(
         editor: &'d Editor,
-        doc: &'d Document,
+        doc: PresentedDocument<'d>,
         view: &View,
         theme: &Theme,
         layout: &view::view::ViewLayout,
         is_focused: bool,
         decoration_manager: &mut DecorationManager<'d>,
     ) {
-        let viewport = view.content_area(doc);
+        let viewport = view.content_area(doc.source());
         let text = doc.text().slice(..);
         let cursors: Rc<[_]> = doc
             .selection(view.id)
@@ -807,7 +773,7 @@ impl PaneRenderer {
         let gutter_style_virtual = theme.get("ui.gutter.virtual");
         let gutter_selected_style_virtual = theme.get("ui.gutter.selected.virtual");
 
-        for &gutter_type in view.gutters_for(doc) {
+        for &gutter_type in view.gutters_for(doc.source()) {
             let mut gutter =
                 super::super::gutter::style(gutter_type, editor, doc, view, theme, is_focused);
             let width = view::gutter::width(gutter_type, view, doc);
@@ -851,7 +817,7 @@ impl PaneRenderer {
     }
 
     fn render_diagnostics(
-        doc: &Document,
+        doc: PresentedDocument<'_>,
         view: &View,
         viewport: Rect,
         surface: &mut Surface,
@@ -915,7 +881,7 @@ impl PaneRenderer {
 
     /// Apply the highlighting on the lines where a cursor is active
     fn cursorline(
-        doc: &Document,
+        doc: PresentedDocument<'_>,
         view: &View,
         theme: &Theme,
         layout: &view::view::ViewLayout,
@@ -952,7 +918,7 @@ impl PaneRenderer {
 
     /// Apply the highlighting on the columns where a cursor is active
     fn highlight_cursorcolumn(
-        doc: &Document,
+        doc: PresentedDocument<'_>,
         view: &View,
         surface: &mut Surface,
         theme: &Theme,

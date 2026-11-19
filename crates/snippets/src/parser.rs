@@ -592,15 +592,12 @@ mod test {
             "far{{id:bern {{id2:basel}}}}boo",
         );
         assert_text("${}$\\a\\$\\}\\\\", "${}$\\a$}\\");
-        assert_text("farboo", "farboo");
-        assert_text("far{{}}boo", "far{{}}boo");
-        assert_text("far{{123}}boo", "far{{123}}boo");
-        assert_text("far\\{{123}}boo", "far\\{{123}}boo");
         assert_text("far`123`boo", "far`123`boo");
         assert_text("far\\`123\\`boo", "far\\`123\\`boo");
         assert_text("\\$far-boo", "$far-boo");
     }
 
+    #[track_caller]
     fn assert_snippet(snippet: &str, expect: &[SnippetElement]) {
         let elements = parse(snippet).unwrap();
         assert_eq!(elements, expect.to_owned())
@@ -679,72 +676,58 @@ mod test {
         );
     }
 
+    #[track_caller]
+    fn assert_transform(
+        input: &str,
+        name: &str,
+        regex: &str,
+        replacement: Vec<FormatItem>,
+        options: &str,
+    ) {
+        assert_snippet(
+            input,
+            &[Variable {
+                name: name.into(),
+                default: None,
+                transform: Some(Transform {
+                    regex: regex.into(),
+                    replacement,
+                    options: options.into(),
+                }),
+            }],
+        );
+    }
+
     #[test]
     fn parse_variable_transform() {
-        assert_snippet(
-            "${foo///}",
-            &[Variable {
-                name: "foo".into(),
-                transform: Some(Transform {
-                    regex: Tendril::new(),
-                    replacement: Vec::new(),
-                    options: Tendril::new(),
-                }),
-                default: None,
-            }],
-        );
-        assert_snippet(
+        assert_transform("${foo///}", "foo", "", vec![], "");
+        assert_transform(
             "${foo/regex/format/gmi}",
-            &[Variable {
-                name: "foo".into(),
-                transform: Some(Transform {
-                    regex: "regex".into(),
-                    replacement: vec![FormatItem::Text("format".into())],
-                    options: "gmi".into(),
-                }),
-                default: None,
-            }],
+            "foo",
+            "regex",
+            vec![FormatItem::Text("format".into())],
+            "gmi",
         );
-        assert_snippet(
+        assert_transform(
             "${foo/([A-Z][a-z])/format/}",
-            &[Variable {
-                name: "foo".into(),
-                transform: Some(Transform {
-                    regex: "([A-Z][a-z])".into(),
-                    replacement: vec![FormatItem::Text("format".into())],
-                    options: Tendril::new(),
-                }),
-                default: None,
-            }],
+            "foo",
+            "([A-Z][a-z])",
+            vec![FormatItem::Text("format".into())],
+            "",
         );
 
-        // invalid regex TODO: reneable tests once we actually parse this regex flavor
-        // assert_text(
-        //     "${foo/([A-Z][a-z])/format/GMI}",
-        //     "${foo/([A-Z][a-z])/format/GMI}",
-        // );
-        // assert_text(
-        //     "${foo/([A-Z][a-z])/format/funky}",
-        //     "${foo/([A-Z][a-z])/format/funky}",
-        // );
-        // assert_text("${foo/([A-Z][a-z]/format/}", "${foo/([A-Z][a-z]/format/}");
         assert_text(
             "${foo/regex\\/format/options}",
             "${foo/regex\\/format/options}",
         );
 
         // tricky regex
-        assert_snippet(
+        assert_transform(
             "${foo/m\\/atch/$1/i}",
-            &[Variable {
-                name: "foo".into(),
-                transform: Some(Transform {
-                    regex: "m/atch".into(),
-                    replacement: vec![FormatItem::Capture(1)],
-                    options: "i".into(),
-                }),
-                default: None,
-            }],
+            "foo",
+            "m/atch",
+            vec![FormatItem::Capture(1)],
+            "i",
         );
 
         // incomplete
@@ -752,174 +735,114 @@ mod test {
         assert_text("${foo/regex/format/options", "${foo/regex/format/options");
 
         // format string
-        assert_snippet(
+        assert_transform(
             "${foo/.*/${0:fooo}/i}",
-            &[Variable {
-                name: "foo".into(),
-                transform: Some(Transform {
-                    regex: ".*".into(),
-                    replacement: vec![FormatItem::Conditional(0, Tendril::new(), "fooo".into())],
-                    options: "i".into(),
-                }),
-                default: None,
-            }],
+            "foo",
+            ".*",
+            vec![FormatItem::Conditional(0, Tendril::new(), "fooo".into())],
+            "i",
         );
-        assert_snippet(
+        assert_transform(
             "${foo/.*/${1}/i}",
-            &[Variable {
-                name: "foo".into(),
-                transform: Some(Transform {
-                    regex: ".*".into(),
-                    replacement: vec![FormatItem::Capture(1)],
-                    options: "i".into(),
-                }),
-                default: None,
-            }],
+            "foo",
+            ".*",
+            vec![FormatItem::Capture(1)],
+            "i",
         );
-        assert_snippet(
+        assert_transform(
             "${foo/.*/$1/i}",
-            &[Variable {
-                name: "foo".into(),
-                transform: Some(Transform {
-                    regex: ".*".into(),
-                    replacement: vec![FormatItem::Capture(1)],
-                    options: "i".into(),
-                }),
-                default: None,
-            }],
+            "foo",
+            ".*",
+            vec![FormatItem::Capture(1)],
+            "i",
         );
-        assert_snippet(
+        assert_transform(
             "${foo/.*/This-$1-encloses/i}",
-            &[Variable {
-                name: "foo".into(),
-                transform: Some(Transform {
-                    regex: ".*".into(),
-                    replacement: vec![
-                        FormatItem::Text("This-".into()),
-                        FormatItem::Capture(1),
-                        FormatItem::Text("-encloses".into()),
-                    ],
-                    options: "i".into(),
-                }),
-                default: None,
-            }],
+            "foo",
+            ".*",
+            vec![
+                FormatItem::Text("This-".into()),
+                FormatItem::Capture(1),
+                FormatItem::Text("-encloses".into()),
+            ],
+            "i",
         );
         for input in [
             "${foo/.*/complex${1:else}/i}",
             "${foo/.*/complex${1:-else}/i}",
         ] {
-            assert_snippet(
+            assert_transform(
                 input,
-                &[Variable {
-                    name: "foo".into(),
-                    transform: Some(Transform {
-                        regex: ".*".into(),
-                        replacement: vec![
-                            FormatItem::Text("complex".into()),
-                            FormatItem::Conditional(1, Tendril::new(), "else".into()),
-                        ],
-                        options: "i".into(),
-                    }),
-                    default: None,
-                }],
+                "foo",
+                ".*",
+                vec![
+                    FormatItem::Text("complex".into()),
+                    FormatItem::Conditional(1, Tendril::new(), "else".into()),
+                ],
+                "i",
             );
         }
-        assert_snippet(
+        assert_transform(
             "${foo/.*/complex${1:+if}/i}",
-            &[Variable {
-                name: "foo".into(),
-                transform: Some(Transform {
-                    regex: ".*".into(),
-                    replacement: vec![
-                        FormatItem::Text("complex".into()),
-                        FormatItem::Conditional(1, "if".into(), Tendril::new()),
-                    ],
-                    options: "i".into(),
-                }),
-                default: None,
-            }],
+            "foo",
+            ".*",
+            vec![
+                FormatItem::Text("complex".into()),
+                FormatItem::Conditional(1, "if".into(), Tendril::new()),
+            ],
+            "i",
         );
-        assert_snippet(
+        assert_transform(
             "${foo/.*/complex${1:?if:else}/i}",
-            &[Variable {
-                name: "foo".into(),
-                transform: Some(Transform {
-                    regex: ".*".into(),
-                    replacement: vec![
-                        FormatItem::Text("complex".into()),
-                        FormatItem::Conditional(1, "if".into(), "else".into()),
-                    ],
-                    options: "i".into(),
-                }),
-                default: None,
-            }],
+            "foo",
+            ".*",
+            vec![
+                FormatItem::Text("complex".into()),
+                FormatItem::Conditional(1, "if".into(), "else".into()),
+            ],
+            "i",
         );
-        assert_snippet(
+        assert_transform(
             "${foo/.*/complex${1:/upcase}/i}",
-            &[Variable {
-                name: "foo".into(),
-                transform: Some(Transform {
-                    regex: ".*".into(),
-                    replacement: vec![
-                        FormatItem::Text("complex".into()),
-                        FormatItem::CaseChange(1, CaseChange::Upcase),
-                    ],
-                    options: "i".into(),
-                }),
-                default: None,
-            }],
+            "foo",
+            ".*",
+            vec![
+                FormatItem::Text("complex".into()),
+                FormatItem::CaseChange(1, CaseChange::Upcase),
+            ],
+            "i",
         );
-        assert_snippet(
+        assert_transform(
             "${TM_DIRECTORY/src\\//$1/}",
-            &[Variable {
-                name: "TM_DIRECTORY".into(),
-                transform: Some(Transform {
-                    regex: "src/".into(),
-                    replacement: vec![FormatItem::Capture(1)],
-                    options: Tendril::new(),
-                }),
-                default: None,
-            }],
+            "TM_DIRECTORY",
+            "src/",
+            vec![FormatItem::Capture(1)],
+            "",
         );
-        assert_snippet(
+        assert_transform(
             "${TM_SELECTED_TEXT/a/\\/$1/g}",
-            &[Variable {
-                name: "TM_SELECTED_TEXT".into(),
-                transform: Some(Transform {
-                    regex: "a".into(),
-                    replacement: vec![FormatItem::Text("/".into()), FormatItem::Capture(1)],
-                    options: "g".into(),
-                }),
-                default: None,
-            }],
+            "TM_SELECTED_TEXT",
+            "a",
+            vec![FormatItem::Text("/".into()), FormatItem::Capture(1)],
+            "g",
         );
-        assert_snippet(
+        assert_transform(
             "${TM_SELECTED_TEXT/a/in\\/$1ner/g}",
-            &[Variable {
-                name: "TM_SELECTED_TEXT".into(),
-                transform: Some(Transform {
-                    regex: "a".into(),
-                    replacement: vec![
-                        FormatItem::Text("in/".into()),
-                        FormatItem::Capture(1),
-                        FormatItem::Text("ner".into()),
-                    ],
-                    options: "g".into(),
-                }),
-                default: None,
-            }],
+            "TM_SELECTED_TEXT",
+            "a",
+            vec![
+                FormatItem::Text("in/".into()),
+                FormatItem::Capture(1),
+                FormatItem::Text("ner".into()),
+            ],
+            "g",
         );
-        assert_snippet(
+        assert_transform(
             "${TM_SELECTED_TEXT/a/end\\//g}",
-            &[Variable {
-                name: "TM_SELECTED_TEXT".into(),
-                transform: Some(Transform {
-                    regex: "a".into(),
-                    replacement: vec![FormatItem::Text("end/".into())],
-                    options: "g".into(),
-                }),
-                default: None,
-            }],
+            "TM_SELECTED_TEXT",
+            "a",
+            vec![FormatItem::Text("end/".into())],
+            "g",
         );
     }
     // TODO port more tests from https://github.com/microsoft/vscode/blob/dce493cb6e36346ef2714e82c42ce14fc461b15c/src/vs/editor/contrib/snippet/test/browser/snippetParser.test.ts

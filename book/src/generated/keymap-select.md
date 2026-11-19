@@ -30,7 +30,7 @@
 | `` B `` | Extend to start of previous long word | `` extend_previous_long_word_start `` |
 | `` E `` | Extend to end of next long word | `` extend_next_long_word_end `` |
 | `` v `` | Enter normal mode | `` normal_mode `` |
-| `` G `` | Goto line | `` goto_line `` |
+| `` G `` | Go to line | `` goto_line `` |
 | `` g `` | Goto | Prefix |
 | `` : `` | Enter command mode | `` command_mode `` |
 | `` <A-q> `` | Add current location to quicklist | `` add_to_quicklist `` |
@@ -54,14 +54,14 @@
 | `` S `` | Split selections on regex matches | `` split_selection `` |
 | `` ; `` | Collapse selection into single cursor | `` collapse_selection `` |
 | `` <A-;> `` | Flip selection cursor and anchor | `` flip_selections `` |
-| `` <A-o> `` | Expand selection to parent syntax node | `` expand_selection `` |
-| `` <A-up> `` | Expand selection to parent syntax node | `` expand_selection `` |
-| `` <A-i> `` | Shrink selection to previously expanded syntax node | `` shrink_selection `` |
-| `` <A-down> `` | Shrink selection to previously expanded syntax node | `` shrink_selection `` |
+| `` <A-o> `` | Expand selection to enclosing structure | `` expand_selection `` |
+| `` <A-up> `` | Expand selection to enclosing structure | `` expand_selection `` |
+| `` <A-i> `` | Shrink selection to previously expanded structure | `` shrink_selection `` |
+| `` <A-down> `` | Shrink selection to previously expanded structure | `` shrink_selection `` |
 | `` <A-I> `` | Select all children of the current node | `` select_all_children `` |
 | `` <S-A-down> `` | Select all children of the current node | `` select_all_children `` |
-| `` <A-p> `` | Select previous sibling the in syntax tree | `` select_previous_sibling `` |
-| `` <A-left> `` | Select previous sibling the in syntax tree | `` select_previous_sibling `` |
+| `` <A-p> `` | Select previous sibling in the syntax tree | `` select_previous_sibling `` |
+| `` <A-left> `` | Select previous sibling in the syntax tree | `` select_previous_sibling `` |
 | `` <A-n> `` | Select next sibling in the syntax tree | `` select_next_sibling `` |
 | `` <A-right> `` | Select next sibling in the syntax tree | `` select_next_sibling `` |
 | `` <A-e> `` | Extend to end of the parent node | `` extend_parent_node_end `` |
@@ -120,7 +120,7 @@
 | `` <C-i> `` | Jump forward on jumplist | `` jump_forward `` |
 | `` <tab> `` | Jump forward on jumplist | `` jump_forward `` |
 | `` <C-o> `` | Jump backward on jumplist | `` jump_backward `` |
-| `` <C-s> `` | Save current selection to jumplist | `` save_selection `` |
+| `` <C-s> `` | Record current selections in the jumplist | `` save_selection `` |
 | `` <space> `` | Space | Prefix |
 | `` z `` | View | Prefix |
 | `` Z `` | View (sticky; Escape to exit) | Prefix |
@@ -141,25 +141,25 @@
 | `` gg `` | Extend to line number `<n>` else file start | `` extend_to_file_start `` |
 | `` g\| `` | Extend to column | `` extend_to_column `` |
 | `` ge `` | Extend to last line | `` extend_to_last_line `` |
-| `` gf `` | Goto files/URLs in selections | `` goto_file `` |
-| `` gh `` | Goto line start | `` goto_line_start `` |
-| `` gl `` | Goto line end | `` goto_line_end `` |
-| `` gs `` | Goto first non-blank in line | `` goto_first_nonwhitespace `` |
-| `` gd `` | Goto definition | `` goto_definition `` |
-| `` gD `` | Goto declaration | `` goto_declaration `` |
-| `` gy `` | Goto type definition | `` goto_type_definition `` |
-| `` gr `` | Goto references | `` goto_reference `` |
-| `` gi `` | Goto implementation | `` goto_implementation `` |
-| `` gt `` | Goto window top | `` goto_window_top `` |
-| `` gc `` | Goto window center | `` goto_window_center `` |
-| `` gb `` | Goto window bottom | `` goto_window_bottom `` |
-| `` ga `` | Goto last accessed file | `` goto_last_accessed_file `` |
-| `` gm `` | Goto last modified file | `` goto_last_modified_file `` |
-| `` gn `` | Goto next buffer | `` goto_next_buffer `` |
-| `` gp `` | Goto previous buffer | `` goto_previous_buffer `` |
+| `` gf `` | Go to files/URLs in selections | `` goto_file `` |
+| `` gh `` | Go to line start | `` goto_line_start `` |
+| `` gl `` | Go to line end | `` goto_line_end `` |
+| `` gs `` | Go to first non-blank in line | `` goto_first_nonwhitespace `` |
+| `` gd `` | Go to definition | `` goto_definition `` |
+| `` gD `` | Go to declaration | `` goto_declaration `` |
+| `` gy `` | Go to type definition | `` goto_type_definition `` |
+| `` gr `` | Go to references | `` goto_reference `` |
+| `` gi `` | Go to implementation | `` goto_implementation `` |
+| `` gt `` | Go to window top | `` goto_window_top `` |
+| `` gc `` | Go to window center | `` goto_window_center `` |
+| `` gb `` | Go to window bottom | `` goto_window_bottom `` |
+| `` ga `` | Go to last accessed file | `` goto_last_accessed_file `` |
+| `` gm `` | Go to last modified file | `` goto_last_modified_file `` |
+| `` gn `` | Go to next buffer | `` goto_next_buffer `` |
+| `` gp `` | Go to previous buffer | `` goto_previous_buffer `` |
 | `` gk `` | Extend up | `` extend_line_up `` |
 | `` gj `` | Extend down | `` extend_line_down `` |
-| `` g. `` | Goto last modification | `` goto_last_modification `` |
+| `` g. `` | Go to last modification | `` goto_last_modification `` |
 | `` g<minus> `` | Move backward in history | `` earlier `` |
 | `` g+ `` | Move forward in history | `` later `` |
 | `` gw `` | Extend to a two-character label | `` extend_to_word `` |
@@ -168,7 +168,7 @@
 
 | Key | Description | Command |
 | --- | --- | --- |
-| `` mm `` | Goto matching bracket | `` match_brackets `` |
+| `` mm `` | Go to matching bracket | `` match_brackets `` |
 | `` ms `` | Surround add | `` surround_add `` |
 | `` mr `` | Surround replace | `` surround_replace `` |
 | `` md `` | Surround delete | `` surround_delete `` |
@@ -181,44 +181,44 @@
 
 | Key | Description | Command |
 | --- | --- | --- |
-| `` [d `` | Goto previous diagnostic | `` goto_previous_diagnostic `` |
-| `` [s `` | Goto previous spelling finding | `` goto_previous_spelling `` |
-| `` [q `` | Goto previous quicklist entry | `` goto_previous_quicklist `` |
-| `` [D `` | Goto first diagnostic | `` goto_first_diagnostic `` |
-| `` [g `` | Goto previous change | `` vcs_goto_previous_change `` |
+| `` [d `` | Go to previous diagnostic | `` goto_previous_diagnostic `` |
+| `` [s `` | Go to previous spelling finding | `` goto_previous_spelling `` |
+| `` [q `` | Go to previous quicklist entry | `` goto_previous_quicklist `` |
+| `` [D `` | Go to first diagnostic | `` goto_first_diagnostic `` |
+| `` [g `` | Go to previous change | `` vcs_goto_previous_change `` |
 | `` [m `` | Go to the previous unresolved conflict | `` vcs_goto_previous_conflict `` |
-| `` [G `` | Goto first change | `` vcs_goto_first_change `` |
-| `` [l `` | Goto previous quicklist entry in current file | `` goto_previous_file_quicklist `` |
-| `` [f `` | Goto previous function | `` goto_previous_function `` |
-| `` [t `` | Goto previous type definition | `` goto_previous_class `` |
-| `` [a `` | Goto previous parameter | `` goto_previous_parameter `` |
-| `` [c `` | Goto previous comment | `` goto_previous_comment `` |
-| `` [e `` | Goto previous pairing | `` goto_previous_entry `` |
-| `` [T `` | Goto previous test | `` goto_previous_test `` |
-| `` [p `` | Goto previous paragraph | `` goto_previous_paragraph `` |
-| `` [x `` | Goto previous (X)HTML element | `` goto_previous_xml_element `` |
+| `` [G `` | Go to first change | `` vcs_goto_first_change `` |
+| `` [l `` | Go to previous quicklist entry in current file | `` goto_previous_file_quicklist `` |
+| `` [f `` | Go to previous function | `` goto_previous_function `` |
+| `` [t `` | Go to previous type definition | `` goto_previous_class `` |
+| `` [a `` | Go to previous parameter | `` goto_previous_parameter `` |
+| `` [c `` | Go to previous comment | `` goto_previous_comment `` |
+| `` [e `` | Go to previous pairing | `` goto_previous_entry `` |
+| `` [T `` | Go to previous test | `` goto_previous_test `` |
+| `` [p `` | Go to previous paragraph | `` goto_previous_paragraph `` |
+| `` [x `` | Go to previous (X)HTML element | `` goto_previous_xml_element `` |
 | `` [<space> `` | Add newline above | `` add_newline_above `` |
 
 ### `` ] `` — Right bracket
 
 | Key | Description | Command |
 | --- | --- | --- |
-| `` ]d `` | Goto next diagnostic | `` goto_next_diagnostic `` |
-| `` ]s `` | Goto next spelling finding | `` goto_next_spelling `` |
-| `` ]q `` | Goto next quicklist entry | `` goto_next_quicklist `` |
-| `` ]D `` | Goto last diagnostic | `` goto_last_diagnostic `` |
-| `` ]g `` | Goto next change | `` vcs_goto_next_change `` |
+| `` ]d `` | Go to next diagnostic | `` goto_next_diagnostic `` |
+| `` ]s `` | Go to next spelling finding | `` goto_next_spelling `` |
+| `` ]q `` | Go to next quicklist entry | `` goto_next_quicklist `` |
+| `` ]D `` | Go to last diagnostic | `` goto_last_diagnostic `` |
+| `` ]g `` | Go to next change | `` vcs_goto_next_change `` |
 | `` ]m `` | Go to the next unresolved conflict | `` vcs_goto_next_conflict `` |
-| `` ]G `` | Goto last change | `` vcs_goto_last_change `` |
-| `` ]l `` | Goto next quicklist entry in current file | `` goto_next_file_quicklist `` |
-| `` ]f `` | Goto next function | `` goto_next_function `` |
-| `` ]t `` | Goto next type definition | `` goto_next_class `` |
-| `` ]a `` | Goto next parameter | `` goto_next_parameter `` |
-| `` ]c `` | Goto next comment | `` goto_next_comment `` |
-| `` ]e `` | Goto next pairing | `` goto_next_entry `` |
-| `` ]T `` | Goto next test | `` goto_next_test `` |
-| `` ]p `` | Goto next paragraph | `` goto_next_paragraph `` |
-| `` ]x `` | Goto next (X)HTML element | `` goto_next_xml_element `` |
+| `` ]G `` | Go to last change | `` vcs_goto_last_change `` |
+| `` ]l `` | Go to next quicklist entry in current file | `` goto_next_file_quicklist `` |
+| `` ]f `` | Go to next function | `` goto_next_function `` |
+| `` ]t `` | Go to next type definition | `` goto_next_class `` |
+| `` ]a `` | Go to next parameter | `` goto_next_parameter `` |
+| `` ]c `` | Go to next comment | `` goto_next_comment `` |
+| `` ]e `` | Go to next pairing | `` goto_next_entry `` |
+| `` ]T `` | Go to next test | `` goto_next_test `` |
+| `` ]p `` | Go to next paragraph | `` goto_next_paragraph `` |
+| `` ]x `` | Go to next (X)HTML element | `` goto_next_xml_element `` |
 | `` ]<space> `` | Add newline below | `` add_newline_below `` |
 
 ### `` <C-w> `` — Window
@@ -227,9 +227,9 @@
 | --- | --- | --- |
 | `` <C-w>b `` | Toggle file explorer sidebar | `` toggle_sidebar `` |
 | `` <C-w>e `` | Open and focus file explorer sidebar | `` focus_sidebar `` |
-| `` <C-w><C-w> `` | Goto next window | `` rotate_view `` |
-| `` <C-w>w `` | Goto next window | `` rotate_view `` |
-| `` <C-w>W `` | Goto previous window | `` rotate_view_reverse `` |
+| `` <C-w><C-w> `` | Go to next window | `` rotate_view `` |
+| `` <C-w>w `` | Go to next window | `` rotate_view `` |
+| `` <C-w>W `` | Go to previous window | `` rotate_view_reverse `` |
 | `` <C-w><C-s> `` | Horizontal bottom split | `` split_horizontal `` |
 | `` <C-w>s `` | Horizontal bottom split | `` split_horizontal `` |
 | `` <C-w><C-v> `` | Vertical right split | `` split_vertical `` |
@@ -294,23 +294,23 @@
 | `` <space>a `` | Perform code action | `` code_action `` |
 | `` <space>l `` | Show code lenses under cursor | `` show_code_lenses_under_cursor `` |
 | `` <space>' `` | Open last picker | `` last_picker `` |
-| `` <space>G `` | Debug (experimental) (sticky; Escape to exit) | Prefix |
+| `` <space>x `` | Debug | Prefix |
+| `` <space>X `` | Debug (sticky; Escape to exit) | Prefix |
 | `` <space>w `` | Window | Prefix |
 | `` <space>y `` | Yank selections to clipboard | `` yank_to_clipboard `` |
 | `` <space>Y `` | Yank primary selection to clipboard | `` yank_primary_selection_to_clipboard `` |
 | `` <space>p `` | Paste clipboard after selections | `` paste_clipboard_after `` |
 | `` <space>P `` | Paste clipboard before selections | `` paste_clipboard_before `` |
 | `` <space>R `` | Replace selections by clipboard content | `` replace_selections_with_clipboard `` |
-| `` <space>/ `` | Open search picker rooted at the current working directory | `` search_picker_in_current_working_directory `` |
+| `` <space>/ `` | Search text in the current working directory | `` search_picker_in_current_working_directory `` |
 | `` <space>k `` | Show docs for item under cursor | `` hover `` |
+| `` <space>K `` | Show docs for item under cursor in a new buffer | `` goto_hover `` |
 | `` <space>r `` | Rename symbol | `` rename_symbol `` |
 | `` <space>h `` | Select symbol references | `` select_references_to_symbol_under_cursor `` |
 | `` <space>c `` | Comment/uncomment selections | `` toggle_comments `` |
 | `` <space>C `` | Block comment/uncomment selections | `` toggle_block_comments `` |
 | `` <space><A-c> `` | Line comment/uncomment selections | `` toggle_line_comments `` |
 | `` <space>? `` | Open command palette | `` command_palette `` |
-| `` <space>B `` | Toggle inline blame | `` vcs_toggle_inline_blame `` |
-| `` <space>i `` | Show hunk diff | `` vcs_show_change `` |
 
 #### `` <space>g `` — Version control
 
@@ -325,33 +325,73 @@
 | `` <space>gt `` | Toggle inline blame | `` vcs_toggle_inline_blame `` |
 | `` <space>gS `` | Browse stashes | `` vcs_stash_picker `` |
 
-#### `` <space>G `` — Debug (experimental)
+#### `` <space>x `` — Debug
 
 | Key | Description | Command |
 | --- | --- | --- |
-| `` <space>Gl `` | Choose a launch configuration and start debugging | `` debug_launch_picker `` |
-| `` <space>Gr `` | Restart debugging session | `` debug_restart `` |
-| `` <space>Gb `` | Toggle breakpoints | `` debug_toggle_breakpoints `` |
-| `` <space>Gc `` | Continue program execution | `` debug_continue `` |
-| `` <space>Gh `` | Pause program execution | `` debug_pause `` |
-| `` <space>Gi `` | Step in | `` debug_step_in `` |
-| `` <space>Go `` | Step out | `` debug_step_out `` |
-| `` <space>Gn `` | Step over the current statement | `` debug_step_over `` |
-| `` <space>Gv `` | Browse variables | `` debug_variables `` |
-| `` <space>Gt `` | End debug session | `` debug_terminate `` |
-| `` <space>G<C-c> `` | Edit breakpoint condition on current line | `` debug_edit_breakpoint_condition `` |
-| `` <space>G<C-l> `` | Edit breakpoint log message on current line | `` debug_edit_breakpoint_log_message `` |
-| `` <space>Gs `` | Switch | Prefix |
-| `` <space>Ge `` | Enable exception breakpoints | `` debug_enable_exception_breakpoints `` |
-| `` <space>GE `` | Disable exception breakpoints | `` debug_disable_exception_breakpoints `` |
+| `` <space>xl `` | Choose a launch configuration and start debugging | `` debug_launch_picker `` |
+| `` <space>xr `` | Restart debugging session | `` debug_restart `` |
+| `` <space>xb `` | Toggle breakpoints | `` debug_toggle_breakpoints `` |
+| `` <space>xc `` | Continue program execution | `` debug_continue `` |
+| `` <space>xh `` | Pause program execution | `` debug_pause `` |
+| `` <space>xi `` | Step in | `` debug_step_in `` |
+| `` <space>xo `` | Step out | `` debug_step_out `` |
+| `` <space>xn `` | Step over the current statement | `` debug_step_over `` |
+| `` <space>xv `` | Browse variables | `` debug_variables `` |
+| `` <space>xt `` | End debug session | `` debug_terminate `` |
+| `` <space>xB `` | Breakpoint settings | Prefix |
+| `` <space>xs `` | Switch | Prefix |
+| `` <space>xe `` | Enable exception breakpoints | `` debug_enable_exception_breakpoints `` |
+| `` <space>xE `` | Disable exception breakpoints | `` debug_disable_exception_breakpoints `` |
 
-##### `` <space>Gs `` — Switch
+##### `` <space>xB `` — Breakpoint settings
 
 | Key | Description | Command |
 | --- | --- | --- |
-| `` <space>Gss `` | Open debug session picker | `` debug_session_picker `` |
-| `` <space>Gst `` | Choose the current debug thread | `` debug_thread_picker `` |
-| `` <space>Gsf `` | Open debug stack frame picker | `` debug_stack_frame_picker `` |
+| `` <space>xBc `` | Edit breakpoint condition on current line | `` debug_edit_breakpoint_condition `` |
+| `` <space>xBl `` | Edit breakpoint log message on current line | `` debug_edit_breakpoint_log_message `` |
+
+##### `` <space>xs `` — Switch
+
+| Key | Description | Command |
+| --- | --- | --- |
+| `` <space>xss `` | Open debug session picker | `` debug_session_picker `` |
+| `` <space>xst `` | Choose the current debug thread | `` debug_thread_picker `` |
+| `` <space>xsf `` | Open debug stack frame picker | `` debug_stack_frame_picker `` |
+
+#### `` <space>X `` — Debug
+
+| Key | Description | Command |
+| --- | --- | --- |
+| `` <space>Xl `` | Choose a launch configuration and start debugging | `` debug_launch_picker `` |
+| `` <space>Xr `` | Restart debugging session | `` debug_restart `` |
+| `` <space>Xb `` | Toggle breakpoints | `` debug_toggle_breakpoints `` |
+| `` <space>Xc `` | Continue program execution | `` debug_continue `` |
+| `` <space>Xh `` | Pause program execution | `` debug_pause `` |
+| `` <space>Xi `` | Step in | `` debug_step_in `` |
+| `` <space>Xo `` | Step out | `` debug_step_out `` |
+| `` <space>Xn `` | Step over the current statement | `` debug_step_over `` |
+| `` <space>Xv `` | Browse variables | `` debug_variables `` |
+| `` <space>Xt `` | End debug session | `` debug_terminate `` |
+| `` <space>XB `` | Breakpoint settings | Prefix |
+| `` <space>Xs `` | Switch | Prefix |
+| `` <space>Xe `` | Enable exception breakpoints | `` debug_enable_exception_breakpoints `` |
+| `` <space>XE `` | Disable exception breakpoints | `` debug_disable_exception_breakpoints `` |
+
+##### `` <space>XB `` — Breakpoint settings
+
+| Key | Description | Command |
+| --- | --- | --- |
+| `` <space>XBc `` | Edit breakpoint condition on current line | `` debug_edit_breakpoint_condition `` |
+| `` <space>XBl `` | Edit breakpoint log message on current line | `` debug_edit_breakpoint_log_message `` |
+
+##### `` <space>Xs `` — Switch
+
+| Key | Description | Command |
+| --- | --- | --- |
+| `` <space>Xss `` | Open debug session picker | `` debug_session_picker `` |
+| `` <space>Xst `` | Choose the current debug thread | `` debug_thread_picker `` |
+| `` <space>Xsf `` | Open debug stack frame picker | `` debug_stack_frame_picker `` |
 
 #### `` <space>w `` — Window
 
@@ -359,9 +399,9 @@
 | --- | --- | --- |
 | `` <space>wb `` | Toggle file explorer sidebar | `` toggle_sidebar `` |
 | `` <space>we `` | Open and focus file explorer sidebar | `` focus_sidebar `` |
-| `` <space>w<C-w> `` | Goto next window | `` rotate_view `` |
-| `` <space>ww `` | Goto next window | `` rotate_view `` |
-| `` <space>wW `` | Goto previous window | `` rotate_view_reverse `` |
+| `` <space>w<C-w> `` | Go to next window | `` rotate_view `` |
+| `` <space>ww `` | Go to next window | `` rotate_view `` |
+| `` <space>wW `` | Go to previous window | `` rotate_view_reverse `` |
 | `` <space>w<C-s> `` | Horizontal bottom split | `` split_horizontal `` |
 | `` <space>ws `` | Horizontal bottom split | `` split_horizontal `` |
 | `` <space>w<C-v> `` | Vertical right split | `` split_vertical `` |
@@ -388,14 +428,14 @@
 | `` <space>w<C-l> `` | Jump to right split | `` jump_view_right `` |
 | `` <space>wl `` | Jump to right split | `` jump_view_right `` |
 | `` <space>w<right> `` | Jump to right split | `` jump_view_right `` |
+| `` <space>wL `` | Swap with right split | `` swap_view_right `` |
+| `` <space>w<S-right> `` | Swap with right split | `` swap_view_right `` |
+| `` <space>wK `` | Swap with split above | `` swap_view_up `` |
+| `` <space>w<S-up> `` | Swap with split above | `` swap_view_up `` |
 | `` <space>wH `` | Swap with left split | `` swap_view_left `` |
 | `` <space>w<S-left> `` | Swap with left split | `` swap_view_left `` |
 | `` <space>wJ `` | Swap with split below | `` swap_view_down `` |
 | `` <space>w<S-down> `` | Swap with split below | `` swap_view_down `` |
-| `` <space>wK `` | Swap with split above | `` swap_view_up `` |
-| `` <space>w<S-up> `` | Swap with split above | `` swap_view_up `` |
-| `` <space>wL `` | Swap with right split | `` swap_view_right `` |
-| `` <space>w<S-right> `` | Swap with right split | `` swap_view_right `` |
 | `` <space>wn `` | New split scratch buffer | Prefix |
 
 ##### `` <space>wn `` — New split scratch buffer
@@ -411,9 +451,14 @@
 
 | Key | Description | Command |
 | --- | --- | --- |
-| `` zf `` | Folding | Prefix |
+| `` zc `` | Close the innermost fold | `` fold_close `` |
+| `` zo `` | Open the fold at each cursor | `` fold_open `` |
+| `` za `` | Toggle the fold at each cursor | `` fold_toggle `` |
+| `` zf `` | Fold selected lines | `` fold_selection `` |
+| `` zC `` | Close all folds | `` fold_all `` |
+| `` zO `` | Open all folds | `` unfold_all `` |
+| `` zA `` | Open all folds if any are closed, otherwise close all folds | `` fold_toggle_all `` |
 | `` zz `` | Scroll vertically to center the primary cursor | `` center_view_vertically `` |
-| `` zc `` | Scroll vertically to center the primary cursor | `` center_view_vertically `` |
 | `` zt `` | Align view top | `` align_view_top `` |
 | `` zb `` | Align view bottom | `` align_view_bottom `` |
 | `` zm `` | Scroll horizontally to center the primary cursor | `` center_view_horizontally `` |
@@ -434,24 +479,18 @@
 | `` zn `` | Select next search match | `` search_next `` |
 | `` zN `` | Select previous search match | `` search_previous `` |
 
-#### `` zf `` — Folding
-
-| Key | Description | Command |
-| --- | --- | --- |
-| `` zfc `` | Close the innermost syntax fold | `` fold_close `` |
-| `` zfo `` | Open the fold at each cursor | `` fold_open `` |
-| `` zfa `` | Toggle the fold at each cursor | `` fold_toggle `` |
-| `` zfs `` | Fold selected lines | `` fold_selection `` |
-| `` zfm `` | Close all syntax folds | `` fold_all `` |
-| `` zfr `` | Open all folds | `` unfold_all `` |
-
 ### `` Z `` — View
 
 | Key | Description | Command |
 | --- | --- | --- |
-| `` Zf `` | Folding | Prefix |
+| `` Zc `` | Close the innermost fold | `` fold_close `` |
+| `` Zo `` | Open the fold at each cursor | `` fold_open `` |
+| `` Za `` | Toggle the fold at each cursor | `` fold_toggle `` |
+| `` Zf `` | Fold selected lines | `` fold_selection `` |
+| `` ZC `` | Close all folds | `` fold_all `` |
+| `` ZO `` | Open all folds | `` unfold_all `` |
+| `` ZA `` | Open all folds if any are closed, otherwise close all folds | `` fold_toggle_all `` |
 | `` Zz `` | Scroll vertically to center the primary cursor | `` center_view_vertically `` |
-| `` Zc `` | Scroll vertically to center the primary cursor | `` center_view_vertically `` |
 | `` Zt `` | Align view top | `` align_view_top `` |
 | `` Zb `` | Align view bottom | `` align_view_bottom `` |
 | `` Zm `` | Scroll horizontally to center the primary cursor | `` center_view_horizontally `` |
@@ -471,14 +510,3 @@
 | `` Z? `` | Search backward for regex pattern | `` search_backward `` |
 | `` Zn `` | Select next search match | `` search_next `` |
 | `` ZN `` | Select previous search match | `` search_previous `` |
-
-#### `` Zf `` — Folding
-
-| Key | Description | Command |
-| --- | --- | --- |
-| `` Zfc `` | Close the innermost syntax fold | `` fold_close `` |
-| `` Zfo `` | Open the fold at each cursor | `` fold_open `` |
-| `` Zfa `` | Toggle the fold at each cursor | `` fold_toggle `` |
-| `` Zfs `` | Fold selected lines | `` fold_selection `` |
-| `` Zfm `` | Close all syntax folds | `` fold_all `` |
-| `` Zfr `` | Open all folds | `` unfold_all `` |

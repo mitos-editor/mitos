@@ -3,11 +3,13 @@ name: Book
 on:
   pull_request:
     paths:
+      - 'CHANGELOG.md'
       - 'book/**'
       - '.github/workflows/book.yml'
   push:
     branches: [main]
     paths:
+      - 'CHANGELOG.md'
       - 'book/**'
       - '.github/workflows/book.yml'
   merge_group:

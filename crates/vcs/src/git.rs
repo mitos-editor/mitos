@@ -31,6 +31,7 @@ pub fn inspect_file(file: &Path, trust_full: bool, read_diff: bool) -> Result<Do
     debug_assert!(!file.exists() || file.is_file());
     debug_assert!(file.is_absolute());
     let file = gix::path::realpath(file).context("resolve symlinks")?;
+    let file = stdx::path::normalize(file);
     let repo = open_repo(get_repo_dir(&file)?, trust_full)?.to_thread_local();
     Ok(DocumentVcs {
         diff_base: read_diff
@@ -59,8 +60,8 @@ fn diff_base(repo: &Repository, file: &Path) -> Result<Vec<u8>> {
     // conversions like autocrlf keep working, but `open_repo` excludes repository-local
     // `filter.*.clean` / `filter.*.smudge` drivers from sensitive configuration lookups, so those
     // external programs are not executed unless the workspace was explicitly trusted.
-    if let Some(work_dir) = repo.workdir() {
-        let rela_path = file.strip_prefix(work_dir)?;
+    if let Some(work_dir) = repo_workdir(repo) {
+        let rela_path = file.strip_prefix(&work_dir)?;
         crate::blob::to_worktree(repo, &data, rela_path, None)
     } else {
         Ok(data)
@@ -77,17 +78,6 @@ fn head_name(repo: &Repository) -> Result<Arc<ArcSwap<Box<str>>>> {
     };
 
     Ok(Arc::new(ArcSwap::from_pointee(name.into_boxed_str())))
-}
-
-#[cfg(test)]
-pub fn for_each_changed_file(
-    scope: &ChangedFileScope,
-    trust_full: bool,
-    f: impl Fn(&Path, Result<FileChange>) -> bool,
-) -> Result<()> {
-    for_each_file_status(scope, trust_full, |root, status| {
-        f(root, status.map(|status| status.change().clone()))
-    })
 }
 
 pub fn for_each_file_status(
@@ -108,10 +98,10 @@ fn status(
     scope: &ChangedFileScope,
     f: impl Fn(&Path, Result<FileStatus>) -> bool,
 ) -> Result<()> {
-    let work_dir = repo
-        .workdir()
-        .ok_or_else(|| anyhow::anyhow!("working tree not found"))?
-        .to_path_buf();
+    let work_dir = stdx::path::normalize(
+        repo.workdir()
+            .ok_or_else(|| anyhow::anyhow!("working tree not found"))?,
+    );
 
     let rewrites = Rewrites {
         copies: None,
@@ -254,6 +244,9 @@ fn status_patterns(work_dir: &Path, scope: &ChangedFileScope) -> Result<Vec<BStr
             let directory = gix::path::realpath(directory).context("resolve change scope")?;
             let canonical_work_dir =
                 gix::path::realpath(work_dir).context("resolve repository worktree")?;
+            // Windows paths may differ in verbatim prefixes, casing, or short names.
+            let directory = stdx::path::normalize(directory);
+            let canonical_work_dir = stdx::path::normalize(canonical_work_dir);
             let relative = directory
                 .strip_prefix(canonical_work_dir)
                 .context("change scope is outside the repository worktree")?;
@@ -273,10 +266,20 @@ fn status_patterns(work_dir: &Path, scope: &ChangedFileScope) -> Result<Vec<BStr
     }
 }
 
+// Diff-base callers resolve file symlinks; use the same spelling for object and filter lookups.
+// Status paths use normalization instead so they keep the editor's path spelling.
+fn repo_workdir(repo: &Repository) -> Option<PathBuf> {
+    let work_dir = repo.workdir()?;
+    let resolved = gix::path::realpath(work_dir);
+    Some(stdx::path::normalize(
+        resolved.as_deref().unwrap_or(work_dir),
+    ))
+}
+
 /// Finds the object that contains the contents of a file at a specific commit.
 fn find_file_in_commit(repo: &Repository, commit: &Commit, file: &Path) -> Result<ObjectId> {
-    let repo_dir = repo.workdir().context("repo has no worktree")?;
-    let rel_path = file.strip_prefix(repo_dir)?;
+    let repo_dir = repo_workdir(repo).context("repo has no worktree")?;
+    let rel_path = file.strip_prefix(&repo_dir)?;
     let tree = commit.tree()?;
     let tree_entry = tree
         .lookup_entry_by_path(rel_path)?

@@ -134,9 +134,9 @@ pub(super) fn confirm_worktree_removal(
     path: PathBuf,
     workspace: PathBuf,
 ) -> Box<dyn Component> {
-    menu(format!("Remove linked worktree {}?\nModified, untracked, ignored, and locked worktrees are kept. Save or close modified buffers first.", path.display()), vec![
+    menu(format!("Remove linked worktree {}?\nKeeps the branch. For unavailable worktrees, removes only the Git registration and keeps any remaining files. Reconnect or lock worktrees on unmounted drives instead. Modified, untracked, ignored, and locked worktrees are kept. Save or close modified buffers first.", path.display()), vec![
         Choice::new("Cancel", Command::Cancel),
-        Choice::new("Remove clean worktree", Command::Confirmed(GitAction::Repository(repository, vcs::operations::RepositoryOperation::RemoveWorktree { path }))),
+        Choice::new("Remove worktree", Command::Confirmed(GitAction::Repository(repository, vcs::operations::RepositoryOperation::RemoveWorktree { path }))),
     ], workspace)
 }
 
@@ -199,7 +199,7 @@ pub(super) fn start(cx: &mut Context, workspace: PathBuf, action: GitAction) {
             return;
         }
     };
-    cx.editor.set_status("Preparing Git action…");
+    let activity = cx.editor.start_activity("Git", None);
     cx.jobs.add(
         Job::with_callback(async move {
             let result = request.prepare().await;
@@ -212,6 +212,7 @@ pub(super) fn start(cx: &mut Context, workspace: PathBuf, action: GitAction) {
                         let completion = task.execute().await;
                         Ok(Callback::editor(move |editor| completion.finish(editor)))
                     })
+                    .with_activity(activity)
                     .wait_before_exiting(),
                 );
                 Ok(view::callbacks::CallbackOutcome::Redraw)
@@ -412,10 +413,13 @@ fn stash_picker(
         editor,
         |data| data.repo.root(),
         |_, _, data, _| Box::pin(async move { data.repo.stashes().await }),
+        view::features::workspace_changes::Policy {
+            vcs: true,
+            ..Default::default()
+        },
     )
     .with_refresh_generation(editor, generation)
     .with_item_key(|entry| entry.id().to_owned())
-    .refresh_on_vcs_changes()
     .with_item_actions(
         |maps| &maps.stash_picker,
         move |_, entry, action| {
@@ -498,6 +502,7 @@ fn stash_files_picker(
                     .unwrap_or_else(|| Err(anyhow::anyhow!("Stash browser closed")))
             })
         },
+        Default::default(),
     )
     .refresh_on_open()
 }

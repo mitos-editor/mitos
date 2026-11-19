@@ -1,8 +1,7 @@
 //! Benchmarks for the word index.
 
-use std::hint::black_box;
+use std::{hint::black_box, time::Instant};
 
-use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use editor_core::Rope;
 use word_index::{words as extract_words, WordIndex};
 
@@ -18,45 +17,64 @@ const CORPORA: &[(&str, &str)] = &[
     ("source_code", include_str!("texts/source_code.txt")),
 ];
 
+fn median(mut run: impl FnMut(), iterations: usize) -> f64 {
+    for _ in 0..5 {
+        run();
+    }
+    let mut samples = (0..31)
+        .map(|_| {
+            let start = Instant::now();
+            for _ in 0..iterations {
+                run();
+            }
+            start.elapsed().as_secs_f64() * 1_000_000.0 / iterations as f64
+        })
+        .collect::<Vec<_>>();
+    samples.sort_by(f64::total_cmp);
+    samples[15]
+}
+
+fn report(group: &str, corpus: &str, bytes: usize, median_us: f64) {
+    let mib_per_s = bytes as f64 / (1024.0 * 1024.0) / (median_us / 1_000_000.0);
+    println!("{group}/{corpus}: bytes={bytes}, median_us={median_us:.6}, mib_per_s={mib_per_s:.2}");
+}
+
 /// Just extracting words from a rope (i.e. the hot path).
-fn words(c: &mut Criterion) {
-    let mut group = c.benchmark_group("words");
+fn words() {
     for (name, text) in CORPORA {
         let rope = Rope::from_str(text);
-        group.throughput(Throughput::Bytes(text.len() as u64));
-        group.bench_with_input(BenchmarkId::from_parameter(name), &rope, |b, rope| {
-            b.iter(|| {
+        let elapsed = median(
+            || {
                 let mut count = 0usize;
                 for word in extract_words(black_box(rope.slice(..))) {
                     black_box(word);
                     count += 1;
                 }
-                count
-            });
-        });
+                black_box(count);
+            },
+            10,
+        );
+        report("words", name, text.len(), elapsed);
     }
-    group.finish();
 }
 
 /// End-to-end extraction plus hashing and inserting.
-fn add_document(c: &mut Criterion) {
-    let mut group = c.benchmark_group("add_document");
+fn add_document() {
     for (name, text) in CORPORA {
         let rope = Rope::from_str(text);
-        group.throughput(Throughput::Bytes(text.len() as u64));
-        group.bench_with_input(BenchmarkId::from_parameter(name), &rope, |b, rope| {
-            b.iter(|| {
+        let elapsed = median(
+            || {
                 let mut index = WordIndex::default();
-                index.add_document(black_box(rope), || false);
-                index
-            });
-        });
+                index.add_document(black_box(&rope), || false);
+                black_box(index);
+            },
+            10,
+        );
+        report("add_document", name, text.len(), elapsed);
     }
-    group.finish();
 }
 
-fn cancellation(c: &mut Criterion) {
-    let mut group = c.benchmark_group("cancelled_index");
+fn cancellation() {
     for (name, body) in [
         ("words", "some_word "),
         ("punctuation", ". "),
@@ -64,18 +82,25 @@ fn cancellation(c: &mut Criterion) {
     ] {
         let text = Rope::from(body.repeat(1_000_000));
         let empty = Rope::new();
-        group.bench_function(name, |b| {
-            b.iter(|| {
+        let elapsed = median(
+            || {
                 WordIndex::default().replace_words(
                     black_box(empty.slice(..)),
                     black_box(text.slice(..)),
                     || black_box(true),
                 );
-            })
-        });
+            },
+            1_000,
+        );
+        println!(
+            "cancelled_index/{name}: bytes={}, median_us={elapsed:.6}",
+            text.len()
+        );
     }
-    group.finish();
 }
 
-criterion_group!(benches, words, add_document, cancellation);
-criterion_main!(benches);
+fn main() {
+    words();
+    add_document();
+    cancellation();
+}

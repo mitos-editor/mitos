@@ -14,6 +14,7 @@ pub mod panel;
 pub mod scrollbar;
 pub mod table;
 pub mod terminal;
+pub mod text;
 
 /// Ratatui buffer types plus editor-specific write operations.
 pub mod buffer {
@@ -34,11 +35,6 @@ pub mod symbols {
 /// Ratatui styling primitives.
 pub mod style {
     pub use ratatui::style::*;
-}
-
-/// Ratatui styled text primitives.
-pub mod text {
-    pub use ratatui::text::*;
 }
 
 /// Ratatui widgets plus editor table row preparation values.

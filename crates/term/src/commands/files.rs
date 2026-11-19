@@ -8,7 +8,7 @@ use crate::{
 use std::io::Read;
 use stdx::Url;
 use view::{editor::Action, Editor};
-use workspace::find_workspace;
+use workspace::ResolvedWorkspace;
 
 pub(super) fn goto_file(cx: &mut Context) {
     goto_file_impl(cx, Action::Replace);
@@ -135,7 +135,10 @@ fn browse_directory(cx: &mut Context, source: Directory, explorer: bool) {
         "file picker"
     };
     let (path, error) = match source {
-        Directory::Workspace => (find_workspace().0, "Workspace directory does not exist"),
+        Directory::Workspace => (
+            ResolvedWorkspace::current().into_root(),
+            "Workspace directory does not exist",
+        ),
         Directory::Current => (
             stdx::env::current_working_dir(),
             "Current working directory does not exist",
@@ -236,16 +239,14 @@ pub(super) mod typed {
             // If the path is a directory, open a file picker on that directory and update the status
             // message
             if let Ok(true) = std::fs::canonicalize(&path).map(|p| p.is_dir()) {
-                let callback = async move {
-                    let call: job::Callback = job::Callback::ui(move |compositor, cx| {
+                cx.jobs
+                    .sender()
+                    .enqueue(job::Callback::ui(move |compositor, cx| {
                         let editor = &mut *cx.editor;
                         let picker =
                             ui::file_picker(editor, path.into_owned()).with_default_action(action);
                         compositor.push(Box::new(overlaid(picker)));
-                    });
-                    Ok(call)
-                };
-                cx.jobs.callback(callback);
+                    }));
             } else {
                 // Otherwise, just open the file
                 let _ = cx.editor.open(&path, action)?;
@@ -257,6 +258,28 @@ pub(super) mod typed {
             }
         }
         Ok(())
+    }
+
+    pub(in crate::commands) fn write_options(args: &Args, force: bool) -> WriteOptions {
+        WriteOptions {
+            force,
+            auto_format: !args.has_flag(WRITE_NO_FORMAT_FLAG.name),
+            code_actions: !args.has_flag(WRITE_NO_CODE_ACTIONS_FLAG.name),
+        }
+    }
+
+    pub(in crate::commands) fn write_all_options(
+        args: &Args,
+        force: bool,
+        write_scratch: bool,
+    ) -> WriteAllOptions {
+        let options = write_options(args, force);
+        WriteAllOptions {
+            force: options.force,
+            write_scratch,
+            auto_format: options.auto_format,
+            code_actions: options.code_actions,
+        }
     }
 
     pub(in crate::commands) fn write_impl(
@@ -281,15 +304,7 @@ pub(super) mod typed {
         cx: &mut compositor::Context,
         args: Args,
     ) -> anyhow::Result<()> {
-        write_impl(
-            cx,
-            args.first(),
-            WriteOptions {
-                force: FORCE,
-                auto_format: !args.has_flag(WRITE_NO_FORMAT_FLAG.name),
-                code_actions: !args.has_flag(WRITE_NO_CODE_ACTIONS_FLAG.name),
-            },
-        )
+        write_impl(cx, args.first(), write_options(&args, FORCE))
     }
 
     #[cold]
@@ -297,15 +312,7 @@ pub(super) mod typed {
         cx: &mut compositor::Context,
         args: Args,
     ) -> anyhow::Result<()> {
-        write_impl(
-            cx,
-            args.first(),
-            WriteOptions {
-                force: FORCE,
-                auto_format: !args.has_flag(WRITE_NO_FORMAT_FLAG.name),
-                code_actions: !args.has_flag(WRITE_NO_CODE_ACTIONS_FLAG.name),
-            },
-        )?;
+        write_impl(cx, args.first(), write_options(&args, FORCE))?;
 
         let document_ids = buffer_gather_paths_impl(cx.editor, args);
         buffer_close_by_ids_impl(cx, &document_ids, false)
@@ -420,15 +427,7 @@ pub(super) mod typed {
         cx: &mut compositor::Context,
         args: Args,
     ) -> anyhow::Result<()> {
-        write_all_impl(
-            cx.editor,
-            WriteAllOptions {
-                force: FORCE,
-                write_scratch: true,
-                auto_format: !args.has_flag(WRITE_NO_FORMAT_FLAG.name),
-                code_actions: !args.has_flag(WRITE_NO_CODE_ACTIONS_FLAG.name),
-            },
-        )
+        write_all_impl(cx.editor, write_all_options(&args, FORCE, true))
     }
 
     /// Sets the [`view::Document`]'s encoding..
@@ -644,15 +643,7 @@ pub(super) mod typed {
     ) -> anyhow::Result<()> {
         let (_view, doc) = current!(cx.editor);
         if doc.is_modified() {
-            write_impl(
-                cx,
-                None,
-                WriteOptions {
-                    force: false,
-                    auto_format: !args.has_flag(WRITE_NO_FORMAT_FLAG.name),
-                    code_actions: !args.has_flag(WRITE_NO_CODE_ACTIONS_FLAG.name),
-                },
-            )
+            write_impl(cx, None, write_options(&args, false))
         } else {
             Ok(())
         }

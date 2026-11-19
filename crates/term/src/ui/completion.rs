@@ -23,6 +23,7 @@ use std::cmp::Reverse;
 #[derive(Clone, Copy)]
 pub struct CompletionData {
     directory_style: Style,
+    detail_style: Style,
     icons: bool,
 }
 
@@ -123,19 +124,39 @@ impl menu::Item for CompletionItem {
                 Style::default()
             },
         );
-
-        if data.icons && kind_name != "color" {
-            let icons = &*ICONS;
-            if let Some(icon) = icons.kind().get(kind_name) {
-                return menu::Row::new([
-                    menu::Cell::from(icon_span(icon.with_padding(0, 1))),
-                    menu::Cell::from(label),
-                    menu::Cell::from(kind),
-                ]);
-            }
+        let details = match self {
+            CompletionItem::Lsp(LspCompletionItem { item, .. }) => item.label_details.as_ref(),
+            _ => None,
+        };
+        let mut label = Line::from(label);
+        if let Some(detail) = details.and_then(|details| details.detail.as_deref()) {
+            label.spans.push(Span::styled(detail, data.detail_style));
         }
+        let description = Span::styled(
+            details
+                .and_then(|details| details.description.as_deref())
+                .unwrap_or_default(),
+            data.detail_style,
+        );
 
-        menu::Row::new([menu::Cell::from(label), menu::Cell::from(kind)])
+        let icon = if data.icons && kind_name != "color" {
+            ICONS.kind().get(kind_name)
+        } else {
+            None
+        };
+        let mut cells = vec![
+            menu::Cell::from(label),
+            menu::Cell::from(description),
+            menu::Cell::from(kind),
+        ];
+        if data.icons {
+            cells.insert(
+                0,
+                icon.map(|icon| menu::Cell::from(icon_span(icon.with_padding(0, 1))))
+                    .unwrap_or_default(),
+            );
+        }
+        menu::Row::new(cells)
     }
 }
 
@@ -156,14 +177,20 @@ impl Completion {
 
         let data = CompletionData {
             directory_style: editor.theme.get("ui.text.directory"),
+            detail_style: editor.theme.get("ui.text.inactive"),
             icons: editor.config().icons,
         };
 
         // Then create the menu
         let menu = Menu::new(items, data, move |editor: &mut Editor, item, event| {
             match event {
-                PromptEvent::Update if preview_completion_insert => {
-                    if let Some(item) = item
+                PromptEvent::Update => {
+                    if let Err(error) = editor.select_completion(&session, item) {
+                        editor.set_error(|| error.to_string());
+                        return;
+                    }
+                    if preview_completion_insert
+                        && let Some(item) = item
                         && let Err(error) = editor.preview_completion(&session, item)
                     {
                         editor.set_error(|| error.to_string());
@@ -178,7 +205,7 @@ impl Completion {
                         return;
                     }
                 }
-                PromptEvent::Abort | PromptEvent::Update => {}
+                PromptEvent::Abort => {}
             }
 
             // In case the popup was deleted because of an intersection w/ the auto-complete menu.
@@ -290,6 +317,7 @@ impl Completion {
 
     pub fn replace_provider_completions(
         &mut self,
+        editor: &mut Editor,
         response: &mut CompletionResponse,
         is_incomplete: bool,
     ) {
@@ -302,6 +330,7 @@ impl Completion {
         self.score(false);
         let menu = self.popup.contents_mut();
         menu.ensure_cursor_in_bounds();
+        menu.notify_selection(editor);
     }
 
     pub fn is_empty(&self) -> bool {
@@ -310,10 +339,18 @@ impl Completion {
 
     pub fn replace_item(
         &mut self,
+        editor: &mut Editor,
         old_item: &impl PartialEq<CompletionItem>,
         new_item: CompletionItem,
     ) {
-        self.popup.contents_mut().replace_option(old_item, new_item);
+        let menu = self.popup.contents_mut();
+        let selected = menu
+            .selection()
+            .is_some_and(|selected| old_item == selected);
+        menu.replace_option(old_item, new_item);
+        if selected {
+            menu.notify_selection(editor);
+        }
     }
 
     pub(crate) fn accept(&mut self, cx: &mut Context) -> EventResult {
@@ -454,6 +491,7 @@ impl Component for Completion {
 
         // clear area
         let background = cx.editor.theme.get("ui.popup");
+        cx.exclude_cursor(doc_area);
         cx.hyperlinks.borrow_mut().clear(doc_area);
         surface.clear_with(doc_area, background);
 
@@ -469,3 +507,59 @@ impl Component for Completion {
     }
 }
 use tui::buffer::BufferExt as _;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use menu::Item as _;
+
+    #[test]
+    fn label_details_keep_unicode_width_and_muted_styles_with_and_without_icons() {
+        let mut item = CompletionItem::Lsp(LspCompletionItem {
+            item: lsp::CompletionItem {
+                label: "map".into(),
+                label_details: Some(lsp::CompletionItemLabelDetails {
+                    detail: Some("(值: 字符串)".into()),
+                    description: Some("工具::map".into()),
+                }),
+                kind: Some(lsp::CompletionItemKind::FUNCTION),
+                ..Default::default()
+            },
+            provider: lsp_client::LanguageServerId::default(),
+            resolved: false,
+            provider_priority: 0,
+        });
+        let detail_style = Style::default().fg(Color::Gray);
+        for (icons, kind, expected_kind) in [
+            (false, Some(lsp::CompletionItemKind::FUNCTION), "function"),
+            (true, Some(lsp::CompletionItemKind::FUNCTION), "function"),
+            (true, Some(lsp::CompletionItemKind::COLOR), "color"),
+            (true, None, ""),
+        ] {
+            let CompletionItem::Lsp(lsp_item) = &mut item else {
+                unreachable!()
+            };
+            lsp_item.item.kind = kind;
+            let row = item.format(&CompletionData {
+                directory_style: Style::default(),
+                detail_style,
+                icons,
+            });
+            let label_column = usize::from(icons);
+            let label = &row.cells[label_column].content;
+            assert_eq!(label.to_string(), "map(值: 字符串)");
+            assert_eq!(label.width(), 15);
+            assert_eq!(label.lines[0].spans[0].style, Style::default());
+            assert_eq!(label.lines[0].spans[1].style, detail_style);
+            let description = &row.cells[label_column + 1].content;
+            assert_eq!(description.to_string(), "工具::map");
+            assert_eq!(description.width(), 9);
+            assert_eq!(description.lines[0].spans[0].style, detail_style);
+            assert_eq!(
+                row.cells[label_column + 2].content.to_string(),
+                expected_kind
+            );
+        }
+        assert_eq!(item.filter_text(), "map");
+    }
+}

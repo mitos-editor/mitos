@@ -25,6 +25,7 @@ mod index;
 mod stage;
 mod stash;
 mod unstage;
+mod worker;
 pub use stash::{StashEntry, StashFile, StashLayer};
 
 pub use crate::repository::GitRepository;
@@ -160,6 +161,11 @@ impl PreparedOperation {
             {
                 return Ok(None);
             }
+            if let Operation::Repository(operation) = &self.operation
+                && operation.requires_git_hooks(&self.repository)?
+            {
+                return Ok(Some(self));
+            }
             match &self.operation {
                 Operation::Repository(RepositoryOperation::CreateBranch { name }) => {
                     self.create_branch(name)?;
@@ -179,6 +185,14 @@ impl PreparedOperation {
                 }
                 Operation::Repository(RepositoryOperation::RemoveWorktree { path }) => {
                     self.remove_worktree(path)?;
+                    return Ok(None);
+                }
+                Operation::Repository(RepositoryOperation::LockWorktree { path }) => {
+                    self.set_worktree_lock(path, true)?;
+                    return Ok(None);
+                }
+                Operation::Repository(RepositoryOperation::UnlockWorktree { path }) => {
+                    self.set_worktree_lock(path, false)?;
                     return Ok(None);
                 }
                 _ => {}

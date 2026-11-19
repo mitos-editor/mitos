@@ -11,13 +11,13 @@ repository.workspace = true
 homepage.workspace = true
 
 [lib]
-# Skip libtest benchmark harness, the benches use criterion.
+# Skip the libtest benchmark harness.
 bench = false
 
 [features]
 default = []
+integration = ["lsp/test-support"]
 git = ["vcs/git"]
-syntax-diff = ["dep:syntax-diff"]
 unicode-lines = ["editor-config/unicode-lines"]
 
 [dependencies]
@@ -28,7 +28,6 @@ editor-config.workspace = true
 language-config.workspace = true
 buffer.workspace = true
 text-diff.workspace = true
-syntax-diff = { workspace = true, optional = true }
 text-io.workspace = true
 text-layout.workspace = true
 clipboard.workspace = true
@@ -53,6 +52,7 @@ dap.workspace = true
 debugger.workspace = true
 vcs.workspace = true
 
+indexmap.workspace = true
 foldhash.workspace = true
 anyhow.workspace = true
 uuid.workspace = true
@@ -83,6 +83,9 @@ libc.workspace = true
 core = { workspace = true, features = ["integration"] }
 # Headless editor tests run independent Tokio runtimes in parallel.
 event.workspace = true
-criterion.workspace = true
 quickcheck.workspace = true
 
+[[bin]]
+name = "mitos-view-test-lsp"
+path = "tests/fixtures/lsp.rs"
+required-features = ["integration"]

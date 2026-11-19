@@ -283,14 +283,12 @@ async fn terminal_adapter_preserves_typed_results_errors_and_null_acknowledgemen
     let mut f = Fixture::new(dir.path(), &["alpha"])?;
     f.initialize().await?;
     let server = f.server("alpha");
-    let folders = json!(
-        &*f.app
-            .editor
-            .language_server_by_id(server)
-            .unwrap()
-            .workspace_folders()
-            .await
-    );
+    let folders = json!(&*f
+        .app
+        .editor
+        .language_server_by_id(server)
+        .unwrap()
+        .workspace_folders());
     let invalid_edit = json!({"edit": {"documentChanges": [edit(&f, 100, "stale!!!")]}});
     let rejection = view::editing::EditError::DocumentChanged {
         expected: 100,
@@ -652,6 +650,7 @@ roots = [".lsp-root"]
 language-servers = [
     {{ name = "alpha", only-features = ["document-symbols"] }},
     {{ name = "alpha", only-features = ["document-colors"] }},
+    {{ name = "alpha", only-features = ["document-symbols", "document-colors"] }},
 ]
 "#,
             server.toml()
@@ -699,7 +698,7 @@ language-servers = [
             doc.language_servers()
                 .map(|client| client.id())
                 .collect::<Vec<_>>(),
-            [first, first]
+            [first, first, first]
         );
         for feature in [
             LanguageServerFeature::DocumentSymbols,
@@ -752,7 +751,7 @@ language-servers = [
                 );
             }
             assert_eq!(
-                client.workspace_folders().await.len(),
+                client.workspace_folders().len(),
                 if id == first { 2 } else { 1 }
             );
         }

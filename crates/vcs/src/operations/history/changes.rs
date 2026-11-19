@@ -50,19 +50,7 @@ pub(super) fn between(
                 entry_mode,
                 ..
             } if !entry_mode.is_tree() => {
-                let path = path(location)?;
-                HistoryFile {
-                    before: Some(path.clone()),
-                    after: Some(path),
-                    status: if previous_entry_mode.kind() == entry_mode.kind()
-                        || (previous_entry_mode.is_blob() && entry_mode.is_blob())
-                    {
-                        "M"
-                    } else {
-                        "T"
-                    }
-                    .into(),
-                }
+                modification(path(location)?, previous_entry_mode, entry_mode)
             }
             Change::Rewrite {
                 source_location,
@@ -91,4 +79,22 @@ pub(super) fn between(
     ensure!(!canceled(), "History read canceled");
     files.sort_by(|a, b| a.path().cmp(b.path()));
     Ok(files)
+}
+
+/// Both entries are present at the same non-tree path, so rename detection is unnecessary.
+pub(super) fn modification(
+    path: PathBuf,
+    before: gix::objs::tree::EntryMode,
+    after: gix::objs::tree::EntryMode,
+) -> HistoryFile {
+    HistoryFile {
+        before: Some(path.clone()),
+        after: Some(path),
+        status: if before.kind() == after.kind() || (before.is_blob() && after.is_blob()) {
+            "M"
+        } else {
+            "T"
+        }
+        .into(),
+    }
 }

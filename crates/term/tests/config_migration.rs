@@ -84,7 +84,7 @@ fn untrusted_stale_and_excluded_projects_are_not_rewritten() -> anyhow::Result<(
     let (config, notices) = migrate_both().unwrap();
     assert_eq!(config.editor.scroll.padding, 7);
     assert!(notices.is_empty());
-    trust.trust(&workspace);
+    trust.trust(&workspace).unwrap();
     fs::write(
         project.with_file_name("languages.toml"),
         "# Changed after approval\n",
@@ -95,7 +95,7 @@ fn untrusted_stale_and_excluded_projects_are_not_rewritten() -> anyhow::Result<(
         TrustStatus::Stale
     );
     assert!(migrate_both().unwrap().1.is_empty());
-    trust.exclude(&workspace);
+    trust.exclude(&workspace).unwrap();
     assert!(migrate_both().unwrap().1.is_empty());
     assert_eq!(fs::read_to_string(project)?, local);
     assert_eq!(fs::read_dir(workspace.join(".mitos"))?.count(), 2);
@@ -117,7 +117,9 @@ fn preserves_explicit_trust_across_migration_and_reload() -> anyhow::Result<()> 
         loader::workspace_config_file(),
         "[editor]\nscrolloff = 17\n",
     )?;
-    WorkspaceTrust::new(TrustConfig::default(), loader::workspace_trust_dir()).trust(&workspace);
+    WorkspaceTrust::new(TrustConfig::default(), loader::workspace_trust_dir())
+        .trust(&workspace)
+        .unwrap();
     let (config, notices) = migrate_both().unwrap();
     assert_eq!(config.editor.scroll.padding, 17);
     assert!(notices
@@ -148,7 +150,7 @@ fn migration_cannot_approve_concurrent_configuration_changes() -> anyhow::Result
         fs::write(&project, "[editor]\nscrolloff = 17\n")?;
         fs::write(&languages, "# Approved language config\n")?;
         let trust = WorkspaceTrust::new(TrustConfig::default(), loader::workspace_trust_dir());
-        trust.trust(&workspace);
+        trust.trust(&workspace).unwrap();
         let written = loader::config::migration::file(&project, |_| Ok(()))?.unwrap();
         if tamper_with_project {
             fs::write(&project, "[editor.scroll]\npadding = 999\n")?;
@@ -340,7 +342,8 @@ fn explicit_migration_is_scoped_and_requires_workspace_trust() -> anyhow::Result
     assert!(!project.with_extension("toml.bak").exists());
     let migrated_user = fs::read_to_string(&user)?;
     WorkspaceTrust::new(TrustConfig::default(), loader::workspace_trust_dir())
-        .trust(&root.join("workspace"));
+        .trust(&root.join("workspace"))
+        .unwrap();
     Config::migrate(MigrationScope::Workspace)?;
     assert_eq!(fs::read_to_string(&user)?, migrated_user);
     assert!(!user.with_extension("toml.bak.1").exists());
@@ -363,7 +366,8 @@ fn trusted_project_migrates_without_creating_a_user_config() -> anyhow::Result<(
         "[editor]\nscrolloff = 17\n",
     )?;
     WorkspaceTrust::new(TrustConfig::default(), loader::workspace_trust_dir())
-        .trust(&root.join("workspace"));
+        .trust(&root.join("workspace"))
+        .unwrap();
     let (config, notices) = migrate_both().unwrap();
     assert_eq!(config.editor.scroll.padding, 17);
     assert_eq!(notices.len(), 1);
@@ -416,7 +420,9 @@ fn project_symlink_migration_preserves_the_link_and_trust() -> anyhow::Result<()
     fs::write(loader::config_file(), "")?;
     fs::write(&target, original)?;
     symlink(&target, &project)?;
-    WorkspaceTrust::new(TrustConfig::default(), loader::workspace_trust_dir()).trust(&workspace);
+    WorkspaceTrust::new(TrustConfig::default(), loader::workspace_trust_dir())
+        .trust(&workspace)
+        .unwrap();
     let (config, notices) = migrate_both().unwrap();
     assert_eq!(config.editor.scroll.padding, 17);
     assert!(

@@ -4,7 +4,6 @@ use editor_core::{Assoc, ChangeSet};
 use event::{TaskController, TaskHandle};
 use lsp_client::{lsp, LanguageServerId};
 
-use super::DocumentLinksHandler;
 use crate::{Document, ViewId};
 
 #[derive(Default)]
@@ -14,34 +13,18 @@ pub(crate) struct DocumentLinks {
     /// An explicit follow operation has a separate lifetime from cache refreshes.
     follow: TaskController,
     follow_view: Option<ViewId>,
-    pub(super) handler: Option<DocumentLinksHandler>,
 }
 
 impl DocumentLinks {
-    pub(crate) fn presentation(&self) -> Self {
-        Self {
-            cache: self.cache.clone(),
-            ..Self::default()
-        }
-    }
-
     pub(crate) fn invalidate(&mut self) {
         self.request.cancel();
         self.cancel_navigation();
         self.clear_cache();
     }
 
-    pub(crate) fn bind_handler(&mut self, handler: DocumentLinksHandler) {
-        self.cancel_navigation();
-        self.handler = Some(handler);
-    }
-
     pub(crate) fn apply_changes(&mut self, changes: &ChangeSet) {
         self.cancel_navigation();
-        changes.update_positions(self.cache.iter_mut().flat_map(|link| {
-            std::iter::once((&mut link.start, Assoc::After))
-                .chain(std::iter::once((&mut link.end, Assoc::After)))
-        }));
+        DocumentLink::apply_changes(&mut self.cache, changes);
     }
 
     pub(super) fn start_navigation(&mut self, view: ViewId) -> TaskHandle {
@@ -73,6 +56,15 @@ pub struct DocumentLink {
     pub end: usize,
     pub link: lsp::DocumentLink,
     pub language_server_id: LanguageServerId,
+}
+
+impl DocumentLink {
+    pub(crate) fn apply_changes(links: &mut [Self], changes: &ChangeSet) {
+        changes.update_positions(links.iter_mut().flat_map(|link| {
+            std::iter::once((&mut link.start, Assoc::After))
+                .chain(std::iter::once((&mut link.end, Assoc::After)))
+        }));
+    }
 }
 
 impl Document {

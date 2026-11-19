@@ -1,7 +1,6 @@
 use super::icon_span;
 use editor_core::indent::IndentStyle;
 use editor_core::search::statistics::Count;
-use editor_core::unicode::{segmentation::UnicodeSegmentation, width::UnicodeWidthStr};
 use editor_core::{coords_at_pos, encoding, Position};
 
 use lsp_client::lsp::DiagnosticSeverity;
@@ -12,13 +11,25 @@ use view::graphics::RectExt as _;
 use view::{document::Mode, graphics::Rect, Document, Editor, View};
 
 use crate::ui::ProgressSpinners;
-use std::{collections::HashSet, path::Path};
+use std::{borrow::Cow, collections::HashSet, path::Path};
 
 use editor_config::StatusLineElement as StatusLineElementID;
 use tui::buffer::Buffer as Surface;
 use tui::layout::{Constraint, Layout};
-use tui::text::{Line, Span};
+use tui::text::{truncate_line, Line, Span};
 use tui::widgets::Widget;
+
+pub(crate) const ACTIVITY_DELAY: std::time::Duration = std::time::Duration::from_millis(200);
+
+pub(crate) fn activity_matches(
+    activity: view::activity::Activity,
+    doc: &Document,
+    focused: bool,
+) -> bool {
+    activity
+        .document
+        .map_or(focused, |document| document == doc.id())
+}
 
 pub struct RenderContext<'a> {
     pub editor: &'a Editor,
@@ -176,6 +187,7 @@ fn fit_parts<'a>(left: &mut [Part<'a>], right: &mut [Part<'a>], width: usize) {
     for element in [
         E::DebugSession,
         E::Branch,
+        E::Activity,
         E::CurrentWorkingDirectory,
         E::FileIndentStyle,
         E::FileLineEnding,
@@ -225,43 +237,6 @@ fn shrink_part(part: &mut Part<'_>, excess: &mut usize, minimum: usize, from_sta
     *excess = excess.saturating_sub(old_width - part.line.width());
 }
 
-fn truncate_line(line: &mut Line<'_>, width: usize, from_start: bool) {
-    if line.width() <= width {
-        return;
-    }
-    if width == 0 {
-        line.spans.clear();
-        return;
-    }
-    let mut remaining = width.saturating_sub(1);
-    let mut spans = Vec::new();
-    let mut source: Vec<_> = line.spans.iter().collect();
-    if from_start {
-        source.reverse();
-    }
-    'spans: for span in source {
-        let mut graphemes: Vec<_> = span.content.graphemes(true).collect();
-        if from_start {
-            graphemes.reverse();
-        }
-        for grapheme in graphemes {
-            let width = grapheme.width();
-            if width > remaining {
-                break 'spans;
-            }
-            spans.push(Span::styled(grapheme.to_owned(), span.style));
-            remaining -= width;
-        }
-    }
-    if from_start {
-        spans.reverse();
-        spans.insert(0, Span::raw("…"));
-    } else {
-        spans.push(Span::raw("…"));
-    }
-    line.spans = spans;
-}
-
 fn statusline_areas(viewport: Rect, right_width: u16) -> [Rect; 2] {
     Layout::horizontal([Constraint::Min(0), Constraint::Length(right_width)]).areas(viewport)
 }
@@ -276,6 +251,7 @@ where
     F: Fn(&mut RenderContext<'a>, Span<'a>) + Copy,
 {
     match element_id {
+        StatusLineElementID::Activity => render_activity,
         StatusLineElementID::Mode => render_mode,
         StatusLineElementID::Spinner => render_lsp_spinner,
         StatusLineElementID::FileBaseName => render_file_base_name,
@@ -356,6 +332,19 @@ where
     write(context, Span::styled(content, style));
 }
 
+fn render_activity<'a, F>(context: &mut RenderContext<'a>, write: F)
+where
+    F: Fn(&mut RenderContext<'a>, Span<'a>) + Copy,
+{
+    if let Some(activity) = context.editor.activities().find(|activity| {
+        activity_matches(*activity, context.doc, context.is_focused())
+            && activity.started.elapsed() >= ACTIVITY_DELAY
+    }) {
+        let frame = super::spinner::frame(activity.started.elapsed());
+        write(context, format!(" {frame} {} ", activity.label).into());
+    }
+}
+
 fn render_lsp_spinner<'a, F>(context: &mut RenderContext<'a>, write: F)
 where
     F: Fn(&mut RenderContext<'a>, Span<'a>) + Copy,
@@ -365,12 +354,7 @@ where
         context
             .doc
             .language_servers()
-            .find_map(|srv| {
-                context
-                    .spinners
-                    .get(srv.id())
-                    .and_then(|spinner| spinner.frame())
-            })
+            .find_map(|srv| context.spinners.frame(srv.id()))
             // Even if there's no spinner; reserve its space to avoid elements frequently shifting.
             .unwrap_or(" ")
             .into(),
@@ -397,79 +381,13 @@ where
                 counts
             });
 
-    for sev in &context.editor.config().statusline.diagnostics {
-        match sev {
-            Severity::Hint if hints > 0 => {
-                let glyph = context
-                    .editor
-                    .config()
-                    .icons
-                    .then(|| ICONS.diagnostic().hint().to_string());
-                write(
-                    context,
-                    Span::styled(
-                        glyph.unwrap_or_else(|| {
-                            ICONS.diagnostic().hint().with_no_padding().to_string()
-                        }),
-                        context.editor.theme.get("hint"),
-                    ),
-                );
-                write(context, format!(" {} ", hints).into());
-            }
-            Severity::Info if info > 0 => {
-                let glyph = context
-                    .editor
-                    .config()
-                    .icons
-                    .then(|| ICONS.diagnostic().info().to_string());
-                write(
-                    context,
-                    Span::styled(
-                        glyph.unwrap_or_else(|| {
-                            ICONS.diagnostic().info().with_no_padding().to_string()
-                        }),
-                        context.editor.theme.get("info"),
-                    ),
-                );
-                write(context, format!(" {} ", info).into());
-            }
-            Severity::Warning if warnings > 0 => {
-                let glyph = context
-                    .editor
-                    .config()
-                    .icons
-                    .then(|| ICONS.diagnostic().warning().to_string());
-                write(
-                    context,
-                    Span::styled(
-                        glyph.unwrap_or_else(|| {
-                            ICONS.diagnostic().warning().with_no_padding().to_string()
-                        }),
-                        context.editor.theme.get("warning"),
-                    ),
-                );
-                write(context, format!(" {} ", warnings).into());
-            }
-            Severity::Error if errors > 0 => {
-                let glyph = context
-                    .editor
-                    .config()
-                    .icons
-                    .then(|| ICONS.diagnostic().error().to_string());
-                write(
-                    context,
-                    Span::styled(
-                        glyph.unwrap_or_else(|| {
-                            ICONS.diagnostic().error().with_no_padding().to_string()
-                        }),
-                        context.editor.theme.get("error"),
-                    ),
-                );
-                write(context, format!(" {} ", errors).into());
-            }
-            _ => {}
-        }
-    }
+    render_diagnostic_counts(
+        context,
+        (hints, info, warnings, errors),
+        &context.editor.config().statusline.diagnostics,
+        "",
+        write,
+    );
 }
 
 fn render_workspace_diagnostics<'a, F>(context: &mut RenderContext<'a>, write: F)
@@ -514,92 +432,50 @@ where
         }
     }
 
-    let sevs_to_show = &context.editor.config().statusline.workspace_diagnostics;
+    render_diagnostic_counts(
+        context,
+        (hints, info, warnings, errors),
+        &context.editor.config().statusline.workspace_diagnostics,
+        " W ",
+        write,
+    );
+}
 
-    // Avoid showing the " W " if no diagnostic counts will be shown.
-    if !sevs_to_show.iter().any(|sev| match sev {
-        Severity::Hint => hints != 0,
-        Severity::Info => info != 0,
-        Severity::Warning => warnings != 0,
-        Severity::Error => errors != 0,
-    }) {
-        return;
-    }
-
-    write(context, " W ".into());
-
-    for sev in sevs_to_show {
-        match sev {
-            Severity::Hint if hints > 0 => {
-                let glyph = context
-                    .editor
-                    .config()
-                    .icons
-                    .then(|| ICONS.diagnostic().hint().to_string());
-                write(
-                    context,
-                    Span::styled(
-                        glyph.unwrap_or_else(|| {
-                            ICONS.diagnostic().hint().with_no_padding().to_string()
-                        }),
-                        context.editor.theme.get("hint"),
-                    ),
-                );
-                write(context, format!(" {} ", hints).into());
-            }
-            Severity::Info if info > 0 => {
-                let glyph = context
-                    .editor
-                    .config()
-                    .icons
-                    .then(|| ICONS.diagnostic().info().to_string());
-                write(
-                    context,
-                    Span::styled(
-                        glyph.unwrap_or_else(|| {
-                            ICONS.diagnostic().info().with_no_padding().to_string()
-                        }),
-                        context.editor.theme.get("info"),
-                    ),
-                );
-                write(context, format!(" {} ", info).into());
-            }
-            Severity::Warning if warnings > 0 => {
-                let glyph = context
-                    .editor
-                    .config()
-                    .icons
-                    .then(|| ICONS.diagnostic().warning().to_string());
-                write(
-                    context,
-                    Span::styled(
-                        glyph.unwrap_or_else(|| {
-                            ICONS.diagnostic().warning().with_no_padding().to_string()
-                        }),
-                        context.editor.theme.get("warning"),
-                    ),
-                );
-                write(context, format!(" {} ", warnings).into());
-            }
-            Severity::Error if errors > 0 => {
-                let glyph = context
-                    .editor
-                    .config()
-                    .icons
-                    .then(|| ICONS.diagnostic().error().to_string());
-                write(
-                    context,
-                    Span::styled(
-                        glyph.unwrap_or_else(|| {
-                            ICONS.diagnostic().error().with_no_padding().to_string()
-                        }),
-                        context.editor.theme.get("error"),
-                    ),
-                );
-                write(context, format!(" {} ", errors).into());
-            }
-            _ => {}
+fn render_diagnostic_counts<'a, F>(
+    context: &mut RenderContext<'a>,
+    (hints, info, warnings, errors): (u32, u32, u32, u32),
+    severities: &[::diagnostics::Severity],
+    prefix: &str,
+    write: F,
+) where
+    F: Fn(&mut RenderContext<'a>, Span<'a>) + Copy,
+{
+    use ::diagnostics::Severity;
+    let mut needs_prefix = !prefix.is_empty();
+    for severity in severities {
+        let (count, icon, style) = match severity {
+            Severity::Hint => (hints, ICONS.diagnostic().hint(), "hint"),
+            Severity::Info => (info, ICONS.diagnostic().info(), "info"),
+            Severity::Warning => (warnings, ICONS.diagnostic().warning(), "warning"),
+            Severity::Error => (errors, ICONS.diagnostic().error(), "error"),
+        };
+        if count == 0 {
+            continue;
         }
+        if needs_prefix {
+            write(context, prefix.to_owned().into());
+            needs_prefix = false;
+        }
+        let icon = if context.editor.config().icons {
+            icon
+        } else {
+            icon.with_no_padding()
+        };
+        write(
+            context,
+            Span::styled(icon.to_string(), context.editor.theme.get(style)),
+        );
+        write(context, format!(" {count} ").into());
     }
 }
 
@@ -750,11 +626,7 @@ fn render_file_modification_indicator<'a, F>(context: &mut RenderContext<'a>, wr
 where
     F: Fn(&mut RenderContext<'a>, Span<'a>) + Copy,
 {
-    let title = if context.doc.is_modified() {
-        "[+]"
-    } else {
-        "   "
-    };
+    let title = if context.doc.is_modified() { "[+]" } else { "" };
 
     write(context, title.into());
 }
@@ -804,16 +676,22 @@ fn filename(context: &RenderContext<'_>, format: FileNameFormat) -> String {
                     .strip_prefix(review.workspace())
                     .unwrap_or(review.path())
             })
-            .or_else(|| doc.display_path()),
-        FileNameFormat::Absolute => display.source_path,
+            .map(Cow::Borrowed)
+            .or_else(|| {
+                doc.path().map(|path| {
+                    stdx::path::get_relative_path_from(path, context.editor.workspace().root())
+                })
+            }),
+        FileNameFormat::Absolute => display.source_path.map(Cow::Borrowed),
         FileNameFormat::Base => display
             .source_path
             .and_then(|path| path.file_name())
-            .map(Path::new),
+            .map(Path::new)
+            .map(Cow::Borrowed),
     };
     let name = path.map_or_else(
         || doc.display_name(),
-        |path| display.format_path(path).into(),
+        |path| display.format_path(&path).into(),
     );
     name.into_owned()
 }
@@ -854,13 +732,7 @@ where
             context.editor.theme.get("diff.minus"),
         ),
     );
-    write(
-        context,
-        format!("{} ", review.review().provider.unwrap_or("line")).into(),
-    );
-    if review.review().unchanged_by_provider
-        && (review.review().additions != 0 || review.review().deletions != 0)
-    {
+    if review.review().layout_only {
         write(context, "layout only ".into());
     }
     if review.is_loading() {
@@ -895,11 +767,8 @@ where
         .unwrap_or_default()
         .to_string();
 
-    if context.editor.config().icons
-        && !head.is_empty()
-        && let Some(icon) = ICONS.vcs().branch()
-    {
-        write(context, icon_span(icon));
+    if context.editor.config().icons && !head.is_empty() {
+        write(context, icon_span(ICONS.vcs().branch()));
         write(context, format!("{head} ").into());
         return;
     }
@@ -984,6 +853,115 @@ where
 mod tests {
     use super::*;
 
+    #[tokio::test]
+    async fn file_names_keep_external_package_paths() -> anyhow::Result<()> {
+        let mut app = crate::ui::picker::test::application(false)?;
+        let document = view::current_ref!(app.editor).1.id();
+        let external = tempfile::tempdir()?;
+        let external = stdx::path::canonicalize(external.path());
+        let module = external
+            .join("go")
+            .join("pkg")
+            .join("mod")
+            .join("example.com")
+            .join("package@v1.2.3")
+            .join("function.go");
+        let repository = external.join("dependency");
+        std::fs::create_dir_all(module.parent().unwrap())?;
+        std::fs::create_dir_all(repository.join(".git"))?;
+
+        for (path, expected) in [
+            (
+                app.editor.workspace().root().join("src").join("main.go"),
+                Path::new("src").join("main.go"),
+            ),
+            (
+                module.clone(),
+                stdx::path::fold_home_dir(&module).into_owned(),
+            ),
+            (
+                repository.join("src").join("function.go"),
+                stdx::path::fold_home_dir(repository.join("src").join("function.go")).into_owned(),
+            ),
+        ] {
+            app.editor.set_doc_path(document, &path);
+            let (view, doc) = view::current_ref!(app.editor);
+            let spinners = ProgressSpinners::default();
+            let mut context = RenderContext::new(&app.editor, doc, view, &spinners, None);
+            render_file_name(&mut context, |context, span| context.parts.spans.push(span));
+            assert_eq!(
+                context.parts.to_string(),
+                format!(" {} ", expected.display())
+            );
+            assert_eq!(
+                filename(&context, FileNameFormat::Base),
+                path.file_name().unwrap().to_string_lossy()
+            );
+            assert_eq!(
+                filename(&context, FileNameFormat::Absolute),
+                path.to_string_lossy()
+            );
+        }
+        Ok(())
+    }
+
+    fn rendered_activity(editor: &Editor, view: &View) -> String {
+        let doc = editor.document(view.document_id()).unwrap();
+        let spinners = ProgressSpinners::default();
+        let mut context = RenderContext::new(editor, doc, view, &spinners, None);
+        render_activity(&mut context, |context, span| context.parts.spans.push(span));
+        context.parts.to_string()
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn activity_is_delayed_animates_and_retires_without_idle_padding() -> anyhow::Result<()> {
+        let mut app = crate::ui::picker::test::application(false)?;
+        let (view, doc) = view::current_ref!(app.editor);
+        let (view_id, document) = (view.id, doc.id());
+        let first = app.editor.start_activity("Formatting", Some(document));
+        let second = app.editor.start_activity("References", Some(document));
+        let view = app.editor.tree.get(view_id);
+        assert_eq!(rendered_activity(&app.editor, view), "");
+        tokio::time::advance(ACTIVITY_DELAY - std::time::Duration::from_millis(1)).await;
+        assert_eq!(rendered_activity(&app.editor, view), "");
+        tokio::time::advance(std::time::Duration::from_millis(1)).await;
+        let first_frame = rendered_activity(&app.editor, view);
+        assert!(first_frame.contains("Formatting"), "{first_frame:?}");
+        tokio::time::advance(std::time::Duration::from_millis(80)).await;
+        assert_ne!(rendered_activity(&app.editor, view), first_frame);
+        drop(first);
+        assert!(rendered_activity(&app.editor, view).contains("References"));
+        drop(second);
+        assert_eq!(rendered_activity(&app.editor, view), "");
+        Ok(())
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn activity_targets_its_document_or_the_focused_statusline() -> anyhow::Result<()> {
+        let mut app = crate::ui::picker::test::application(false)?;
+        let document = view::current_ref!(app.editor).1.id();
+        let action = app.editor.start_activity("Formatting", Some(document));
+        app.editor.new_file(view::editor::Action::VerticalSplit);
+        tokio::time::advance(ACTIVITY_DELAY).await;
+        for (view, _) in app.editor.tree.views() {
+            assert_eq!(
+                rendered_activity(&app.editor, view).contains("Formatting"),
+                view.document_id() == document,
+            );
+        }
+        drop(action);
+        let workspace = app.editor.start_activity("Git", None);
+        tokio::time::advance(ACTIVITY_DELAY).await;
+        for (view, focused) in app.editor.tree.views() {
+            assert_eq!(
+                rendered_activity(&app.editor, view).contains("Git"),
+                focused
+            );
+        }
+        drop(workspace);
+        Ok(())
+    }
+
     fn part(element: StatusLineElementID, text: &str, compact: Option<&str>) -> Part<'static> {
         Part {
             element,
@@ -1012,6 +990,7 @@ mod tests {
             for width in 34..=160 {
                 let mut left = vec![
                     part(E::Mode, " NOR ", None),
+                    part(E::Activity, " ⣾ Formatting ", None),
                     part(
                         E::FileName,
                         " very/long/directory/main.rs ",
@@ -1085,22 +1064,6 @@ mod tests {
         fit_parts(&mut left, &mut right, 14);
         assert_eq!(join_parts(left).to_string(), " main.rs ");
         assert_eq!(join_parts(right).to_string(), " 1:1 ");
-    }
-
-    #[test]
-    fn shortening_preserves_graphemes_and_styles() {
-        use tui::style::Color;
-        for (from_start, expected) in [(false, "界e\u{301}…"), (true, "…👩‍💻.rs")] {
-            let style = Style::default().fg(Color::Red).bg(Color::Blue);
-            let mut line = Line::from(Span::styled("界e\u{301}👩‍💻.rs", style));
-            truncate_line(&mut line, if from_start { 6 } else { 4 }, from_start);
-            assert_eq!(line.to_string(), expected);
-            assert!(line
-                .spans
-                .iter()
-                .filter(|span| span.content != "…")
-                .all(|span| span.style == style));
-        }
     }
 
     #[test]

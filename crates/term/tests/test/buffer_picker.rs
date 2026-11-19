@@ -267,3 +267,21 @@ async fn paging_keeps_the_selected_row_on_screen_row() -> anyhow::Result<()> {
     f.finish().await;
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn manual_buffer_order_preserves_picker_mru_order() -> anyhow::Result<()> {
+    let mut f = Fixture::new(&["first.txt", "second.txt", "third.txt"])?;
+    let first = f.ids[0];
+    f.keys(":buffer-move-previous<ret>").await?;
+    assert_eq!(
+        f.app.editor.documents.keys().copied().collect::<Vec<_>>(),
+        [f.ids[0], f.ids[2], f.ids[1]]
+    );
+    // The second picker row is still the second most recently used buffer.
+    f.keys("<space>b").await?;
+    f.keys("<C-j>").await?;
+    f.keys("<C-space>").await?;
+    assert_eq!(f.current(), first);
+    f.finish().await;
+    Ok(())
+}

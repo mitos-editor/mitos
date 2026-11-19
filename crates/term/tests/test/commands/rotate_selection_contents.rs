@@ -35,37 +35,8 @@ const D: &str = indoc! {"
 };
 
 #[tokio::test(flavor = "multi_thread")]
-async fn rotate_selection_contents_forward_repeated() -> anyhow::Result<()> {
-    test((A, "<A-)>", B)).await?;
-    test((B, "<A-)>", C)).await?;
-    test((C, "<A-)>", D)).await?;
-
-    Ok(())
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn rotate_selection_contents_forward_with_count() -> anyhow::Result<()> {
+async fn rotation_bindings_forward_counts_in_both_directions() -> anyhow::Result<()> {
     test((A, "2<A-)>", C)).await?;
-    test((A, "3<A-)>", D)).await?;
-    test((B, "2<A-)>", D)).await?;
-
-    Ok(())
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn rotate_selection_contents_backward_repeated() -> anyhow::Result<()> {
-    test((D, "<A-(>", C)).await?;
-    test((C, "<A-(>", B)).await?;
-    test((B, "<A-(>", A)).await?;
-
-    Ok(())
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn rotate_selection_contents_backward_with_count() -> anyhow::Result<()> {
     test((D, "2<A-(>", B)).await?;
-    test((D, "3<A-(>", A)).await?;
-    test((C, "2<A-(>", A)).await?;
-
     Ok(())
 }

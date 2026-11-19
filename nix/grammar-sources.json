@@ -67,9 +67,9 @@
   },
   "beancount": {
     "git": "https://github.com/polarmutex/tree-sitter-beancount",
-    "rev": "c8a9780610dbe8ade4888045b1f2caa7a0a9d8aa",
-    "url": "https://github.com/polarmutex/tree-sitter-beancount/archive/c8a9780610dbe8ade4888045b1f2caa7a0a9d8aa.tar.gz",
-    "hash": "sha256-LKb+HIIdELD0prXDmeogXDWWEB2Hcr66yOE579oI71c="
+    "rev": "97e38a1f9a20ec3d34ea9381bb45f2ba988c0de0",
+    "url": "https://github.com/polarmutex/tree-sitter-beancount/archive/97e38a1f9a20ec3d34ea9381bb45f2ba988c0de0.tar.gz",
+    "hash": "sha256-QkL9SbPaMa8kJsZFWDsxZ52m7xmYn6tdNHJeSnk1Jsg="
   },
   "bibtex": {
     "git": "https://github.com/latex-lsp/tree-sitter-bibtex",
@@ -121,9 +121,9 @@
   },
   "caddyfile": {
     "git": "https://github.com/caddyserver/tree-sitter-caddyfile",
-    "rev": "86e8f31101b5a2795b966d4c2e85bbe3c977f519",
-    "url": "https://github.com/caddyserver/tree-sitter-caddyfile/archive/86e8f31101b5a2795b966d4c2e85bbe3c977f519.tar.gz",
-    "hash": "sha256-+6s4l9J2K+EH+JLWGsHCmlux65GtCCxeVTkowXIaFDU="
+    "rev": "0be921fae0bcf9b163645899db0db730afae8aee",
+    "url": "https://github.com/caddyserver/tree-sitter-caddyfile/archive/0be921fae0bcf9b163645899db0db730afae8aee.tar.gz",
+    "hash": "sha256-XAAo+TReOa9hItG7j2W3f/cHqGRh2CNF5rwzpOrG7u4="
   },
   "cairo": {
     "git": "https://github.com/starkware-libs/tree-sitter-cairo",
@@ -229,9 +229,9 @@
   },
   "cylc": {
     "git": "https://github.com/seanwallawalla/ElliotFontaine_Tree-Sitter-Cylc",
-    "rev": "6d1d81137112299324b526477ce1db989ab58fb8",
-    "url": "https://github.com/seanwallawalla/ElliotFontaine_Tree-Sitter-Cylc/archive/6d1d81137112299324b526477ce1db989ab58fb8.tar.gz",
-    "hash": "sha256-wLkRrMKFEXUq0B/Lvy+HwH7I8py1pQ9cwya7HsmaYtU="
+    "rev": "5517ecade85b1de85ed8e0cb742b81decc64183a",
+    "url": "https://github.com/seanwallawalla/ElliotFontaine_Tree-Sitter-Cylc/archive/5517ecade85b1de85ed8e0cb742b81decc64183a.tar.gz",
+    "hash": "sha256-KizTJrStTd3wRap3CS8SfCxd4fDvsVd1rEyspsYe02c="
   },
   "cython": {
     "git": "https://github.com/b0o/tree-sitter-cython",
@@ -244,6 +244,12 @@
     "rev": "64f27931b4e6fdd75af1102c79bacbca68a8dacc",
     "url": "https://github.com/gdamore/tree-sitter-d/archive/64f27931b4e6fdd75af1102c79bacbca68a8dacc.tar.gz",
     "hash": "sha256-k5rd3o5jqctS0ko4pvYtX+GlpwrPVuu6NKzMjZ+S1sw="
+  },
+  "d2": {
+    "git": "https://github.com/ravsii/tree-sitter-d2",
+    "rev": "7bba28221d8c466d28b725124494bf89219326fd",
+    "url": "https://github.com/ravsii/tree-sitter-d2/archive/7bba28221d8c466d28b725124494bf89219326fd.tar.gz",
+    "hash": "sha256-iRLNRiDc7G5g0SV1LQdxOdN5ePbulGWPX3C5NqxVVoE="
   },
   "dart": {
     "git": "https://github.com/UserNobody14/tree-sitter-dart",
@@ -307,9 +313,9 @@
   },
   "drools": {
     "git": "https://github.com/iByteABit256/tree-sitter-drools",
-    "rev": "f1404d2a3974dfcfd4193246e763edeeb4b399c1",
-    "url": "https://github.com/iByteABit256/tree-sitter-drools/archive/f1404d2a3974dfcfd4193246e763edeeb4b399c1.tar.gz",
-    "hash": "sha256-fQPu2sf08N755dboaiAHbkuL8F60ag1Ul73Rr08JAGU="
+    "rev": "6571480daaaffc9cb9daada501bbef5b7dd1613d",
+    "url": "https://github.com/iByteABit256/tree-sitter-drools/archive/6571480daaaffc9cb9daada501bbef5b7dd1613d.tar.gz",
+    "hash": "sha256-rgpivtBlCzmgI1iTLL5X0aH+RRWDVLTADB2gyzUvNYg="
   },
   "dtd": {
     "git": "https://github.com/KMikeeU/tree-sitter-dtd",
@@ -439,9 +445,9 @@
   },
   "fortran": {
     "git": "https://github.com/stadelmanma/tree-sitter-fortran",
-    "rev": "72f8759dea28ff6671e0868a9ed5ad4a18413917",
-    "url": "https://github.com/stadelmanma/tree-sitter-fortran/archive/72f8759dea28ff6671e0868a9ed5ad4a18413917.tar.gz",
-    "hash": "sha256-jyw7s08DKGBFrdpc9jv2Vv3Yb1Cj5h93louKlcbIdfs="
+    "rev": "d05165a6f0bd044ba1f89865927a752dd5168e66",
+    "url": "https://github.com/stadelmanma/tree-sitter-fortran/archive/d05165a6f0bd044ba1f89865927a752dd5168e66.tar.gz",
+    "hash": "sha256-MFXdylXrZkoPwzz5AxCtcgnPn+N8C+yrLD27LbB6zDc="
   },
   "freebasic": {
     "git": "https://github.com/Ra77a3l3-jar/tree-sitter-freebasic",
@@ -727,9 +733,9 @@
   },
   "inko": {
     "git": "https://github.com/inko-lang/tree-sitter-inko",
-    "rev": "a2bef1fc87e64adbf65f353b86e10275e693b5fe",
-    "url": "https://github.com/inko-lang/tree-sitter-inko/archive/a2bef1fc87e64adbf65f353b86e10275e693b5fe.tar.gz",
-    "hash": "sha256-nA0iKdK0mTywFQqR9oPpqbrGU3CYlviuatSQSNwRO9U="
+    "rev": "c982d0da981e4fe134cd7fd57e346099440a7942",
+    "url": "https://github.com/inko-lang/tree-sitter-inko/archive/c982d0da981e4fe134cd7fd57e346099440a7942.tar.gz",
+    "hash": "sha256-d9VVC5lSyERhNeXjuktWpFSMS8P943z2MeXsnl4iwV4="
   },
   "janet-simple": {
     "git": "https://github.com/sogaiu/tree-sitter-janet-simple",
@@ -811,9 +817,9 @@
   },
   "just": {
     "git": "https://codeberg.org/poliorcetics/tree-sitter-just",
-    "rev": "d24f1a93cad7994850e701b6a035124b99db8eec",
-    "url": "https://codeberg.org/poliorcetics/tree-sitter-just/archive/d24f1a93cad7994850e701b6a035124b99db8eec.tar.gz",
-    "hash": "sha256-32NhTyZ4d9J1u/BWl87q4kRpWN55B/zI9XVZpXAUFI8="
+    "rev": "c54b851bf895599349257d8c16e9b901250cd2fb",
+    "url": "https://codeberg.org/poliorcetics/tree-sitter-just/archive/c54b851bf895599349257d8c16e9b901250cd2fb.tar.gz",
+    "hash": "sha256-OpS02tYepOsQOXl05gxas+h1CL8NB9XYCYyy/QyrGLk="
   },
   "kcl": {
     "git": "https://github.com/KittyCAD/tree-sitter-kcl",
@@ -973,9 +979,9 @@
   },
   "matlab": {
     "git": "https://github.com/acristoffers/tree-sitter-matlab",
-    "rev": "f03d0347acd8bb05d4edd8c845ac1718729e1fad",
-    "url": "https://github.com/acristoffers/tree-sitter-matlab/archive/f03d0347acd8bb05d4edd8c845ac1718729e1fad.tar.gz",
-    "hash": "sha256-y0bp+3R/4nj9xxHEHBKvhX0NQ6NEyr0ou+Mj2TqopEA="
+    "rev": "ff2f83da49bb06128c4cfd055e7c95c05c77cded",
+    "url": "https://github.com/acristoffers/tree-sitter-matlab/archive/ff2f83da49bb06128c4cfd055e7c95c05c77cded.tar.gz",
+    "hash": "sha256-BDlxfGEWst7zEOtRtJJDJQ3ZVATEyT60yDr9w2ODY+c="
   },
   "mermaid": {
     "git": "https://github.com/monaqa/tree-sitter-mermaid",
@@ -1051,21 +1057,21 @@
   },
   "nu": {
     "git": "https://github.com/nushell/tree-sitter-nu",
-    "rev": "4f577aaa735154f934594b598a69ed7b1b707cf6",
-    "url": "https://github.com/nushell/tree-sitter-nu/archive/4f577aaa735154f934594b598a69ed7b1b707cf6.tar.gz",
-    "hash": "sha256-97G1vtuO7P8LnOtwhjxNPOL9N2bi7Nw/AtrwqigXXwA="
+    "rev": "0c3f6dfbc30d7713dcbb15b10954f2dee86ef63c",
+    "url": "https://github.com/nushell/tree-sitter-nu/archive/0c3f6dfbc30d7713dcbb15b10954f2dee86ef63c.tar.gz",
+    "hash": "sha256-YhyC6OnOvUd3JastKo9b2Gd3UNDYsfVIH6m/u6VYIxw="
   },
   "ocaml": {
     "git": "https://github.com/tree-sitter/tree-sitter-ocaml",
-    "rev": "3b2e14e0697d405c9aa0beddfa09b71f45abc504",
-    "url": "https://github.com/tree-sitter/tree-sitter-ocaml/archive/3b2e14e0697d405c9aa0beddfa09b71f45abc504.tar.gz",
-    "hash": "sha256-56JsxMJJXYD4ZCb7evuVc6jMajxb6ibFYhcGgsfDI14="
+    "rev": "a1c562e73ab787dcc69fdc2e5510c53bbce5364f",
+    "url": "https://github.com/tree-sitter/tree-sitter-ocaml/archive/a1c562e73ab787dcc69fdc2e5510c53bbce5364f.tar.gz",
+    "hash": "sha256-dIcIywHuhcBYhfr56bqEHTfC41D/zhSoV2+ajjhrZFE="
   },
   "ocaml-interface": {
     "git": "https://github.com/tree-sitter/tree-sitter-ocaml",
-    "rev": "3b2e14e0697d405c9aa0beddfa09b71f45abc504",
-    "url": "https://github.com/tree-sitter/tree-sitter-ocaml/archive/3b2e14e0697d405c9aa0beddfa09b71f45abc504.tar.gz",
-    "hash": "sha256-56JsxMJJXYD4ZCb7evuVc6jMajxb6ibFYhcGgsfDI14="
+    "rev": "a1c562e73ab787dcc69fdc2e5510c53bbce5364f",
+    "url": "https://github.com/tree-sitter/tree-sitter-ocaml/archive/a1c562e73ab787dcc69fdc2e5510c53bbce5364f.tar.gz",
+    "hash": "sha256-dIcIywHuhcBYhfr56bqEHTfC41D/zhSoV2+ajjhrZFE="
   },
   "odin": {
     "git": "https://github.com/tree-sitter-grammars/tree-sitter-odin",
@@ -1159,9 +1165,9 @@
   },
   "pkl": {
     "git": "https://github.com/apple/tree-sitter-pkl",
-    "rev": "c837eff683d62f3cb5e6309b44c257640f202d4b",
-    "url": "https://github.com/apple/tree-sitter-pkl/archive/c837eff683d62f3cb5e6309b44c257640f202d4b.tar.gz",
-    "hash": "sha256-5fECihJZ2oRL5FFGyIqeVBVS/rt/ipa75mOHz1Oq3R4="
+    "rev": "438dc0ddd3785ffa4d173a91fa956e193957d022",
+    "url": "https://github.com/apple/tree-sitter-pkl/archive/438dc0ddd3785ffa4d173a91fa956e193957d022.tar.gz",
+    "hash": "sha256-/4/4vPYllXgq/Rgxk0oUVHh0Pg9mVYL7DlFocpAfK28="
   },
   "po": {
     "git": "https://github.com/erasin/tree-sitter-po",
@@ -1303,9 +1309,9 @@
   },
   "rescript": {
     "git": "https://github.com/rescript-lang/tree-sitter-rescript",
-    "rev": "90643a6302057b969c51e1bf235b8ecf1da49232",
-    "url": "https://github.com/rescript-lang/tree-sitter-rescript/archive/90643a6302057b969c51e1bf235b8ecf1da49232.tar.gz",
-    "hash": "sha256-rx12rWkqAXPfLGwEP6O4iMpv/6qREQ5a9SPdGqy0+nE="
+    "rev": "d93f5cb4187bc233e8d76d2b19f4a2fe3084bce7",
+    "url": "https://github.com/rescript-lang/tree-sitter-rescript/archive/d93f5cb4187bc233e8d76d2b19f4a2fe3084bce7.tar.gz",
+    "hash": "sha256-fH1kiWqjDzlNA1NNc2bGU6mBaVHTTc+429rmoyyiXWw="
   },
   "ripple": {
     "git": "https://github.com/Ripple-TS/ripple",
@@ -1333,9 +1339,9 @@
   },
   "rpmspec": {
     "git": "https://gitlab.com/cryptomilk/tree-sitter-rpmspec",
-    "rev": "7d1557162655f677729dca90cc180aca657053ec",
-    "url": "https://gitlab.com/api/v4/projects/cryptomilk%2Ftree-sitter-rpmspec/repository/archive.tar.gz?sha=7d1557162655f677729dca90cc180aca657053ec",
-    "hash": "sha256-m6iX6Kwe0araL1W8/m2EbOIMaNjmFMKsxJyBAzXh4DE="
+    "rev": "ea82a3995d079055fa08133319a1f22aa68c5b4d",
+    "url": "https://gitlab.com/api/v4/projects/cryptomilk%2Ftree-sitter-rpmspec/repository/archive.tar.gz?sha=ea82a3995d079055fa08133319a1f22aa68c5b4d",
+    "hash": "sha256-cjcV6A460sVrJg+OAHZn7/Y8iapAdfZSBvrA0ciCEZw="
   },
   "rshtml": {
     "git": "https://github.com/rshtml/tree-sitter-rshtml",
@@ -1369,9 +1375,9 @@
   },
   "scala": {
     "git": "https://github.com/tree-sitter/tree-sitter-scala",
-    "rev": "8c0b6d44bfd66bf7bc9a1fc15084ef17cef2f97e",
-    "url": "https://github.com/tree-sitter/tree-sitter-scala/archive/8c0b6d44bfd66bf7bc9a1fc15084ef17cef2f97e.tar.gz",
-    "hash": "sha256-4J2Y9VCqfN2aueHgMK7ZBIqHhgAf3ceNEmUH5DLi/5I="
+    "rev": "91cdff7829b1e49567379aa0c2200cf2366faed1",
+    "url": "https://github.com/tree-sitter/tree-sitter-scala/archive/91cdff7829b1e49567379aa0c2200cf2366faed1.tar.gz",
+    "hash": "sha256-WNjJtR5ei+0kGiL7Imki/ga3pRve7NqK/C/LzTm1I2A="
   },
   "scfg": {
     "git": "https://github.com/rockorager/tree-sitter-scfg",
@@ -1411,9 +1417,9 @@
   },
   "slint": {
     "git": "https://github.com/slint-ui/tree-sitter-slint",
-    "rev": "b494447aeb10e540b9f0fbde08748c052859e42d",
-    "url": "https://github.com/slint-ui/tree-sitter-slint/archive/b494447aeb10e540b9f0fbde08748c052859e42d.tar.gz",
-    "hash": "sha256-pZP2lSp14gaDnib5GPkB7HqJypnXe9lxMRkxgTLfOos="
+    "rev": "b22bb31bd1cf1dfc47e7432197a9474b62d05b14",
+    "url": "https://github.com/slint-ui/tree-sitter-slint/archive/b22bb31bd1cf1dfc47e7432197a9474b62d05b14.tar.gz",
+    "hash": "sha256-jyIE8ca9OTM2i2y32Y0NpaijcoRpf7XMkPIPgW6KBQY="
   },
   "slisp": {
     "git": "https://git.sr.ht/~xguerin/tree-sitter-slisp",
@@ -1477,9 +1483,9 @@
   },
   "ssh_client_config": {
     "git": "https://github.com/metio/tree-sitter-ssh-client-config",
-    "rev": "a641b03515a4bc48938fbf9efe55212de94bef95",
-    "url": "https://github.com/metio/tree-sitter-ssh-client-config/archive/a641b03515a4bc48938fbf9efe55212de94bef95.tar.gz",
-    "hash": "sha256-jDI7WzN0+tMlDQzq59rCXIJDhbVLHiGYX4ZJoLL4Mjw="
+    "rev": "23c00eb36c3658b428433a1d1139fb120d0539ac",
+    "url": "https://github.com/metio/tree-sitter-ssh-client-config/archive/23c00eb36c3658b428433a1d1139fb120d0539ac.tar.gz",
+    "hash": "sha256-h96WjNlZYbG/5H5+GJ22lKvEkClK0/cyujdHPPUNUWM="
   },
   "strace": {
     "git": "https://github.com/sigmaSd/tree-sitter-strace",
@@ -1492,6 +1498,12 @@
     "rev": "bba07bd4d41835e3e5f456a9603ce601b1be1937",
     "url": "https://github.com/manueldiagostino/tree-sitter-strictdoc/archive/bba07bd4d41835e3e5f456a9603ce601b1be1937.tar.gz",
     "hash": "sha256-/zxUYli8gYDAekMuK7ScldaKo25rotwJSoxowaqb3qA="
+  },
+  "structurizr": {
+    "git": "https://github.com/sinon/tree-sitter-structurizr",
+    "rev": "301152e1207534e792c0cd0aaea3436e2e26984c",
+    "url": "https://github.com/sinon/tree-sitter-structurizr/archive/301152e1207534e792c0cd0aaea3436e2e26984c.tar.gz",
+    "hash": "sha256-um70KQxKn8pBK1+Tt1e3M5criQJV4reFdGFWFKYZ+qY="
   },
   "styx": {
     "git": "https://github.com/bearcove/styx",
@@ -1525,15 +1537,15 @@
   },
   "systemverilog": {
     "git": "https://github.com/gmlarumbe/tree-sitter-systemverilog",
-    "rev": "08c5e379b9b6022d4c433a9249e6d54dedd051ba",
-    "url": "https://github.com/gmlarumbe/tree-sitter-systemverilog/archive/08c5e379b9b6022d4c433a9249e6d54dedd051ba.tar.gz",
-    "hash": "sha256-rwTmnpyVvSNdQ3ZjYpfvbsTWRiQ8LyQC0ecf6m8k8aA="
+    "rev": "73d7620ffdc467aab3c2089be9be5cbbc1be2eaa",
+    "url": "https://github.com/gmlarumbe/tree-sitter-systemverilog/archive/73d7620ffdc467aab3c2089be9be5cbbc1be2eaa.tar.gz",
+    "hash": "sha256-1aEMosljSpAysrVm9Kdzsv3gsBB/psIgcz0Igd2PsOs="
   },
   "t32": {
     "git": "https://gitlab.com/xasc/tree-sitter-t32",
-    "rev": "11947ac01ba681fb6f62667cb1447354833f4a5b",
-    "url": "https://gitlab.com/api/v4/projects/xasc%2Ftree-sitter-t32/repository/archive.tar.gz?sha=11947ac01ba681fb6f62667cb1447354833f4a5b",
-    "hash": "sha256-KQFy57fv/Z3UV9jTPot/19e5uzO+bANodwXmPLh141k="
+    "rev": "ee52a02aa28820bd01f448f056fa8a20a55ae254",
+    "url": "https://gitlab.com/api/v4/projects/xasc%2Ftree-sitter-t32/repository/archive.tar.gz?sha=ee52a02aa28820bd01f448f056fa8a20a55ae254",
+    "hash": "sha256-SsLjQVyISyWdszSQ+7DeHzwvG0VSmJfUz+CNk2Dcja8="
   },
   "tablegen": {
     "git": "https://github.com/Flakebi/tree-sitter-tablegen",
@@ -1555,9 +1567,9 @@
   },
   "tcl": {
     "git": "https://github.com/tree-sitter-grammars/tree-sitter-tcl",
-    "rev": "850a72ab6436e06645b33b11cfa60cbdb04b1f01",
-    "url": "https://github.com/tree-sitter-grammars/tree-sitter-tcl/archive/850a72ab6436e06645b33b11cfa60cbdb04b1f01.tar.gz",
-    "hash": "sha256-TTu8fbX9M5ivcUr8PdSgtKugs3K/MBkrxM/wDVrPVPo="
+    "rev": "90e87ed495a04fd0bf18db4be12b7033cd7402f6",
+    "url": "https://github.com/tree-sitter-grammars/tree-sitter-tcl/archive/90e87ed495a04fd0bf18db4be12b7033cd7402f6.tar.gz",
+    "hash": "sha256-FYvQi9RoTheVgcjmMHHRGrK99Ud91V4WhbhKJ7qZN1M="
   },
   "teal": {
     "git": "https://github.com/euclidianAce/tree-sitter-teal",
@@ -1615,9 +1627,9 @@
   },
   "tql": {
     "git": "https://github.com/tenzir/tree-sitter-tql",
-    "rev": "90c5ce2bbda14ca044d1dd4453a7eec0f892af04",
-    "url": "https://github.com/tenzir/tree-sitter-tql/archive/90c5ce2bbda14ca044d1dd4453a7eec0f892af04.tar.gz",
-    "hash": "sha256-ZeFS16h2AuH1z9Nn186L9bGgKjq/br4PQziv0fsNUno="
+    "rev": "caef7097a75e75c677205de931b56ba4825985ed",
+    "url": "https://github.com/tenzir/tree-sitter-tql/archive/caef7097a75e75c677205de931b56ba4825985ed.tar.gz",
+    "hash": "sha256-jUdAkWQtMQk+3PEs6irid0B6VfBaoZQ68V7QR+S+0bQ="
   },
   "tsx": {
     "git": "https://github.com/tree-sitter/tree-sitter-typescript",
@@ -1699,9 +1711,9 @@
   },
   "vhdl": {
     "git": "https://github.com/jpt13653903/tree-sitter-vhdl",
-    "rev": "0d5d60b269c7f9861c2bada7cef58fe62e6e7879",
-    "url": "https://github.com/jpt13653903/tree-sitter-vhdl/archive/0d5d60b269c7f9861c2bada7cef58fe62e6e7879.tar.gz",
-    "hash": "sha256-aoHTIMD9uLX9A9cIWocufx81/vOK9la79wp5qj8FcRw="
+    "rev": "9227191efb27264fd10544936126a26cb21522da",
+    "url": "https://github.com/jpt13653903/tree-sitter-vhdl/archive/9227191efb27264fd10544936126a26cb21522da.tar.gz",
+    "hash": "sha256-5LRJsj9CYlp2pX8mpGJinzqRutVriFPEUL/uLmILoiw="
   },
   "vhs": {
     "git": "https://github.com/charmbracelet/tree-sitter-vhs",

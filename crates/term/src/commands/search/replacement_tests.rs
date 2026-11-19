@@ -162,21 +162,21 @@ async fn replacement_hints_follow_current_bindings_and_picker_state() -> anyhow:
     assert!(frame.contains("<ret> replace one"));
     assert!(frame.contains("<C-ret> replace all"));
 
-    let keys = &mut h.config.component_keys.picker.0;
+    let keys = &mut h.config.component_keys.picker.bindings;
     keys.insert("A-r".parse()?, Binding::Unbound);
     keys.insert(
         "F4".parse()?,
-        Binding::Actions(vec![PickerAction::ToggleReplacement]),
+        Binding::Action(PickerAction::ToggleReplacement),
     );
     keys.insert("A-c".parse()?, Binding::Unbound);
     keys.insert("C-ret".parse()?, Binding::Unbound);
     keys.insert("Meta-ret".parse()?, Binding::Unbound);
     keys.insert(
         "F5".parse()?,
-        Binding::Keys(Keymap(std::collections::HashMap::from([(
-            "a".parse()?,
-            Binding::Actions(vec![PickerAction::ReplaceAll]),
-        )]))),
+        Binding::Node(Keymap::new(
+            "",
+            indexmap::IndexMap::from([("a".parse()?, Binding::Action(PickerAction::ReplaceAll))]),
+        )),
     );
     let frame = h.frame_at(200, 24);
     assert!(frame.contains("<F4> switch input"));
@@ -478,7 +478,7 @@ async fn case_toggle_requeries_and_replacement_prompt_owns_register_input() -> a
         .get_status()
         .unwrap()
         .0
-        .contains("Wait for search"));
+        .contains("Wait for global search"));
     h.settle().await?;
     assert_eq!(h.count(), 1);
     h.app.editor.registers.push('r', "!".into())?;

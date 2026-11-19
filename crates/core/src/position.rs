@@ -57,10 +57,6 @@ impl Position {
         Self { row, col }
     }
 
-    pub const fn is_zero(self) -> bool {
-        self.row == 0 && self.col == 0
-    }
-
     // TODO: generalize
     pub fn traverse(self, text: &crate::Tendril) -> Self {
         let Self { mut row, mut col } = self;

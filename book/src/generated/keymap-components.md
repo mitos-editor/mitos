@@ -139,7 +139,6 @@
 | `` <A-k> ``, `` <A-up> `` | `` preview_scroll_up `` |
 | `` <C-ret> ``, `` <Meta-ret> `` | `` replace_all `` |
 | `` <A-c> `` | `` toggle_case_sensitive `` |
-| `` <C-l> `` | `` toggle_loading `` |
 | `` <C-t> `` | `` toggle_preview `` |
 | `` <A-r> `` | `` toggle_replacement `` |
 
@@ -153,6 +152,7 @@
 | `` <C-v> `` | `` accept_vertical_split `` |
 | `` <C-c> ``, `` <esc> `` | `` cancel `` |
 | `` <A-n> `` | `` create_worktree `` |
+| `` <A-l> `` | `` lock_worktree `` |
 | `` <C-n> ``, `` <tab> ``, `` <down> `` | `` move_down `` |
 | `` <end> `` | `` move_end `` |
 | `` <home> `` | `` move_start `` |
@@ -168,9 +168,9 @@
 | `` <A-d> `` | `` remove_worktree `` |
 | `` <C-ret> ``, `` <Meta-ret> `` | `` replace_all `` |
 | `` <A-c> `` | `` toggle_case_sensitive `` |
-| `` <C-l> `` | `` toggle_loading `` |
 | `` <C-t> `` | `` toggle_preview `` |
 | `` <A-r> `` | `` toggle_replacement `` |
+| `` <A-u> `` | `` unlock_worktree `` |
 
 ## Stash picker
 
@@ -356,6 +356,7 @@
 | `` <C-a> ``, `` <home> `` | `` move_start `` |
 | `` <A-b> ``, `` <C-left> `` | `` move_word_left `` |
 | `` <A-f> ``, `` <C-right> `` | `` move_word_right `` |
+| `` <A-r> `` | `` toggle_search_syntax `` |
 
 ## Completion menu
 

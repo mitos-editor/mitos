@@ -374,6 +374,36 @@ mod tests {
     }
 
     #[test]
+    fn relative_watchers_accept_file_uris_without_authority() {
+        #[cfg(not(windows))]
+        let (base_uri, base) = (
+            "file:/tmp/mitos%20project/",
+            Path::new("/tmp/mitos project"),
+        );
+        #[cfg(windows)]
+        let (base_uri, base) = (
+            "file:/C:/tmp/mitos%20project/",
+            Path::new(r"C:\tmp\mitos project"),
+        );
+        let options = serde_json::from_value(serde_json::json!({
+            "watchers": [{
+                "globPattern": { "baseUri": base_uri, "pattern": "*.java" }
+            }]
+        }))
+        .unwrap();
+        let mut state = State::default();
+        let id = LanguageServerId::default();
+        state.register(id, Weak::new(), "java-project".into(), options);
+
+        let path = stdx::path::canonicalize_existing(base).join("Main.java");
+        state.queue([(path.as_path(), lsp::FileChangeType::CHANGED)]);
+
+        let pending = &state.clients[&id].pending;
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending[0].uri, lsp::Url::from_file_path(path).unwrap());
+    }
+
+    #[test]
     fn relative_patterns_escape_the_base_and_obey_directory_boundaries() {
         let base = stdx::path::canonicalize_existing(&std::env::temp_dir()).join("project[1]");
         let glob = watcher_glob(lsp::GlobPattern::Relative(lsp::RelativePattern {

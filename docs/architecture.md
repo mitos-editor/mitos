@@ -32,6 +32,7 @@ Features live with the state they change; frontends adapt input and present resu
 | `file-watch` | Native watches, ignore filtering, coverage, and metadata polling |
 | `spelling` | Dictionary operations, scanning, suggestions, and word persistence |
 | `lsp`, `dap`, `vcs` | Language-server, debugger, and repository integration |
+| `lsp-types` | Vendored Language Server Protocol data types and wire-format tests |
 | `debugger` | Session membership and selection history, thread/frame transitions, and breakpoint models |
 | `dap-types` | Debug Adapter Protocol data types |
 | `command-line`, `parsec`, `snippets` | Command argument parsing, parser combinators, and snippet parsing/state |
@@ -54,8 +55,10 @@ bindings and lifecycle transitions. Startup, execution, inspection, and shutdown
 retain separate cancellation scopes; shutdown results do not depend on thread or
 frame selection. `view` owns request cancellation, workspace trust, callbacks, and source
 navigation. Debugger widgets and launch prompts belong to `term`.
-Component keymap parsing and prefix lookup live in `ui-core`; action definitions,
-defaults, configuration composition, and execution belong to `term`. Buffer picker
+Editor and component keymaps share tree storage, parsing, merging, and prefix lookup
+in `ui-core`. Terminal parsing policy retains command labels and macro restrictions;
+component policy retains `no_op` and `unbound` actions. Action definitions, defaults,
+configuration composition, and execution belong to `term`. Buffer picker
 item actions call editor lifecycle operations from `term::commands::buffers`.
 Editor mode keymaps and their menu and binding labels also belong to `term`,
 where static commands, typable commands, and macros are resolved and executed.
@@ -129,6 +132,9 @@ catalogs and feature wiring are static; this organization does not require a plu
 The `workspace` crate depends only on `stdx`; applications supply its trust-store
 directory. Configuration migration
 passes explicit file changes to trust policy without a dependency back on `loader`.
+`ResolvedWorkspace` records both the root and whether discovery found a marker.
+Resolve again when directories or markers may have changed; an editor's cached
+workspace is not a substitute for fresh discovery at those boundaries.
 
 ## Core
 
@@ -273,7 +279,12 @@ Selection edits and interactive history in `view::editing` take a document and a
 `ViewId`; committing text uses `Document::commit_changes`. These operations do not
 need a concrete view or synchronize its navigation state. `Editor` coordinates
 focused replacement, literal/register paste, history replay, and checkpoints,
-then synchronizes the view's jump history after a successful operation. Callers
+then synchronizes the view's jump history after a successful operation. `JumpList`
+owns both stored selections and their committed document revisions. Pushes,
+traversal, and picker entries resolve through that owner; readonly review refresh
+supplies its explicit delta because derived buffers have no editable history.
+Edit-boundary synchronization remains necessary to preserve anchors across
+deletion and undo, even when no jump is visited between them. Callers
 working with another view explicitly synchronize it at the coordination boundary.
 Viewport layout and scrolling continue to require a concrete view.
 `Editor::scroll_view` targets a split by ID without temporarily changing focus.
@@ -631,14 +642,18 @@ View and selection snapshots return validated references for feature policy chec
 they also provide the target IDs and cancellation handle used by publication.
 Focus, mode, provider choice, handler ownership, and viewport coverage stay in the
 feature. Ordinary completion retains its savepoint-based session, which remains
-valid across typing. Menu previews own isolated rendering documents: text, syntax,
-selections, and mapped caches are copied without live services. Acceptance alone
-changes the live document.
+valid across typing. Menu previews own `document::Presentation`: proposed text,
+syntax, selections, and mapped display caches, without document services or request
+controllers. `PresentedDocument` borrows either live or proposed values for rendering;
+source metadata is accessed explicitly. Its buffer supplies snapshot identity for
+renderer caches without recording edit history. Acceptance alone changes the live
+document.
 
 Document colors, links, highlights, code-action hints, and symbols/breadcrumbs
-have state modules under `view/src/features/`. Each groups its cache, request
-controllers, and attached scheduling handle. Pull diagnostics keeps its handle
-with its diagnostic state. Diagnostic collections and edit mapping belong to the `diagnostics` crate;
+have state modules under `view/src/features/`. Each groups its cache and request
+controllers. Hook-only scheduling handles belong to the editor's finalized
+`DocumentServices` binding, including pull diagnostics; their hooks retain only
+weak references. Diagnostic collections and edit mapping belong to the `diagnostics` crate;
 raw LSP caching, both conversion directions, push/pull publication,
 and provider cleanup live in its `protocol` module. Frontends read diagnostics
 through immutable accessors. Removing a view cancels its per-view work; dropping a
@@ -689,11 +704,16 @@ is mapped through edits and consumed when a view next displays the document.
 
 `term::application` retains application state, shutdown, signals, and the event
 loop. Its private modules separate startup, live configuration, editor/terminal
-event adaptation, LSP presentation and dispatch, and frame rendering. Adapter
+event adaptation, LSP presentation, and frame rendering. Adapter
 methods remain available through `Application`; component state stays private.
 
-`term::Application` decodes incoming notifications and calls these operations;
-exit status text, progress displays, and interactive prompts stay in the frontend.
+`Editor::handle_language_server_message` decodes incoming LSP messages, applies
+editor effects, and sends ordinary replies and protocol errors. It returns concrete
+`view::handlers::lsp::HostAction` values for progress, messages, choices, and document
+display. `term::Application` presents these actions and owns prompt, focus, and
+external-URL policy. Interactive requests carry a consume-once `DeferredReply`
+weakly bound to the original client instance. Completion checks that the client is
+still active in the same editor; dropping or replacing a prompt sends no reply.
 `view::features::lsp_progress` owns work tokens and completion-triggered diagnostic
 refreshes. It processes notifications even while a prompt suppresses status text,
 and server cleanup removes its tokens. Terminal spinners follow the shared active
@@ -704,8 +724,8 @@ application results, and dynamic file-watcher registration. It uses the server's
 negotiated position encoding, preserves partial edit failures, and adds relative
 watch roots before registering interests. `lsp::Client::configuration` resolves
 ordered configuration sections; workspace folders remain on the client.
-`term::Application` decodes requests, calls these typed operations, and serializes
-and sends replies. Diagnostic refresh uses the existing shared pull-diagnostic
+The editor's inbound dispatcher calls these typed operations and serializes their
+replies. Diagnostic refresh uses the existing shared pull-diagnostic
 entry point. Unsupported capability registrations retain their compatibility
 acknowledgement; progress presentation and interactive requests stay with the frontend.
 
@@ -770,8 +790,8 @@ in `term`.
 
 `view::features::code_action_hint` owns debounced code-action availability checks
 for each document/view. `view::action::code_actions_for_range` builds LSP requests
-for hints, interactive actions, and actions on save. Documents retain hint state,
-cancellation controllers, and their editor's scheduling handle. Selection,
+for hints, interactive actions, and actions on save. Documents retain hint state
+and cancellation controllers; the editor owns the scheduling handle. Selection,
 document, diagnostic, and configuration changes invalidate pending results;
 publication also checks the view, document snapshot, and server attachment.
 Spelling findings provide hints even without an LSP server. Statusline and gutter
@@ -807,10 +827,14 @@ Feature modules group a feature's state, request policy, and lifecycle wiring.
 Hover keeps those together in `features/hover.rs`. Inlay hints, document colors,
 links, highlights, symbols, and code lenses each group cache/edit mapping in
 `features/<feature>/state.rs` with request coordination in `requests.rs`.
-`Document` owns typed feature state and delegates view cleanup and edit mapping to
-it; `Handlers` binds each state to its editor's coordinator. Cache and scheduling
+`Document` and `DocumentViewState` own typed feature state and delegate edit mapping
+to it; `Handlers` binds document state to its editor's coordinator. Cache and scheduling
 internals stay within the feature. Cache-only clears preserve replacement requests;
 invalidation methods explicitly own request cancellation.
+Feature providers come from `Document::language_servers_with_feature`, which
+filters routing and capabilities before yielding each attached server once in
+configured order. Consumers retain server identities for response freshness;
+they do not repeat provider deduplication.
 Document annotation types retain their intentional public facade in `document`.
 All feature callers use `features` directly; there are no legacy handler aliases.
 `handlers` composes the services and retains the LSP/DAP protocol bridges and
@@ -975,8 +999,9 @@ transaction selection is installed before observers inspect the new state.
 with an explicit selection; selection-only transactions publish only selection changes.
 
 LSP synchronization is a required step on the mutation path. Normal edits queue
-`didChange` before observers may request results. Completion presentation copies
-do not enter the live mutation path or send protocol notifications. Server initialization queues configuration and
+`didChange` before observers may request results. Completion presentations share
+selection, syntax, and annotation mapping with live edits, but do not enter the live
+mutation path or send protocol notifications. Server initialization queues configuration and
 `didOpen` before feature observers run. Closing a document queues `didClose`
 before close observers run. These guarantees do not depend on hook registration order.
 
@@ -1004,10 +1029,12 @@ application manually must apply requests taken with `take_config_request` before
 accepting more input.
 
 Configure a `Handlers` value before passing it to `Editor::new`. The editor owns
-it and exposes `Editor::handlers()` for reading and scheduling work. All new
-documents receive their service bindings through `Handlers::attach_document`
-before syntax initialization or document-open events. A frontend cannot replace
-owned handler fields directly.
+it and exposes `Editor::handlers()` for reading and scheduling work. Construction
+binds document hooks to the final configured services without changing observer
+order. `Handlers::attach_document` installs the event hub, signals, and the direct
+syntax, blame, and inline-completion dependencies before syntax initialization or
+document-open events. Standalone and readonly documents do not schedule editing
+features through these hooks. A frontend cannot replace owned handler fields directly.
 
 Services are configured before the editor opens documents. Terminal fixtures use
 `AppBuilder::with_handler_setup`, which delegates to
@@ -1107,11 +1134,12 @@ completion applies the written revision and path through
 returning the first failure. Required frontend jobs likewise finish their callbacks
 and followups before reporting an error.
 
-The LSP client uses upstream `lsp-types` wire definitions. `lsp::UriExt` adapts
+The LSP client uses wire definitions maintained in `crates/lsp-types`, vendored
+from the Mitos fork with its MIT license and protocol tests. `lsp::UriExt` adapts
 protocol URIs through `stdx` for the editor's RFC3986 file encoding and path
 conversion. Symbol queries expose one normalized editor location per symbol. Icon names
 belong to the frontend; the client advertises the supported wire kinds without
-extending protocol types. Incoming URI syntax is validated by the upstream
+extending protocol types. Incoming URI syntax is validated by the protocol
 wire type; editor navigation additionally requires an absolute URI.
 
 ## Protocol and repository integrations
@@ -1228,8 +1256,8 @@ errors. The command catalog remains static.
 ## Terminal rendering
 
 Native change review uses immutable source-mapped rows from `text-diff`.
-`view::features::change_review` captures Git and buffer inputs, language and
-engine policy, and a shared execution budget. Full reviews are pathless,
+`view::features::change_review` captures Git and buffer inputs, source
+language resources, and a shared execution budget. Full reviews are pathless,
 read-only `Document`s in the ordinary pane tree. Their coordinator owns snapshots,
 cancellation, and publication; callbacks target a document rather than the focused
 view. `buffer::Buffer::apply_without_history` advances text identity without
@@ -1239,17 +1267,20 @@ saves enforce the document's content policy independently of terminal keybinding
 `Document::display_metadata` exposes source paths and buffer kinds independently
 of filesystem identity. Review names contain only the source and comparison;
 independent snapshots have stable instance numbers. The editor disambiguates tab
-labels across its document set, while the terminal renders live comparison counts,
-engine, and loading state in the statusline.
+labels across its document set, while the terminal renders live comparison counts
+and loading state in the statusline.
 
 `term::ui::change_review` retains compact picker/popup presentation and supplies
 review-specific line backgrounds and token overlays to the normal editor renderer.
-Review sources cache separately parsed before/after syntax trees, initialized by
-the owning review worker with the ordinary language loader and parse budgets.
+Review sources cache one comparison and the before/after syntax trees initialized
+by the owning worker with the ordinary language loader and parse budgets.
+`text-diff` reuses those trees for bounded, automatic syntax emphasis, so review
+comparison and highlighting share the same parses. Missing or unusable syntax
+keeps exact textual emphasis without configuration or an engine selector.
 The terminal queries visible source ranges and maps syntax styles onto review
 rows; injected languages and multiline context come from the complete snapshots.
-Highlight scopes resolve against the current theme, independently of diff-engine
-selection. Unified rows never become a source syntax tree or bind source services.
+Highlight scopes resolve against the current theme. Unified rows never become a
+source syntax tree or bind source services.
 Shared gutter layout and drawing use the same projected source rows. Review
 buffers reuse native movement, search, selection, yanking, view navigation, and
 buffer lifecycle. Source navigation validates the captured after-side before
@@ -1407,10 +1438,14 @@ helpers configure its command arguments, TOML language definitions, log paths,
 and initialization gates; each feature suite keeps its response scenarios and
 assertions explicit.
 
-Place algorithm tests in the owning feature crate. Reuse existing fixtures and
-keep assertions about observable behavior; moving code alone does not require a
-new test. Changes to async ownership need coverage for queued callbacks as well
-as in-flight requests.
+Keep the detailed behavior matrix in the owning crate. Higher layers test their
+own contracts: for example, core covers line movement, view covers selection and
+undo state, and terminal tests cover bindings, counts, and command composition.
+Keep regression cases for distinct behavior; remove copies already exercised at
+the same boundary. Reuse existing fixtures and assert observable behavior.
+Moving code alone does not require a new test, and upstream widget behavior does
+not need a local duplicate. Changes to async ownership need coverage for queued
+callbacks as well as in-flight requests.
 
 Debugger integration fixtures share DAP framing, response envelopes, breakpoint
 verification, variable data, and named reply gates from
@@ -1497,13 +1532,19 @@ protocol sessions, cancellation, and view bindings remain editor-level checks.
 
 ## Document/view state
 
-Each document owns one `DocumentViewState` per bound view, containing its selection,
-viewport position, jump labels, append cursor restoration, and structural selection history. Initialization
-preserves existing records; removal drops them together while feature coordinators
-cancel their own requests. Selection and viewport anchors map through each edit before observers
-run. Optional selection lookup and read-only iterators expose the state without
-parallel maps. Revision-keyed cursor history remains document-owned so undo in
-another split can restore the original selection after its originating view closes.
+Each document owns one `DocumentViewState` per bound view. It contains selection,
+viewport position, jump labels, cursor restoration, selection history, and
+view-scoped feature state. Inlay hints, highlights, code-action availability, and
+breadcrumbs live here rather than in separate maps. Initialization preserves
+existing records; removing a record drops its caches and request controllers
+together. Presentation copies retain display state without live request controllers.
+
+Feature coordinators and document-wide caches remain at document scope. Inline
+completion and link-following are single active sessions tagged with their
+originating view; closing that view explicitly cancels the session. Selection and
+viewport anchors map through edits before observers run. Revision-keyed cursor
+history remains document-owned so undo in another split can restore the original
+selection after its originating view closes.
 
 History navigation plans its steps without moving the current revision. Each
 applied step advances the text, text version, and history cursor together before

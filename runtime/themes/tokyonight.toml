@@ -18,6 +18,8 @@ attribute = { fg = "cyan" }
 comment = { fg = "comment", modifiers = ["italic"] }
 "comment.block.documentation" = { fg = "yellow" }
 "comment.line.documentation" = { fg = "yellow" }
+# Doc comments as classified by language servers.
+"comment.documentation" = { fg = "yellow" }
 constant = { fg = "orange" }
 "constant.builtin" = { fg = "aqua" }
 "constant.character" = { fg = "light-green" }
@@ -113,6 +115,7 @@ hint = { fg = "hint" }
 "ui.virtual.ruler" = { bg = "fg-gutter" }
 "ui.virtual.whitespace" = { fg = "fg-gutter" }
 "ui.virtual.inlay-hint" = {  bg = "bg-inlay", fg = "teal" }
+"ui.virtual.inline-blame" = { fg = "comment" }
 "ui.virtual.jump-label" = {  fg = "orange", modifiers = ["bold"] }
 "ui.window" = { fg = "border", modifiers = ["bold"] }
 

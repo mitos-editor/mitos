@@ -50,6 +50,10 @@ impl<'a> CodeLensDecoration<'a> {
 }
 
 impl Decoration for CodeLensDecoration<'_> {
+    fn can_skip_unwrapped_tail(&self) -> bool {
+        self.ready.is_none()
+    }
+
     fn reset_pos(&mut self, pos: usize) -> usize {
         self.ready = None;
         let line = self.text.char_to_line_idx(pos.min(self.text.len_chars()));
@@ -155,6 +159,7 @@ mod tests {
                 range: lsp::Range::default(),
                 data: None,
                 command: Some(lsp::Command {
+                    tooltip: None,
                     title: title.into(),
                     command: "run".into(),
                     arguments: None,
@@ -195,7 +200,7 @@ mod tests {
             ..Default::default()
         };
         decorations.add_decoration(InlineDiagnostics::new(
-            doc,
+            doc.into(),
             &theme,
             0,
             config,
@@ -212,7 +217,7 @@ mod tests {
             &mut renderer,
             doc.text().slice(..),
             0,
-            &doc.text_format(width, Some(&theme)),
+            &doc.text_format(width),
             &text_layout::text_annotations::TextAnnotations::default(),
             std::iter::empty(),
             vec![],

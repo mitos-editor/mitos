@@ -125,6 +125,12 @@ impl Registry {
             .is_some_and(|entry| entry.state == ServerState::Ready)
     }
 
+    pub(crate) fn is_active(&self, id: LanguageServerId) -> bool {
+        self.inner
+            .get(id)
+            .is_some_and(|entry| entry.state != ServerState::Stopping)
+    }
+
     pub(crate) fn begin_stopping(&mut self, id: LanguageServerId) {
         if let Some(entry) = self.inner.get_mut(id) {
             entry.state = ServerState::Stopping;
@@ -493,8 +499,9 @@ pub fn language_server_root(
     doc_path: Option<&Path>,
     root_dirs: &[PathBuf],
 ) -> (PathBuf, Option<Url>) {
-    let (workspace, workspace_is_cwd) = workspace::find_workspace();
-    let workspace = path::normalize(workspace);
+    let workspace = workspace::ResolvedWorkspace::current();
+    let workspace_is_cwd = !workspace.is_workspace();
+    let workspace = path::normalize(workspace.into_root());
     let root = find_lsp_workspace(
         doc_path
             .and_then(|path| path.parent().and_then(Path::to_str))

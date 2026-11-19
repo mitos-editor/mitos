@@ -354,7 +354,7 @@ impl Editor {
 }
 
 /// Each event supplies its owning editor or document queue.
-pub(crate) fn register_hooks(events: &event::EventHub) {
+pub(crate) fn register_hooks(events: &event::EventHub, hooks: crate::handlers::DocumentHooks) {
     register_hook!(events => move |event: &mut DocumentDidOpen<'_>| {
         let doc = doc!(event.editor, &event.doc);
         if !doc.spelling_languages.is_empty() {
@@ -368,10 +368,12 @@ pub(crate) fn register_hooks(events: &event::EventHub) {
 
     register_hook!(events => move |event: &mut DocumentDidChange<'_>| {
         if !event.doc.spelling_languages.is_empty()
-            && let Some(tx) = &event.doc.spelling_events
+            && !event.doc.is_content_readonly()
+            && let Some(services) = hooks.upgrade()
+            && let Some(services) = services.get()
         {
             send_blocking(
-                tx,
+                &services.spelling,
                 SpellingEvent::DocumentChanged {
                     doc: event.doc.id(),
                     changes: event.changes.clone(),

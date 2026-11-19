@@ -23,7 +23,6 @@ pub struct Icons {
     diagnostic: Diagnostic,
     vcs: Vcs,
     dap: Dap,
-    ui: Ui,
 }
 
 impl Icons {
@@ -55,12 +54,6 @@ impl Icons {
     #[must_use]
     pub const fn dap(&self) -> &Dap {
         &self.dap
-    }
-
-    #[inline]
-    #[must_use]
-    pub const fn ui(&self) -> &Ui {
-        &self.ui
     }
 }
 
@@ -222,8 +215,8 @@ impl PartialEq<str> for Icon {
     }
 }
 
-static KIND: LazyLock<Kind> = LazyLock::new(|| Kind {
-    icons: icons! {
+static KIND: LazyLock<HashMap<SmartString, Icon>> = LazyLock::new(|| {
+    icons! {
         "file" => { glyph: "", padding: [1, 2] },
         "folder" => { glyph: "󰉋", padding: [1, 2] },
         "module" => { glyph: "", padding: [1, 2] },
@@ -261,133 +254,102 @@ static KIND: LazyLock<Kind> = LazyLock::new(|| Kind {
         "word" => { glyph: "", padding: [1, 2] },
         "spellcheck" => { glyph: "󰓆", padding: [1, 2] },
         "link" => { glyph: "", padding: [1, 2] },
-    },
+    }
 });
 
 #[derive(Debug, Default, PartialEq, Eq, Clone)]
-pub struct Kind {
-    icons: HashMap<SmartString, Icon>,
-}
+pub struct Kind;
 
 impl Kind {
     #[inline]
     #[must_use]
     pub fn get(&self, kind: &str) -> Option<Icon> {
-        self.icons
-            .get(kind)
-            .or_else(|| KIND.icons.get(kind))
-            .copied()
+        KIND.get(kind).copied()
     }
 
     #[inline]
     #[must_use]
     #[expect(clippy::missing_panics_doc)]
     pub fn color(&self) -> Icon {
-        self.icons
-            .get("color")
-            .or_else(|| KIND.icons.get("color"))
+        KIND.get("color")
             .copied()
             .expect("`color` should be populated in the lazy initializer")
     }
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Default)]
-pub struct Diagnostic {
-    hint: Option<Icon>,
-    info: Option<Icon>,
-    warning: Option<Icon>,
-    error: Option<Icon>,
-}
+pub struct Diagnostic;
 
 impl Diagnostic {
     #[inline]
     #[must_use]
     pub fn hint(&self) -> Icon {
-        self.hint
-            .unwrap_or_else(|| icon!(glyph: "○", padding: [1, 1]))
+        icon!(glyph: "○", padding: [1, 1])
     }
 
     #[inline]
     #[must_use]
     pub fn info(&self) -> Icon {
-        self.info
-            .unwrap_or_else(|| icon!(glyph: "●", padding: [1, 1]))
+        icon!(glyph: "●", padding: [1, 1])
     }
 
     #[inline]
     #[must_use]
     pub fn warning(&self) -> Icon {
-        self.warning
-            .unwrap_or_else(|| icon!(glyph: "▲", padding: [1, 1]))
+        icon!(glyph: "▲", padding: [1, 1])
     }
 
     #[inline]
     #[must_use]
     pub fn error(&self) -> Icon {
-        self.error
-            .unwrap_or_else(|| icon!(glyph: "■", padding: [1, 1]))
+        icon!(glyph: "■", padding: [1, 1])
     }
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Default)]
-pub struct Vcs {
-    branch: Option<Icon>,
-    added: Option<Icon>,
-    removed: Option<Icon>,
-    ignored: Option<Icon>,
-    modified: Option<Icon>,
-    renamed: Option<Icon>,
-    conflict: Option<Icon>,
-}
+pub struct Vcs;
 
 impl Vcs {
     #[inline]
     #[must_use]
-    pub fn branch(&self) -> Option<Icon> {
-        self.branch
-            .or_else(|| Some(icon!(glyph: "", padding: [1, 1])))
+    pub fn branch(&self) -> Icon {
+        icon!(glyph: "", padding: [1, 1])
     }
 
     #[inline]
     #[must_use]
-    pub fn added(&self) -> Option<Icon> {
-        self.added
-            .or_else(|| Some(icon!(glyph: "", padding: [1, 2])))
+    pub fn added(&self) -> Icon {
+        icon!(glyph: "", padding: [1, 2])
     }
 
     #[inline]
     #[must_use]
-    pub fn removed(&self) -> Option<Icon> {
-        self.removed
-            .or_else(|| Some(icon!(glyph: "", padding: [1, 2])))
+    pub fn removed(&self) -> Icon {
+        icon!(glyph: "", padding: [1, 2])
     }
 
     #[inline]
     #[must_use]
-    pub fn ignored(&self) -> Option<Icon> {
-        self.ignored
-            .or_else(|| Some(icon!(glyph: "", padding: [1, 2])))
+    pub fn ignored(&self) -> Icon {
+        icon!(glyph: "", padding: [1, 2])
     }
 
     #[inline]
     #[must_use]
-    pub fn modified(&self) -> Option<Icon> {
-        self.modified
-            .or_else(|| Some(icon!(glyph: "", padding: [1, 2])))
+    pub fn modified(&self) -> Icon {
+        icon!(glyph: "", padding: [1, 2])
     }
 
     #[inline]
     #[must_use]
-    pub fn renamed(&self) -> Option<Icon> {
-        self.renamed
-            .or_else(|| Some(icon!(glyph: "", padding: [1, 2])))
+    pub fn renamed(&self) -> Icon {
+        icon!(glyph: "", padding: [1, 2])
     }
 
     #[inline]
     #[must_use]
-    pub fn conflict(&self) -> Option<Icon> {
-        self.conflict
-            .or_else(|| Some(icon!(glyph: "", padding: [1, 2])))
+    pub fn conflict(&self) -> Icon {
+        icon!(glyph: "", padding: [1, 2])
     }
 }
 
@@ -1116,226 +1078,25 @@ impl Directory {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Default)]
-pub struct Dap {
-    verified: Option<Icon>,
-    unverified: Option<Icon>,
-    play: Option<Icon>,
-}
+pub struct Dap;
 
 impl Dap {
     #[inline]
     #[must_use]
     pub fn verified(&self) -> Icon {
-        self.verified.unwrap_or_else(|| icon!("●"))
+        icon!("●")
     }
 
     #[inline]
     #[must_use]
     pub fn unverified(&self) -> Icon {
-        self.unverified.unwrap_or_else(|| icon!("○"))
+        icon!("○")
     }
 
     #[inline]
     #[must_use]
     pub fn play(&self) -> Icon {
-        self.play.unwrap_or_else(|| icon!("▶"))
-    }
-}
-
-#[derive(Debug, PartialEq, Eq, Clone, Default)]
-pub struct Ui {
-    workspace: Option<Icon>,
-    gutter: Gutter,
-    r#virtual: Virtual,
-    statusline: Statusline,
-    indicator: Indicator,
-}
-
-impl Ui {
-    /// Returns a workspace diagnostic icon.
-    ///
-    /// If no icon is set in the config, it will return `W` by default.
-    #[inline]
-    #[must_use]
-    pub fn workspace(&self) -> Icon {
-        self.workspace.unwrap_or_else(|| icon!("W"))
-    }
-
-    #[inline]
-    #[must_use]
-    pub const fn gutter(&self) -> &Gutter {
-        &self.gutter
-    }
-
-    #[inline]
-    #[must_use]
-    pub const fn r#virtual(&self) -> &Virtual {
-        &self.r#virtual
-    }
-
-    #[inline]
-    #[must_use]
-    pub const fn statusline(&self) -> &Statusline {
-        &self.statusline
-    }
-
-    #[inline]
-    #[must_use]
-    pub const fn indicator(&self) -> &Indicator {
-        &self.indicator
-    }
-}
-
-#[derive(Debug, PartialEq, Eq, Clone, Default)]
-pub struct Gutter {
-    added: Option<Icon>,
-    modified: Option<Icon>,
-    removed: Option<Icon>,
-}
-
-impl Gutter {
-    #[inline]
-    #[must_use]
-    pub fn added(&self) -> Icon {
-        self.added.unwrap_or_else(|| icon!("▍"))
-    }
-
-    #[inline]
-    #[must_use]
-    pub fn modified(&self) -> Icon {
-        self.modified.unwrap_or_else(|| icon!("▍"))
-    }
-
-    #[inline]
-    #[must_use]
-    pub fn removed(&self) -> Icon {
-        self.removed.unwrap_or_else(|| icon!("▔"))
-    }
-}
-
-#[derive(Debug, PartialEq, Eq, Clone, Default)]
-pub struct Virtual {
-    // Whitespace
-    space: Option<Icon>,
-    nbsp: Option<Icon>,
-    nnbsp: Option<Icon>,
-    tab: Option<Icon>,
-    newline: Option<Icon>,
-    tabpad: Option<Icon>,
-
-    // Soft-wrap
-    wrap: Option<Icon>,
-
-    // Indentation guide
-    indentation: Option<Icon>,
-
-    // Ruler
-    ruler: Option<Icon>,
-}
-
-impl Virtual {
-    #[inline]
-    #[must_use]
-    pub fn space(&self) -> Icon {
-        // Default: U+00B7
-        self.space.unwrap_or_else(|| icon!("·"))
-    }
-
-    #[inline]
-    #[must_use]
-    pub fn nbsp(&self) -> Icon {
-        // Default: U+237D
-        self.nbsp.unwrap_or_else(|| icon!("⍽"))
-    }
-
-    #[inline]
-    #[must_use]
-    pub fn nnbsp(&self) -> Icon {
-        // Default: U+2423
-        self.nnbsp.unwrap_or_else(|| icon!("␣"))
-    }
-
-    #[inline]
-    #[must_use]
-    pub fn tab(&self) -> Icon {
-        // Default: U+2192
-        self.tab.unwrap_or_else(|| icon!("→"))
-    }
-
-    #[inline]
-    #[must_use]
-    pub fn newline(&self) -> Icon {
-        // Default: U+23CE
-        self.newline.unwrap_or_else(|| icon!("⏎"))
-    }
-
-    #[inline]
-    #[must_use]
-    pub fn tabpad(&self) -> Icon {
-        // Default: U+23CE
-        self.tabpad.unwrap_or_else(|| icon!(" "))
-    }
-
-    #[inline]
-    #[must_use]
-    pub fn wrap(&self) -> Icon {
-        // Default: U+21AA
-        self.wrap.unwrap_or_else(|| icon!("↪"))
-    }
-
-    #[inline]
-    #[must_use]
-    pub fn indentation(&self) -> Icon {
-        // Default: U+254E
-        self.indentation.unwrap_or_else(|| icon!("╎"))
-    }
-
-    #[inline]
-    #[must_use]
-    pub fn ruler(&self) -> Icon {
-        // TODO: Default: ┊
-        self.ruler.unwrap_or_else(|| icon!(" "))
-    }
-}
-
-#[derive(Debug, PartialEq, Eq, Clone, Default)]
-pub struct Statusline {
-    separator: Option<Icon>,
-}
-
-impl Statusline {
-    #[inline]
-    #[must_use]
-    pub fn separator(&self) -> Icon {
-        self.separator.unwrap_or_else(|| icon!("│"))
-    }
-}
-
-#[derive(Debug, PartialEq, Eq, Clone, Default)]
-pub struct Indicator {
-    readonly: Option<Icon>,
-    modified: Option<Icon>,
-    insecure: Option<Icon>,
-}
-
-impl Indicator {
-    #[inline]
-    #[must_use]
-    pub fn readonly(&self) -> Icon {
-        self.readonly.unwrap_or_else(|| icon!("[readonly]"))
-    }
-
-    #[inline]
-    #[must_use]
-    pub fn modified(&self) -> Icon {
-        // TODO: ●?
-        self.modified.unwrap_or_else(|| icon!("[+]"))
-    }
-
-    #[inline]
-    #[must_use]
-    pub fn insecure(&self) -> Icon {
-        self.insecure.unwrap_or_else(|| icon!("[⚠]"))
+        icon!("▶")
     }
 }
 

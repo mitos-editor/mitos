@@ -59,8 +59,13 @@ impl WordIndex {
         std::mem::take(&mut self.words);
     }
 
+    /// Return matches from lowest to highest score. Ties have no defined order.
     pub fn matches(&self, pattern: &str, matcher: &mut fuzzy::Matcher) -> Vec<String> {
-        let mut matches = matcher.match_list(pattern, self.words.keys());
+        if pattern.is_empty() {
+            return self.words.keys().map(ToString::to_string).collect();
+        }
+        // Score without sorting first, since we need ascending scores here.
+        let mut matches = matcher.score_list(pattern, self.words.keys());
         matches.sort_unstable_by_key(|(_, score)| *score);
         matches
             .into_iter()
@@ -272,7 +277,38 @@ mod tests {
     use std::collections::HashSet;
 
     use super::*;
+    use fuzzy::{MatchKind, Matcher};
     use quickcheck::{Arbitrary, Gen};
+
+    #[test]
+    fn matches_preserve_candidates_and_score_order() {
+        let mut index = WordIndex::default();
+        index.add_document(
+            &Rope::from_str("parseEntry pathFile prefixFile café Cafe résumé αβγ élan Élan"),
+            || false,
+        );
+
+        for kind in [MatchKind::Text, MatchKind::Path, MatchKind::Completion] {
+            let mut matcher = Matcher::new(kind);
+            for pattern in ["", "p", "pF", "PF", "é", "e", "rés", "γ", "xyz"] {
+                let mut expected = matcher
+                    .match_list(pattern, index.words.keys())
+                    .into_iter()
+                    .map(|(word, _)| word.to_string())
+                    .collect::<Vec<_>>();
+                let mut actual = index.matches(pattern, &mut matcher);
+                let query = matcher.query(pattern);
+                let scores: Vec<_> = actual
+                    .iter()
+                    .map(|word| matcher.score(&query, word).unwrap())
+                    .collect();
+                assert!(scores.is_sorted(), "{kind:?}, {pattern:?}");
+                actual.sort();
+                expected.sort();
+                assert_eq!(actual, expected, "{kind:?}, {pattern:?}");
+            }
+        }
+    }
 
     impl WordIndex {
         fn update(&mut self, old: &Rope, text: &Rope, cancel: impl Fn() -> bool) {

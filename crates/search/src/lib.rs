@@ -14,8 +14,9 @@ mod file_index;
 mod walk;
 pub use file_index::FileIndex;
 use std::{
+    borrow::Cow,
     collections::HashMap,
-    ops::ControlFlow,
+    ops::{ControlFlow, Range},
     path::{Path, PathBuf},
     sync::atomic::{AtomicBool, Ordering},
 };
@@ -43,6 +44,40 @@ impl Search {
                 .multi_line(true)
                 .build(pattern)?,
         })
+    }
+
+    /// Nonempty character ranges within a visible byte range of a search target.
+    /// Retain one character of context on each side so document and word anchors
+    /// do not treat viewport edges as the beginning or end of the document.
+    pub fn match_ranges(
+        &self,
+        text: editor_core::RopeSlice<'_>,
+        visible: std::ops::Range<usize>,
+    ) -> Vec<std::ops::Range<usize>> {
+        let start = text.char_to_byte_idx(text.byte_to_char_idx(visible.start).saturating_sub(1));
+        let end =
+            text.char_to_byte_idx((text.byte_to_char_idx(visible.end) + 1).min(text.len_chars()));
+        let excerpt = text.slice(start..end).to_string();
+        let mut ranges = Vec::new();
+        self.matcher
+            .find_iter_at(excerpt.as_bytes(), visible.start - start, |matched| {
+                if start + matched.start() >= visible.end {
+                    return false;
+                }
+                if !matched.is_empty()
+                    && start + matched.end() <= visible.end
+                    && excerpt.is_char_boundary(matched.start())
+                    && excerpt.is_char_boundary(matched.end())
+                {
+                    ranges.push(
+                        text.byte_to_char_idx(start + matched.start())
+                            ..text.byte_to_char_idx(start + matched.end()),
+                    );
+                }
+                true
+            })
+            .expect("regex matching is infallible");
+        ranges
     }
 
     /// Expand captures into character-indexed edits, optionally for one exact match.
@@ -112,9 +147,11 @@ impl Search {
     /// This does not walk directories or read files from disk.
     pub fn search_document(&self, path: &Path, text: &Rope) -> std::io::Result<Vec<Match>> {
         let mut results = Vec::new();
-        self.run_document(
+        search_file(
+            &mut searcher(),
+            &self.matcher,
             path,
-            text,
+            Some(text),
             || false,
             |matched| {
                 results.push(matched);
@@ -124,22 +161,31 @@ impl Search {
         Ok(results)
     }
 
-    /// Stream matches from an in-memory document, stopping when canceled or the sink stops.
-    pub fn run_document(
+    /// Stream individual matches as character ranges in an in-memory document.
+    pub fn run_document_matches(
         &self,
-        path: &Path,
         text: &Rope,
         cancelled: impl Fn() -> bool,
-        emit: impl FnMut(Match) -> ControlFlow<()>,
-    ) -> std::io::Result<()> {
-        search_file(
-            &mut searcher(),
-            &self.matcher,
-            path,
-            Some(text),
-            cancelled,
-            emit,
-        )
+        mut emit: impl FnMut(Range<usize>) -> ControlFlow<()>,
+    ) {
+        if cancelled() {
+            return;
+        }
+        let haystack = Cow::from(text.slice(..));
+        self.matcher
+            .find_iter(haystack.as_bytes(), |matched| {
+                if cancelled() {
+                    return false;
+                }
+                let start = matched.start();
+                let end = matched.end();
+                // Byte regexes can match inside a UTF-8 scalar, which has no editor position.
+                if !haystack.is_char_boundary(start) || !haystack.is_char_boundary(end) {
+                    return true;
+                }
+                emit(text.byte_to_char_idx(start)..text.byte_to_char_idx(end)).is_continue()
+            })
+            .unwrap();
     }
 
     /// Stream results until traversal finishes, cancellation is requested, or the sink stops.
@@ -515,46 +561,33 @@ mod tests {
     }
 
     #[test]
-    fn document_stream_observes_cancellation_and_sink_stop() {
+    fn document_match_stream_observes_cancellation_and_sink_stop() {
         let search = Search::new("needle", true).unwrap();
-        let text = Rope::from("needle\nneedle\nneedle\n");
+        let text = Rope::from("needle needle needle\n");
+        search.run_document_matches(&text, || true, |_| panic!("search was canceled"));
+
         let count = std::cell::Cell::new(0);
-        search
-            .run_document(
-                Path::new(""),
-                &text,
-                || true,
-                |_| {
-                    count.set(count.get() + 1);
-                    ControlFlow::Continue(())
-                },
-            )
-            .unwrap();
-        assert_eq!(count.get(), 0);
-        search
-            .run_document(
-                Path::new(""),
-                &text,
-                || count.get() == 1,
-                |_| {
-                    count.set(count.get() + 1);
-                    ControlFlow::Continue(())
-                },
-            )
-            .unwrap();
+        search.run_document_matches(
+            &text,
+            || count.get() == 1,
+            |matched| {
+                assert_eq!(matched, 0..6);
+                count.set(count.get() + 1);
+                ControlFlow::Continue(())
+            },
+        );
         assert_eq!(count.get(), 1);
+
         count.set(0);
-        search
-            .run_document(
-                Path::new(""),
-                &text,
-                || false,
-                |_| {
-                    count.set(count.get() + 1);
-                    ControlFlow::Break(())
-                },
-            )
-            .unwrap();
+        search.run_document_matches(
+            &text,
+            || false,
+            |matched| {
+                assert_eq!(matched, 0..6);
+                count.set(count.get() + 1);
+                ControlFlow::Break(())
+            },
+        );
         assert_eq!(count.get(), 1);
     }
 

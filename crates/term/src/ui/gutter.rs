@@ -2,6 +2,7 @@
 
 use std::fmt::Write;
 use stdx::rope::RopeExt as _;
+use view::document::PresentedDocument;
 use view::gutter::width;
 
 use editor_config::GutterType;
@@ -10,14 +11,14 @@ use theme::icons::ICONS;
 use theme::Theme;
 use view::{
     graphics::{Style, StyleExt as _, UnderlineStyle},
-    Document, Editor, View,
+    Editor, View,
 };
 
 type GutterFn<'doc> = Box<dyn FnMut(usize, bool, bool, &mut String) -> Option<Style> + 'doc>;
 pub(super) fn style<'doc>(
     gutter: GutterType,
     editor: &'doc Editor,
-    doc: &'doc Document,
+    doc: PresentedDocument<'doc>,
     view: &View,
     theme: &Theme,
     is_focused: bool,
@@ -33,7 +34,7 @@ pub(super) fn style<'doc>(
 
 fn diagnostic<'doc>(
     editor: &'doc Editor,
-    doc: &'doc Document,
+    doc: PresentedDocument<'doc>,
     _view: &View,
     theme: &Theme,
     _is_focused: bool,
@@ -56,8 +57,13 @@ fn diagnostic<'doc>(
                 .take_while(|d| {
                     d.line == line
                         && d.provider.language_server_id().is_none_or(|id| {
-                            doc.language_servers_with_feature(LanguageServerFeature::Diagnostics)
-                                .any(|ls| ls.id() == id)
+                            doc.is_live()
+                                && doc
+                                    .source()
+                                    .language_servers_with_feature(
+                                        LanguageServerFeature::Diagnostics,
+                                    )
+                                    .any(|ls| ls.id() == id)
                         })
                 });
             diagnostics_on_line.max_by_key(|d| d.severity).map(|d| {
@@ -102,7 +108,11 @@ fn diagnostic<'doc>(
     )
 }
 
-fn code_lens<'doc>(editor: &'doc Editor, doc: &'doc Document, theme: &Theme) -> GutterFn<'doc> {
+fn code_lens<'doc>(
+    editor: &'doc Editor,
+    doc: PresentedDocument<'doc>,
+    theme: &Theme,
+) -> GutterFn<'doc> {
     let info = theme.get("info");
     let enabled = editor.config().lsp.enable && editor.config().lsp.code_lenses.enable;
     Box::new(move |line, _, first_visual_line, out| {
@@ -126,7 +136,7 @@ fn code_lens<'doc>(editor: &'doc Editor, doc: &'doc Document, theme: &Theme) -> 
 
 fn diff<'doc>(
     _editor: &'doc Editor,
-    doc: &'doc Document,
+    doc: PresentedDocument<'doc>,
     _view: &View,
     theme: &Theme,
     _is_focused: bool,
@@ -134,7 +144,7 @@ fn diff<'doc>(
     let added = theme.get("diff.plus.gutter");
     let deleted = theme.get("diff.minus.gutter");
     let modified = theme.get("diff.delta.gutter");
-    if let Some(review) = doc.review() {
+    if let Some(review) = doc.source().review() {
         return Box::new(move |line, _, first, out| {
             if !first {
                 return None;
@@ -163,7 +173,7 @@ fn diff<'doc>(
             Some(styles[side as usize])
         });
     }
-    if let Some(diff_handle) = doc.diff_handle() {
+    if let Some(diff_handle) = doc.source().diff_handle() {
         let hunks = diff_handle.load();
         let mut hunk_i = 0;
         let mut hunk = hunks.nth_hunk(hunk_i);
@@ -207,7 +217,7 @@ fn diff<'doc>(
 
 fn line_numbers<'doc>(
     editor: &'doc Editor,
-    doc: &'doc Document,
+    doc: PresentedDocument<'doc>,
     view: &View,
     theme: &Theme,
     is_focused: bool,
@@ -215,7 +225,7 @@ fn line_numbers<'doc>(
     let text = doc.text().slice(..);
     let width = width(GutterType::LineNumbers, view, doc);
 
-    if let Some(review) = doc.review() {
+    if let Some(review) = doc.source().review() {
         let digits = review.review().line_number_width();
         let normal = theme.get("ui.linenr");
         let selected_style = theme.get("ui.linenr.selected");
@@ -235,7 +245,7 @@ fn line_numbers<'doc>(
         });
     }
 
-    let layout = view.layout(doc, None);
+    let layout = view.layout_presented(doc, None);
     let last_line_in_view = layout.last_document_line();
 
     // Whether to draw the line number for the last line of the
@@ -308,7 +318,7 @@ fn line_numbers<'doc>(
 
 fn padding<'doc>(
     _editor: &'doc Editor,
-    _doc: &'doc Document,
+    _doc: PresentedDocument<'doc>,
     _view: &View,
     _theme: &Theme,
     _is_focused: bool,
@@ -318,7 +328,7 @@ fn padding<'doc>(
 
 fn breakpoints<'doc>(
     editor: &'doc Editor,
-    doc: &'doc Document,
+    doc: PresentedDocument<'doc>,
     _view: &View,
     theme: &Theme,
     _is_focused: bool,
@@ -328,7 +338,7 @@ fn breakpoints<'doc>(
     let breakpoint_style = theme.get("ui.debug.breakpoint");
 
     let breakpoints = editor
-        .debugger_source(doc.id())
+        .debugger_source(doc.source().id())
         .map(|source| editor.debugger_breakpoint_locations(&source))
         .unwrap_or_default();
 
@@ -365,13 +375,13 @@ fn breakpoints<'doc>(
 
 fn execution_pause_indicator<'doc>(
     editor: &'doc Editor,
-    doc: &'doc Document,
+    doc: PresentedDocument<'doc>,
     theme: &Theme,
     is_focused: bool,
 ) -> GutterFn<'doc> {
     let style = theme.get("ui.debug.active");
     let frame_line = editor
-        .debugger_frame_in_document(doc)
+        .debugger_frame_in_document(doc.source())
         .and_then(|frame| view::debugger::source::line_index(frame.line));
 
     Box::new(
@@ -389,7 +399,7 @@ fn execution_pause_indicator<'doc>(
 
 fn diagnostics_or_breakpoints<'doc>(
     editor: &'doc Editor,
-    doc: &'doc Document,
+    doc: PresentedDocument<'doc>,
     view: &View,
     theme: &Theme,
     is_focused: bool,
@@ -409,7 +419,7 @@ fn diagnostics_or_breakpoints<'doc>(
 
 fn code_action_hint<'doc>(
     _editor: &'doc Editor,
-    doc: &'doc Document,
+    doc: PresentedDocument<'doc>,
     view: &View,
     theme: &Theme,
     is_focused: bool,
@@ -418,7 +428,7 @@ fn code_action_hint<'doc>(
     let text = doc.text().slice(..);
     let show_hint = doc.code_action_hints(view.id);
     let current_line = view
-        .layout(doc, None)
+        .layout_presented(doc, None)
         .block_line_at_pos(doc.selection(view.id).primary().cursor(text));
 
     Box::new(

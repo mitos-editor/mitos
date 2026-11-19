@@ -34,9 +34,9 @@ impl<T: Send + Sync + 'static, D: Send + Sync + 'static> Picker<T, D> {
             actions.push((PickerAction::ToggleCaseSensitive, "toggle case"));
         }
         if self
-            .editor_updates
+            .updates
             .as_ref()
-            .is_some_and(|updates| updates.paged)
+            .is_some_and(|updates| updates.kind == super::updates::SourceKind::Paged)
         {
             actions.push((PickerAction::ToggleLoading, "pause / continue / retry"));
         }

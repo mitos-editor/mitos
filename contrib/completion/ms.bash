@@ -21,7 +21,7 @@ _ms() {
 
     case "$2" in
     -*)
-        while IFS= read -r line; do COMPREPLY+=("$line"); done < <(compgen -W "-h --help --strict --tutor -V --version -v -vv -vvv --health -g --grammar --vsplit --hsplit -c --config --migrate-config --stdout --log" -- """$2""")
+        while IFS= read -r line; do COMPREPLY+=("$line"); done < <(compgen -W "-h --help --strict --tutor -V --version -v -vv -vvv --health --summary --no-color -g --grammar --vsplit --hsplit -c --config --migrate-config --stdout --log" -- """$2""")
         return 0
         ;;
     *)

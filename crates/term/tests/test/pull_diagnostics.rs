@@ -2,9 +2,9 @@ use std::{path::Path, time::Duration};
 
 use ::diagnostics::DiagnosticProvider;
 use anyhow::Context as _;
-use editor_core::Transaction;
+use editor_core::{Transaction, Uri};
 use lsp_client::LanguageServerId;
-use serde_json::Value;
+use serde_json::{json, Value};
 use term::application::TestApplication;
 use tokio::sync::mpsc;
 use view::{
@@ -18,6 +18,41 @@ use view::{
 use super::helpers::lsp::{self, Gate, ServerConfig};
 use super::helpers::{test_config, AppBuilder};
 
+fn write_reports(path: &Path, reports: &Value) -> anyhow::Result<()> {
+    // Lock before truncation: the server may still be reading the previous report.
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(path)?;
+    file.lock()?;
+    file.set_len(0)?;
+    serde_json::to_writer(&mut file, reports)?;
+    Ok(())
+}
+
+#[test]
+fn diagnostic_report_updates_preserve_in_flight_readers() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let path = dir.path().join("workspace.json");
+    let original = json!({"hold": true});
+    write_reports(&path, &original)?;
+    let in_flight = std::fs::File::open(&path)?;
+    in_flight.lock_shared()?;
+    let updated = json!({"result": {"items": []}});
+    std::thread::scope(|scope| -> anyhow::Result<()> {
+        let writer = scope.spawn(|| write_reports(&path, &updated));
+        assert_eq!(serde_json::from_reader::<_, Value>(in_flight)?, original);
+        writer.join().expect("diagnostic report writer panicked")?;
+        Ok(())
+    })?;
+    assert_eq!(
+        serde_json::from_reader::<_, Value>(std::fs::File::open(path)?)?,
+        updated
+    );
+    Ok(())
+}
+
 struct Fixture {
     app: TestApplication,
     callbacks: mpsc::Receiver<(bool, EditorCallback)>,
@@ -27,14 +62,37 @@ struct Fixture {
 
 impl Fixture {
     fn new(directory: &Path, word: &str, names: &[&str], inter_file: bool) -> anyhow::Result<Self> {
+        Self::with_workspace(directory, word, names, inter_file, false)
+    }
+
+    fn with_workspace(
+        directory: &Path,
+        word: &str,
+        names: &[&str],
+        inter_file: bool,
+        workspace: bool,
+    ) -> anyhow::Result<Self> {
         let gate = Gate::new(directory.join("initialize-ready"));
         let mut servers = String::new();
         let mut logs = Vec::new();
         for name in names {
-            let mut server =
-                ServerConfig::feature(name, "--diagnostics", directory).initialize_gate(&gate);
+            let related = lsp::log_path(directory, name).with_extension("related.json");
+            std::fs::write(&related, "{}")?;
+            let mut server = ServerConfig::feature(name, "--diagnostics", directory)
+                .initialize_gate(&gate)
+                .arg("--related-diagnostics")
+                .arg(related);
             if inter_file {
                 server = server.arg("--inter-file");
+            }
+            if workspace {
+                let reports = lsp::log_path(directory, name).with_extension("workspace.json");
+                std::fs::write(&reports, r#"{"result":{"items":[]}}"#)?;
+                server = server
+                    .arg("--workspace-diagnostics")
+                    .arg(reports)
+                    .arg("--request-log")
+                    .arg(lsp::log_path(directory, name).with_extension("messages.jsonl"));
             }
             servers.push_str(&server.toml());
             logs.push(lsp::log_path(directory, name));
@@ -138,6 +196,379 @@ impl Fixture {
             .map(|line| Ok(serde_json::from_str(line)?))
             .collect()
     }
+
+    fn related(&self, server: usize, uri: &Uri, report: Value) -> anyhow::Result<()> {
+        let uri = uri.to_url().unwrap().to_string();
+        self.related_reports(server, json!({uri: report}))
+    }
+
+    fn related_reports(&self, server: usize, reports: Value) -> anyhow::Result<()> {
+        write_reports(&self.logs[server].with_extension("related.json"), &reports)
+    }
+}
+
+fn related_report(result_id: Option<&str>, message: Option<&str>) -> Value {
+    let items: Vec<_> = message
+        .map(|message| {
+            json!({
+                "range": {"start": {"line": 0, "character": 3},
+                    "end": {"line": 0, "character": 7}},
+                "severity": 2, "message": message
+            })
+        })
+        .into_iter()
+        .collect();
+    let mut report = json!({"kind": "full", "items": items});
+    if let Some(result_id) = result_id {
+        report["resultId"] = json!(result_id);
+    }
+    report
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn related_reports_update_unopened_files_even_when_the_requested_report_is_unchanged(
+) -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let mut f = Fixture::new(dir.path(), "original", &["alpha"], false)?;
+    let uri = Uri::from(stdx::path::normalize(
+        dir.path().join("related file.pull-test"),
+    ));
+    f.related(
+        0,
+        &uri,
+        related_report(Some("related:1"), Some("related error")),
+    )?;
+    f.initialize().await?;
+    f.publish().await?;
+    assert_eq!(
+        f.app.editor.diagnostics()[&uri][0].0.message.as_str(),
+        "related error"
+    );
+    assert_eq!(f.app.editor.documents().count(), 1);
+
+    f.related(
+        0,
+        &uri,
+        related_report(Some("related:2"), Some("updated error")),
+    )?;
+    f.request();
+    f.publish().await?;
+    assert_eq!(f.messages(), ["alpha: 😀 original"]);
+    assert_eq!(
+        f.app.editor.diagnostics()[&uri][0].0.message.as_str(),
+        "updated error"
+    );
+
+    f.related(
+        0,
+        &uri,
+        json!({"kind": "unchanged", "resultId": "related:2"}),
+    )?;
+    f.request();
+    f.publish().await?;
+    assert_eq!(
+        f.app.editor.diagnostics()[&uri][0].0.message.as_str(),
+        "updated error"
+    );
+
+    f.related(0, &uri, related_report(None, None))?;
+    f.request();
+    f.publish().await?;
+    assert!(f.app.editor.diagnostics()[&uri].is_empty());
+    assert!(f.app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn related_result_ids_follow_the_reported_uri_and_are_cleared_when_absent(
+) -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let mut f = Fixture::new(dir.path(), "original", &["alpha"], false)?;
+    let source = current_ref!(f.app.editor).1.id();
+    let path = dir.path().join("related.pull-test");
+    let uri = Uri::from(stdx::path::normalize(&path));
+    // The fake server returns unchanged when this ID is sent for the related file.
+    f.related(
+        0,
+        &uri,
+        related_report(Some("alpha:0"), Some("cached error")),
+    )?;
+    f.initialize().await?;
+    f.publish().await?;
+    f.related_reports(0, json!({}))?;
+    let related = f.open(&path, "other")?;
+    f.publish().await?;
+    assert_eq!(
+        f.requests(0)?.last().unwrap()["previousResultId"],
+        "alpha:0"
+    );
+    assert_eq!(f.messages(), ["cached error"]);
+    let diagnostic = &current_ref!(f.app.editor).1.diagnostics()[0];
+    assert_eq!((diagnostic.range.start, diagnostic.range.end), (2, 6));
+
+    f.app.editor.switch(source, Action::Replace);
+    f.related(0, &uri, related_report(None, Some("no result id")))?;
+    f.request();
+    f.publish().await?;
+    assert_eq!(
+        f.requests(0)?.last().unwrap()["previousResultId"],
+        "alpha:0"
+    );
+    f.app.editor.switch(related, Action::Replace);
+    assert_eq!(f.messages(), ["no result id"]);
+    f.related_reports(0, json!({}))?;
+    f.request();
+    f.publish().await?;
+    assert!(f.requests(0)?.last().unwrap()["previousResultId"].is_null());
+    assert_eq!(f.messages(), ["alpha: 😀 other"]);
+
+    f.app
+        .editor
+        .set_document_language(related, Some("pull-diagnostic-test"))?;
+    f.publish().await?;
+    assert!(f.requests(0)?.last().unwrap()["previousResultId"].is_null());
+    assert!(f.app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn related_reports_preserve_other_providers() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let mut f = Fixture::new(dir.path(), "original", &["alpha", "beta"], false)?;
+    let uri = Uri::from(stdx::path::normalize(dir.path().join("related.pull-test")));
+    for (server, name) in [(0, "alpha"), (1, "beta")] {
+        f.related(server, &uri, related_report(Some(name), Some(name)))?;
+    }
+    f.initialize().await?;
+    f.publish().await?;
+    f.publish().await?;
+    assert_eq!(f.app.editor.diagnostics()[&uri].len(), 2);
+
+    f.related(0, &uri, related_report(None, None))?;
+    f.related(1, &uri, json!({"kind": "unchanged", "resultId": "beta"}))?;
+    f.request();
+    f.publish().await?;
+    f.publish().await?;
+    let diagnostics = &f.app.editor.diagnostics()[&uri];
+    assert_eq!(diagnostics.len(), 1);
+    assert_eq!(diagnostics[0].0.message.as_str(), "beta");
+    assert!(matches!(&diagnostics[0].1, DiagnosticProvider::Lsp {
+        identifier: Some(id), ..
+    } if id.as_ref() == "beta"));
+    assert!(f.app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn direct_and_related_reports_follow_request_order() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let mut f = Fixture::new(dir.path(), "original", &["alpha"], false)?;
+    f.initialize().await?;
+    f.publish().await?;
+    let source = current_ref!(f.app.editor).1.id();
+    let related = f.open(&dir.path().join("related.pull-test"), "other")?;
+    f.publish().await?;
+    let uri = current_ref!(f.app.editor).1.uri().unwrap();
+
+    f.app.editor.switch(source, Action::Replace);
+    f.related(0, &uri, related_report(Some("stale"), Some("stale error")))?;
+    f.request();
+    let old = f.response().await?;
+    f.related_reports(0, json!({}))?;
+    f.app.editor.switch(related, Action::Replace);
+    f.request();
+    f.publish().await?;
+    old(&mut f.app.editor);
+    assert_eq!(f.messages(), ["alpha: 😀 other"]);
+    f.request();
+    f.publish().await?;
+    assert_eq!(
+        f.requests(0)?.last().unwrap()["previousResultId"],
+        "alpha:0"
+    );
+    // A newer related report must also win over an older direct response.
+    f.request();
+    let old = f.response().await?;
+    f.app.editor.switch(source, Action::Replace);
+    f.related(0, &uri, related_report(Some("newer"), Some("newer error")))?;
+    f.request();
+    f.publish().await?;
+    old(&mut f.app.editor);
+    f.app.editor.switch(related, Action::Replace);
+    assert_eq!(f.messages(), ["newer error"]);
+    f.related_reports(0, json!({}))?;
+    f.request();
+    f.publish().await?;
+    assert_eq!(f.requests(0)?.last().unwrap()["previousResultId"], "newer");
+    assert!(f.app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn related_reports_skip_unsupported_uris_and_uncached_unchanged_reports() -> anyhow::Result<()>
+{
+    let dir = tempfile::tempdir()?;
+    let mut f = Fixture::new(dir.path(), "original", &["alpha"], false)?;
+    let path = dir.path().join("related.pull-test");
+    let uri = Uri::from(stdx::path::normalize(&path));
+    let valid = Uri::from(stdx::path::normalize(dir.path().join("valid.pull-test")));
+    f.related_reports(0, json!({
+        (uri.to_url().unwrap().to_string()): {"kind": "unchanged", "resultId": "alpha:0"},
+        (valid.to_url().unwrap().to_string()): related_report(Some("valid"), Some("valid error")),
+        "https://example.com/unsupported": related_report(None, Some("unsupported"))
+    }))?;
+    f.initialize().await?;
+    f.publish().await?;
+    assert_eq!(
+        f.app.editor.diagnostics()[&valid][0].0.message.as_str(),
+        "valid error"
+    );
+    assert!(!f.app.editor.diagnostics().contains_key(&uri));
+
+    f.related_reports(0, json!({}))?;
+    f.open(&path, "other")?;
+    f.publish().await?;
+    assert!(f.requests(0)?.last().unwrap()["previousResultId"].is_null());
+    assert_eq!(f.messages(), ["alpha: 😀 other"]);
+    assert!(f.app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn related_unchanged_reports_cannot_reuse_a_discarded_result_id() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let mut f = Fixture::new(dir.path(), "original", &["alpha"], false)?;
+    let source = current_ref!(f.app.editor).1.id();
+    let path = dir.path().join("related.pull-test");
+    let uri = Uri::from(stdx::path::normalize(&path));
+    f.related(0, &uri, related_report(Some("old"), Some("old error")))?;
+    f.initialize().await?;
+    f.publish().await?;
+
+    f.related(
+        0,
+        &uri,
+        related_report(Some("discarded"), Some("discarded error")),
+    )?;
+    f.request();
+    let stale = f.response().await?;
+    f.related_reports(0, json!({}))?;
+    let related = f.open(&path, "other")?;
+    let direct = f.response().await?;
+    stale(&mut f.app.editor);
+    assert_eq!(f.messages(), ["old error"]);
+
+    f.app.editor.switch(source, Action::Replace);
+    f.related(
+        0,
+        &uri,
+        json!({"kind": "unchanged", "resultId": "discarded"}),
+    )?;
+    f.request();
+    f.publish().await?;
+    direct(&mut f.app.editor);
+    f.app.editor.switch(related, Action::Replace);
+    assert_eq!(f.messages(), ["alpha: 😀 other"]);
+    f.related_reports(0, json!({}))?;
+    f.request();
+    f.publish().await?;
+    assert_eq!(
+        f.requests(0)?.last().unwrap()["previousResultId"],
+        "alpha:0"
+    );
+    assert!(f.app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn queued_related_reports_validate_the_target_document_lifecycle() -> anyhow::Result<()> {
+    for mutation in ["edit", "rename", "language", "close"] {
+        let dir = tempfile::tempdir()?;
+        let mut f = Fixture::new(dir.path(), "original", &["alpha"], false)?;
+        f.initialize().await?;
+        f.publish().await?;
+        let source = current_ref!(f.app.editor).1.id();
+        let related = f.open(&dir.path().join("related.pull-test"), "other")?;
+        f.publish().await?;
+        let uri = current_ref!(f.app.editor).1.uri().unwrap();
+        f.app.editor.switch(source, Action::Replace);
+        f.related(0, &uri, related_report(Some("stale"), Some("stale error")))?;
+        f.request();
+        let old = f.response().await?;
+        f.app.editor.switch(related, Action::Replace);
+        match mutation {
+            "edit" => f.edit("edited"),
+            "rename" => f
+                .app
+                .editor
+                .set_doc_path(related, &dir.path().join("renamed.pull-test")),
+            "language" => f
+                .app
+                .editor
+                .set_document_language(related, Some("pull-diagnostic-test"))?,
+            "close" => assert!(f.app.editor.close_document(related, true).is_ok()),
+            _ => unreachable!(),
+        }
+        let before = f.app.editor.diagnostics().get(&uri).cloned();
+        old(&mut f.app.editor);
+        assert_eq!(
+            f.app.editor.diagnostics().get(&uri),
+            before.as_ref(),
+            "{mutation}"
+        );
+        assert!(f.app.close().await.is_empty());
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn queued_related_reports_cannot_publish_into_a_newly_opened_document() -> anyhow::Result<()>
+{
+    let dir = tempfile::tempdir()?;
+    let mut f = Fixture::new(dir.path(), "original", &["alpha"], false)?;
+    let path = dir.path().join("related.pull-test");
+    let uri = Uri::from(stdx::path::normalize(&path));
+    f.related(0, &uri, related_report(Some("stale"), Some("stale error")))?;
+    f.initialize().await?;
+    let old = f.response().await?;
+    f.related_reports(0, json!({}))?;
+    f.open(&path, "other")?;
+    old(&mut f.app.editor);
+    assert!(!f.app.editor.diagnostics().contains_key(&uri));
+    f.publish().await?;
+    assert_eq!(f.messages(), ["alpha: 😀 other"]);
+    assert!(f.app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn streamed_document_reports_preserve_diagnostics_related_reports_and_result_ids(
+) -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let mut f = Fixture::new(dir.path(), "stream-diagnostics", &["alpha"], false)?;
+    let uri = Uri::from(stdx::path::normalize(dir.path().join("related.pull-test")));
+    f.related(
+        0,
+        &uri,
+        related_report(Some("related:1"), Some("related error")),
+    )?;
+    f.initialize().await?;
+    f.publish().await?;
+    assert_eq!(f.messages(), ["alpha: 😀 stream-diagnostics"]);
+    assert_eq!(f.raw_messages(&uri), ["related error"]);
+
+    // The primary is unchanged, but a related full report still clears its file.
+    f.related(0, &uri, related_report(None, None))?;
+    f.request();
+    f.publish().await?;
+    assert_eq!(
+        f.requests(0)?.last().unwrap()["previousResultId"],
+        "alpha:0"
+    );
+    assert_eq!(f.messages(), ["alpha: 😀 stream-diagnostics"]);
+    assert!(f.raw_messages(&uri).is_empty());
+    assert!(f.app.close().await.is_empty());
+    Ok(())
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -254,7 +685,7 @@ async fn queued_reports_cannot_publish_after_edits_renames_or_closure() -> anyho
     // state nor the old URI's cache.
     assert_eq!(f.messages(), after_rename);
     assert_eq!(
-        f.app.editor.diagnostics()[&old_uri][0].0.message,
+        f.app.editor.diagnostics()[&old_uri][0].0.message.as_str(),
         "alpha: 😀 updated"
     );
     // Closing before publication must not insert an entry into the global cache.
@@ -264,6 +695,19 @@ async fn queued_reports_cannot_publish_after_edits_renames_or_closure() -> anyho
     assert!(f.app.editor.close_document(id, true).is_ok());
     old(&mut f.app.editor);
     assert!(!f.app.editor.diagnostics().contains_key(&uri));
+    assert!(f.app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn server_cancellation_without_data_retries_document_diagnostics() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let mut f = Fixture::new(dir.path(), "retry-default", &["alpha"], false)?;
+    f.initialize().await?;
+    f.publish().await?;
+    f.publish().await?;
+    assert_eq!(f.messages(), ["alpha: 😀 retry-default"]);
+    assert_eq!(f.requests(0)?.len(), 2);
     assert!(f.app.close().await.is_empty());
     Ok(())
 }
@@ -383,6 +827,526 @@ async fn progress_completion_refreshes_diagnostics_while_a_prompt_is_open() -> a
     f.publish().await?;
     assert_eq!(f.requests(0)?.len(), 2);
     assert_eq!(f.messages(), ["alpha: 😀 original"]);
+    assert!(f.app.close().await.is_empty());
+    Ok(())
+}
+
+fn workspace_report(uri: &Uri, result_id: &str, message: Option<&str>) -> Value {
+    let mut report = related_report(Some(result_id), message);
+    report["uri"] = json!(uri.to_url().unwrap().as_str());
+    report["version"] = Value::Null;
+    report
+}
+
+impl Fixture {
+    fn workspace_reports(&self, server: usize, reports: Value) -> anyhow::Result<()> {
+        write_reports(
+            &self.logs[server].with_extension("workspace.json"),
+            &reports,
+        )
+    }
+
+    fn request_workspace(&mut self, name: &str) {
+        let server = self.server(name);
+        pull::request_workspace_diagnostics(&mut self.app.editor, server);
+    }
+
+    async fn until(&mut self, ready: impl Fn(&Self) -> bool) -> anyhow::Result<()> {
+        tokio::time::timeout(Duration::from_secs(10), async {
+            while !ready(self) {
+                self.publish().await?;
+            }
+            anyhow::Ok(())
+        })
+        .await??;
+        Ok(())
+    }
+
+    fn raw_messages(&self, uri: &Uri) -> Vec<&str> {
+        self.app
+            .editor
+            .diagnostics()
+            .get(uri)
+            .into_iter()
+            .flatten()
+            .map(|(diag, _)| diag.message.as_str())
+            .collect()
+    }
+
+    fn workspace_requests(&self, server: usize) -> anyhow::Result<Vec<Value>> {
+        Ok(lsp::read_log(&self.logs[server])?
+            .into_iter()
+            .filter(|request| request["method"] == "workspace/diagnostic")
+            .collect())
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn closing_diagnostic_pickers_keeps_shared_workspace_pulls_running() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let mut f = Fixture::with_workspace(dir.path(), "original", &["alpha"], false, true)?;
+    let uri = Uri::from(stdx::path::normalize(dir.path().join("unopened.pull-test")));
+    f.workspace_reports(
+        0,
+        json!({
+            "batches": [{"items": [workspace_report(&uri, "shared", Some("background diagnostic"))]}],
+            "hold": true
+        }),
+    )?;
+    f.initialize().await?;
+    f.until(|f| f.raw_messages(&uri) == ["background diagnostic"])
+        .await?;
+    let log = f.logs[0].with_extension("messages.jsonl");
+    let request = lsp::wait_message(&log, "workspace/diagnostic").await?;
+    for input in ["<space>d", "<space>D"] {
+        super::helpers::keys(&mut f.app, input).await?;
+        assert!(super::helpers::screen(&f.app).contains("Diagnostics"));
+        super::helpers::keys(&mut f.app, "<esc>").await?;
+        assert!(!super::helpers::screen(&f.app).contains("Diagnostics"));
+        assert_eq!(f.raw_messages(&uri), ["background diagnostic"]);
+    }
+    assert_eq!(f.workspace_requests(0)?.len(), 1);
+    assert!(!lsp::read_log(&log)?.iter().any(|message| {
+        message["method"] == "$/cancelRequest" && message["params"]["id"] == request["id"]
+    }));
+    assert!(f.app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn failed_workspace_pulls_discard_streamed_reports_and_result_ids() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let mut f = Fixture::with_workspace(dir.path(), "original", &["alpha", "beta"], false, true)?;
+    let uri = Uri::from(stdx::path::normalize(dir.path().join("unopened.pull-test")));
+    f.workspace_reports(
+        0,
+        json!({
+            "batches": [{"items": [workspace_report(&uri, "failed", Some("failed partial"))]}],
+            "error": {"code": -32603, "message": "diagnostic request failed"}
+        }),
+    )?;
+    f.workspace_reports(
+        1,
+        json!({
+            "batches": [{"items": [workspace_report(&uri, "beta", Some("other provider"))]}],
+            "hold": true
+        }),
+    )?;
+    f.initialize().await?;
+    // Two direct reports, alpha's partial and failure, and beta's partial report.
+    for _ in 0..5 {
+        f.publish().await?;
+    }
+    assert_eq!(f.raw_messages(&uri), ["other provider"]);
+    f.workspace_reports(0, json!({"result": {"items": []}}))?;
+    f.request_workspace("alpha");
+    f.publish().await?;
+    assert!(
+        !f.workspace_requests(0)?.last().unwrap()["params"]["previousResultIds"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|id| id["value"] == "failed")
+    );
+    assert!(f.app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn failed_workspace_pulls_preserve_newer_reports_and_invalidate_pending_results(
+) -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let mut f = Fixture::with_workspace(dir.path(), "original", &["alpha"], false, true)?;
+    f.initialize().await?;
+    f.publish().await?;
+    f.publish().await?;
+    let source = current_ref!(f.app.editor).1.id();
+    let pending = Uri::from(stdx::path::normalize(dir.path().join("pending.pull-test")));
+    let newer = Uri::from(stdx::path::normalize(dir.path().join("newer.pull-test")));
+    f.workspace_reports(
+        0,
+        json!({
+            "batches": [{"items": [
+                workspace_report(&pending, "failed-pending", Some("failed pending")),
+                workspace_report(&newer, "failed-newer", Some("failed older"))
+            ]}],
+            "error": {"code": -32603, "message": "diagnostic request failed"}
+        }),
+    )?;
+    f.request_workspace("alpha");
+    f.publish().await?;
+    let failure = f.response().await?;
+    let document = f.open(pending.as_path().unwrap(), "opened")?;
+    let direct = f.response().await?;
+    f.app.editor.switch(source, Action::Replace);
+    f.related(
+        0,
+        &newer,
+        related_report(Some("newer"), Some("newer related")),
+    )?;
+    f.request();
+    f.publish().await?;
+    failure(&mut f.app.editor);
+    assert!(f.raw_messages(&pending).is_empty());
+    assert_eq!(f.raw_messages(&newer), ["newer related"]);
+    f.app.editor.switch(document, Action::Replace);
+    assert!(f.messages().is_empty());
+    direct(&mut f.app.editor);
+    assert_eq!(f.messages(), ["alpha: 😀 opened"]);
+    assert!(f.app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn workspace_diagnostic_batches_update_unopened_files_in_wire_order() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let mut f = Fixture::with_workspace(dir.path(), "original", &["alpha"], false, true)?;
+    let uri = Uri::from(stdx::path::normalize(dir.path().join("unopened.pull-test")));
+    f.workspace_reports(
+        0,
+        json!({
+            "batches": [{"items": [workspace_report(&uri, "first", Some("partial"))]}],
+            "result": {"items": [workspace_report(&uri, "second", Some("final"))]}
+        }),
+    )?;
+    f.initialize().await?;
+    f.until(|f| f.raw_messages(&uri) == ["partial"]).await?;
+    f.until(|f| f.raw_messages(&uri) == ["final"]).await?;
+    assert_eq!(f.app.editor.documents().count(), 1);
+    assert!(!f
+        .app
+        .editor
+        .language_server_is_progressing(f.server("alpha")));
+    let requests = f.workspace_requests(0)?;
+    assert_eq!(requests[0]["params"]["identifier"], "alpha");
+    assert!(requests[0]["params"]["partialResultToken"].is_string());
+    assert!(f.app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn workspace_diagnostic_result_ids_follow_uris_and_empty_reports_clear_one_provider(
+) -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let mut f = Fixture::with_workspace(dir.path(), "original", &["alpha", "beta"], false, true)?;
+    let uri = Uri::from(stdx::path::normalize(dir.path().join("unopened.pull-test")));
+    for (index, name) in ["alpha", "beta"].into_iter().enumerate() {
+        f.workspace_reports(
+            index,
+            json!({"result": {"items": [workspace_report(&uri, name, Some(name))]}}),
+        )?;
+    }
+    f.initialize().await?;
+    for _ in 0..4 {
+        f.publish().await?;
+    }
+    assert_eq!(f.raw_messages(&uri), ["alpha", "beta"]);
+    f.workspace_reports(0, json!({"result": {"items": [{"uri": uri.to_url().unwrap().as_str(), "version": null, "kind": "unchanged", "resultId": "alpha:rotated"}]}}))?;
+    f.request_workspace("alpha");
+    // A final callback acts as a deterministic barrier for the unchanged report.
+    f.publish().await?;
+    let request = f.workspace_requests(0)?.pop().unwrap();
+    assert!(request["params"]["previousResultIds"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|previous| previous["uri"] == uri.to_url().unwrap().as_str()
+            && previous["value"] == "alpha"));
+    assert_eq!(f.raw_messages(&uri), ["alpha", "beta"]);
+    f.workspace_reports(
+        0,
+        json!({"result": {"items": [workspace_report(&uri, "cleared", None)]}}),
+    )?;
+    f.request_workspace("alpha");
+    f.until(|f| f.raw_messages(&uri) == ["beta"]).await?;
+    let request = f.workspace_requests(0)?.pop().unwrap();
+    assert!(request["params"]["previousResultIds"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|previous| previous["uri"] == uri.to_url().unwrap().as_str()
+            && previous["value"] == "alpha:rotated"));
+    assert!(f.app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn workspace_diagnostics_never_replace_direct_pulls_for_open_documents() -> anyhow::Result<()>
+{
+    let dir = tempfile::tempdir()?;
+    let mut f = Fixture::with_workspace(dir.path(), "original", &["alpha"], false, true)?;
+    let uri = current_ref!(f.app.editor).1.uri().unwrap();
+    f.workspace_reports(0, json!({"batches": [{"items": [workspace_report(&uri, "workspace", Some("workspace"))]}], "result": {"items": []}}))?;
+    f.initialize().await?;
+    // Initial document, partial workspace, and final workspace callbacks.
+    for _ in 0..3 {
+        f.publish().await?;
+    }
+    assert_eq!(f.messages(), ["alpha: 😀 original"]);
+    f.edit("changed");
+    f.workspace_reports(
+        0,
+        json!({"result": {"items": [workspace_report(&uri, "old", Some("stale workspace"))]}}),
+    )?;
+    f.request_workspace("alpha");
+    f.request();
+    f.until(|f| f.messages() == ["alpha: 😀 changed"]).await?;
+    assert_eq!(f.messages(), ["alpha: 😀 changed"]);
+    assert!(f.app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn workspace_diagnostics_reject_queued_reports_after_open_or_server_exit(
+) -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let mut f = Fixture::with_workspace(dir.path(), "original", &["alpha"], false, true)?;
+    let uri = Uri::from(stdx::path::normalize(dir.path().join("unopened.pull-test")));
+    f.workspace_reports(0, json!({"batches": [{"items": [workspace_report(&uri, "queued", Some("queued workspace"))]}], "hold": true}))?;
+    f.initialize().await?;
+    let queued = vec![f.response().await?, f.response().await?];
+    f.open(uri.as_path().unwrap(), "opened")?;
+    for callback in queued {
+        callback(&mut f.app.editor);
+    }
+    assert!(!f.raw_messages(&uri).contains(&"queued workspace"));
+    let another = Uri::from(stdx::path::normalize(dir.path().join("another.pull-test")));
+    f.workspace_reports(0, json!({"batches": [{"items": [workspace_report(&another, "queued", Some("after exit"))]}], "hold": true}))?;
+    f.request_workspace("alpha");
+    let queued = vec![f.response().await?, f.response().await?];
+    let server = f.server("alpha");
+    f.app.editor.handle_language_server_exit(server);
+    for callback in queued {
+        callback(&mut f.app.editor);
+    }
+    assert!(f.raw_messages(&another).is_empty());
+    assert!(f.app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn completed_workspace_pulls_retry_with_result_ids_without_a_busy_loop() -> anyhow::Result<()>
+{
+    let dir = tempfile::tempdir()?;
+    let mut f = Fixture::with_workspace(dir.path(), "original", &["alpha"], false, true)?;
+    let uri = Uri::from(stdx::path::normalize(dir.path().join("unopened.pull-test")));
+    f.workspace_reports(
+        0,
+        json!({"result": {"items": [workspace_report(&uri, "retained", Some("first"))]}}),
+    )?;
+    f.initialize().await?;
+    f.until(|f| f.raw_messages(&uri) == ["first"]).await?;
+    assert_eq!(f.workspace_requests(0)?.len(), 1);
+    f.workspace_reports(
+        0,
+        json!({"result": {"items": [workspace_report(&uri, "updated", Some("second"))]}}),
+    )?;
+    f.until(|f| f.raw_messages(&uri) == ["second"]).await?;
+    let requests = f.workspace_requests(0)?;
+    assert_eq!(requests.len(), 2);
+    assert!(requests[1]["params"]["previousResultIds"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|id| id["value"] == "retained"));
+    assert!(f.app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn closing_a_document_moves_it_from_direct_to_workspace_diagnostics() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let mut f = Fixture::with_workspace(dir.path(), "original", &["alpha"], false, true)?;
+    f.initialize().await?;
+    f.publish().await?;
+    f.publish().await?;
+    let path = dir.path().join("second.pull-test");
+    let document = f.open(&path, "second")?;
+    f.publish().await?;
+    let uri = f.app.editor.document(document).unwrap().uri().unwrap();
+    f.workspace_reports(0, json!({"result": {"items": [workspace_report(&uri, "closed", Some("workspace after close"))]}}))?;
+    assert!(f.app.editor.close_document(document, true).is_ok());
+    f.until(|f| f.raw_messages(&uri) == ["workspace after close"])
+        .await?;
+    assert_eq!(f.app.editor.documents().count(), 1);
+    assert!(f.app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn late_workspace_reports_cannot_replace_newer_related_document_results() -> anyhow::Result<()>
+{
+    let dir = tempfile::tempdir()?;
+    let mut f = Fixture::with_workspace(dir.path(), "original", &["alpha"], false, true)?;
+    let uri = Uri::from(stdx::path::normalize(dir.path().join("unopened.pull-test")));
+    f.workspace_reports(0, json!({"batches": [{"items": []}], "hold": true}))?;
+    f.initialize().await?;
+    // Drain the initial document response and workspace batch before changing
+    // reports, so the initial workspace request has read its held response.
+    f.publish().await?;
+    f.publish().await?;
+    f.workspace_reports(
+        0,
+        json!({"result": {"items": [workspace_report(&uri, "old", Some("old workspace"))]}}),
+    )?;
+    f.request_workspace("alpha");
+    let old_workspace = f.response().await?;
+    f.related(0, &uri, related_report(Some("new"), Some("new related")))?;
+    f.request();
+    f.publish().await?;
+    assert_eq!(f.raw_messages(&uri), ["new related"]);
+    old_workspace(&mut f.app.editor);
+    assert_eq!(f.raw_messages(&uri), ["new related"]);
+    assert!(f.app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn workspace_reports_for_open_files_without_direct_pulls_validate_versions(
+) -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let mut f = Fixture::with_workspace(dir.path(), "original", &["alpha"], false, true)?;
+    f.initialize().await?;
+    f.publish().await?;
+    f.publish().await?;
+    let server = f.server("alpha");
+    let path = dir.path().join("other.unknown-language");
+    let uri = Uri::from(stdx::path::normalize(&path));
+    f.workspace_reports(0, json!({"result": {"items": [workspace_report(&uri, "valid", Some("open workspace file"))]}}))?;
+    let target = f.open(&path, "other")?;
+    assert!(!f
+        .app
+        .editor
+        .document(target)
+        .unwrap()
+        .language_servers()
+        .any(|candidate| candidate.id() == server));
+    f.until(|f| f.raw_messages(&uri) == ["open workspace file"])
+        .await?;
+    assert_eq!(f.raw_messages(&uri), ["open workspace file"]);
+
+    f.workspace_reports(
+        0,
+        json!({"result": {"items": [workspace_report(&uri, "stale", Some("stale unversioned"))]}}),
+    )?;
+    pull::request_workspace_diagnostics(&mut f.app.editor, server);
+    let stale = f.response().await?;
+    f.edit("changed");
+    stale(&mut f.app.editor);
+    assert_eq!(f.raw_messages(&uri), ["open workspace file"]);
+
+    let mut versioned = workspace_report(&uri, "fresh", Some("fresh version"));
+    versioned["version"] = json!(f.app.editor.document(target).unwrap().version() + 1);
+    f.workspace_reports(0, json!({"result": {"items": [versioned]}}))?;
+    pull::request_workspace_diagnostics(&mut f.app.editor, server);
+    let fresh = f.response().await?;
+    f.edit("latest");
+    fresh(&mut f.app.editor);
+    assert_eq!(f.raw_messages(&uri), ["fresh version"]);
+
+    let mut old_version = workspace_report(&uri, "older", Some("stale version"));
+    old_version["version"] = json!(f.app.editor.document(target).unwrap().version() - 1);
+    f.workspace_reports(0, json!({"result": {"items": [old_version]}}))?;
+    pull::request_workspace_diagnostics(&mut f.app.editor, server);
+    f.publish().await?;
+    assert_eq!(f.raw_messages(&uri), ["fresh version"]);
+    assert!(f.app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn server_refresh_restarts_workspace_pulls_without_document_edits() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let mut f = Fixture::with_workspace(dir.path(), "original", &["alpha"], false, true)?;
+    f.initialize().await?;
+    f.publish().await?;
+    f.publish().await?;
+    let server = f.server("alpha");
+    let uri = Uri::from(stdx::path::normalize(dir.path().join("unopened.pull-test")));
+    f.workspace_reports(
+        0,
+        json!({"result": {"items": [workspace_report(&uri, "refreshed", Some("after refresh"))]}}),
+    )?;
+    let request = serde_json::from_value(
+        json!({"jsonrpc":"2.0", "id":"workspace-refresh", "method":"workspace/diagnostic/refresh", "params": null}),
+    )?;
+    f.app.handle_language_server_message(request, server).await;
+    f.until(|f| f.raw_messages(&uri) == ["after refresh"])
+        .await?;
+    assert_eq!(f.workspace_requests(0)?.len(), 2);
+    assert_eq!(f.messages(), ["alpha: 😀 original"]);
+    assert!(f.app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn streamed_unchanged_reports_can_rotate_ids_after_a_full_batch() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let mut f = Fixture::with_workspace(dir.path(), "original", &["alpha"], false, true)?;
+    let uri = Uri::from(stdx::path::normalize(dir.path().join("unopened.pull-test")));
+    f.workspace_reports(0, json!({"batches": [
+        {"items": [workspace_report(&uri, "first", Some("retained full batch"))]},
+        {"items": [{"uri": uri.to_url().unwrap().as_str(), "version": null, "kind": "unchanged", "resultId": "rotated"}]}
+    ], "hold": true}))?;
+    f.initialize().await?;
+    // One direct report and the two workspace batches, in any task order.
+    for _ in 0..3 {
+        f.publish().await?;
+    }
+    assert_eq!(f.raw_messages(&uri), ["retained full batch"]);
+    f.workspace_reports(0, json!({"result": {"items": []}}))?;
+    f.request_workspace("alpha");
+    f.publish().await?;
+    let request = f.workspace_requests(0)?.pop().unwrap();
+    assert!(request["params"]["previousResultIds"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|previous| previous["uri"] == uri.to_url().unwrap().as_str()
+            && previous["value"] == "rotated"));
+    assert!(f.app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn workspace_unchanged_reports_cannot_reuse_a_discarded_full_batch() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let mut f = Fixture::with_workspace(dir.path(), "original", &["alpha"], false, true)?;
+    f.initialize().await?;
+    f.publish().await?;
+    f.publish().await?;
+    let server = f.server("alpha");
+    let path = dir.path().join("other.unknown-language");
+    let uri = Uri::from(stdx::path::normalize(&path));
+    f.workspace_reports(
+        0,
+        json!({"result": {"items": [workspace_report(&uri, "retained", Some("retained report"))]}}),
+    )?;
+    let document = f.open(&path, "original")?;
+    f.until(|f| f.raw_messages(&uri) == ["retained report"])
+        .await?;
+    let next_version = f.app.editor.document(document).unwrap().version() + 1;
+    f.workspace_reports(0, json!({"batches": [
+        {"items": [workspace_report(&uri, "discarded", Some("discarded full report"))]},
+        {"items": [{"uri": uri.to_url().unwrap().as_str(), "version": next_version, "kind": "unchanged", "resultId": "must-not-retain"}]}
+    ], "hold": true}))?;
+    pull::request_workspace_diagnostics(&mut f.app.editor, server);
+    let full = f.response().await?;
+    let unchanged = f.response().await?;
+    f.edit("changed");
+    full(&mut f.app.editor);
+    unchanged(&mut f.app.editor);
+    assert_eq!(f.raw_messages(&uri), ["retained report"]);
+    f.workspace_reports(0, json!({"result": {"items": []}}))?;
+    pull::request_workspace_diagnostics(&mut f.app.editor, server);
+    f.publish().await?;
+    let request = f.workspace_requests(0)?.pop().unwrap();
+    assert!(request["params"]["previousResultIds"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|previous| previous["uri"] == uri.to_url().unwrap().as_str()
+            && previous["value"] == "retained"));
     assert!(f.app.close().await.is_empty());
     Ok(())
 }

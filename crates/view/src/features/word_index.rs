@@ -232,7 +232,7 @@ fn is_changeset_significant(changes: &ChangeSet) -> bool {
     diff > 1_000
 }
 
-pub(crate) fn register_hooks(events: &event::EventHub) {
+pub(crate) fn register_hooks(events: &event::EventHub, hooks: crate::handlers::DocumentHooks) {
     register_hook!(events => move |event: &mut DocumentDidOpen<'_>| {
         let doc = doc!(event.editor, &event.doc);
         if doc.word_completion_enabled() {
@@ -257,11 +257,14 @@ pub(crate) fn register_hooks(events: &event::EventHub) {
         Ok(())
     });
 
+    let change_hooks = hooks.clone();
     register_hook!(events => move |event: &mut DocumentDidChange<'_>| {
         if event.doc.word_completion_enabled()
-            && let Some(trigger) = &event.doc.word_index_trigger
+            && !event.doc.is_content_readonly()
+            && let Some(services) = change_hooks.upgrade()
+            && let Some(services) = services.get()
         {
-            trigger.event(Event::Edit {
+            services.word_index.event(Event::Edit {
                 document: event.doc.id(),
                 text: event.doc.text().clone(),
                 significant: is_changeset_significant(event.changes),
@@ -271,8 +274,11 @@ pub(crate) fn register_hooks(events: &event::EventHub) {
     });
 
     register_hook!(events => move |event: &mut DocumentDidClose<'_>| {
-        if let Some(trigger) = &event.doc.word_index_trigger {
-            trigger.event(Event::Close(event.doc.id()));
+        if !event.doc.is_content_readonly()
+            && let Some(services) = hooks.upgrade()
+            && let Some(services) = services.get()
+        {
+            services.word_index.event(Event::Close(event.doc.id()));
         }
         Ok(())
     });

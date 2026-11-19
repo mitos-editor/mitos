@@ -99,6 +99,7 @@
   "=>"
   "->"
   "<=>"
+  "<<"
 ] @operator
 
 [
@@ -121,6 +122,9 @@
     "<"
     ">"
   ] @punctuation.bracket)
+
+(slot_declaration
+  ["<" ">"] @punctuation.bracket)
 
 ; Properties, constants and variables
 (component
@@ -290,3 +294,4 @@
 (match_element "match" @keyword.control.conditional)
 (shadowable) @attribute
 (property_deprecation) @attribute
+(testable) @attribute

@@ -4,6 +4,7 @@ use super::text_decorations::DecorationManager;
 use text_layout::DisplayPosition;
 use theme::Theme;
 use tui::buffer::Buffer as Surface;
+use view::document::PresentedDocument;
 use view::{view::ViewLayout, Document};
 
 pub use text_render::{render_text, LinePos, RenderSettings, TextRenderer};
@@ -11,20 +12,19 @@ pub use text_render::{render_text, LinePos, RenderSettings, TextRenderer};
 #[allow(clippy::too_many_arguments)]
 pub fn render_document(
     surface: &mut Surface,
-    doc: &Document,
+    doc: PresentedDocument<'_>,
     layout: &ViewLayout,
     overlay_highlights: Vec<editor_core::highlight::OverlayHighlights>,
     theme: &Theme,
     decorations: DecorationManager,
 ) {
     let review_styles = super::change_review::document::syntax_styles(doc, layout, theme);
-    let ordinary_styles = super::highlights::document_syntax_styles(doc, layout, theme).take(
-        if review_styles.is_some() {
-            0
-        } else {
-            usize::MAX
-        },
-    );
+    let ranges = if review_styles.is_none() {
+        layout.visible_byte_ranges()
+    } else {
+        Vec::new()
+    };
+    let ordinary_styles = super::highlights::document_syntax_styles(doc, &ranges, theme);
     let syntax_styles = review_styles.into_iter().flatten().chain(ordinary_styles);
     render_document_with_styles(
         surface,
@@ -40,7 +40,7 @@ pub fn render_document(
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn render_document_with_styles(
     surface: &mut Surface,
-    doc: &Document,
+    doc: PresentedDocument<'_>,
     layout: &ViewLayout,
     mut overlay_highlights: Vec<editor_core::highlight::OverlayHighlights>,
     theme: &Theme,
@@ -58,10 +58,10 @@ pub(crate) fn render_document_with_styles(
             ),
         );
     }
-    let config = doc.config.load();
+    let config = doc.source().config.load();
     let mut renderer = TextRenderer::new(
         surface,
-        render_settings(doc, &config),
+        render_settings(doc.source(), &config),
         theme,
         DisplayPosition::new(
             layout.offset.vertical_offset,

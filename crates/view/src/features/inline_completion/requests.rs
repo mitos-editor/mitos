@@ -162,36 +162,48 @@ pub fn trigger(editor: &mut Editor, kind: lsp::InlineCompletionTriggerKind) {
     if editor.mode() != Mode::Insert || !editor.config().lsp.enable {
         return;
     }
-    if crate::features::completion::has_preview(editor) {
-        dismiss(editor);
-        return;
-    }
     editor.handlers.inline_completions.cancel();
     let callbacks = editor.handlers.inline_completions.callbacks.clone();
     let trigger = editor.handlers.inline_completions.trigger.clone();
+    let server = {
+        let (_, doc) = current_ref!(editor);
+        doc.language_servers_with_feature(LanguageServerFeature::InlineCompletion)
+            .next()
+            .and_then(|server| editor.language_servers.get_by_id(server.id()))
+            .cloned()
+    };
+    let Some(server) = server else {
+        return;
+    };
+    let encoding = server.offset_encoding();
+    let completion_shown = crate::features::completion::is_shown(editor);
+    let selected_completion =
+        crate::features::completion::selected_completion_info(editor, encoding);
+    // A selected snippet, command, or multi-edit completion cannot be represented
+    // by one plain-text replacement without losing its acceptance behavior.
+    if completion_shown && selected_completion.is_none() {
+        dismiss(editor);
+        return;
+    }
     let (view, doc) = current!(editor);
     doc.inline_completions.clear();
     // A primary-only suggestion must never collapse a multiple-cursor selection.
     if doc.selection(view.id).len() != 1 {
         return;
     }
-    let Some(server) = doc
-        .language_servers_with_feature(LanguageServerFeature::InlineCompletion)
-        .next()
-    else {
-        return;
-    };
     let doc_id = doc.id();
     let view_id = view.id;
     let cursor = doc
         .selection(view_id)
         .primary()
         .cursor(doc.text().slice(..));
-    let encoding = server.offset_encoding();
     let server_id = server.id();
-    let Some(future) =
-        server.inline_completion(doc.identifier(), doc.position(view_id, encoding), kind)
-    else {
+    let Some(future) = server.inline_completion(
+        doc.identifier(),
+        doc.position(view_id, encoding),
+        kind,
+        selected_completion.clone(),
+    ) else {
         return;
     };
     doc.inline_completions.view = Some(view_id);
@@ -213,6 +225,9 @@ pub fn trigger(editor: &mut Editor, kind: lsp::InlineCompletionTriggerKind) {
                     || editor.mode() != Mode::Insert
                     || editor.tree.focus() != request.view_id()
                     || request.get(editor).is_none()
+                    || crate::features::completion::is_shown(editor) != completion_shown
+                    || crate::features::completion::selected_completion_info(editor, encoding)
+                        != selected_completion
                 {
                     return;
                 }
@@ -229,6 +244,10 @@ pub fn trigger(editor: &mut Editor, kind: lsp::InlineCompletionTriggerKind) {
                 let doc = editor.document_mut(request.document_id()).unwrap();
                 let items = items
                     .into_iter()
+                    .filter(|item| selected_completion.as_ref().is_none_or(|selected| {
+                        item.range == Some(selected.range)
+                            && matches!(&item.insert_text, lsp::OneOf::Left(text) if text.starts_with(&selected.text))
+                    }))
                     .filter_map(|item| prepare(doc.text(), cursor, encoding, server_id, item))
                     .collect();
                 doc.inline_completions.items = items;
@@ -247,9 +266,9 @@ fn prepare(
     item: lsp::InlineCompletionItem,
 ) -> Option<InlineCompletion> {
     // Snippets require tabstop expansion, so don't offer them as literal ghost text.
-    if item.insert_text_format == Some(lsp::InsertTextFormat::SNIPPET) {
+    let lsp::OneOf::Left(insert_text) = item.insert_text else {
         return None;
-    }
+    };
     let range = match item.range {
         Some(range) => {
             if range.start.line != range.end.line
@@ -270,12 +289,12 @@ fn prepare(
         .filter_text
         .as_deref()
         .filter(|text| !text.is_empty())
-        .unwrap_or(&item.insert_text);
+        .unwrap_or(&insert_text);
     if !filter.starts_with(&replaced) {
         return None;
     }
     let prefix = text.slice_chars(range.from()..cursor).to_string();
-    let ghost = item.insert_text.strip_prefix(&prefix)?;
+    let ghost = insert_text.strip_prefix(&prefix)?;
     if ghost.is_empty() {
         return None;
     }
@@ -290,7 +309,7 @@ fn prepare(
     Some(InlineCompletion {
         cursor,
         range,
-        text: item.insert_text,
+        text: insert_text,
         lines: preview
             .split('\n')
             .map(|line| line.trim_end_matches('\r').to_owned())
@@ -331,6 +350,10 @@ pub fn accept(editor: &mut Editor) -> Option<AppliedInlineCompletion> {
         .items
         .remove(doc.inline_completions.index);
     doc.inline_completions.clear();
+    if crate::features::completion::is_shown(editor) {
+        crate::features::completion::invalidate(editor);
+    }
+    let (view, doc) = current!(editor);
     let original_cursor = completion.cursor;
     let changes = vec![(
         completion.range.from(),
@@ -450,11 +473,10 @@ mod tests {
 
     fn item(text: &str) -> lsp::InlineCompletionItem {
         lsp::InlineCompletionItem {
-            insert_text: text.into(),
+            insert_text: lsp::OneOf::Left(text.into()),
             filter_text: None,
             range: None,
             command: None,
-            insert_text_format: None,
         }
     }
 
@@ -537,7 +559,10 @@ mod tests {
         ));
         assert!(prepare(&text, 2, OffsetEncoding::Utf16, server, suggestion.clone()).is_none());
         suggestion.range = None;
-        suggestion.insert_text_format = Some(lsp::InsertTextFormat::SNIPPET);
+        suggestion.insert_text = lsp::OneOf::Right(lsp::StringValue {
+            kind: "snippet".into(),
+            value: "${1:print}".into(),
+        });
         assert!(prepare(&text, 2, OffsetEncoding::Utf16, server, suggestion).is_none());
     }
 }

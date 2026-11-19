@@ -10,9 +10,7 @@ use editor_core::{movement::Direction, Range as SelectionRange, Rope, Selection,
 use event::{TaskController, TaskHandle};
 use text_diff::ReviewLine;
 
-use super::{
-    run_review, DiffEngine, Review, ReviewLineKind, ReviewRequest, ReviewSnapshot, ReviewSource,
-};
+use super::{run_review, Review, ReviewLineKind, ReviewRequest, ReviewSnapshot, ReviewSource};
 use crate::{editor::Action, Document, DocumentId, Editor};
 
 pub struct ReviewDocument {
@@ -49,12 +47,6 @@ impl Request {
         match self {
             Self::Live(r) => r.comparison,
             Self::Historical(_) => super::ReviewComparison::Historical,
-        }
-    }
-    fn engine(&self) -> DiffEngine {
-        match self {
-            Self::Live(r) => r.engine(),
-            Self::Historical(r) => r.settings.engine,
         }
     }
     fn is_current(&self, editor: &Editor) -> bool {
@@ -117,9 +109,6 @@ impl ReviewDocument {
     pub fn comparison(&self) -> super::ReviewComparison {
         self.request.comparison()
     }
-    pub fn engine(&self) -> DiffEngine {
-        self.request.engine()
-    }
     pub fn review(&self) -> &Review {
         &self.review
     }
@@ -129,31 +118,13 @@ impl ReviewDocument {
     pub fn source(&self) -> Option<&Arc<ReviewSource>> {
         self.source.as_ref()
     }
-    pub fn row_offset(&self) -> usize {
-        usize::from(self.review.fallback.is_some())
-    }
     pub fn row(&self, document_line: usize) -> Option<&ReviewLine> {
-        self.review
-            .lines
-            .get(document_line.checked_sub(self.row_offset())?)
+        self.review.lines.get(document_line)
     }
     /// Changed ranges in projected-row Unicode scalar coordinates, prepared by
     /// the worker so rendering never scans source prefixes to translate bytes.
     pub fn changes(&self, document_line: usize) -> Option<&[Range<usize>]> {
-        self.changes
-            .get(document_line.checked_sub(self.row_offset())?)?
-            .as_deref()
-    }
-}
-
-impl Document {
-    /// Derived content can be selected and searched but cannot be edited or saved.
-    /// This is independent of filesystem write permissions and cannot be forced.
-    pub fn is_content_readonly(&self) -> bool {
-        self.review.is_some() || self.historical.is_some()
-    }
-    pub fn review(&self) -> Option<&ReviewDocument> {
-        self.review.as_deref()
+        self.changes.get(document_line)?.as_deref()
     }
 }
 
@@ -164,10 +135,7 @@ enum Work {
         previous: Option<Arc<ReviewSnapshot>>,
         observed: Option<Arc<Observed>>,
     },
-    Engine {
-        source: Arc<ReviewSource>,
-        engine: DiffEngine,
-    },
+    Snapshot(Arc<ReviewSource>),
 }
 
 type RowChanges = Vec<Option<Vec<Range<usize>>>>;
@@ -220,10 +188,7 @@ impl Editor {
             "Workspace trust changed; reload the historical preview"
         );
         let request = snapshot.request.clone();
-        let work = Work::Engine {
-            source: snapshot.source.clone(),
-            engine: request.engine(),
-        };
+        let work = Work::Snapshot(snapshot.source.clone());
         Ok(self.open_review_request(Request::Historical(request), action, work))
     }
 
@@ -263,7 +228,7 @@ impl Editor {
             self.config.clone(),
             self.syn_loader.load_full(),
         );
-        doc.review = Some(Box::new(state));
+        doc.set_review(state);
         let id = self.new_file_from_document(action, doc);
         self.events()
             .clone()
@@ -295,8 +260,8 @@ impl Editor {
         };
         if let Request::Historical(request) = &state.request {
             let mut updated = request.clone();
-            updated.refresh_settings(self);
-            if request.same_policy(&updated) {
+            updated.refresh_context(self);
+            if request.same_context(&updated) {
                 return;
             }
         }
@@ -314,15 +279,14 @@ impl Editor {
             // A refresh retries the exact captured objects and buffer snapshot.
             Request::Historical(request) => {
                 let mut request = request.clone();
-                request.refresh_settings(self);
+                request.refresh_context(self);
                 Request::Historical(request)
             }
         };
         self.documents
             .get_mut(&id)
             .unwrap()
-            .review
-            .as_mut()
+            .review_mut()
             .unwrap()
             .request = request.clone();
         let mut work = request.work(None);
@@ -338,7 +302,7 @@ impl Editor {
     fn start_review(&mut self, id: DocumentId, work: Work) {
         let doc = self.documents.get_mut(&id).unwrap();
         let old = doc.snapshot();
-        let state = doc.review.as_mut().unwrap();
+        let state = doc.review_mut().unwrap();
         let cancel = state.task.restart();
         // Metadata-only checks should not flash the loading status on every poll.
         state.loading = !matches!(&work, Work::Read { request, observed: Some(previous), .. }
@@ -346,7 +310,7 @@ impl Editor {
         let request = match &work {
             Work::Read { request, .. } => Some(Request::Live((**request).clone())),
             Work::Historical(request) => Some(Request::Historical((**request).clone())),
-            Work::Engine { .. } => match &state.request {
+            Work::Snapshot(_) => match &state.request {
                 Request::Historical(request) => Some(Request::Historical(request.clone())),
                 Request::Live(_) => None,
             },
@@ -380,7 +344,7 @@ impl Editor {
                                     && let Some(state) = editor
                                         .documents
                                         .get_mut(&id)
-                                        .and_then(|doc| doc.review.as_mut())
+                                        .and_then(|doc| doc.review_mut())
                                 {
                                     state.loading = true;
                                     editor.redraw().request();
@@ -395,8 +359,8 @@ impl Editor {
                             .compute_cached_cancellable(previous, &|| check.is_canceled())
                             .and_then(|snapshot| Ok((snapshot.source.clone(), snapshot.diff()?)))
                     }
-                    Work::Engine { source, engine } => {
-                        let review = source.compute(Some(engine), &|| check.is_canceled());
+                    Work::Snapshot(source) => {
+                        let review = source.compute(&|| check.is_canceled());
                         Ok((source, review))
                     }
                 };
@@ -405,11 +369,6 @@ impl Editor {
                     Err(error) => (None, Arc::new(Review::notice(&error.to_string()))),
                 };
                 ensure!(!check.is_canceled(), "Review canceled");
-                if !review.truncated
-                    && let Some(source) = &source
-                {
-                    source.prepare_syntax(&|| check.is_canceled());
-                }
                 ensure!(!check.is_canceled(), "Review canceled");
                 let after = projection(&review);
                 let transaction = text_diff::compare_ropes(&before, &after.text);
@@ -443,8 +402,7 @@ impl Editor {
                                 .documents
                                 .get_mut(&id)
                                 .unwrap()
-                                .review
-                                .as_mut()
+                                .review_mut()
                                 .unwrap()
                                 .loading = false;
                             super::live::queue(editor, id);
@@ -477,7 +435,7 @@ impl Editor {
         let doc = self.documents.get_mut(&id).unwrap();
         let (source, review, transaction, changes, observed) = match result {
             Ok(None) => {
-                doc.review.as_mut().unwrap().loading = false;
+                doc.review_mut().unwrap().loading = false;
                 return;
             }
             Ok(Some(Computed {
@@ -498,7 +456,7 @@ impl Editor {
                 (None, review, transaction, projection.changes, None)
             }
         };
-        let state = doc.review.as_mut().unwrap();
+        let state = doc.review_mut().unwrap();
         let initialize = !state.initialized;
         state.initialized = source.is_some();
         state.review = review;
@@ -514,7 +472,7 @@ impl Editor {
         // jump histories now, including views currently displaying another file.
         if !initialize {
             for (view, _) in self.tree.views_mut() {
-                view.apply(&transaction, doc);
+                view.jumps.apply(transaction.changes(), doc);
             }
         }
         self.redraw().request();
@@ -536,9 +494,7 @@ impl Editor {
                 .lines
                 .iter()
                 .enumerate()
-                .filter_map(|(row, line)| {
-                    (line.kind == ReviewLineKind::Header).then_some(row + state.row_offset())
-                })
+                .filter_map(|(row, line)| (line.kind == ReviewLineKind::Header).then_some(row))
                 .collect();
             let status = std::cell::Cell::new(None);
             let text = doc.text().slice(..);
@@ -589,7 +545,6 @@ impl Editor {
                 }
             });
             doc.commit_changes();
-            view.sync_changes(doc);
             let jump = (doc.id(), doc.selection(view.id).clone());
             view.push_jump(doc, jump);
             doc.set_selection(view.id, selection);
@@ -602,7 +557,7 @@ impl Editor {
 
     pub fn open_review_source(&mut self, jump: bool, action: Action) -> Result<()> {
         let (view, doc) = crate::current_ref!(self);
-        if !jump && let Some(source) = &doc.historical {
+        if !jump && let Some(source) = doc.historical() {
             let path = source.path.clone();
             ensure!(
                 path.is_file(),
@@ -621,18 +576,11 @@ impl Editor {
                 .source
                 .clone()
                 .ok_or_else(|| anyhow::anyhow!("No source snapshot is available"))?;
-            let row = doc
-                .cursor_line(view.id)
-                .checked_sub(state.row_offset())
-                .and_then(|row| state.review.lines.get(row));
+            let row = state.review.lines.get(doc.cursor_line(view.id));
             let before = row.is_some_and(|row| row.kind == ReviewLineKind::Removed);
             let line = row
                 .and_then(|row| if before { row.before } else { row.after })
-                .or_else(|| {
-                    doc.cursor_line(view.id)
-                        .checked_sub(state.row_offset())
-                        .and_then(|row| state.review.after_line_at(row))
-                })
+                .or_else(|| state.review.after_line_at(doc.cursor_line(view.id)))
                 .ok_or_else(|| anyhow::anyhow!("This row has no source location"))?;
             let (path, label) = request.source_metadata(before);
             let workspace = request.workspace.clone();
@@ -655,9 +603,9 @@ impl Editor {
                 .source
                 .clone()
                 .ok_or_else(|| anyhow::anyhow!("No source snapshot is available"))?;
-            let row = doc.cursor_line(view.id).checked_sub(state.row_offset());
-            let line = row
-                .and_then(|row| state.review.after_line_at(row))
+            let line = state
+                .review
+                .after_line_at(doc.cursor_line(view.id))
                 .ok_or_else(|| anyhow::anyhow!("This row has no source location"))?;
             Some((source, line))
         } else {
@@ -687,27 +635,11 @@ impl Editor {
     }
 }
 
-fn literal(text: &str) -> String {
-    text.chars()
-        .map(|ch| {
-            if ch.is_control() || matches!(ch, '\u{2028}' | '\u{2029}') {
-                '�'
-            } else {
-                ch
-            }
-        })
-        .collect()
-}
-
 /// Preserve tabs for the ordinary text formatter; every other source control is
 /// literal replacement text. One projected line always corresponds to one row.
 fn projection(review: &Review) -> Projection {
     let mut text = String::new();
     let mut changes = Vec::with_capacity(review.lines.len());
-    if let Some(reason) = review.fallback {
-        text.push_str(&literal(&reason.to_string()));
-        text.push('\n');
-    }
     for line in &review.lines {
         changes.push(line.changes.as_ref().map(|ranges| {
             let mut byte = 0;

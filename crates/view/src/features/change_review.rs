@@ -10,20 +10,19 @@ use vcs::{ComparisonKind, FileStatus, MAX_REVIEW_BYTES};
 
 use crate::{DocumentId, Editor};
 
-pub use language_config::DiffEngine;
-pub use text_diff::{Review, ReviewLineKind};
+pub use text_diff::{Review, ReviewLine, ReviewLineKind};
 
 mod document;
-mod engine;
 mod live;
+mod source;
 pub(crate) use live::{
     handle_file_events, has_live_reviews, invalidate, poll, Handler, ReviewTrigger,
 };
 pub(crate) mod historical;
 pub use document::ReviewDocument;
-pub use engine::ReviewSource;
-use engine::Settings;
 pub use historical::{HistoricalReviewRequest, HistoricalReviewSnapshot};
+use source::LanguageContext;
+pub use source::ReviewSource;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ReviewComparison {
@@ -80,7 +79,7 @@ pub struct ReviewRequest {
     document: Option<(DocumentId, i32)>,
     encoding: Option<&'static Encoding>,
     workspace: std::path::PathBuf,
-    settings: Settings,
+    context: LanguageContext,
 }
 
 #[derive(PartialEq, Eq)]
@@ -135,10 +134,6 @@ impl ReviewSnapshot {
         }
     }
 
-    pub fn engine(&self) -> DiffEngine {
-        self.request.engine()
-    }
-
     pub fn affected_by(&self, path: &std::path::Path) -> bool {
         self.stamp
             .iter()
@@ -175,7 +170,7 @@ impl ReviewRequest {
             document: document.map(|doc| (doc.id(), doc.version())),
             encoding: document.map(|doc| doc.encoding()),
             workspace,
-            settings: Settings::capture(editor, status.path()),
+            context: LanguageContext::capture(editor, status.path()),
         }
     }
 
@@ -191,12 +186,8 @@ impl ReviewRequest {
         self
     }
 
-    pub fn engine(&self) -> DiffEngine {
-        self.settings.engine
-    }
-
     pub fn is_current(&self, editor: &Editor) -> bool {
-        self.settings.is_current(editor, self.status.path())
+        self.context.is_current(editor, self.status.path())
             && self.encoding
                 == editor
                     .document_by_path(self.status.path())
@@ -220,7 +211,7 @@ impl ReviewRequest {
             && self.status == other.status
             && self.fresh_status == other.fresh_status
             && self.encoding == other.encoding
-            && self.settings.current(&other.settings)
+            && self.context.current(&other.context)
             && self.comparison == other.comparison
             && self.trust_full == other.trust_full
             && (!self.comparison.uses_buffer() || self.document == other.document)
@@ -283,11 +274,13 @@ impl ReviewRequest {
             .prefer_conflicts
             .then(|| super::conflicts::ConflictPresentation::new(source.after()));
         let content = if let Some(conflicts) = conflicts.filter(|conflicts| conflicts.active()) {
-            source.prepare_syntax(canceled);
             ReviewContent::Conflict(Arc::new(conflicts))
         } else {
-            ReviewContent::Diff(source.compute(Some(self.engine()), canceled))
+            ReviewContent::Diff(source.compute(canceled))
         };
+        if matches!(&content, ReviewContent::Conflict(_)) {
+            source.prepare_syntax(canceled);
+        }
         ensure!(!canceled(), "Diff preview canceled");
         ensure!(
             stamp == self.stamp(),
@@ -302,7 +295,7 @@ impl ReviewRequest {
     }
 
     pub fn compute(&self) -> Result<Arc<Review>> {
-        Ok(self.source()?.compute(None, &|| false))
+        Ok(self.source()?.compute(&|| false))
     }
 
     /// Run under the editor's bounded review budget, shared with hunk and
@@ -361,12 +354,7 @@ impl ReviewRequest {
                 decode(&comparison.after, self.encoding)?,
             )
         };
-        Ok(ReviewSource::new(
-            before,
-            after,
-            None,
-            self.settings.clone(),
-        ))
+        Ok(ReviewSource::new(before, after, None, self.context.clone()))
     }
 }
 
@@ -401,7 +389,7 @@ pub struct HunkReviewRequest {
     text: Rope,
     encoding: &'static Encoding,
     line: usize,
-    settings: Settings,
+    context: LanguageContext,
 }
 
 /// An inspected change and the exact editable source it can restore.
@@ -410,7 +398,6 @@ pub struct HunkReviewSnapshot {
     pub review: Arc<Review>,
     request: Arc<HunkReviewRequest>,
     stamp: RepositoryStamp,
-    hunk: Option<vcs::Hunk>,
 }
 
 impl HunkReviewSnapshot {
@@ -423,8 +410,9 @@ impl HunkReviewSnapshot {
             "Change inspection is stale; inspect the change again before restoring"
         );
         let hunk = self
-            .hunk
-            .clone()
+            .review
+            .selected_hunk()
+            .cloned()
             .ok_or_else(|| anyhow::anyhow!("There is no change at the inspected line"))?;
         let scrolloff = editor.config().scroll.padding;
         let (view, doc) = crate::current!(editor);
@@ -499,12 +487,12 @@ impl HunkReviewRequest {
             text: doc.text().clone(),
             encoding: doc.encoding(),
             line: doc.cursor_line(view.id),
-            settings: Settings::capture(editor, &path),
+            context: LanguageContext::capture(editor, &path),
         })
     }
 
     pub fn is_current(&self, editor: &Editor) -> bool {
-        self.settings.is_current(editor, &self.path)
+        self.context.is_current(editor, &self.path)
             && self.target.get(editor).is_some_and(|(view, doc)| {
                 editor.tree.focus() == view.id && doc.encoding() == self.encoding
             })
@@ -536,21 +524,6 @@ impl HunkReviewRequest {
             paths.dedup();
             let stamp = repository_stamp(paths);
             let (source, review) = self.compute_review()?;
-            let hunk = if review.truncated {
-                None
-            } else {
-                text_diff::LineDiff::new(source.text(true).clone(), self.text.clone())
-                    .hunks()
-                    .find(|hunk| {
-                        let start = hunk.after.start as usize;
-                        let end = hunk.after.end as usize;
-                        if start == end {
-                            self.line == start
-                        } else {
-                            (start..end).contains(&self.line)
-                        }
-                    })
-            };
             ensure!(
                 stamp == repository_stamp(stamp.iter().map(|(path, _)| path.clone())),
                 "Repository changed while inspecting the change; try again"
@@ -560,7 +533,6 @@ impl HunkReviewRequest {
                 review,
                 request: self,
                 stamp,
-                hunk,
             }))
         })
         .await
@@ -588,9 +560,9 @@ impl HunkReviewRequest {
             decode(&comparison.before, Some(self.encoding))?,
             self.text.clone(),
             Some(self.line),
-            self.settings.clone(),
+            self.context.clone(),
         ));
-        let review = source.compute(None, &|| self.target.cancel_handle().is_canceled());
+        let review = source.compute(&|| self.target.cancel_handle().is_canceled());
         ensure!(
             !self.target.cancel_handle().is_canceled(),
             "Change inspection canceled"
@@ -617,8 +589,8 @@ async fn run_review<T: Send + 'static>(
         .ok_or_else(|| anyhow::anyhow!("Change inspection canceled"))?
 }
 
-pub(crate) fn register_hooks(events: &event::EventHub) {
-    live::register_hooks(events);
+pub(crate) fn register_hooks(events: &event::EventHub, hooks: crate::handlers::DocumentHooks) {
+    live::register_hooks(events, hooks);
     use crate::events::DocumentFocusLost;
     event::register_hook!(events => move |event: &mut DocumentFocusLost<'_>| {
         event.editor.handlers.change_review.hunk.lock().cancel();

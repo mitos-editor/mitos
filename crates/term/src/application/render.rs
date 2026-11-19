@@ -18,6 +18,7 @@ pub(super) struct RenderState {
     visible_documents: HashSet<DocumentId>,
     pub(super) requested: Option<Instant>,
     syntax_deadline: Option<Instant>,
+    activity_deadline: Option<Instant>,
 }
 
 impl<B: tui::backend::Backend + tui::backend::BackendExt> App<B>
@@ -32,6 +33,54 @@ where
         let due = Instant::now() + BACKGROUND_FRAME_DELAY;
         self.render_state.requested =
             Some(self.render_state.requested.map_or(due, |old| old.min(due)));
+    }
+
+    /// Wake for delayed user activity even when no input or server events arrive.
+    pub(super) fn activity_frame_deadline(&mut self) -> Option<Instant> {
+        use crate::ui::{activity_matches, ACTIVITY_DELAY};
+        use editor_config::StatusLineElement;
+
+        let config = self.editor.config();
+        if !config
+            .statusline
+            .left
+            .contains(&StatusLineElement::Activity)
+            && !config
+                .statusline
+                .right
+                .contains(&StatusLineElement::Activity)
+        {
+            self.render_state.activity_deadline = None;
+            return None;
+        }
+        let now = Instant::now();
+        let next = self
+            .editor
+            .activities()
+            .filter(|activity| {
+                self.editor.tree.views().any(|(view, focused)| {
+                    (!config.statusline.global || focused)
+                        && self
+                            .editor
+                            .document(view.document_id())
+                            .is_some_and(|doc| activity_matches(*activity, doc, focused))
+                })
+            })
+            .map(|activity| {
+                let visible = activity.started + ACTIVITY_DELAY;
+                if visible > now {
+                    visible
+                } else {
+                    now + Duration::from_millis(80)
+                }
+            })
+            .min();
+        self.render_state.activity_deadline = next.map(|due| {
+            self.render_state
+                .activity_deadline
+                .map_or(due, |old| old.min(due))
+        });
+        self.render_state.activity_deadline
     }
 
     /// The ordinary event pump keeps progressing while a first frame waits for syntax.
@@ -53,11 +102,16 @@ where
         }
     }
 
-    pub(super) fn update_components(&mut self) {
+    pub(super) fn update_components(&mut self) -> Rect {
         // Preparation may spawn work that finishes before drawing starts. Clear
         // only requests preceding this update; later completions need another turn.
         self.editor.begin_frame();
         let area = Rect::from(self.terminal.size().expect("Cannot read terminal size"));
+        self.prepare_components(area);
+        area
+    }
+
+    fn prepare_components(&mut self, area: Rect) {
         let config = self.config.load();
         let mut cx = compositor::Context {
             config: crate::config::Context {
@@ -75,7 +129,7 @@ where
         view::features::code_lenses::prepare_visible_code_lenses(cx.editor);
     }
 
-    pub(super) fn draw_frame(&mut self) {
+    pub(super) fn draw_frame(&mut self, prepared_area: Rect) {
         if self.editor.should_close() {
             return;
         }
@@ -92,11 +146,21 @@ where
                 .resize(area)
                 .expect("Cannot clear the terminal");
             self.compositor.full_redraw = false;
+        } else {
+            self.terminal.autoresize().expect("Cannot resize terminal");
+        }
+
+        // The terminal can resize between preparation and drawing. Rebuild the
+        // layout for the actual buffer while preserving redraws raised during preparation.
+        let area = self.terminal.current_buffer_mut().area;
+        if area != prepared_area {
+            self.prepare_components(area);
         }
 
         let config = self.config.load();
         let mut draw = compositor::DrawContext {
             hyperlinks: Default::default(),
+            cursor_exclusions: Vec::new(),
             config: &config,
             editor: &self.editor,
             interaction: &self.interaction,
@@ -115,6 +179,7 @@ where
         self.terminal.backend_mut().flush().unwrap();
         self.render_state.requested = None;
         self.render_state.syntax_deadline = None;
+        self.render_state.activity_deadline = None;
         self.render_state.visible_documents.clear();
         self.render_state
             .visible_documents
@@ -159,8 +224,10 @@ where
             &mut self.compositor,
             callback,
         );
-        if outcome.needs_redraw() {
-            self.request_redraw();
+        match outcome {
+            view::callbacks::CallbackOutcome::Redraw => self.request_redraw(),
+            view::callbacks::CallbackOutcome::Frame => self.request_frame(),
+            view::callbacks::CallbackOutcome::None => {}
         }
     }
 }

@@ -32,6 +32,11 @@ pub enum GraphemeSource {
     Document {
         codepoints: usize,
     },
+    /// Selectable replacement text. Every label grapheme has the fold's start
+    /// position; only its last grapheme consumes the concealed document text.
+    Conceal {
+        codepoints: usize,
+    },
     /// Inline virtual text can not be highlighted with a `Highlight` iterator
     /// because it's not part of the document. Instead the `Highlight`
     /// is emitted right by the document formatter
@@ -53,7 +58,9 @@ impl GraphemeSource {
 
     pub fn doc_chars(self) -> usize {
         match self {
-            GraphemeSource::Document { codepoints } => codepoints,
+            GraphemeSource::Document { codepoints } | GraphemeSource::Conceal { codepoints } => {
+                codepoints
+            }
             GraphemeSource::VirtualText { .. } => 0,
         }
     }
@@ -154,11 +161,6 @@ pub struct TextFormat {
     pub tab_width: u16,
     pub max_wrap: u16,
     pub max_indent_retain: u16,
-    /// Reserved for consumers that render soft-wrap indicators inline.
-    ///
-    /// The editor currently renders them in the gutter instead.
-    pub wrap_indicator: Box<str>,
-    pub wrap_indicator_highlight: Option<Highlight>,
     pub viewport_width: u16,
     pub soft_wrap_at_text_width: bool,
 }
@@ -171,9 +173,7 @@ impl Default for TextFormat {
             tab_width: 4,
             max_wrap: 3,
             max_indent_retain: 4,
-            wrap_indicator: Box::from(""),
             viewport_width: 17,
-            wrap_indicator_highlight: None,
             soft_wrap_at_text_width: false,
         }
     }
@@ -197,6 +197,7 @@ pub struct DocumentFormatter<'t> {
     exhausted: bool,
 
     inline_annotation_graphemes: Option<(Graphemes<'t>, Option<Highlight>)>,
+    conceal_graphemes: Option<(std::iter::Peekable<Graphemes<'t>>, usize)>,
 
     // softwrap specific
     /// The indentation of the current line
@@ -248,6 +249,7 @@ impl<'t> DocumentFormatter<'t> {
             line_pos: block_line_idx,
             block_line_pos: block_line_idx,
             inline_annotation_graphemes: None,
+            conceal_graphemes: None,
         }
     }
 
@@ -277,17 +279,36 @@ impl<'t> DocumentFormatter<'t> {
     }
 
     fn advance_grapheme(&mut self, col: usize, char_pos: usize) -> Option<GraphemeWithSource<'t>> {
-        if let Some(conceal) = self.annotations.conceal_at(char_pos) {
+        if self.conceal_graphemes.is_none()
+            && let Some(conceal) = self.annotations.conceal_at(char_pos)
+        {
             let end = conceal.range.end;
             self.graphemes = self.text.slice_chars(end..).graphemes();
             self.annotation_cursor.skip_concealed(end);
+            self.conceal_graphemes = Some((conceal.text().graphemes(true).peekable(), end));
+        }
+        if let Some((label, end)) = &mut self.conceal_graphemes {
+            let grapheme = label.next().expect("nonempty conceal label");
+            let consumed = if label.peek().is_none() {
+                *end - char_pos
+            } else {
+                0
+            };
+            let concealed_lines = if consumed == 0 {
+                0
+            } else {
+                self.text.char_to_line_idx(char_pos + consumed)
+                    - self.text.char_to_line_idx(char_pos)
+            };
+            if consumed != 0 {
+                self.conceal_graphemes = None;
+            }
             return Some(GraphemeWithSource {
-                grapheme: Grapheme::Other { g: "…".into() },
-                source: GraphemeSource::Document {
-                    codepoints: end - char_pos,
+                grapheme: Grapheme::new(grapheme.into(), col, self.text_fmt.tab_width),
+                source: GraphemeSource::Conceal {
+                    codepoints: consumed,
                 },
-                concealed_lines: self.text.char_to_line_idx(end)
-                    - self.text.char_to_line_idx(char_pos),
+                concealed_lines,
             });
         }
         let (grapheme, source) =
@@ -441,6 +462,50 @@ impl<'t> DocumentFormatter<'t> {
                 return;
             }
         }
+    }
+
+    /// Discard the rest of an unwrapped document line without formatting it.
+    /// The next item starts the following line at column zero. At the final
+    /// line this also consumes the synthetic EOF cell. No exact line width is
+    /// computed, so callers must not need positions or hooks in the discarded tail.
+    /// Returns false without advancing for wrapping, folds, overlays, virtual-line
+    /// sessions, or inline annotations in the tail.
+    pub fn skip_unwrapped_line_tail(&mut self) -> bool {
+        if self.text_fmt.soft_wrap
+            || self.exhausted
+            || self.visual_pos.col == 0
+            || self
+                .inline_annotation_graphemes
+                .as_ref()
+                .is_some_and(|(items, _)| !items.as_str().is_empty())
+        {
+            return false;
+        }
+        let next_line = self.line_pos + 1;
+        let has_next_line = next_line < self.text.len_lines(stdx::rope::LINE_TYPE);
+        let end = if has_next_line {
+            self.text.line_to_char_idx(next_line)
+        } else {
+            self.text.len_chars()
+        };
+        let annotation_end = end + usize::from(!has_next_line);
+        if !self
+            .annotations
+            .can_skip_unwrapped_tail(self.char_pos..annotation_end)
+        {
+            return false;
+        }
+        self.char_pos = end;
+        self.graphemes = self.text.slice_chars(end..).graphemes();
+        self.annotation_cursor.skip_concealed(end);
+        self.inline_annotation_graphemes = None;
+        self.indent_level = None;
+        self.visual_pos.row += 1;
+        self.visual_pos.col = 0;
+        self.line_pos = next_line;
+        self.block_line_pos = next_line;
+        self.exhausted = !has_next_line;
+        true
     }
 
     /// returns the char index at the end of the last yielded grapheme

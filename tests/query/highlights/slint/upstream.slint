@@ -1,0 +1,9 @@
+export component Example inherits Rectangle {
+    @testable property <int> count;
+//  ^ @attribute
+    slot <Rectangle> content << Rectangle {}
+//       ^ @punctuation.bracket
+//        ^ @type
+//                  ^ @variable.other.member
+//                           ^ @operator
+}

@@ -56,9 +56,41 @@ pub(crate) fn frame_with_config<T: Send + Sync, D: Send + Sync>(
     app: &mut TestApplication,
     config: &AppConfig,
 ) -> Surface {
+    frame_with_area(picker, app, config, Rect::new(0, 0, 70, 20))
+}
+
+pub(crate) fn frame_with_area<T: Send + Sync, D: Send + Sync>(
+    picker: &mut Picker<T, D>,
+    app: &mut TestApplication,
+    config: &AppConfig,
+    area: Rect,
+) -> Surface {
+    let mut surface = Surface::empty(area);
+    with_context(app, config, |cx| {
+        picker.update_and_render(area, &mut surface, cx)
+    });
+    surface
+}
+
+pub(crate) fn event_with_config<T: Send + Sync, D: Send + Sync>(
+    picker: &mut Picker<T, D>,
+    app: &mut TestApplication,
+    config: &AppConfig,
+    event: Event,
+) {
+    with_context(app, config, |cx| {
+        picker.handle_event(&event, cx);
+    });
+}
+
+fn with_context<R>(
+    app: &mut TestApplication,
+    config: &AppConfig,
+    run: impl FnOnce(&mut Context) -> R,
+) -> R {
     let updates = tokio::sync::mpsc::unbounded_channel().0;
     let mut jobs = Jobs::new();
-    let mut cx = Context {
+    run(&mut Context {
         config: crate::config::Context {
             current: config,
             updates: &updates,
@@ -69,11 +101,7 @@ pub(crate) fn frame_with_config<T: Send + Sync, D: Send + Sync>(
         scroll: None,
         image_picker: None,
         is_cursor_owner: true,
-    };
-    let area = Rect::new(0, 0, 70, 20);
-    let mut surface = Surface::empty(area);
-    picker.update_and_render(area, &mut surface, &mut cx);
-    surface
+    })
 }
 
 pub(crate) async fn until<T: Send + Sync, D: Send + Sync>(
@@ -104,25 +132,24 @@ pub(crate) async fn until_with_timeout<T: Send + Sync, D: Send + Sync>(
 }
 
 pub(crate) fn is_settled<T: Send + Sync, D: Send + Sync>(picker: &mut Picker<T, D>) -> bool {
-    !picker.replacement_pending()
-        && !picker.dynamic_query_pending
-        && !picker.query_refresh
+    picker.query_options.pending.is_none()
+        && !picker.replacement_pending()
+        && !picker.dynamic_query_pending()
         && !picker.results.is_refreshing()
-        && picker
-            .file_updates
-            .as_ref()
-            .is_none_or(|updates| !updates.is_pending())
+        && !picker.source_pending()
         && picker.results.matcher.active_injectors() == 0
         && !picker.results.matcher.tick(0).running
 }
 
+#[cfg(feature = "git")]
 pub(crate) fn loaded_count<T: Send + Sync, D>(picker: &Picker<T, D>) -> usize {
     picker.results.matcher.snapshot().item_count() as usize
 }
 
+#[cfg(feature = "git")]
 pub(crate) fn source_status<T: Send + Sync, D>(picker: &Picker<T, D>) -> Option<&str> {
     picker
-        .editor_updates
+        .updates
         .as_ref()
         .and_then(|updates| updates.status.as_deref())
 }

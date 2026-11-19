@@ -200,10 +200,13 @@ pub(crate) fn handle_file_events(editor: &Editor, events: &Events) {
     }
 }
 
-pub(super) fn register_hooks(events: &event::EventHub) {
+pub(super) fn register_hooks(events: &event::EventHub, hooks: crate::handlers::DocumentHooks) {
     register_hook!(events => move |event: &mut DocumentDidChange<'_>| {
-        if let Some(trigger) = &event.doc.review_trigger {
-            trigger.changed(event.doc.id());
+        if !event.doc.is_content_readonly()
+            && let Some(services) = hooks.upgrade()
+            && let Some(services) = services.get()
+        {
+            services.review.changed(event.doc.id());
         }
         Ok(())
     });

@@ -289,3 +289,55 @@ async fn failed_clipboard_push_preserves_saved_selections() -> anyhow::Result<()
     }
     Ok(())
 }
+
+#[tokio::test]
+async fn search_history_retains_syntax_and_follows_register_and_clipboard_writes(
+) -> anyhow::Result<()> {
+    use editor_core::search::SearchSyntax;
+    use view::register::SearchHistoryEntry;
+
+    let mut fixture = Fixture::new("")?;
+    let state = Arc::new(std::sync::Mutex::new(ClipboardState::default()));
+    fixture
+        .editor
+        .registers
+        .set_clipboard_backend(Box::new(MemoryClipboard(state.clone())));
+    let registers = &mut fixture.editor.registers;
+    let literal = SearchHistoryEntry {
+        text: "a.b".into(),
+        syntax: SearchSyntax::Literal,
+    };
+    let regex = SearchHistoryEntry::regex(r"a\.b".into());
+    registers.push_search('a', literal.clone())?;
+    registers.push_search('a', regex.clone())?;
+    registers.push_search('a', literal.clone())?;
+    assert_eq!(
+        registers.search_history('a').collect::<Vec<_>>(),
+        [literal.clone(), regex]
+    );
+    assert_eq!(
+        registers.read('a').unwrap().collect::<Vec<_>>(),
+        [r"a\.b", r"a\.b"]
+    );
+    registers.write('a', vec!["a.b".into()])?;
+    assert_eq!(
+        registers.search_history('a').collect::<Vec<_>>(),
+        [SearchHistoryEntry::regex("a.b".into())]
+    );
+    registers.push_search('+', literal.clone())?;
+    assert_eq!(
+        registers.search_history('+').collect::<Vec<_>>().as_slice(),
+        std::slice::from_ref(&literal)
+    );
+    state.lock().unwrap().contents[0] = "external.*".into();
+    assert_eq!(
+        registers.search_history('+').collect::<Vec<_>>(),
+        [SearchHistoryEntry::regex("external.*".into())]
+    );
+    registers.remove('a');
+    assert!(registers.search_history('a').next().is_none());
+    registers.push_search('a', literal)?;
+    registers.clear();
+    assert!(registers.search_history('a').next().is_none());
+    Ok(())
+}

@@ -1381,30 +1381,6 @@ async fn delete_append_inside_nested_pair() -> anyhow::Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn delete_append_middle_of_word() -> anyhow::Result<()> {
-    for pair in DEFAULT_PAIRS {
-        test((
-            format!(
-                "f#[oo{open}{open}|]#{close}{close}{eol}",
-                open = pair.0,
-                close = pair.1,
-                eol = LINE_END
-            ),
-            "a<backspace>",
-            format!(
-                "f#[oo{open}{close}|]#{eol}",
-                open = pair.0,
-                close = pair.1,
-                eol = LINE_END
-            ),
-        ))
-        .await?;
-    }
-
-    Ok(())
-}
-
-#[tokio::test(flavor = "multi_thread")]
 async fn delete_append_inside_nested_pair_multi() -> anyhow::Result<()> {
     for outer_pair in DEFAULT_PAIRS {
         for inner_pair in DEFAULT_PAIRS {

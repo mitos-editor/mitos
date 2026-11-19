@@ -94,7 +94,7 @@ impl CommitReviewPreview {
                         .iter()
                         .map(|line| line.text.len())
                         .sum::<usize>();
-                    rows += review.lines.len() + 4 + usize::from(review.fallback.is_some());
+                    rows += review.lines.len() + 4;
                     // Bound the combined patch as well as each individual file.
                     if bytes > vcs::MAX_REVIEW_BYTES || rows > 20_000 {
                         reviews.push((
@@ -159,12 +159,6 @@ impl CommitReviewPreview {
                     super::literal(&format!("+++ {after}")),
                     heading,
                 ));
-                if let Some(reason) = review.fallback {
-                    lines.push(Line::styled(
-                        reason.to_string(),
-                        theme.get("ui.text.inactive"),
-                    ));
-                }
                 for line in &review.lines {
                     let (prefix, style) = match line.kind {
                         ReviewLineKind::Added => ("+", theme.get("diff.plus")),

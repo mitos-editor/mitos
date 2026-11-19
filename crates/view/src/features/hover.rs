@@ -1,20 +1,18 @@
 //! Hover requests belong to the document and view that initiated them.
 
-use std::{
-    collections::HashSet,
-    sync::{Arc, Weak},
-};
+use std::sync::{Arc, Weak};
 
 use event::{cancelable_future, register_hook};
-use futures_util::{stream::FuturesUnordered, StreamExt};
+use futures_util::{stream::FuturesUnordered, FutureExt, StreamExt};
 use language_config::LanguageServerFeature;
 use lsp_client::lsp;
 
 use super::request::SelectionRequest;
 use crate::{
     callbacks::EditorCallbackSender,
+    editor::Action,
     events::{ConfigDidChange, DocumentFocusLost, LanguageServerExited, SelectionDidChange},
-    DocumentId, Editor, ViewId,
+    Document, DocumentId, Editor, ViewId,
 };
 
 /// One editor's result destination. Request lifetimes are owned by its documents.
@@ -32,9 +30,42 @@ impl HoverHandler {
     }
 }
 
+/// Where a frontend presents a hover response.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HoverDisplay {
+    /// A popup at the cursor.
+    Popup,
+    /// A new read-only buffer in the requesting view, like `goto_definition`.
+    Buffer,
+}
+
+/// Open named, read-only Markdown docs in the current view, retaining the source
+/// position in the jump list. The buffer remains available until explicitly closed.
+pub fn open_buffer(editor: &mut Editor, text: String) -> DocumentId {
+    let source = crate::current_ref!(editor).1;
+    let name = source
+        .path()
+        .and_then(|path| path.file_name())
+        .map_or_else(|| source.display_name(), |name| name.to_string_lossy());
+    let doc = Document::from(
+        text.into(),
+        None,
+        editor.config.clone(),
+        editor.syn_loader.load_full(),
+    )
+    .with_readonly_name(format!("[hover: {name}]"));
+    let id = editor.new_file_from_document(Action::Replace, doc);
+    // If Markdown isn't configured, retain plain text.
+    if let Err(err) = editor.set_document_language(id, Some("markdown")) {
+        log::debug!("goto_hover buffer stays plain text: {err}");
+    }
+    id
+}
+
 struct Request {
     owner: Weak<EditorCallbackSender>,
     target: SelectionRequest,
+    display: HoverDisplay,
 }
 
 impl Request {
@@ -51,6 +82,12 @@ impl Request {
 
 /// Request hover at the focused selection, superseding its previous request.
 pub fn request(editor: &mut Editor) {
+    request_with(editor, HoverDisplay::Popup);
+}
+
+/// Request hover for presentation as `display`, superseding the previous request
+/// of either kind.
+pub fn request_with(editor: &mut Editor, display: HoverDisplay) {
     let shared = editor.handlers.hover.callbacks.clone();
     editor
         .handlers
@@ -72,10 +109,10 @@ pub fn request(editor: &mut Editor) {
         .hover
         .get_or_insert_default()
         .restart();
-    let mut servers = HashSet::new();
+    let mut servers = Vec::new();
     let mut futures: FuturesUnordered<_> = doc
         .language_servers_with_feature(LanguageServerFeature::Hover)
-        .filter(|server| servers.insert(server.id()))
+        .inspect(|server| servers.push(server.id()))
         .map(|server| {
             let name = server.name().to_owned();
             let future = server
@@ -85,22 +122,67 @@ pub fn request(editor: &mut Editor) {
                     None,
                 )
                 .unwrap();
-            async move { (name, future.await) }
+            async move { (name, future.await) }.boxed()
         })
         .collect();
-    if futures.is_empty() {
+    let cursor = doc
+        .selection(view.id)
+        .primary()
+        .cursor(doc.text().slice(..));
+    let mut hovers = Vec::new();
+    for link in doc
+        .document_links()
+        .iter()
+        .filter(|link| link.start <= cursor && cursor < link.end)
+    {
+        let Some(server) = doc
+            .language_servers_with_feature(LanguageServerFeature::DocumentLinks)
+            .find(|server| server.id() == link.language_server_id)
+        else {
+            continue;
+        };
+        if let Some(tooltip) = &link.link.tooltip {
+            if !tooltip.is_empty() {
+                servers.push(server.id());
+                hovers.push((server.name().to_owned(), link_hover(tooltip.clone())));
+            }
+        } else if server
+            .capabilities()
+            .document_link_provider
+            .as_ref()
+            .is_some_and(|options| options.resolve_provider == Some(true))
+            && let Some(resolve) = server.resolve_document_link(link.link.clone())
+        {
+            servers.push(server.id());
+            let name = server.name().to_owned();
+            futures.push(
+                async move {
+                    (
+                        name,
+                        resolve.await.map(|link| {
+                            link.tooltip
+                                .filter(|tooltip| !tooltip.is_empty())
+                                .map(link_hover)
+                        }),
+                    )
+                }
+                .boxed(),
+            );
+        }
+    }
+    if futures.is_empty() && hovers.is_empty() {
         editor.set_error(|| "No configured language server supports hover");
         return;
     }
     let target = (doc.id(), view.id);
     let request = Request {
         owner: Arc::downgrade(&shared),
-        target: SelectionRequest::new(doc, view.id, cancel, servers.into_iter().collect()),
+        target: SelectionRequest::new(doc, view.id, cancel, servers),
+        display,
     };
     editor.handlers.hover.target = Some(target);
     let callbacks = (*shared).clone();
     tokio::spawn(async move {
-        let mut hovers = Vec::new();
         loop {
             match cancelable_future(futures.next(), request.target.cancel_handle()).await {
                 Some(Some((name, Ok(Some(hover))))) => hovers.push((name, hover)),
@@ -120,6 +202,16 @@ pub fn request(editor: &mut Editor) {
     });
 }
 
+fn link_hover(tooltip: String) -> lsp::Hover {
+    lsp::Hover {
+        contents: lsp::HoverContents::Markup(lsp::MarkupContent {
+            kind: lsp::MarkupKind::PlainText,
+            value: tooltip,
+        }),
+        range: None,
+    }
+}
+
 /// A queued frontend result. Validate again when the frontend presents it.
 pub struct HoverUpdate {
     request: Request,
@@ -133,6 +225,10 @@ impl std::fmt::Debug for HoverUpdate {
 }
 
 impl HoverUpdate {
+    pub fn display(&self) -> HoverDisplay {
+        self.request.display
+    }
+
     pub fn resolve(self, editor: &Editor) -> Option<Vec<(String, lsp::Hover)>> {
         self.request.is_current(editor).then_some(self.hovers)
     }

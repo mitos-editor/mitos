@@ -1,30 +1,11 @@
+use super::super::test_support::{git, screen};
 use super::*;
 use crate::{
     application::TestApplication,
-    compositor::{Context, Event},
-    ui::picker::test::{all_items, application, draw, frame, until, until_with_timeout},
+    compositor::Context,
+    ui::picker::test::{all_items, application, draw, until, until_with_timeout},
 };
 use std::process::Command;
-
-fn git(root: &std::path::Path, args: &[&str]) -> String {
-    let output = Command::new("git")
-        .arg("-C")
-        .arg(root)
-        .args(args)
-        .env_remove("GIT_DIR")
-        .env("GIT_AUTHOR_NAME", "History Test")
-        .env("GIT_AUTHOR_EMAIL", "history@example.com")
-        .env("GIT_COMMITTER_NAME", "History Test")
-        .env("GIT_COMMITTER_EMAIL", "history@example.com")
-        .output()
-        .unwrap();
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    String::from_utf8(output.stdout).unwrap().trim().to_owned()
-}
 
 fn repository(count: usize) -> (tempfile::TempDir, GitRepository) {
     let dir = tempfile::tempdir().unwrap();
@@ -84,33 +65,8 @@ fn press(
     app: &mut TestApplication,
     key: &str,
 ) -> String {
-    let config = crate::config::Config::default();
-    let updates = tokio::sync::mpsc::unbounded_channel().0;
-    let mut jobs = crate::job::Jobs::new();
-    picker.handle_event(
-        &Event::Key(key.parse().unwrap()),
-        &mut Context {
-            config: crate::config::Context {
-                current: &config,
-                updates: &updates,
-            },
-            editor: &mut app.editor,
-            interaction: &mut app.interaction,
-            jobs: &mut jobs,
-            scroll: None,
-            image_picker: None,
-            is_cursor_owner: true,
-        },
-    );
+    super::super::test_support::press(picker, app, key);
     screen(picker, app)
-}
-
-fn screen(picker: &mut Picker<Arc<CommitEntry>, Data>, app: &mut TestApplication) -> String {
-    frame(picker, app)
-        .content
-        .iter()
-        .map(|cell| cell.symbol())
-        .collect()
 }
 
 #[tokio::test(flavor = "multi_thread")]

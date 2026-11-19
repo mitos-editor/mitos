@@ -12,7 +12,6 @@ use tokio::sync::mpsc;
 use view::{
     callbacks::EditorCallback,
     current, current_ref,
-    editor::Action,
     features::code_lenses::{self, CodeLensCommand, DocumentCodeLensesHandler, ResolvedCodeLenses},
     DocumentId,
 };
@@ -20,7 +19,7 @@ use view::{
 use super::helpers::{
     callbacks,
     lsp::{self, Gate, ServerConfig},
-    run_event_loop_until_idle, test_config, AppBuilder,
+    run_event_loop_until_idle, test_config,
 };
 
 struct Fixture {
@@ -48,20 +47,15 @@ impl Fixture {
             logs.push(lsp::log_path(dir.path(), name));
             gates.push(gate);
         }
-        let loader = lsp::syntax_loader("lens-test", "lens-test", names, &servers);
-        let mut config = test_config();
-        config.editor.lsp.enable = true;
-        let (sender, callbacks) = callbacks::unbounded(|blocking, callback| (blocking, callback));
-        let mut app = AppBuilder::new()
-            .with_config(config)
-            .with_lang_loader(loader)
-            .with_handler_setup(move |handlers, _| {
-                handlers.code_lenses = DocumentCodeLensesHandler::new(sender);
-            })
-            .build()?;
-        let path = dir.path().join("document.lens-test");
-        std::fs::write(&path, "😀 original\n")?;
-        app.editor.open(&path, Action::Replace)?;
+        let (app, callbacks) = lsp::feature_app_with_servers(
+            dir.path(),
+            "😀 original\n",
+            "lens-test",
+            names,
+            test_config(),
+            &servers,
+            |handlers, sender, _| handlers.code_lenses = DocumentCodeLensesHandler::new(sender),
+        )?;
         let doc = current_ref!(app.editor).1.id();
         let mut fixture = Self {
             app,
@@ -80,21 +74,7 @@ impl Fixture {
     }
 
     async fn response(&mut self) -> anyhow::Result<EditorCallback> {
-        tokio::time::timeout(Duration::from_secs(10), async {
-            loop {
-                let (blocking, callback) = self
-                    .callbacks
-                    .recv()
-                    .await
-                    .context("callback queue closed")?;
-                if blocking {
-                    callback(&mut self.app.editor);
-                } else {
-                    return Ok(callback);
-                }
-            }
-        })
-        .await?
+        callbacks::response(&mut self.app, &mut self.callbacks).await
     }
 
     async fn resolve(&mut self) -> ResolvedCodeLenses {
@@ -221,6 +201,25 @@ async fn multiple_servers_resolve_and_cache_their_own_lenses() -> anyhow::Result
             5
         );
     }
+    assert!(fixture.app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn lenses_with_multi_line_ranges_anchor_to_their_first_line() -> anyhow::Result<()> {
+    let mut fixture = Fixture::new(&["alpha"], &["--multi-line"]).await?;
+    let doc = fixture.app.editor.document(fixture.doc).unwrap();
+    assert_eq!(doc.code_lenses().len(), 2);
+    assert!(doc.code_lenses().iter().all(|lens| lens.char_idx == 2));
+    let resolved = fixture.resolve().await;
+    assert_eq!(
+        resolved
+            .commands
+            .iter()
+            .map(|lens| lens.command.title.as_str())
+            .collect::<Vec<_>>(),
+        ["next line", "past end"]
+    );
     assert!(fixture.app.close().await.is_empty());
     Ok(())
 }
@@ -637,6 +636,7 @@ async fn title_requests_are_limited_before_the_client_sends_them() -> anyhow::Re
     );
     server
         .command(lsp_client::lsp::Command {
+            tooltip: None,
             title: "release".into(),
             command: "fixture.release-lenses".into(),
             arguments: None,
@@ -656,5 +656,21 @@ async fn title_requests_are_limited_before_the_client_sends_them() -> anyhow::Re
         visible
     );
     assert!(fixture.app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn code_lens_menu_shows_eager_and_resolved_command_tooltips() -> anyhow::Result<()> {
+    let mut fixture = Fixture::new(&["alpha"], &[]).await?;
+    fixture.open_menu().await?;
+    let buffer = fixture.app.terminal_backend().buffer();
+    let screen = buffer
+        .content
+        .chunks(buffer.area.width as usize)
+        .map(|row| row.iter().map(|cell| cell.symbol()).collect::<String>())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(screen.contains("Run ready lens"));
+    assert!(screen.contains("Run resolved lens"));
     Ok(())
 }

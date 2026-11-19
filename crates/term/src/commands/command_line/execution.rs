@@ -140,16 +140,7 @@ impl Sequence {
         while let Some(step) = self.steps.pop_front() {
             match step {
                 Step::Mappable(command) => {
-                    let mut context = super::super::Context {
-                        config: cx.config,
-                        register: None,
-                        count: None,
-                        editor: cx.editor,
-                        interaction: cx.interaction,
-                        callback: Vec::new(),
-                        on_next_key_callback: None,
-                        jobs: cx.jobs,
-                    };
+                    let mut context = super::super::Context::from_ui(cx);
                     command.execute(&mut context);
                     if !context.callback.is_empty() {
                         callbacks.extend(context.callback);

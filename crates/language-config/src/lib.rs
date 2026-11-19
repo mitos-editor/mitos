@@ -3,16 +3,6 @@
 mod spelling;
 pub use spelling::{ParseSpellingLanguageError, SpellingConfig, SpellingLanguage};
 
-/// Comparison policy for review views. Exact edit hunks always remain textual.
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum DiffEngine {
-    #[default]
-    Line,
-    Syntax,
-    Auto,
-}
-
 use ::diagnostics::Severity;
 use editor_core::auto_pairs::AutoPairs;
 use editor_core::comment::BlockCommentToken;
@@ -86,9 +76,6 @@ pub struct LanguageConfiguration {
 
     /// Layers over `editor.spelling` for this language.
     pub spelling: Option<SpellingConfig>,
-
-    /// Overrides `editor.diff.engine` for review views.
-    pub diff_engine: Option<DiffEngine>,
 
     #[serde(default)]
     pub diagnostic_severity: Severity,
@@ -185,8 +172,9 @@ impl<'de> Deserialize<'de> for GlobSet {
 
 #[derive(Debug, PartialEq, Eq, Hash)]
 pub enum FileType {
-    /// The extension of the file, either the `Path::extension` or the full
-    /// filename if the file does not have an extension.
+    /// The extension of the file, as returned by `Path::extension`. A file name
+    /// with no extension, or a dotfile such as `.bashrc`, never matches an
+    /// extension, so it needs a glob instead.
     Extension(String),
     /// A Unix-style path glob. This is compared to the file's absolute path, so
     /// it can be used to detect files based on their directories. If the glob
@@ -287,6 +275,44 @@ pub enum LanguageServerFeature {
     CallHierarchy,
     CodeLens,
     SemanticTokens,
+    FoldingRanges,
+    SelectionRanges,
+    LinkedEditing,
+}
+
+impl LanguageServerFeature {
+    /// Configurable features in health-report order.
+    pub fn all() -> &'static [Self] {
+        &[
+            Self::Format,
+            Self::GotoDeclaration,
+            Self::GotoDefinition,
+            Self::GotoTypeDefinition,
+            Self::GotoReference,
+            Self::GotoImplementation,
+            Self::SignatureHelp,
+            Self::Hover,
+            Self::DocumentHighlight,
+            Self::Completion,
+            Self::CodeAction,
+            Self::DocumentLinks,
+            Self::WorkspaceCommand,
+            Self::DocumentSymbols,
+            Self::WorkspaceSymbols,
+            Self::Diagnostics,
+            Self::PullDiagnostics,
+            Self::RenameSymbol,
+            Self::InlayHints,
+            Self::InlineValues,
+            Self::DocumentColors,
+            Self::InlineCompletion,
+            Self::CallHierarchy,
+            Self::CodeLens,
+            Self::SemanticTokens,
+            Self::FoldingRanges,
+            Self::SelectionRanges,
+        ]
+    }
 }
 
 impl Display for LanguageServerFeature {
@@ -318,6 +344,9 @@ impl Display for LanguageServerFeature {
             CallHierarchy => "call-hierarchy",
             CodeLens => "code-lens",
             SemanticTokens => "semantic-tokens",
+            FoldingRanges => "folding-ranges",
+            SelectionRanges => "selection-ranges",
+            LinkedEditing => "linked-editing",
         };
         write!(f, "{feature}",)
     }

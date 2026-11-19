@@ -180,6 +180,20 @@ impl<T: Send + Sync + 'static, D: Send + Sync + 'static> Results<T, D> {
         match_paths: bool,
         redraw: &event::Redraw,
     ) {
+        let injector = self.prepare_refresh(data.clone(), columns, match_paths, redraw);
+        for item in options {
+            inject_nucleo_item(&injector, columns, item, &data);
+        }
+    }
+
+    /// Prepare an atomic replacement whose rows may be injected on a worker.
+    pub fn prepare_refresh(
+        &mut self,
+        data: Arc<D>,
+        columns: &[Column<T, D>],
+        match_paths: bool,
+        redraw: &event::Redraw,
+    ) -> nucleo::Injector<T> {
         let config = if match_paths {
             Config::DEFAULT.match_paths()
         } else {
@@ -196,9 +210,6 @@ impl<T: Send + Sync + 'static, D: Send + Sync + 'static> Results<T, D> {
         matcher.restart(true);
         matcher.pattern.clone_from(&self.matcher.pattern);
         let injector = matcher.injector();
-        for item in options {
-            inject_nucleo_item(&injector, columns, item, &data);
-        }
         self.pending_options = Some(PendingOptions {
             matcher,
             data,
@@ -206,6 +217,7 @@ impl<T: Send + Sync + 'static, D: Send + Sync + 'static> Results<T, D> {
             cursor: None,
         });
         redraw.request();
+        injector
     }
 
     pub fn publish(&mut self) -> bool {

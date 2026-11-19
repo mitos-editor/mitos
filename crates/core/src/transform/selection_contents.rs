@@ -170,6 +170,49 @@ mod tests {
     }
 
     #[test]
+    fn reordering_selected_contents_tracks_the_primary_range() {
+        use crate::transform::{reorder_selection_contents, ReorderStrategy};
+        const A: &str = "#(a|)#\n#(b|)#\n#(c|)#\n#[d|]#\n#(e|)#";
+        const B: &str = "#(e|)#\n#(a|)#\n#(b|)#\n#(c|)#\n#[d|]#";
+        const C: &str = "#[d|]#\n#(e|)#\n#(a|)#\n#(b|)#\n#(c|)#";
+        const D: &str = "#(c|)#\n#[d|]#\n#(e|)#\n#(a|)#\n#(b|)#";
+        const MIDDLE: &str = "#(a|)#\n#(b|)#\n#[c|]#\n#(d|)#\n#(e|)#";
+        const REVERSED: &str = "#(e|)#\n#[d|]#\n#(c|)#\n#(b|)#\n#(a|)#";
+        const MIDDLE_REVERSED: &str = "#(e|)#\n#(d|)#\n#[c|]#\n#(b|)#\n#(a|)#";
+
+        for (input, strategy, count, expected) in [
+            (A, ReorderStrategy::RotateForward, 1, B),
+            (A, ReorderStrategy::RotateForward, 2, C),
+            (A, ReorderStrategy::RotateForward, 3, D),
+            (D, ReorderStrategy::RotateBackward, 1, C),
+            (D, ReorderStrategy::RotateBackward, 2, B),
+            (D, ReorderStrategy::RotateBackward, 3, A),
+            (A, ReorderStrategy::Reverse, 1, REVERSED),
+            (MIDDLE, ReorderStrategy::Reverse, 1, MIDDLE_REVERSED),
+            (MIDDLE, ReorderStrategy::Reverse, 3, MIDDLE_REVERSED),
+        ] {
+            let (text, selection) = test::print(input);
+            let mut doc = Rope::from(text);
+            let (transaction, selection) =
+                reorder_selection_contents(&doc, &selection, strategy, count).unwrap();
+            let selection = selection.map(transaction.changes());
+            assert!(transaction.apply(&mut doc));
+            let (expected_text, expected_selection) = test::print(expected);
+            assert_eq!(doc, expected_text.as_str());
+            assert_eq!(selection, expected_selection);
+        }
+
+        let (text, selection) = test::print(MIDDLE);
+        let doc = Rope::from(text);
+        for count in [2, 4] {
+            assert!(
+                reorder_selection_contents(&doc, &selection, ReorderStrategy::Reverse, count)
+                    .is_none()
+            );
+        }
+    }
+
+    #[test]
     fn reflow_uses_the_requested_line_endings() {
         for (ending, expected) in [
             (LineEnding::LF, "#[|one two\nthree]#"),

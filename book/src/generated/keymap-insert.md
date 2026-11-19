@@ -3,7 +3,7 @@
 | Key | Description | Command |
 | --- | --- | --- |
 | `` <esc> `` | Enter normal mode | `` normal_mode `` |
-| `` <C-s> `` | Commit changes to new checkpoint | `` commit_undo_checkpoint `` |
+| `` <C-s> `` | Start a new undo step without leaving insert mode | `` commit_undo_checkpoint `` |
 | `` <C-x> `` | Invoke completion popup | `` completion `` |
 | `` <C-r> `` | Insert register | `` insert_register `` |
 | `` <C-w> `` | Delete previous word | `` delete_word_backward `` |
@@ -27,5 +27,5 @@
 | `` <right> `` | Move right | `` move_char_right `` |
 | `` <pageup> `` | Move page up | `` page_up `` |
 | `` <pagedown> `` | Move page down | `` page_down `` |
-| `` <home> `` | Goto line start | `` goto_line_start `` |
-| `` <end> `` | Goto newline at line end | `` goto_line_end_newline `` |
+| `` <home> `` | Go to line start | `` goto_line_start `` |
+| `` <end> `` | Go to newline at line end | `` goto_line_end_newline `` |

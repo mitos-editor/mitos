@@ -68,6 +68,14 @@ class SmokeTests(unittest.TestCase):
         self.assertIn('Tree-sitter parser: ✓', self.check(image))
         self.assertEqual(image.stat().st_mode & 0o777, 0o644)
 
+    def test_health_output_supports_legacy_stdout_encoding(self):
+        buffer = io.BytesIO()
+        with io.TextIOWrapper(buffer, encoding='cp1252') as output:
+            with contextlib.redirect_stdout(output):
+                smoke.check_release(self.package)
+            output.flush()
+            self.assertIn(b'Highlight queries:', buffer.getvalue())
+
     def test_health_failure_keeps_diagnostics(self):
         with patch.dict(os.environ, FIXTURE_HEALTH_ERROR='1'), \
              contextlib.redirect_stdout(io.StringIO()) as output:

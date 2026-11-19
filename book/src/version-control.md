@@ -2,6 +2,9 @@
 
 Press `Space g` to choose a version-control action.
 
+For a walkthrough from an edit to a staged change, start with
+[Review and stage changes](./editing-effectively/version-control.md).
+
 Version-control commands use the `vcs_` prefix in keybindings and `vcs-` in command mode.
 Commands that open pickers use the `_picker` suffix in keybindings. Git is
 currently the only supported provider.
@@ -20,8 +23,6 @@ currently the only supported provider.
 `s` means status, `S` stashes, `f` file history, and `l` log.
 
 Find other version-control commands by searching for `vcs-` in the command palette (`Space ?`).
-
-`Space i` also inspects a change, and `Space B` toggles inline blame.
 
 Previously, `Space g` opened changed files directly; that action is now
 `Space g s`. To open changed files directly again, replace the
@@ -158,7 +159,7 @@ large files may be rejected, or their diffs shortened with a notice.
 
 ### Inspecting the current change
 
-Press `Space i` or run `:vcs-show-change` to inspect the change at the cursor in a
+Press `Space g i` or run `:vcs-show-change` to inspect the change at the cursor in a
 popup. It compares `HEAD` with the current buffer, including unsaved edits, and
 shows added and removed lines with context and line numbers.
 
@@ -182,44 +183,20 @@ A-r = "restore"
 
 The popup shows the configured restoration shortcut below the change.
 
-### Syntax-aware review
+### Reviewing changes
 
-Line comparison (`engine = "line"`) is the default. Syntax comparison highlights
-changed parts of code while matching code across line breaks, which can make
-reformatted changes easier to read. Review buffers keep syntax highlighting with
-either engine.
+Reviews show the exact added and removed lines, whitespace, line numbers, and
+counts. When source syntax is available, matching code across line breaks helps
+emphasize the parts that changed. Comments, string contents, and literal markup
+whitespace remain significant. A `layout only` label means the syntax matched
+while the text's layout changed.
 
-To enable syntax comparison, add this to `config.toml`:
+Syntax highlighting uses the original source on each side. Files without usable
+syntax, parse errors, and comparisons beyond the syntax limits keep ordinary
+line emphasis. No setup is required.
 
-```toml
-[editor.diff]
-engine = "syntax"
-```
-
-Use `"auto"` to choose syntax comparison for supported languages and line
-comparison for other files. Override the global choice for a language in
-`languages.toml`:
-
-```toml
-[[language]]
-name = "rust"
-diff-engine = "syntax"
-```
-
-Language settings take precedence over `editor.diff.engine`. Run `:config-reload`
-after editing configuration. Open review buffers apply the new setting
-automatically; reopen a popup to update it. The review statusline or popup heading
-shows the active engine.
-
-Both engines show the original added and removed lines, whitespace, line numbers,
-and counts. A `layout only` label means the syntax matched while the text's
-layout changed. Comments and string contents still take part in comparison.
-Syntax comparison does not check whether code behaves the same; moved blocks
-still appear as removed and added text.
-
-If a grammar is missing, code cannot be parsed, or a comparison is too large,
-Mitos falls back to line comparison with a notice. In `auto` mode, unsupported
-languages use line comparison without a notice.
+Comparison does not prove that code behaves the same. Moved blocks still appear
+as removed and added text.
 
 ## Change navigation and restoration
 
@@ -234,7 +211,7 @@ unsaved edits. Use a count such as `3]g` to jump forward three changes.
 
 Restoring replaces each selected hunk in the current buffer. Use `u` to
 undo it. The command does not save the file or change Git's staging area.
-Navigation and restoration use line changes with either comparison engine.
+Navigation and restoration use the exact line changes.
 
 ## Git picker actions
 
@@ -310,7 +287,8 @@ the current directory. Actions that change the repository require
 | `:vcs-branch-create <name>` | Create a branch at the current commit without switching |
 | `:vcs-branch-switch <name>` | Switch to an existing local branch |
 
-Branch and worktree actions do not require a Git executable. Switching keeps
+Branch and worktree actions use Git when repository hooks must run; otherwise
+they do not require a Git executable. Switching keeps
 unrelated staged and unstaged edits and refuses to overwrite modified,
 untracked, or ignored files. Save edited buffers first. Conflicted or sparse
 indexes and switches that change submodules require a terminal checkout.
@@ -324,7 +302,14 @@ one in the file picker. Your open buffers and unsaved edits are kept.
 
 Press `Alt-n` to enter a new worktree path, relative to this picker's
 repository root, then an existing branch name (leave it empty for detached HEAD).
-Press `Alt-d` to confirm removal of the selected worktree.
+Press `Alt-d` to confirm removal of the selected worktree. For an `unavailable`
+worktree, the same action removes only its Git registration, keeping its
+branch and any remaining files. If the worktree is on an unmounted drive, reconnect
+it or lock it instead of removing its registration.
+Press `Alt-l` to lock a linked worktree against removal and pruning, or `Alt-u`
+to unlock it. Locking an already locked worktree preserves its existing reason.
+The main worktree cannot be locked. These actions require workspace trust and
+work even when a linked worktree folder is temporarily unavailable.
 Remap these shortcuts under `[keys.worktree-picker]`. Branch and worktree
 pickers show the active shortcuts along their bottom border when
 `picker.show-keybindings` is enabled.
@@ -397,8 +382,8 @@ back. The status below the search field shows whether more history is available
 or loading.
 
 A `?` in the result count, such as `80/?`, means the full history has not loaded.
-History has no fixed commit-count limit. For loading controls and memory pauses,
-see [loading large collections](./pickers.md#loading-large-collections).
+For loading controls, see
+[loading large collections](./pickers.md#loading-large-collections).
 
 ### File history
 
@@ -490,7 +475,7 @@ accepts repeated `blame.ignoreRevs` values for individual revisions.
 
 ## Inline blame
 
-Show who last changed the current line with `Space B`. Press it again to hide
+Show who last changed the current line with `Space g t`. Press it again to hide
 annotations. To show them by default, add this to `config.toml`:
 
 ```toml

@@ -3,16 +3,7 @@ use std::path::PathBuf;
 use term::application::TestApplication;
 use view::{current_ref, editor::Action};
 
-use super::helpers::{keys, test_config, AppBuilder};
-
-fn screen(app: &TestApplication) -> String {
-    app.terminal_backend()
-        .buffer()
-        .content
-        .iter()
-        .map(|cell| cell.symbol())
-        .collect()
-}
+use super::helpers::{keys, screen, test_config, AppBuilder};
 
 async fn sidebar() -> anyhow::Result<(TestApplication, tempfile::TempDir, PathBuf)> {
     sidebar_with_config(test_config()).await
@@ -27,14 +18,16 @@ async fn selection_follows_files_opened_outside_the_sidebar() -> anyhow::Result<
     {
         return Ok(());
     }
-    let (mut app, _dir, root) = sidebar().await?;
-    keys(&mut app, "/b.txt<ret><ret>").await?;
+    let (mut app, _dir, root) = sidebar_fixture(test_config())?;
+    let first = root.join("b.txt");
+    app.editor.open(&first, Action::Replace)?;
+    keys(&mut app, "<C-w>e<C-e>").await?;
     let name = root.file_name().unwrap().to_str().unwrap();
     let relative = PathBuf::from(name).join("sub").join("deep").join("d.txt");
     keys(&mut app, &format!("<space>f{}<ret>", relative.display())).await?;
     let nested = root.join("sub").join("deep").join("d.txt");
     assert_eq!(current_ref!(app.editor).1.path(), Some(nested.as_path()));
-    for expected in [nested, root.join("b.txt")] {
+    for expected in [nested, first] {
         keys(&mut app, "<C-w>e<A-y><C-e>").await?;
         let selected: Vec<_> = app.editor.registers.read('"').unwrap().collect();
         assert_eq!(
@@ -49,23 +42,30 @@ async fn selection_follows_files_opened_outside_the_sidebar() -> anyhow::Result<
 async fn sidebar_with_config(
     config: term::config::Config,
 ) -> anyhow::Result<(TestApplication, tempfile::TempDir, PathBuf)> {
+    let (mut app, dir, root) = sidebar_fixture(config)?;
+    app.editor.open(&root.join("a.txt"), Action::Replace)?;
+    keys(&mut app, "<C-w>e").await?;
+    let name = root.file_name().unwrap().to_str().unwrap();
+    keys(&mut app, &format!("/{name}<ret><ret>")).await?;
+    assert!(screen(&app).contains("a.txt"));
+    Ok((app, dir, root))
+}
+
+fn sidebar_fixture(
+    config: term::config::Config,
+) -> anyhow::Result<(TestApplication, tempfile::TempDir, PathBuf)> {
     // Keep the fixture under the workspace so it can be reached without changing
     // the process-wide working directory of concurrently running tests.
     let dir = tempfile::Builder::new()
         .prefix("sidebar-fixture-")
-        .tempdir_in(workspace::find_workspace().0)?;
+        .tempdir_in(workspace::ResolvedWorkspace::current().root())?;
     let root = stdx::path::canonicalize(dir.path());
     std::fs::write(root.join("a.txt"), "alpha\n")?;
     std::fs::write(root.join("b.txt"), "bravo\n")?;
     std::fs::create_dir_all(root.join("sub/deep"))?;
     std::fs::write(root.join("sub/c.txt"), "charlie\n")?;
     std::fs::write(root.join("sub/deep/d.txt"), "delta\n")?;
-    let mut app = AppBuilder::new().with_config(config).build()?;
-    app.editor.open(&root.join("a.txt"), Action::Replace)?;
-    keys(&mut app, "<C-w>e").await?;
-    let name = root.file_name().unwrap().to_str().unwrap();
-    keys(&mut app, &format!("/{name}<ret><ret>")).await?;
-    assert!(screen(&app).contains("a.txt"));
+    let app = AppBuilder::new().with_config(config).build()?;
     Ok((app, dir, root))
 }
 
@@ -666,7 +666,7 @@ async fn failed_search_discards_input_queued_for_its_result() -> anyhow::Result<
         return Ok(());
     }
     let (mut app, _dir, _root) = sidebar().await?;
-    let workspace = workspace::find_workspace().0;
+    let workspace = workspace::ResolvedWorkspace::current().into_root();
     let moved = workspace.with_file_name("moved-workspace");
     std::fs::rename(&workspace, &moved)?;
     queued_keys(&mut app, "/b.txt<ret><ret><C-e>").await?;
@@ -842,60 +842,75 @@ async fn document_resize_uses_sidebar_neighbor_and_preserves_split_boundaries() 
     {
         return Ok(());
     }
-    let mut config = test_config();
-    let configured = term::config::Config::load(
-        Ok(&"[keys.normal]\nF6 = 'resize_view_right'".to_owned()),
-        Err(Default::default()),
-    )
-    .unwrap();
-    config.keys = configured.keys;
-    let (mut app, _dir, _root) = sidebar_with_config(config).await?;
-    keys(&mut app, "<C-e>").await?;
-    let original = app.editor.tree.area();
-    keys(&mut app, "<C-w>r1h<ret>").await?;
-    assert_eq!(app.editor.tree.area().x, original.x - 1);
-    keys(&mut app, "<C-w>r1l<esc>").await?;
-    assert_eq!(app.editor.tree.area().x, original.x - 1);
-    // Direct directional commands use the same boundary dispatch.
-    keys(&mut app, "1<F6>").await?;
-    assert_eq!(app.editor.tree.area(), original);
-    app.editor.new_file(Action::VerticalSplit);
-    let sidebar_edge = app.editor.tree.area().x;
-    // A regular split boundary stays authoritative, even when constrained.
-    keys(&mut app, "<C-w>r99999l<ret>").await?;
-    assert_eq!(app.editor.tree.area().x, sidebar_edge);
-    keys(&mut app, "<C-w>r99999l<ret>").await?;
-    assert_eq!(app.editor.tree.area().x, sidebar_edge);
-    // Restore room on both sides, then change the internal split and the
-    // sidebar in one interaction. Escape restores both entry snapshots.
-    keys(&mut app, "<C-w>r=<ret>").await?;
-    let root_before = app.editor.tree.area();
-    let left = app
-        .editor
-        .tree
-        .views()
-        .min_by_key(|(view, _)| view.area.x)
-        .unwrap()
-        .0
-        .id;
-    app.editor.focus(left);
-    let panes = |app: &TestApplication| {
-        app.editor
+    for strategy in [
+        editor_config::SplitStrategy::EqualSiblings,
+        editor_config::SplitStrategy::Balanced,
+    ] {
+        let mut config = test_config();
+        config.editor.splits.strategy = strategy;
+        let configured = term::config::Config::load(
+            Ok(&"[keys.normal]\nF6 = 'resize_view_right'".to_owned()),
+            Err(Default::default()),
+        )
+        .unwrap();
+        config.keys = configured.keys;
+        let (mut app, _dir, _root) = sidebar_with_config(config).await?;
+        keys(&mut app, "<C-e>").await?;
+        let original = app.editor.tree.area();
+        keys(&mut app, "<C-w>r1h<ret>").await?;
+        assert_eq!(app.editor.tree.area().x, original.x - 1);
+        keys(&mut app, "<C-w>r1l<esc>").await?;
+        assert_eq!(app.editor.tree.area().x, original.x - 1);
+        // Direct directional commands use the same boundary dispatch.
+        keys(&mut app, "1<F6>").await?;
+        assert_eq!(app.editor.tree.area(), original);
+        app.editor.new_file(Action::VerticalSplit);
+        let sidebar_edge = app.editor.tree.area().x;
+        let right_before = current_ref!(app.editor).0.area;
+        keys(&mut app, "<C-w>r1h<ret>").await?;
+        assert_eq!(
+            current_ref!(app.editor).0.area.width,
+            right_before.width + 1
+        );
+        assert_eq!(app.editor.tree.area().x, sidebar_edge);
+        keys(&mut app, "<C-w>r1l<ret>").await?;
+        assert_eq!(current_ref!(app.editor).0.area, right_before);
+        // A regular split boundary stays authoritative, even when constrained.
+        keys(&mut app, "<C-w>r99999l<ret>").await?;
+        assert_eq!(app.editor.tree.area().x, sidebar_edge);
+        keys(&mut app, "<C-w>r99999l<ret>").await?;
+        assert_eq!(app.editor.tree.area().x, sidebar_edge);
+        // Restore room on both sides, then change the internal split and the
+        // sidebar in one interaction. Escape restores both entry snapshots.
+        keys(&mut app, "<C-w>r=<ret>").await?;
+        let root_before = app.editor.tree.area();
+        let left = app
+            .editor
             .tree
             .views()
-            .map(|(view, _)| view.area)
-            .collect::<Vec<_>>()
-    };
-    let panes_before = panes(&app);
-    assert_eq!(current_ref!(app.editor).0.area.x, root_before.x);
-    keys(&mut app, "<C-w>r1l").await?;
-    assert_eq!(app.editor.tree.area(), root_before);
-    assert_ne!(panes(&app), panes_before);
-    keys(&mut app, "1h").await?;
-    assert_eq!(app.editor.tree.area().x, root_before.x - 1);
-    keys(&mut app, "<esc>").await?;
-    assert_eq!(app.editor.tree.area(), root_before);
-    assert_eq!(panes(&app), panes_before);
+            .min_by_key(|(view, _)| view.area.x)
+            .unwrap()
+            .0
+            .id;
+        app.editor.focus(left);
+        let panes = |app: &TestApplication| {
+            app.editor
+                .tree
+                .views()
+                .map(|(view, _)| view.area)
+                .collect::<Vec<_>>()
+        };
+        let panes_before = panes(&app);
+        assert_eq!(current_ref!(app.editor).0.area.x, root_before.x);
+        keys(&mut app, "<C-w>r1l").await?;
+        assert_eq!(app.editor.tree.area(), root_before);
+        assert_ne!(panes(&app), panes_before);
+        keys(&mut app, "1h").await?;
+        assert_eq!(app.editor.tree.area().x, root_before.x - 1);
+        keys(&mut app, "<esc>").await?;
+        assert_eq!(app.editor.tree.area(), root_before);
+        assert_eq!(panes(&app), panes_before);
+    }
     Ok(())
 }
 

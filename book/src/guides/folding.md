@@ -7,12 +7,8 @@ regions that should collapse. For example, JSON folds objects and arrays:
 [(object) (array)] @fold
 ```
 
-Mitos keeps each captured region's first line. When the captured node has paired
-`{}`, `[]`, or `()` syntax tokens, its closing token and the rest of that source
-line remain visible after the fold placeholder. The syntax tree identifies the
-tokens; delimiter-like text inside strings and comments is not used as a closer.
-
-Other captures conceal whole lines, including the last captured line. A capture
+Mitos keeps each captured region's first line and replaces the remaining lines
+with `…`, including closing tokens and any text on their lines. A capture
 ending at the start of a line excludes that line. Single-line captures are ignored.
 Regions must be nested or disjoint; crossing regions are ignored. Injected
 languages use their own folding queries.

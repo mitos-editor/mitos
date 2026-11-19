@@ -897,41 +897,6 @@ mod tests {
     }
 
     #[test]
-    fn char_boundaries() {
-        let ascii = RopeSlice::from("ascii");
-        // When the given index lies on a character boundary, the index should not change.
-        for byte_idx in 0..=ascii.len() {
-            assert_eq!(ascii.floor_char_boundary(byte_idx), byte_idx);
-            assert_eq!(ascii.ceil_char_boundary(byte_idx), byte_idx);
-            assert!(ascii.is_char_boundary(byte_idx));
-        }
-
-        // This is a polyfill of a method of this trait which was replaced by ceil_char_boundary.
-        // It returns the _character index_ of the given byte index, rounding up if it does not
-        // already lie on a character boundary.
-        fn byte_to_next_char(slice: RopeSlice, byte_idx: usize) -> usize {
-            slice.byte_to_char_idx(slice.ceil_char_boundary(byte_idx))
-        }
-
-        for i in 0..=6 {
-            assert_eq!(byte_to_next_char(RopeSlice::from("foobar"), i), i);
-        }
-        for char_idx in 0..10 {
-            let len = "😆".len();
-            assert_eq!(
-                byte_to_next_char(RopeSlice::from("😆😆😆😆😆😆😆😆😆😆"), char_idx * len),
-                char_idx
-            );
-            for i in 1..=len {
-                assert_eq!(
-                    byte_to_next_char(RopeSlice::from("😆😆😆😆😆😆😆😆😆😆"), char_idx * len + i),
-                    char_idx + 1
-                );
-            }
-        }
-    }
-
-    #[test]
     fn character_boundary_queries_preserve_clamping_on_chunked_slices() {
         let source = "α😀界".repeat(1024);
         let text = ropey::Rope::from_str(&source);

@@ -57,7 +57,7 @@ pub fn insert_char(
                 .map(|(change, range)| (change, Some(range)))
                 .unwrap_or_else(|| {
                     let cursor = range.cursor(text.slice(..));
-                    ((cursor, cursor, Some(Tendril::from_iter([c]))), None)
+                    ((cursor, cursor, Some(c.into())), None)
                 })
         })
     };
@@ -554,7 +554,7 @@ mod tests {
             assert_eq!(doc.version(), version);
             assert!(doc.changes().is_empty());
             doc.commit_changes();
-            view.sync_changes(&mut doc);
+            view.sync_changes(&doc);
             assert!(!editing::undo(&mut doc, view.id));
         }
     }

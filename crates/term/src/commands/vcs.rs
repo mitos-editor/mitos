@@ -13,6 +13,9 @@ use theme::Style;
 use tui::{text::Span, widgets::Cell};
 use view::{document::Mode, Editor};
 
+#[cfg(all(test, feature = "git"))]
+mod test_support;
+
 #[cfg(feature = "git")]
 mod actions;
 #[cfg(feature = "git")]
@@ -46,7 +49,7 @@ pub(super) fn git_stash_picker(cx: &mut Context) {
     #[cfg(feature = "git")]
     {
         let path = stdx::env::current_working_dir();
-        let workspace = workspace::find_workspace_in(&path).0;
+        let workspace = workspace::ResolvedWorkspace::resolve(&path).into_root();
         match actions::stash_browser(cx.editor, path, workspace) {
             Ok(picker) => cx.push_layer(picker),
             Err(error) => cx.editor.set_error(|| error.to_string()),
@@ -190,7 +193,7 @@ pub(super) fn toggle_inline_blame(cx: &mut Context) {
 pub(super) fn changed_file_picker(cx: &mut Context) {
     changed_file_picker_for_scope(
         cx,
-        vcs::ChangedFileScope::Directory(workspace::find_workspace().0),
+        vcs::ChangedFileScope::Directory(workspace::ResolvedWorkspace::current().into_root()),
     );
 }
 
@@ -306,7 +309,7 @@ fn changed_file_picker_for_scope(cx: &mut Context, scope: vcs::ChangedFileScope)
             FileChange::Renamed { .. } => ("> ", icons.vcs().renamed(), data.style_renamed),
         };
         if data.icons {
-            icon.map(|icon| Span::styled(icon.with_no_left_padding().to_string(), style))
+            Some(Span::styled(icon.with_no_left_padding().to_string(), style))
         } else {
             Some(Span::styled(plain, style))
         }
@@ -342,7 +345,7 @@ fn changed_file_picker_for_scope(cx: &mut Context, scope: vcs::ChangedFileScope)
         return;
     }
 
-    let workspace_root = workspace::find_workspace_in(scope.path()).0;
+    let workspace_root = workspace::ResolvedWorkspace::resolve(scope.path()).into_root();
     let display_root = match &scope {
         vcs::ChangedFileScope::Directory(path) => Some(path.clone()),
         vcs::ChangedFileScope::Repository(_) => None,
@@ -413,10 +416,13 @@ fn changed_file_picker_for_scope(cx: &mut Context, scope: vcs::ChangedFileScope)
                 cancel,
             )
         },
+        view::features::workspace_changes::Policy {
+            contents: true,
+            vcs: true,
+            ..Default::default()
+        },
     )
-    .with_item_key(|entry| entry.status.path().to_path_buf())
-    .refresh_on_content_changes()
-    .refresh_on_vcs_changes();
+    .with_item_key(|entry| entry.status.path().to_path_buf());
     #[cfg(feature = "git")]
     let picker = {
         let action_scope = scope.clone();
@@ -629,24 +635,15 @@ pub(super) mod typed {
         cx: &mut compositor::Context,
         command: fn(&mut super::Context),
     ) -> anyhow::Result<()> {
-        cx.jobs.callback(async move {
-            Ok(crate::job::Callback::ui(move |compositor, cx| {
-                let mut command_cx = super::Context {
-                    config: cx.config,
-                    register: None,
-                    count: None,
-                    editor: cx.editor,
-                    interaction: cx.interaction,
-                    callback: Vec::new(),
-                    on_next_key_callback: None,
-                    jobs: cx.jobs,
-                };
+        cx.jobs
+            .sender()
+            .enqueue(crate::job::Callback::ui(move |compositor, cx| {
+                let mut command_cx = super::Context::from_ui(cx);
                 command(&mut command_cx);
                 for callback in command_cx.callback {
                     callback(compositor, cx);
                 }
-            }))
-        });
+            }));
 
         Ok(())
     }
@@ -862,9 +859,10 @@ mod file_refresh_tests {
             Ok(())
         };
         git(&["init", "-q"])?;
-        let path = dir.path().join("new.txt");
+        let root = stdx::path::normalize(dir.path());
+        let path = root.join("new.txt");
         std::fs::write(&path, "new\n")?;
-        let scope = vcs::ChangedFileScope::Directory(dir.path().to_owned());
+        let scope = vcs::ChangedFileScope::Directory(root);
         let mut task = event::TaskController::new();
         let entries = refresh_changed_files(
             vcs::DiffProviderRegistry::default(),

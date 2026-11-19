@@ -49,6 +49,7 @@ pub const INTERFACE: &[(&str, &str)] = &[
     ("ui.help", "Description box for commands"),
     ("ui.highlight", "Highlighted lines in the picker preview"),
     ("ui.highlight.frameline", "Line at which debugging execution is paused at"),
+    ("ui.highlight.symbol", "References to the symbol at the cursor; defaults to a subtle selection tint, or bold text when colors cannot be blended."),
     ("ui.linenr", "Line numbers"),
     ("ui.linenr.selected", "Line number for the line the cursor is on"),
     ("ui.link", "Navigable links in the document."),

@@ -33,6 +33,30 @@ impl Client {
         }
     }
 
+    pub fn folding_ranges(
+        &self,
+        text_document: lsp::TextDocumentIdentifier,
+    ) -> impl Future<Output = Result<Option<Vec<lsp::FoldingRange>>>> + use<> {
+        self.call_partial::<lsp::request::FoldingRangeRequest>(lsp::FoldingRangeParams {
+            text_document,
+            work_done_progress_params: Default::default(),
+            partial_result_params: Default::default(),
+        })
+    }
+
+    pub fn selection_ranges(
+        &self,
+        text_document: lsp::TextDocumentIdentifier,
+        positions: Vec<lsp::Position>,
+    ) -> impl Future<Output = Result<Option<Vec<lsp::SelectionRange>>>> + use<> {
+        self.call_partial::<lsp::request::SelectionRangeRequest>(lsp::SelectionRangeParams {
+            text_document,
+            positions,
+            work_done_progress_params: Default::default(),
+            partial_result_params: Default::default(),
+        })
+    }
+
     pub fn completion(
         &self,
         text_document: lsp::TextDocumentIdentifier,
@@ -51,14 +75,14 @@ impl Client {
                 position,
             },
             context: Some(context),
-            // TODO: support these tokens by async receiving and updating the choice list
             work_done_progress_params: lsp::WorkDoneProgressParams { work_done_token },
             partial_result_params: lsp::PartialResultParams {
                 partial_result_token: None,
             },
         };
 
-        Some(self.call::<lsp::request::Completion>(params))
+        let request = self.call_partial::<lsp::request::Completion>(params);
+        Some(async move { Ok(request.await?.map(crate::completion::normalize_response)) })
     }
 
     pub fn resolve_completion_item(
@@ -91,6 +115,7 @@ impl Client {
         text_document: lsp::TextDocumentIdentifier,
         position: lsp::Position,
         work_done_token: Option<lsp::ProgressToken>,
+        context: lsp::SignatureHelpContext,
     ) -> Option<impl Future<Output = Result<Option<SignatureHelp>>> + use<>> {
         let capabilities = self.capabilities.get().unwrap();
 
@@ -103,8 +128,7 @@ impl Client {
                 position,
             },
             work_done_progress_params: lsp::WorkDoneProgressParams { work_done_token },
-            context: None,
-            // lsp::SignatureHelpContext
+            context: Some(context),
         };
 
         Some(self.call::<lsp::request::SignatureHelpRequest>(params))
@@ -121,7 +145,10 @@ impl Client {
         match capabilities.inlay_hint_provider {
             Some(
                 lsp::OneOf::Left(true)
-                | lsp::OneOf::Right(lsp::InlayHintServerCapabilities::Options(_)),
+                | lsp::OneOf::Right(
+                    lsp::InlayHintServerCapabilities::Options(_)
+                    | lsp::InlayHintServerCapabilities::RegistrationOptions(_),
+                ),
             ) => (),
             _ => return None,
         }
@@ -147,6 +174,7 @@ impl Client {
         text_document: lsp::TextDocumentIdentifier,
         position: lsp::Position,
         trigger_kind: lsp::InlineCompletionTriggerKind,
+        selected_completion_info: Option<lsp::SelectedCompletionInfo>,
     ) -> Option<impl Future<Output = Result<Option<lsp::InlineCompletionResponse>>> + use<>> {
         if !matches!(
             self.capabilities().inline_completion_provider,
@@ -154,19 +182,20 @@ impl Client {
         ) {
             return None;
         }
-        Some(
-            self.call::<lsp::request::InlineCompletionRequest>(lsp::InlineCompletionParams {
+        Some(self.call_partial::<lsp::request::InlineCompletionRequest>(
+            lsp::InlineCompletionParams {
+                partial_result_params: Default::default(),
                 text_document_position: lsp::TextDocumentPositionParams {
                     text_document,
                     position,
                 },
                 context: lsp::InlineCompletionContext {
                     trigger_kind,
-                    selected_completion_info: None,
+                    selected_completion_info,
                 },
                 work_done_progress_params: Default::default(),
-            }),
-        )
+            },
+        ))
     }
 
     pub fn text_document_document_color(
@@ -177,15 +206,11 @@ impl Client {
         self.capabilities.get().unwrap().color_provider.as_ref()?;
         let params = lsp::DocumentColorParams {
             text_document,
-            work_done_progress_params: lsp::WorkDoneProgressParams {
-                work_done_token: work_done_token.clone(),
-            },
-            partial_result_params: lsp_types::PartialResultParams {
-                partial_result_token: work_done_token,
-            },
+            work_done_progress_params: lsp::WorkDoneProgressParams { work_done_token },
+            partial_result_params: Default::default(),
         };
 
-        Some(self.call::<lsp::request::DocumentColor>(params))
+        Some(self.call_partial::<lsp::request::DocumentColor>(params))
     }
 
     pub fn text_document_document_link(
@@ -201,7 +226,7 @@ impl Client {
             partial_result_params: lsp::PartialResultParams::default(),
         };
 
-        Some(self.call::<lsp::request::DocumentLinkRequest>(params))
+        Some(self.call_partial::<lsp::request::DocumentLinkRequest>(params))
     }
 
     pub fn resolve_document_link(
@@ -243,6 +268,37 @@ impl Client {
     }
 
     // formatting
+
+    pub fn text_document_on_type_formatting(
+        &self,
+        text_document: lsp::TextDocumentIdentifier,
+        position: lsp::Position,
+        ch: String,
+        options: lsp::FormattingOptions,
+    ) -> Option<impl Future<Output = Result<Option<Vec<lsp::TextEdit>>>> + use<>> {
+        let provider = self
+            .capabilities()
+            .document_on_type_formatting_provider
+            .as_ref()?;
+        if provider.first_trigger_character != ch
+            && !provider
+                .more_trigger_character
+                .as_ref()
+                .is_some_and(|chars| chars.contains(&ch))
+        {
+            return None;
+        }
+        Some(
+            self.call::<lsp::request::OnTypeFormatting>(lsp::DocumentOnTypeFormattingParams {
+                text_document_position: lsp::TextDocumentPositionParams {
+                    text_document,
+                    position,
+                },
+                ch,
+                options: self.get_merged_formatting_options(options),
+            }),
+        )
+    }
 
     pub fn text_document_formatting(
         &self,
@@ -296,11 +352,37 @@ impl Client {
         Some(self.call::<lsp::request::RangeFormatting>(params))
     }
 
+    pub fn supports_ranges_formatting(&self) -> bool {
+        matches!(
+            &self.capabilities().document_range_formatting_provider,
+            Some(lsp::OneOf::Right(options)) if options.ranges_support == Some(true)
+        )
+    }
+
+    pub fn text_document_ranges_formatting(
+        &self,
+        text_document: lsp::TextDocumentIdentifier,
+        ranges: Vec<lsp::Range>,
+        options: lsp::FormattingOptions,
+        work_done_token: Option<lsp::ProgressToken>,
+    ) -> Option<impl Future<Output = Result<Option<Vec<lsp::TextEdit>>>> + use<>> {
+        if !self.supports_ranges_formatting() {
+            return None;
+        }
+        let params = lsp::DocumentRangesFormattingParams {
+            text_document,
+            ranges,
+            options: self.get_merged_formatting_options(options),
+            work_done_progress_params: lsp::WorkDoneProgressParams { work_done_token },
+        };
+        Some(self.call::<lsp::request::RangesFormatting>(params))
+    }
+
     pub fn text_document_diagnostic(
         &self,
         text_document: lsp::TextDocumentIdentifier,
         previous_result_id: Option<String>,
-    ) -> Option<impl Future<Output = Result<lsp::DocumentDiagnosticReportResult>> + use<>> {
+    ) -> Option<impl Future<Output = Result<lsp::DocumentDiagnosticReport>> + use<>> {
         let capabilities = self.capabilities();
 
         // Return early if the server does not support pull diagnostic.
@@ -319,7 +401,7 @@ impl Client {
             partial_result_params: lsp::PartialResultParams::default(),
         };
 
-        Some(self.call::<lsp::request::DocumentDiagnosticRequest>(params))
+        Some(self.call_partial::<lsp::request::DocumentDiagnosticRequest>(params))
     }
 
     pub fn text_document_document_highlight(
@@ -347,14 +429,14 @@ impl Client {
             },
         };
 
-        Some(self.call::<lsp::request::DocumentHighlightRequest>(params))
+        Some(self.call_partial::<lsp::request::DocumentHighlightRequest>(params))
     }
 
     fn goto_request<
         T: lsp::request::Request<
-            Params = lsp::GotoDefinitionParams,
-            Result = Option<lsp::GotoDefinitionResponse>,
-        >,
+                Params = lsp::GotoDefinitionParams,
+                Result = Option<lsp::GotoDefinitionResponse>,
+            > + 'static,
     >(
         &self,
         text_document: lsp::TextDocumentIdentifier,
@@ -372,7 +454,7 @@ impl Client {
             },
         };
 
-        self.call::<T>(params)
+        self.call_partial::<T>(params)
     }
 
     pub fn goto_definition(
@@ -433,7 +515,8 @@ impl Client {
         match capabilities.type_definition_provider {
             Some(
                 lsp::TypeDefinitionProviderCapability::Simple(true)
-                | lsp::TypeDefinitionProviderCapability::Options(_),
+                | lsp::TypeDefinitionProviderCapability::Options(_)
+                | lsp::TypeDefinitionProviderCapability::RegistrationOptions(_),
             ) => (),
             _ => return None,
         }
@@ -457,7 +540,8 @@ impl Client {
         match capabilities.implementation_provider {
             Some(
                 lsp::ImplementationProviderCapability::Simple(true)
-                | lsp::ImplementationProviderCapability::Options(_),
+                | lsp::ImplementationProviderCapability::Options(_)
+                | lsp::ImplementationProviderCapability::RegistrationOptions(_),
             ) => (),
             _ => return None,
         }
@@ -498,7 +582,7 @@ impl Client {
             },
         };
 
-        Some(self.call::<lsp::request::References>(params))
+        Some(self.call_partial::<lsp::request::References>(params))
     }
 
     pub fn document_symbols(
@@ -519,81 +603,31 @@ impl Client {
             partial_result_params: lsp::PartialResultParams::default(),
         };
 
-        Some(self.call::<lsp::request::DocumentSymbolRequest>(params))
+        Some(self.call_partial::<lsp::request::DocumentSymbolRequest>(params))
     }
 
-    pub fn prepare_call_hierarchy(
+    pub fn linked_editing_ranges(
         &self,
         text_document: lsp::TextDocumentIdentifier,
         position: lsp::Position,
-    ) -> Option<impl Future<Output = Result<Option<Vec<lsp::CallHierarchyItem>>>> + use<>> {
-        let capabilities = self.capabilities.get().unwrap();
-
-        match capabilities.call_hierarchy_provider {
+    ) -> Option<impl Future<Output = Result<Option<lsp::LinkedEditingRanges>>> + use<>> {
+        match self.capabilities().linked_editing_range_provider {
             Some(
-                lsp::CallHierarchyServerCapability::Simple(true)
-                | lsp::CallHierarchyServerCapability::Options(_),
+                lsp::LinkedEditingRangeServerCapabilities::Simple(true)
+                | lsp::LinkedEditingRangeServerCapabilities::Options(_)
+                | lsp::LinkedEditingRangeServerCapabilities::RegistrationOptions(_),
             ) => (),
             _ => return None,
         }
-
-        let params = lsp::CallHierarchyPrepareParams {
-            text_document_position_params: lsp::TextDocumentPositionParams {
-                text_document,
-                position,
-            },
-            work_done_progress_params: lsp::WorkDoneProgressParams::default(),
-        };
-
-        Some(self.call::<lsp::request::CallHierarchyPrepare>(params))
-    }
-
-    pub fn call_hierarchy_incoming(
-        &self,
-        item: lsp::CallHierarchyItem,
-    ) -> Option<impl Future<Output = Result<Option<Vec<lsp::CallHierarchyIncomingCall>>>> + use<>>
-    {
-        let capabilities = self.capabilities.get().unwrap();
-
-        match capabilities.call_hierarchy_provider {
-            Some(
-                lsp::CallHierarchyServerCapability::Simple(true)
-                | lsp::CallHierarchyServerCapability::Options(_),
-            ) => (),
-            _ => return None,
-        }
-
-        let params = lsp::CallHierarchyIncomingCallsParams {
-            item,
-            work_done_progress_params: lsp::WorkDoneProgressParams::default(),
-            partial_result_params: lsp::PartialResultParams::default(),
-        };
-
-        Some(self.call::<lsp::request::CallHierarchyIncomingCalls>(params))
-    }
-
-    pub fn call_hierarchy_outgoing(
-        &self,
-        item: lsp::CallHierarchyItem,
-    ) -> Option<impl Future<Output = Result<Option<Vec<lsp::CallHierarchyOutgoingCall>>>> + use<>>
-    {
-        let capabilities = self.capabilities.get().unwrap();
-
-        match capabilities.call_hierarchy_provider {
-            Some(
-                lsp::CallHierarchyServerCapability::Simple(true)
-                | lsp::CallHierarchyServerCapability::Options(_),
-            ) => (),
-            _ => return None,
-        }
-
-        let params = lsp::CallHierarchyOutgoingCallsParams {
-            item,
-            work_done_progress_params: lsp::WorkDoneProgressParams::default(),
-            partial_result_params: lsp::PartialResultParams::default(),
-        };
-
-        Some(self.call::<lsp::request::CallHierarchyOutgoingCalls>(params))
+        Some(
+            self.call::<lsp::request::LinkedEditingRange>(lsp::LinkedEditingRangeParams {
+                text_document_position_params: lsp::TextDocumentPositionParams {
+                    text_document,
+                    position,
+                },
+                work_done_progress_params: lsp::WorkDoneProgressParams::default(),
+            }),
+        )
     }
 
     pub fn prepare_rename(
@@ -619,26 +653,47 @@ impl Client {
         Some(self.call::<lsp::request::PrepareRenameRequest>(params))
     }
 
-    // empty string to get all symbols
+    // An empty query asks for all symbols.
     pub fn workspace_symbols(
         &self,
         query: String,
     ) -> Option<impl Future<Output = Result<Option<lsp::WorkspaceSymbolResponse>>> + use<>> {
-        let capabilities = self.capabilities.get().unwrap();
+        let request = self.workspace_symbols_stream(query)?;
+        Some(super::partial::collect(request))
+    }
 
-        // Return early if the server does not support workspace symbols.
-        match capabilities.workspace_symbol_provider {
+    /// Start a workspace symbol query, exposing batches before its final response.
+    pub fn workspace_symbols_stream(
+        &self,
+        query: String,
+    ) -> Option<
+        super::PartialResultRequest<
+            Option<lsp::WorkspaceSymbolResponse>,
+            lsp::WorkspaceSymbolResponse,
+        >,
+    > {
+        match self.capabilities().workspace_symbol_provider {
             Some(lsp::OneOf::Left(true) | lsp::OneOf::Right(_)) => (),
             _ => return None,
         }
-
         let params = lsp::WorkspaceSymbolParams {
             query,
-            work_done_progress_params: lsp::WorkDoneProgressParams::default(),
-            partial_result_params: lsp::PartialResultParams::default(),
+            work_done_progress_params: Default::default(),
+            partial_result_params: Default::default(),
         };
+        Some(self.partial_request::<lsp::request::WorkspaceSymbolRequest>(params, self.req_timeout))
+    }
 
-        Some(self.call::<lsp::request::WorkspaceSymbolRequest>(params))
+    pub fn resolve_workspace_symbol(
+        &self,
+        symbol: lsp::WorkspaceSymbol,
+    ) -> Option<impl Future<Output = Result<lsp::WorkspaceSymbol>> + use<>> {
+        if !matches!(&self.capabilities().workspace_symbol_provider,
+            Some(lsp::OneOf::Right(options)) if options.resolve_provider == Some(true))
+        {
+            return None;
+        }
+        Some(self.call::<lsp::request::WorkspaceSymbolResolve>(symbol))
     }
 
     pub fn code_actions(
@@ -666,7 +721,7 @@ impl Client {
             partial_result_params: lsp::PartialResultParams::default(),
         };
 
-        Some(self.call::<lsp::request::CodeActionRequest>(params))
+        Some(self.call_partial::<lsp::request::CodeActionRequest>(params))
     }
 
     pub fn rename_symbol(
@@ -696,8 +751,7 @@ impl Client {
         Some(self.call::<lsp::request::Rename>(params))
     }
 
-    /// Static semantic-token options. Dynamic registration and delta updates are
-    /// deliberately not advertised until their lifetimes are supported.
+    /// Static semantic-token options. Dynamic registration is not advertised.
     pub fn semantic_tokens_options(&self) -> Option<&lsp::SemanticTokensOptions> {
         use lsp::SemanticTokensServerCapabilities::*;
         match self.capabilities().semantic_tokens_provider.as_ref()? {
@@ -707,12 +761,12 @@ impl Client {
     }
 
     /// Request a complete snapshot, using a whole-document range for range-only
-    /// servers. Full responses are always requested without a previous result ID.
+    /// servers. Range responses do not establish a full-document delta base.
     pub fn semantic_tokens(
         &self,
         text_document: lsp::TextDocumentIdentifier,
         end: lsp::Position,
-    ) -> Option<impl Future<Output = Result<Vec<lsp::SemanticToken>>> + use<>> {
+    ) -> Option<impl Future<Output = Result<Option<lsp::SemanticTokens>>> + use<>> {
         let options = self.semantic_tokens_options()?;
         let full = matches!(
             options.full,
@@ -721,40 +775,86 @@ impl Client {
                     | lsp::SemanticTokensFullOptions::Delta { .. }
             )
         );
-        if !full && options.range != Some(true) {
+        if !full
+            && !matches!(
+                options.range,
+                Some(lsp::OneOf::Left(true) | lsp::OneOf::Right(_))
+            )
+        {
             return None;
         }
         let full_request = full.then(|| {
-            self.call::<lsp::request::SemanticTokensFullRequest>(lsp::SemanticTokensParams {
-                text_document: text_document.clone(),
-                work_done_progress_params: Default::default(),
-                partial_result_params: Default::default(),
-            })
+            self.call_partial::<lsp::request::SemanticTokensFullRequest>(
+                lsp::SemanticTokensParams {
+                    text_document: text_document.clone(),
+                    work_done_progress_params: Default::default(),
+                    partial_result_params: Default::default(),
+                },
+            )
         });
         let range_request = (!full).then(|| {
-            self.call::<lsp::request::SemanticTokensRangeRequest>(lsp::SemanticTokensRangeParams {
-                text_document,
-                range: lsp::Range::new(lsp::Position::new(0, 0), end),
-                work_done_progress_params: Default::default(),
-                partial_result_params: Default::default(),
-            })
+            self.call_partial::<lsp::request::SemanticTokensRangeRequest>(
+                lsp::SemanticTokensRangeParams {
+                    text_document,
+                    range: lsp::Range::new(lsp::Position::new(0, 0), end),
+                    work_done_progress_params: Default::default(),
+                    partial_result_params: Default::default(),
+                },
+            )
         });
         Some(async move {
             let tokens = if let Some(request) = full_request {
                 match request.await? {
-                    Some(lsp::SemanticTokensResult::Tokens(tokens)) => tokens.data,
-                    Some(lsp::SemanticTokensResult::Partial(tokens)) => tokens.data,
-                    None => Vec::new(),
+                    Some(lsp::SemanticTokensResult::Tokens(tokens)) => Some(tokens),
+                    Some(lsp::SemanticTokensResult::Partial(tokens)) => Some(lsp::SemanticTokens {
+                        result_id: None,
+                        data: tokens.data,
+                    }),
+                    None => None,
                 }
             } else {
                 match range_request.unwrap().await? {
-                    Some(lsp::SemanticTokensRangeResult::Tokens(tokens)) => tokens.data,
-                    Some(lsp::SemanticTokensRangeResult::Partial(tokens)) => tokens.data,
-                    None => Vec::new(),
+                    Some(lsp::SemanticTokensRangeResult::Tokens(tokens)) => {
+                        Some(lsp::SemanticTokens {
+                            result_id: None,
+                            data: tokens.data,
+                        })
+                    }
+                    Some(lsp::SemanticTokensRangeResult::Partial(tokens)) => {
+                        Some(lsp::SemanticTokens {
+                            result_id: None,
+                            data: tokens.data,
+                        })
+                    }
+                    None => None,
                 }
             };
             Ok(tokens)
         })
+    }
+
+    pub fn semantic_tokens_delta(
+        &self,
+        text_document: lsp::TextDocumentIdentifier,
+        previous_result_id: String,
+    ) -> Option<impl Future<Output = Result<Option<lsp::SemanticTokensFullDeltaResult>>> + use<>>
+    {
+        if !matches!(
+            self.semantic_tokens_options()?.full,
+            Some(lsp::SemanticTokensFullOptions::Delta { delta: Some(true) })
+        ) {
+            return None;
+        }
+        Some(
+            self.call_partial::<lsp::request::SemanticTokensFullDeltaRequest>(
+                lsp::SemanticTokensDeltaParams {
+                    text_document,
+                    previous_result_id,
+                    work_done_progress_params: Default::default(),
+                    partial_result_params: Default::default(),
+                },
+            ),
+        )
     }
 
     pub fn code_lens(
@@ -763,7 +863,7 @@ impl Client {
     ) -> Option<impl Future<Output = Result<Option<Vec<lsp::CodeLens>>>> + use<>> {
         self.capabilities().code_lens_provider?;
         Some(
-            self.call::<lsp::request::CodeLensRequest>(lsp::CodeLensParams {
+            self.call_partial::<lsp::request::CodeLensRequest>(lsp::CodeLensParams {
                 text_document,
                 work_done_progress_params: Default::default(),
                 partial_result_params: Default::default(),

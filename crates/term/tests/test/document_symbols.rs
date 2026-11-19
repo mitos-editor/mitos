@@ -120,6 +120,98 @@ async fn document_symbol_picker_refreshes_after_edits_and_when_reopened() -> any
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn symbol_picker_reports_disabled_or_missing_language_servers() -> anyhow::Result<()> {
+    for (enabled, expected) in [
+        (false, "Language servers are disabled"),
+        (
+            true,
+            "No configured language server supports document symbols",
+        ),
+    ] {
+        let mut config = test_config();
+        config.editor.lsp.enable = enabled;
+        config.keys = toml::from_str("[normal]\ns = 'symbol_picker'")?;
+        let mut app = AppBuilder::new().with_config(config).build()?;
+        super::helpers::keys(&mut app, "s").await?;
+        assert_eq!(app.editor.get_status().unwrap().0.as_ref(), expected);
+        assert!(!super::helpers::screen(&app).contains("Document Symbols"));
+        assert!(app.close().await.is_empty());
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn closing_a_loading_symbol_picker_cancels_its_request_and_reopening_restarts_it(
+) -> anyhow::Result<()> {
+    use std::{path::Path, time::Duration};
+
+    async fn message(log: &Path, method: &str, index: usize) -> anyhow::Result<serde_json::Value> {
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                if let Some(message) = lsp::read_log(log)?
+                    .into_iter()
+                    .filter(|message| message["method"] == method)
+                    .nth(index)
+                {
+                    return anyhow::Ok(message);
+                }
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await?
+    }
+
+    let dir = tempfile::tempdir()?;
+    let gate = Gate::new(dir.path().join("initialize-ready"));
+    let log = lsp::log_path(dir.path(), "symbols");
+    let server = ServerConfig::feature("symbols", "--document-symbols", dir.path())
+        .initialize_gate(&gate)
+        .arg("--hold-symbols")
+        .arg("--request-log")
+        .arg(&log)
+        .toml();
+    let mut config = test_config();
+    config.editor.lsp.enable = true;
+    config.editor.breadcrumb.enable = true;
+    let mut app = AppBuilder::new()
+        .with_config(config)
+        .with_lang_loader(lsp::syntax_loader(
+            "symbols-test",
+            "symbols-test",
+            &["symbols"],
+            &server,
+        ))
+        .build()?;
+    let path = dir.path().join("document.symbols-test");
+    std::fs::write(&path, "abcd\n")?;
+    app.editor.open(&path, Action::Replace)?;
+    gate.release()?;
+    lsp::initialize(&mut app, 1).await?;
+
+    let background = message(&log, "textDocument/documentSymbol", 0).await?;
+    let mut previous = None;
+    for (index, keys) in ["<space>s", "<space>'"].into_iter().enumerate() {
+        super::helpers::keys(&mut app, keys).await?;
+        let rendered = super::helpers::screen(&app);
+        assert!(rendered.contains("Document Symbols"), "{rendered}");
+        assert!(rendered.contains("Loading symbols..."), "{rendered}");
+        let request = message(&log, "textDocument/documentSymbol", index + 1).await?;
+        assert_ne!(request["id"], background["id"]);
+        assert_ne!(Some(&request["id"]), previous.as_ref());
+        super::helpers::keys(&mut app, "<esc>").await?;
+        let cancel = message(&log, "$/cancelRequest", index).await?;
+        assert_eq!(cancel["params"]["id"], request["id"]);
+        assert!(!super::helpers::screen(&app).contains("Document Symbols"));
+        previous = Some(request["id"].clone());
+    }
+    assert!(!lsp::read_log(&log)?.iter().any(|message| {
+        message["method"] == "$/cancelRequest" && message["params"]["id"] == background["id"]
+    }));
+    assert!(app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn document_symbol_queries_preserve_hierarchy_locations_and_origin() -> anyhow::Result<()> {
     let dir = tempfile::tempdir()?;
     let gate = Gate::new(dir.path().join("initialize-ready"));
