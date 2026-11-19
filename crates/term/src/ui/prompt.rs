@@ -345,6 +345,10 @@ impl Prompt {
         self.pending_completion = None;
         self.completion_line.clone_from(&self.line);
 
+        if self.next_char_handler.is_some() {
+            self.completion.clear();
+        }
+
         if self.search_syntax.is_some() {
             let mut entries = self
                 .history_register
@@ -369,7 +373,7 @@ impl Prompt {
         match (self.completion_fn)(editor, &self.line) {
             CompletionResult::Immediate(completion) => self.completion = completion,
             CompletionResult::Deferred(compute) => {
-                self.completion.clear();
+                // Keep the menu visible while its replacement is pending.
                 if self.deferred_completion.is_some() {
                     self.pending_completion = Some(compute);
                 } else {
@@ -412,6 +416,7 @@ impl Prompt {
         };
         match task.results.try_recv() {
             Ok(completion) if !task.obsolete => self.completion = completion,
+            Err(TryRecvError::Disconnected) if !task.obsolete => self.completion.clear(),
             Ok(_) | Err(TryRecvError::Disconnected) => {}
             Err(TryRecvError::Empty) => return,
         }
@@ -548,11 +553,15 @@ impl Prompt {
         }
     }
 
-    pub fn insert_char(&mut self, c: char, cx: &Context) {
-        if let Some(handler) = &self.next_char_handler.take() {
-            handler(self, c, cx);
+    fn take_next_char_handler(&mut self) -> Option<PromptCharHandler> {
+        let handler = self.next_char_handler.take()?;
+        self.completion.clear();
+        Some(handler)
+    }
 
-            self.next_char_handler = None;
+    pub fn insert_char(&mut self, c: char, cx: &Context) {
+        if let Some(handler) = self.take_next_char_handler() {
+            handler(self, c, cx);
             return;
         }
 
@@ -692,7 +701,7 @@ impl Prompt {
     }
 
     pub fn change_completion_selection(&mut self, direction: CompletionDirection) {
-        if self.completion.is_empty() {
+        if self.completion_pending() || self.completion.is_empty() {
             return;
         }
 
@@ -1145,7 +1154,7 @@ impl Component for Prompt {
         let event = match event {
             Event::Paste(data) => {
                 self.keys.clear();
-                self.next_char_handler = None;
+                self.take_next_char_handler();
                 self.insert_str(data, cx.editor);
                 (self.callback_fn)(cx, &self.line, PromptEvent::Update);
                 return EventResult::Consumed(None);
@@ -1163,7 +1172,7 @@ impl Component for Prompt {
             && event.code == KeyCode::Esc
             && event.modifiers.is_empty()
         {
-            self.next_char_handler = None;
+            self.take_next_char_handler();
             self.recalculate_completion(cx.editor);
             return EventResult::Consumed(None);
         }
