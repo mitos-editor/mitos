@@ -59,8 +59,31 @@ async fn next_frame(app: &mut TestApplication, frames: &FrameProbe) {
 }
 
 fn draw_now(app: &mut TestApplication) {
-    app.update_components();
-    app.draw_frame();
+    let area = app.update_components();
+    app.draw_frame(area);
+}
+
+#[tokio::test]
+async fn terminal_shrink_between_preparation_and_drawing_keeps_file_picker_open(
+) -> anyhow::Result<()> {
+    let (mut app, _) = application(Args::default())?;
+    let dir = tempfile::tempdir()?;
+    let picker = crate::ui::file_picker(&app.editor, dir.path().to_path_buf());
+    app.compositor
+        .push(Box::new(crate::ui::overlay::overlaid(picker)));
+    draw_now(&mut app);
+
+    let area = app.update_components();
+    app.terminal.backend_mut().resize(60, 20);
+    app.draw_frame(area);
+
+    assert_eq!(
+        app.terminal_backend().buffer().area,
+        Rect::new(0, 0, 60, 20)
+    );
+    assert!(app.terminal_backend().cursor_visible());
+    assert!(app.close().await.is_empty());
+    Ok(())
 }
 
 #[tokio::test]
@@ -867,10 +890,10 @@ async fn a_completion_between_preparation_and_drawing_keeps_its_redraw() -> anyh
     }
     app.editor.reset_idle_timer();
     tokio::time::pause();
-    app.update_components();
+    let area = app.update_components();
     // A preview worker can publish after update sampled its result receiver.
     app.editor.redraw().request();
-    app.draw_frame();
+    app.draw_frame(area);
     let event = app
         .editor
         .wait_event()

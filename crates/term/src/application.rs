@@ -132,13 +132,14 @@ where
                 return false;
             }
 
+            let mut frame_deadline = None;
             if self.render_state.requested.is_some() {
-                self.update_components();
-            }
-            let mut frame_deadline = self.frame_deadline();
-            if frame_deadline.is_some_and(|due| due <= tokio::time::Instant::now()) {
-                self.draw_frame();
-                frame_deadline = None;
+                let area = self.update_components();
+                frame_deadline = self.frame_deadline();
+                if frame_deadline.is_some_and(|due| due <= tokio::time::Instant::now()) {
+                    self.draw_frame(area);
+                    frame_deadline = None;
+                }
             }
             let activity_deadline = self.activity_frame_deadline();
 
