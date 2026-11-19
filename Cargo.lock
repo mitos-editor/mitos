@@ -413,6 +413,7 @@ name = "core"
 version = "0.2.1"
 dependencies = [
  "encoding_rs",
+ "heck",
  "jiff",
  "log",
  "memchr",

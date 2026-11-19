@@ -133,6 +133,80 @@ pub fn switch_to_lowercase(doc: &Rope, selection: &Selection) -> Transaction {
     })
 }
 
+enum CaseKind {
+    Kebab,
+    LowerCamel,
+    ShoutyKebab,
+    ShoutySnake,
+    Snake,
+    Title,
+    UpperCamel,
+    Train,
+}
+
+fn switch_case_by_kind(doc: &Rope, selection: &Selection, kind: CaseKind) -> Transaction {
+    use heck::{
+        ToKebabCase, ToLowerCamelCase, ToShoutyKebabCase, ToShoutySnakeCase, ToSnakeCase,
+        ToTitleCase, ToTrainCase, ToUpperCamelCase,
+    };
+
+    map_case(doc, selection, |string| {
+        let string: String = string.chunks().collect();
+
+        match kind {
+            CaseKind::Kebab => string.to_kebab_case(),
+            CaseKind::LowerCamel => string.to_lower_camel_case(),
+            CaseKind::ShoutyKebab => string.to_shouty_kebab_case(),
+            CaseKind::ShoutySnake => string.to_shouty_snake_case(),
+            CaseKind::Snake => string.to_snake_case(),
+            CaseKind::Title => string.to_title_case(),
+            CaseKind::UpperCamel => string.to_upper_camel_case(),
+            CaseKind::Train => string.to_train_case(),
+        }
+        .into()
+    })
+}
+
+/// Change selected case to kebab-case
+pub fn switch_to_kebab_case(doc: &Rope, selection: &Selection) -> Transaction {
+    switch_case_by_kind(doc, selection, CaseKind::Kebab)
+}
+
+/// Change selected case to lowerCamelCase
+pub fn switch_to_lower_camel_case(doc: &Rope, selection: &Selection) -> Transaction {
+    switch_case_by_kind(doc, selection, CaseKind::LowerCamel)
+}
+
+/// Change selected case to SHOUTY-KEBAB-CASE
+pub fn switch_to_shouty_kebab_case(doc: &Rope, selection: &Selection) -> Transaction {
+    switch_case_by_kind(doc, selection, CaseKind::ShoutyKebab)
+}
+
+/// Change selected case to SHOUTY_SNAKE_CASE
+pub fn switch_to_shouty_snake_case(doc: &Rope, selection: &Selection) -> Transaction {
+    switch_case_by_kind(doc, selection, CaseKind::ShoutySnake)
+}
+
+/// Change selected case to snake_case
+pub fn switch_to_snake_case(doc: &Rope, selection: &Selection) -> Transaction {
+    switch_case_by_kind(doc, selection, CaseKind::Snake)
+}
+
+/// Change selected case to Title Case
+pub fn switch_to_title_case(doc: &Rope, selection: &Selection) -> Transaction {
+    switch_case_by_kind(doc, selection, CaseKind::Title)
+}
+
+/// Change selected case to UpperCamelCase
+pub fn switch_to_upper_camel_case(doc: &Rope, selection: &Selection) -> Transaction {
+    switch_case_by_kind(doc, selection, CaseKind::UpperCamel)
+}
+
+/// Change selected case to Train-Case
+pub fn switch_to_train_case(doc: &Rope, selection: &Selection) -> Transaction {
+    switch_case_by_kind(doc, selection, CaseKind::Train)
+}
+
 /// How to reorder the contents of the selected ranges.
 #[derive(Debug)]
 pub enum ReorderStrategy {

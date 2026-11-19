@@ -45,6 +45,8 @@ jiff.workspace = true
 
 textwrap.workspace = true
 
+heck.workspace = true
+
 
 [dev-dependencies]
 tempfile.workspace = true
