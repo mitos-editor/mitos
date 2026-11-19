@@ -17,7 +17,8 @@ use term::{
         Prompt,
     },
 };
-use tui::text::Span;
+use tui::{buffer::Buffer, text::Span};
+use view::graphics::Rect;
 
 use super::helpers::{keys, run_event_loop_until_idle, test_config, AppBuilder};
 
@@ -133,6 +134,59 @@ async fn prompt_applies_deferred_completions_without_further_input() -> anyhow::
     // The task reports on its own; the prompt has to collect it without new input.
     gate.release();
     wait_for_completion(&mut prompt, &mut fixture, "completion for first");
+
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn prompt_keeps_menu_and_help_visible_during_deferred_refresh() -> anyhow::Result<()> {
+    let mut fixture = Fixture::new()?;
+    let gate = Gate::default();
+    let worker_gate = gate.clone();
+    let mut prompt = Prompt::new(
+        ":".into(),
+        None,
+        move |_, input| {
+            let refreshing = input == "o path/n";
+            let gate = worker_gate.clone();
+            CompletionResult::Deferred(Box::new(move |_| {
+                let item = if refreshing {
+                    gate.wait();
+                    "new-file"
+                } else {
+                    "old-file"
+                };
+                vec![(7.., Span::raw(item))]
+            }))
+        },
+        |_, _, _| {},
+    );
+    prompt.doc_fn = Box::new(|_| Some("Open a file".into()));
+
+    let area = Rect::new(0, 0, 90, 15);
+    let render = |prompt: &mut Prompt, fixture: &mut Fixture| {
+        let mut buffer = Buffer::empty(area);
+        prompt.update_and_render(area, &mut buffer, &mut fixture.context());
+        buffer.content()[..usize::from(area.width) * usize::from(area.height - 1)]
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>()
+    };
+
+    prompt.set_line("o path/".into(), &fixture.app.editor);
+    wait_for_completion(&mut prompt, &mut fixture, "o path/old-file");
+    let before = render(&mut prompt, &mut fixture);
+
+    prompt.set_line("o path/n".into(), &fixture.app.editor);
+    let pending = render(&mut prompt, &mut fixture);
+    let line_while_pending = selected(&mut prompt);
+    gate.release();
+
+    assert!(before.contains("old-file"));
+    assert!(before.contains("Open a file"));
+    assert_eq!(pending.trim_end(), before.trim_end());
+    assert_eq!(line_while_pending, "o path/n");
+    wait_for_completion(&mut prompt, &mut fixture, "o path/new-file");
 
     Ok(())
 }
