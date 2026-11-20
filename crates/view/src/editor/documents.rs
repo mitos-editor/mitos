@@ -240,6 +240,17 @@ impl Editor {
         Ok(doc_id)
     }
 
+    pub fn new_pager_from_stdin(&mut self, action: Action) -> Result<DocumentId, Error> {
+        let (input, _, _) = text_io::read_to_string(&mut stdin(), None)?;
+        Ok(self.new_pager(&input, action))
+    }
+
+    /// Open finite command output as immutable text with ANSI formatting.
+    pub fn new_pager(&mut self, input: &str, action: Action) -> DocumentId {
+        let doc = Document::pager(input, self.config.clone(), self.syn_loader.load_full());
+        self.new_file_from_document(action, doc)
+    }
+
     /// Open a fresh scratch copy of a text file, retaining its language and encoding.
     /// The source is never registered with language servers or filesystem watchers.
     pub fn open_scratch(&mut self, path: &Path, action: Action) -> anyhow::Result<DocumentId> {

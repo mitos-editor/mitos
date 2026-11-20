@@ -23,6 +23,7 @@ pub struct Args {
     pub stdout: bool,
     pub files: IndexMap<PathBuf, Vec<Position>>,
     pub stdin_position: Position,
+    pub pager: bool,
     pub working_directory: Option<PathBuf>,
 }
 
@@ -57,6 +58,7 @@ impl Args {
                 "--version" => args.display_version = true,
                 "--help" => args.display_help = true,
                 "--strict" => args.strict = true,
+                "--pager" => args.pager = true,
                 "--summary" => args.health_options.summary = true,
                 "--no-color" => args.health_options.no_color = true,
                 "--tutor" => args.load_tutor = true,
@@ -156,6 +158,10 @@ impl Args {
             "Use --migrate-config <file> --stdout to export configuration without rewriting it"
         );
         anyhow::ensure!(
+            !args.pager || (args.files.is_empty() && !args.load_tutor),
+            "--pager reads piped input and cannot be combined with files or --tutor"
+        );
+        anyhow::ensure!(
             args.health || !(args.health_options.summary || args.health_options.no_color),
             "--summary and --no-color require --health"
         );
@@ -231,5 +237,15 @@ mod tests {
         let args = Args::parse_args_from(["ms", "+10", "file.test"].map(str::to_owned)).unwrap();
         assert_eq!(args.files.first().unwrap().1[0].row, 9);
         assert_eq!(args.stdin_position.row, 0);
+    }
+
+    #[test]
+    fn pager_accepts_a_stdin_position_but_rejects_other_input_sources() {
+        let args = Args::parse_args_from(["ms", "--pager", "+42"].map(str::to_owned)).unwrap();
+        assert!(args.pager);
+        assert_eq!(args.stdin_position.row, 41);
+        for other in ["file.txt", "--tutor"] {
+            assert!(Args::parse_args_from(["ms", "--pager", other].map(str::to_owned)).is_err());
+        }
     }
 }

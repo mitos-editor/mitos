@@ -232,6 +232,14 @@ impl EditorView {
 
     fn command_mode(&mut self, mode: Mode, cxt: &mut commands::Context, event: KeyEvent) {
         match (event, cxt.interaction.count) {
+            (key!('q'), None)
+                if mode == Mode::Normal
+                    && doc!(cxt.editor).is_pager()
+                    && self.keymaps.pending().is_empty()
+                    && self.keymaps.sticky().is_none() =>
+            {
+                commands::MappableCommand::close_view.execute(cxt);
+            }
             // If the count is already started and the input is a number, always continue the count.
             (key!(i @ '0'..='9'), Some(count)) => {
                 let i = i.to_digit(10).unwrap() as usize;

@@ -289,16 +289,24 @@ where
             } else {
                 editor.new_file(Action::VerticalSplit);
             }
+        } else if args.pager && (stdin().is_terminal() || terminal_input.is_none()) {
+            anyhow::bail!("--pager requires piped input and an interactive terminal");
         } else if stdin().is_terminal() || terminal_input.is_none() {
             editor.new_file_welcome();
         } else {
-            match editor.new_file_from_stdin(Action::VerticalSplit) {
+            let input = if args.pager {
+                editor.new_pager_from_stdin(Action::VerticalSplit)
+            } else {
+                editor.new_file_from_stdin(Action::VerticalSplit)
+            };
+            match input {
                 Ok(_) => {
                     let (view, doc) = current!(editor);
                     let position = pos_at_coords(doc.text().slice(..), args.stdin_position, true);
                     doc.set_selection(view.id, Selection::point(position));
                     align_view(doc, view, Align::Center);
                 }
+                Err(error) if args.pager => return Err(error),
                 Err(_) => {
                     editor.new_file_welcome();
                 }

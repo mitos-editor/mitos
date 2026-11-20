@@ -176,6 +176,7 @@ ratatui-image = { version = "11.0.6", default-features = false, features = ["tok
 image = { version = "0.25", default-features = false, features = ["gif", "jpeg", "png", "webp"] }
 termina = "0.4"
 termini = "1"
+vte = "0.15"
 
 # System integration
 # Use our fork until the watcher fix for Mitos #102 is available upstream.

@@ -13,6 +13,7 @@ use super::Document;
 pub(super) enum DocumentSource {
     FileOrScratch,
     Virtual { name: String },
+    Pager(Vec<(usize, theme::Style)>),
     Revision(HistoricalDocument),
     Review(Box<ReviewDocument>),
 }
@@ -25,18 +26,19 @@ impl Document {
         match &self.source {
             DocumentSource::FileOrScratch => self.path(),
             DocumentSource::Virtual { .. } => self.path(),
+            DocumentSource::Pager(_) => None,
             DocumentSource::Revision(source) => Some(&source.path),
             DocumentSource::Review(review) => Some(review.path()),
         }
     }
 
-    /// Repository-derived content has no edit history, modified state, or insert
+    /// Derived content has no edit history, modified state, or insert
     /// mode. Named virtual sources retain their existing mode and service policy;
     /// [`Self::is_readonly`] still prevents editing and saving their content.
     pub fn is_content_readonly(&self) -> bool {
         matches!(
             self.source,
-            DocumentSource::Revision(_) | DocumentSource::Review(_)
+            DocumentSource::Revision(_) | DocumentSource::Review(_) | DocumentSource::Pager(_)
         )
     }
 
@@ -48,6 +50,18 @@ impl Document {
     pub fn review(&self) -> Option<&ReviewDocument> {
         match &self.source {
             DocumentSource::Review(review) => Some(review),
+            _ => None,
+        }
+    }
+
+    pub fn is_pager(&self) -> bool {
+        matches!(self.source, DocumentSource::Pager(_))
+    }
+
+    /// ANSI style changes indexed by character offset in the decoded text.
+    pub fn pager_styles(&self) -> Option<&[(usize, theme::Style)]> {
+        match &self.source {
+            DocumentSource::Pager(styles) => Some(styles),
             _ => None,
         }
     }
@@ -89,6 +103,7 @@ impl Document {
     pub(super) fn virtual_name(&self) -> Option<&str> {
         match &self.source {
             DocumentSource::Virtual { name } => Some(name),
+            DocumentSource::Pager(_) => Some("[pager]"),
             _ => None,
         }
     }

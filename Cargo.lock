@@ -5533,6 +5533,7 @@ dependencies = [
  "ui-core",
  "uuid",
  "vcs",
+ "vte",
  "word-index",
  "workspace",
 ]

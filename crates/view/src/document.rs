@@ -1,4 +1,5 @@
 mod display;
+mod pager;
 mod presentation;
 pub(crate) use presentation::Presentation;
 pub use presentation::PresentedDocument;
