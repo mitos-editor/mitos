@@ -6,10 +6,10 @@ use std::{
 use lsp_client::LanguageServerId;
 
 const FRAMES: [&str; 8] = ["⣾", "⣽", "⣻", "⢿", "⡿", "⣟", "⣯", "⣷"];
-const FRAME_INTERVAL_MS: u128 = 80;
+pub(crate) const FRAME_INTERVAL: Duration = Duration::from_millis(80);
 
 pub(super) fn frame(elapsed: Duration) -> &'static str {
-    FRAMES[(elapsed.as_millis() / FRAME_INTERVAL_MS % FRAMES.len() as u128) as usize]
+    FRAMES[(elapsed.as_millis() / FRAME_INTERVAL.as_millis() % FRAMES.len() as u128) as usize]
 }
 
 #[derive(Default, Debug)]

@@ -25,7 +25,7 @@ pub mod popup;
 pub mod prompt;
 mod select;
 mod sidebar;
-mod spinner;
+pub(crate) mod spinner;
 mod statusline;
 pub(crate) use statusline::{activity_matches, ACTIVITY_DELAY};
 mod text;

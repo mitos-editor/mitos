@@ -593,7 +593,7 @@ async fn changed_file_pickers_include_staged_only_files() -> anyhow::Result<()> 
                     .iter()
                     .map(|cell| cell.symbol())
                     .collect();
-                if !screen.contains("(running)") {
+                if screen.contains("3/3") {
                     break screen;
                 }
                 run_event_loop_until_idle(&mut app).await;
@@ -916,7 +916,6 @@ async fn wait_for_review_screen(
             if screen.contains(heading)
                 && screen.contains(contents)
                 && !screen.contains("Loading diff")
-                && !screen.contains("(running)")
             {
                 break;
             }

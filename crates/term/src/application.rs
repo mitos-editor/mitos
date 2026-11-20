@@ -141,7 +141,12 @@ where
                     frame_deadline = None;
                 }
             }
-            let activity_deadline = self.activity_frame_deadline();
+            let animation_deadline = self
+                .activity_frame_deadline()
+                .into_iter()
+                .chain(self.render_state.animation_deadline)
+                .filter(|_| frame_deadline.is_none())
+                .min();
 
             use futures_util::StreamExt;
 
@@ -179,9 +184,12 @@ where
                     else { std::future::pending::<()>().await; }
                 } => {},
                 _ = async {
-                    if let Some(due) = activity_deadline { tokio::time::sleep_until(due).await; }
+                    if let Some(due) = animation_deadline { tokio::time::sleep_until(due).await; }
                     else { std::future::pending::<()>().await; }
-                } => self.request_frame(),
+                } => {
+                    self.request_frame();
+                    continue;
+                },
                 Some(signal) = self.signals.next() => {
                     idle_seen = false;
                     if !self.handle_signals(signal).await {

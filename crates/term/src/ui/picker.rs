@@ -33,6 +33,7 @@ use event::AsyncHook;
 use futures_util::future::BoxFuture;
 use nucleo::{Config, Nucleo};
 use thiserror::Error;
+use tokio::time::Instant;
 use tui::{
     buffer::Buffer as Surface,
     layout::{Constraint, Layout, Size},
@@ -64,6 +65,7 @@ use view::{
 use self::handlers::{DynamicQuery, DynamicQueryChange, DynamicQueryHandler, QueryKind};
 use self::preview::{render_preview_content, FilePreview, FileScroll};
 use self::replacement::{split_picker_input_area, CaseSensitiveToggle, Replacement};
+use super::spinner;
 
 // These types remain available through the picker facade.
 pub use self::preview::{
@@ -157,10 +159,7 @@ pub struct Injector<T, D> {
     version: usize,
     picker_version: Arc<AtomicUsize>,
     /// A marker that requests a redraw when the injector drops.
-    /// This marker causes the "running" indicator to disappear when a background job
-    /// providing items is finished and drops. This could be wrapped in an [Arc] to ensure
-    /// that the redraw is only requested when all Injectors drop for a Picker (which removes
-    /// the "running" indicator) but the redraw handle is debounced so this is unnecessary.
+    /// The last producer can drop without publishing another matcher update.
     redraw: event::Redraw,
     _redraw: event::RequestRedrawOnDrop,
 }
@@ -335,6 +334,7 @@ pub struct Picker<T: 'static + Send + Sync, D: 'static> {
     dynamic_query: Option<DynamicQuery>,
     poll: Option<PollTask>,
     matching: bool,
+    search_started: Option<Instant>,
     updates: Option<updates::SourceUpdates<T, D>>,
     query_updates: Option<updates::QueryUpdates<D>>,
     query_options: query_options::QueryOptionsState<T, D>,
@@ -479,6 +479,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             query_options: query_options::QueryOptionsState::default(),
             title: None,
             matching: true,
+            search_started: None,
         }
     }
 
@@ -544,6 +545,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             updates.suspend();
         }
         self.poll = None;
+        self.search_started = None;
         self.preview.cancel_loads(None);
         if let Some(preview) = &mut self.custom_preview {
             preview.cancel();
@@ -1118,42 +1120,50 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
 
         // -- Render the input bar:
 
-        let count = format!(
-            "{}{}{}/{}",
-            self.case_sensitive.as_ref().map_or("", |toggle| {
-                if toggle.enabled {
-                    "case-sensitive "
-                } else {
-                    "smart-case "
-                }
-            }),
-            if self.dynamic_query_pending()
-                || self.matching
-                || self.results.matcher.active_injectors() > 0
-            {
-                "(running) "
-            } else {
-                ""
-            },
-            snapshot.matched_item_count(),
-            if self.dynamic_query_pending()
-                || self.results.source.get() != source::State::Complete
-                || self.results.is_refreshing()
+        let active_injectors = self.results.matcher.active_injectors();
+        let source_state = self.results.source.get();
+        let searching = self.dynamic_query_pending()
+            || self.matching
+            || active_injectors > 0
+            || self.query_options.pending.is_some()
+            || self.results.is_refreshing()
+            || self.source_pending();
+        let total = if searching {
+            let now = Instant::now();
+            let started = *self.search_started.get_or_insert(now);
+            let next_frame = now + spinner::FRAME_INTERVAL;
+            cx.animation_deadline = Some(
+                cx.animation_deadline
+                    .map_or(next_frame, |due| due.min(next_frame)),
+            );
+            Cow::Borrowed(spinner::frame(now - started))
+        } else {
+            self.search_started = None;
+            if source_state != source::State::Complete
                 || self
                     .updates
                     .as_ref()
                     .is_some_and(|updates| updates.incomplete)
             {
-                "?".to_owned()
+                Cow::Borrowed("?")
             } else {
-                snapshot.item_count().to_string()
-            },
-        );
+                Cow::Owned(snapshot.item_count().to_string())
+            }
+        };
+        let case_label = self.case_sensitive.as_ref().map_or("", |toggle| {
+            if toggle.enabled {
+                "case-sensitive "
+            } else {
+                "smart-case "
+            }
+        });
+        let matched = snapshot.matched_item_count();
+        let count = Line::from(format!("{case_label}{matched}/{total}"));
 
         let prompt_area = input_areas.search.clip_left(1);
         let [line_area, count_area, _right_padding] = Layout::horizontal([
             Constraint::Min(0),
-            Constraint::Length(count.len() as u16),
+            Constraint::Length(count.width() as u16),
             Constraint::Length(1),
         ])
         .areas(prompt_area);
@@ -1181,10 +1191,10 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             .updates
             .as_ref()
             .and_then(|updates| updates.status.as_deref())
-            .or_else(|| match self.results.source.get() {
+            .or(match source_state {
                 source::State::Failed => Some("Results incomplete; source failed"),
                 source::State::Paused => Some("Results incomplete; loading stopped"),
-                source::State::Loading if self.results.matcher.active_injectors() == 0 => {
+                source::State::Loading if active_injectors == 0 => {
                     Some("Results incomplete; source did not finish")
                 }
                 _ => None,

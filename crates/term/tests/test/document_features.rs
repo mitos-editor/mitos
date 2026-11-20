@@ -264,6 +264,7 @@ async fn terminal_links_use_resolved_server_targets_and_clear_when_a_server_deta
             editor: &fixture.app.editor,
             interaction: &fixture.app.interaction,
             editor_cursor: None,
+            animation_deadline: None,
             scroll: None,
             is_cursor_owner: false,
         };

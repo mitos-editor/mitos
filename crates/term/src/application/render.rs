@@ -6,7 +6,7 @@ use tokio::time::Instant;
 use view::{graphics::Rect, Document, DocumentId};
 
 use super::App;
-use crate::{compositor, job::Callback};
+use crate::{compositor, job::Callback, ui::spinner};
 
 const BACKGROUND_FRAME_DELAY: Duration = Duration::from_millis(33);
 const SYNTAX_GRACE: Duration = Duration::from_millis(16);
@@ -19,6 +19,7 @@ pub(super) struct RenderState {
     pub(super) requested: Option<Instant>,
     syntax_deadline: Option<Instant>,
     activity_deadline: Option<Instant>,
+    pub(super) animation_deadline: Option<Instant>,
 }
 
 impl<B: tui::backend::Backend + tui::backend::BackendExt> App<B>
@@ -71,7 +72,7 @@ where
                 if visible > now {
                     visible
                 } else {
-                    now + Duration::from_millis(80)
+                    now + spinner::FRAME_INTERVAL
                 }
             })
             .min();
@@ -165,13 +166,14 @@ where
             editor: &self.editor,
             interaction: &self.interaction,
             editor_cursor: None,
+            animation_deadline: None,
             scroll: None,
             is_cursor_owner: false,
         };
 
         tui::terminal::draw_with_hyperlinks(&mut self.terminal, |buffer| {
             let cursor = self.compositor.render(buffer.area, buffer, &mut draw);
-            (cursor, draw.hyperlinks.into_inner())
+            (cursor, std::mem::take(draw.hyperlinks.get_mut()))
         })
         .unwrap();
 
@@ -180,6 +182,7 @@ where
         self.render_state.requested = None;
         self.render_state.syntax_deadline = None;
         self.render_state.activity_deadline = None;
+        self.render_state.animation_deadline = draw.animation_deadline;
         self.render_state.visible_documents.clear();
         self.render_state
             .visible_documents

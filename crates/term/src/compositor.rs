@@ -76,6 +76,8 @@ pub struct DrawContext<'a> {
     pub interaction: &'a InteractionState,
     /// Absolute document cursor produced by this frame's focused pane.
     pub editor_cursor: Option<text_layout::DisplayPosition>,
+    /// Earliest requested redraw for an animation drawn in this frame.
+    pub animation_deadline: Option<tokio::time::Instant>,
     pub scroll: Option<usize>,
     pub is_cursor_owner: bool,
 }
@@ -96,6 +98,7 @@ impl Context<'_> {
             editor: self.editor,
             interaction: self.interaction,
             editor_cursor: self.editor.cursor().0,
+            animation_deadline: None,
             scroll: self.scroll,
             is_cursor_owner: self.is_cursor_owner,
         }
@@ -342,6 +345,7 @@ impl Compositor {
     pub fn render(&mut self, area: Rect, surface: &mut Surface, cx: &mut DrawContext) -> Cursor {
         *cx.hyperlinks.get_mut() = ui_core::hyperlinks::HyperlinkBuffer::new(area);
         cx.cursor_exclusions.clear();
+        cx.animation_deadline = None;
         let owner = self.layers.iter().rposition(|layer| layer.owns_cursor());
         for (index, layer) in self.layers.iter_mut().enumerate() {
             cx.is_cursor_owner = owner == Some(index);
