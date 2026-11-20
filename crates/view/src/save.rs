@@ -96,25 +96,27 @@ fn prepare_with_config(
 
     // Build normalization against a working rope and publish one transaction. Rejection
     // must not leave a partly normalized document or commit pending typing.
+    let projection = doc.multibuffer().is_some();
     let mut text = doc.text().clone();
     let mut normalization = Transaction::new(&text);
-    if doc.trim_trailing_whitespace() {
+    if !projection && doc.trim_trailing_whitespace() {
         let transaction = trim_trailing_whitespace(&text);
         transaction.apply(&mut text);
         normalization = normalization.compose(transaction);
     }
-    if config.files.save.trim_final_newlines {
+    if !projection && config.files.save.trim_final_newlines {
         let transaction = trim_final_newlines(&text);
         transaction.apply(&mut text);
         normalization = normalization.compose(transaction);
     }
-    if doc.insert_final_newline() {
+    if !projection && doc.insert_final_newline() {
         normalization = normalization.compose(insert_final_newline(&text, doc.line_ending));
     }
     apply_normalization(doc, &normalization, origin)?;
     doc.commit_changes();
 
-    let code_actions = options.code_actions
+    let code_actions = !projection
+        && options.code_actions
         && doc
             .language_config()
             .and_then(|config| config.code_actions_on_save.as_deref())
@@ -125,7 +127,7 @@ fn prepare_with_config(
         origin,
         path,
         force: options.force,
-        auto_format: config.format.on_save && options.auto_format,
+        auto_format: !projection && config.format.on_save && options.auto_format,
         code_actions,
         reason: lsp_client::lsp::TextDocumentSaveReason::MANUAL,
     };
@@ -142,18 +144,51 @@ fn prepare_with_config(
 pub fn save_all(
     editor: &mut Editor,
     options: WriteAllOptions,
+    submit: impl FnMut(&mut Editor, PreparedSave) -> anyhow::Result<()>,
+) -> anyhow::Result<()> {
+    save_all_inner(editor, options, true, submit)
+}
+
+fn save_all_inner(
+    editor: &mut Editor,
+    options: WriteAllOptions,
+    include_multibuffers: bool,
     mut submit: impl FnMut(&mut Editor, PreparedSave) -> anyhow::Result<()>,
 ) -> anyhow::Result<()> {
     let mut errors: Vec<&'static str> = Vec::new();
     let config = editor.config();
+    // An explicit multi-buffer write includes its changed sources. Submitting
+    // those sources separately would queue two snapshots of the same file.
+    let mut projected_sources = std::collections::HashSet::new();
+    if include_multibuffers {
+        for doc in editor.documents() {
+            let Some(multi) = doc.multibuffer() else {
+                continue;
+            };
+            projected_sources.extend(multi.writes.keys().copied());
+            projected_sources.extend(
+                multi
+                    .segments()
+                    .iter()
+                    .filter(|s| {
+                        doc.text().slice_chars(s.projection_range.clone())
+                            != s.original_text.slice(..)
+                    })
+                    .map(|s| s.source),
+            );
+        }
+    }
     let saves: Vec<_> = editor
         .documents
         .iter()
         .filter_map(|(&id, doc)| {
-            if !doc.is_modified() {
+            if !doc.is_modified()
+                || projected_sources.contains(&id)
+                || (doc.multibuffer().is_some() && !include_multibuffers)
+            {
                 return None;
             }
-            if doc.path().is_none() {
+            if doc.path().is_none() && doc.multibuffer().is_none() {
                 if options.write_scratch {
                     errors.push("cannot write a buffer without a filename");
                 }
@@ -200,7 +235,7 @@ pub(crate) fn auto_save_with_reason(
     editor: &mut Editor,
     reason: lsp_client::lsp::TextDocumentSaveReason,
 ) -> anyhow::Result<()> {
-    save_all(
+    save_all_inner(
         editor,
         WriteAllOptions {
             force: false,
@@ -208,6 +243,7 @@ pub(crate) fn auto_save_with_reason(
             auto_format: false,
             code_actions: false,
         },
+        false,
         |editor, mut request| {
             request.reason = reason;
             editor.submit_save(request).map_err(Into::into)

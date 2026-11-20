@@ -213,6 +213,10 @@ impl Document {
         anyhow::Error,
     > {
         let path = path.map(|path| path.into());
+        anyhow::ensure!(
+            self.multibuffer.is_none(),
+            "Save multi-buffers through the editor to write their source files"
+        );
         self.save_impl(path, force)
     }
 
@@ -568,6 +572,9 @@ impl Document {
 
     /// If there are unsaved modifications.
     pub fn is_modified(&self) -> bool {
+        if let Some(multi) = &self.multibuffer {
+            return !multi.writes.is_empty() || multi.modified;
+        }
         if self.is_content_readonly() {
             return false;
         }
@@ -666,6 +673,9 @@ impl Document {
     }
 
     pub fn display_name(&self) -> Cow<'_, str> {
+        if self.multibuffer.is_some() {
+            return "[multibuffer]".into();
+        }
         if let Some(name) = self.virtual_name() {
             return name.into();
         }

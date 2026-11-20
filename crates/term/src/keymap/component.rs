@@ -55,6 +55,7 @@ pub enum PickerAction {
     PreviewNext,
     OpenPreview,
     PopulateQuicklist,
+    OpenMultibuffer,
     /// Item actions are supplied only by the schema for a specific picker.
     #[serde(untagged, skip_deserializing)]
     Item(PickerItemAction),
@@ -140,6 +141,7 @@ impl PickerAction {
             Self::PreviewNext => "Next preview",
             Self::OpenPreview => "Open preview",
             Self::PopulateQuicklist => "Populate quicklist",
+            Self::OpenMultibuffer => "Open multi-buffer",
             Self::Item(action) => match action {
                 PickerItemAction::CloseBuffer => "Close buffer",
                 PickerItemAction::RemoveQuicklistEntry => "Remove entry",
@@ -376,6 +378,7 @@ impl Default for ComponentKeymaps {
             ("esc", K::Cancel),
             ("C-c", K::Cancel),
             ("C-q", K::PopulateQuicklist),
+            ("C-o", K::OpenMultibuffer),
             ("A-ret", K::AcceptKeepOpen),
             ("ret", K::Accept),
             ("C-s", K::AcceptHorizontalSplit),

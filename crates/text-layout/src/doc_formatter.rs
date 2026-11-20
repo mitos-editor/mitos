@@ -189,6 +189,8 @@ pub struct DocumentFormatter<'t> {
     /// The visual position at the end of the last yielded word boundary
     visual_pos: DisplayPosition,
     graphemes: RopeGraphemes<'t>,
+    grapheme_end: usize,
+    virtual_lines_before_inserted_at: usize,
     /// The character pos of the `graphemes` iter used for inserting annotations
     char_pos: usize,
     /// The line pos of the `graphemes` iter used for inserting annotations
@@ -231,7 +233,10 @@ impl<'t> DocumentFormatter<'t> {
         let byte_idx = text.char_to_byte_idx(char_idx);
         let block_line_idx = text.byte_to_line_idx(byte_idx, stdx::rope::LINE_TYPE);
         let block_byte_idx = text.line_to_byte_idx(block_line_idx, stdx::rope::LINE_TYPE);
-        let block_char_idx = text.byte_to_char_idx(block_byte_idx);
+        let block_char_idx = text
+            .byte_to_char_idx(block_byte_idx)
+            .max(annotations.previous_line_break(char_idx).unwrap_or(0));
+        let grapheme_end = annotations.next_line_break(block_char_idx, text.len_chars());
 
         DocumentFormatter {
             text,
@@ -239,7 +244,9 @@ impl<'t> DocumentFormatter<'t> {
             annotations,
             annotation_cursor: annotations.cursor(block_char_idx),
             visual_pos: DisplayPosition { row: 0, col: 0 },
-            graphemes: text.slice(block_byte_idx..).graphemes(),
+            graphemes: text.slice_chars(block_char_idx..grapheme_end).graphemes(),
+            grapheme_end,
+            virtual_lines_before_inserted_at: usize::MAX,
             char_pos: block_char_idx,
             exhausted: false,
             indent_level: None,
@@ -278,12 +285,28 @@ impl<'t> DocumentFormatter<'t> {
         }
     }
 
+    fn next_document_grapheme(&mut self) -> Option<RopeSlice<'t>> {
+        if let Some(grapheme) = self.graphemes.next() {
+            return Some(grapheme);
+        }
+        if self.grapheme_end == self.text.len_chars() {
+            return None;
+        }
+        let start = self.grapheme_end;
+        self.grapheme_end = self
+            .annotations
+            .next_line_break(start, self.text.len_chars());
+        self.graphemes = self.text.slice_chars(start..self.grapheme_end).graphemes();
+        self.graphemes.next()
+    }
+
     fn advance_grapheme(&mut self, col: usize, char_pos: usize) -> Option<GraphemeWithSource<'t>> {
         if self.conceal_graphemes.is_none()
             && let Some(conceal) = self.annotations.conceal_at(char_pos)
         {
             let end = conceal.range.end;
-            self.graphemes = self.text.slice_chars(end..).graphemes();
+            self.grapheme_end = self.annotations.next_line_break(end, self.text.len_chars());
+            self.graphemes = self.text.slice_chars(end..self.grapheme_end).graphemes();
             self.annotation_cursor.skip_concealed(end);
             self.conceal_graphemes = Some((conceal.text().graphemes(true).peekable(), end));
         }
@@ -314,7 +337,7 @@ impl<'t> DocumentFormatter<'t> {
         let (grapheme, source) =
             if let Some((grapheme, highlight)) = self.next_inline_annotation_grapheme(char_pos) {
                 (grapheme.into(), GraphemeSource::VirtualText { highlight })
-            } else if let Some(grapheme) = self.graphemes.next() {
+            } else if let Some(grapheme) = self.next_document_grapheme() {
                 let codepoints = grapheme.len_chars();
 
                 let overlay = self.annotation_cursor.overlay_at(char_pos);
@@ -404,6 +427,9 @@ impl<'t> DocumentFormatter<'t> {
         loop {
             let mut col = self.visual_pos.col + word_width;
             let char_pos = self.char_pos + word_chars;
+            if word_chars > 0 && self.annotations.line_break_at(char_pos) {
+                return;
+            }
             match col.cmp(&(self.text_fmt.viewport_width as usize)) {
                 // The EOF char and newline chars are always selectable in mitos. That means
                 // that wrapping happens "too-early" if a word fits a line perfectly. This
@@ -496,7 +522,8 @@ impl<'t> DocumentFormatter<'t> {
             return false;
         }
         self.char_pos = end;
-        self.graphemes = self.text.slice_chars(end..).graphemes();
+        self.grapheme_end = self.annotations.next_line_break(end, self.text.len_chars());
+        self.graphemes = self.text.slice_chars(end..self.grapheme_end).graphemes();
         self.annotation_cursor.skip_concealed(end);
         self.inline_annotation_graphemes = None;
         self.indent_level = None;
@@ -518,6 +545,26 @@ impl<'t> Iterator for DocumentFormatter<'t> {
     type Item = FormattedGrapheme<'t>;
 
     fn next(&mut self) -> Option<Self::Item> {
+        if self.virtual_lines_before_inserted_at != self.char_pos {
+            let virtual_lines = self.annotation_cursor.virtual_lines_before(
+                self.char_pos,
+                self.visual_pos,
+                self.line_pos,
+            );
+            let boundary = self.annotations.line_break_at(self.char_pos);
+            if boundary || virtual_lines > 0 {
+                if self.visual_pos.col > 0 {
+                    self.visual_pos.row += 1;
+                    self.visual_pos.col = 0;
+                }
+                self.visual_pos.row += virtual_lines;
+                if boundary {
+                    self.indent_level = None;
+                }
+            }
+            self.virtual_lines_before_inserted_at = self.char_pos;
+        }
+
         let grapheme = if self.text_fmt.soft_wrap {
             if self.word_i >= self.word_buf.len() {
                 self.advance_to_next_word();

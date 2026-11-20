@@ -179,6 +179,7 @@ pub struct Document {
     status: Option<event::status::StatusSender>,
     pub(crate) id: DocumentId,
     pub(crate) buffer: buffer::Buffer,
+    pub(crate) multibuffer: Option<crate::multibuffer::MultiBuffer>,
     pub(crate) view_states: HashMap<ViewId, DocumentViewState>,
     pub(crate) pending_navigation: Option<Selection>,
     snippet: Option<SnippetSession>,
@@ -250,7 +251,7 @@ pub struct Document {
 
     // Resource snapshot used by this document's syntax trees and pending initialization.
     // The editor explicitly installs a new snapshot when language configuration changes.
-    syntax_loader: Arc<syntax::Loader>,
+    pub(crate) syntax_loader: Arc<syntax::Loader>,
 }
 
 use std::fmt;
@@ -293,6 +294,7 @@ impl Document {
             snippet: None,
             file: file::FileState::new(encoding, has_bom),
             buffer: buffer::Buffer::new(text),
+            multibuffer: None,
             view_states: HashMap::default(),
             pending_navigation: None,
             rename: Default::default(),

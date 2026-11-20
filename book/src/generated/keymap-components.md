@@ -13,6 +13,7 @@
 | `` <end> `` | `` move_end `` |
 | `` <home> `` | `` move_start `` |
 | `` <up> ``, `` <C-p> ``, `` <S-tab> `` | `` move_up `` |
+| `` <C-o> `` | `` open_multibuffer `` |
 | `` <A-o> `` | `` open_preview `` |
 | `` <C-d> ``, `` <pagedown> `` | `` page_down `` |
 | `` <C-u> ``, `` <pageup> `` | `` page_up `` |
@@ -40,6 +41,7 @@
 | `` <end> `` | `` move_end `` |
 | `` <home> `` | `` move_start `` |
 | `` <up> ``, `` <C-p> ``, `` <S-tab> `` | `` move_up `` |
+| `` <C-o> `` | `` open_multibuffer `` |
 | `` <A-o> `` | `` open_preview `` |
 | `` <C-d> ``, `` <pagedown> `` | `` page_down `` |
 | `` <C-u> ``, `` <pageup> `` | `` page_up `` |
@@ -67,6 +69,7 @@
 | `` <end> `` | `` move_end `` |
 | `` <home> `` | `` move_start `` |
 | `` <up> ``, `` <C-p> ``, `` <S-tab> `` | `` move_up `` |
+| `` <C-o> `` | `` open_multibuffer `` |
 | `` <A-o> `` | `` open_preview `` |
 | `` <C-d> ``, `` <pagedown> `` | `` page_down `` |
 | `` <C-u> ``, `` <pageup> `` | `` page_up `` |
@@ -96,6 +99,7 @@
 | `` <end> `` | `` move_end `` |
 | `` <home> `` | `` move_start `` |
 | `` <up> ``, `` <C-p> ``, `` <S-tab> `` | `` move_up `` |
+| `` <C-o> `` | `` open_multibuffer `` |
 | `` <A-o> `` | `` open_preview `` |
 | `` <C-d> ``, `` <pagedown> `` | `` page_down `` |
 | `` <C-u> ``, `` <pageup> `` | `` page_up `` |
@@ -129,6 +133,7 @@
 | `` <end> `` | `` move_end `` |
 | `` <home> `` | `` move_start `` |
 | `` <up> ``, `` <C-p> ``, `` <S-tab> `` | `` move_up `` |
+| `` <C-o> `` | `` open_multibuffer `` |
 | `` <A-o> `` | `` open_preview `` |
 | `` <C-d> ``, `` <pagedown> `` | `` page_down `` |
 | `` <C-u> ``, `` <pageup> `` | `` page_up `` |
@@ -157,6 +162,7 @@
 | `` <end> `` | `` move_end `` |
 | `` <home> `` | `` move_start `` |
 | `` <up> ``, `` <C-p> ``, `` <S-tab> `` | `` move_up `` |
+| `` <C-o> `` | `` open_multibuffer `` |
 | `` <A-o> `` | `` open_preview `` |
 | `` <C-d> ``, `` <pagedown> `` | `` page_down `` |
 | `` <C-u> ``, `` <pageup> `` | `` page_up `` |
@@ -188,6 +194,7 @@
 | `` <end> `` | `` move_end `` |
 | `` <home> `` | `` move_start `` |
 | `` <up> ``, `` <C-p> ``, `` <S-tab> `` | `` move_up `` |
+| `` <C-o> `` | `` open_multibuffer `` |
 | `` <A-o> `` | `` open_preview `` |
 | `` <C-d> ``, `` <pagedown> `` | `` page_down `` |
 | `` <C-u> ``, `` <pageup> `` | `` page_up `` |
@@ -217,6 +224,7 @@
 | `` <end> `` | `` move_end `` |
 | `` <home> `` | `` move_start `` |
 | `` <up> ``, `` <C-p> ``, `` <S-tab> `` | `` move_up `` |
+| `` <C-o> `` | `` open_multibuffer `` |
 | `` <A-o> `` | `` open_preview `` |
 | `` <C-d> ``, `` <pagedown> `` | `` page_down `` |
 | `` <C-u> ``, `` <pageup> `` | `` page_up `` |
@@ -248,6 +256,7 @@
 | `` <A-m> `` | `` move_path `` |
 | `` <home> `` | `` move_start `` |
 | `` <up> ``, `` <C-p> ``, `` <S-tab> `` | `` move_up `` |
+| `` <C-o> `` | `` open_multibuffer `` |
 | `` <A-o> `` | `` open_preview `` |
 | `` <C-d> ``, `` <pagedown> `` | `` page_down `` |
 | `` <C-u> ``, `` <pageup> `` | `` page_up `` |
@@ -283,6 +292,7 @@
 | `` <home> `` | `` move_start `` |
 | `` k ``, `` <up> ``, `` <C-p> ``, `` <S-tab> `` | `` move_up `` |
 | `` <C-w>w ``, `` <C-w><C-w> `` | `` next_view `` |
+| `` <C-o> `` | `` open_multibuffer `` |
 | `` <A-o> `` | `` open_preview `` |
 | `` <C-d> ``, `` <pagedown> `` | `` page_down `` |
 | `` <C-u> ``, `` <pageup> `` | `` page_up `` |
@@ -317,6 +327,7 @@
 | `` <A-m> `` | `` move_path `` |
 | `` <home> `` | `` move_start `` |
 | `` <up> ``, `` <C-p> ``, `` <S-tab> `` | `` move_up `` |
+| `` <C-o> `` | `` open_multibuffer `` |
 | `` <A-o> `` | `` open_preview `` |
 | `` <C-d> ``, `` <pagedown> `` | `` page_down `` |
 | `` <C-u> ``, `` <pageup> `` | `` page_up `` |

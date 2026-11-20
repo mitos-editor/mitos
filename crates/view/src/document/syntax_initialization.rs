@@ -4,12 +4,10 @@ use std::sync::Arc;
 
 use event::{cancelable_future, TaskController, TaskHandle};
 use language::{syntax, Language, Syntax};
-use tokio::sync::Semaphore;
 
 use super::Document;
 
-// Bound CPU work when opening many buffers, including workers compiling shared queries.
-static WORKERS: Semaphore = Semaphore::const_new(2);
+use crate::features::syntax::WORKERS;
 
 pub(super) struct PendingSyntax {
     language: Language,
@@ -191,8 +189,12 @@ impl Document {
     }
 
     pub(crate) fn initialize_syntax(&mut self, loader: Arc<syntax::Loader>) {
-        self.syntax = None;
         self.syntax_loader = loader.clone();
+        if self.multibuffer.is_some() {
+            self.request_multibuffer_syntax();
+            return;
+        }
+        self.syntax = None;
         self.pending_syntax = self.language.as_ref().and_then(|config| {
             let language = loader.language_for_name(config.language_id.as_str())?;
             Some(PendingSyntax {
@@ -212,6 +214,7 @@ impl Document {
     /// tree that is shown while its injected languages compile.
     pub fn is_syntax_pending(&self) -> bool {
         self.pending_syntax.is_some()
+            || (self.multibuffer().is_some() && self.multibuffer_syntax().is_none())
     }
 
     pub(super) fn parse_syntax(&self, loader: &syntax::Loader) -> Option<Syntax> {

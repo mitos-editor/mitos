@@ -291,13 +291,13 @@ impl View {
 
     pub fn inner_area(&self, doc: &Document) -> Rect {
         self.content_area(doc)
-            .clip_top(self.breadcrumb_offset(doc))
+            .clip_top(self.breadcrumb_offset(doc) + u16::from(doc.multibuffer().is_some()))
             .clip_left(self.gutter_offset(doc))
     }
 
     pub fn inner_height(&self, doc: &Document) -> usize {
         self.content_area(doc)
-            .clip_top(self.breadcrumb_offset(doc))
+            .clip_top(self.breadcrumb_offset(doc) + u16::from(doc.multibuffer().is_some()))
             .height
             .into()
     }
@@ -496,7 +496,10 @@ impl View {
     ) -> ViewLayout<'a> {
         let viewport = self
             .content_area(doc.source())
-            .clip_top(self.breadcrumb_offset(doc.source()))
+            .clip_top(
+                self.breadcrumb_offset(doc.source())
+                    + u16::from(doc.source().multibuffer().is_some()),
+            )
             .clip_left(self.gutter_offset_presented(doc));
         let format = doc.source().text_format(viewport.width);
         let annotations = self.prepare_text_annotations(doc, theme, &format, viewport.width);
@@ -565,6 +568,13 @@ impl View {
         width: u16,
     ) -> TextAnnotations<'a> {
         let mut text_annotations = TextAnnotations::default();
+        if let Some(multi) = doc.source().multibuffer() {
+            text_annotations
+                .add_line_breaks(multi.segments().iter().map(|s| s.projection_range.start));
+            text_annotations.add_line_annotation(
+                crate::annotations::multibuffer::MultiBufferHeaders::new(doc.source()),
+            );
+        }
         text_annotations.set_conceals(doc.folded_ranges(self.id));
         doc.annotate_conflicts(theme, &mut text_annotations);
 

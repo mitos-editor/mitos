@@ -193,6 +193,9 @@ impl Handlers {
     pub(crate) fn attach_document(&self, doc: &mut crate::Document) {
         doc.events = self.events.clone();
         doc.bind_signals(self.callbacks.redraw().clone(), self.status.clone());
+        if let Some(multi) = doc.multibuffer.as_mut() {
+            multi.syntax.callbacks = Some(self.callbacks.clone());
+        }
         if doc.historical().is_some() {
             doc.syntax_handler = Some(self.syntax.clone());
         }

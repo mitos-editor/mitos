@@ -28,6 +28,7 @@ pub struct LinePos {
     /// Source line beginning the display block. Folded closing-line suffixes
     /// share the header's line number, including when they wrap.
     pub doc_line: usize,
+    pub doc_char: usize,
     /// Vertical offset from the top of the inner view area
     pub visual_line: u16,
     /// The given visual line is the last visual line of the document line
@@ -61,6 +62,7 @@ pub fn render_text(
     let mut last_line_pos = LinePos {
         first_visual_line: false,
         doc_line: usize::MAX,
+        doc_char: usize::MAX,
         visual_line: u16::MAX,
         is_last_visual_line: true,
     };
@@ -112,6 +114,7 @@ pub fn render_text(
             last_line_pos = LinePos {
                 first_visual_line: grapheme.block_line_idx != last_line_pos.doc_line,
                 doc_line: grapheme.block_line_idx,
+                doc_char: grapheme.char_idx,
                 visual_line: grapheme.visual_pos.row as u16,
                 is_last_visual_line: true,
             };

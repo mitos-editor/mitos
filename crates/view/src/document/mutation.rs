@@ -45,6 +45,14 @@ impl Document {
 
     pub(crate) fn validate_changes(&self, changes: &ChangeSet) -> Result<(), EditError> {
         self.buffer.validate_changes(changes)?;
+        if !changes.is_empty()
+            && self
+                .multibuffer
+                .as_ref()
+                .is_some_and(|m| !m.validate_changes(self.text(), changes))
+        {
+            return Err(EditError::InvalidExcerptBoundary);
+        }
         if !changes.is_empty() {
             self.validate_editable()?;
         }
@@ -69,6 +77,9 @@ impl Document {
         self.validate_changes(transaction.changes())?;
         let expanded = crate::features::linked_editing::expand(self, transaction, origin);
         let transaction = expanded.as_ref().unwrap_or(transaction);
+        if let Some(multi) = &mut self.multibuffer {
+            multi.before_change(transaction.changes());
+        }
         let change = self.buffer.apply(transaction.changes())?;
         self.publish_change(&change, transaction.selection(), origin);
         Ok(())
@@ -151,6 +162,11 @@ impl Document {
         }
 
         self.invalidate_conflicts(old_doc, changes);
+        if let Some(multi) = &mut self.multibuffer {
+            multi.apply_changes(changes);
+            multi.modified = multi.projection.is_modified(self.buffer.text());
+        }
+        self.request_multibuffer_syntax();
         self.modified_since_accessed = true;
         if let Some(selection) = self.pending_navigation.take() {
             self.pending_navigation = Some(
