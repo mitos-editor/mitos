@@ -548,6 +548,10 @@ impl crate::ui::picker::PickerSource<Arc<Branch>, RepositoryData> for BranchPage
         self.pages.suspend();
     }
 
+    fn is_pending(&self) -> bool {
+        self.pages.is_pending()
+    }
+
     fn update(
         &mut self,
         cx: crate::ui::picker::UpdateContext<'_, Arc<Branch>>,

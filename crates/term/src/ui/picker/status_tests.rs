@@ -3,6 +3,44 @@ use super::{
     *,
 };
 
+#[tokio::test(start_paused = true)]
+async fn picker_spinner_stays_active_while_a_page_is_pending() -> anyhow::Result<()> {
+    let mut app = application(false)?;
+    let mut picker = Picker::new(
+        app.editor.redraw().clone(),
+        [Column::new("item", |item: &u32, _: &()| {
+            item.to_string().into()
+        })],
+        0,
+        [1],
+        (),
+        |_, _, _| {},
+    );
+    until(&mut picker, &mut app, |p| p.selection() == Some(&1)).await?;
+    let loaded = Arc::new(tokio::sync::Notify::new());
+    let mut picker = picker.with_initial_options({
+        let loaded = loaded.clone();
+        move |_| {
+            let loaded = loaded.clone();
+            Box::pin(async move {
+                loaded.notified().await;
+                Ok(vec![7])
+            })
+        }
+    });
+    let screen =
+        |surface: Surface| -> String { surface.content.iter().map(|cell| cell.symbol()).collect() };
+    let loading = screen(frame(&mut picker, &mut app));
+    assert!(loading.contains("Loading results…"), "{loading}");
+    assert!(loading.contains("1/⣾"), "{loading}");
+
+    loaded.notify_one();
+    until(&mut picker, &mut app, |p| p.selection() == Some(&7)).await?;
+    let complete = screen(frame(&mut picker, &mut app));
+    assert!(complete.contains("1/1"), "{complete}");
+    Ok(())
+}
+
 #[tokio::test]
 async fn source_status_preserves_search_input_and_result_rows() -> anyhow::Result<()> {
     let mut app = application(false)?;
