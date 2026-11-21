@@ -58,6 +58,7 @@ struct BufferEdit {
 
 struct FileEdit {
     path: PathBuf,
+    stamp: FileStamp,
     reservations: Vec<PathBuf>,
     write: Option<DocumentSavedEventFuture>,
     count: usize,
@@ -84,7 +85,7 @@ pub struct ReplacementOutcome {
     pub error: Option<anyhow::Error>,
 }
 
-#[derive(PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 struct FileStamp {
     len: u64,
     modified: Option<SystemTime>,
@@ -313,6 +314,7 @@ impl WorkspaceReplacement {
                 files.push(FileEdit {
                     reservations,
                     path: target.path,
+                    stamp,
                     write,
                     count,
                     rows,
@@ -342,7 +344,7 @@ fn documents_by_file(editor: &Editor) -> HashMap<PathBuf, Vec<&Document>> {
 }
 
 impl ReplacementPlan {
-    /// Validate every buffer before editing, then reserve disk paths until writes finish.
+    /// Validate every target before editing, then reserve disk paths until writes finish.
     pub fn apply(self, editor: &mut Editor) -> anyhow::Result<PendingReplacement> {
         ensure!(
             !self.cancel.is_canceled() && self.owner.same_destination(editor.callback_sender()),
@@ -379,6 +381,15 @@ impl ReplacementPlan {
             );
         }
         for edit in &self.files {
+            if edit.write.is_some() {
+                let metadata = std::fs::metadata(&edit.path)
+                    .with_context(|| format!("failed to read '{}'", edit.path.display()))?;
+                ensure!(
+                    edit.stamp == FileStamp::new(metadata)?,
+                    "File changed before replacement: {}",
+                    edit.path.display()
+                );
+            }
             ensure!(
                 !editor.writes.is_blocked(&edit.path)
                     && !edit
