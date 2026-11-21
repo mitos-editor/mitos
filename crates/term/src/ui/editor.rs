@@ -18,6 +18,7 @@ use stdx::rope::RopeExt as _;
 use editor_config::BufferLine;
 use editor_core::{movement::Direction, unicode::width::UnicodeWidthStr, Range, Selection};
 use std::num::NonZeroUsize;
+use tokio::time::Instant;
 use ui_core::{
     input::{KeyEvent, MouseButton, MouseEvent, MouseEventKind},
     keyboard::{KeyCode, KeyModifiers},
@@ -40,6 +41,7 @@ pub struct EditorView {
     sidebar_area: Option<Rect>,
     resizing: Option<resize::Resize>,
     pub keymaps: Keymaps,
+    pending_auto_info_since: Option<Instant>,
     on_next_key: Option<OnKeyCallback>,
     pseudo_pending: Vec<KeyEvent>,
     pub(crate) repeat: crate::repeat::RepeatController,
@@ -56,6 +58,7 @@ impl EditorView {
             sidebar_area: None,
             resizing: None,
             keymaps,
+            pending_auto_info_since: None,
             on_next_key: None,
             pseudo_pending: Vec::new(),
             repeat: crate::repeat::RepeatController::default(),
@@ -69,6 +72,7 @@ impl EditorView {
         editor.cancel_completions();
         self.clear_completion(editor);
         self.keymaps.reset();
+        self.pending_auto_info_since = None;
         self.on_next_key = None;
         self.pseudo_pending.clear();
         editor.autoinfo = None;
@@ -149,6 +153,7 @@ impl EditorView {
         self.pseudo_pending.extend(self.keymaps.pending());
         let key_result = self.keymaps.get(mode, event);
         cxt.editor.autoinfo = self.keymaps.sticky();
+        self.pending_auto_info_since = None;
 
         let mut execute_command = |command: &commands::MappableCommand| {
             command.execute(cxt);
@@ -185,7 +190,12 @@ impl EditorView {
             KeymapResult::Matched(command) => {
                 execute_command(command);
             }
-            KeymapResult::Pending(node) => cxt.editor.autoinfo = Some(node.infobox()),
+            KeymapResult::Pending(node) => {
+                if !node.is_sticky {
+                    self.pending_auto_info_since = Some(Instant::now());
+                }
+                cxt.editor.autoinfo = Some(node.infobox());
+            }
             KeymapResult::MatchedSequence(commands) => {
                 for command in commands {
                     if !execute_command(command) {
@@ -839,14 +849,21 @@ impl Component for EditorView {
             .as_ref()
             .filter(|sidebar| sidebar.focused())
             .and_then(|sidebar| sidebar.infobox(&cx.config.component_keys));
-        let info = if sidebar_focused && self.resizing.is_none() {
+        let info = if !config.auto_info {
+            None
+        } else if sidebar_focused && self.resizing.is_none() {
             sidebar_info.as_ref()
+        } else if let Some(since) = self.pending_auto_info_since
+            && since.elapsed() < config.auto_info_delay
+        {
+            if let Some(due) = since.checked_add(config.auto_info_delay) {
+                cx.request_animation_at(due);
+            }
+            None
         } else {
             cx.editor.autoinfo.as_ref()
         };
-        if config.auto_info
-            && let Some(info) = info
-        {
+        if let Some(info) = info {
             // Global statuslines are already outside layout.editor; per-view
             // statuslines occupy its bottom row.
             let info_area = layout

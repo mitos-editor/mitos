@@ -144,6 +144,7 @@ For common examples, see [Configure Mitos](./editor.md).
 | `idle-timeout` | milliseconds | `250` | Idle delay used by editor UI timers. |
 | `continue-comments` | boolean | `true` | Continue a line comment when Enter creates a new line inside it. |
 | `auto-info` | boolean | `true` | Display contextual information popups. |
+| `auto-info-delay` | milliseconds | `0` | Wait this long after a key prefix before showing its bindings. Applies when `auto-info` is enabled. Sticky keymaps and other contextual popups appear immediately. |
 | `icons` | boolean | `false` | Show UI icons. The glyphs require a Nerd Font. |
 | `border-style` | `"none"`, `"plain"`, `"rounded"`, `"double"`, `"thick"`, `"quadrant-inside"`, or `"quadrant-outside"` | `"rounded"` | Border glyphs for panels, popups, menus, and separators. Use `"none"` to hide borders. This preference stays the same when switching themes; colors come from the theme. |
 | `info` | table | `{ border-style = "inherit" }` | Contextual information popup appearance. See [`[editor.info]`](#editorinfo). |

@@ -20,6 +20,7 @@ pub(super) struct Resize {
 
 impl EditorView {
     pub(crate) fn start_resize(&mut self, editor: &mut Editor, count: Option<NonZeroUsize>) {
+        self.pending_auto_info_since = None;
         self.resizing = Some(Resize {
             sidebar: self.sidebar_focused(),
             sizes: editor.tree.split_sizes(),
