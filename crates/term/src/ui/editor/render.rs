@@ -114,7 +114,7 @@ impl PaneRenderer {
                 options,
                 editor.completion_presentation(doc),
                 view,
-                options.area,
+                content,
                 surface,
                 is_focused,
                 &mut draw.hyperlinks.borrow_mut(),
@@ -311,7 +311,7 @@ impl PaneRenderer {
         options: PaneOptions,
         doc: PresentedDocument<'_>,
         view: &View,
-        viewport: Rect,
+        content: Rect,
         surface: &mut Surface,
         is_focused: bool,
         hyperlinks: &mut ui_core::hyperlinks::HyperlinkBuffer,
@@ -320,15 +320,14 @@ impl PaneRenderer {
             *syntax_cache = syntax_cache::ViewportSyntaxCache::default();
         }
         if doc.source().is_binary() {
-            Self::render_view_border(editor, view, viewport, surface);
+            Self::render_view_border(editor, view, options.area, surface);
+            return None;
+        }
+        if content.is_empty() {
             return None;
         }
         let layout = view.layout_presented(doc, Some(&editor.theme));
         let inner = layout.viewport;
-        let area = view.content_area(doc.source());
-        if area.is_empty() {
-            return None;
-        }
         let theme = &editor.theme;
         let config = editor.config();
         let ranges = layout.visible_byte_ranges();
@@ -348,8 +347,8 @@ impl PaneRenderer {
             ));
         }
 
-        if doc.source().breadcrumb_enabled() && !area.is_empty() {
-            Self::render_breadcrumb(editor, doc, view, area.with_height(1), surface);
+        if inner.height < content.height {
+            Self::render_breadcrumb(editor, doc, view, content.with_height(1), surface);
         }
 
         if is_focused && config.cursor.highlight_line {
@@ -377,8 +376,7 @@ impl PaneRenderer {
 
         let overlays = Self::overlays(editor, doc, view, &layout, &ranges, options, is_focused);
 
-        let gutter_overflow = view.gutter_offset_presented(doc) == 0;
-        if !gutter_overflow {
+        if inner.width < content.width {
             Self::render_gutter(
                 editor,
                 doc,
@@ -438,7 +436,7 @@ impl PaneRenderer {
             Self::render_welcome(theme, inner, surface, options.true_color);
         }
 
-        Self::render_view_border(editor, view, viewport, surface);
+        Self::render_view_border(editor, view, options.area, surface);
 
         if config.diagnostics.inline.disabled()
             && config.diagnostics.end_of_line.severity == DiagnosticFilter::Disable
@@ -758,7 +756,6 @@ impl PaneRenderer {
         is_focused: bool,
         decoration_manager: &mut DecorationManager<'d>,
     ) {
-        let viewport = view.content_area(doc.source());
         let text = doc.text().slice(..);
         let cursors: Rc<[_]> = doc
             .selection(view.id)
@@ -766,7 +763,7 @@ impl PaneRenderer {
             .map(|range| layout.block_line_at_pos(range.cursor(text)))
             .collect();
 
-        let mut offset = 0;
+        let mut x = view.area.x;
 
         let gutter_style = theme.get("ui.gutter");
         let gutter_selected_style = theme.get("ui.gutter.selected");
@@ -783,7 +780,6 @@ impl PaneRenderer {
             let gutter_decoration = move |renderer: &mut TextRenderer, pos: LinePos| {
                 // TODO handle softwrap in gutters
                 let selected = cursors.contains(&pos.doc_line);
-                let x = viewport.x + offset;
                 let y = pos.visual_line;
 
                 let gutter_style = match (selected, pos.first_visual_line) {
@@ -812,7 +808,7 @@ impl PaneRenderer {
             };
             decoration_manager.add_decoration(gutter_decoration);
 
-            offset += width as u16;
+            x = x.saturating_add(width as u16);
         }
     }
 
