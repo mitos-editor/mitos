@@ -179,6 +179,14 @@ async fn ordinary_requests_and_protocol_errors_are_replied_to_without_a_frontend
         )
         .await
         .is_none());
+    let message = s
+        .request(
+            "message",
+            "window/showMessageRequest",
+            json!({"type": 3, "message": "Info"}),
+        )
+        .await;
+    assert!(matches!(message, Some(HostAction::ShowMessage(_))));
     let records = s.flush().await?;
     let reply = |id: &str| records.iter().find(|record| record["id"] == id).unwrap();
     assert_eq!(reply("configuration")["result"], json!(["configured"]));
@@ -193,6 +201,7 @@ async fn ordinary_requests_and_protocol_errors_are_replied_to_without_a_frontend
         "folding",
         "lenses",
         "inline",
+        "message",
     ] {
         assert_eq!(reply(id).get("result"), Some(&Value::Null));
     }
