@@ -492,10 +492,9 @@ async fn semantic_delta_bases_are_reset_when_the_feature_is_disabled_or_the_uri_
         queued(&mut f.app.editor);
         let response = f.response().await?;
         response(&mut f.app.editor);
-        assert_eq!(
-            semantic_requests(&f)?.last().unwrap()["method"],
-            "textDocument/semanticTokens/full"
-        );
+        let requests = semantic_requests(&f)?;
+        assert_eq!(requests.len(), 3, "rename should request tokens once");
+        assert_eq!(requests[2]["method"], "textDocument/semanticTokens/full");
         assert!(f.app.close().await.is_empty());
     }
     Ok(())
