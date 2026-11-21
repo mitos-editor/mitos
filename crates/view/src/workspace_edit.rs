@@ -51,6 +51,31 @@ pub enum ApplyEditErrorKind {
     IoError(#[from] std::io::Error),
 }
 
+enum Change<'a> {
+    Document(&'a lsp::TextDocumentEdit),
+    Unversioned(&'a lsp::Uri, &'a [lsp::TextEdit]),
+    Resource(&'a lsp::ResourceOp),
+}
+
+/// Ordered document changes take precedence over the unversioned map.
+fn changes(edit: &lsp::WorkspaceEdit) -> Box<dyn Iterator<Item = Change<'_>> + '_> {
+    match &edit.document_changes {
+        Some(lsp::DocumentChanges::Edits(edits)) => Box::new(edits.iter().map(Change::Document)),
+        Some(lsp::DocumentChanges::Operations(operations)) => {
+            Box::new(operations.iter().map(|operation| match operation {
+                lsp::DocumentChangeOperation::Edit(edit) => Change::Document(edit),
+                lsp::DocumentChangeOperation::Op(op) => Change::Resource(op),
+            }))
+        }
+        None => Box::new(
+            edit.changes
+                .iter()
+                .flatten()
+                .map(|(uri, edits)| Change::Unversioned(uri, edits)),
+        ),
+    }
+}
+
 impl Editor {
     /// Merge text-only actions and preflight every target before mutating any buffer.
     /// Each document receives one transaction, keeping all cursor edits in one undo step.
@@ -233,70 +258,34 @@ impl Editor {
     ) -> Result<(), ApplyEditError> {
         confirmation::validate(workspace_edit)?;
         crate::features::linked_editing::cancel(self);
-        if let Some(ref document_changes) = workspace_edit.document_changes {
-            match document_changes {
-                lsp::DocumentChanges::Edits(document_edits) => {
-                    for (i, document_edit) in document_edits.iter().enumerate() {
-                        self.apply_text_document_edit(document_edit, offset_encoding)
-                            .map_err(|kind| ApplyEditError {
-                                kind,
-                                failed_change_idx: i,
-                            })?;
-                    }
-                }
-                lsp::DocumentChanges::Operations(operations) => {
-                    log::debug!("document changes - operations: {:?}", operations);
-                    for (i, operation) in operations.iter().enumerate() {
-                        let result = match operation {
-                            lsp::DocumentChangeOperation::Op(op) => {
-                                self.apply_document_resource_op(op)
-                            }
-                            lsp::DocumentChangeOperation::Edit(document_edit) => {
-                                self.apply_text_document_edit(document_edit, offset_encoding)
-                            }
-                        };
-                        result.map_err(|kind| ApplyEditError {
-                            kind,
-                            failed_change_idx: i,
-                        })?;
-                    }
-                }
-            }
-
-            return Ok(());
-        }
-
-        if let Some(ref changes) = workspace_edit.changes {
-            log::debug!("workspace changes: {:?}", changes);
-            for (i, (uri, text_edits)) in changes.iter().enumerate() {
-                let text_edits = text_edits
-                    .iter()
-                    .cloned()
-                    .map(lsp::DocumentTextEdit::Plain)
-                    .collect();
-                self.apply_text_edits(uri, None, text_edits, offset_encoding)
-                    .map_err(|kind| ApplyEditError {
-                        kind,
-                        failed_change_idx: i,
-                    })?;
-            }
+        for (failed_change_idx, change) in changes(workspace_edit).enumerate() {
+            let result = match change {
+                Change::Document(edit) => self.apply_text_edits(
+                    &edit.text_document.uri,
+                    edit.text_document.version,
+                    edit.edits.clone(),
+                    offset_encoding,
+                ),
+                Change::Unversioned(uri, edits) => self.apply_text_edits(
+                    uri,
+                    None,
+                    edits
+                        .iter()
+                        .cloned()
+                        .map(lsp::DocumentTextEdit::Plain)
+                        .collect(),
+                    offset_encoding,
+                ),
+                Change::Resource(op) => self.apply_document_resource_op(op),
+            };
+            result.map_err(|kind| ApplyEditError {
+                kind,
+                failed_change_idx,
+            })?;
         }
 
         crate::features::linked_editing::refresh(self);
         Ok(())
-    }
-
-    fn apply_text_document_edit(
-        &mut self,
-        document_edit: &lsp::TextDocumentEdit,
-        offset_encoding: OffsetEncoding,
-    ) -> Result<(), ApplyEditErrorKind> {
-        self.apply_text_edits(
-            &document_edit.text_document.uri,
-            document_edit.text_document.version,
-            document_edit.edits.clone(),
-            offset_encoding,
-        )
     }
 
     fn apply_document_resource_op(

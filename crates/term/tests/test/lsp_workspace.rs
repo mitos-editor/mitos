@@ -84,37 +84,57 @@ async fn workspace_edits_validate_server_use_utf16_and_report_partial_failure() 
     let dir = tempfile::tempdir()?;
     let mut f = Fixture::new(dir.path(), &["alpha"])?;
     let id = f.server("alpha");
-    let params = json!({"edit": {"documentChanges": [edit(&f, 0, "updated!")]}});
-    let error = f
-        .app
-        .editor
-        .handle_workspace_edit(id, serde_json::from_value(params.clone())?)
-        .unwrap_err();
-    assert_eq!(error.code, ErrorCode::InvalidRequest);
-    assert_eq!(
-        error.message,
-        "Server must be initialized to request workspace edits"
-    );
-    assert_eq!(current!(f.app.editor).1.text().to_string(), "😀 original\n");
+    let request = |id: &str, edit: Value| {
+        serde_json::from_value(json!({
+            "jsonrpc": "2.0", "id": id, "method": "workspace/applyEdit", "params": {"edit": edit}
+        }))
+        .unwrap()
+    };
+    let edit_params = json!({
+        "documentChanges": [edit(&f, 0, "updated!")],
+        "changes": { (f.uri().to_url().unwrap().as_str()): [{
+            "range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 0}},
+            "newText": "ignored"
+        }] }
+    });
+    f.app
+        .handle_language_server_message(request("pending", edit_params.clone()), id)
+        .await;
+    assert_eq!(current!(f.app.editor).1.text(), "😀 original\n");
     f.initialize().await?;
-    let response = f
-        .app
-        .editor
-        .handle_workspace_edit(id, serde_json::from_value(params)?)?;
+
+    f.app
+        .handle_language_server_message(request("apply", edit_params), id)
+        .await;
+    let records = logged(&f.logs[0], |record| record["id"] == "apply").await?;
+    let reply = |id| records.iter().find(|record| record["id"] == id).unwrap();
+    let error: lsp_client::jsonrpc::Error =
+        serde_json::from_value(reply("pending")["error"].clone())?;
+    assert_eq!(error.code, ErrorCode::InvalidRequest);
+    let response: lsp::ApplyWorkspaceEditResponse =
+        serde_json::from_value(reply("apply")["result"].clone())?;
     assert!(response.applied);
     assert_eq!(response.failure_reason, None);
     assert_eq!(response.failed_change, None);
+
     let (view, doc) = current!(f.app.editor);
-    assert_eq!(doc.text().to_string(), "😀 updated!\n");
+    assert_eq!(doc.text(), "😀 updated!\n");
     assert!(view::editing::undo(doc, view.id));
-    assert_eq!(doc.text().to_string(), "😀 original\n");
+    assert_eq!(doc.text(), "😀 original\n");
     let version = doc.version();
-    // Existing edits are not transactional: retain the first edit when the second is stale.
-    let params = json!({"edit": {"documentChanges": [edit(&f, version, "retained"), edit(&f, version, "stale!!!")]}});
-    let response = f
-        .app
-        .editor
-        .handle_workspace_edit(id, serde_json::from_value(params)?)?;
+    // Keep the first edit when the second is stale.
+    let edits =
+        json!({"documentChanges": [edit(&f, version, "retained"), edit(&f, version, "stale!!!")]});
+    f.app
+        .handle_language_server_message(request("partial", edits), id)
+        .await;
+    let records = logged(&f.logs[0], |record| record["id"] == "partial").await?;
+    let reply = records
+        .iter()
+        .find(|record| record["id"] == "partial")
+        .unwrap();
+    let response: lsp::ApplyWorkspaceEditResponse =
+        serde_json::from_value(reply["result"].clone())?;
     assert!(!response.applied);
     assert_eq!(response.failed_change, Some(1));
     let rejection = view::editing::EditError::DocumentChanged {
@@ -122,16 +142,15 @@ async fn workspace_edits_validate_server_use_utf16_and_report_partial_failure() 
         actual: current!(f.app.editor).1.version(),
     };
     assert_eq!(response.failure_reason, Some(rejection.to_string()));
-    assert_eq!(current!(f.app.editor).1.text().to_string(), "😀 retained\n");
+    assert_eq!(current!(f.app.editor).1.text(), "😀 retained\n");
+
     f.app.editor.handle_language_server_exit(id);
-    assert_eq!(
-        f.app
-            .editor
-            .handle_workspace_edit(id, serde_json::from_value(json!({"edit": {}}))?)
-            .unwrap_err()
-            .code,
-        ErrorCode::InvalidRequest
-    );
+    let version = current!(f.app.editor).1.version();
+    let edits = json!({"documentChanges": [edit(&f, version, "ignored!")]});
+    f.app
+        .handle_language_server_message(request("removed-server", edits), id)
+        .await;
+    assert_eq!(current!(f.app.editor).1.text(), "😀 retained\n");
     assert!(f.app.close().await.is_empty());
     Ok(())
 }

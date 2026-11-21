@@ -538,6 +538,35 @@ async fn linked_editing_mirrors_either_occurrence_in_one_transaction_and_undo_gr
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn ordered_workspace_edits_refresh_linked_editing() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let mut f = AutomaticFixture::new(dir.path(), &[], 4, true).await?;
+    f.response().await?(&mut f.app.editor);
+    f.app.editor.enter_insert_mode();
+
+    let doc = current_ref!(f.app.editor).1;
+    let edit = serde_json::from_value(serde_json::json!({"documentChanges": [{
+        "textDocument": {"uri": doc.url().unwrap(), "version": doc.version()},
+        "edits": [{
+            "range": {"start": {"line": 0, "character": 7}, "end": {"line": 0, "character": 8}},
+            "newText": "B"
+        }]
+    }]}))?;
+    f.app
+        .editor
+        .apply_workspace_edit(lsp_client::OffsetEncoding::Utf32, &edit)?;
+
+    f.response().await?(&mut f.app.editor);
+    f.app.editor.insert_char('x')?;
+    assert_eq!(
+        current_ref!(f.app.editor).1.text(),
+        "😀 <txag>Body</txag>\n"
+    );
+    assert!(f.app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn linked_editing_honors_word_patterns_and_preserves_unlinked_input() -> anyhow::Result<()> {
     for (args, character, mirrored) in [
         (vec![], ':', true),
