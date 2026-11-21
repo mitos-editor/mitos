@@ -2,10 +2,7 @@
 
 use super::Document;
 use crate::editing::EditError;
-use crate::{
-    events::{DocumentDidChange, SelectionDidChange},
-    ViewId,
-};
+use crate::{events::DocumentDidChange, ViewId};
 use buffer::AppliedChange;
 use editor_core::{ChangeSet, Selection, Transaction};
 
@@ -115,9 +112,7 @@ impl Document {
         self.inline_completions.clear();
         self.map_snippet(changes);
 
-        self.cancel_view_requests(|state| &mut state.hover);
-        self.cancel_view_requests(|state| &mut state.navigation);
-        self.cancel_view_requests(|state| &mut state.on_type_formatting);
+        self.cancel_view_position_requests();
 
         // Install an explicit transaction selection before observers inspect the new state.
         if let (Some(selection), Some(view_id)) = (selection, view_id) {
@@ -140,12 +135,7 @@ impl Document {
         let changes = change.changes();
         if changes.is_empty() {
             if let (Some(selection), Some(view_id)) = (selection, view_id) {
-                self.update_selection(view_id, selection.clone());
-                let errors = self.events().clone().dispatch(SelectionDidChange {
-                    doc: self,
-                    view: view_id,
-                });
-                self.report_hook_errors(errors);
+                self.set_selection(view_id, selection.clone());
             }
             return;
         }
@@ -180,11 +170,7 @@ impl Document {
         });
         self.report_hook_errors(errors);
         if let (Some(_), Some(view_id)) = (selection, view_id) {
-            let errors = self.events().clone().dispatch(SelectionDidChange {
-                doc: self,
-                view: view_id,
-            });
-            self.report_hook_errors(errors);
+            self.selection_did_change(view_id);
         }
     }
 }

@@ -144,6 +144,15 @@ impl super::Document {
 }
 
 impl super::Document {
+    /// Cancel hover, navigation, and on-type formatting when text or providers change.
+    pub(super) fn cancel_view_position_requests(&mut self) {
+        for state in self.view_states.values_mut() {
+            state.hover = None;
+            state.navigation = None;
+            state.on_type_formatting = None;
+        }
+    }
+
     pub(crate) fn cancel_view_request(
         &mut self,
         view: crate::ViewId,
