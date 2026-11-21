@@ -82,6 +82,77 @@ async fn background_frame(app: &mut TestApplication, frames: &FrameProbe) -> any
 }
 
 #[tokio::test(start_paused = true)]
+async fn key_help_waits_for_the_pending_prefix() -> anyhow::Result<()> {
+    async fn press(app: &mut TestApplication, key: ui_core::input::KeyEvent) {
+        use super::super::TerminalEvent;
+        app.handle_terminal_events(Ok(TerminalEvent::Key(tui::backend::native::adapt(key))))
+            .await;
+        draw_now(app);
+    }
+
+    fn shows_help(app: &TestApplication, title: &str) -> bool {
+        let buffer = app.terminal_backend().buffer();
+        buffer
+            .content
+            .chunks(usize::from(buffer.area.width))
+            .any(|row| {
+                row.iter()
+                    .map(|cell| cell.symbol())
+                    .collect::<String>()
+                    .contains(title)
+            })
+    }
+
+    let (mut app, _) = application(Args::default())?;
+    let source = "[editor]\nauto-info-delay = 100".to_owned();
+    let mut config = (*app.editor.config()).clone();
+    config.auto_info_delay = Config::load(Ok(&source), Ok(String::new()))
+        .unwrap()
+        .editor
+        .auto_info_delay;
+    let delay = Duration::from_millis(100);
+    assert_eq!(config.auto_info_delay, delay);
+    app.apply_config_update(crate::config::ConfigEvent::UpdateEditor(Box::new(config)));
+
+    let frames = FrameProbe::default();
+    app.compositor.push(Box::new(frames.clone()));
+    let space = crate::key!(' ');
+    let start = tokio::time::Instant::now();
+    press(&mut app, space).await;
+    assert!(!shows_help(&app, "Space"));
+    assert_eq!(app.render_state.animation_deadline, Some(start + delay));
+
+    tokio::time::advance(Duration::from_millis(50)).await;
+    let nested = tokio::time::Instant::now();
+    press(&mut app, crate::key!('g')).await;
+    assert!(!shows_help(&app, "Version control"));
+    assert_eq!(app.render_state.animation_deadline, Some(nested + delay));
+    while tokio::time::Instant::now() < nested + delay {
+        background_frame(&mut app, &frames).await?;
+    }
+    assert!(shows_help(&app, "Version control"));
+    assert!(app.render_state.animation_deadline.is_none());
+
+    press(&mut app, crate::key!(Esc)).await;
+    assert!(!shows_help(&app, "Version control"));
+    press(&mut app, space).await;
+    press(&mut app, crate::key!(Esc)).await;
+    tokio::time::advance(delay).await;
+    draw_now(&mut app);
+    assert!(!shows_help(&app, "Space"));
+    assert!(app.render_state.animation_deadline.is_none());
+
+    press(&mut app, crate::ctrl!('w')).await;
+    assert!(!shows_help(&app, "Window"));
+    press(&mut app, crate::key!('v')).await;
+    assert_eq!(app.editor.tree.views().count(), 2);
+    assert!(!shows_help(&app, "Window"));
+    assert!(app.render_state.animation_deadline.is_none());
+    assert!(app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(start_paused = true)]
 async fn picker_spinner_animates_without_input_and_stops_on_completion() -> anyhow::Result<()> {
     use crate::ui::{Picker, PickerColumn};
 
