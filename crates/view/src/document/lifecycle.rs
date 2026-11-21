@@ -13,9 +13,7 @@ impl Document {
             state.structural_repeat = None;
             state.folds = Default::default();
         }
-        self.cancel_view_requests(|state| &mut state.hover);
-        self.cancel_view_requests(|state| &mut state.navigation);
-        self.cancel_view_requests(|state| &mut state.on_type_formatting);
+        self.cancel_view_position_requests();
         self.rename.cancel();
         self.linked_editing.clear();
         self.cancel_view_requests(|state| &mut state.code_actions);

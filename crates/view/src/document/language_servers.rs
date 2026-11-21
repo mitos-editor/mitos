@@ -21,9 +21,7 @@ impl Document {
 
     pub fn remove_language_server_by_name(&mut self, name: &str) -> Option<Arc<Client>> {
         let attachment = self.language_servers.remove(name)?;
-        self.cancel_view_requests(|state| &mut state.hover);
-        self.cancel_view_requests(|state| &mut state.navigation);
-        self.cancel_view_requests(|state| &mut state.on_type_formatting);
+        self.cancel_view_position_requests();
         self.document_links.cancel_navigation();
         self.reset_all_inlay_hints();
         Some(attachment.client)
