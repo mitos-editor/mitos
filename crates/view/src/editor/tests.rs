@@ -45,3 +45,54 @@ pub(crate) fn editor(input: &str) -> (Editor, tempfile::TempDir) {
         .set_selection(view, selection);
     (editor, store)
 }
+
+#[tokio::test]
+async fn closed_buffers_leave_the_last_modified_history() {
+    let (mut editor, _store) = editor("#[|a]#bc\n");
+    let older = doc!(editor).id();
+    editor.insert_char('a').unwrap();
+    let newer = editor.new_file(Action::Replace);
+    editor.insert_char('b').unwrap();
+    let current = editor.new_file(Action::Replace);
+
+    assert!(editor.close_document(newer, true).is_ok());
+    assert_eq!(view!(editor).last_modified_document(), Some(older));
+
+    // Recording another modification must preserve the surviving older entry.
+    editor.insert_char('c').unwrap();
+    editor.switch(older, Action::Replace);
+    assert!(editor.close_document(current, true).is_ok());
+    editor.new_file(Action::Replace);
+    assert_eq!(view!(editor).last_modified_document(), Some(older));
+}
+
+#[tokio::test]
+async fn jumping_in_an_unfocused_split_restores_its_selection() {
+    let (mut editor, _store) = editor("ab#[|c]#def\n");
+    editor.insert_char('x').unwrap();
+    let (view, doc) = current_ref!(editor);
+    let jumped_view = view.id;
+    let destination = doc.id();
+    let selection = doc.selection(jumped_view).clone();
+    editor.new_file(Action::Replace);
+    let other_doc = editor.new_file(Action::VerticalSplit);
+    let focused_view = editor.tree.focus();
+    editor
+        .document_mut(destination)
+        .unwrap()
+        .set_selection(jumped_view, editor_core::Selection::point(0));
+
+    editor.jump_backward(jumped_view, 1);
+
+    assert_eq!(editor.tree.focus(), focused_view);
+    assert_eq!(view!(editor, jumped_view).document_id(), destination);
+    assert_eq!(
+        editor.document(destination).unwrap().selection(jumped_view),
+        &selection
+    );
+    assert!(editor
+        .document(other_doc)
+        .unwrap()
+        .try_selection(jumped_view)
+        .is_none());
+}

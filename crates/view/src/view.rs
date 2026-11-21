@@ -201,13 +201,10 @@ pub struct View {
     pub(crate) doc: DocumentId,
     binding_revision: u64,
     pub jumps: JumpList,
-    // documents accessed from this view from the oldest one to last viewed one
-    pub docs_access_history: Vec<DocumentId>,
-    /// the last modified files before the current one
-    /// ordered from most frequent to least frequent
-    // uses two docs because we want to be able to swap between the
-    // two last modified docs which we need to manually keep track of
-    pub last_modified_docs: [Option<DocumentId>; 2],
+    // Accessed buffers, newest last.
+    recently_accessed: Vec<DocumentId>,
+    // Keep both entries so navigating to the newest still leaves an alternate.
+    recently_modified: [Option<DocumentId>; 2],
     /// all gutter-related configuration settings, used primarily for gutter rendering
     pub gutters: GutterConfig,
     // HACKS: there should really only be a global diagnostics handler (the
@@ -238,8 +235,8 @@ impl View {
             binding_revision: 0,
             area: Rect::default(), // will get calculated upon inserting into tree
             jumps: JumpList::new((doc, Selection::point(0))), // TODO: use actual sel
-            docs_access_history: Vec::new(),
-            last_modified_docs: [None, None],
+            recently_accessed: Vec::new(),
+            recently_modified: [None, None],
             gutters,
             diagnostics_handler: DiagnosticsHandler::new(redraw),
         }
@@ -251,11 +248,23 @@ impl View {
         self.doc
     }
 
-    pub fn add_to_history(&mut self, id: DocumentId) {
-        if let Some(pos) = self.docs_access_history.iter().position(|&doc| doc == id) {
-            self.docs_access_history.remove(pos);
+    pub(crate) fn record_document_access(&mut self, modified: bool) {
+        self.recently_accessed.retain(|&id| id != self.doc);
+        self.recently_accessed.push(self.doc);
+        if modified && self.recently_modified[0] != Some(self.doc) {
+            self.recently_modified = [Some(self.doc), self.recently_modified[0]];
         }
-        self.docs_access_history.push(id);
+    }
+
+    pub fn pop_last_accessed_document(&mut self) -> Option<DocumentId> {
+        self.recently_accessed.pop()
+    }
+
+    pub fn last_modified_document(&self) -> Option<DocumentId> {
+        self.recently_modified
+            .into_iter()
+            .flatten()
+            .find(|&id| id != self.doc)
     }
 
     /// Changes whenever this split is rebound, including switching away and back.
@@ -691,7 +700,13 @@ impl View {
 
     pub fn remove_document(&mut self, doc_id: &DocumentId) {
         self.jumps.remove(doc_id);
-        self.docs_access_history.retain(|doc| doc != doc_id);
+        self.recently_accessed.retain(|doc| doc != doc_id);
+        let [latest, previous] = &mut self.recently_modified;
+        if *latest == Some(*doc_id) {
+            *latest = previous.take();
+        } else if *previous == Some(*doc_id) {
+            *previous = None;
+        }
     }
 
     // pub fn traverse<F>(&self, text: RopeSlice, start: usize, end: usize, fun: F)

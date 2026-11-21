@@ -79,7 +79,6 @@ impl Editor {
                     let closed = self.documents.remove(&id).unwrap();
                     self.writes.close_document(id);
 
-                    // Remove the scratch buffer from any jumplists
                     for (view, _) in self.tree.views_mut() {
                         view.remove_document(&id);
                     }
@@ -87,15 +86,10 @@ impl Editor {
                 } else {
                     let jump = (view.doc, doc.selection(view.id).clone());
                     view.push_jump(doc, jump);
-                    // Set last accessed doc if it is a different document
                     if doc.id != id {
-                        view.add_to_history(view.doc);
-                        // Set last modified doc if modified and last modified doc is different
-                        if std::mem::take(&mut doc.modified_since_accessed)
-                            && view.last_modified_docs[0] != Some(view.doc)
-                        {
-                            view.last_modified_docs = [Some(view.doc), view.last_modified_docs[0]];
-                        }
+                        view.record_document_access(std::mem::take(
+                            &mut doc.modified_since_accessed,
+                        ));
                     }
                     None
                 };
@@ -345,7 +339,7 @@ impl Editor {
 
                 if view.doc == doc_id {
                     // something was previously open in the view, switch to previous doc
-                    if let Some(prev_doc) = view.docs_access_history.pop() {
+                    if let Some(prev_doc) = view.pop_last_accessed_document() {
                         Some(Action::ReplaceDoc(view.id, prev_doc))
                     } else {
                         // only the document that is being closed was in the view, close it
