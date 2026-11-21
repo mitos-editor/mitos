@@ -192,7 +192,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> AsyncHook for DynamicQu
                     None => injector.pause(),
                 }
                 // NOTE: the Drop implementation of Injector will request a redraw when the
-                // injector falls out of scope here, clearing the "running" indicator.
+                // injector falls out of scope here so the count can show the final total.
             });
         })
     }

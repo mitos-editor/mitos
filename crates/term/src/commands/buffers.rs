@@ -339,6 +339,52 @@ pub(super) mod typed {
         Ok(())
     }
 
+    fn move_buffer(editor: &mut Editor, target: impl FnOnce(usize, usize) -> usize) {
+        let current = view!(editor).document_id();
+        let position = editor
+            .documents
+            .keys()
+            .position(|id| *id == current)
+            .unwrap();
+        editor.move_document(current, target(position, editor.documents.len() - 1));
+    }
+
+    #[cold]
+    pub(in crate::commands) fn buffer_move_previous(
+        cx: &mut compositor::Context,
+        _args: Args,
+    ) -> anyhow::Result<()> {
+        move_buffer(cx.editor, |position, _| position.saturating_sub(1));
+        Ok(())
+    }
+
+    #[cold]
+    pub(in crate::commands) fn buffer_move_next(
+        cx: &mut compositor::Context,
+        _args: Args,
+    ) -> anyhow::Result<()> {
+        move_buffer(cx.editor, |position, _| position.saturating_add(1));
+        Ok(())
+    }
+
+    #[cold]
+    pub(in crate::commands) fn buffer_move_start(
+        cx: &mut compositor::Context,
+        _args: Args,
+    ) -> anyhow::Result<()> {
+        move_buffer(cx.editor, |_, _| 0);
+        Ok(())
+    }
+
+    #[cold]
+    pub(in crate::commands) fn buffer_move_end(
+        cx: &mut compositor::Context,
+        _args: Args,
+    ) -> anyhow::Result<()> {
+        move_buffer(cx.editor, |_, last| last);
+        Ok(())
+    }
+
     /// Results in an error if there are modified buffers remaining and sets editor
     /// error, otherwise returns `Ok(())`. If the current document is unmodified,
     /// and there are modified documents, switches focus to one of them.

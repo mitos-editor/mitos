@@ -61,6 +61,16 @@ impl Fixture {
         servers: &[&str],
         resolve_links: bool,
     ) -> anyhow::Result<Self> {
+        Self::with_hover_sender(path, text, servers, resolve_links, None)
+    }
+
+    fn with_hover_sender(
+        path: &Path,
+        text: &str,
+        servers: &[&str],
+        resolve_links: bool,
+        hover: Option<EditorCallbackSender>,
+    ) -> anyhow::Result<Self> {
         std::fs::write(path, text)?;
         let mut config = test_config();
         config.editor.lsp.enable = true;
@@ -106,6 +116,9 @@ impl Fixture {
             .with_config(config)
             .with_lang_loader(loader)
             .with_handler_setup(move |handlers, _| {
+                if let Some(sender) = hover.clone() {
+                    handlers.hover = view::features::hover::HoverHandler::new(sender);
+                }
                 handlers.document_colors = DocumentColorsHandler::new(sender(Feature::Colors, &tx));
                 handlers.code_lenses = DocumentCodeLensesHandler::new(sender(Feature::Lenses, &tx));
                 handlers.document_highlight =
@@ -246,10 +259,12 @@ async fn terminal_links_use_resolved_server_targets_and_clear_when_a_server_deta
         let config = test_config();
         let mut cx = DrawContext {
             hyperlinks: Default::default(),
+            cursor_exclusions: Vec::new(),
             config: &config,
             editor: &fixture.app.editor,
             interaction: &fixture.app.interaction,
             editor_cursor: None,
+            animation_deadline: None,
             scroll: None,
             is_cursor_owner: false,
         };
@@ -684,5 +699,104 @@ async fn dropping_a_scheduled_highlight_does_not_block_a_later_selection() -> an
     fixture.apply(responses);
     assert_eq!(highlight_request_count(&fixture) - before, 1);
     assert!(fixture.app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn link_tooltips_open_in_hover_buffers_without_a_hover_provider() -> anyhow::Result<()> {
+    for resolve in [false, true] {
+        let dir = tempfile::tempdir()?;
+        let path = dir.path().join("links.feature-test");
+        let mut fixture =
+            Fixture::with_options(&path, "😀 link\n", &["document-feature-test"], resolve)?;
+        let callbacks = fixture.initialize().await?;
+        fixture.apply(callbacks);
+        if resolve {
+            std::fs::write(path.with_extension("resolve-ready"), "ready")?;
+        }
+        super::helpers::keys(&mut fixture.app, "ll<space>K").await?;
+        tokio::time::timeout(Duration::from_secs(10), async {
+            while current_ref!(fixture.app.editor).1.path().is_some() {
+                super::helpers::keys(&mut fixture.app, "").await?;
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+            anyhow::Ok(())
+        })
+        .await??;
+        let (_, doc) = current_ref!(fixture.app.editor);
+        let expected = if resolve {
+            r"Open \*resolved\* \[target\]"
+        } else {
+            r"Open \*example\* \[target\]"
+        };
+        assert!(doc.text().to_string().contains(expected));
+        assert!(doc.is_readonly());
+        let messages: Vec<serde_json::Value> = std::fs::read_to_string(&fixture.logs[0])?
+            .lines()
+            .filter_map(|line| serde_json::from_str(line).ok())
+            .collect();
+        assert!(!messages
+            .iter()
+            .any(|message| message["method"] == "textDocument/hover"));
+        let initialize = messages
+            .iter()
+            .find(|message| message["method"] == "initialize")
+            .unwrap();
+        assert_eq!(
+            initialize["params"]["capabilities"]["textDocument"]["documentLink"]["tooltipSupport"],
+            true
+        );
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn resolved_link_tooltips_reject_stale_queued_hover_results() -> anyhow::Result<()> {
+    use view::features::hover::{self, HoverDisplay};
+    for invalidation in ["none", "edit", "selection", "detach"] {
+        let dir = tempfile::tempdir()?;
+        let path = dir.path().join("links.feature-test");
+        let (sender, mut hover_callbacks) = super::helpers::callbacks::channel();
+        let mut fixture = Fixture::with_hover_sender(
+            &path,
+            "😀 link\n",
+            &["document-feature-test"],
+            true,
+            Some(sender),
+        )?;
+        let callbacks = fixture.initialize().await?;
+        fixture.apply(callbacks);
+        let (view, doc) = current!(fixture.app.editor);
+        let id = doc.id();
+        doc.set_selection(view.id, Selection::point(2));
+        std::fs::write(path.with_extension("resolve-ready"), "ready")?;
+        hover::request_with(&mut fixture.app.editor, HoverDisplay::Buffer);
+        let callback = tokio::time::timeout(Duration::from_secs(10), hover_callbacks.recv())
+            .await?
+            .context("hover callback missing")?;
+        callback(&mut fixture.app.editor);
+        let update = hover::next_update(&fixture.app.editor).context("hover update missing")?;
+        match invalidation {
+            "edit" => fixture.edit("changed"),
+            "selection" => {
+                let (view, doc) = current!(fixture.app.editor);
+                doc.set_selection(view.id, Selection::point(3));
+            }
+            "detach" => {
+                fixture
+                    .app
+                    .editor
+                    .document_mut(id)
+                    .unwrap()
+                    .remove_language_server_by_name("document-feature-test");
+            }
+            _ => {}
+        }
+        assert_eq!(
+            update.resolve(&fixture.app.editor).is_some(),
+            invalidation == "none",
+            "{invalidation}"
+        );
+    }
     Ok(())
 }

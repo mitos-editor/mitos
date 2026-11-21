@@ -10,9 +10,9 @@ use diagnostics::DiagnosticProvider;
 use editor_core::Uri;
 use event::{cancelable_future, TaskHandle};
 use language_config::LanguageServerFeature;
-use lsp_client::{lsp, Client, LanguageServerId, UriExt as _};
+use lsp_client::{lsp, Client, LanguageServerId, RequestUpdate, UriExt as _};
 
-use super::apply_report;
+use super::{apply_report, should_retry};
 use crate::{DocumentId, Editor};
 
 struct OpenDocument {
@@ -42,6 +42,26 @@ fn has_documents(editor: &Editor, server_id: LanguageServerId) -> bool {
 }
 
 impl WorkspacePull {
+    fn discard(&self, editor: &mut Editor) {
+        let mut discarded = Vec::new();
+        for (uri, reports) in &mut editor.pull_diagnostics.reports {
+            let Some(cached) = reports.get_mut(&self.provider) else {
+                continue;
+            };
+            // A newer request may have reserved this URI without publishing.
+            // Discard only results actually published by the failed stream.
+            if cached.has_report && cached.published_request == self.request_id {
+                cached.has_report = false;
+                cached.result_id = None;
+                discarded.push(uri.clone());
+            }
+        }
+        for uri in discarded {
+            editor.handle_lsp_diagnostics(&self.provider, uri, None, Vec::new());
+        }
+        editor.redraw().request();
+    }
+
     fn is_current(&self, editor: &Editor) -> bool {
         !self.cancel.is_canceled()
             && self.server.upgrade().is_some_and(|server| {
@@ -217,25 +237,32 @@ pub fn request_workspace_diagnostics(editor: &mut Editor, server_id: LanguageSer
     let callbacks = editor.handlers.pull_diagnostics.callbacks.clone();
     tokio::spawn(async move {
         let mut retry = true;
-        while let Some(Some(result)) = cancelable_future(stream.next(), &request.cancel).await {
-            match result {
-                Ok(report) => {
-                    retry = true;
-                    let request = request.clone();
-                    callbacks
-                        .send(move |editor| request.apply(editor, report))
-                        .await;
+        while let Some(Some(update)) = cancelable_future(stream.next(), &request.cancel).await {
+            let (report, finished) = match update {
+                RequestUpdate::Partial(Ok(report)) => (report, false),
+                RequestUpdate::Partial(Err(error)) => {
+                    log::error!("Workspace diagnostic partial result failed: {error}");
+                    continue;
                 }
-                Err(error) => {
-                    retry = matches!(&error, lsp_client::Error::Rpc(error)
-                        if error.code.code() == lsp::error_codes::SERVER_CANCELLED
-                            && error.data.as_ref().and_then(|data| serde_json::from_value::<lsp::DiagnosticServerCancellationData>(data.clone()).ok()).is_none_or(|data| data.retrigger_request));
+                RequestUpdate::Response(Ok(report)) => (report.unwrap_or_default(), true),
+                RequestUpdate::Response(Err(error)) => {
+                    retry = should_retry(&error);
                     if retry {
                         log::debug!("Workspace diagnostic request canceled: {error}");
                     } else {
                         log::error!("Workspace diagnostic request failed: {error}");
                     }
+                    let request = request.clone();
+                    callbacks.send(move |editor| request.discard(editor)).await;
+                    break;
                 }
+            };
+            let request = request.clone();
+            callbacks
+                .send(move |editor| request.apply(editor, report))
+                .await;
+            if finished {
+                break;
             }
         }
         drop(stream);

@@ -7,6 +7,7 @@ use view::{
 
 use super::*;
 
+mod buffers;
 mod insert;
 mod movement;
 mod replace;

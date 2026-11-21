@@ -102,7 +102,11 @@ impl Fixture {
             if workspace {
                 let reports = lsp::log_path(directory, name).with_extension("workspace.json");
                 std::fs::write(&reports, r#"{"result":{"items":[]}}"#)?;
-                server = server.arg("--workspace-diagnostics").arg(reports);
+                server = server
+                    .arg("--workspace-diagnostics")
+                    .arg(reports)
+                    .arg("--request-log")
+                    .arg(lsp::log_path(directory, name).with_extension("messages.jsonl"));
             }
             servers.push_str(&server.toml());
             logs.push(lsp::log_path(directory, name));
@@ -552,6 +556,36 @@ async fn queued_related_reports_cannot_publish_into_a_newly_opened_document() ->
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn streamed_document_reports_preserve_diagnostics_related_reports_and_result_ids(
+) -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let mut f = Fixture::new(dir.path(), "stream-diagnostics", &["alpha"], false)?;
+    let uri = Uri::from(stdx::path::normalize(dir.path().join("related.pull-test")));
+    f.related(
+        0,
+        &uri,
+        related_report(Some("related:1"), Some("related error")),
+    )?;
+    f.initialize().await?;
+    f.publish().await?;
+    assert_eq!(f.messages(), ["alpha: 😀 stream-diagnostics"]);
+    assert_eq!(f.raw_messages(&uri), ["related error"]);
+
+    // The primary is unchanged, but a related full report still clears its file.
+    f.related(0, &uri, related_report(None, None))?;
+    f.request();
+    f.publish().await?;
+    assert_eq!(
+        f.requests(0)?.last().unwrap()["previousResultId"],
+        "alpha:0"
+    );
+    assert_eq!(f.messages(), ["alpha: 😀 stream-diagnostics"]);
+    assert!(f.raw_messages(&uri).is_empty());
+    assert!(f.app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn full_and_unchanged_reports_preserve_provider_ids_and_utf16_ranges() -> anyhow::Result<()> {
     let dir = tempfile::tempdir()?;
     let mut f = Fixture::new(dir.path(), "original", &["alpha"], false)?;
@@ -675,6 +709,19 @@ async fn queued_reports_cannot_publish_after_edits_renames_or_closure() -> anyho
     assert!(f.app.editor.close_document(id, true).is_ok());
     old(&mut f.app.editor);
     assert!(!f.app.editor.diagnostics().contains_key(&uri));
+    assert!(f.app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn server_cancellation_without_data_retries_document_diagnostics() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let mut f = Fixture::new(dir.path(), "retry-default", &["alpha"], false)?;
+    f.initialize().await?;
+    f.publish().await?;
+    f.publish().await?;
+    assert_eq!(f.messages(), ["alpha: 😀 retry-default"]);
+    assert_eq!(f.requests(0)?.len(), 2);
     assert!(f.app.close().await.is_empty());
     Ok(())
 }
@@ -888,6 +935,122 @@ async fn workspace_diagnostics_run_without_a_matching_open_file() -> anyhow::Res
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn closing_diagnostic_pickers_keeps_shared_workspace_pulls_running() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let mut f = Fixture::with_workspace(dir.path(), "original", &["alpha"], false, true)?;
+    let uri = Uri::from(stdx::path::normalize(dir.path().join("unopened.pull-test")));
+    f.workspace_reports(
+        0,
+        json!({
+            "batches": [{"items": [workspace_report(&uri, "shared", Some("background diagnostic"))]}],
+            "hold": true
+        }),
+    )?;
+    f.initialize().await?;
+    f.until(|f| f.raw_messages(&uri) == ["background diagnostic"])
+        .await?;
+    let log = f.logs[0].with_extension("messages.jsonl");
+    let request = lsp::wait_message(&log, "workspace/diagnostic").await?;
+    for input in ["<space>d", "<space>D"] {
+        super::helpers::keys(&mut f.app, input).await?;
+        assert!(super::helpers::screen(&f.app).contains("Diagnostics"));
+        super::helpers::keys(&mut f.app, "<esc>").await?;
+        assert!(!super::helpers::screen(&f.app).contains("Diagnostics"));
+        assert_eq!(f.raw_messages(&uri), ["background diagnostic"]);
+    }
+    assert_eq!(f.workspace_requests(0)?.len(), 1);
+    assert!(!lsp::read_log(&log)?.iter().any(|message| {
+        message["method"] == "$/cancelRequest" && message["params"]["id"] == request["id"]
+    }));
+    assert!(f.app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn failed_workspace_pulls_discard_streamed_reports_and_result_ids() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let mut f = Fixture::with_workspace(dir.path(), "original", &["alpha", "beta"], false, true)?;
+    let uri = Uri::from(stdx::path::normalize(dir.path().join("unopened.pull-test")));
+    f.workspace_reports(
+        0,
+        json!({
+            "batches": [{"items": [workspace_report(&uri, "failed", Some("failed partial"))]}],
+            "error": {"code": -32603, "message": "diagnostic request failed"}
+        }),
+    )?;
+    f.workspace_reports(
+        1,
+        json!({
+            "batches": [{"items": [workspace_report(&uri, "beta", Some("other provider"))]}],
+            "hold": true
+        }),
+    )?;
+    f.initialize().await?;
+    // Two direct reports, alpha's partial and failure, and beta's partial report.
+    for _ in 0..5 {
+        f.publish().await?;
+    }
+    assert_eq!(f.raw_messages(&uri), ["other provider"]);
+    f.workspace_reports(0, json!({"result": {"items": []}}))?;
+    f.request_workspace("alpha");
+    f.publish().await?;
+    assert!(
+        !f.workspace_requests(0)?.last().unwrap()["params"]["previousResultIds"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|id| id["value"] == "failed")
+    );
+    assert!(f.app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn failed_workspace_pulls_preserve_newer_reports_and_invalidate_pending_results(
+) -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let mut f = Fixture::with_workspace(dir.path(), "original", &["alpha"], false, true)?;
+    f.initialize().await?;
+    f.publish().await?;
+    f.publish().await?;
+    let source = current_ref!(f.app.editor).1.id();
+    let pending = Uri::from(stdx::path::normalize(dir.path().join("pending.pull-test")));
+    let newer = Uri::from(stdx::path::normalize(dir.path().join("newer.pull-test")));
+    f.workspace_reports(
+        0,
+        json!({
+            "batches": [{"items": [
+                workspace_report(&pending, "failed-pending", Some("failed pending")),
+                workspace_report(&newer, "failed-newer", Some("failed older"))
+            ]}],
+            "error": {"code": -32603, "message": "diagnostic request failed"}
+        }),
+    )?;
+    f.request_workspace("alpha");
+    f.publish().await?;
+    let failure = f.response().await?;
+    let document = f.open(pending.as_path().unwrap(), "opened")?;
+    let direct = f.response().await?;
+    f.app.editor.switch(source, Action::Replace);
+    f.related(
+        0,
+        &newer,
+        related_report(Some("newer"), Some("newer related")),
+    )?;
+    f.request();
+    f.publish().await?;
+    failure(&mut f.app.editor);
+    assert!(f.raw_messages(&pending).is_empty());
+    assert_eq!(f.raw_messages(&newer), ["newer related"]);
+    f.app.editor.switch(document, Action::Replace);
+    assert!(f.messages().is_empty());
+    direct(&mut f.app.editor);
+    assert_eq!(f.messages(), ["alpha: 😀 opened"]);
+    assert!(f.app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn workspace_diagnostic_batches_update_unopened_files_in_wire_order() -> anyhow::Result<()> {
     let dir = tempfile::tempdir()?;
     let mut f = Fixture::with_workspace(dir.path(), "original", &["alpha"], false, true)?;
@@ -1069,8 +1232,11 @@ async fn late_workspace_reports_cannot_replace_newer_related_document_results() 
     let dir = tempfile::tempdir()?;
     let mut f = Fixture::with_workspace(dir.path(), "original", &["alpha"], false, true)?;
     let uri = Uri::from(stdx::path::normalize(dir.path().join("unopened.pull-test")));
-    f.workspace_reports(0, json!({"hold": true}))?;
+    f.workspace_reports(0, json!({"batches": [{"items": []}], "hold": true}))?;
     f.initialize().await?;
+    // Drain the initial document response and workspace batch before changing
+    // reports, so the initial workspace request has read its held response.
+    f.publish().await?;
     f.publish().await?;
     f.workspace_reports(
         0,

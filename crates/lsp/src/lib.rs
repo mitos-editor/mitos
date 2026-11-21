@@ -23,7 +23,7 @@ mod file_operations;
 pub mod jsonrpc;
 mod transport;
 
-pub use client::{Client, WorkspaceDiagnosticRequest};
+pub use client::{Client, PartialResultRequest, RequestUpdate, WorkspaceDiagnosticRequest};
 pub use futures_executor::block_on;
 pub use jsonrpc::Call;
 pub use lsp::{Position, Url};
@@ -314,3 +314,6 @@ impl LspProgressMap {
             });
     }
 }
+
+#[cfg(feature = "test-support")]
+pub mod test_support;

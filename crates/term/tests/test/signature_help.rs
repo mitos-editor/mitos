@@ -18,7 +18,7 @@ use view::{
 };
 
 use super::helpers::lsp::{self, Gate, ServerConfig};
-use super::helpers::{run_event_loop_until_idle, test_config};
+use super::helpers::{keys, run_event_loop_until_idle, screen, test_config};
 
 struct Fixture {
     app: TestApplication,
@@ -102,7 +102,15 @@ impl Fixture {
 
     async fn label(&mut self) -> anyhow::Result<String> {
         match self.update().await?.resolve(&self.app.editor) {
-            Some(SignatureHelpChange::Show(response)) => Ok(response.signatures[0].label.clone()),
+            Some(SignatureHelpChange::Show(response)) => {
+                let label = response.signatures[0].label.clone();
+                self.app
+                    .editor
+                    .handlers()
+                    .signature_hints
+                    .set_active_help(Some(response));
+                Ok(label)
+            }
             _ => anyhow::bail!("expected signatures"),
         }
     }
@@ -162,6 +170,29 @@ impl Fixture {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn signature_help_renders_documentation_when_enabled() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let mut f = Fixture::new(dir.path(), "call(\n", &["alpha"]).await?;
+
+    for enabled in [false, true] {
+        let mut config = (*f.app.editor.config()).clone();
+        config.lsp.signature_help.show_documentation = enabled;
+        f.app
+            .apply_config_update(term::config::ConfigEvent::UpdateEditor(Box::new(config)));
+        f.trigger(SignatureHelpInvoked::Manual);
+        f.response().await?(&mut f.app.editor);
+        keys(&mut f.app, "").await?;
+
+        let rendered = screen(&f.app);
+        assert!(rendered.contains("alpha: call("));
+        assert_eq!(rendered.contains("first signature"), enabled);
+    }
+
+    assert!(f.app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn manual_and_automatic_requests_preserve_protocol_and_provider_selection(
 ) -> anyhow::Result<()> {
     let dir = tempfile::tempdir()?;
@@ -172,7 +203,9 @@ async fn manual_and_automatic_requests_preserve_protocol_and_provider_selection(
     let request: serde_json::Value =
         serde_json::from_str(std::fs::read_to_string(&f.log)?.lines().last().unwrap())?;
     assert_eq!(request["position"]["character"], 8);
-    assert!(request.get("context").is_none());
+    assert_eq!(request["context"]["triggerKind"], 1);
+    assert_eq!(request["context"]["isRetrigger"], false);
+    assert!(request["context"].get("activeSignatureHelp").is_none());
     assert!(std::fs::read_to_string(dir.path().join("beta.jsonl"))?.is_empty());
     f.trigger(SignatureHelpInvoked::Automatic);
     assert!(
@@ -189,8 +222,107 @@ async fn manual_and_automatic_requests_preserve_protocol_and_provider_selection(
     assert!(triggered.elapsed() >= Duration::from_millis(120));
     callback(&mut f.app.editor);
     assert_eq!(f.label().await?, "alpha: 😀 call(");
+    let request: serde_json::Value =
+        serde_json::from_str(std::fs::read_to_string(&f.log)?.lines().last().unwrap())?;
+    assert_eq!(request["context"]["triggerKind"], 2);
+    assert_eq!(request["context"]["triggerCharacter"], "(");
+    assert_eq!(request["context"]["isRetrigger"], true);
     f.select(3);
     assert_eq!(f.label().await?, "alpha: 😀 call(");
+    let request: serde_json::Value =
+        serde_json::from_str(std::fs::read_to_string(&f.log)?.lines().last().unwrap())?;
+    assert_eq!(request["context"]["triggerKind"], 3);
+    assert!(request["context"].get("triggerCharacter").is_none());
+    assert_eq!(
+        request["context"]["activeSignatureHelp"]["activeSignature"],
+        0
+    );
+    assert!(f.app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn retrigger_characters_require_active_help_and_preserve_the_selected_overload(
+) -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let mut f = Fixture::new(dir.path(), "call)\n", &["alpha"]).await?;
+    f.app.editor.set_mode(Mode::Insert);
+    f.select(5);
+    f.app.editor.handlers().signature_hints.cancel();
+    signature_help::post_insert_char(&f.app.editor);
+    assert!(
+        tokio::time::timeout(Duration::from_millis(180), f.callbacks.recv())
+            .await
+            .is_err()
+    );
+    f.trigger(SignatureHelpInvoked::Manual);
+    f.label().await?;
+    f.app
+        .editor
+        .handlers()
+        .signature_hints
+        .set_active_signature(1);
+    signature_help::post_insert_char(&f.app.editor);
+    f.label().await?;
+    let request: serde_json::Value =
+        serde_json::from_str(std::fs::read_to_string(&f.log)?.lines().last().unwrap())?;
+    assert_eq!(request["context"]["triggerKind"], 2);
+    assert_eq!(request["context"]["triggerCharacter"], ")");
+    assert_eq!(request["context"]["isRetrigger"], true);
+    assert_eq!(
+        request["context"]["activeSignatureHelp"]["activeSignature"],
+        1
+    );
+    f.app.editor.handlers().signature_hints.cancel();
+    f.trigger(SignatureHelpInvoked::Manual);
+    f.label().await?;
+    let request: serde_json::Value =
+        serde_json::from_str(std::fs::read_to_string(&f.log)?.lines().last().unwrap())?;
+    assert_eq!(request["context"]["isRetrigger"], false);
+    assert!(request["context"].get("activeSignatureHelp").is_none());
+    assert!(f.app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn unpresented_signature_results_preserve_the_visible_retrigger_context() -> anyhow::Result<()>
+{
+    let dir = tempfile::tempdir()?;
+    let mut f = Fixture::new(dir.path(), "call(\n", &["alpha"]).await?;
+    f.trigger(SignatureHelpInvoked::Manual);
+    assert!(matches!(
+        f.update().await?.resolve(&f.app.editor),
+        Some(SignatureHelpChange::Show(_))
+    ));
+    f.trigger(SignatureHelpInvoked::Manual);
+    f.label().await?;
+    let request: serde_json::Value =
+        serde_json::from_str(std::fs::read_to_string(&f.log)?.lines().last().unwrap())?;
+    assert_eq!(request["context"]["isRetrigger"], false);
+    f.app
+        .editor
+        .handlers()
+        .signature_hints
+        .set_active_signature(1);
+    f.edit("replacement(\n");
+    f.trigger(SignatureHelpInvoked::Manual);
+    // The terminal can suppress this update when it would overlap the completion menu.
+    assert!(matches!(
+        f.update().await?.resolve(&f.app.editor),
+        Some(SignatureHelpChange::Show(_))
+    ));
+    f.trigger(SignatureHelpInvoked::Manual);
+    f.label().await?;
+    let request: serde_json::Value =
+        serde_json::from_str(std::fs::read_to_string(&f.log)?.lines().last().unwrap())?;
+    assert_eq!(
+        request["context"]["activeSignatureHelp"]["signatures"][0]["label"],
+        "alpha: call("
+    );
+    assert_eq!(
+        request["context"]["activeSignatureHelp"]["activeSignature"],
+        1
+    );
     assert!(f.app.close().await.is_empty());
     Ok(())
 }
@@ -367,6 +499,14 @@ async fn terminal_forwards_triggers_and_keeps_popup_navigation_and_dismissal() -
     assert_eq!(f.popup_selection().await?, Some(0));
     f.key("<A-n>").await?;
     assert_eq!(f.popup_selection().await?, Some(1));
+    f.trigger(SignatureHelpInvoked::Manual);
+    let _ = f.update().await?;
+    let request: serde_json::Value =
+        serde_json::from_str(std::fs::read_to_string(&f.log)?.lines().last().unwrap())?;
+    assert_eq!(
+        request["context"]["activeSignatureHelp"]["activeSignature"],
+        1
+    );
     f.key("<esc>").await?;
     assert_eq!(f.popup_selection().await?, None);
     for text in ["empty\n", "no-signatures\n"] {

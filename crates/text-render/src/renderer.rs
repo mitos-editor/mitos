@@ -125,8 +125,8 @@ pub fn render_text(
         {
             syntax_style = syntax_styles.next().unwrap().1;
         }
-        while grapheme.char_idx >= overlay_highlighter.pos {
-            overlay_highlighter.advance();
+        if grapheme.char_idx >= overlay_highlighter.pos {
+            overlay_highlighter.advance_to(grapheme.char_idx);
         }
 
         let grapheme_style = if let GraphemeSource::VirtualText { highlight } = grapheme.source {
@@ -138,7 +138,7 @@ pub fn render_text(
                 syntax_style: style,
                 overlay_style: Style::default(),
             }
-        } else if text_annotations.conceal_at(grapheme.char_idx).is_some() {
+        } else if matches!(grapheme.source, GraphemeSource::Conceal { .. }) {
             GraphemeStyle {
                 syntax_style: renderer.text_style.patch(theme.get("ui.virtual.fold")),
                 overlay_style: overlay_highlighter.style,
@@ -153,6 +153,7 @@ pub fn render_text(
 
         // Classify against the document line, not the visible row: a viewport
         // edge or soft wrap does not turn interior whitespace into trailing text.
+        // Collapsed labels have their own text, independent of source whitespace.
         if renderer.classify_trailing && trailing_line != grapheme.line_idx {
             trailing_line = grapheme.line_idx;
             let line = line_without_line_ending(&text, trailing_line);
@@ -164,8 +165,10 @@ pub fn render_text(
             trailing_start = text.line_to_char_idx(trailing_line) + line.len_chars() - count;
         }
         let trailing = renderer.classify_trailing
-            && !grapheme.is_virtual()
-            && !grapheme.source.is_eof()
+            && matches!(
+                grapheme.source,
+                GraphemeSource::Document { codepoints: 1.. }
+            )
             && grapheme.char_idx >= trailing_start;
         let grapheme_width = renderer.draw_grapheme(
             &grapheme,
@@ -666,10 +669,10 @@ impl<'t> OverlayHighlighter<'t> {
         self.pos = self.inner.next_event_offset();
     }
 
-    fn advance(&mut self) {
+    fn advance_to(&mut self, pos: usize) {
         self.style = self
             .inner
-            .advance()
+            .advance_to(pos)
             .fold(Style::default(), |acc, highlight| {
                 acc.patch(self.theme.highlight(highlight))
             });
@@ -704,6 +707,66 @@ mod whitespace_tests {
         let annotations = [InlineAnnotation::new(1, "\x1b\u{80}")];
         let surface = render_with_annotations("ab", "", 4, false, 0, &annotations);
         assert_eq!(row(&surface, 0), "a��b");
+    }
+
+    #[test]
+    fn collapsed_label_clipping_matches_visible_document_graphemes() {
+        use text_layout::text_annotations::Conceal;
+        let conceals = [Conceal::new(9..15).with_text("界e\u{301} 😀 label")];
+        let mut annotations = TextAnnotations::default();
+        annotations.set_conceals(&conceals);
+        for wrap in [false, true] {
+            for width in [4, 12, 20] {
+                for offset in [0, 2, 3, 5, 8] {
+                    let folded = render_with_layout_annotations(
+                        "before\na[hidden]tail\nnext",
+                        "",
+                        width,
+                        wrap,
+                        offset,
+                        &annotations,
+                        true,
+                    );
+                    let plain = render(
+                        "before\na[界e\u{301} 😀 label]tail\nnext",
+                        "",
+                        width,
+                        wrap,
+                        offset,
+                    );
+                    assert_eq!(folded, plain, "width={width}, offset={offset}, wrap={wrap}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn collapsed_label_spaces_do_not_inherit_source_trailing_whitespace() {
+        use text_layout::text_annotations::Conceal;
+        for (text, range, visible) in [
+            ("header\nhidden\nlast\nnext", 6..18, "headertwo words\nnext"),
+            ("a    \nnext", 1..4, "atwo words \nnext"),
+        ] {
+            let folds = [Conceal::new(range).with_text("two words")];
+            let mut annotations = TextAnnotations::default();
+            annotations.set_conceals(&folds);
+            for mode in ["trailing", "all"] {
+                let settings = format!("[whitespace]\nrender = '{mode}'");
+                for (width, wrap) in [(12, true), (20, false)] {
+                    let folded = render_with_layout_annotations(
+                        text,
+                        &settings,
+                        width,
+                        wrap,
+                        0,
+                        &annotations,
+                        true,
+                    );
+                    let plain = render(visible, &settings, width, wrap, 0);
+                    assert_eq!(folded, plain, "text={text:?}, mode={mode}, wrap={wrap}");
+                }
+            }
+        }
     }
 
     #[test]
@@ -1091,7 +1154,7 @@ mod whitespace_tests {
         let text = format!("{}\nfolded body\nclosing\nfollowing", "x".repeat(200));
         let inline = [InlineAnnotation::new(150, "virtual\nline")];
         let overlays = [Overlay::new(160, "界")];
-        let conceals = [Conceal { range: 180..220 }];
+        let conceals = [Conceal::new(180..220)];
         #[derive(Clone)]
         struct ExtraLine;
         impl text_layout::text_annotations::LineAnnotation for ExtraLine {

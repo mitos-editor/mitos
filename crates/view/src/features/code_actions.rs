@@ -76,6 +76,15 @@ impl Editor {
         let mut providers: FuturesUnordered<BoxFuture<'static, anyhow::Result<Vec<Action>>>> =
             FuturesUnordered::new();
         if lsp_enabled {
+            let documentation: Vec<_> = doc
+                .language_servers_with_feature(language_config::LanguageServerFeature::CodeAction)
+                .filter_map(|server| match &server.capabilities().code_action_provider {
+                    Some(lsp::CodeActionProviderCapability::Options(options)) => {
+                        Some((server.id(), options.documentation.clone()?))
+                    }
+                    _ => None,
+                })
+                .collect();
             let mut requests = FuturesUnordered::new();
             let primary = doc.selection(view.id).primary_index();
             for (selection, &range) in doc.selection(view.id).iter().enumerate() {
@@ -98,7 +107,38 @@ impl Editor {
                     }
                     // Prefer the primary selection's representative, independent of reply order.
                     responses.sort_by_key(|(selection, ..)| (*selection != primary, *selection));
-                    Ok(group_lsp_actions(action_context, primary, responses))
+                    let documentation: Vec<_> = documentation
+                        .into_iter()
+                        .filter_map(|(server, entries)| {
+                            let kinds = responses
+                                .iter()
+                                .filter(|(_, id, _)| *id == server)
+                                .flat_map(|(_, _, items)| items.iter())
+                                .filter_map(|item| match item {
+                                    CodeActionOrCommand::CodeAction(action)
+                                        if action.disabled.is_none() =>
+                                    {
+                                        Some(
+                                            action
+                                                .kind
+                                                .as_ref()
+                                                .map_or("", lsp::CodeActionKind::as_str),
+                                        )
+                                    }
+                                    _ => None,
+                                });
+                            matching_documentation(&entries, kinds).map(|entry| {
+                                Action::lsp(
+                                    action_context.clone(),
+                                    server,
+                                    CodeActionOrCommand::Command(entry.command.clone()),
+                                )
+                            })
+                        })
+                        .collect();
+                    let mut actions = group_lsp_actions(action_context, primary, responses);
+                    actions.extend(documentation);
+                    Ok(actions)
                 }
                 .boxed(),
             );
@@ -131,6 +171,28 @@ impl Editor {
             .boxed(),
         }
     }
+}
+
+/// Prefer the most specific documented kind across the provider's available actions.
+/// Dot boundaries distinguish an ancestor from a similarly prefixed sibling kind.
+fn matching_documentation<'a, 'b>(
+    entries: &'a [lsp::CodeActionKindDocumentation],
+    kinds: impl Iterator<Item = &'b str>,
+) -> Option<&'a lsp::CodeActionKindDocumentation> {
+    let kinds: Vec<_> = kinds.collect();
+    entries
+        .iter()
+        .filter(|entry| {
+            kinds.iter().any(|kind| {
+                let documented = entry.kind.as_str();
+                documented.is_empty()
+                    || *kind == documented
+                    || kind
+                        .strip_prefix(documented)
+                        .is_some_and(|suffix| suffix.starts_with('.'))
+            })
+        })
+        .max_by_key(|entry| entry.kind.as_str().len())
 }
 
 /// LSP has no cross-location action identity. Match conservatively within one server
@@ -238,4 +300,47 @@ pub(crate) fn register_hooks(events: &event::EventHub) {
         }
         Ok(())
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::matching_documentation;
+    use lsp_client::lsp;
+
+    #[test]
+    fn documentation_selects_one_closest_ancestor_and_respects_kind_boundaries() {
+        let entries: Vec<lsp::CodeActionKindDocumentation> = [
+            "",
+            "refactor",
+            "refactor.extract",
+            "refactor.extract.variable",
+        ]
+        .into_iter()
+        .map(|kind| lsp::CodeActionKindDocumentation {
+            kind: lsp::CodeActionKind::new(kind),
+            command: lsp::Command::new(kind.into(), "help".into(), None),
+        })
+        .collect();
+        for (kind, expected) in [
+            (
+                "refactor.extract.variable.local",
+                "refactor.extract.variable",
+            ),
+            ("refactor.extract", "refactor.extract"),
+            ("refactor.extractor", "refactor"),
+            ("quickfix", ""),
+        ] {
+            let kind = lsp::CodeActionKind::new(kind);
+            assert_eq!(
+                matching_documentation(&entries, [kind.as_str()].into_iter())
+                    .unwrap()
+                    .kind
+                    .as_str(),
+                expected
+            );
+        }
+        assert!(matching_documentation(&entries, [].into_iter()).is_none());
+        let kind = lsp::CodeActionKind::QUICKFIX;
+        assert!(matching_documentation(&entries[1..], [kind.as_str()].into_iter()).is_none());
+    }
 }

@@ -333,6 +333,11 @@ Saving, autosave, reloads, and native watching are configured in the
 
 The bufferline scrolls horizontally to keep the active buffer visible when the tabs exceed the window width.
 
+Use `:buffer-move-previous`, `:buffer-move-next`, `:buffer-move-start`, and
+`:buffer-move-end` to reorder the current buffer. This order also applies to
+`:buffer-next` and `:buffer-previous`, even when the bufferline is hidden.
+The buffer picker continues to sort by most recent use.
+
 ### `[editor.files.save]`
 
 | Key | Type / accepted values | Default | Description |
@@ -830,7 +835,7 @@ breakpoints; the code-action gutter indicates available actions.
 | `show` | string | `"never"` | Display blame on `"cursor-line"`, `"all-lines"`, or hide it with `"never"`. |
 | `format` | string | `"{author}, {time-ago} • {title} • {commit}"` | Blame message format. See [inline blame formatting](./version-control.md#format). |
 
-Press `Space B` to toggle inline blame off and on, preserving your choice of `"all-lines"` or `"cursor-line"`. If you have not chosen a display mode, turning it on uses `"cursor-line"`. Blank lines and lines with uncommitted changes do not show inline blame.
+Press `Space g t` to toggle inline blame off and on, preserving your choice of `"all-lines"` or `"cursor-line"`. If you have not chosen a display mode, turning it on uses `"cursor-line"`. Blank lines and lines with uncommitted changes do not show inline blame.
 
 ### `[editor.diagnostics.inline]`
 

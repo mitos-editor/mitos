@@ -311,8 +311,6 @@
 | `` <space>C `` | Block comment/uncomment selections | `` toggle_block_comments `` |
 | `` <space><A-c> `` | Line comment/uncomment selections | `` toggle_line_comments `` |
 | `` <space>? `` | Open command palette | `` command_palette `` |
-| `` <space>B `` | Toggle inline blame | `` vcs_toggle_inline_blame `` |
-| `` <space>i `` | Show hunk diff | `` vcs_show_change `` |
 
 #### `` <space>g `` — Version control
 

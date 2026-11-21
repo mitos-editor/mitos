@@ -526,3 +526,295 @@ async fn cancellation_removes_partial_subscriptions_and_ignores_late_batches() {
         .partial_result(&serde_json::json!({"token":"indexing", "value":{"kind":"end"}}).into()));
     assert!(!requests.partial_result(&serde_json::json!({"token":"mitos:partial:index", "value":{"kind":"begin", "title":"Indexing"}}).into()));
 }
+
+#[tokio::test]
+async fn document_diagnostics_keep_streamed_items_with_an_empty_final_report() {
+    use crate::client::{collect, start_request};
+    use serde_json::json;
+
+    let mut fixture = Fixture::new(4096, true);
+    let stream = start_request::<lsp::request::DocumentDiagnosticRequest>(
+        &fixture.transport.pending_requests,
+        &fixture.sender,
+        jsonrpc::Id::Num(1),
+        serde_json::from_value(json!({"textDocument":{"uri":"file:///Program.cs"}})).unwrap(),
+        20,
+    );
+    let sent = fixture.next().await;
+    let token = sent["params"]["partialResultToken"].clone();
+    assert!(token.is_string());
+    let report = json!({"kind":"full","resultId":"diagnostics","items":[{
+        "range":{"start":{"line":0,"character":0},"end":{"line":0,"character":1}},
+        "message":"Unknown identifier", "severity":1
+    }]});
+    fixture
+        .respond(json!({"jsonrpc":"2.0","method":"$/progress",
+        "params":{"token":token,"value":report}}))
+        .await;
+    fixture
+        .respond(json!({"jsonrpc":"2.0","id":1,
+        "result":{"kind":"full","items":[]}}))
+        .await;
+    let result = collect(stream).await.unwrap();
+    assert_eq!(serde_json::to_value(result).unwrap(), report);
+    assert_eq!(fixture.pending(), 0);
+    assert!(fixture.finish().await.is_empty());
+}
+
+#[tokio::test]
+async fn supported_partial_requests_keep_typed_results_with_an_empty_final_response() {
+    use crate::client::{collect, start_request};
+    use lsp::request::*;
+    use serde_json::json;
+
+    let range = json!({"start":{"line":0,"character":0},"end":{"line":1,"character":0}});
+    let location = json!({"uri":"file:///target.rs","range":range});
+    // Each concrete request deserializes just its own fields from this superset.
+    let params = json!({
+        "textDocument":{"uri":"file:///test.rs"}, "position":{"line":0,"character":0},
+        "positions":[{"line":0,"character":0}], "range":range,
+        "context":{"triggerKind":1,"includeDeclaration":true,"diagnostics":[]},
+        "query":"symbol", "previousResultIds":[], "previousResultId":"old",
+        "workDoneToken":"work"
+    });
+    macro_rules! check {
+        ($request:ty, $batch:expr, $expected:expr) => {{
+            let mut fixture = Fixture::new(4096, true);
+            let stream = start_request::<$request>(
+                &fixture.transport.pending_requests, &fixture.sender, jsonrpc::Id::Num(1),
+                serde_json::from_value(params.clone()).unwrap(), 20,
+            );
+            let sent = fixture.next().await;
+            let token = sent["params"]["partialResultToken"].clone();
+            assert!(token.is_string(), "{}", <$request>::METHOD);
+            assert_ne!(token, sent["params"]["workDoneToken"]);
+            fixture.respond(json!({"jsonrpc":"2.0", "method":"$/progress", "params":{"token":token,"value":$batch}})).await;
+            fixture.respond(json!({"jsonrpc":"2.0","id":1,"result":null})).await;
+            let result = collect(stream).await.unwrap();
+            assert_eq!(serde_json::to_value(result).unwrap(), $expected, "{}", <$request>::METHOD);
+            assert_eq!(fixture.pending(), 0);
+            // Retired tokens must not leak into editor progress handling.
+            fixture.respond(json!({"jsonrpc":"2.0", "method":"$/progress", "params":{"token":token,"value":$batch}})).await;
+            assert!(fixture.finish().await.is_empty());
+        }};
+    }
+    let folding = json!([{"startLine":0,"endLine":2}]);
+    check!(FoldingRangeRequest, folding.clone(), folding);
+    let selection = json!([{"range":range}]);
+    check!(SelectionRangeRequest, selection.clone(), selection);
+    let completion = json!([{"label":"complete"}]);
+    check!(Completion, completion.clone(), completion);
+    let inline = json!([{"insertText":"inline"}]);
+    check!(InlineCompletionRequest, inline.clone(), inline);
+    let colors = json!([{"range":range,"color":{"red":1.0,"green":0.0,"blue":0.0,"alpha":1.0}}]);
+    check!(DocumentColor, colors.clone(), colors);
+    let links = json!([{"range":range,"target":"file:///target.rs"}]);
+    check!(DocumentLinkRequest, links.clone(), links);
+    let report = json!({"kind":"full","items":[],"resultId":"diagnostics"});
+    check!(DocumentDiagnosticRequest, report.clone(), report);
+    let highlights = json!([{"range":range}]);
+    check!(DocumentHighlightRequest, highlights.clone(), highlights);
+    let locations = json!([location]);
+    check!(GotoDefinition, locations.clone(), locations);
+    check!(GotoDeclaration, locations.clone(), locations);
+    check!(GotoTypeDefinition, locations.clone(), locations);
+    check!(GotoImplementation, locations.clone(), locations);
+    check!(References, locations.clone(), locations);
+    let symbols = json!([{"name":"symbol","kind":12,"range":range,"selectionRange":range}]);
+    check!(DocumentSymbolRequest, symbols.clone(), symbols);
+    let symbol = json!([{"name":"symbol","kind":12,"location":location,"data":{"opaque":true}}]);
+    let legacy = json!([{"name":"symbol","kind":12,"location":location,"data":{"opaque":true},"deprecated":true}]);
+    let mut expected = symbol.clone();
+    expected[0]["tags"] = json!([1]);
+    check!(WorkspaceSymbolRequest, legacy, expected);
+    let actions = json!([{"title":"fix","kind":"quickfix"}]);
+    check!(CodeActionRequest, actions.clone(), actions);
+    let tokens = json!({"data":[0,0,1,0,0,0,2,1,0,0]});
+    check!(SemanticTokensFullRequest, tokens.clone(), tokens);
+    check!(SemanticTokensRangeRequest, tokens.clone(), tokens);
+    let edits = json!({"edits":[{"start":1,"deleteCount":2,"data":[3,4]}]});
+    check!(SemanticTokensFullDeltaRequest, edits.clone(), edits);
+    let lenses = json!([{"range":range,"data":{"opaque":true}}]);
+    check!(CodeLensRequest, lenses.clone(), lenses);
+    check!(
+        WorkspaceDiagnosticRequest,
+        json!({"items":[]}),
+        json!({"items":[]})
+    );
+}
+
+fn symbol_stream(
+    fixture: &Fixture,
+    timeout: u64,
+) -> crate::PartialResultRequest<Option<lsp::WorkspaceSymbolResponse>, lsp::WorkspaceSymbolResponse>
+{
+    crate::client::start_request::<lsp::request::WorkspaceSymbolRequest>(
+        &fixture.transport.pending_requests,
+        &fixture.sender,
+        jsonrpc::Id::Num(1),
+        lsp::WorkspaceSymbolParams {
+            query: "symbol".into(),
+            work_done_progress_params: lsp::WorkDoneProgressParams {
+                work_done_token: Some(lsp::ProgressToken::String("work".into())),
+            },
+            partial_result_params: Default::default(),
+        },
+        timeout,
+    )
+}
+
+fn symbol_batch(name: &str) -> Value {
+    serde_json::json!([{"name":name,"kind":12,"location":{"uri":"file:///test.rs"},"data":{"name":name}}])
+}
+
+#[tokio::test]
+async fn typed_stream_is_incremental_and_drains_queued_batches_before_completion() {
+    use crate::RequestUpdate;
+    use serde_json::json;
+    let mut fixture = Fixture::new(4096, true);
+    let mut stream = symbol_stream(&fixture, 20);
+    let token = fixture.next().await["params"]["partialResultToken"].clone();
+    fixture.respond(json!({"jsonrpc":"2.0","method":"$/progress","params":{"token":"work","value":{"kind":"begin","title":"Searching"}}})).await;
+    loop {
+        let (_, work) = fixture.messages.recv().await.unwrap();
+        let work = serde_json::to_value(work).unwrap();
+        if work["method"] == "$/progress" {
+            assert_eq!(work["params"]["token"], "work");
+            break;
+        }
+        assert_eq!(work["method"], "initialized");
+    }
+    fixture.respond(json!({"jsonrpc":"2.0","method":"$/progress","params":{"token":token,"value":symbol_batch("first")}})).await;
+    let Some(RequestUpdate::Partial(Ok(first))) = stream.next().await else {
+        panic!()
+    };
+    assert_eq!(serde_json::to_value(first).unwrap(), symbol_batch("first"));
+    assert_eq!(fixture.pending(), 1); // No final response has been sent.
+    for name in ["second", "third"] {
+        fixture.respond(json!({"jsonrpc":"2.0","method":"$/progress","params":{"token":token,"value":symbol_batch(name)}})).await;
+    }
+    fixture
+        .respond(json!({"jsonrpc":"2.0","id":1,"result":null}))
+        .await;
+    // Ensure the final response is already available before draining progress.
+    while fixture.pending() != 0 {
+        tokio::task::yield_now().await;
+    }
+    for name in ["second", "third"] {
+        let Some(RequestUpdate::Partial(Ok(batch))) = stream.next().await else {
+            panic!()
+        };
+        assert_eq!(serde_json::to_value(batch).unwrap(), symbol_batch(name));
+    }
+    assert!(matches!(
+        stream.next().await,
+        Some(RequestUpdate::Response(Ok(None)))
+    ));
+    assert!(stream.next().await.is_none());
+    fixture.respond(json!({"jsonrpc":"2.0","method":"$/progress","params":{"token":token,"value":symbol_batch("late")}})).await;
+    assert!(fixture.finish().await.is_empty());
+}
+
+#[tokio::test]
+async fn terminal_errors_discard_accumulated_partial_results() {
+    use serde_json::json;
+    for code in [-32603, -32800] {
+        let mut fixture = Fixture::new(4096, true);
+        let stream = symbol_stream(&fixture, 20);
+        let token = fixture.next().await["params"]["partialResultToken"].clone();
+        fixture.respond(json!({"jsonrpc":"2.0","method":"$/progress","params":{"token":token,"value":symbol_batch("discard")}})).await;
+        fixture
+            .respond(json!({"jsonrpc":"2.0","id":1,"error":{"code":code,"message":"failed"}}))
+            .await;
+        assert!(matches!(
+            crate::client::collect(stream).await,
+            Err(Error::Rpc(_))
+        ));
+        assert_eq!(fixture.pending(), 0);
+        assert!(fixture.finish().await.is_empty());
+    }
+}
+
+#[tokio::test]
+async fn malformed_partials_do_not_hide_later_stream_updates() {
+    use crate::RequestUpdate;
+    use serde_json::json;
+    let mut fixture = Fixture::new(4096, true);
+    let mut stream = symbol_stream(&fixture, 20);
+    let token = fixture.next().await["params"]["partialResultToken"].clone();
+    for value in [json!({"invalid":true}), symbol_batch("valid")] {
+        fixture.respond(json!({"jsonrpc":"2.0","method":"$/progress","params":{"token":token,"value":value}})).await;
+    }
+    fixture
+        .respond(json!({"jsonrpc":"2.0","id":1,"result":null}))
+        .await;
+    assert!(matches!(
+        stream.next().await,
+        Some(RequestUpdate::Partial(Err(Error::Parse(_))))
+    ));
+    assert!(matches!(
+        stream.next().await,
+        Some(RequestUpdate::Partial(Ok(_)))
+    ));
+    assert!(matches!(
+        stream.next().await,
+        Some(RequestUpdate::Response(Ok(None)))
+    ));
+    assert!(fixture.finish().await.is_empty());
+}
+
+#[tokio::test]
+async fn malformed_collected_results_cancel_the_request() {
+    use serde_json::json;
+    let mut fixture = Fixture::new(4096, true);
+    let stream = symbol_stream(&fixture, 20);
+    let token = fixture.next().await["params"]["partialResultToken"].clone();
+    fixture.respond(json!({"jsonrpc":"2.0","method":"$/progress","params":{"token":token,"value":{"invalid":true}}})).await;
+    assert!(matches!(
+        crate::client::collect(stream).await,
+        Err(Error::Parse(_))
+    ));
+    assert_eq!(fixture.pending(), 0);
+    assert_eq!(fixture.next().await["method"], "$/cancelRequest");
+    assert!(fixture.finish().await.is_empty());
+}
+
+#[tokio::test(start_paused = true)]
+async fn streaming_keeps_request_deadlines_and_retires_timed_out_tokens() {
+    use crate::RequestUpdate;
+    use serde_json::json;
+    let mut fixture = Fixture::new(4096, true);
+    let mut stream = symbol_stream(&fixture, 1);
+    let token = fixture.next().await["params"]["partialResultToken"].clone();
+    fixture.respond(json!({"jsonrpc":"2.0","method":"$/progress","params":{"token":token,"value":symbol_batch("first")}})).await;
+    assert!(matches!(
+        stream.next().await,
+        Some(RequestUpdate::Partial(Ok(_)))
+    ));
+    tokio::time::advance(Duration::from_secs(2)).await;
+    fixture.respond(json!({"jsonrpc":"2.0","method":"$/progress","params":{"token":token,"value":symbol_batch("queued")}})).await;
+    // Even if a queued partial wins delivery, the response future is polled on
+    // every next() call, removing the subscription at its original deadline.
+    loop {
+        match stream.next().await.unwrap() {
+            RequestUpdate::Partial(Ok(_)) => {}
+            RequestUpdate::Response(Err(Error::Timeout(_))) => break,
+            _ => panic!(),
+        }
+    }
+    assert_eq!(fixture.pending(), 0);
+    assert_eq!(fixture.next().await["method"], "$/cancelRequest");
+    fixture.respond(json!({"jsonrpc":"2.0","method":"$/progress","params":{"token":token,"value":symbol_batch("late")}})).await;
+    assert!(fixture.finish().await.is_empty());
+}
+
+#[tokio::test]
+async fn dropping_an_unpolled_stream_cancels_its_eagerly_queued_request() {
+    let mut fixture = Fixture::new(4096, true);
+    let stream = symbol_stream(&fixture, 20);
+    assert_eq!(fixture.next().await["method"], "workspace/symbol");
+    drop(stream);
+    assert_eq!(fixture.pending(), 0);
+    assert_eq!(fixture.next().await["method"], "$/cancelRequest");
+    assert!(fixture.finish().await.is_empty());
+}

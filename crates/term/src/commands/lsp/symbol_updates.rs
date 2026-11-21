@@ -68,18 +68,24 @@ fn flatten(
 }
 
 pub(super) fn document_updates(
-    editor: &Editor,
     document: DocumentId,
     view: ViewId,
 ) -> impl FnMut(UpdateContext<'_, SymbolInformationItem>) -> Option<Vec<SymbolInformationItem>> + use<>
 {
-    let mut requested = source_state(editor, document, false);
+    let mut requested = None;
     let mut pending: Option<oneshot::Receiver<Option<DocumentSymbolsUpdate>>> = None;
     move |cx| {
+        // Suspension can discard both a running load and rows still being matched.
+        if cx.resumed {
+            pending = None;
+            requested = None;
+            *cx.status = None;
+        }
         if let Some(receiver) = &mut pending {
             match receiver.try_recv() {
                 Ok(Some(update)) => {
                     pending = None;
+                    *cx.status = None;
                     if let Some(symbols) = update.into_symbols(cx.editor) {
                         return Some(flatten(symbols));
                     }
@@ -87,6 +93,7 @@ pub(super) fn document_updates(
                 }
                 Ok(None) | Err(oneshot::error::TryRecvError::Closed) => {
                     pending = None;
+                    *cx.status = None;
                     requested = None;
                 }
                 Err(oneshot::error::TryRecvError::Empty) => {}
@@ -105,6 +112,7 @@ pub(super) fn document_updates(
         }
         cx.task.cancel();
         pending = None;
+        *cx.status = None;
         requested = state;
         if requested.is_none() {
             return Some(Vec::new());
@@ -120,6 +128,7 @@ pub(super) fn document_updates(
         let redraw = cx.editor.redraw().on_drop();
         let (sender, receiver) = oneshot::channel();
         pending = Some(receiver);
+        *cx.status = Some("Loading symbols...".into());
         tokio::spawn(async move {
             let _redraw = redraw;
             let update = event::cancelable_future(task.run(), cancel).await.flatten();

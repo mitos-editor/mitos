@@ -10,12 +10,9 @@ use editor_core::{
     LineEnding, RopeSlice, Selection,
 };
 use futures_util::FutureExt;
-use std::{
-    ops::ControlFlow,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc,
-    },
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
 };
 use stdx::rope::RopeExt as _;
 use view::{
@@ -215,15 +212,14 @@ fn query_global_search(
             return Ok(());
         };
         let cancelled = injector.clone();
-        request
-            .run(
-                move || cancelled.is_shutdown(),
-                move |matched| match injector.push(display_match(matched)) {
-                    Ok(()) => ControlFlow::Continue(()),
-                    Err(_) => ControlFlow::Break(()),
-                },
-            )
-            .await
+        // Use the same ordering as refreshes, including when restoring this picker.
+        let matches = request.collect(move || cancelled.is_shutdown()).await?;
+        for matched in matches {
+            if injector.push(display_match(matched)).is_err() {
+                break;
+            }
+        }
+        Ok(())
     }
     .boxed()
 }
@@ -255,6 +251,9 @@ pub(super) fn global_search(cx: &mut Context) {
     let picker = global_search_picker(cx.editor, cx.jobs, stdx::env::current_working_dir(), reg);
     cx.push_layer(Box::new(overlaid(picker)));
 }
+
+mod buffer_picker;
+pub(super) use buffer_picker::search_picker_in_current_buffer;
 
 fn global_search_picker(
     editor: &mut Editor,
@@ -341,6 +340,7 @@ fn global_search_picker(
              ..
          }| { Some((path.as_path().into(), Some((*line_start, *line_end)))) },
     )
+    .with_search_preview()
     .with_quicklist(|_editor, item| {
         Some(QuicklistEntry {
             target: QuicklistTarget::Path(item.path.clone()),
@@ -437,6 +437,61 @@ pub(super) fn selection_for_global_search_match(
 mod tests {
     use super::*;
     use editor_core::Rope;
+
+    #[tokio::test]
+    async fn global_search_queries_and_refreshes_have_the_same_order() -> anyhow::Result<()> {
+        use crate::ui::picker::test::{all_items, application, items, until};
+
+        let mut app = application(false)?;
+        let dir = tempfile::tempdir()?;
+        let root = stdx::path::canonicalize(dir.path());
+        for index in (0..32).rev() {
+            std::fs::write(root.join(format!("{index:02}.txt")), "needle\n  needle\n")?;
+        }
+        let search = Arc::new(WorkspaceSearch {
+            root,
+            smart_case: true,
+            options: ::search::Options::default(),
+        });
+        let config = || GlobalSearchConfig {
+            search: search.clone(),
+            case_sensitive: AtomicBool::new(false),
+            style: PathStyleConfig::new(&app.editor),
+        };
+        let data = Arc::new(config());
+        let mut picker = Picker::new(
+            app.editor.redraw().clone(),
+            [
+                PickerColumn::new("path", |item: &::search::Match, _: &GlobalSearchConfig| {
+                    item.path.to_string_lossy().into_owned().into()
+                }),
+                PickerColumn::hidden("contents"),
+            ],
+            1,
+            [],
+            config(),
+            |_, _, _| {},
+        );
+        let injector = picker.injector();
+        query_global_search("needle", &mut app.editor, data.clone(), &injector).await?;
+        drop(injector);
+        until(&mut picker, &mut app, |picker| {
+            all_items(picker).count() == 64
+        })
+        .await?;
+        let initial: Vec<_> = items(&picker).cloned().collect();
+
+        let mut task = event::TaskController::new();
+        let refreshed =
+            refresh_global_search("needle", &app.editor, data.clone(), task.restart()).await?;
+        assert_eq!(initial, refreshed);
+
+        picker.refresh_options(refreshed, data);
+        until(&mut picker, &mut app, |picker| items(picker).count() == 64).await?;
+        assert_eq!(items(&picker).cloned().collect::<Vec<_>>(), initial);
+        Ok(())
+    }
+
     #[test]
     fn global_search_match_selection_uses_match_range() {
         let text = Rope::from("héllo search term world\n");

@@ -104,3 +104,7 @@ mod git_operations;
 #[cfg(feature = "git")]
 #[path = "handler_setup/change_review_live.rs"]
 mod change_review_live;
+
+#[cfg(feature = "integration")]
+#[path = "handler_setup/lsp_dispatch.rs"]
+mod lsp_dispatch;

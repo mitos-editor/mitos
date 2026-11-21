@@ -151,6 +151,8 @@ impl<T: Send + Sync + 'static, D: Send + Sync + 'static> Picker<T, D> {
                                 }
                                 inject_nucleo_item(&injector, &columns, item, &data);
                             }
+                            // Release the injector before its completion redraw wakes the UI.
+                            drop(injector);
                         });
                     }
                     Err(error) => editor.status_sender().report_blocking(error),

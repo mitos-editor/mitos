@@ -283,18 +283,128 @@ async fn inlay_hints_do_not_capture_the_document_cursor() {
 }
 
 #[tokio::test]
+async fn keymap_help_hides_only_the_native_cursor_it_covers() {
+    let text = format!("{}{}#[x|]#\n", "line\n".repeat(140), "a".repeat(110));
+    for shape in ["block", "bar", "underline"] {
+        let mut app = cursor_app(true, shape, Native, &text);
+        keys(&mut app, "<esc>").await;
+        assert_editor_cursor(&app, true);
+        let pos = app.editor.cursor().0.unwrap();
+        let pos = (pos.col as u16, pos.row as u16);
+        assert_eq!(app.terminal_backend().buffer()[pos].symbol(), "x");
+
+        keys(&mut app, "<space>").await;
+        assert!(app.editor.autoinfo.is_some());
+        assert_ne!(app.terminal_backend().buffer()[pos].symbol(), "x");
+        assert!(!app.terminal_backend().cursor_visible());
+
+        keys(&mut app, "<esc>").await;
+        assert_editor_cursor(&app, true);
+        keys(&mut app, "gg<space>").await;
+        assert!(app.editor.autoinfo.is_some());
+        assert_editor_cursor(&app, true);
+        assert!(app.close().await.is_empty());
+    }
+}
+
+#[tokio::test]
+async fn popup_occlusion_respects_the_prompt_layer_order() {
+    use term::ui::{Popup, Text};
+
+    let text = format!("{}#[x|]#\n", "line\n".repeat(140));
+    for above_prompt in [true, false] {
+        let mut app = cursor_app(true, "block", Native, &text);
+        keys(&mut app, "<esc>").await;
+        if above_prompt {
+            keys(&mut app, "/needle").await;
+        }
+        let (sender, area) = tokio::sync::oneshot::channel();
+        app.job_sender()
+            .send(move |compositor, cx| {
+                let mut popup = Popup::new(
+                    "cursor-cover",
+                    Text::new("popup covering the search prompt\n".repeat(50)),
+                );
+                let _ = sender.send(popup.area(compositor.size(), cx.editor));
+                compositor.push(Box::new(popup));
+            })
+            .await;
+        super::helpers::run_event_loop_until_idle(&mut app).await;
+        if !above_prompt {
+            keys(&mut app, "/needle").await;
+        }
+        let backend = app.terminal_backend();
+        let pos = backend.clone().get_cursor_position().unwrap();
+        let area = area.await.unwrap();
+        assert!(area.contains(pos), "popup {area:?}, cursor {pos:?}");
+        assert_eq!(backend.cursor_visible(), !above_prompt);
+        keys(&mut app, "<esc>").await;
+        assert!(app.terminal_backend().cursor_visible());
+        assert!(app.close().await.is_empty());
+    }
+}
+
+#[tokio::test]
+async fn picker_inside_a_popup_owns_the_native_cursor() {
+    use term::ui::{Picker, PickerColumn, Popup};
+
+    let mut app = cursor_app(true, "block", Native, "#[a|]#b\n");
+    keys(&mut app, "<esc>").await;
+    let editor_pos = app
+        .terminal_backend()
+        .clone()
+        .get_cursor_position()
+        .unwrap();
+    app.job_sender()
+        .send(|compositor, cx| {
+            let picker = Picker::new(
+                cx.editor.redraw().clone(),
+                [PickerColumn::new("name", |item: &&str, _| (*item).into())],
+                0,
+                ["one", "two"],
+                (),
+                |_, _, _| {},
+            );
+            compositor.push(Box::new(Popup::new("cursor-picker", picker)));
+        })
+        .await;
+    super::helpers::run_event_loop_until_idle(&mut app).await;
+    assert!(app.terminal_backend().cursor_visible());
+    assert_ne!(
+        app.terminal_backend()
+            .clone()
+            .get_cursor_position()
+            .unwrap(),
+        editor_pos
+    );
+    keys(&mut app, "<esc>").await;
+    assert_editor_cursor(&app, true);
+    assert!(app.close().await.is_empty());
+}
+
+#[tokio::test]
 async fn selection_dialog_hides_the_editor_native_cursor() {
     for (shape, block_rendering) in [("bar", Software), ("block", Native)] {
         let mut app = cursor_app(true, shape, block_rendering, "#[a|]#b\n");
         keys(&mut app, "<esc>").await;
         assert_editor_cursor(&app, true);
-        let request = serde_json::from_value(serde_json::json!({
-            "jsonrpc": "2.0", "id": 1, "method": "window/showMessageRequest",
-            "params": {"type": 3, "message": "Choose", "actions": [{"title": "OK"}]}
-        }))
-        .unwrap();
-        app.handle_language_server_message(request, Default::default())
+        app.job_sender()
+            .send(|compositor, _| {
+                compositor.replace_or_push(
+                    "lsp-show-message-request",
+                    term::ui::Select::new(
+                        "Choose",
+                        [lsp_client::lsp::MessageActionItem {
+                            title: "OK".into(),
+                            properties: Default::default(),
+                        }],
+                        (),
+                        |_, _, _| {},
+                    ),
+                );
+            })
             .await;
+        super::helpers::run_event_loop_until_idle(&mut app).await;
         keys(&mut app, "<down>").await;
         assert!(!app.terminal_backend().cursor_visible());
         keys(&mut app, "<esc>").await;

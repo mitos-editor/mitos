@@ -187,7 +187,37 @@ fn hover_contents_to_string(contents: lsp::HoverContents) -> String {
             .map(marked_string_to_markdown)
             .collect::<Vec<_>>()
             .join("\n\n"),
-        lsp::HoverContents::Markup(contents) => contents.value,
+        lsp::HoverContents::Markup(contents) => match contents.kind {
+            lsp::MarkupKind::Markdown => contents.value,
+            lsp::MarkupKind::PlainText => {
+                let mut escaped = String::new();
+                for ch in contents.value.chars() {
+                    if matches!(
+                        ch,
+                        '\\' | '`'
+                            | '*'
+                            | '_'
+                            | '['
+                            | ']'
+                            | '<'
+                            | '>'
+                            | '#'
+                            | '!'
+                            | '~'
+                            | '|'
+                            | '-'
+                            | '+'
+                            | '.'
+                            | '$'
+                            | '='
+                    ) {
+                        escaped.push('\\');
+                    }
+                    escaped.push(ch);
+                }
+                escaped
+            }
+        },
     }
 }
 
@@ -204,6 +234,21 @@ mod tests {
             }),
             range: None,
         }
+    }
+
+    #[test]
+    fn plain_text_hover_preserves_literal_markdown_and_link_text() {
+        let hover = lsp::Hover {
+            contents: lsp::HoverContents::Markup(lsp::MarkupContent {
+                kind: lsp::MarkupKind::PlainText,
+                value: "Open *example* [target](https://example.test)".into(),
+            }),
+            range: None,
+        };
+        assert_eq!(
+            buffer_text(vec![("links".into(), hover)]),
+            "Open \\*example\\* \\[target\\](https://example\\.test)\n"
+        );
     }
 
     #[test]

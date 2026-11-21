@@ -44,7 +44,7 @@ impl<'a> DebugValues<'a> {
 
 impl Decoration for DebugValues<'_> {
     fn can_skip_unwrapped_tail(&self) -> bool {
-        self.values.is_empty()
+        self.ready.is_none()
     }
 
     fn reset_pos(&mut self, pos: usize) -> usize {

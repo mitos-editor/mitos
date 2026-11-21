@@ -13,6 +13,10 @@
 | `:buffer-close-all!`, `:bca!`, `:bcloseall!` | Force close all buffers ignoring unsaved changes without quitting. |
 | `:buffer-next`, `:bn`, `:bnext` | Go to next buffer. |
 | `:buffer-previous`, `:bp`, `:bprev` | Go to previous buffer. |
+| `:buffer-move-previous` | Move current buffer one position earlier in the buffer list. |
+| `:buffer-move-next` | Move current buffer one position later in the buffer list. |
+| `:buffer-move-start` | Move current buffer to the start of the buffer list. |
+| `:buffer-move-end` | Move current buffer to the end of the buffer list. |
 | `:write`, `:w` | Write changes to disk. Accepts an optional path (`:write some/path.txt`). |
 | `:write!`, `:w!` | Force write changes to disk creating necessary subdirectories. Accepts an optional path (`:write! some/path.txt`). |
 | `:write-buffer-close`, `:wbc` | Write changes to disk and closes the buffer. Accepts an optional path (`:write-buffer-close some/path.txt`). |

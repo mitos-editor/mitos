@@ -61,6 +61,14 @@ class SmokeTests(unittest.TestCase):
                                           root_dir=self.root, base_dir=self.package.name))
         self.assertIn('Highlight queries: ✓', self.check(archive))
 
+    def test_grouped_health_output(self):
+        self.binary.write_text(
+            BINARY.replace('Tree-sitter parser: ✓', 'Tree-sitter\\n  ✓ parser         loaded')
+                  .replace('Highlight queries: ✓', '  ✓ Highlight      queries found'),
+            encoding='utf-8',
+        )
+        self.assertIn('queries found', self.check(self.package))
+
     def test_appimage_uses_extraction_without_changing_input_permissions(self):
         image = self.root / 'mitos.AppImage'
         image.write_text(BINARY, encoding='utf-8')

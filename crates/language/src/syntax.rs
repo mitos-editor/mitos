@@ -800,8 +800,7 @@ impl Syntax {
         )
     }
 
-    /// Regions captured by `@fold`, including injected languages. Paired syntax
-    /// tokens identify closers without inspecting text for delimiter-like strings.
+    /// Regions captured by `@fold`, including injected languages.
     /// Presentation policy and closed state belong to the view.
     pub fn fold_ranges(
         &self,
@@ -835,7 +834,7 @@ impl Syntax {
         source: RopeSlice,
         rainbow_length: usize,
         loader: &Loader,
-        range: impl RangeBounds<u32>,
+        ranges: impl IntoIterator<Item = ops::Range<u32>>,
     ) -> OverlayHighlights {
         struct RainbowScope<'tree> {
             end: u32,
@@ -843,58 +842,64 @@ impl Syntax {
             highlight: Highlight,
         }
 
-        let mut scope_stack = Vec::<RainbowScope>::new();
         let mut highlights = Vec::new();
-        let mut query_iter = self.query_iter::<_, (), _>(
-            source,
-            |lang| loader.rainbow_query(lang).map(|q| &q.query),
-            range,
-        );
+        for range in ranges {
+            // Queries retain containing scope captures at each range boundary, so
+            // nesting resumes after folds without visiting their hidden brackets.
+            let mut scope_stack = Vec::<RainbowScope>::new();
+            let mut query_iter = self.query_iter::<_, (), _>(
+                source,
+                |lang| loader.rainbow_query(lang).map(|q| &q.query),
+                range.clone(),
+            );
 
-        while let Some(event) = query_iter.next() {
-            let QueryIterEvent::Match(mat) = event else {
-                continue;
-            };
+            while let Some(event) = query_iter.next() {
+                let QueryIterEvent::Match(mat) = event else {
+                    continue;
+                };
 
-            let rainbow_query = loader
-                .rainbow_query(query_iter.current_language())
-                .expect("language must have a rainbow query to emit matches");
+                let rainbow_query = loader
+                    .rainbow_query(query_iter.current_language())
+                    .expect("language must have a rainbow query to emit matches");
 
-            let byte_range = mat.node.byte_range();
-            // Pop any scopes that end before this capture begins.
-            while scope_stack
-                .last()
-                .is_some_and(|scope| byte_range.start >= scope.end)
-            {
-                scope_stack.pop();
-            }
+                let byte_range = mat.node.byte_range();
+                // Pop any scopes that end before this capture begins.
+                while scope_stack
+                    .last()
+                    .is_some_and(|scope| byte_range.start >= scope.end)
+                {
+                    scope_stack.pop();
+                }
 
-            let capture = Some(mat.capture);
-            if capture == rainbow_query.scope_capture {
-                scope_stack.push(RainbowScope {
-                    end: byte_range.end,
-                    node: if rainbow_query
-                        .include_children_patterns
-                        .contains(&mat.pattern)
-                    {
-                        None
-                    } else {
-                        Some(mat.node.clone())
-                    },
-                    highlight: Highlight::new((scope_stack.len() % rainbow_length) as u32),
-                });
-            } else if capture == rainbow_query.bracket_capture
-                && let Some(scope) = scope_stack.last()
-                && !scope
-                    .node
-                    .as_ref()
-                    .is_some_and(|node| mat.node.parent().as_ref() != Some(node))
-            {
-                let start =
-                    source.byte_to_char_idx(source.floor_char_boundary(byte_range.start as usize));
-                let end =
-                    source.byte_to_char_idx(source.ceil_char_boundary(byte_range.end as usize));
-                highlights.push((scope.highlight, start..end));
+                let capture = Some(mat.capture);
+                if capture == rainbow_query.scope_capture {
+                    scope_stack.push(RainbowScope {
+                        end: byte_range.end,
+                        node: if rainbow_query
+                            .include_children_patterns
+                            .contains(&mat.pattern)
+                        {
+                            None
+                        } else {
+                            Some(mat.node.clone())
+                        },
+                        highlight: Highlight::new((scope_stack.len() % rainbow_length) as u32),
+                    });
+                } else if capture == rainbow_query.bracket_capture
+                    && byte_range.start >= range.start
+                    && byte_range.end <= range.end
+                    && let Some(scope) = scope_stack.last()
+                    && !scope
+                        .node
+                        .as_ref()
+                        .is_some_and(|node| mat.node.parent().as_ref() != Some(node))
+                {
+                    let start = source
+                        .byte_to_char_idx(source.floor_char_boundary(byte_range.start as usize));
+                    let end =
+                        source.byte_to_char_idx(source.ceil_char_boundary(byte_range.end as usize));
+                    highlights.push((scope.highlight, start..end));
+                }
             }
         }
 
@@ -1320,38 +1325,19 @@ impl RainbowQuery {
     }
 }
 
-/// A syntax fold's source extent and optional paired closing token.
+/// A syntax fold's source extent.
 #[derive(Debug, Clone)]
 pub struct FoldRange {
     /// Full captured region in document character indices.
     pub range: ops::Range<usize>,
-    /// First character of a real paired closing token, when present.
-    pub closing_delimiter: Option<usize>,
 }
 
 impl FoldRange {
     fn new(source: RopeSlice, node: &Node) -> Self {
         let bytes = node.byte_range();
-        let closing_delimiter = node
-            .child_count()
-            .checked_sub(1)
-            .and_then(|index| node.child(index))
-            .filter(|closing| !closing.is_missing())
-            .filter(|closing| {
-                let opening = match closing.kind() {
-                    "}" => "{",
-                    "]" => "[",
-                    ")" => "(",
-                    _ => return false,
-                };
-                node.children()
-                    .any(|child| child.kind() == opening && !child.is_missing())
-            })
-            .map(|closing| source.byte_to_char_idx(closing.start_byte() as usize));
         Self {
             range: source.byte_to_char_idx(bytes.start as usize)
                 ..source.byte_to_char_idx(bytes.end as usize),
-            closing_delimiter,
         }
     }
 }

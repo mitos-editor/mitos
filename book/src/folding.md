@@ -1,14 +1,12 @@
 # Code folding
 
 Fold code to keep long functions and other blocks out of the way while you work.
-A closed fold shows a selectable `…` in place of its body. Syntax folds keep
-closing braces, brackets, and parentheses visible with the rest of their line,
-so a folded region can look like `pub struct Editor {…}`, `[…],`, or
-`call!(…);`. You can select and edit the closing tokens normally.
-
-Selection folds and syntax regions without paired closing tokens fold whole
-lines. Folding changes the view, leaving the document text and undo history
-intact. Each split has its own folds.
+Syntax and selection folds keep the first line visible and show a selectable
+`…` in place of the remaining lines, including closing delimiters and any text
+on their lines. For example, a folded Rust struct looks like
+`pub struct Editor {…`, and a Python function looks like `def run():…`.
+Folding changes the view, leaving the document text and undo history intact.
+Each split has its own folds.
 
 Use these view commands to fold code:
 
@@ -27,9 +25,18 @@ an outer fold keeps any folds inside it closed. `Z` provides the same commands
 from the sticky view menu. Use `z z` to center the view vertically.
 
 Folding uses the first configured language server that provides folding ranges.
-Server ranges fold whole lines. When no server provides ranges, or its request
-fails, Mitos uses Tree-sitter. Check the folding column in
+Server ranges can fold part of a line and keep the surrounding text visible.
+Servers can also provide a collapsed label in place of `…`; clicking any part
+of the label selects the fold's start. Wrapped labels remain scrollable, and
+cursor motions cross their continuation rows as a unit. When no server provides
+ranges, or its request fails, Mitos uses Tree-sitter. Check the folding column in
 [Language support](./lang-support.md) for syntax-based support.
+
+Use `fold_comments`, `fold_imports`, or `fold_regions` from the command palette,
+or bind them to keys, to close all server folds of that kind. These commands
+leave folds of other kinds unchanged. `fold_all` includes unrecognized server
+kinds. No folds close automatically.
+
 To fold text in any document, select at least two lines and press `z f`.
 Folds can contain other folds, but cannot partly overlap. Opening a selection
 fold keeps its boundaries available for `z c`, `z C`, `z a`, and `z A`.
@@ -48,4 +55,4 @@ Selections still refer to the underlying document, so an operation on a
 selection spanning a fold includes its hidden text. Moving horizontally or by
 words into hidden text reveals it. Folding is not saved between editor sessions.
 
-Themes can style the ellipsis with `ui.virtual.fold`.
+Themes can style collapsed labels with `ui.virtual.fold`.

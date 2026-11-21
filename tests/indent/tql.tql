@@ -1,0 +1,10 @@
+let $pipeline = {
+  from {x: 1}
+  select x
+}
+
+if true {
+  let $message = r#"first
+       keep these spaces
+last"#
+}

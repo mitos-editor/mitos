@@ -52,8 +52,11 @@ def check_release(source):
         encoding = sys.stdout.encoding or 'utf-8'
         print(result.stdout.encode(encoding, errors='backslashreplace').decode(encoding), end='')
         result.check_returncode()
-        for label in ('Tree-sitter parser:', 'Highlight queries:'):
-            if not any(label in line and '✓' in line for line in result.stdout.splitlines()):
+        rows = {' '.join(line.split()) for line in result.stdout.splitlines()}
+        # The AppImage workflow also checks a pinned release with the older health output.
+        for label, current in (('Tree-sitter parser', '✓ parser loaded'),
+                               ('Highlight queries', '✓ Highlight queries found')):
+            if current not in rows and f'{label}: ✓' not in rows:
                 raise RuntimeError(f'Bundled runtime check failed: {label}')
 
 

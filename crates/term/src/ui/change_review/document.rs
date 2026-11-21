@@ -121,7 +121,9 @@ pub fn highlights(
             ReviewLineKind::Context => continue,
         };
         if let Some(ranges) = review.changes(index) {
-            let Some(highlight) = theme.find_highlight(&format!("{scope}.word")) else {
+            let Some(highlight) =
+                super::word_scope(row.kind).and_then(|scope| theme.find_highlight_exact(scope))
+            else {
                 continue;
             };
             for range in ranges {

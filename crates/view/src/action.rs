@@ -24,6 +24,8 @@ use crate::{Document, DocumentId, Editor};
 /// same menu without the menu knowing where they came from.
 pub struct Action {
     title: Cow<'static, str>,
+    tooltip: Option<String>,
+    llm_generated: bool,
     /// Sort key; higher priority actions are shown first. See `lsp_code_action_priority`.
     pub priority: u8,
     action: Box<dyn Fn(&mut Editor) + Send + Sync + 'static>,
@@ -46,6 +48,8 @@ impl Action {
     ) -> Self {
         Self {
             title: title.into(),
+            tooltip: None,
+            llm_generated: false,
             priority,
             action: Box::new(action),
         }
@@ -53,6 +57,20 @@ impl Action {
 
     pub fn title(&self) -> &str {
         &self.title
+    }
+
+    pub fn tooltip(&self) -> Option<&str> {
+        self.tooltip.as_deref()
+    }
+
+    pub fn is_llm_generated(&self) -> bool {
+        self.llm_generated
+    }
+
+    fn with_lsp_details(mut self, tooltip: Option<String>, llm_generated: bool) -> Self {
+        self.tooltip = tooltip;
+        self.llm_generated = llm_generated;
+        self
     }
 
     pub fn execute(&self, editor: &mut Editor) {
@@ -73,6 +91,7 @@ impl Action {
             );
         }
         let title = actions[0].title.clone();
+        let llm_generated = actions.iter().any(is_llm_generated);
         let priority = actions
             .iter()
             .map(|a| lsp_code_action_priority(&CodeActionOrCommand::CodeAction(a.clone())))
@@ -128,6 +147,7 @@ impl Action {
                 }).await;
             });
         })
+        .with_lsp_details(None, llm_generated)
     }
 
     /// Builds an action bound to the document snapshot used to request it.
@@ -141,6 +161,16 @@ impl Action {
             lsp::CodeActionOrCommand::Command(command) => command.title.clone(),
         };
         let priority = lsp_code_action_priority(&action);
+        let (tooltip, llm_generated) = match &action {
+            CodeActionOrCommand::Command(command) => (command.tooltip.clone(), false),
+            CodeActionOrCommand::CodeAction(action) => (
+                action
+                    .command
+                    .as_ref()
+                    .and_then(|command| command.tooltip.clone()),
+                is_llm_generated(action),
+            ),
+        };
 
         Self::new(title, priority, move |editor| {
             if !context.is_current(editor, server_id) {
@@ -190,7 +220,15 @@ impl Action {
                 }
             }
         })
+        .with_lsp_details(tooltip, llm_generated)
     }
+}
+
+fn is_llm_generated(action: &lsp::CodeAction) -> bool {
+    action
+        .tags
+        .as_ref()
+        .is_some_and(|tags| tags.contains(&lsp::CodeActionTag::LLM_GENERATED))
 }
 
 /// The originating document snapshot, captured before requesting LSP code actions.

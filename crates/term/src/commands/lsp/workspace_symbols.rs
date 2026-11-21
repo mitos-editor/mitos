@@ -2,11 +2,21 @@
 
 use super::*;
 use crate::ui::picker::{Injector, UpdateContext};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use tokio::sync::oneshot;
 use view::features::workspace_symbols::{WorkspaceSymbol, WorkspaceSymbolResolution};
 
 type Item = Arc<WorkspaceSymbol>;
+
+#[derive(Default)]
+pub(super) struct PublishedSymbols {
+    generation: u64,
+    revision: u64,
+    query: String,
+    items: Vec<Item>,
+    pending: bool,
+    failed: bool,
+}
 
 pub(super) fn picker(cx: &mut Context) {
     let document = doc!(cx.editor).id();
@@ -17,26 +27,48 @@ pub(super) fn picker(cx: &mut Context) {
             return;
         }
     };
+    let published: Arc<Mutex<PublishedSymbols>> = Default::default();
+    let rows = published.clone();
     let get_symbols = |pattern: &str,
                        editor: &mut Editor,
                        data: Arc<WorkspaceSymbolPickerData>,
-                       injector: &Injector<_, _>| {
+                       _injector: &Injector<_, _>| {
         let request = data.symbols.load().query(editor, pattern.to_owned());
-        let injector = injector.clone();
+        let published = data.published.clone();
+        let redraw = editor.redraw().clone();
+        let generation = {
+            let mut rows = published.lock().unwrap();
+            rows.generation += 1;
+            rows.revision += 1;
+            rows.query = pattern.into();
+            rows.items.clear();
+            rows.pending = request.is_ok();
+            rows.failed = request.is_err();
+            rows.generation
+        };
         async move {
             let mut task = request?;
             while let Some(response) = task.next_batch().await {
+                let mut rows = published.lock().unwrap();
+                if rows.generation != generation {
+                    return Ok(());
+                }
                 match response {
-                    Ok(items) => {
-                        for item in items {
-                            injector.push(item)?;
-                        }
-                    }
+                    Ok(items) => rows.items.extend(items),
                     Err(error) => {
-                        injector.fail();
+                        rows.failed = true;
                         log::error!("Error requesting workspace symbols: {error}");
                     }
                 }
+                rows.revision += 1;
+                drop(rows);
+                redraw.request();
+            }
+            let mut rows = published.lock().unwrap();
+            if rows.generation == generation {
+                rows.pending = false;
+                rows.revision += 1;
+                redraw.request();
             }
             Ok(())
         }
@@ -83,6 +115,7 @@ pub(super) fn picker(cx: &mut Context) {
             theme: cx.editor.theme.clone(),
         },
         symbols: session.clone(),
+        published,
     };
     let picker = Picker::new(
         cx.editor.redraw().clone(),
@@ -188,7 +221,7 @@ pub(super) fn picker(cx: &mut Context) {
             }))
         });
     })
-    .with_editor_updates(resolve_selected())
+    .with_editor_updates(resolve_selected(rows))
     .with_title("Workspace Symbols")
     .with_dynamic_query(get_symbols, None, cx.jobs)
     .with_item_key(|item| {
@@ -208,13 +241,34 @@ pub(super) fn picker(cx: &mut Context) {
     cx.push_layer(Box::new(overlaid(picker)));
 }
 
-fn resolve_selected() -> impl FnMut(UpdateContext<'_, Item>) -> Option<Vec<Item>> {
+fn resolve_selected(
+    rows: Arc<Mutex<PublishedSymbols>>,
+) -> impl FnMut(UpdateContext<'_, Item>) -> Option<Vec<Item>> {
     let mut selected: Option<Item> = None;
     let mut query = String::new();
     let mut preview_visible = false;
     let mut pending: Option<oneshot::Receiver<anyhow::Result<Option<WorkspaceSymbolResolution>>>> =
         None;
+    let mut revision = 0;
     move |cx| {
+        let replacement = {
+            let mut rows = rows.lock().unwrap();
+            if rows.query == cx.source_query && rows.revision != revision {
+                revision = rows.revision;
+                rows.items.retain(|item| item.is_current(cx.editor));
+                *cx.incomplete = rows.pending;
+                *cx.status = if rows.pending {
+                    Some("Searching symbols…".into())
+                } else if rows.failed {
+                    Some("Some symbol providers failed".into())
+                } else {
+                    None
+                };
+                Some(rows.items.clone())
+            } else {
+                None
+            }
+        };
         let changed = query != cx.query
             || preview_visible != cx.preview_visible
             || selected
@@ -260,6 +314,6 @@ fn resolve_selected() -> impl FnMut(UpdateContext<'_, Item>) -> Option<Vec<Item>
                 Err(oneshot::error::TryRecvError::Empty) => {}
             }
         }
-        None
+        replacement
     }
 }

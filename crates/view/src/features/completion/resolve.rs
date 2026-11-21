@@ -173,11 +173,10 @@ impl ResolveRequest {
             },
             Err(err) => {
                 log::error!("completion resolve request failed: {err}");
-                // set item to resolved so we don't request it again
-                // we could also remove it but that oculd be odd ui
-                let mut item = (*self.item).clone();
-                item.resolved = true;
-                item
+                // Keep unresolved edits ineligible for inline acceptance. The
+                // resolver's last_request prevents retries while highlighted;
+                // ordinary completion remains available after a resolve error.
+                (*self.item).clone()
             }
         });
         deliver(

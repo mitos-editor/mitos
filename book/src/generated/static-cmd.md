@@ -81,6 +81,7 @@
 | `search_selection_detect_word_boundaries` | Use current selection as the search pattern, automatically wrapping with `\b` on word boundaries | normal: `` * ``, select: `` * `` |
 | `make_search_word_bounded` | Modify current search to make it word bounded |  |
 | `search_picker_in_current_working_directory` | Search text in the current working directory | normal: `` <space>/ ``, select: `` <space>/ `` |
+| `search_picker_in_current_buffer` | Search text in the current buffer |  |
 | `extend_line` | Select current line, if already selected, extend to another line based on the anchor |  |
 | `extend_line_below` | Select current line, if already selected, extend to next line | normal: `` x ``, select: `` x `` |
 | `extend_line_above` | Select current line, if already selected, extend to previous line |  |
@@ -97,6 +98,9 @@
 | `fold_toggle` | Toggle the fold at each cursor | normal: `` Za ``, `` za ``, select: `` Za ``, `` za `` |
 | `fold_selection` | Fold selected lines | normal: `` Zf ``, `` zf ``, select: `` Zf ``, `` zf `` |
 | `fold_all` | Close all folds | normal: `` ZC ``, `` zC ``, select: `` ZC ``, `` zC `` |
+| `fold_comments` | Close all LSP comment folds |  |
+| `fold_imports` | Close all LSP import folds |  |
+| `fold_regions` | Close all LSP region folds |  |
 | `unfold_all` | Open all folds | normal: `` ZO ``, `` zO ``, select: `` ZO ``, `` zO `` |
 | `fold_toggle_all` | Open all folds if any are closed, otherwise close all folds | normal: `` ZA ``, `` zA ``, select: `` ZA ``, `` zA `` |
 | `collapse_selection` | Collapse selection into single cursor | normal: `` ; ``, select: `` ; `` |
@@ -121,11 +125,11 @@
 | `symbol_picker` | Open symbol picker |  |
 | `syntax_symbol_picker` | Open symbol picker from syntax information |  |
 | `lsp_or_syntax_symbol_picker` | Open symbol picker from LSP or syntax information | normal: `` <space>s ``, select: `` <space>s `` |
-| `vcs_show_change` | Show hunk diff | normal: `` <space>i ``, `` <space>gi ``, select: `` <space>i ``, `` <space>gi `` |
+| `vcs_show_change` | Show hunk diff | normal: `` <space>gi ``, select: `` <space>gi `` |
 | `vcs_goto_next_conflict` | Go to the next unresolved conflict | normal: `` ]m ``, select: `` ]m `` |
 | `vcs_goto_previous_conflict` | Go to the previous unresolved conflict | normal: `` [m ``, select: `` [m `` |
 | `vcs_blame_line` | Show line blame | normal: `` <space>gb ``, select: `` <space>gb `` |
-| `vcs_toggle_inline_blame` | Toggle inline blame | normal: `` <space>B ``, `` <space>gt ``, select: `` <space>B ``, `` <space>gt `` |
+| `vcs_toggle_inline_blame` | Toggle inline blame | normal: `` <space>gt ``, select: `` <space>gt `` |
 | `vcs_history_picker` | Browse commits | normal: `` <space>gl ``, select: `` <space>gl `` |
 | `vcs_file_history_picker` | Browse file history | normal: `` <space>gf ``, select: `` <space>gf `` |
 | `vcs_stash_picker` | Browse stashes | normal: `` <space>gS ``, select: `` <space>gS `` |

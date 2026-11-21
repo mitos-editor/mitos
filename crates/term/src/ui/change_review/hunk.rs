@@ -17,7 +17,8 @@ impl HunkReviewView {
             view: ReviewView::from_shared(
                 "Current change · HEAD → buffer".into(),
                 snapshot.review.clone(),
-            ),
+            )
+            .with_source(snapshot.source.clone()),
             snapshot,
         }
     }

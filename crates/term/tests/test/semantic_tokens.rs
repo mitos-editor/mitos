@@ -188,6 +188,46 @@ async fn queued_semantic_responses_cannot_cross_edits_or_configuration_changes(
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn config_reload_requests_semantic_tokens_again() -> anyhow::Result<()> {
+    let Some(root) = super::helpers::isolation::workspace(
+        "test::semantic_tokens::config_reload_requests_semantic_tokens_again",
+    )?
+    else {
+        return Ok(());
+    };
+    let mut f = Fixture::new(false).await?;
+    let response = f.response().await?;
+    response(&mut f.app.editor);
+    assert_eq!(
+        f.app
+            .editor
+            .document(f.doc)
+            .unwrap()
+            .semantic_tokens()
+            .len(),
+        1
+    );
+
+    std::fs::write(
+        loader::lang_config_file(),
+        format!("{}\n[[language]]\nname = 'semantic-test'\nscope = 'source.semantic-test'\nfile-types = ['semantic-test']\nroots = []\nlanguage-servers = ['semantic']\n",
+            ServerConfig::feature("semantic", "--semantic-tokens", &root).toml()),
+    )?;
+    f.app
+        .handle_config_events(view::editor::ConfigEvent::Refresh);
+    assert_eq!(f.app.editor.get_status().unwrap().0, "Config refreshed");
+    let response = f.response().await?;
+    response(&mut f.app.editor);
+    assert_eq!(
+        f.app.editor.document(f.doc).unwrap().semantic_tokens()[0].range,
+        2..5
+    );
+    assert_eq!(semantic_requests(&f)?.len(), 2);
+    assert!(f.app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn semantic_publication_invalidates_an_already_rendered_viewport() -> anyhow::Result<()> {
     let mut f = Fixture::new(false).await?;
     let response = f.response().await?;
@@ -231,6 +271,23 @@ async fn semantic_publication_invalidates_an_already_rendered_viewport() -> anyh
         before
     );
     assert_eq!(color(&mut f.app).await, theme::Color::Blue);
+
+    let (view, doc) = current!(f.app.editor);
+    let transaction = Transaction::change(doc.text(), [(0, 0, Some("😀".into()))].into_iter());
+    view::editing::apply(doc, &transaction, view.id)?;
+    assert_eq!(
+        doc.semantic_tokens()
+            .first()
+            .map(|token| token.range.clone()),
+        Some(3..6)
+    );
+    assert_eq!(color(&mut f.app).await, theme::Color::Blue);
+
+    let (view, doc) = current!(f.app.editor);
+    let transaction = Transaction::change(doc.text(), [(3, 3, Some("x".into()))].into_iter());
+    view::editing::apply(doc, &transaction, view.id)?;
+    assert!(doc.semantic_tokens().is_empty());
+    assert_eq!(color(&mut f.app).await, theme::Color::Red);
     assert!(f.app.close().await.is_empty());
     Ok(())
 }

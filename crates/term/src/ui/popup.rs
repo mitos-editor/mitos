@@ -2,7 +2,7 @@ use crate::compositor::DrawContext;
 use crate::keymap::component::PopupAction;
 use crate::{
     commands::Open,
-    compositor::{Callback, Component, Context, Event, EventResult},
+    compositor::{Callback, Component, Context, Cursor, Event, EventResult},
     key,
     ui::panel::{self, PopupBorder},
 };
@@ -39,6 +39,7 @@ pub struct Popup<T: Component> {
     contents: T,
     position: Option<DisplayPosition>,
     area: Rect,
+    inner_area: Rect,
     position_bias: Open,
     scroll_half_pages: usize,
     auto_close: bool,
@@ -57,6 +58,7 @@ impl<T: Component> Popup<T> {
             position: None,
             position_bias: Open::Below,
             area: Rect::new(0, 0, 0, 0),
+            inner_area: Rect::default(),
             scroll_half_pages: 0,
             auto_close: false,
             ignore_escape_key: false,
@@ -378,6 +380,9 @@ impl<T: Component> Component for Popup<T> {
         } else {
             cx.editor.theme.get("ui.popup")
         };
+        if !self.contents.owns_cursor() {
+            cx.exclude_cursor(area);
+        }
         cx.hyperlinks.borrow_mut().clear(area);
         surface.clear_with(area, background);
 
@@ -387,6 +392,7 @@ impl<T: Component> Component for Popup<T> {
             inner = block.inner(area);
             Widget::render(block, area, surface);
         }
+        self.inner_area = inner;
         let max_offset = child_height.saturating_sub(inner.height) as usize;
         let half_page_size = (inner.height / 2) as usize;
         let scroll = clamp_scroll(&mut self.scroll_half_pages, half_page_size, max_offset);
@@ -409,6 +415,14 @@ impl<T: Component> Component for Popup<T> {
                 scroll_style,
             );
         }
+    }
+
+    fn owns_cursor(&self) -> bool {
+        self.contents.owns_cursor()
+    }
+
+    fn cursor(&self, _area: Rect, cx: &DrawContext) -> Cursor {
+        self.contents.cursor(self.inner_area, cx)
     }
 
     fn id(&self) -> Option<&'static str> {

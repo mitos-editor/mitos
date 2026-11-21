@@ -70,13 +70,13 @@ async fn enumeration_uses_one_provider_and_stops_on_successful_empty_results() {
 
 #[tokio::test]
 async fn empty_or_unavailable_registries_report_one_terminal_error() {
-    for providers in [registry(&[]), registry(&[None, None])] {
+    for (providers, expected) in [
+        (registry(&[]), "No VCS provider available"),
+        (registry(&[None, None]), "test provider unavailable"),
+    ] {
         let results = statuses(providers).await;
         assert_eq!(results.len(), 1);
-        assert_eq!(
-            results[0].as_ref().unwrap_err().to_string(),
-            "no diff provider returns success"
-        );
+        assert_eq!(results[0].as_ref().unwrap_err().to_string(), expected);
     }
     #[cfg(not(feature = "git"))]
     assert!(DiffProviderRegistry::default().providers.is_empty());

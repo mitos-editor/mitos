@@ -301,6 +301,85 @@ async fn native_review_renderer_keeps_unicode_token_styles_and_wrapped_row_backg
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn history_diff_word_style_takes_precedence_over_whitespace_style() -> anyhow::Result<()> {
+    use tui::style::Color;
+
+    let dir = tempfile::tempdir()?;
+    git(dir.path(), &["init"]);
+    git(dir.path(), &["config", "core.autocrlf", "false"]);
+    let path = dir.path().join("sample.json");
+    std::fs::write(&path, r#"{"a":"λx y"}"#)?;
+    git(dir.path(), &["add", "."]);
+    git(dir.path(), &["commit", "-m", "initial"]);
+    std::fs::write(&path, r#"{"a":"λx  y"}"#)?;
+    git(dir.path(), &["add", "."]);
+    git(dir.path(), &["commit", "-m", "change string spacing"]);
+
+    let mut config = test_config();
+    config.editor.cursor.highlight_line = false;
+    let languages = language::Loader::new(
+        toml::from_str(
+            r#"
+            [[language]]
+            name = "json"
+            scope = "source.json"
+            file-types = ["json"]
+            grammar = "json"
+        "#,
+        )?,
+        Default::default(),
+    )?;
+    let mut app = AppBuilder::new()
+        .with_config(config)
+        .with_lang_loader(languages)
+        .with_file(&path, None)
+        .build()?;
+    app.editor
+        .set_theme(theme::Theme::from(toml::from_str::<toml::Value>(
+            r#"
+            "ui.text" = "white"
+            "ui.cursor" = "white"
+            "ui.selection" = "white"
+            "ui.virtual.whitespace" = { fg = "blue", bg = "blue" }
+            "string" = "cyan"
+            "diff.plus.word" = { fg = "green", bg = "green" }
+        "#,
+        )?))?;
+
+    let assert_word_style = |app: &TestApplication| {
+        let buffer = app.terminal_backend().buffer();
+        let (x, y) = (0..buffer.area.height)
+            .find_map(|y| {
+                let text: String = (0..buffer.area.width)
+                    .map(|x| buffer[(x, y)].symbol())
+                    .collect();
+                let marker = text.find('+')?;
+                text[marker..]
+                    .find("x  y")
+                    .map(|offset| (text[..marker + offset].chars().count() as u16, y))
+            })
+            .expect("changed string in review");
+        let cell = &buffer[(x + 1, y)];
+        let opened = current_ref!(app.editor).1.review().is_some();
+        assert_eq!(cell.fg, Color::Green, "foreground with opened={opened}");
+        assert_eq!(cell.bg, Color::Green, "background with opened={opened}");
+    };
+
+    keys(&mut app, ":vcs-history<ret>change string spacing").await?;
+    preview_contains(&mut app, "change string spacing").await?;
+    keys(&mut app, "<ret>sample.json").await?;
+    preview_contains(&mut app, "λx  y").await?;
+    assert_word_style(&app);
+
+    keys(&mut app, "<C-s>").await?;
+    ready(&mut app).await?;
+    keys(&mut app, "").await?;
+    assert_word_style(&app);
+    assert!(app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn review_syntax_uses_each_source_context_and_follows_theme_changes() -> anyhow::Result<()> {
     use tui::style::Color;
     for extension in ["rs", "md"] {
@@ -365,8 +444,6 @@ async fn review_syntax_uses_each_source_context_and_follows_theme_changes() -> a
                 "constant.numeric" = "yellow"
                 "diff.plus" = "green"
                 "diff.minus" = "red"
-                "diff.plus.word" = {{ modifiers = ["bold"] }}
-                "diff.minus.word" = {{ modifiers = ["bold"] }}
                 "diff.plus.line" = {{ bg = "#103010" }}
                 "diff.minus.line" = {{ bg = "#301010" }}
             "##
@@ -395,6 +472,16 @@ async fn review_syntax_uses_each_source_context_and_follows_theme_changes() -> a
                 let cell = &buffer[row];
                 assert_eq!(cell.fg, color, "{contents:?}, {extension:?}");
                 assert_eq!(cell.bg, background, "{contents:?}, {extension:?}");
+                let identifier = &buffer[(row.0 + 4, row.1)];
+                assert_eq!(
+                    identifier.fg,
+                    if contents == "let old" {
+                        comment
+                    } else {
+                        Color::Cyan
+                    }
+                );
+                assert!(identifier.modifier.contains(tui::style::Modifier::BOLD));
             }
         };
         assert_colors(&app, Color::Blue, Color::Magenta);
@@ -427,6 +514,21 @@ async fn review_syntax_uses_each_source_context_and_follows_theme_changes() -> a
                 .source()
                 .unwrap()
         ));
+        // Opening the same committed change from history must keep the
+        // preview's source colors and changed-word emphasis.
+        git(dir.path(), &["add", "."]);
+        git(dir.path(), &["commit", "-m", "highlighting regression"]);
+        let live_review = current_ref!(app.editor).1.id();
+        keys(&mut app, ":vcs-history<ret>highlighting regression").await?;
+        preview_contains(&mut app, "highlighting regression").await?;
+        keys(&mut app, &format!("<ret>source.{extension}")).await?;
+        preview_contains(&mut app, "let old").await?;
+        assert_colors(&app, Color::Red, Color::Green);
+        keys(&mut app, "<C-s>").await?;
+        assert_ne!(current_ref!(app.editor).1.id(), live_review);
+        ready(&mut app).await?;
+        keys(&mut app, "").await?;
+        assert_colors(&app, Color::Red, Color::Green);
         assert!(app.close().await.is_empty());
     }
     Ok(())

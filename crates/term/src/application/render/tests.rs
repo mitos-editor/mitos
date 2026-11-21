@@ -59,33 +59,100 @@ async fn next_frame(app: &mut TestApplication, frames: &FrameProbe) {
 }
 
 fn draw_now(app: &mut TestApplication) {
-    app.update_components();
-    app.draw_frame();
+    let area = app.update_components();
+    app.draw_frame(area);
+}
+
+/// Keep the existing pump since event_loop() requests a startup frame.
+async fn background_frame(app: &mut TestApplication, frames: &FrameProbe) -> anyhow::Result<()> {
+    let count = frames.frames().len();
+    let mut input = app.event_stream();
+    let pump = app.pump(&mut input, false);
+    tokio::pin!(pump);
+    tokio::time::timeout(Duration::from_secs(1), async {
+        loop {
+            tokio::select! {
+                _ = &mut pump => panic!("editor closed before background frame"),
+                _ = frames.ready.notified() => if frames.frames().len() > count { break; },
+            }
+        }
+    })
+    .await?;
+    Ok(())
+}
+
+#[tokio::test(start_paused = true)]
+async fn picker_spinner_animates_without_input_and_stops_on_completion() -> anyhow::Result<()> {
+    use crate::ui::{Picker, PickerColumn};
+
+    let (mut app, _) = application(Args::default())?;
+    let frames = FrameProbe::default();
+    let picker = Picker::new(
+        app.editor.redraw().clone(),
+        [PickerColumn::new("item", |item: &String, _: &()| {
+            item.as_str().into()
+        })],
+        0,
+        [],
+        (),
+        |_, _, _| {},
+    );
+    let producer = picker.injector();
+    app.compositor.push(Box::new(picker));
+    app.compositor.push(Box::new(frames.clone()));
+
+    let count = |app: &TestApplication| {
+        let screen = app.terminal_backend().buffer();
+        (screen.area.width - 5..screen.area.width - 2)
+            .map(|x| screen[(x, 1)].symbol())
+            .collect::<String>()
+    };
+    draw_now(&mut app);
+    let first = count(&app);
+    assert_eq!(first, "0/⣾");
+    let deadline = app.render_state.animation_deadline.unwrap();
+    while tokio::time::Instant::now() < deadline {
+        background_frame(&mut app, &frames).await?;
+    }
+    let next = count(&app);
+    assert!(next.starts_with("0/"));
+    assert_ne!(next, first);
+
+    producer.complete();
+    drop(producer);
+    draw_now(&mut app);
+    assert_eq!(count(&app), "0/0");
+    assert!(app.render_state.animation_deadline.is_none());
+    assert!(app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test]
+async fn terminal_shrink_between_preparation_and_drawing_keeps_file_picker_open(
+) -> anyhow::Result<()> {
+    let (mut app, _) = application(Args::default())?;
+    let dir = tempfile::tempdir()?;
+    let picker = crate::ui::file_picker(&app.editor, dir.path().to_path_buf());
+    app.compositor
+        .push(Box::new(crate::ui::overlay::overlaid(picker)));
+    draw_now(&mut app);
+
+    let area = app.update_components();
+    app.terminal.backend_mut().resize(60, 20);
+    app.draw_frame(area);
+
+    assert_eq!(
+        app.terminal_backend().buffer().area,
+        Rect::new(0, 0, 60, 20)
+    );
+    assert!(app.terminal_backend().cursor_visible());
+    assert!(app.close().await.is_empty());
+    Ok(())
 }
 
 #[tokio::test]
 async fn user_activity_wakes_the_pump_without_input_and_stops_when_finished() -> anyhow::Result<()>
 {
-    async fn background_frame(
-        app: &mut TestApplication,
-        frames: &FrameProbe,
-    ) -> anyhow::Result<()> {
-        let count = frames.frames().len();
-        let mut input = app.event_stream();
-        // Keep the existing pump: event_loop() deliberately requests a startup frame.
-        let pump = app.pump(&mut input, false);
-        tokio::pin!(pump);
-        tokio::time::timeout(Duration::from_secs(1), async {
-            loop {
-                tokio::select! {
-                    _ = &mut pump => panic!("editor closed before activity frame"),
-                    _ = frames.ready.notified() => if frames.frames().len() > count { break; },
-                }
-            }
-        })
-        .await?;
-        Ok(())
-    }
     let (mut app, _) = application(Args::default())?;
     app.drain_ready_callbacks();
     let frames = FrameProbe::default();
@@ -867,10 +934,10 @@ async fn a_completion_between_preparation_and_drawing_keeps_its_redraw() -> anyh
     }
     app.editor.reset_idle_timer();
     tokio::time::pause();
-    app.update_components();
+    let area = app.update_components();
     // A preview worker can publish after update sampled its result receiver.
     app.editor.redraw().request();
-    app.draw_frame();
+    app.draw_frame(area);
     let event = app
         .editor
         .wait_event()

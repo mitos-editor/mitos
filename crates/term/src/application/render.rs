@@ -6,7 +6,7 @@ use tokio::time::Instant;
 use view::{graphics::Rect, Document, DocumentId};
 
 use super::App;
-use crate::{compositor, job::Callback};
+use crate::{compositor, job::Callback, ui::spinner};
 
 const BACKGROUND_FRAME_DELAY: Duration = Duration::from_millis(33);
 const SYNTAX_GRACE: Duration = Duration::from_millis(16);
@@ -19,6 +19,7 @@ pub(super) struct RenderState {
     pub(super) requested: Option<Instant>,
     syntax_deadline: Option<Instant>,
     activity_deadline: Option<Instant>,
+    pub(super) animation_deadline: Option<Instant>,
 }
 
 impl<B: tui::backend::Backend + tui::backend::BackendExt> App<B>
@@ -71,7 +72,7 @@ where
                 if visible > now {
                     visible
                 } else {
-                    now + Duration::from_millis(80)
+                    now + spinner::FRAME_INTERVAL
                 }
             })
             .min();
@@ -102,11 +103,16 @@ where
         }
     }
 
-    pub(super) fn update_components(&mut self) {
+    pub(super) fn update_components(&mut self) -> Rect {
         // Preparation may spawn work that finishes before drawing starts. Clear
         // only requests preceding this update; later completions need another turn.
         self.editor.begin_frame();
         let area = Rect::from(self.terminal.size().expect("Cannot read terminal size"));
+        self.prepare_components(area);
+        area
+    }
+
+    fn prepare_components(&mut self, area: Rect) {
         let config = self.config.load();
         let mut cx = compositor::Context {
             config: crate::config::Context {
@@ -124,7 +130,7 @@ where
         view::features::code_lenses::prepare_visible_code_lenses(cx.editor);
     }
 
-    pub(super) fn draw_frame(&mut self) {
+    pub(super) fn draw_frame(&mut self, prepared_area: Rect) {
         if self.editor.should_close() {
             return;
         }
@@ -141,22 +147,33 @@ where
                 .resize(area)
                 .expect("Cannot clear the terminal");
             self.compositor.full_redraw = false;
+        } else {
+            self.terminal.autoresize().expect("Cannot resize terminal");
+        }
+
+        // The terminal can resize between preparation and drawing. Rebuild the
+        // layout for the actual buffer while preserving redraws raised during preparation.
+        let area = self.terminal.current_buffer_mut().area;
+        if area != prepared_area {
+            self.prepare_components(area);
         }
 
         let config = self.config.load();
         let mut draw = compositor::DrawContext {
             hyperlinks: Default::default(),
+            cursor_exclusions: Vec::new(),
             config: &config,
             editor: &self.editor,
             interaction: &self.interaction,
             editor_cursor: None,
+            animation_deadline: None,
             scroll: None,
             is_cursor_owner: false,
         };
 
         tui::terminal::draw_with_hyperlinks(&mut self.terminal, |buffer| {
             let cursor = self.compositor.render(buffer.area, buffer, &mut draw);
-            (cursor, draw.hyperlinks.into_inner())
+            (cursor, std::mem::take(draw.hyperlinks.get_mut()))
         })
         .unwrap();
 
@@ -165,6 +182,7 @@ where
         self.render_state.requested = None;
         self.render_state.syntax_deadline = None;
         self.render_state.activity_deadline = None;
+        self.render_state.animation_deadline = draw.animation_deadline;
         self.render_state.visible_documents.clear();
         self.render_state
             .visible_documents

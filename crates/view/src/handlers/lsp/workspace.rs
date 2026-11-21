@@ -1,5 +1,5 @@
-//! Editor operations requested by language servers. Transport dispatch and replies
-//! remain with the frontend; configuration lookup lives on the LSP client.
+//! Editor operations requested by language servers. Inbound dispatch owns replies;
+//! configuration lookup lives on the LSP client.
 
 use lsp_client::UriExt as _;
 use std::sync::Arc;

@@ -19,13 +19,12 @@ pub fn render_document(
     decorations: DecorationManager,
 ) {
     let review_styles = super::change_review::document::syntax_styles(doc, layout, theme);
-    let ordinary_styles = super::highlights::document_syntax_styles(doc, layout, theme).take(
-        if review_styles.is_some() {
-            0
-        } else {
-            usize::MAX
-        },
-    );
+    let ranges = if review_styles.is_none() {
+        layout.visible_byte_ranges()
+    } else {
+        Vec::new()
+    };
+    let ordinary_styles = super::highlights::document_syntax_styles(doc, &ranges, theme);
     let syntax_styles = review_styles.into_iter().flatten().chain(ordinary_styles);
     render_document_with_styles(
         surface,

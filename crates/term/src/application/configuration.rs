@@ -101,6 +101,7 @@ where
                 .reconfigure(terminal_config(&default_config))?;
             // Store new config
             self.config.store(Arc::new(default_config));
+            view::features::semantic_tokens::refresh_after_config_reload(&mut self.editor);
             Ok(())
         };
 

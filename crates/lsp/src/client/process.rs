@@ -216,7 +216,17 @@ impl Client {
                     }),
                     folding_range: Some(lsp::FoldingRangeClientCapabilities {
                         dynamic_registration: Some(false),
-                        line_folding_only: Some(true),
+                        line_folding_only: Some(false),
+                        folding_range_kind: Some(lsp::FoldingRangeKindCapability {
+                            value_set: Some(vec![
+                                lsp::FoldingRangeKind::Comment,
+                                lsp::FoldingRangeKind::Imports,
+                                lsp::FoldingRangeKind::Region,
+                            ]),
+                        }),
+                        folding_range: Some(lsp::FoldingRangeCapability {
+                            collapsed_text: Some(true),
+                        }),
                         ..Default::default()
                     }),
                     selection_range: Some(lsp::SelectionRangeClientCapabilities {
@@ -281,6 +291,8 @@ impl Client {
                     completion: Some(lsp::CompletionClientCapabilities {
                         completion_item: Some(lsp::CompletionItemCapability {
                             snippet_support: Some(enable_snippets),
+                            preselect_support: Some(true),
+                            label_details_support: Some(true),
                             resolve_support: Some(lsp::CompletionItemCapabilityResolveSupport {
                                 properties: vec![
                                     String::from("documentation"),
@@ -316,7 +328,7 @@ impl Client {
                             ]),
                             apply_kind_support: Some(true),
                         }),
-                        context_support: None, // additional context information Some(true)
+                        context_support: Some(true),
                         ..Default::default()
                     }),
                     hover: Some(lsp::HoverClientCapabilities {
@@ -326,6 +338,7 @@ impl Client {
                         ..Default::default()
                     }),
                     signature_help: Some(lsp::SignatureHelpClientCapabilities {
+                        context_support: Some(true),
                         signature_information: Some(lsp::SignatureInformationSettings {
                             documentation_format: Some(vec![lsp::MarkupKind::Markdown]),
                             parameter_information: Some(lsp::ParameterInformationSettings {
@@ -353,6 +366,10 @@ impl Client {
                         dynamic_registration: Some(false),
                     }),
                     code_action: Some(lsp::CodeActionClientCapabilities {
+                        documentation_support: Some(true),
+                        tag_support: Some(lsp::CodeActionTagOptions {
+                            value_set: vec![lsp::CodeActionTag::LLM_GENERATED],
+                        }),
                         code_action_literal_support: Some(lsp::CodeActionLiteralSupport {
                             code_action_kind: lsp::CodeActionKindLiteralSupport {
                                 value_set: [
@@ -413,7 +430,7 @@ impl Client {
                     }),
                     document_link: Some(lsp::DocumentLinkClientCapabilities {
                         dynamic_registration: Some(false),
-                        tooltip_support: Some(false),
+                        tooltip_support: Some(true),
                     }),
                     call_hierarchy: Some(lsp::DynamicRegistrationClientCapabilities {
                         dynamic_registration: Some(false),

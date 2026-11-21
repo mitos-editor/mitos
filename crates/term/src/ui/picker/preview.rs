@@ -34,6 +34,30 @@ use view::{
     DocumentId, Editor,
 };
 
+/// Compile only when the search text or case mode changes, including invalid input.
+#[derive(Default)]
+pub(super) struct SearchPreview {
+    key: Option<(Arc<str>, bool)>,
+    query: Option<Arc<search::Search>>,
+}
+
+impl SearchPreview {
+    pub(super) fn query(
+        &mut self,
+        pattern: Arc<str>,
+        smart_case: bool,
+    ) -> Option<Arc<search::Search>> {
+        let key = (pattern, smart_case);
+        if self.key.as_ref() != Some(&key) {
+            self.query = (!key.0.is_empty())
+                .then(|| search::Search::new(&key.0, smart_case).ok().map(Arc::new))
+                .flatten();
+            self.key = Some(key);
+        }
+        self.query.clone()
+    }
+}
+
 /// Biggest file size to preview in bytes.
 pub const MAX_FILE_SIZE_FOR_PREVIEW: u64 = 10 * 1024 * 1024;
 
@@ -621,6 +645,7 @@ fn open_text_document<'a>(editor: &'a Editor, path: &Path) -> Option<&'a Documen
 pub(super) fn render_preview_content(
     mut preview: Preview<'_, '_>,
     range: Option<(usize, usize)>,
+    search: Option<&search::Search>,
     state: &mut FileScroll,
     inner: Rect,
     surface: &mut Surface,
@@ -832,12 +857,32 @@ pub(super) fn render_preview_content(
         .language_config()
         .and_then(|config| config.rainbow_brackets)
         .unwrap_or(config.rainbow_brackets.enable)
-        && let Some(overlay) = highlights::rainbow_highlights(doc.into(), &layout, &cx.editor.theme)
+        && let Some(overlay) = highlights::rainbow_highlights(
+            doc.into(),
+            &layout.visible_byte_ranges(),
+            &cx.editor.theme,
+        )
     {
         overlay_highlights.push(overlay);
     }
 
     highlights::diagnostic_highlights(doc.into(), &cx.editor.theme, &mut overlay_highlights);
+
+    if let Some(search) = search
+        && let Some(highlight) = cx
+            .editor
+            .theme
+            .find_highlight_exact("ui.cursor.match")
+            .or_else(|| cx.editor.theme.find_highlight_exact("ui.selection"))
+    {
+        let ranges = layout
+            .visible_byte_ranges()
+            .into_iter()
+            .flat_map(|visible| search.match_ranges(layout.text, visible))
+            .collect();
+        overlay_highlights
+            .push(editor_core::highlight::OverlayHighlights::Homogeneous { highlight, ranges });
+    }
 
     let mut decorations = DecorationManager::default();
     if doc.review().is_some() {

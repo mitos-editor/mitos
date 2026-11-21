@@ -132,15 +132,21 @@ where
                 return false;
             }
 
+            let mut frame_deadline = None;
             if self.render_state.requested.is_some() {
-                self.update_components();
+                let area = self.update_components();
+                frame_deadline = self.frame_deadline();
+                if frame_deadline.is_some_and(|due| due <= tokio::time::Instant::now()) {
+                    self.draw_frame(area);
+                    frame_deadline = None;
+                }
             }
-            let mut frame_deadline = self.frame_deadline();
-            if frame_deadline.is_some_and(|due| due <= tokio::time::Instant::now()) {
-                self.draw_frame();
-                frame_deadline = None;
-            }
-            let activity_deadline = self.activity_frame_deadline();
+            let animation_deadline = self
+                .activity_frame_deadline()
+                .into_iter()
+                .chain(self.render_state.animation_deadline)
+                .filter(|_| frame_deadline.is_none())
+                .min();
 
             use futures_util::StreamExt;
 
@@ -178,9 +184,12 @@ where
                     else { std::future::pending::<()>().await; }
                 } => {},
                 _ = async {
-                    if let Some(due) = activity_deadline { tokio::time::sleep_until(due).await; }
+                    if let Some(due) = animation_deadline { tokio::time::sleep_until(due).await; }
                     else { std::future::pending::<()>().await; }
-                } => self.request_frame(),
+                } => {
+                    self.request_frame();
+                    continue;
+                },
                 Some(signal) = self.signals.next() => {
                     idle_seen = false;
                     if !self.handle_signals(signal).await {
