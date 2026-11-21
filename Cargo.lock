@@ -3011,6 +3011,7 @@ dependencies = [
  "log",
  "lsp-types",
  "parking_lot",
+ "regex",
  "serde",
  "serde_json",
  "slotmap",

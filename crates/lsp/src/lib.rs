@@ -17,6 +17,7 @@
 
 mod client;
 mod completion;
+mod document_selector;
 pub mod file_event;
 mod file_operations;
 pub mod jsonrpc;

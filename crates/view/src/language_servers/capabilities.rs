@@ -3,6 +3,25 @@
 use language_config::LanguageServerFeature;
 use lsp_client::lsp;
 
+pub(crate) fn document_selector_method(feature: LanguageServerFeature) -> Option<&'static str> {
+    use lsp::request::{self, Request as _};
+    Some(match feature {
+        LanguageServerFeature::GotoDeclaration => request::GotoDeclaration::METHOD,
+        LanguageServerFeature::GotoTypeDefinition => request::GotoTypeDefinition::METHOD,
+        LanguageServerFeature::GotoImplementation => request::GotoImplementation::METHOD,
+        LanguageServerFeature::DocumentColors => request::DocumentColor::METHOD,
+        LanguageServerFeature::FoldingRanges => request::FoldingRangeRequest::METHOD,
+        LanguageServerFeature::SelectionRanges => request::SelectionRangeRequest::METHOD,
+        LanguageServerFeature::CallHierarchy => request::CallHierarchyPrepare::METHOD,
+        LanguageServerFeature::SemanticTokens => request::SemanticTokensFullRequest::METHOD,
+        LanguageServerFeature::InlayHints => request::InlayHintRequest::METHOD,
+        LanguageServerFeature::InlineValues => request::InlineValueRequest::METHOD,
+        LanguageServerFeature::LinkedEditing => request::LinkedEditingRange::METHOD,
+        LanguageServerFeature::PullDiagnostics => request::DocumentDiagnosticRequest::METHOD,
+        _ => return None,
+    })
+}
+
 /// Whether the server advertises a feature used by Mitos.
 /// Push diagnostics have no capability flag and are always permitted.
 pub fn supports_feature(

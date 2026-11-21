@@ -37,27 +37,38 @@ impl Editor {
             );
             return;
         }
-        self.request_workspace_edit(server, params.edit, None, move |editor, result| {
-            let failed_change = result
-                .as_ref()
-                .err()
-                .and_then(|error| error.downcast_ref::<crate::workspace_edit::ApplyEditError>())
-                .map(|error| error.failed_change_idx as u32);
-            let response = lsp::ApplyWorkspaceEditResponse {
-                applied: result.as_ref().is_ok_and(|applied| *applied),
-                failure_reason: match &result {
-                    Ok(true) => None,
-                    Ok(false) => Some("Workspace edit was canceled".into()),
-                    Err(error) => Some(
-                        error
-                            .downcast_ref::<crate::workspace_edit::ApplyEditError>()
-                            .map_or_else(|| error.to_string(), |error| error.kind.to_string()),
-                    ),
-                },
-                failed_change,
-            };
-            completed(editor, Ok(response));
-        });
+        let context = crate::workspace_edit::confirmation::EditContext {
+            label: params.label,
+            is_refactoring: params
+                .metadata
+                .is_some_and(|metadata| metadata.is_refactoring == Some(true)),
+        };
+        self.request_workspace_edit_with_context(
+            server,
+            params.edit,
+            context,
+            move |editor, result| {
+                let failed_change = result
+                    .as_ref()
+                    .err()
+                    .and_then(|error| error.downcast_ref::<crate::workspace_edit::ApplyEditError>())
+                    .map(|error| error.failed_change_idx as u32);
+                let response = lsp::ApplyWorkspaceEditResponse {
+                    applied: result.as_ref().is_ok_and(|applied| *applied),
+                    failure_reason: match &result {
+                        Ok(true) => None,
+                        Ok(false) => Some("Workspace edit was canceled".into()),
+                        Err(error) => Some(
+                            error
+                                .downcast_ref::<crate::workspace_edit::ApplyEditError>()
+                                .map_or_else(|| error.to_string(), |error| error.kind.to_string()),
+                        ),
+                    },
+                    failed_change,
+                };
+                completed(editor, Ok(response));
+            },
+        );
     }
 
     /// Validate the requesting server and apply edits using its negotiated encoding.

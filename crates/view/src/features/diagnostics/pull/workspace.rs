@@ -36,7 +36,7 @@ struct WorkspacePull {
 fn has_documents(editor: &Editor, server_id: LanguageServerId) -> bool {
     editor.config().lsp.enable
         && editor.documents().any(|doc| {
-            doc.language_servers_with_feature(LanguageServerFeature::PullDiagnostics)
+            doc.language_servers_with_configured_feature(LanguageServerFeature::PullDiagnostics)
                 .any(|server| server.id() == server_id)
         })
 }
@@ -301,7 +301,7 @@ pub(super) fn request_if_idle(editor: &mut Editor) {
     let servers: std::collections::HashSet<_> = editor
         .documents()
         .flat_map(|doc| {
-            doc.language_servers_with_feature(LanguageServerFeature::PullDiagnostics)
+            doc.language_servers_with_configured_feature(LanguageServerFeature::PullDiagnostics)
                 .map(|server| server.id())
         })
         .collect();

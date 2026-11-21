@@ -14,6 +14,7 @@ pub(crate) use partial::{collect, start_request};
 pub use partial::{PartialResultRequest, RequestUpdate};
 
 use crate::{
+    document_selector::DocumentSelectors,
     file_operations::FileOperationsInterest,
     jsonrpc, lsp,
     transport::{Payload, PendingRequests},
@@ -54,6 +55,7 @@ pub struct Client {
     capabilities: OnceLock<lsp::ServerCapabilities>,
     initialization: OnceCell<()>,
     pub(crate) file_operation_interest: OnceLock<FileOperationsInterest>,
+    document_selectors: OnceLock<DocumentSelectors>,
     config: Option<Value>,
     root_path: std::path::PathBuf,
     root_uri: Option<lsp::Url>,
@@ -96,6 +98,18 @@ impl Client {
     pub(crate) fn file_operations_interest(&self) -> &FileOperationsInterest {
         self.file_operation_interest
             .get_or_init(|| FileOperationsInterest::new(self.capabilities()))
+    }
+
+    /// Match a static provider selector after the editor has chosen this document binding.
+    pub fn matches_document_selector(
+        &self,
+        method: &str,
+        language: &str,
+        uri: Option<&lsp::Uri>,
+    ) -> bool {
+        self.document_selectors
+            .get_or_init(|| DocumentSelectors::new(self.capabilities()))
+            .matches(method, language, uri)
     }
 
     pub fn offset_encoding(&self) -> OffsetEncoding {

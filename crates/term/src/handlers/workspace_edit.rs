@@ -28,7 +28,15 @@ pub(crate) fn prompt(
         request.resolve(editor, false);
         return;
     }
-    let mut message = String::from("Apply these changes?");
+    let mut message = String::from(if request.is_refactoring() {
+        "Apply this refactoring?"
+    } else {
+        "Apply these changes?"
+    });
+    if let Some(label) = request.label() {
+        message.push_str("\n\n");
+        message.push_str(label);
+    }
     for annotation in request.annotations() {
         message.push_str("\n\n");
         message.push_str(&annotation.label);

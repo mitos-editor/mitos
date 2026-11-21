@@ -2,7 +2,7 @@
 use super::helpers::{
     keys,
     lsp::{self as fixture_lsp, Gate, ServerConfig},
-    test_config, AppBuilder,
+    screen, test_config, AppBuilder,
 };
 use editor_core::Transaction;
 use lsp_client::{lsp, UriExt as _};
@@ -350,6 +350,103 @@ async fn workspace_confirmation_does_not_run_code_action_commands_when_declined(
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn refactoring_metadata_retains_context_for_accept_decline_and_stale_requests(
+) -> anyhow::Result<()> {
+    for outcome in ["accept", "decline", "stale"] {
+        let dir = tempfile::tempdir()?;
+        let mut f = fixture(dir.path()).await?;
+        let (tx, mut rx) = tokio::sync::oneshot::channel();
+        f.app.editor.request_workspace_edit_from_server(
+            f.server("alpha"),
+            lsp::ApplyWorkspaceEditParams {
+                label: Some("Extract symbol".into()),
+                edit: edit(&f),
+                metadata: Some(lsp::WorkspaceEditMetadata {
+                    is_refactoring: Some(true),
+                }),
+            },
+            move |_, result| {
+                let _ = tx.send(result);
+            },
+        );
+        assert!(rx.try_recv().is_err());
+        let request = prompt(&mut f).await?;
+        assert!(request.is_refactoring());
+        assert_eq!(request.label(), Some("Extract symbol"));
+        if outcome == "stale" {
+            let (_, doc) = current!(f.app.editor);
+            let change = Transaction::change(doc.text(), [(0, 0, Some("new ".into()))].into_iter());
+            doc.apply(change.changes())?;
+        }
+        request.resolve(&mut f.app.editor, outcome != "decline");
+        let response = rx.await??;
+        assert_eq!(response.applied, outcome == "accept");
+        assert_eq!(
+            current_ref!(f.app.editor).1.text().to_string(),
+            match outcome {
+                "accept" => "😀 changed\n",
+                "decline" => "😀 original\n",
+                "stale" => "new 😀 original\n",
+                _ => unreachable!(),
+            }
+        );
+        if outcome == "stale" {
+            assert!(response
+                .failure_reason
+                .unwrap()
+                .contains("changed while awaiting confirmation"));
+        }
+        assert!(f.app.close().await.is_empty());
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn unannotated_refactoring_metadata_preserves_immediate_apply_and_abort_order(
+) -> anyhow::Result<()> {
+    for is_refactoring in [false, true] {
+        for fail_later in [false, true] {
+            let dir = tempfile::tempdir()?;
+            let mut f = fixture(dir.path()).await?;
+            let mut edit = serde_json::to_value(edit(&f))?;
+            edit["changeAnnotations"]["confirm"]["needsConfirmation"] = json!(false);
+            if fail_later {
+                let mut later = edit["documentChanges"][0].clone();
+                later["textDocument"]["version"] = json!(123);
+                later["edits"][0]["newText"] = json!("incorrect");
+                edit["documentChanges"].as_array_mut().unwrap().push(later);
+            }
+            let (tx, mut rx) = tokio::sync::oneshot::channel();
+            f.app.editor.request_workspace_edit_from_server(
+                f.server("alpha"),
+                lsp::ApplyWorkspaceEditParams {
+                    label: Some("Immediate edit".into()),
+                    edit: serde_json::from_value(edit)?,
+                    metadata: Some(lsp::WorkspaceEditMetadata {
+                        is_refactoring: Some(is_refactoring),
+                    }),
+                },
+                move |_, result| {
+                    let _ = tx.send(result);
+                },
+            );
+            let response = rx.try_recv()??;
+            assert_eq!(response.applied, !fail_later);
+            assert_eq!(response.failed_change, fail_later.then_some(1));
+            assert_eq!(current_ref!(f.app.editor).1.text(), "😀 changed\n");
+            let log = fixture_lsp::read_log(&f.logs[0])?;
+            let caps = &log
+                .iter()
+                .find(|message| message["method"] == "initialize")
+                .unwrap()["params"]["capabilities"];
+            assert_eq!(caps["workspace"]["workspaceEdit"]["metadataSupport"], true);
+            assert!(f.app.close().await.is_empty());
+        }
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn workspace_confirmation_terminal_prompts_cancel_by_default_and_reply_after_decision(
 ) -> anyhow::Result<()> {
     for input in ["<ret>", "<esc>", "<down><ret>"] {
@@ -358,13 +455,18 @@ async fn workspace_confirmation_terminal_prompts_cancel_by_default_and_reply_aft
         let server = f.server("alpha");
         let id = "annotated-edit";
         let call = serde_json::from_value(
-            json!({"jsonrpc":"2.0","id":id,"method":"workspace/applyEdit","params":{"edit":edit(&f)}}),
+            json!({"jsonrpc":"2.0","id":id,"method":"workspace/applyEdit","params":{"label":"Extract symbol", "metadata":{"isRefactoring":true}, "edit":edit(&f)}}),
         )?;
         f.app.handle_language_server_message(call, server).await;
         let request = prompt(&mut f).await?;
         f.app
             .handle_editor_event(EditorEvent::WorkspaceEditConfirmation(request))
             .await;
+        keys(&mut f.app, "").await?;
+        let display = screen(&f.app);
+        assert!(display.contains("Apply this refactoring?"));
+        assert!(display.contains("Extract symbol"));
+        assert!(display.contains("Update references"));
         keys(&mut f.app, input).await?;
         let reply: Value = tokio::time::timeout(Duration::from_secs(5), async {
             loop {

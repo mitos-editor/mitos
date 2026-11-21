@@ -34,6 +34,25 @@ impl Document {
         &self,
         feature: LanguageServerFeature,
     ) -> impl Iterator<Item = &lsp_client::Client> {
+        let method = crate::language_servers::document_selector_method(feature);
+        let uri = std::cell::OnceCell::new();
+        self.language_servers_with_configured_feature(feature)
+            .filter(move |client| {
+                method.is_none_or(|method| {
+                    client.matches_document_selector(
+                        method,
+                        self.language_id().unwrap_or_default(),
+                        uri.get_or_init(|| self.url()).as_ref(),
+                    )
+                })
+            })
+    }
+
+    /// Workspace requests use the configured feature and server capability.
+    pub(crate) fn language_servers_with_configured_feature(
+        &self,
+        feature: LanguageServerFeature,
+    ) -> impl Iterator<Item = &lsp_client::Client> {
         let mut seen = std::collections::HashSet::new();
         self.language_config()
             .into_iter()
@@ -42,11 +61,11 @@ impl Document {
                     let attachment = self.language_servers.get(&features.name)?;
                     let client = &*attachment.client;
                     (attachment.opened
+                        && features.has_feature(feature)
                         && crate::language_servers::supports_feature(
                             client.capabilities(),
                             feature,
-                        )
-                        && features.has_feature(feature))
+                        ))
                     .then_some(client)
                 })
             })

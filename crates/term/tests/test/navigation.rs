@@ -6,7 +6,7 @@ use std::{
 
 use anyhow::Context as _;
 use editor_core::{Range, Selection, Transaction};
-use lsp_client::OffsetEncoding;
+use lsp_client::{OffsetEncoding, UriExt as _};
 use term::application::TestApplication;
 use tokio::sync::mpsc;
 use view::{
@@ -107,6 +107,104 @@ impl Fixture {
     async fn wait_message(&self, method: &str) -> anyhow::Result<serde_json::Value> {
         lsp::wait_message(&self.logs[0], method).await
     }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn static_document_selectors_route_requests_without_changing_bindings() -> anyhow::Result<()>
+{
+    use language_config::LanguageServerFeature;
+    use serde_json::json;
+
+    for case in [
+        "null", "empty", "relative", "outside", "language", "scheme", "notebook", "mixed",
+    ] {
+        let dir = tempfile::tempdir()?;
+        let project = dir.path().join("[scope] 工具");
+        std::fs::create_dir(&project)?;
+        // Match the canonical document path, including Windows short-path expansion.
+        let project = stdx::path::canonicalize(&project);
+        let base = lsp_client::lsp::Uri::from_file_path(&project).unwrap();
+        let notebook = json!({"notebook":"*", "language":"navigation-test"});
+        let selector = match case {
+            "null" => serde_json::Value::Null,
+            "empty" => json!([]),
+            "relative" => {
+                json!([{"language":"navigation-test", "scheme":"file", "pattern":{"baseUri":base,"pattern":"document.navigation-test"}}])
+            }
+            "outside" => {
+                json!([{"pattern":{"baseUri":lsp_client::lsp::Uri::from_file_path(project.join("other")).unwrap(),"pattern":"**/*"}}])
+            }
+            "language" => json!([{"language":"rust"}]),
+            "scheme" => json!([{"scheme":"untitled"}]),
+            "notebook" => json!([notebook]),
+            "mixed" => json!([notebook,{"language":"navigation-test"}]),
+            _ => unreachable!(),
+        };
+        let capabilities = project.join("capabilities.json");
+        std::fs::write(
+            &capabilities,
+            serde_json::to_vec(&json!({
+                "implementationProvider":{"documentSelector":selector,"id":"impl"},
+                "typeDefinitionProvider":{"documentSelector":selector,"id":"types"}
+            }))?,
+        )?;
+        let mut f = Fixture::with_servers(
+            &project,
+            &[
+                ("alpha", &["--capabilities", capabilities.to_str().unwrap()]),
+                ("beta", &["--registration-options"]),
+            ],
+        )
+        .await?;
+        let includes_alpha = matches!(case, "null" | "relative" | "mixed");
+        let doc = current_ref!(f.app.editor).1;
+        assert_eq!(
+            doc.language_servers()
+                .map(|server| server.name())
+                .collect::<Vec<_>>(),
+            ["alpha", "beta"]
+        );
+        assert_eq!(
+            doc.language_servers_with_feature(LanguageServerFeature::Diagnostics)
+                .count(),
+            2
+        );
+        assert_eq!(
+            doc.language_servers_with_feature(LanguageServerFeature::GotoImplementation)
+                .map(|server| server.name())
+                .collect::<Vec<_>>(),
+            if includes_alpha {
+                vec!["alpha", "beta"]
+            } else {
+                vec!["beta"]
+            },
+            "{case}"
+        );
+        assert!(!f
+            .locations(NavigationKind::Implementation)
+            .await?
+            .is_empty());
+        for (index, expected) in [(0, usize::from(includes_alpha)), (1, 1)] {
+            let log = lsp::read_log(&f.logs[index])?;
+            assert_eq!(
+                log.iter()
+                    .filter(|message| message["method"] == "textDocument/implementation")
+                    .count(),
+                expected,
+                "{case}: server {index}"
+            );
+            let caps = &log
+                .iter()
+                .find(|message| message["method"] == "initialize")
+                .unwrap()["params"]["capabilities"];
+            assert_eq!(
+                caps["textDocument"]["filters"]["relativePatternSupport"],
+                true
+            );
+        }
+        assert!(f.app.close().await.is_empty());
+    }
+    Ok(())
 }
 
 #[tokio::test(flavor = "multi_thread")]

@@ -22,13 +22,22 @@ type Completion = Box<dyn FnOnce(&mut Editor, anyhow::Result<bool>) + Send>;
 /// One queued prompt. Resolving it more than once has no effect.
 pub struct ConfirmationRequest {
     annotations: Vec<lsp::ChangeAnnotation>,
+    context: EditContext,
     operation: Mutex<Option<Operation>>,
+}
+
+/// Presentation hints do not alter whether an edit requires consent or how it is applied.
+#[derive(Debug, Default)]
+pub(crate) struct EditContext {
+    pub label: Option<String>,
+    pub is_refactoring: bool,
 }
 
 impl std::fmt::Debug for ConfirmationRequest {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("WorkspaceEditConfirmation")
             .field("annotations", &self.annotations)
+            .field("context", &self.context)
             .finish_non_exhaustive()
     }
 }
@@ -102,6 +111,14 @@ impl Operation {
 }
 
 impl ConfirmationRequest {
+    pub fn label(&self) -> Option<&str> {
+        self.context.label.as_deref()
+    }
+
+    pub fn is_refactoring(&self) -> bool {
+        self.context.is_refactoring
+    }
+
     pub fn annotations(&self) -> &[lsp::ChangeAnnotation] {
         &self.annotations
     }
@@ -150,7 +167,29 @@ impl Editor {
         origin: Option<LspActionContext>,
         completed: impl FnOnce(&mut Editor, anyhow::Result<bool>) + Send + 'static,
     ) {
-        self.request_edits(server, Edits::Workspace(edit), origin, Box::new(completed));
+        self.request_edits(
+            server,
+            Edits::Workspace(edit),
+            origin,
+            EditContext::default(),
+            Box::new(completed),
+        );
+    }
+
+    pub(crate) fn request_workspace_edit_with_context(
+        &mut self,
+        server: LanguageServerId,
+        edit: lsp::WorkspaceEdit,
+        context: EditContext,
+        completed: impl FnOnce(&mut Editor, anyhow::Result<bool>) + Send + 'static,
+    ) {
+        self.request_edits(
+            server,
+            Edits::Workspace(edit),
+            None,
+            context,
+            Box::new(completed),
+        );
     }
 
     /// Preserve per-action annotation namespaces until the shared batch preflight applies them.
@@ -161,7 +200,13 @@ impl Editor {
         origin: Option<LspActionContext>,
         completed: impl FnOnce(&mut Editor, anyhow::Result<bool>) + Send + 'static,
     ) {
-        self.request_edits(server, Edits::Batch(edits), origin, Box::new(completed));
+        self.request_edits(
+            server,
+            Edits::Batch(edits),
+            origin,
+            EditContext::default(),
+            Box::new(completed),
+        );
     }
 
     fn request_edits(
@@ -169,6 +214,7 @@ impl Editor {
         server: LanguageServerId,
         edits: Edits,
         origin: Option<LspActionContext>,
+        context: EditContext,
         completed: Completion,
     ) {
         let result = (|| -> anyhow::Result<_> {
@@ -232,6 +278,7 @@ impl Editor {
         self.present(|pending| {
             pending.workspace_edits.push_back(ConfirmationRequest {
                 annotations,
+                context,
                 operation: Mutex::new(Some(operation)),
             })
         });
