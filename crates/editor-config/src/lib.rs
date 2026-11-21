@@ -529,12 +529,22 @@ impl Config {
     }
 }
 
-#[derive(Debug, Default, PartialEq, Eq, PartialOrd, Ord, Deserialize, Serialize, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Deserialize, Serialize, Clone)]
 #[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
 pub struct BreadcrumbConfig {
     pub enable: bool,
-    #[serde(default)]
     pub path: BreadcrumbPathOptions,
+    pub separator: String,
+}
+
+impl Default for BreadcrumbConfig {
+    fn default() -> Self {
+        Self {
+            enable: false,
+            path: BreadcrumbPathOptions::default(),
+            separator: " > ".into(),
+        }
+    }
 }
 
 #[derive(Debug, Default, PartialEq, Eq, PartialOrd, Ord, Deserialize, Serialize, Clone, Copy)]
@@ -1700,6 +1710,7 @@ impl Default for IndentConfig {
 pub struct BufferLineConfig {
     /// Persistently display open buffers along the top
     pub show: BufferLine,
+    pub separator: String,
 }
 
 #[derive(Default, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

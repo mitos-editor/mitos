@@ -934,3 +934,30 @@ fn sidebar_specific_bindings_override_inherited_workspace_bindings() {
         Lookup::Actions(&[S::Resize])
     );
 }
+
+#[test]
+fn separators_are_runtime_strings() {
+    let settings = serde_json::json!(Config::default().editor_settings());
+    for (bar, separator) in [
+        ("breadcrumb", " > "),
+        ("bufferline", ""),
+        ("statusline", "│"),
+    ] {
+        let key = format!("/{bar}/separator");
+        assert_eq!(
+            settings.pointer(&key).and_then(serde_json::Value::as_str),
+            Some(separator)
+        );
+    }
+
+    let config = Config::load_test(
+        r#"
+        [editor.breadcrumb]
+        separator = ""
+        [editor.bufferline]
+        separator = " 界· "
+        "#,
+    );
+    assert_eq!(config.editor.breadcrumb.separator, "");
+    assert_eq!(config.editor.bufferline.separator, " 界· ");
+}

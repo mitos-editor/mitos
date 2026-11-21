@@ -1,9 +1,18 @@
 use crate::compositor::Component;
 use crate::compositor::DrawContext;
-use tui::buffer::Buffer as Surface;
+use editor_core::unicode::segmentation::UnicodeSegmentation;
+use tui::buffer::{Buffer as Surface, CellWidth};
 use tui::widgets::{Paragraph, Wrap};
 
 use view::graphics::Rect;
+
+/// Match the widths of the graphemes drawn by Ratatui's `Buffer::set_stringn`.
+pub(super) fn visible_grapheme_widths(text: &str) -> impl Iterator<Item = usize> {
+    text.graphemes(true)
+        .filter(|grapheme| !grapheme.contains(char::is_control))
+        .map(|grapheme| usize::from(grapheme.cell_width()))
+        .filter(|&width| width > 0)
+}
 
 pub struct Text {
     pub(crate) contents: tui::text::Text<'static>,

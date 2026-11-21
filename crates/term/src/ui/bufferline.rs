@@ -1,44 +1,76 @@
 //! Scroll at tab boundaries and delegate styled text clipping to Ratatui.
-use tui::{buffer::Buffer, layout::Rect, text::Line, widgets::Widget};
+use super::text::visible_grapheme_widths;
+use tui::{
+    buffer::Buffer,
+    layout::Rect,
+    text::{Line, Span},
+    widgets::Widget,
+};
+use view::graphics::RectExt as _;
 
-pub(super) fn render(titles: &[Line<'_>], active: usize, mut area: Rect, surface: &mut Buffer) {
+pub(super) fn render(
+    titles: &[Line<'_>],
+    active: usize,
+    separator: Span<'_>,
+    mut area: Rect,
+    surface: &mut Buffer,
+) {
     if area.is_empty() {
         return;
     }
     let Some(active_title) = titles.get(active) else {
         return;
     };
+    let separator_width = visible_grapheme_widths(&separator.content).sum::<usize>();
     // Include preceding tabs while the active tab still fits. An oversized active
     // tab starts at the left edge so its filename is visible even in narrow views.
     let mut first = active;
     let mut width = active_title.width();
     while first > 0 {
-        let previous = titles[first - 1].width();
-        if width.saturating_add(previous) > usize::from(area.width) {
+        let with_previous = width
+            .saturating_add(titles[first - 1].width())
+            .saturating_add(separator_width);
+        if with_previous > usize::from(area.width) {
             break;
         }
-        width += previous;
+        width = with_previous;
         first -= 1;
     }
 
-    for title in &titles[first..] {
+    for (index, title) in titles[first..].iter().enumerate() {
         if area.is_empty() {
             break;
         }
+        if index > 0 && separator_width > 0 {
+            let first_width = title
+                .spans
+                .iter()
+                .flat_map(|span| visible_grapheme_widths(&span.content))
+                .next();
+            if first_width
+                .is_none_or(|width| separator_width.saturating_add(width) > usize::from(area.width))
+            {
+                break;
+            }
+            surface.set_stringn(
+                area.x,
+                area.y,
+                &separator.content,
+                separator_width,
+                separator.style,
+            );
+            area = area.clip_left(separator_width as u16);
+        }
         let width = title.width().min(usize::from(area.width)) as u16;
         title.render(Rect { width, ..area }, surface);
-        area.x += width;
-        area.width -= width;
+        area = area.clip_left(width);
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tui::{
-        style::{Color, Style},
-        text::Span,
-    };
+    use tui::style::{Color, Style};
 
     fn row(surface: &Buffer, area: Rect) -> String {
         let mut text = String::new();
@@ -60,14 +92,31 @@ mod tests {
         let area = Rect::new(3, 2, 12, 1);
         for (active, label) in titles.iter().enumerate() {
             let mut surface = Buffer::empty(Rect::new(0, 0, 18, 4));
-            render(&titles, active, area, &mut surface);
+            render(&titles, active, Span::default(), area, &mut surface);
             assert!(row(&surface, area).contains(&label.to_string()));
             assert_eq!(surface[(2, 2)].symbol(), " ");
             assert_eq!(surface[(15, 2)].symbol(), " ");
         }
         let mut surface = Buffer::empty(area);
-        render(&titles, 0, area, &mut surface);
+        render(&titles, 0, Span::default(), area, &mut surface);
         assert!(row(&surface, area).starts_with(" one "));
+    }
+
+    #[test]
+    fn wide_separator_counts_toward_scrolling_and_only_joins_visible_tabs() {
+        let titles = ["aa", "bb", "語x"].map(Line::from);
+        let style = Style::default().fg(Color::Red).bg(Color::Blue);
+        for (width, expected) in [(6, "bb    "), (7, "aa界·bb"), (12, "aa界·bb界·語")] {
+            let area = Rect::new(2, 1, width, 1);
+            let mut surface = Buffer::empty(area);
+            render(&titles, 1, Span::styled("界·", style), area, &mut surface);
+            assert_eq!(row(&surface, area), expected);
+
+            if width >= 7 {
+                assert_eq!(surface[(area.x + 2, area.y)].fg, Color::Red);
+                assert_eq!(surface[(area.x + 2, area.y)].bg, Color::Blue);
+            }
+        }
     }
 
     #[test]
@@ -82,7 +131,7 @@ mod tests {
         ];
         let area = Rect::new(0, 0, 12, 1);
         let mut surface = Buffer::empty(area);
-        render(&titles, 1, area, &mut surface);
+        render(&titles, 1, Span::default(), area, &mut surface);
         assert!(row(&surface, area).contains("🦀 cafe\u{301}界 "));
         let icon = surface
             .content
@@ -101,13 +150,13 @@ mod tests {
         ];
         let area = Rect::new(0, 0, 8, 1);
         let mut surface = Buffer::empty(area);
-        render(&titles, 1, area, &mut surface);
+        render(&titles, 1, Span::default(), area, &mut surface);
         assert_eq!(row(&surface, area), " extreme");
         for width in 0..3 {
             let area = Rect::new(0, 0, width, 1);
-            render(&titles, 1, area, &mut Buffer::empty(area));
+            render(&titles, 1, Span::default(), area, &mut Buffer::empty(area));
         }
-        render(&[], 0, area, &mut surface);
+        render(&[], 0, Span::default(), area, &mut surface);
     }
 
     #[test]
@@ -116,12 +165,12 @@ mod tests {
             let titles = [Line::from(format!("{wide}a")), Line::from(" b ")];
             let area = Rect::new(0, 0, 5, 1);
             let mut surface = Buffer::empty(area);
-            render(&titles, 1, area, &mut surface);
+            render(&titles, 1, Span::default(), area, &mut surface);
             assert_eq!(row(&surface, area), " b   ");
 
             let area = Rect::new(0, 0, 1, 1);
             let mut surface = Buffer::empty(area);
-            render(&titles, 0, area, &mut surface);
+            render(&titles, 0, Span::default(), area, &mut surface);
             assert_eq!(row(&surface, area), " ");
         }
     }
@@ -134,12 +183,12 @@ mod tests {
         ])];
         let area = Rect::new(0, 0, 1, 1);
         let mut surface = Buffer::empty(area);
-        render(&titles, 0, area, &mut surface);
+        render(&titles, 0, Span::default(), area, &mut surface);
         assert_eq!(row(&surface, area), " ");
 
         let area = Rect::new(0, 0, 3, 1);
         let mut surface = Buffer::empty(area);
-        render(&titles, 0, area, &mut surface);
+        render(&titles, 0, Span::default(), area, &mut surface);
         assert_eq!(row(&surface, area), "🦀 ");
         assert_eq!(surface[(0, 0)].fg, Color::Red);
     }
@@ -152,17 +201,17 @@ mod tests {
             .collect();
         let area = Rect::new(0, 0, 8, 1);
         let mut surface = Buffer::empty(area);
-        render(&titles, 1, area, &mut surface);
+        render(&titles, 1, Span::default(), area, &mut surface);
         assert_eq!(row(&surface, area), " active ");
 
         let area = Rect::new(0, 0, 24, 1);
         let mut surface = Buffer::empty(area);
-        render(&titles, 1, area, &mut surface);
+        render(&titles, 1, Span::default(), area, &mut surface);
         assert_eq!(row(&surface, area), " first  active  last    ");
 
         let area = Rect::new(0, 0, 8, 1);
         let mut surface = Buffer::empty(area);
-        render(&titles[1..], 0, area, &mut surface);
+        render(&titles[1..], 0, Span::default(), area, &mut surface);
         assert_eq!(row(&surface, area), " active ");
     }
 
@@ -171,13 +220,19 @@ mod tests {
         let titles = vec![Line::from(" buffer "); 10_000];
         let area = Rect::new(0, 0, 16, 1);
         let mut surface = Buffer::empty(area);
-        render(&titles, titles.len() - 1, area, &mut surface);
+        render(
+            &titles,
+            titles.len() - 1,
+            Span::default(),
+            area,
+            &mut surface,
+        );
         assert_eq!(row(&surface, area), " buffer  buffer ");
 
         // Skipping a single huge title must not truncate its width to u16.
         let titles = [Line::from("x".repeat(70_000)), Line::from(" active ")];
         let mut surface = Buffer::empty(area);
-        render(&titles, 1, area, &mut surface);
+        render(&titles, 1, Span::default(), area, &mut surface);
         assert_eq!(row(&surface, area), " active         ");
     }
 }

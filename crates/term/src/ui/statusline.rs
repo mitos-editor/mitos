@@ -663,7 +663,11 @@ fn render_review_status(context: &mut RenderContext<'_>) {
 
 fn render_separator(context: &mut RenderContext<'_>) {
     let sep = &context.editor.config().statusline.separator;
-    let style = context.editor.theme.get("ui.statusline.separator");
+    let style = context
+        .editor
+        .theme
+        .try_get_exact("ui.statusline.separator")
+        .unwrap_or_default();
 
     context.push_span(Span::styled(sep.to_string(), style));
 }
@@ -745,6 +749,37 @@ fn render_code_action_hint(context: &mut RenderContext<'_>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn separator_uses_the_row_style_with_an_exact_override() -> anyhow::Result<()> {
+        use tui::style::Color;
+
+        let mut app = crate::ui::picker::test::application(false)?;
+        for (separator_scope, expected_fg) in [
+            ("", Color::DarkGray),
+            (
+                r#""ui.statusline.separator" = { fg = "yellow" }"#,
+                Color::Yellow,
+            ),
+        ] {
+            app.editor.theme = toml::from_str(&format!(
+                r#"
+"ui.statusline" = {{ fg = "white", bg = "blue" }}
+"ui.statusline.inactive" = {{ fg = "gray", bg = "black" }}
+{separator_scope}
+"#,
+            ))?;
+            let base_style = app.editor.theme.get("ui.statusline.inactive");
+            let (view, doc) = view::current_ref!(app.editor);
+            let spinners = ProgressSpinners::default();
+            let mut context = RenderContext::new(&app.editor, doc, view, &spinners, None);
+            let parts = render_parts(&mut context, &[StatusLineElementID::Separator], base_style);
+            let separator = &parts[0].line.spans[0];
+            assert_eq!(separator.style.fg, Some(expected_fg));
+            assert_eq!(separator.style.bg, Some(Color::Black));
+        }
+        Ok(())
+    }
 
     #[tokio::test]
     async fn file_names_keep_external_package_paths() -> anyhow::Result<()> {
