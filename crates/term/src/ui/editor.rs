@@ -6,7 +6,7 @@ use super::highlights::primary_native_cursor_kind;
 use crate::repeat::InsertEvent;
 use crate::{
     commands::{self, OnKeyCallback},
-    compositor::{Component, Context, Cursor, Event, EventResult},
+    compositor::{Component, Context, Cursor, Event, EventResult, MouseSelection},
     events::OnModeSwitch,
     key,
     keymap::{consume_count_key, KeymapResult, Keymaps},
@@ -395,11 +395,17 @@ impl EditorView {
                             pos,
                             true,
                         );
-                        cxt.interaction.mouse_down_range = Some(primary);
                         doc.set_selection(view_id, Selection::single(primary.anchor, primary.head));
                     } else {
                         doc.set_selection(view_id, Selection::point(pos));
                     }
+
+                    cxt.interaction.mouse_selection = Some(MouseSelection {
+                        view: view_id,
+                        doc: doc.id(),
+                        initial: doc.selection(view_id).primary(),
+                        dragged: false,
+                    });
 
                     if view_id != prev_view_id {
                         self.clear_completion(editor);
@@ -433,6 +439,12 @@ impl EditorView {
 
             MouseEventKind::Drag(MouseButton::Left) => {
                 let (view, doc) = current!(cxt.editor);
+                let Some(gesture) = &mut cxt.interaction.mouse_selection else {
+                    return EventResult::Ignored(None);
+                };
+                if gesture.view != view.id || gesture.doc != doc.id() {
+                    return EventResult::Ignored(None);
+                }
 
                 let pos = match view.pos_at_screen_coords(doc, row, column, true) {
                     Some(pos) => pos,
@@ -443,6 +455,7 @@ impl EditorView {
                 let primary = selection.primary_mut();
                 *primary = primary.put_cursor(doc.text().slice(..), pos, true);
                 doc.set_selection(view.id, selection);
+                gesture.dragged = true;
                 let view_id = view.id;
                 cxt.editor.ensure_cursor_in_view(view_id);
                 EventResult::Consumed(None)
@@ -475,26 +488,20 @@ impl EditorView {
             }
 
             MouseEventKind::Up(MouseButton::Left) => {
+                let Some(gesture) = cxt.interaction.mouse_selection.take() else {
+                    return EventResult::Ignored(None);
+                };
                 if !config.mouse.middle_click_paste {
                     return EventResult::Ignored(None);
                 }
 
                 let (view, doc) = current!(cxt.editor);
 
-                let should_yank = match cxt.interaction.mouse_down_range.take() {
-                    Some(down_range) => doc.selection(view.id).primary() != down_range,
-                    None => {
-                        // This should not happen under normal cases. We fall back to the original
-                        // behavior of yanking on non-single-char selections.
-                        doc.selection(view.id)
-                            .primary()
-                            .slice(doc.text().slice(..))
-                            .len_chars()
-                            > 1
-                    }
-                };
-
-                if should_yank {
+                if gesture.dragged
+                    && gesture.view == view.id
+                    && gesture.doc == doc.id()
+                    && doc.selection(view.id).primary() != gesture.initial
+                {
                     commands::yank_main_selection_to_register(
                         cxt.editor,
                         config.mouse.yank_register,
@@ -629,7 +636,12 @@ impl Component for EditorView {
                     sidebar.focus_buffer();
                 }
             }
-            if in_sidebar {
+            let selecting_in_editor = context.interaction.mouse_selection.is_some()
+                && matches!(
+                    mouse.kind,
+                    MouseEventKind::Drag(MouseButton::Left) | MouseEventKind::Up(MouseButton::Left)
+                );
+            if in_sidebar && !selecting_in_editor {
                 return self.sidebar.as_mut().unwrap().handle_event(event, context);
             }
         }
