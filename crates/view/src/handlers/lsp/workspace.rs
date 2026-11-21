@@ -71,37 +71,6 @@ impl Editor {
         );
     }
 
-    /// Validate the requesting server and apply edits using its negotiated encoding.
-    pub fn handle_workspace_edit(
-        &mut self,
-        server_id: LanguageServerId,
-        params: lsp::ApplyWorkspaceEditParams,
-    ) -> Result<lsp::ApplyWorkspaceEditResponse, jsonrpc::Error> {
-        let server = self
-            .language_server_by_id(server_id)
-            .ok_or_else(|| jsonrpc::Error {
-                code: jsonrpc::ErrorCode::InvalidRequest,
-                message: format!("Unknown language server: {server_id}"),
-                data: None,
-            })?;
-        if !server.is_initialized() {
-            return Err(jsonrpc::Error {
-                code: jsonrpc::ErrorCode::InvalidRequest,
-                message: "Server must be initialized to request workspace edits".to_string(),
-                data: None,
-            });
-        }
-        let result = self.apply_workspace_edit(server.offset_encoding(), &params.edit);
-        Ok(lsp::ApplyWorkspaceEditResponse {
-            applied: result.is_ok(),
-            failure_reason: result.as_ref().err().map(|err| err.kind.to_string()),
-            failed_change: result
-                .as_ref()
-                .err()
-                .map(|err| err.failed_change_idx as u32),
-        })
-    }
-
     /// Register supported dynamic capabilities and their required filesystem roots.
     /// Unsupported registrations are acknowledged for compatibility with servers
     /// that send them despite the advertised client capabilities.

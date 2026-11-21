@@ -12,7 +12,7 @@ use anyhow::{ensure, Context as _};
 use lsp_client::{lsp, LanguageServerId, OffsetEncoding, UriExt as _};
 use parking_lot::Mutex;
 
-use super::{ApplyEditError, ApplyEditErrorKind};
+use super::{changes, ApplyEditError, ApplyEditErrorKind, Change};
 use crate::{
     action::LspActionContext, callbacks::EditorCallbackSender, Document, DocumentId, Editor,
 };
@@ -310,55 +310,12 @@ fn required_annotations(
         .collect())
 }
 
-fn references(
-    edit: &lsp::WorkspaceEdit,
-) -> Result<Vec<(usize, &lsp::ChangeAnnotation)>, ApplyEditError> {
-    fn document<'a>(
-        index: usize,
-        document: &'a lsp::TextDocumentEdit,
-        ids: &mut Vec<(usize, &'a str)>,
-    ) {
-        for edit in &document.edits {
-            match edit {
-                lsp::DocumentTextEdit::Annotated(edit) => ids.push((index, &edit.annotation_id)),
-                lsp::DocumentTextEdit::Snippet(edit) => {
-                    if let Some(id) = &edit.annotation_id {
-                        ids.push((index, id));
-                    }
-                }
-                lsp::DocumentTextEdit::Plain(_) => (),
-            }
-        }
-    }
-    let mut ids = Vec::new();
-    match &edit.document_changes {
-        Some(lsp::DocumentChanges::Edits(edits)) => {
-            for (index, edit) in edits.iter().enumerate() {
-                document(index, edit, &mut ids);
-            }
-        }
-        Some(lsp::DocumentChanges::Operations(operations)) => {
-            for (index, operation) in operations.iter().enumerate() {
-                match operation {
-                    lsp::DocumentChangeOperation::Edit(edit) => document(index, edit, &mut ids),
-                    lsp::DocumentChangeOperation::Op(op) => {
-                        let annotation = match op {
-                            lsp::ResourceOp::Create(op) => &op.annotation_id,
-                            lsp::ResourceOp::Rename(op) => &op.annotation_id,
-                            lsp::ResourceOp::Delete(op) => &op.annotation_id,
-                        };
-                        if let Some(id) = annotation {
-                            ids.push((index, id));
-                        }
-                    }
-                }
-            }
-        }
-        None => (),
-    }
+fn references<'a>(
+    edit: &'a lsp::WorkspaceEdit,
+) -> Result<Vec<(usize, &'a lsp::ChangeAnnotation)>, ApplyEditError> {
     let mut references = Vec::new();
     let mut seen = HashSet::new();
-    for (index, id) in ids {
+    let mut add = |index, id: &'a str| -> Result<(), ApplyEditError> {
         let annotation = edit
             .change_annotations
             .as_ref()
@@ -369,6 +326,35 @@ fn references(
             })?;
         if seen.insert(id) {
             references.push((index, annotation));
+        }
+        Ok(())
+    };
+
+    for (index, change) in changes(edit).enumerate() {
+        match change {
+            Change::Document(document) => {
+                for edit in &document.edits {
+                    let id = match edit {
+                        lsp::DocumentTextEdit::Annotated(edit) => Some(&edit.annotation_id),
+                        lsp::DocumentTextEdit::Snippet(edit) => edit.annotation_id.as_ref(),
+                        lsp::DocumentTextEdit::Plain(_) => None,
+                    };
+                    if let Some(id) = id {
+                        add(index, id)?;
+                    }
+                }
+            }
+            Change::Resource(op) => {
+                let id = match op {
+                    lsp::ResourceOp::Create(op) => &op.annotation_id,
+                    lsp::ResourceOp::Rename(op) => &op.annotation_id,
+                    lsp::ResourceOp::Delete(op) => &op.annotation_id,
+                };
+                if let Some(id) = id {
+                    add(index, id)?;
+                }
+            }
+            Change::Unversioned(..) => {}
         }
     }
     Ok(references)
@@ -392,34 +378,15 @@ impl Targets {
             );
             Ok(())
         };
-        match &edit.document_changes {
-            Some(lsp::DocumentChanges::Edits(edits)) => {
-                for edit in edits {
-                    add(&edit.text_document.uri)?;
-                }
-            }
-            Some(lsp::DocumentChanges::Operations(operations)) => {
-                for operation in operations {
-                    match operation {
-                        lsp::DocumentChangeOperation::Edit(edit) => add(&edit.text_document.uri)?,
-                        lsp::DocumentChangeOperation::Op(lsp::ResourceOp::Create(op)) => {
-                            add(&op.uri)?
-                        }
-                        lsp::DocumentChangeOperation::Op(lsp::ResourceOp::Delete(op)) => {
-                            add(&op.uri)?
-                        }
-                        lsp::DocumentChangeOperation::Op(lsp::ResourceOp::Rename(op)) => {
-                            add(&op.old_uri)?;
-                            add(&op.new_uri)?;
-                        }
-                    }
-                }
-            }
-            None => {
-                if let Some(changes) = &edit.changes {
-                    for url in changes.keys() {
-                        add(url)?;
-                    }
+        for change in changes(edit) {
+            match change {
+                Change::Document(edit) => add(&edit.text_document.uri)?,
+                Change::Unversioned(uri, _) => add(uri)?,
+                Change::Resource(lsp::ResourceOp::Create(op)) => add(&op.uri)?,
+                Change::Resource(lsp::ResourceOp::Delete(op)) => add(&op.uri)?,
+                Change::Resource(lsp::ResourceOp::Rename(op)) => {
+                    add(&op.old_uri)?;
+                    add(&op.new_uri)?;
                 }
             }
         }
