@@ -907,3 +907,37 @@ impl Client {
         Some(self.call::<lsp::request::ExecuteCommand>(params))
     }
 }
+
+impl Client {
+    /// Whether this server owns content for the URI's scheme.
+    pub fn supports_text_document_content(&self, uri: &lsp::Uri) -> bool {
+        let Some((scheme, _)) = uri.as_str().split_once(':') else {
+            return false;
+        };
+        let Some(provider) = self
+            .capabilities
+            .get()
+            .and_then(|capabilities| capabilities.workspace.as_ref())
+            .and_then(|workspace| workspace.text_document_content.as_ref())
+        else {
+            return false;
+        };
+        let schemes = match provider {
+            lsp::OneOf::Left(registration) => &registration.text_document_content_options.schemes,
+            lsp::OneOf::Right(options) => &options.schemes,
+        };
+        !scheme.eq_ignore_ascii_case("file")
+            && schemes
+                .iter()
+                .any(|candidate| candidate.eq_ignore_ascii_case(scheme))
+    }
+
+    pub fn text_document_content(
+        &self,
+        uri: lsp::Uri,
+    ) -> impl Future<Output = Result<crate::TextDocumentContentResult>> + use<> {
+        self.call::<lsp::request::TextDocumentContentRequest>(lsp::TextDocumentContentParams {
+            uri,
+        })
+    }
+}

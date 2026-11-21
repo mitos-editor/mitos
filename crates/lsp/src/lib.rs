@@ -25,7 +25,7 @@ mod transport;
 pub use client::{Client, PartialResultRequest, RequestUpdate, WorkspaceDiagnosticRequest};
 pub use futures_executor::block_on;
 pub use jsonrpc::Call;
-pub use lsp::{Position, Url};
+pub use lsp::{Position, TextDocumentContentParams, TextDocumentContentResult, Url};
 pub mod lsp {
     pub use lsp_types::Uri as Url;
     pub use lsp_types::*;
@@ -102,6 +102,7 @@ pub enum MethodCall {
     RegisterCapability(lsp::RegistrationParams),
     UnregisterCapability(lsp::UnregistrationParams),
     ShowDocument(lsp::ShowDocumentParams),
+    TextDocumentContentRefresh(lsp::TextDocumentContentRefreshParams),
     WorkspaceDiagnosticRefresh,
     CodeLensRefresh,
     FoldingRangeRefresh,
@@ -115,6 +116,9 @@ impl MethodCall {
     pub fn parse(method: &str, params: jsonrpc::Params) -> Result<MethodCall> {
         use lsp::request::Request;
         let request = match method {
+            lsp::request::TextDocumentContentRefreshRequest::METHOD => {
+                Self::TextDocumentContentRefresh(params.parse()?)
+            }
             lsp::request::WorkDoneProgressCreate::METHOD => {
                 let params: lsp::WorkDoneProgressCreateParams = params.parse()?;
                 Self::WorkDoneProgressCreate(params)

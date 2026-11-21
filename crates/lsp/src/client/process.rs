@@ -134,7 +134,9 @@ impl Client {
             initialization_options: self.config.clone(),
             capabilities: lsp::ClientCapabilities {
                 workspace: Some(lsp::WorkspaceClientCapabilities {
-                    text_document_content: None,
+                    text_document_content: Some(lsp::TextDocumentContentClientCapabilities {
+                        dynamic_registration: Some(false),
+                    }),
                     folding_range: Some(lsp::FoldingRangeWorkspaceClientCapabilities {
                         refresh_support: Some(true),
                     }),

@@ -222,6 +222,10 @@ impl Editor {
 
                         Ok(serde_json::Value::Null)
                     }
+                    Ok(MethodCall::TextDocumentContentRefresh(params)) => {
+                        self.refresh_language_server_document(server_id, params.uri);
+                        Ok(Value::Null)
+                    }
                     Ok(MethodCall::SemanticTokensRefresh) => {
                         crate::features::semantic_tokens::refresh_for_language_server(
                             self, server_id,

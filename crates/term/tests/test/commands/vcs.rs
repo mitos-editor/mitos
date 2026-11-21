@@ -1,3 +1,5 @@
+mod source_documents;
+
 use editor_config::InlineBlameShow;
 use std::{path::Path, process::Command, sync::Arc, time::Duration};
 use stdx::rope::RopeExt as _;

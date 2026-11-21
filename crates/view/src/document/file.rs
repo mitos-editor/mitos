@@ -227,7 +227,7 @@ impl Document {
         anyhow::Error,
     > {
         if self.is_virtual() {
-            bail!("Adapter source documents cannot be saved; copy the text to a new buffer first");
+            bail!("Virtual source documents cannot be saved; copy the text to a new buffer first");
         }
         anyhow::ensure!(
             !self.is_content_readonly(),
@@ -613,10 +613,16 @@ impl Document {
 
     /// File path as a URL.
     pub fn url(&self) -> Option<lsp_client::lsp::Uri> {
+        if let Some(source) = self.language_server_source() {
+            return Some(source.uri.clone());
+        }
         lsp_client::lsp::Uri::from_file_path(self.path()?).ok()
     }
 
     pub fn uri(&self) -> Option<editor_core::Uri> {
+        if let Some(source) = self.language_server_source() {
+            return Some(editor_core::Uri::Virtual(source.uri.to_editor_url().ok()?));
+        }
         Some(self.path()?.into())
     }
 
@@ -636,6 +642,9 @@ impl Document {
     /// `.jj`, or `.mitos`. Falls back to the current working directory's workspace when the
     /// document has no path (scratch buffers). Lazily memoised on first call.
     pub fn workspace_root(&self) -> &Path {
+        if let Some(source) = self.language_server_source() {
+            return &source.workspace;
+        }
         if let Some(review) = self.review() {
             return review.workspace();
         }

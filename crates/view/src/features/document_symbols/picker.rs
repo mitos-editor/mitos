@@ -80,22 +80,24 @@ impl DocumentSymbolsUpdate {
     }
 }
 
-fn normalize(
+fn normalize_with_server(
     response: Option<lsp::DocumentSymbolResponse>,
     uri: &editor_core::Uri,
     encoding: OffsetEncoding,
+    server: Option<&lsp_client::Client>,
 ) -> Vec<DocumentSymbol> {
     match response {
         Some(lsp::DocumentSymbolResponse::Flat(symbols)) => symbols
             .into_iter()
             .filter_map(|symbol| {
                 Some(DocumentSymbol {
-                    symbol: Symbol::from_lsp(
+                    symbol: Symbol::from_lsp_with_server(
                         symbol.name,
                         symbol.kind,
                         symbol.container_name,
                         symbol.location,
                         encoding,
+                        server,
                     )?,
                     children: Vec::new(),
                 })
@@ -104,12 +106,13 @@ fn normalize(
         Some(lsp::DocumentSymbolResponse::Nested(symbols)) => symbols
             .into_iter()
             .map(|symbol| {
-                let children = normalize(
+                let children = normalize_with_server(
                     Some(lsp::DocumentSymbolResponse::Nested(
                         symbol.children.unwrap_or_default(),
                     )),
                     uri,
                     encoding,
+                    server,
                 );
                 DocumentSymbol {
                     symbol: Symbol {
@@ -117,6 +120,11 @@ fn normalize(
                         kind: symbol.kind,
                         container_name: None,
                         location: Location {
+                            server_id: uri
+                                .as_path()
+                                .is_none()
+                                .then(|| server.map(lsp_client::Client::id))
+                                .flatten(),
                             uri: uri.clone(),
                             range: symbol.selection_range,
                             offset_encoding: encoding,
@@ -151,15 +159,16 @@ impl Editor {
         let requests = doc
             .language_servers_with_feature(LanguageServerFeature::DocumentSymbols)
             .filter_map(|server| {
+                let client = doc.language_servers.get(server.name())?.client.clone();
                 let future = server.document_symbols(doc.identifier())?;
                 let (id, encoding, uri) = (server.id(), server.offset_encoding(), uri.clone());
                 Some(
                     async move {
                         (
                             id,
-                            future
-                                .await
-                                .map(|response| normalize(response, &uri, encoding)),
+                            future.await.map(|response| {
+                                normalize_with_server(response, &uri, encoding, Some(&client))
+                            }),
                         )
                     }
                     .boxed(),
