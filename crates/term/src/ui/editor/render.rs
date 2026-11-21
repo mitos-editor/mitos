@@ -14,15 +14,22 @@ use diagnostics::NumberOrString;
 use editor_config::{DiagnosticFilter, RulerStyle};
 use editor_core::unicode::width::UnicodeWidthStr;
 use loader::VERSION_AND_GIT_HASH;
-use std::{cell::Cell, collections::HashMap, rc::Rc, sync::LazyLock};
+use std::{
+    cell::Cell,
+    collections::HashMap,
+    hash::{DefaultHasher, Hash, Hasher},
+    rc::Rc,
+    sync::LazyLock,
+};
 use text_layout::{visual_offset_from_block, DisplayPosition};
 use theme::{icons::ICONS, Theme};
 use tui::{
     buffer::{Buffer as Surface, BufferExt as _},
-    layout::{Alignment, Constraint, Layout, Size},
+    layout::{Alignment, Constraint, Flex, Layout, Size},
     text::{Line, Span},
     widgets::{Paragraph, Row, StatefulWidget, Table, TableState, Widget},
 };
+use ui_core::hyperlinks::{Hyperlink, HyperlinkBuffer};
 use view::document::PresentedDocument;
 use view::{
     graphics::{Color, Modifier, Rect, RectExt as _, Style},
@@ -146,7 +153,14 @@ impl PaneRenderer {
         }
         cursor
     }
-    fn render_welcome(theme: &Theme, area: Rect, surface: &mut Surface, colorful: bool) {
+    fn render_welcome(
+        theme: &Theme,
+        area: Rect,
+        surface: &mut Surface,
+        colorful: bool,
+        view: ViewId,
+        hyperlinks: &mut HyperlinkBuffer,
+    ) {
         const LOGO: &str = r#"███╗   ███╗██╗████████╗ ██████╗ ███████╗
 ████╗ ████║██║╚══██╔══╝██╔═══██╗██╔════╝
 ██╔████╔██║██║   ██║   ██║   ██║███████╗
@@ -154,6 +168,8 @@ impl PaneRenderer {
 ██║ ╚═╝ ██║██║   ██║   ╚██████╔╝███████║
 ╚═╝     ╚═╝╚═╝   ╚═╝    ╚═════╝ ╚══════╝"#;
         const LOGO_HELP_PADDING: u16 = 6;
+        const FOOTER_HEIGHT: u16 = 2;
+        const PROJECT_URL: &str = env!("CARGO_PKG_REPOSITORY");
 
         static LOGO_WIDTH: LazyLock<u16> = LazyLock::new(|| {
             LOGO.lines()
@@ -204,13 +220,12 @@ impl PaneRenderer {
             ("<space>?", "", "see all commands"),
             (":quit", "<enter>", "quit Mitos"),
         ];
+        let project_label = PROJECT_URL.strip_prefix("https://").unwrap_or(PROJECT_URL);
         let footer = [
-            Line::default(),
-            Line::from(vec![
-                Span::styled("project: ", dim),
-                Span::styled("github.com/mitos-editor/mitos", accent),
-            ]),
+            Span::styled("project: ", dim),
+            Span::styled(project_label, accent),
         ];
+        let footer_widths = footer.each_ref().map(|span| span.width() as u16);
         let command_width = commands
             .iter()
             .map(|(command, suffix, _)| command.width() + suffix.width())
@@ -224,16 +239,15 @@ impl PaneRenderer {
         const COMMAND_SPACING: u16 = 2;
         let command_table_width = command_width + COMMAND_SPACING + description_width;
 
-        let help_height = (header.len() + commands.len() + footer.len()) as u16;
+        let help_height = (header.len() + commands.len()) as u16 + FOOTER_HEIGHT;
         if area.height < help_height {
             return;
         }
 
         let help_width = header
             .iter()
-            .chain(&footer)
             .map(|line| line.width() as u16)
-            .chain(std::iter::once(command_table_width))
+            .chain([footer_widths.iter().sum(), command_table_width])
             .max()
             .unwrap_or_default();
         if area.width < help_width {
@@ -272,7 +286,7 @@ impl PaneRenderer {
         let [header_area, commands_area, footer_area] = Layout::vertical([
             Constraint::Length(header.len() as u16),
             Constraint::Length(commands.len() as u16),
-            Constraint::Length(footer.len() as u16),
+            Constraint::Length(FOOTER_HEIGHT),
         ])
         .areas(help_area);
 
@@ -297,12 +311,22 @@ impl PaneRenderer {
             ],
         )
         .column_spacing(COMMAND_SPACING)
-        .flex(tui::layout::Flex::Legacy);
+        .flex(Flex::Legacy);
         StatefulWidget::render(table, commands_area, surface, &mut TableState::default());
 
-        Paragraph::new(footer.to_vec())
-            .alignment(Alignment::Center)
-            .render(footer_area, surface);
+        let [prefix_area, link_area] = Layout::horizontal(footer_widths.map(Constraint::Length))
+            .flex(Flex::Center)
+            .areas(footer_area.clip_top(1));
+        let [prefix, link_label] = footer;
+        prefix.render(prefix_area, surface);
+        link_label.render(link_area, surface);
+
+        let mut identity = DefaultHasher::new();
+        ("welcome-project", view).hash(&mut identity);
+        if let Some(link) = Hyperlink::new(identity.finish(), PROJECT_URL.into()) {
+            let id = hyperlinks.insert(link);
+            hyperlinks.set(link_area, id);
+        }
     }
 
     #[allow(clippy::too_many_lines, clippy::too_many_arguments)]
@@ -315,7 +339,7 @@ impl PaneRenderer {
         content: Rect,
         surface: &mut Surface,
         is_focused: bool,
-        hyperlinks: &mut ui_core::hyperlinks::HyperlinkBuffer,
+        hyperlinks: &mut HyperlinkBuffer,
     ) -> Option<DisplayPosition> {
         if doc.source().is_binary() || doc.source().review().is_some() {
             *syntax_cache = syntax_cache::ViewportSyntaxCache::default();
@@ -434,7 +458,14 @@ impl PaneRenderer {
             && doc.source().version() == 0
             && doc.source().is_welcome
         {
-            Self::render_welcome(theme, inner, surface, options.true_color);
+            Self::render_welcome(
+                theme,
+                inner,
+                surface,
+                options.true_color,
+                view.id,
+                hyperlinks,
+            );
         }
 
         Self::render_view_border(editor, view, options.area, surface);
@@ -1026,5 +1057,33 @@ mod tests {
             assert_eq!(surface[(viewport.right(), 1)].symbol(), "R");
         }
         Ok(())
+    }
+
+    #[test]
+    fn welcome_links_only_the_repository_label() {
+        for width in [50, 100] {
+            let area = Rect::new(3, 2, width, 24);
+            let mut surface = Surface::empty(area);
+            let mut hyperlinks = HyperlinkBuffer::new(area);
+            PaneRenderer::render_welcome(
+                &Theme::default(),
+                area,
+                &mut surface,
+                false,
+                ViewId::default(),
+                &mut hyperlinks,
+            );
+
+            let mut linked_text = String::new();
+            for y in area.y..area.bottom() {
+                for x in area.x..area.right() {
+                    if let Some(link) = hyperlinks.get(x, y) {
+                        assert_eq!(link.uri(), "https://github.com/mitos-editor/mitos");
+                        linked_text.push_str(surface[(x, y)].symbol());
+                    }
+                }
+            }
+            assert_eq!(linked_text, "github.com/mitos-editor/mitos");
+        }
     }
 }
