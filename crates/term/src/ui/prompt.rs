@@ -477,63 +477,29 @@ impl Prompt {
                 position
             }
             Movement::BackwardWord(rep) => {
-                let char_indices: Vec<(usize, char)> = self.line.char_indices().collect();
-                if char_indices.is_empty() {
-                    return self.cursor;
-                }
-                let mut char_position = char_indices
-                    .iter()
-                    .position(|(idx, _)| *idx == self.cursor)
-                    .unwrap_or(char_indices.len() - 1);
-
+                let mut position = self.cursor;
                 for _ in 0..rep {
-                    if char_position == 0 {
-                        break;
-                    }
-
-                    let mut found = None;
-                    for prev in (0..char_position - 1).rev() {
-                        if is_word_sep(char_indices[prev].1) {
-                            found = Some(prev + 1);
-                            break;
-                        }
-                    }
-
-                    char_position = found.unwrap_or(0);
+                    // Skip the closest character so a word start moves to the previous word.
+                    let Some((index, separator)) = self.line[..position]
+                        .char_indices()
+                        .rev()
+                        .skip(1)
+                        .find(|&(_, ch)| is_word_sep(ch))
+                    else {
+                        return 0;
+                    };
+                    position = index + separator.len_utf8();
                 }
-                char_indices[char_position].0
+                position
             }
             Movement::ForwardWord(rep) => {
-                let char_indices: Vec<(usize, char)> = self.line.char_indices().collect();
-                if char_indices.is_empty() {
-                    return self.cursor;
-                }
-                let mut char_position = char_indices
-                    .iter()
-                    .position(|(idx, _)| *idx == self.cursor)
-                    .unwrap_or(char_indices.len());
-
+                let mut rest = &self.line[self.cursor..];
                 for _ in 0..rep {
-                    // Skip any non-whitespace characters
-                    while char_position < char_indices.len()
-                        && !is_word_sep(char_indices[char_position].1)
-                    {
-                        char_position += 1;
-                    }
-
-                    // Skip any whitespace characters
-                    while char_position < char_indices.len()
-                        && is_word_sep(char_indices[char_position].1)
-                    {
-                        char_position += 1;
-                    }
-
-                    // We are now on the start of the next word
+                    rest = rest
+                        .trim_start_matches(|ch| !is_word_sep(ch))
+                        .trim_start_matches(is_word_sep);
                 }
-                char_indices
-                    .get(char_position)
-                    .map(|(i, _)| *i)
-                    .unwrap_or_else(|| self.line.len())
+                self.line.len() - rest.len()
             }
             Movement::ForwardChar(rep) => {
                 let mut position = self.cursor;
@@ -592,54 +558,13 @@ impl Prompt {
         self.cursor = self.line.len();
     }
 
-    fn delete(&mut self, cx: &mut Context, delete: fn(&mut Self, &Editor)) {
-        delete(self, cx.editor);
+    fn delete_to(&mut self, cx: &mut Context, movement: Movement) {
+        let target = self.eval_movement(movement);
+        let start = self.cursor.min(target);
+        self.line.replace_range(start..self.cursor.max(target), "");
+        self.cursor = start;
+        self.recalculate_completion(cx.editor);
         (self.callback_fn)(cx, &self.line, PromptEvent::Update);
-    }
-
-    pub fn delete_char_backwards(&mut self, editor: &Editor) {
-        let pos = self.eval_movement(Movement::BackwardChar(1));
-        self.line.replace_range(pos..self.cursor, "");
-        self.cursor = pos;
-
-        self.recalculate_completion(editor);
-    }
-
-    pub fn delete_char_forwards(&mut self, editor: &Editor) {
-        let pos = self.eval_movement(Movement::ForwardChar(1));
-        self.line.replace_range(self.cursor..pos, "");
-
-        self.recalculate_completion(editor);
-    }
-
-    pub fn delete_word_backwards(&mut self, editor: &Editor) {
-        let pos = self.eval_movement(Movement::BackwardWord(1));
-        self.line.replace_range(pos..self.cursor, "");
-        self.cursor = pos;
-
-        self.recalculate_completion(editor);
-    }
-
-    pub fn delete_word_forwards(&mut self, editor: &Editor) {
-        let pos = self.eval_movement(Movement::ForwardWord(1));
-        self.line.replace_range(self.cursor..pos, "");
-
-        self.recalculate_completion(editor);
-    }
-
-    pub fn kill_to_start_of_line(&mut self, editor: &Editor) {
-        let pos = self.eval_movement(Movement::StartOfLine);
-        self.line.replace_range(pos..self.cursor, "");
-        self.cursor = pos;
-
-        self.recalculate_completion(editor);
-    }
-
-    pub fn kill_to_end_of_line(&mut self, editor: &Editor) {
-        let pos = self.eval_movement(Movement::EndOfLine);
-        self.line.replace_range(self.cursor..pos, "");
-
-        self.recalculate_completion(editor);
     }
 
     pub fn clear(&mut self, editor: &Editor) {
@@ -1000,12 +925,12 @@ impl Prompt {
                 }
                 PromptAction::MoveEnd => self.move_end(),
                 PromptAction::MoveStart => self.move_start(),
-                PromptAction::DeleteWordBackward => self.delete(cx, Self::delete_word_backwards),
-                PromptAction::DeleteWordForward => self.delete(cx, Self::delete_word_forwards),
-                PromptAction::DeleteToEnd => self.delete(cx, Self::kill_to_end_of_line),
-                PromptAction::DeleteToStart => self.delete(cx, Self::kill_to_start_of_line),
-                PromptAction::DeleteBackward => self.delete(cx, Self::delete_char_backwards),
-                PromptAction::DeleteForward => self.delete(cx, Self::delete_char_forwards),
+                PromptAction::DeleteWordBackward => self.delete_to(cx, Movement::BackwardWord(1)),
+                PromptAction::DeleteWordForward => self.delete_to(cx, Movement::ForwardWord(1)),
+                PromptAction::DeleteToEnd => self.delete_to(cx, Movement::EndOfLine),
+                PromptAction::DeleteToStart => self.delete_to(cx, Movement::StartOfLine),
+                PromptAction::DeleteBackward => self.delete_to(cx, Movement::BackwardChar(1)),
+                PromptAction::DeleteForward => self.delete_to(cx, Movement::ForwardChar(1)),
                 PromptAction::InsertWord => {
                     let (view, doc) = current!(cx.editor);
                     let text = doc.text().slice(..);
@@ -1250,6 +1175,28 @@ use view::graphics::RectExt as _;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn word_movement_stops_at_a_path_component_boundary() {
+        let mut prompt = Prompt::new(
+            ":".into(),
+            None,
+            |_, _| CompletionResult::Immediate(Vec::new()),
+            |_, _, _| {},
+        );
+        let directory = format!("dir{}", std::path::MAIN_SEPARATOR);
+        prompt.line = format!("{directory}界");
+        prompt.move_end();
+        prompt.move_cursor(Movement::BackwardWord(1));
+        assert_eq!(prompt.position(), directory.len());
+
+        prompt.move_cursor(Movement::BackwardWord(1));
+        assert_eq!(prompt.position(), 0);
+        prompt.move_cursor(Movement::ForwardWord(1));
+        assert_eq!(prompt.position(), directory.len());
+        prompt.move_cursor(Movement::ForwardWord(1));
+        assert_eq!(prompt.position(), prompt.line.len());
+    }
 
     #[test]
     fn shortened_prompt_clamps_scroll_and_cursor_to_character_boundaries() {
