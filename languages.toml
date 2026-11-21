@@ -1441,6 +1441,8 @@ file-types = [
   { glob = ".xserverrc" }, # ~/.xserverrc
   { glob = "xserverrc" }, # /etc/X11/xinit/xserverrc
   { glob = "direnvrc" }, # ~/.config/direnv/direnvrc
+  { glob = ".envrc" }, # https://direnv.net/
+  { glob = ".envrc.*" },
 ]
 shebangs = ["sh", "bash", "dash", "zsh"]
 comment-token = "#"
@@ -3557,8 +3559,6 @@ scope = "source.env"
 file-types = [
   { glob = ".env" },
   { glob = ".env.*" },
-  { glob = ".envrc" },
-  { glob = ".envrc.*" },
   { glob = "_environment" }, # https://quarto.org/docs/projects/environment.html#environment-file
   { glob = "_environment-*" }, # https://quarto.org/docs/projects/environment.html#profile-environments
   { glob = "_environment.local" }, # https://quarto.org/docs/projects/environment.html#local-environment
