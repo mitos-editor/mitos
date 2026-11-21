@@ -52,6 +52,20 @@ impl<K: Eq + Hash> Tree<K> {
         }
     }
 
+    pub fn set_expanded(&mut self, key: K, expanded: bool) -> bool {
+        if expanded {
+            self.expanded.insert(key)
+        } else {
+            self.expanded.remove(&key)
+        }
+    }
+
+    pub fn clear(&mut self) -> bool {
+        let changed = !self.expanded.is_empty();
+        self.expanded.clear();
+        changed
+    }
+
     /// Flatten a forest in sibling order, keeping each subtree next to its parent.
     /// The loader returns no children for leaves. Collapsing a parent preserves
     /// its descendants' expansion state for the next time it is opened.

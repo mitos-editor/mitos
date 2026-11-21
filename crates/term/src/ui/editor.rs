@@ -9,7 +9,7 @@ use crate::{
     compositor::{Component, Context, Cursor, Event, EventResult},
     events::OnModeSwitch,
     key,
-    keymap::{KeymapResult, Keymaps},
+    keymap::{consume_count_key, KeymapResult, Keymaps},
     ui::{layout::ApplicationLayout, Completion},
 };
 use render::{PaneOptions, PaneRenderer};
@@ -231,23 +231,14 @@ impl EditorView {
     }
 
     fn command_mode(&mut self, mode: Mode, cxt: &mut commands::Context, event: KeyEvent) {
-        match (event, cxt.interaction.count) {
-            // If the count is already started and the input is a number, always continue the count.
-            (key!(i @ '0'..='9'), Some(count)) => {
-                let i = i.to_digit(10).unwrap() as usize;
-                let count = count.get() * 10 + i;
-                if count > 100_000_000 {
-                    return;
-                }
-                cxt.interaction.count = NonZeroUsize::new(count);
-            }
-            // A non-zero digit will start the count if that number isn't used by a keymap.
-            (key!(i @ '1'..='9'), None) if !self.keymaps.contains_key(mode, event) => {
-                let i = i.to_digit(10).unwrap() as usize;
-                cxt.interaction.count = NonZeroUsize::new(i);
-            }
+        if consume_count_key(&mut cxt.interaction.count, event, || {
+            !self.keymaps.contains_key(mode, event)
+        }) {
+            return;
+        }
+        match event {
             // special handling for repeat operator
-            (key!('.'), _) if self.keymaps.pending().is_empty() => {
+            key!('.') if self.keymaps.pending().is_empty() => {
                 if let Some(plan) = self.repeat.begin_replay() {
                     let count = cxt.interaction.count.map_or(1, NonZeroUsize::into);
                     let result = plan.replay(cxt, count, |cx, key| self.insert_mode(cx, key));
@@ -929,13 +920,20 @@ impl Component for EditorView {
 
         if show_pending {
             let mut disp = String::new();
-            if let Some(count) = cx.interaction.count {
+            let (count, pending, pseudo_pending) = match &self.sidebar {
+                Some(sidebar) if sidebar_focused && self.resizing.is_none() => {
+                    (sidebar.count, sidebar.pending_keys(), &[][..])
+                }
+                _ => (
+                    cx.interaction.count,
+                    self.keymaps.pending(),
+                    self.pseudo_pending.as_slice(),
+                ),
+            };
+            if let Some(count) = count {
                 disp.push_str(&count.to_string())
             }
-            for key in self.keymaps.pending() {
-                disp.push_str(&key.key_sequence_format());
-            }
-            for key in &self.pseudo_pending {
+            for key in pending.iter().chain(pseudo_pending) {
                 disp.push_str(&key.key_sequence_format());
             }
             let style = cx.editor.theme.get("ui.text");

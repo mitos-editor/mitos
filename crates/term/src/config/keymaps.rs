@@ -1,7 +1,8 @@
 //! Editor and component keymaps, including picker-specific inheritance.
 use crate::keymap::component::{
-    quicklist_picker_keymap, BlameAction, ComponentKeymaps, DiffAction, MenuAction, PageAction,
-    PickerAction, PickerItemAction, PopupAction, PromptAction, SidebarAction,
+    quicklist_picker_keymap, BlameAction, ComponentKeymaps, DiffAction, DirectoryAction,
+    MenuAction, PageAction, PickerAction, PickerItemAction, PopupAction, PromptAction,
+    SidebarAction,
 };
 use crate::keymap::{self, KeyTrie};
 use serde::{Deserialize, Deserializer};
@@ -59,6 +60,8 @@ impl<'de> Deserialize<'de> for SidebarBinding {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         use serde::de::IntoDeserializer;
         let action = String::deserialize(deserializer)?;
+        let directory =
+            |action| SidebarAction::Picker(PickerAction::Item(PickerItemAction::Directory(action)));
         Ok(Self(match action.as_str() {
             "filter" => SidebarAction::Filter,
             "focus_editor" => SidebarAction::FocusEditor,
@@ -66,6 +69,10 @@ impl<'de> Deserialize<'de> for SidebarBinding {
             "next_view" => SidebarAction::NextView,
             "previous_view" => SidebarAction::PreviousView,
             "resize" => SidebarAction::Resize,
+            "fold_open" => directory(DirectoryAction::Open),
+            "fold_close" => directory(DirectoryAction::Close),
+            "fold_toggle" => directory(DirectoryAction::Toggle),
+            "fold_all" => directory(DirectoryAction::CloseAll),
             action => SidebarAction::Picker(
                 FileExplorerAction::deserialize(action.into_deserializer())?.0,
             ),

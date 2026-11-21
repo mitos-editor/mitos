@@ -8,6 +8,7 @@ use super::{canonicalize_key, EditorView};
 use crate::{
     compositor::{Context, Event},
     key,
+    keymap::consume_count_key,
 };
 
 pub(super) struct Resize {
@@ -76,22 +77,14 @@ impl EditorView {
         canonicalize_key(&mut key);
         cx.editor.reset_idle_timer();
         cx.editor.status_msg = None;
-        match key {
-            key!(Enter) | key!(Esc) | key!(Null) => {
-                self.finish_resize(cx.editor, key != key!(Enter));
-                cx.interaction.count = None;
-                return true;
-            }
-            key!(digit @ '0'..='9') if resize.count.is_some() || digit != '0' => {
-                let next = resize.count.map_or(0, NonZeroUsize::get) * 10
-                    + digit.to_digit(10).unwrap() as usize;
-                if next <= 100_000_000 {
-                    resize.count = NonZeroUsize::new(next);
-                }
-                cx.interaction.count = resize.count;
-                return true;
-            }
-            _ => {}
+        if consume_count_key(&mut resize.count, key, || true) {
+            cx.interaction.count = resize.count;
+            return true;
+        }
+        if matches!(key, key!(Enter) | key!(Esc) | key!(Null)) {
+            self.finish_resize(cx.editor, key != key!(Enter));
+            cx.interaction.count = None;
+            return true;
         }
         let count = resize.count.take();
         cx.interaction.count = None;

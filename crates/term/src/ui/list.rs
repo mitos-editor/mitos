@@ -14,9 +14,11 @@ pub(super) fn move_cursor(
     Some(match (cursor, direction) {
         (None, Direction::Forward) => 0,
         (None, Direction::Backward) => len.saturating_sub(amount) % len,
-        (Some(cursor), Direction::Forward) => cursor.saturating_add(amount) % len,
+        (Some(cursor), Direction::Forward) => {
+            ((u64::from(cursor) + u64::from(amount)) % u64::from(len)) as u32
+        }
         (Some(cursor), Direction::Backward) => {
-            cursor.saturating_add(len).saturating_sub(amount) % len
+            ((u64::from(cursor) + u64::from(len - amount % len)) % u64::from(len)) as u32
         }
     })
 }
@@ -40,7 +42,7 @@ mod tests {
             (None, 3, 2, B, Some(1)),
             (Some(2), 3, 1, F, Some(0)),
             (Some(0), 3, 1, B, Some(2)),
-            (Some(1), 3, 8, B, Some(0)),
+            (Some(1), 3, 8, B, Some(2)),
         ] {
             assert_eq!(move_cursor(cursor, len, amount, direction), expected);
         }

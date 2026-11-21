@@ -1427,9 +1427,14 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         }
     }
 
-    pub(super) fn execute_actions(
+    fn execute_actions(&mut self, actions: &[PickerAction], ctx: &mut Context) -> EventResult {
+        self.execute_actions_with_steps(actions, 1, ctx)
+    }
+
+    pub(super) fn execute_actions_with_steps(
         &mut self,
         actions: &[PickerAction],
+        steps: u32,
         ctx: &mut Context,
     ) -> EventResult {
         let close_fn = |picker: &mut Self, after: Option<compositor::Callback>| {
@@ -1554,10 +1559,10 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             }
             match action {
                 PickerAction::MoveUp => {
-                    self.move_by(1, Direction::Backward);
+                    self.move_by(steps, Direction::Backward);
                 }
                 PickerAction::MoveDown => {
-                    self.move_by(1, Direction::Forward);
+                    self.move_by(steps, Direction::Forward);
                 }
                 PickerAction::PageDown => {
                     self.page_down();

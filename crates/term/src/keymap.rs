@@ -12,6 +12,7 @@ use arc_swap::{
 use macros::key;
 use std::{
     collections::{BTreeSet, HashMap},
+    num::NonZeroUsize,
     sync::Arc,
 };
 use ui_core::{
@@ -19,6 +20,24 @@ use ui_core::{
     keymap::{BindingLookup, KeymapPolicy, KeymapState},
 };
 use view::{document::Mode, info::Info};
+
+pub(crate) fn consume_count_key(
+    count: &mut Option<NonZeroUsize>,
+    key: KeyEvent,
+    can_start: impl FnOnce() -> bool,
+) -> bool {
+    let key!(digit @ '0'..='9') = key else {
+        return false;
+    };
+    if count.is_none() && (digit == '0' || !can_start()) {
+        return false;
+    }
+    let next = count.map_or(0, NonZeroUsize::get) * 10 + digit.to_digit(10).unwrap() as usize;
+    if next <= 100_000_000 {
+        *count = NonZeroUsize::new(next);
+    }
+    true
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct EditorPolicy;

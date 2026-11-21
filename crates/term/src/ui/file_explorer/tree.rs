@@ -185,10 +185,7 @@ impl ExplorerTree {
             .skip(1)
             .take_while(|parent| *parent != root)
         {
-            let parent = parent.to_path_buf();
-            if !self.expanded.is_expanded(&parent) {
-                self.expanded.toggle(parent);
-            }
+            self.expanded.set_expanded(parent.to_path_buf(), true);
         }
     }
 }
