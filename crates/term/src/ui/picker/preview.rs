@@ -104,15 +104,12 @@ pub enum ImagePreview {
         size: Size,
         image: Arc<PreparedImage>,
     },
-    Failed {
-        size: Size,
-    },
 }
 
 impl ImagePreview {
     fn size(&self) -> Size {
         match self {
-            Self::Loading { size, .. } | Self::Ready { size, .. } | Self::Failed { size } => *size,
+            Self::Loading { size, .. } | Self::Ready { size, .. } => *size,
         }
     }
 }
@@ -120,51 +117,8 @@ impl ImagePreview {
 // We don't store this enum in the cache so as to avoid lifetime constraints
 // from borrowing a document already opened in the editor.
 pub enum Preview<'picker, 'editor> {
-    Cached(&'picker mut CachedPreview),
+    Cached(&'picker CachedPreview),
     EditorDocument(&'editor Document),
-}
-
-impl Preview<'_, '_> {
-    fn document(&self) -> Option<&Document> {
-        match self {
-            Preview::EditorDocument(doc) => Some(doc),
-            Preview::Cached(CachedPreview::Document(doc)) => Some(doc),
-            _ => None,
-        }
-    }
-
-    fn dir_content(&self) -> Option<&Vec<(PathBuf, bool)>> {
-        match self {
-            Preview::Cached(CachedPreview::Directory(dir_content)) => Some(dir_content),
-            _ => None,
-        }
-    }
-
-    fn image(&mut self) -> Option<&mut ImagePreview> {
-        match self {
-            Preview::Cached(CachedPreview::Image(image)) => Some(image.as_mut()),
-            _ => None,
-        }
-    }
-
-    /// Alternate text to show for the preview.
-    fn placeholder(&self) -> &str {
-        match self {
-            Self::EditorDocument(_) => "<Invalid file location>",
-            Self::Cached(preview) => match &**preview {
-                CachedPreview::Document(_) => "<Invalid file location>",
-                CachedPreview::Directory(_) => "<Invalid directory location>",
-                CachedPreview::Image(image) => match &**image {
-                    ImagePreview::Loading { .. } => "<Loading image>",
-                    ImagePreview::Ready { .. } => "<Rendering image>",
-                    ImagePreview::Failed { .. } => "<Image preview unavailable>",
-                },
-                CachedPreview::Binary => "<Binary file>",
-                CachedPreview::LargeFile => "<File too large to preview>",
-                CachedPreview::NotFound => "<File not found>",
-            },
-        }
-    }
 }
 
 #[derive(Default)]
@@ -449,7 +403,7 @@ impl FilePreview {
     }
 
     pub(super) fn cached<'preview, 'editor>(
-        &'preview mut self,
+        &'preview self,
         editor: &'editor Editor,
         (target, range): FileLocation<'_>,
     ) -> Option<(Preview<'preview, 'editor>, Option<(usize, usize)>)> {
@@ -457,8 +411,8 @@ impl FilePreview {
             PathOrId::Id(id) => Some((Preview::EditorDocument(editor.document(id)?), range)),
             PathOrId::Path(path) => self
                 .preview_cache
-                .get_mut(path)
-                .map(|entry| (Preview::Cached(&mut entry.preview), range)),
+                .get(path)
+                .map(|entry| (Preview::Cached(&entry.preview), range)),
         }
     }
 
@@ -643,7 +597,7 @@ fn open_text_document<'a>(editor: &'a Editor, path: &Path) -> Option<&'a Documen
 }
 
 pub(super) fn render_preview_content(
-    mut preview: Preview<'_, '_>,
+    preview: Preview<'_, '_>,
     range: Option<(usize, usize)>,
     search: Option<&search::Search>,
     state: &mut FileScroll,
@@ -652,104 +606,37 @@ pub(super) fn render_preview_content(
     cx: &DrawContext,
 ) {
     let text_style = cx.editor.theme.get("ui.text");
-    let directory_style = cx.editor.theme.get("ui.text.directory");
-    if let Some(image) = preview.image() {
+    let mut placeholder = |text| {
         state.scroll.update(inner.height, 0);
-        match image {
-            ImagePreview::Loading { .. } => {
-                render_preview_placeholder(surface, inner, "<Loading image>", text_style);
-            }
-            ImagePreview::Ready { image, .. } => {
-                render_image(&image.protocol, &image.details, inner, surface, text_style);
-            }
-            ImagePreview::Failed { .. } => {
-                render_preview_placeholder(
-                    surface,
-                    inner,
-                    "<Image preview unavailable>",
-                    text_style,
-                );
-            }
-        }
-        return;
-    }
-
-    let doc = match preview.document() {
-        Some(doc)
-            if range.is_none_or(|(start, end)| {
-                start <= end && end <= doc.text().len_lines(stdx::rope::LINE_TYPE)
-            }) =>
-        {
-            doc
-        }
-        _ => {
-            if let Some(dir_content) = preview.dir_content() {
-                state.scroll.update(inner.height, dir_content.len());
-                let content = scroll::text_area(inner);
-                for (i, (path, is_dir)) in dir_content
-                    .iter()
-                    .skip(state.scroll.offset)
-                    .take(inner.height as usize)
-                    .enumerate()
-                {
-                    let name = path
-                        .file_name()
-                        .map_or_else(|| Cow::Borrowed(".."), |name| name.to_string_lossy());
-
-                    if cx.editor.config().icons {
-                        let icon = if *is_dir {
-                            ICONS.fs().directory().get_with_style_or_default(
-                                &name,
-                                path.file_name().is_none(),
-                                &cx.editor.theme,
-                                directory_style,
-                            )
-                        } else {
-                            ICONS
-                                .fs()
-                                .file()
-                                .get_with_style_or_default(path, &cx.editor.theme)
-                        }
-                        .with_no_left_padding();
-                        surface.set_stringn(
-                            inner.x,
-                            inner.y + i as u16,
-                            icon.glyph(),
-                            content.width as usize,
-                            icon.style(),
-                        );
-                        let suffix = if *is_dir { "/" } else { "" };
-                        surface.set_stringn(
-                            inner.x + icon.width(),
-                            inner.y + i as u16,
-                            format!("{name}{suffix}"),
-                            content.width.saturating_sub(icon.width()) as usize,
-                            if *is_dir { directory_style } else { text_style },
-                        );
-                        continue;
-                    }
-
-                    let suffix = if *is_dir { "/" } else { "" };
-                    surface.set_stringn(
-                        inner.x,
-                        inner.y + i as u16,
-                        format!("{name}{suffix}"),
-                        content.width as usize,
-                        if *is_dir { directory_style } else { text_style },
-                    );
-                }
-                state.scroll.render(inner, surface, &cx.editor.theme);
-                return;
-            }
-
-            state.scroll.update(inner.height, 0);
-            let alt_text = preview.placeholder();
-            let x = inner.x + inner.width.saturating_sub(alt_text.len() as u16) / 2;
-            let y = inner.y + inner.height / 2;
-            surface.set_stringn(x, y, alt_text, inner.width as usize, text_style);
+        render_preview_placeholder(surface, inner, text, text_style);
+    };
+    let doc = match preview {
+        Preview::EditorDocument(doc) => doc,
+        Preview::Cached(CachedPreview::Document(doc)) => doc,
+        Preview::Cached(CachedPreview::Directory(entries)) => {
+            render_preview_directory(entries, &mut state.scroll, inner, surface, cx.editor);
             return;
         }
+        Preview::Cached(CachedPreview::Image(image)) => match image.as_ref() {
+            ImagePreview::Loading { .. } => return placeholder("<Loading image>"),
+            ImagePreview::Ready { image, .. } => {
+                state.scroll.update(inner.height, 0);
+                render_image(&image.protocol, &image.details, inner, surface, text_style);
+                return;
+            }
+        },
+        Preview::Cached(CachedPreview::Binary) => return placeholder("<Binary file>"),
+        Preview::Cached(CachedPreview::LargeFile) => {
+            return placeholder("<File too large to preview>")
+        }
+        Preview::Cached(CachedPreview::NotFound) => return placeholder("<File not found>"),
     };
+
+    if range.is_some_and(|(start, end)| {
+        start > end || end > doc.text().len_lines(stdx::rope::LINE_TYPE)
+    }) {
+        return placeholder("<Invalid file location>");
+    }
 
     let scrollbar_area = inner;
     let inner = scroll::text_area(inner);
@@ -923,6 +810,68 @@ pub(super) fn render_preview_content(
     state
         .scroll
         .render(scrollbar_area, surface, &cx.editor.theme);
+}
+
+fn render_preview_directory(
+    entries: &[(PathBuf, bool)],
+    scroll: &mut PreviewScroll,
+    area: Rect,
+    surface: &mut Surface,
+    editor: &Editor,
+) {
+    let theme = &editor.theme;
+    let text_style = theme.get("ui.text");
+    let directory_style = theme.get("ui.text.directory");
+    let show_icons = editor.config().icons;
+    scroll.update(area.height, entries.len());
+    let content = scroll::text_area(area);
+
+    for (row, (path, is_dir)) in entries
+        .iter()
+        .skip(scroll.offset)
+        .take(area.height as usize)
+        .enumerate()
+    {
+        let basename = path.file_name();
+        let name = basename.map_or_else(|| Cow::Borrowed(".."), |name| name.to_string_lossy());
+        let y = area.y + row as u16;
+        let icon_width = if show_icons {
+            let icon = if *is_dir {
+                ICONS.fs().directory().get_with_style_or_default(
+                    &name,
+                    basename.is_none(),
+                    theme,
+                    directory_style,
+                )
+            } else {
+                ICONS.fs().file().get_with_style_or_default(path, theme)
+            }
+            .with_no_left_padding();
+            surface.set_stringn(
+                area.x,
+                y,
+                icon.glyph(),
+                content.width as usize,
+                icon.style(),
+            );
+            icon.width()
+        } else {
+            0
+        };
+        let (suffix, style) = if *is_dir {
+            ("/", directory_style)
+        } else {
+            ("", text_style)
+        };
+        surface.set_stringn(
+            area.x + icon_width,
+            y,
+            format!("{name}{suffix}"),
+            content.width.saturating_sub(icon_width) as usize,
+            style,
+        );
+    }
+    scroll.render(area, surface, theme);
 }
 
 fn render_preview_placeholder(
