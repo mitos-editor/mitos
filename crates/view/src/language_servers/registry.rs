@@ -125,10 +125,11 @@ impl Registry {
             .is_some_and(|entry| entry.state == ServerState::Ready)
     }
 
-    pub(crate) fn is_active(&self, id: LanguageServerId) -> bool {
+    pub(crate) fn active_client(&self, id: LanguageServerId) -> Option<&Arc<Client>> {
         self.inner
             .get(id)
-            .is_some_and(|entry| entry.state != ServerState::Stopping)
+            .filter(|entry| entry.state != ServerState::Stopping)
+            .map(|entry| &entry.client)
     }
 
     pub(crate) fn begin_stopping(&mut self, id: LanguageServerId) {
