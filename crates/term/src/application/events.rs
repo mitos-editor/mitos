@@ -186,21 +186,7 @@ where
             image_picker: self.image_picker.as_ref(),
             is_cursor_owner: false,
         };
-        // Handle key events
         should_redraw |= match event.unwrap() {
-            #[cfg(not(windows))]
-            termina::Event::WindowResized(termina::WindowSize { rows, cols, .. }) => {
-                self.terminal
-                    .resize(Rect::new(0, 0, cols, rows))
-                    .expect("Unable to resize terminal");
-
-                let area = Rect::from(self.terminal.size().expect("failed to read terminal size"));
-
-                self.compositor.resize(area);
-
-                self.compositor
-                    .handle_event(&Event::Resize(cols, rows), &mut cx)
-            }
             #[cfg(not(windows))]
             // Ignore keyboard release events.
             termina::Event::Key(termina::event::KeyEvent {
@@ -232,19 +218,6 @@ where
                 }
             }
             #[cfg(windows)]
-            TerminalEvent::Resize(width, height) => {
-                self.terminal
-                    .resize(Rect::new(0, 0, width, height))
-                    .expect("Unable to resize terminal");
-
-                let area = Rect::from(self.terminal.size().expect("failed to read terminal size"));
-
-                self.compositor.resize(area);
-
-                self.compositor
-                    .handle_event(&Event::Resize(width, height), &mut cx)
-            }
-            #[cfg(windows)]
             // Ignore keyboard release events.
             crossterm::event::Event::Key(crossterm::event::KeyEvent {
                 kind: crossterm::event::KeyEventKind::Release,
@@ -252,9 +225,18 @@ where
             }) => false,
             #[cfg(not(windows))]
             event if event.is_escape() => false,
-            event => self
-                .compositor
-                .handle_event(&tui::backend::native::adapt(event), &mut cx),
+            event => {
+                let event = tui::backend::native::adapt(event);
+                if let Event::Resize(width, height) = event {
+                    self.terminal
+                        .resize(Rect::new(0, 0, width, height))
+                        .expect("Unable to resize terminal");
+                    let area =
+                        Rect::from(self.terminal.size().expect("failed to read terminal size"));
+                    self.compositor.resize(area);
+                }
+                self.compositor.handle_event(&event, &mut cx)
+            }
         };
 
         should_redraw |= self.apply_pending_config_updates();
