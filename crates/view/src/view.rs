@@ -5,7 +5,7 @@ pub use layout::ViewLayout;
 use crate::{
     align_view,
     annotations::diagnostics::{prepare_inline_diagnostics, InlineDiagnostics},
-    document::{DocumentColorSwatches, DocumentInlayHints},
+    document::{DocumentColorSwatches, DocumentInlayHints, PresentedDocument},
     features::diagnostics::DiagnosticsHandler,
     graphics::{Rect, RectExt as _},
     Align, Document, DocumentId, ViewId,
@@ -290,20 +290,21 @@ impl View {
     }
 
     pub fn inner_area(&self, doc: &Document) -> Rect {
-        self.content_area(doc)
-            .clip_top(self.breadcrumb_offset(doc))
-            .clip_left(self.gutter_offset(doc))
+        self.text_viewport(doc.into())
     }
 
     pub fn inner_height(&self, doc: &Document) -> usize {
-        self.content_area(doc)
-            .clip_top(self.breadcrumb_offset(doc))
-            .height
-            .into()
+        self.text_rows(doc).height.into()
     }
 
-    pub fn inner_width(&self, doc: &Document) -> u16 {
-        self.area.clip_left(self.gutter_offset(doc)).width
+    fn text_rows(&self, doc: &Document) -> Rect {
+        self.content_area(doc)
+            .clip_top(u16::from(doc.breadcrumb_enabled()))
+    }
+
+    fn text_viewport(&self, doc: PresentedDocument<'_>) -> Rect {
+        self.text_rows(doc.source())
+            .clip_left(self.gutter_offset_presented(doc))
     }
 
     pub fn gutters(&self) -> &[GutterType] {
@@ -325,10 +326,6 @@ impl View {
 
     pub fn gutter_offset(&self, doc: &Document) -> u16 {
         self.gutter_offset_presented(doc.into())
-    }
-
-    pub fn breadcrumb_offset(&self, doc: &Document) -> u16 {
-        u16::from(doc.breadcrumb_enabled())
     }
 
     pub fn offset_coords_to_in_view(
@@ -476,7 +473,7 @@ impl View {
         self.layout_presented(doc.into(), theme)
     }
 
-    pub fn gutter_offset_presented(&self, doc: crate::document::PresentedDocument<'_>) -> u16 {
+    fn gutter_offset_presented(&self, doc: PresentedDocument<'_>) -> u16 {
         let width = self
             .gutters_for(doc.source())
             .iter()
@@ -491,13 +488,10 @@ impl View {
 
     pub fn layout_presented<'a>(
         &self,
-        doc: crate::document::PresentedDocument<'a>,
+        doc: PresentedDocument<'a>,
         theme: Option<&Theme>,
     ) -> ViewLayout<'a> {
-        let viewport = self
-            .content_area(doc.source())
-            .clip_top(self.breadcrumb_offset(doc.source()))
-            .clip_left(self.gutter_offset_presented(doc));
+        let viewport = self.text_viewport(doc);
         let format = doc.source().text_format(viewport.width);
         let annotations = self.prepare_text_annotations(doc, theme, &format, viewport.width);
         ViewLayout {
@@ -559,7 +553,7 @@ impl View {
 
     fn prepare_text_annotations<'a>(
         &self,
-        doc: crate::document::PresentedDocument<'a>,
+        doc: PresentedDocument<'a>,
         theme: Option<&Theme>,
         format: &TextFormat,
         width: u16,
@@ -795,7 +789,6 @@ mod tests {
             Arc::new(syntax::Loader::default()),
         );
 
-        assert_eq!(view.breadcrumb_offset(&doc), 0);
         assert_eq!(
             view.inner_area(&doc),
             Rect::new(
@@ -804,6 +797,39 @@ mod tests {
                 40 - DEFAULT_GUTTER_OFFSET,
                 39,
             )
+        );
+    }
+
+    #[test]
+    fn proposed_text_sizes_line_numbers_and_hides_gutters_that_do_not_fit() {
+        let mut view = View::new(
+            DocumentId::default(),
+            GutterConfig {
+                layout: vec![GutterType::LineNumbers],
+                line_numbers: GutterLineNumbersConfig { min_width: 1 },
+            },
+            event::Redraw::default(),
+        );
+        let mut doc = crate::document::test_document("first\n");
+        doc.ensure_view_init(view.id);
+        let transaction = Transaction::change(
+            doc.text(),
+            [(0, 0, Some("one\n".repeat(9).into()))].into_iter(),
+        );
+        let proposal = doc.presentation(&transaction, view.id);
+        let proposed = PresentedDocument::proposed(&doc, &proposal);
+        view.area = Rect::new(4, 3, 3, 4);
+
+        assert_eq!(view.inner_area(&doc), Rect::new(5, 3, 2, 3));
+        assert_eq!(
+            view.layout_presented(proposed, None).viewport,
+            Rect::new(6, 3, 1, 3)
+        );
+
+        view.area.width = 2;
+        assert_eq!(
+            view.layout_presented(proposed, None).viewport,
+            Rect::new(4, 3, 2, 3)
         );
     }
 
