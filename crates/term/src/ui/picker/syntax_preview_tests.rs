@@ -113,7 +113,12 @@ impl Fixture {
             .content
             .preview
             .cached(&self.app.editor, (PathOrId::Path(path), None))?;
-        preview.document().map(|doc| doc.text().to_string())
+        let doc = match preview {
+            Preview::EditorDocument(doc) => doc,
+            Preview::Cached(CachedPreview::Document(doc)) => doc,
+            _ => return None,
+        };
+        Some(doc.text().to_string())
     }
 
     async fn completion(&mut self) -> Callback {
@@ -338,7 +343,7 @@ async fn search_preview_highlights_visible_matches_and_refreshes_query_and_case(
     let path = fixture.dir.path().join("matches.txt");
     std::fs::write(&path, "é cat cat\nCAT\ncat\n")?;
     let path = fixture.preview("matches.txt");
-    let mut entry = fixture
+    let entry = fixture
         .picker()
         .preview
         .preview_cache
@@ -387,7 +392,7 @@ async fn search_preview_highlights_visible_matches_and_refreshes_query_and_case(
         scroll.scroll.offset = offset;
         let mut surface = Surface::empty(area);
         render_preview_content(
-            Preview::Cached(&mut entry.preview),
+            Preview::Cached(&entry.preview),
             Some((0, 0)),
             query.as_deref(),
             &mut scroll,
@@ -415,7 +420,7 @@ async fn search_preview_highlights_visible_matches_and_refreshes_query_and_case(
 async fn preview_rendering_tolerates_locations_beyond_a_shortened_file() -> anyhow::Result<()> {
     let mut fixture = Fixture::new()?;
     let path = fixture.preview("short.json");
-    let mut entry = fixture
+    let entry = fixture
         .picker()
         .preview
         .preview_cache
@@ -437,7 +442,7 @@ async fn preview_rendering_tolerates_locations_beyond_a_shortened_file() -> anyh
     };
     let area = Rect::new(0, 0, 30, 20);
     render_preview_content(
-        Preview::Cached(&mut entry.preview),
+        Preview::Cached(&entry.preview),
         Some((100, 150)),
         None,
         &mut FileScroll::default(),
