@@ -13,8 +13,8 @@ use lsp_client::{lsp, LanguageServerId, OffsetEncoding};
 use crate::{
     callbacks::EditorCallbackSender,
     events::{
-        ConfigDidChange, DocumentDidChange, DocumentDidOpen, DocumentLanguageDidChange,
-        LanguageServerExited, LanguageServerInitialized,
+        ConfigDidChange, DocumentDidChange, DocumentDidOpen, LanguageServerExited,
+        LanguageServerInitialized,
     },
     features::{debounce::debounce_documents, request::DocumentRequest},
     Document, DocumentId, Editor,
@@ -369,7 +369,6 @@ pub fn refresh_for_language_server(editor: &mut Editor, server: LanguageServerId
 
 pub(crate) fn register_hooks(events: &event::EventHub, hooks: crate::handlers::DocumentHooks) {
     register_hook!(events => move |event: &mut DocumentDidOpen<'_>| { request(event.editor, event.doc, None); Ok(()) });
-    register_hook!(events => move |event: &mut DocumentLanguageDidChange<'_>| { request(event.editor, event.doc, None); Ok(()) });
     register_hook!(events => move |event: &mut DocumentDidChange<'_>| {
         if !event.doc.is_content_readonly()
             && let Some(services) = hooks.upgrade()
