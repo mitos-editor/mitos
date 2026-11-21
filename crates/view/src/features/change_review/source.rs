@@ -136,6 +136,11 @@ impl ReviewSource {
         &self.after
     }
 
+    /// Combined source size for callers retaining multiple historical comparisons.
+    pub fn byte_len(&self) -> usize {
+        self.before.len() + self.after.len()
+    }
+
     /// Parse the immutable sides off-thread using the ordinary language loader,
     /// injection support, and interactive parse budget. Never parse unified rows
     /// as source code. Canceled work must not populate this shared cache.
