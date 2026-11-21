@@ -960,7 +960,8 @@ impl Editor {
                 })
                 .report_to(self.status_sender());
         }
-        let (view, doc) = current!(self);
+        let view = self.tree.get(view_id);
+        let doc = doc_mut!(self, &view.doc);
         doc.set_selection(view_id, selection);
         view.ensure_cursor_in_view_center(doc, self.config.load().scroll.padding);
     }

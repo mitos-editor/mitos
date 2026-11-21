@@ -211,7 +211,7 @@ fn goto_column_impl(cx: &mut Context, movement: Movement) {
 
 pub(super) fn goto_last_accessed_file(cx: &mut Context) {
     let view = view_mut!(cx.editor);
-    if let Some(alt) = view.docs_access_history.pop() {
+    if let Some(alt) = view.pop_last_accessed_document() {
         cx.editor.switch(alt, Action::Replace);
     } else {
         cx.editor.set_error(|| "no last accessed buffer")
@@ -234,13 +234,7 @@ pub(super) fn goto_last_modification(cx: &mut Context) {
 }
 
 pub(super) fn goto_last_modified_file(cx: &mut Context) {
-    let view = view!(cx.editor);
-    let alternate_file = view
-        .last_modified_docs
-        .into_iter()
-        .flatten()
-        .find(|&id| id != view.document_id());
-    if let Some(alt) = alternate_file {
+    if let Some(alt) = view!(cx.editor).last_modified_document() {
         cx.editor.switch(alt, Action::Replace);
     } else {
         cx.editor.set_error(|| "no last modified buffer")
