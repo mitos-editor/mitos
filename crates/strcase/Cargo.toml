@@ -1,0 +1,12 @@
+[package]
+name = "strcase"
+version = "0.5.0"
+publish = false
+edition = "2021"
+rust-version = "1.56"
+license = "MIT OR Apache-2.0"
+description = "Unicode-aware string case conversion"
+repository.workspace = true
+keywords = ["string", "case", "camel", "snake", "unicode"]
+categories = ["no-std"]
+include = ["src/**/*", "LICENSE-*", "README.md", "CHANGELOG.md"]

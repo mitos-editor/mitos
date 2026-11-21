@@ -47,6 +47,38 @@ pub(super) fn switch_to_lowercase(cx: &mut Context) {
     apply_transform(cx, editor_core::transform::switch_to_lowercase);
 }
 
+pub(super) fn switch_to_kebab_case(cx: &mut Context) {
+    apply_transform(cx, editor_core::transform::switch_to_kebab_case);
+}
+
+pub(super) fn switch_to_lower_camel_case(cx: &mut Context) {
+    apply_transform(cx, editor_core::transform::switch_to_lower_camel_case);
+}
+
+pub(super) fn switch_to_shouty_kebab_case(cx: &mut Context) {
+    apply_transform(cx, editor_core::transform::switch_to_shouty_kebab_case);
+}
+
+pub(super) fn switch_to_shouty_snake_case(cx: &mut Context) {
+    apply_transform(cx, editor_core::transform::switch_to_shouty_snake_case);
+}
+
+pub(super) fn switch_to_snake_case(cx: &mut Context) {
+    apply_transform(cx, editor_core::transform::switch_to_snake_case);
+}
+
+pub(super) fn switch_to_title_case(cx: &mut Context) {
+    apply_transform(cx, editor_core::transform::switch_to_title_case);
+}
+
+pub(super) fn switch_to_upper_camel_case(cx: &mut Context) {
+    apply_transform(cx, editor_core::transform::switch_to_upper_camel_case);
+}
+
+pub(super) fn switch_to_train_case(cx: &mut Context) {
+    apply_transform(cx, editor_core::transform::switch_to_train_case);
+}
+
 pub(super) fn join_selections(cx: &mut Context) {
     let (view, doc) = current!(cx.editor);
     if let Err(error) = view::editing::join_selections(doc, view.id, false) {

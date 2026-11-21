@@ -37,6 +37,7 @@ members = [
   "crates/parsec",
   "crates/snippets",
   "crates/spelling",
+  "crates/strcase",
   "crates/stdx",
   "xtask",
 ]
@@ -91,6 +92,7 @@ lsp-types = { path = "crates/lsp-types" }
 parsec = { path = "crates/parsec" }
 snippets = { path = "crates/snippets" }
 spelling = { path = "crates/spelling" }
+strcase = { path = "crates/strcase" }
 stdx = { path = "crates/stdx" }
 term = { path = "crates/term" }
 tui = { path = "crates/tui", default-features = false }

@@ -105,7 +105,19 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
         "A-." =>  repeat_last_motion,
 
         "~" => switch_case,
-        "`" => switch_to_lowercase,
+        "`" => { "Case"
+            "a" => switch_case,
+            "l" => switch_to_lowercase,
+            "u" => switch_to_uppercase,
+            "c" => switch_to_lower_camel_case,
+            "p" => switch_to_upper_camel_case,
+            "s" => switch_to_snake_case,
+            "S" => switch_to_shouty_snake_case,
+            "k" => switch_to_kebab_case,
+            "K" => switch_to_shouty_kebab_case,
+            "t" => switch_to_title_case,
+            "T" => switch_to_train_case,
+        },
         "A-`" => switch_to_uppercase,
 
         "home" => goto_line_start,

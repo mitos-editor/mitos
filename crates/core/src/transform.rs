@@ -1,6 +1,12 @@
 //! Text transformations expressed as transactions over explicit selections.
 
+use std::borrow::Cow;
+
 use stdx::rope::RopeExt as _;
+use strcase::{
+    ToKebabCase, ToLowerCamelCase, ToShoutyKebabCase, ToShoutySnakeCase, ToSnakeCase, ToTitleCase,
+    ToTrainCase, ToUpperCamelCase,
+};
 mod move_lines;
 mod paste;
 mod selection_contents;
@@ -131,6 +137,52 @@ pub fn switch_to_lowercase(doc: &Rope, selection: &Selection) -> Transaction {
     map_case(doc, selection, |string| {
         string.chunks().map(|chunk| chunk.to_lowercase()).collect()
     })
+}
+
+fn map_word_case(doc: &Rope, selection: &Selection, convert: fn(&str) -> String) -> Transaction {
+    map_case(doc, selection, |string| {
+        convert(&Cow::<str>::from(string)).into()
+    })
+}
+
+/// Change selected case to kebab-case
+pub fn switch_to_kebab_case(doc: &Rope, selection: &Selection) -> Transaction {
+    map_word_case(doc, selection, str::to_kebab_case)
+}
+
+/// Change selected case to lowerCamelCase
+pub fn switch_to_lower_camel_case(doc: &Rope, selection: &Selection) -> Transaction {
+    map_word_case(doc, selection, str::to_lower_camel_case)
+}
+
+/// Change selected case to SHOUTY-KEBAB-CASE
+pub fn switch_to_shouty_kebab_case(doc: &Rope, selection: &Selection) -> Transaction {
+    map_word_case(doc, selection, str::to_shouty_kebab_case)
+}
+
+/// Change selected case to SHOUTY_SNAKE_CASE
+pub fn switch_to_shouty_snake_case(doc: &Rope, selection: &Selection) -> Transaction {
+    map_word_case(doc, selection, str::to_shouty_snake_case)
+}
+
+/// Change selected case to snake_case
+pub fn switch_to_snake_case(doc: &Rope, selection: &Selection) -> Transaction {
+    map_word_case(doc, selection, str::to_snake_case)
+}
+
+/// Change selected case to Title Case
+pub fn switch_to_title_case(doc: &Rope, selection: &Selection) -> Transaction {
+    map_word_case(doc, selection, str::to_title_case)
+}
+
+/// Change selected case to UpperCamelCase
+pub fn switch_to_upper_camel_case(doc: &Rope, selection: &Selection) -> Transaction {
+    map_word_case(doc, selection, str::to_upper_camel_case)
+}
+
+/// Change selected case to Train-Case
+pub fn switch_to_train_case(doc: &Rope, selection: &Selection) -> Transaction {
+    map_word_case(doc, selection, str::to_train_case)
 }
 
 /// How to reorder the contents of the selected ranges.

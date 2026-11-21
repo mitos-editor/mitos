@@ -424,6 +424,7 @@ dependencies = [
  "smartstring",
  "stdx",
  "str_indices",
+ "strcase",
  "tempfile",
  "textwrap",
  "unicode-general-category",
@@ -4639,6 +4640,10 @@ name = "str_indices"
 version = "0.4.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d08889ec5408683408db66ad89e0e1f93dff55c73a4ccc71c427d5b277ee47e6"
+
+[[package]]
+name = "strcase"
+version = "0.5.0"
 
 [[package]]
 name = "strsim"

@@ -54,9 +54,17 @@
 | `repeat_last_motion` | Repeat last motion | normal: `` <A-.> ``, select: `` <A-.> `` |
 | `replace_char` | Replace each selected grapheme with a character | normal: `` r ``, select: `` r `` |
 | `replace` | Replace selections with entered text | normal: `` <A-r> ``, select: `` <A-r> `` |
-| `switch_case` | Switch (toggle) case | normal: `` ~ ``, select: `` ~ `` |
-| `switch_to_uppercase` | Switch to uppercase | normal: `` <A-`> ``, select: `` <A-`> `` |
-| `switch_to_lowercase` | Switch to lowercase | normal: `` ` ``, select: `` ` `` |
+| `switch_case` | Switch (toggle) case | normal: `` ~ ``, `` `a ``, select: `` ~ ``, `` `a `` |
+| `switch_to_uppercase` | Switch to uppercase | normal: `` `u ``, `` <A-`> ``, select: `` `u ``, `` <A-`> `` |
+| `switch_to_lowercase` | Switch to lowercase | normal: `` `l ``, select: `` `l `` |
+| `switch_to_kebab_case` | Switch to kebab-case | normal: `` `k ``, select: `` `k `` |
+| `switch_to_lower_camel_case` | Switch to lowerCamelCase | normal: `` `c ``, select: `` `c `` |
+| `switch_to_shouty_kebab_case` | Switch to SHOUTY-KEBAB-CASE | normal: `` `K ``, select: `` `K `` |
+| `switch_to_shouty_snake_case` | Switch to SHOUTY_SNAKE_CASE | normal: `` `S ``, select: `` `S `` |
+| `switch_to_snake_case` | Switch to snake_case | normal: `` `s ``, select: `` `s `` |
+| `switch_to_title_case` | Switch to Title Case | normal: `` `t ``, select: `` `t `` |
+| `switch_to_upper_camel_case` | Switch to UpperCamelCase | normal: `` `p ``, select: `` `p `` |
+| `switch_to_train_case` | Switch to Train-Case | normal: `` `T ``, select: `` `T `` |
 | `page_up` | Move page up | normal: `` <C-b> ``, `` Z<C-b> ``, `` z<C-b> ``, `` <pageup> ``, `` Z<pageup> ``, `` z<pageup> ``, select: `` <C-b> ``, `` Z<C-b> ``, `` z<C-b> ``, `` <pageup> ``, `` Z<pageup> ``, `` z<pageup> ``, insert: `` <pageup> `` |
 | `page_down` | Move page down | normal: `` <C-f> ``, `` Z<C-f> ``, `` z<C-f> ``, `` <pagedown> ``, `` Z<pagedown> ``, `` z<pagedown> ``, select: `` <C-f> ``, `` Z<C-f> ``, `` z<C-f> ``, `` <pagedown> ``, `` Z<pagedown> ``, `` z<pagedown> ``, insert: `` <pagedown> `` |
 | `half_page_up` | Move half page up |  |

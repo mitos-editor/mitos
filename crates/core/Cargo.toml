@@ -24,6 +24,7 @@ memchr.workspace = true
 
 ropey.workspace = true
 str_indices.workspace = true
+strcase.workspace = true
 smallvec.workspace = true
 smartstring.workspace = true
 unicode-segmentation.workspace = true

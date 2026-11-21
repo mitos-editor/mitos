@@ -41,6 +41,8 @@ command; sticky groups stay open until Escape. See
 - `z` scrolls and positions the view; `Z` opens its sticky variant.
 - `g` jumps to locations.
 - `m` works with [surround](./surround.md) and [textobjects](./textobjects.md).
+- Backtick opens case conversions for each selection. Formats such as
+  `snake_case` treat punctuation and whitespace as word separators.
 - `Ctrl-w` manages [split views](./files.md).
 - `Space x` opens [debugging commands](./debugging.md); `Space X` keeps that group active.
 - Space opens pickers and project tools. `Space '` reopens global search.

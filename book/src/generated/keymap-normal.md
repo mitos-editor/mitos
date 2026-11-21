@@ -19,7 +19,7 @@
 | `` R `` | Replace with yanked text | `` replace_with_yanked `` |
 | `` <A-.> `` | Repeat last motion | `` repeat_last_motion `` |
 | `` ~ `` | Switch (toggle) case | `` switch_case `` |
-| `` ` `` | Switch to lowercase | `` switch_to_lowercase `` |
+| `` ` `` | Case | Prefix |
 | `` <A-`> `` | Switch to uppercase | `` switch_to_uppercase `` |
 | `` <home> `` | Go to line start | `` goto_line_start `` |
 | `` <end> `` | Go to line end | `` goto_line_end `` |
@@ -133,6 +133,22 @@
 | `` <C-z> `` | Suspend and return to shell | `` suspend `` |
 | `` <C-a> `` | Increment item under cursor | `` increment `` |
 | `` <C-x> `` | Decrement item under cursor | `` decrement `` |
+
+### `` ` `` — Case
+
+| Key | Description | Command |
+| --- | --- | --- |
+| `` `a `` | Switch (toggle) case | `` switch_case `` |
+| `` `l `` | Switch to lowercase | `` switch_to_lowercase `` |
+| `` `u `` | Switch to uppercase | `` switch_to_uppercase `` |
+| `` `c `` | Switch to lowerCamelCase | `` switch_to_lower_camel_case `` |
+| `` `p `` | Switch to UpperCamelCase | `` switch_to_upper_camel_case `` |
+| `` `s `` | Switch to snake_case | `` switch_to_snake_case `` |
+| `` `S `` | Switch to SHOUTY_SNAKE_CASE | `` switch_to_shouty_snake_case `` |
+| `` `k `` | Switch to kebab-case | `` switch_to_kebab_case `` |
+| `` `K `` | Switch to SHOUTY-KEBAB-CASE | `` switch_to_shouty_kebab_case `` |
+| `` `t `` | Switch to Title Case | `` switch_to_title_case `` |
+| `` `T `` | Switch to Train-Case | `` switch_to_train_case `` |
 
 ### `` g `` — Goto
 
