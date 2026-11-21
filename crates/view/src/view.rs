@@ -671,13 +671,13 @@ impl View {
             .position_at_view_coords(row, column, ignore_virtual_text)
     }
 
-    pub fn gutter_coords_at_screen_coords(
+    pub fn gutter_coords_at_screen_coords<'a>(
         &self,
-        doc: &Document,
+        doc: impl Into<PresentedDocument<'a>>,
         row: u16,
         column: u16,
     ) -> Option<DisplayPosition> {
-        let inner = self.inner_area(doc);
+        let inner = self.text_viewport(doc.into());
         if row < inner.top() || row >= inner.bottom() {
             return None;
         }
