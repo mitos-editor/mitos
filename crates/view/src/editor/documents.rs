@@ -50,16 +50,8 @@ impl Editor {
         let focus_lost = match action {
             Action::Replace => {
                 let (view, doc) = current_ref!(self);
-                // If the current view is an empty scratch buffer and is not displayed in any other views, delete it.
-                // Boolean value is determined before the call to `view_mut` because the operation requires a borrow
-                // of `self.tree`, which is mutably borrowed when `view_mut` is called.
-                let remove_empty_scratch = !doc.is_modified() && !doc.is_virtual()
-                    && !doc.is_content_readonly()
-                    // If the buffer has no path and is not modified, it is an empty scratch buffer.
-                    && doc.path().is_none()
-                    // If the buffer we are changing to is not this buffer
-                    && id != doc.id
-                    // Ensure the buffer is not displayed in any other splits.
+                let remove_empty_scratch = id != doc.id
+                    && doc.is_disposable_scratch()
                     && !self
                         .tree
                         .traverse()

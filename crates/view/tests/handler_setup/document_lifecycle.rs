@@ -83,6 +83,14 @@ async fn replacing_an_empty_scratch_reports_closed_document_after_rebinding() ->
     assert!(fixture.editor.document(scratch).is_none());
     assert_eq!(*events.lock().unwrap(), vec![(scratch, existing)]);
     assert!(focus_events.lock().unwrap().is_empty());
+
+    let path = fixture.dir.path().join("blank.txt");
+    for text in ["", "\r\n"] {
+        std::fs::write(&path, text)?;
+        let scratch = fixture.editor.open_scratch(&path, Action::Replace)?;
+        fixture.editor.switch(existing, Action::Replace);
+        assert!(fixture.editor.document(scratch).is_none());
+    }
     Ok(())
 }
 
@@ -116,6 +124,14 @@ async fn scratch_copies_keep_source_buffers_and_require_a_save_destination() -> 
     assert_eq!(source.path(), Some(path.as_path()));
     assert_eq!(source.text(), "unsaved source\n");
     assert!(source.is_modified());
+
+    fixture.editor.switch(source_id, Action::Replace);
+    assert_eq!(current_ref!(fixture.editor).1.id(), source_id);
+    fixture.editor.switch(copy, Action::Replace);
+    let doc = current_ref!(fixture.editor).1;
+    assert_eq!(doc.id(), copy);
+    assert_eq!(doc.text(), "source\n");
+
     fixture.replace_and_commit("edited copy\n");
     let destination = fixture.dir.path().join("copy.words");
     fixture.editor.save(copy, Some(&destination), false)?;
