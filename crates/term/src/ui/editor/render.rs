@@ -81,12 +81,12 @@ impl PaneRenderer {
 
     pub fn render(
         &mut self,
-        editor: &Editor,
         layout: ApplicationLayout,
         surface: &mut Surface,
         options: PaneOptions,
-        hyperlinks: &mut ui_core::hyperlinks::HyperlinkBuffer,
+        draw: &mut crate::compositor::DrawContext,
     ) -> Option<DisplayPosition> {
+        let editor = draw.editor;
         self.spinners
             .synchronize(editor.progressing_language_servers());
         surface.set_style(options.area, editor.theme.get("ui.background"));
@@ -117,7 +117,7 @@ impl PaneRenderer {
                 options.area,
                 surface,
                 is_focused,
-                hyperlinks,
+                &mut draw.hyperlinks.borrow_mut(),
             );
             if is_focused {
                 cursor = position;
@@ -129,7 +129,7 @@ impl PaneRenderer {
                 &self.spinners,
                 options.selected_register,
             );
-            statusline::render(&mut context, view.statusline_area(doc), surface);
+            statusline::render(&mut context, view.statusline_area(doc), surface, draw);
         }
 
         if layout.statusline.height > 0 {
@@ -141,7 +141,7 @@ impl PaneRenderer {
                 &self.spinners,
                 options.selected_register,
             );
-            statusline::render(&mut context, layout.statusline, surface);
+            statusline::render(&mut context, layout.statusline, surface, draw);
         }
         cursor
     }

@@ -142,11 +142,9 @@ where
                 }
             }
             let animation_deadline = self
-                .activity_frame_deadline()
-                .into_iter()
-                .chain(self.render_state.animation_deadline)
-                .filter(|_| frame_deadline.is_none())
-                .min();
+                .render_state
+                .animation_deadline
+                .filter(|_| frame_deadline.is_none());
 
             use futures_util::StreamExt;
 

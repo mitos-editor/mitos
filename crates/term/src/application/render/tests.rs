@@ -162,11 +162,11 @@ async fn user_activity_wakes_the_pump_without_input_and_stops_when_finished() ->
     let document = view::current_ref!(app.editor).1.id();
     let activity = app.editor.start_activity("Formatting", Some(document));
     let start = tokio::time::Instant::now();
+    draw_now(&mut app);
     assert_eq!(
-        app.activity_frame_deadline(),
+        app.render_state.animation_deadline,
         Some(start + crate::ui::ACTIVITY_DELAY)
     );
-    draw_now(&mut app);
     let mut last_frame = start;
     // Other ready editor events may draw before the activity's delayed frame.
     while tokio::time::Instant::now() < start + crate::ui::ACTIVITY_DELAY {
@@ -183,10 +183,10 @@ async fn user_activity_wakes_the_pump_without_input_and_stops_when_finished() ->
     assert!(text.contains("Formatting"), "{text:?}");
     background_frame(&mut app, &frames).await?;
     assert!(tokio::time::Instant::now() > last_frame);
-    assert!(app.activity_frame_deadline().is_some());
+    assert!(app.render_state.animation_deadline.is_some());
     drop(activity);
-    assert!(app.activity_frame_deadline().is_none());
     background_frame(&mut app, &frames).await?;
+    assert!(app.render_state.animation_deadline.is_none());
     let text: String = app
         .terminal_backend()
         .buffer()
@@ -206,12 +206,15 @@ async fn user_activity_deadline_is_not_postponed_by_background_callbacks() -> an
     tokio::time::pause();
     tokio::time::advance(crate::ui::ACTIVITY_DELAY).await;
     draw_now(&mut app);
-    let deadline = app.activity_frame_deadline().expect("animation deadline");
+    let deadline = app
+        .render_state
+        .animation_deadline
+        .expect("animation deadline");
     tokio::time::advance(Duration::from_millis(40)).await;
     app.apply_callback(Ok(Some(crate::job::Callback::editor(|_| {
         view::callbacks::CallbackOutcome::None
     }))));
-    assert_eq!(app.activity_frame_deadline(), Some(deadline));
+    assert_eq!(app.render_state.animation_deadline, Some(deadline));
     Ok(())
 }
 
@@ -222,21 +225,25 @@ async fn user_activity_deadlines_follow_visible_statuslines_and_configuration() 
     let document = view::current_ref!(app.editor).1.id();
     let activity = app.editor.start_activity("Formatting", Some(document));
     app.editor.new_file(view::editor::Action::VerticalSplit);
-    assert!(app.activity_frame_deadline().is_some());
+    draw_now(&mut app);
+    assert!(app.render_state.animation_deadline.is_some());
     let mut config = (*app.editor.config()).clone();
     config.statusline.global = true;
     app.apply_config_update(crate::config::ConfigEvent::UpdateEditor(Box::new(config)));
-    assert!(app.activity_frame_deadline().is_none());
+    draw_now(&mut app);
+    assert!(app.render_state.animation_deadline.is_none());
     drop(activity);
     let workspace = app.editor.start_activity("Git", None);
-    assert!(app.activity_frame_deadline().is_some());
+    draw_now(&mut app);
+    assert!(app.render_state.animation_deadline.is_some());
     let mut config = (*app.editor.config()).clone();
     config
         .statusline
         .left
         .retain(|element| *element != editor_config::StatusLineElement::Activity);
     app.apply_config_update(crate::config::ConfigEvent::UpdateEditor(Box::new(config)));
-    assert!(app.activity_frame_deadline().is_none());
+    draw_now(&mut app);
+    assert!(app.render_state.animation_deadline.is_none());
     drop(workspace);
     assert!(app.close().await.is_empty());
     Ok(())

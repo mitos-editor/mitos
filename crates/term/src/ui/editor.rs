@@ -820,7 +820,6 @@ impl Component for EditorView {
         let (layout, sidebar_area) = self.layout(cx.editor, area);
         let sidebar_focused = self.sidebar_focused();
         cx.editor_cursor = self.renderer.render(
-            cx.editor,
             layout,
             surface,
             PaneOptions {
@@ -830,7 +829,7 @@ impl Component for EditorView {
                 true_color: cx.config.terminal.true_color || crate::true_color(),
                 selected_register: cx.interaction.selected_register,
             },
-            &mut cx.hyperlinks.borrow_mut(),
+            cx,
         );
 
         if let Some(sidebar_area) = sidebar_area {
