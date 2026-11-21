@@ -769,11 +769,11 @@ mod tests {
 {separator_scope}
 "#,
             ))?;
-            let base_style = app.editor.theme.get("ui.statusline.inactive");
             let (view, doc) = view::current_ref!(app.editor);
             let spinners = ProgressSpinners::default();
             let mut context = RenderContext::new(&app.editor, doc, view, &spinners, None);
-            let parts = render_parts(&mut context, &[StatusLineElementID::Separator], base_style);
+            context.base_style = app.editor.theme.get("ui.statusline.inactive");
+            let parts = render_parts(&mut context, &[StatusLineElementID::Separator]);
             let separator = &parts[0].line.spans[0];
             assert_eq!(separator.style.fg, Some(expected_fg));
             assert_eq!(separator.style.bg, Some(Color::Black));
