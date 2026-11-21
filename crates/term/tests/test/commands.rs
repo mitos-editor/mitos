@@ -20,6 +20,34 @@ mod vcs;
 mod write;
 
 #[tokio::test(flavor = "multi_thread")]
+async fn case_menu_converts_selections_in_normal_and_select_modes() -> anyhow::Result<()> {
+    for (prefix, shortcut, expected) in [
+        ("`", "s", "xml_http_request / café_au_lait\n"),
+        ("v`", "K", "XML-HTTP-REQUEST / CAFÉ-AU-LAIT\n"),
+    ] {
+        let mut app = AppBuilder::new()
+            .with_input_text("#[XMLHttpRequest|]# / #(CaféAuLait|)#\n")
+            .build()?;
+
+        helpers::keys(&mut app, prefix).await?;
+        let info = app.editor.autoinfo.as_ref().expect("case menu");
+        assert_eq!(info.title, "Case");
+        assert!(info.text.contains("s  Switch to snake_case"));
+        assert!(info.text.contains("K  Switch to SHOUTY-KEBAB-CASE"));
+        assert_eq!(
+            doc!(app.editor).text().to_string(),
+            "XMLHttpRequest / CaféAuLait\n"
+        );
+
+        helpers::keys(&mut app, shortcut).await?;
+        assert_eq!(doc!(app.editor).text().to_string(), expected);
+        assert!(app.editor.autoinfo.is_none());
+        assert!(app.close().await.is_empty());
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn named_register_and_count_survive_pending_keymap() -> anyhow::Result<()> {
     let mut config = test_config();
     let source = "[keys.normal.g]\nz = [\"select_line_below\", \"yank\"]".to_owned();
