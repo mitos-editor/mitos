@@ -328,26 +328,32 @@ async fn mouse_wheel_scrolls_the_hovered_split_without_changing_focus() -> anyho
     helpers::run_event_loop_until_idle(&mut app).await;
     let focused = app.editor.tree.focus();
     let doc = app.editor.document(id).unwrap();
-    let area = app.editor.tree.get(first).inner_area(doc);
+    let hovered = app.editor.tree.get(first);
+    let area = hovered.inner_area(doc);
+    let gutter_column = hovered.area.x;
+    assert!(gutter_column < area.x);
     let selection = doc.selection(focused).clone();
     let offset = doc.view_offset(focused);
     #[cfg(not(windows))]
     let modifiers = termina::event::Modifiers::empty();
     #[cfg(windows)]
     let modifiers = crossterm::event::KeyModifiers::empty();
-    app.handle_terminal_events(Ok(Event::Mouse(MouseEvent {
-        kind: MouseEventKind::ScrollDown,
-        column: area.x + 1,
-        row: area.y + 1,
-        modifiers,
-    })))
-    .await;
-    assert_eq!(app.editor.tree.focus(), focused);
-    assert_eq!(app.editor.mode(), view::document::Mode::Insert);
-    let doc = app.editor.document(id).unwrap();
-    assert!(doc.view_offset(first).anchor > 0);
-    assert_eq!(doc.selection(focused), &selection);
-    assert_eq!(doc.view_offset(focused), offset);
+    for column in [area.x + 1, gutter_column] {
+        let before = app.editor.document(id).unwrap().view_offset(first);
+        app.handle_terminal_events(Ok(Event::Mouse(MouseEvent {
+            kind: MouseEventKind::ScrollDown,
+            column,
+            row: area.y + 1,
+            modifiers,
+        })))
+        .await;
+        assert_eq!(app.editor.tree.focus(), focused);
+        assert_eq!(app.editor.mode(), view::document::Mode::Insert);
+        let doc = app.editor.document(id).unwrap();
+        assert!(doc.view_offset(first).anchor > before.anchor);
+        assert_eq!(doc.selection(focused), &selection);
+        assert_eq!(doc.view_offset(focused), offset);
+    }
     assert!(app.close().await.is_empty());
     Ok(())
 }

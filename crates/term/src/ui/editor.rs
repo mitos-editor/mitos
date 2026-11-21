@@ -31,7 +31,7 @@ use view::{
 
 use tui::{
     buffer::{Buffer as Surface, BufferExt as _},
-    layout::{Alignment, Constraint, Layout},
+    layout::{Alignment, Constraint, Layout, Position},
     widgets::{Paragraph, Widget},
 };
 
@@ -455,7 +455,11 @@ impl EditorView {
                     _ => unreachable!(),
                 };
 
-                let Some((_, view_id)) = pos_and_view(cxt.editor, row, column, false) else {
+                let position = Position::new(column, row);
+                let Some(view_id) = cxt.editor.tree.views().find_map(|(view, _)| {
+                    let doc = &cxt.editor.documents[&view.document_id()];
+                    view.text_rows(doc).contains(position).then_some(view.id)
+                }) else {
                     return EventResult::Ignored(None);
                 };
                 let behaviour = if cxt.editor.mode() == Mode::Select {
