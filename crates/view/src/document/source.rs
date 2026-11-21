@@ -6,6 +6,8 @@
 
 use std::path::Path;
 
+use editor_core::line_ending::str_is_line_ending;
+
 use crate::features::change_review::{historical::HistoricalDocument, ReviewDocument};
 
 use super::Document;
@@ -43,6 +45,17 @@ impl Document {
     /// Intrinsic immutability is independent of filesystem permissions.
     pub(super) fn is_source_readonly(&self) -> bool {
         !matches!(self.source, DocumentSource::FileOrScratch)
+    }
+
+    pub(crate) fn is_disposable_scratch(&self) -> bool {
+        !self.is_source_readonly()
+            && self.path().is_none()
+            && !self.is_modified()
+            && self
+                .text()
+                .slice(..)
+                .as_str()
+                .is_some_and(|text| text.is_empty() || str_is_line_ending(text))
     }
 
     pub fn review(&self) -> Option<&ReviewDocument> {
