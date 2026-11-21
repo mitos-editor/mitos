@@ -1,9 +1,10 @@
 //! Compiled selectors from static provider registrations, matched against document URI paths.
 
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::LazyLock};
 
 use anyhow::Context as _;
-use globset::{GlobBuilder, GlobMatcher};
+use globset::GlobBuilder;
+use regex::{Regex, RegexBuilder};
 
 use crate::lsp;
 
@@ -19,8 +20,8 @@ struct Filter {
 
 #[derive(Debug)]
 struct Pattern {
-    base: Option<lsp::Uri>,
-    matcher: GlobMatcher,
+    base: Option<(lsp::Uri, String)>,
+    matcher: Regex,
 }
 
 impl DocumentSelectors {
@@ -168,7 +169,7 @@ impl Filter {
 impl Pattern {
     fn new(pattern: &lsp::GlobPattern) -> anyhow::Result<Self> {
         let (base, glob) = match pattern {
-            lsp::GlobPattern::String(pattern) => (None, pattern.clone()),
+            lsp::GlobPattern::String(pattern) => (None, pattern),
             lsp::GlobPattern::Relative(pattern) => {
                 let base = match &pattern.base_uri {
                     lsp::OneOf::Left(folder) => &folder.uri,
@@ -183,25 +184,28 @@ impl Pattern {
                     .decode()
                     .to_string()
                     .map_err(|_| anyhow::anyhow!("relative pattern base must be UTF-8"))?;
-                let glob = format!(
-                    "{}/{}",
-                    globset::escape(path.trim_end_matches('/')),
-                    pattern.pattern
-                );
-                (Some(base.clone()), glob)
+                let prefix = format!("{}/", path.trim_end_matches('/'));
+                (Some((base.clone(), prefix)), &pattern.pattern)
             }
         };
-        let matcher = GlobBuilder::new(&glob)
+        let glob = GlobBuilder::new(glob)
             .literal_separator(true)
             .backslash_escape(false)
             .build()
-            .context("invalid document glob")?
-            .compile_matcher();
+            .context("invalid document glob")?;
+        let matcher = unicode_glob_regex(glob.regex()).context("invalid document glob")?;
         Ok(Self { base, matcher })
     }
 
     fn matches(&self, uri: &lsp::Uri) -> bool {
-        if let Some(base) = &self.base {
+        let decoded_path = uri.path().decode();
+        let Ok(path) = decoded_path.to_string() else {
+            return false;
+        };
+        let path = if let Some((base, prefix)) = &self.base {
+            let Some(relative_path) = path.strip_prefix(prefix) else {
+                return false;
+            };
             if !base
                 .scheme()
                 .zip(uri.scheme())
@@ -225,12 +229,41 @@ impl Pattern {
             if !authority_matches {
                 return false;
             }
-        }
-        uri.path()
-            .decode()
-            .to_string()
-            .is_ok_and(|path| self.matcher.is_match(path.as_ref()))
+            relative_path
+        } else {
+            path.as_ref()
+        };
+        self.matcher.is_match(path)
     }
+}
+
+/// Globset escapes UTF-8 literals as individual bytes. Restore those literals and
+/// use Unicode regex mode so a single-character wildcard consumes one character.
+fn unicode_glob_regex(expression: &str) -> anyhow::Result<Regex> {
+    static ESCAPES: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r"\\\\|(?:\\x[89a-f][0-9a-f])+").unwrap());
+
+    let expression = expression.strip_prefix("(?-u)").unwrap_or(expression);
+    let mut pattern = String::with_capacity(expression.len());
+    let mut end = 0;
+    for escape in ESCAPES.find_iter(expression) {
+        pattern.push_str(&expression[end..escape.start()]);
+        let escaped = escape.as_str();
+        if escaped == r"\\" {
+            pattern.push_str(escaped);
+        } else {
+            let bytes = (2..escaped.len())
+                .step_by(4)
+                .map(|offset| u8::from_str_radix(&escaped[offset..offset + 2], 16))
+                .collect::<Result<Vec<_>, _>>()?;
+            pattern.push_str(std::str::from_utf8(&bytes)?);
+        }
+        end = escape.end();
+    }
+    pattern.push_str(&expression[end..]);
+    Ok(RegexBuilder::new(&pattern)
+        .dot_matches_new_line(true)
+        .build()?)
 }
 
 fn local_file_uri(uri: &lsp::Uri) -> bool {
@@ -319,6 +352,29 @@ mod tests {
             &compile_selector(json!([{"language":"*", "scheme":"*"}])),
             "rust",
             "git:/project/src/main.rs"
+        ));
+    }
+
+    #[test]
+    fn globs_match_unicode_characters() {
+        let wildcard = compile_selector(json!([{"pattern": "**/?.rs"}]));
+        assert!(matches(&wildcard, "rust", "file:///project/a.rs"));
+        assert!(matches(&wildcard, "rust", "file:///project/%C3%A9.rs"));
+        assert!(!matches(&wildcard, "rust", "file:///project/%C3%A9e.rs"));
+        assert!(!matches(&wildcard, "rust", "file:///project/.rs"));
+
+        let relative = compile_selector(json!([{
+            "pattern": {"baseUri": "file:///project", "pattern": "工具/{[à-ê],ç}.rs"}
+        }]));
+        assert!(matches(
+            &relative,
+            "rust",
+            "file:///project/%E5%B7%A5%E5%85%B7/%C3%A9.rs"
+        ));
+        assert!(!matches(
+            &relative,
+            "rust",
+            "file:///project/%E5%B7%A5%E5%85%B7/a.rs"
         ));
     }
 

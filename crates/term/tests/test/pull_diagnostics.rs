@@ -72,6 +72,17 @@ impl Fixture {
         inter_file: bool,
         workspace: bool,
     ) -> anyhow::Result<Self> {
+        Self::with_server_args(directory, word, names, inter_file, workspace, &[])
+    }
+
+    fn with_server_args(
+        directory: &Path,
+        word: &str,
+        names: &[&str],
+        inter_file: bool,
+        workspace: bool,
+        args: &[&std::ffi::OsStr],
+    ) -> anyhow::Result<Self> {
         let gate = Gate::new(directory.join("initialize-ready"));
         let mut servers = String::new();
         let mut logs = Vec::new();
@@ -82,6 +93,9 @@ impl Fixture {
                 .initialize_gate(&gate)
                 .arg("--related-diagnostics")
                 .arg(related);
+            for arg in args {
+                server = server.arg(arg);
+            }
             if inter_file {
                 server = server.arg("--inter-file");
             }
@@ -832,6 +846,45 @@ impl Fixture {
             .filter(|request| request["method"] == "workspace/diagnostic")
             .collect())
     }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn workspace_diagnostics_run_without_a_matching_open_file() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let capabilities = dir.path().join("capabilities.json");
+    std::fs::write(
+        &capabilities,
+        serde_json::to_vec(&json!({
+            "diagnosticProvider": {
+                "identifier": "alpha",
+                "documentSelector": [{"pattern": "**/unopened.pull-test"}],
+                "interFileDependencies": false,
+                "workspaceDiagnostics": true
+            }
+        }))?,
+    )?;
+    let mut f = Fixture::with_server_args(
+        dir.path(),
+        "original",
+        &["alpha"],
+        false,
+        true,
+        &["--capabilities".as_ref(), capabilities.as_os_str()],
+    )?;
+    let uri = Uri::from(stdx::path::normalize(dir.path().join("unopened.pull-test")));
+    f.workspace_reports(
+        0,
+        json!({"result": {"items": [workspace_report(&uri, "fresh", Some("workspace issue"))]}}),
+    )?;
+    f.initialize().await?;
+    f.until(|f| f.raw_messages(&uri) == ["workspace issue"])
+        .await?;
+    assert!(lsp::read_log(&f.logs[0])?
+        .iter()
+        .all(|request| request.get("textDocument").is_none()));
+    assert!(!f.workspace_requests(0)?.is_empty());
+    assert!(f.app.close().await.is_empty());
+    Ok(())
 }
 
 #[tokio::test(flavor = "multi_thread")]

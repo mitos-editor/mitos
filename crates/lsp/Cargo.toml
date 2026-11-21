@@ -26,6 +26,7 @@ futures-executor.workspace = true
 futures-util.workspace = true
 globset.workspace = true
 log.workspace = true
+regex.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "io-util", "io-std", "time", "process", "macros", "fs", "parking_lot", "sync"] }
