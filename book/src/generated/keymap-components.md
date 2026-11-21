@@ -276,11 +276,15 @@
 | `` <A-d> `` | `` delete_path `` |
 | `` / `` | `` filter `` |
 | `` <C-e> ``, `` <C-w>l ``, `` <C-w><C-l> ``, `` <C-w><right> `` | `` focus_editor `` |
+| `` zC `` | `` fold_all `` |
+| `` zc `` | `` fold_close `` |
+| `` zo `` | `` fold_open `` |
+| `` za `` | `` fold_toggle `` |
 | `` q ``, `` <C-w>b ``, `` <C-w>q ``, `` <C-w><C-q> `` | `` hide `` |
 | `` j ``, `` <C-n> ``, `` <tab> ``, `` <down> `` | `` move_down `` |
-| `` <end> `` | `` move_end `` |
+| `` ge ``, `` <end> `` | `` move_end `` |
 | `` <A-m> `` | `` move_path `` |
-| `` <home> `` | `` move_start `` |
+| `` gg ``, `` <home> `` | `` move_start `` |
 | `` k ``, `` <up> ``, `` <C-p> ``, `` <S-tab> `` | `` move_up `` |
 | `` <C-w>w ``, `` <C-w><C-w> `` | `` next_view `` |
 | `` <A-o> `` | `` open_preview `` |

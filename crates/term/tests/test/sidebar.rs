@@ -70,6 +70,87 @@ fn sidebar_fixture(
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn counted_motions_and_goto_jumps_select_sidebar_rows() -> anyhow::Result<()> {
+    if super::helpers::isolation::workspace(
+        "test::sidebar::counted_motions_and_goto_jumps_select_sidebar_rows",
+    )?
+    .is_none()
+    {
+        return Ok(());
+    }
+    let mut config = test_config();
+    config.editor.file_explorer.hidden = true;
+    config.component_keys = term::config::Config::load(
+        Ok(&"[keys.sidebar]\n'2' = 'move_end'\n".to_owned()),
+        Err(term::config::ConfigLoadError::default()),
+    )
+    .unwrap()
+    .component_keys;
+    let (mut app, _dir, root) = sidebar_fixture(config)?;
+    let workspace = root.parent().unwrap();
+    for row in 1..=12 {
+        std::fs::write(workspace.join(format!("row{row:02}.txt")), "")?;
+    }
+    keys(&mut app, "<C-w>e").await?;
+    for (motion, expected) in [
+        ("10j", workspace.join("row10.txt")),
+        ("ge", workspace.join("row12.txt")),
+        ("gg", root.clone()),
+        ("12k", workspace.join("row01.txt")),
+        ("gg38k", workspace.join("row01.txt")),
+        ("2", workspace.join("row12.txt")),
+        ("gg8g<esc>j", workspace.join("row01.txt")),
+    ] {
+        keys(&mut app, &format!("{motion}<A-y>")).await?;
+        let selected: Vec<_> = app.editor.registers.read('"').unwrap().collect();
+        assert_eq!(
+            selected,
+            [stdx::path::get_relative_path(&expected).to_string_lossy()],
+            "{motion}"
+        );
+    }
+    keys(&mut app, "/row10.txt<ret><ret>").await?;
+    assert_eq!(
+        current_ref!(app.editor).1.path(),
+        Some(workspace.join("row10.txt").as_path())
+    );
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn folder_folds_keep_nested_expansion_until_collapse_all() -> anyhow::Result<()> {
+    if super::helpers::isolation::workspace(
+        "test::sidebar::folder_folds_keep_nested_expansion_until_collapse_all",
+    )?
+    .is_none()
+    {
+        return Ok(());
+    }
+    let mut config = test_config();
+    config.editor.file_explorer.hidden = true;
+    config.component_keys = term::config::Config::load(
+        Ok(&"[keys.sidebar]\nF6 = 'fold_open'\n".to_owned()),
+        Err(term::config::ConfigLoadError::default()),
+    )
+    .unwrap()
+    .component_keys;
+    let (mut app, _dir, _root) = sidebar_fixture(config)?;
+    keys(&mut app, "<C-w>egg<F6>jzojza").await?;
+    assert!(screen(&app).contains("d.txt"));
+
+    keys(&mut app, "kzczc").await?;
+    assert!(screen(&app).contains("sub/"));
+    assert!(!screen(&app).contains("deep/"));
+    keys(&mut app, "zozo").await?;
+    assert!(screen(&app).contains("d.txt"));
+
+    keys(&mut app, "zCggzo").await?;
+    assert!(screen(&app).contains("sub/"));
+    assert!(!screen(&app).contains("deep/"));
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn enter_confirms_search_and_preserves_results_until_escape() -> anyhow::Result<()> {
     if super::helpers::isolation::workspace(
         "test::sidebar::enter_confirms_search_and_preserves_results_until_escape",

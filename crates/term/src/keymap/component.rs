@@ -86,6 +86,20 @@ pub enum PickerItemAction {
     CopyPath,
     DeletePath,
     YankPath,
+    #[serde(untagged)]
+    Directory(DirectoryAction),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub enum DirectoryAction {
+    #[serde(rename = "fold_open")]
+    Open,
+    #[serde(rename = "fold_close")]
+    Close,
+    #[serde(rename = "fold_toggle")]
+    Toggle,
+    #[serde(rename = "fold_all")]
+    CloseAll,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -156,6 +170,12 @@ impl PickerAction {
                 PickerItemAction::CopyPath => "Copy file or directory",
                 PickerItemAction::DeletePath => "Delete file or directory",
                 PickerItemAction::YankPath => "Yank path",
+                PickerItemAction::Directory(action) => match action {
+                    DirectoryAction::Open => "Expand selected directory",
+                    DirectoryAction::Close => "Collapse selected directory",
+                    DirectoryAction::Toggle => "Toggle selected directory",
+                    DirectoryAction::CloseAll => "Collapse all directories",
+                },
                 PickerItemAction::CreateBranch => "Create branch",
                 PickerItemAction::DeleteBranch => "Delete branch",
                 PickerItemAction::CreateWorktree => "Create worktree",
@@ -261,14 +281,24 @@ impl ComponentKeymaps {
     }
 
     pub fn sidebar(explorer: Keymap<PickerAction>) -> Keymap<SidebarAction> {
+        use DirectoryAction as D;
+        use PickerAction as P;
         use SidebarAction as S;
         let mut keys = Self::sidebar_filter(explorer);
         keys.merge(bindings(&[
             ("/", S::Filter),
-            ("j", S::Picker(PickerAction::MoveDown)),
-            ("k", S::Picker(PickerAction::MoveUp)),
+            ("j", S::Picker(P::MoveDown)),
+            ("k", S::Picker(P::MoveUp)),
             ("q", S::Hide),
         ]));
+        let goto = bindings(&[("g", S::Picker(P::MoveStart)), ("e", S::Picker(P::MoveEnd))]);
+        let directory = |action| S::Picker(P::Item(PickerItemAction::Directory(action)));
+        let fold = bindings(&[
+            ("o", directory(D::Open)),
+            ("c", directory(D::Close)),
+            ("a", directory(D::Toggle)),
+            ("C", directory(D::CloseAll)),
+        ]);
         let windows = bindings(&[
             ("l", S::FocusEditor),
             ("C-l", S::FocusEditor),
@@ -281,8 +311,10 @@ impl ComponentKeymaps {
             ("b", S::Hide),
             ("r", S::Resize),
         ]);
-        keys.bindings
-            .insert("C-w".parse().unwrap(), Binding::Node(windows));
+        keys.bindings.extend(
+            [("g", goto), ("z", fold), ("C-w", windows)]
+                .map(|(key, node)| (key.parse().unwrap(), Binding::Node(node))),
+        );
         keys
     }
     pub fn git_picker(mut shared: Keymap<PickerAction>) -> Keymap<PickerAction> {

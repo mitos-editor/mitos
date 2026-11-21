@@ -131,14 +131,19 @@ directories and your selection.
 
 | Key | Action |
 | --- | --- |
-| `j` / `k` or `Down` / `Up` | Select an entry |
+| `j` / `k` or `Down` / `Up` | Move by one entry, or use a count such as `10j` |
+| `g g` / `g e` | Select the first or last entry |
 | `Enter` | Expand or collapse a directory, or open a file |
+| `z o` / `z c` / `z a` | Expand, collapse, or toggle the selected directory |
+| `z C` | Collapse all directories |
 | `/` | Start a search |
 | `Enter` while searching | Confirm the search and navigate the filtered tree |
 | `Esc` with a search | Clear the search and keep the sidebar focused |
 | `Esc` without a search | Return to the editor |
 | `q` while navigating | Hide the sidebar |
 | `Ctrl-w r` while navigating | Resize the sidebar |
+
+The `z` shortcuts apply to the unfiltered tree.
 
 To change the width, press `Ctrl-w r`, then `h` / `Left` to shrink it or
 `l` / `Right` to grow it. Press `Enter` to keep the width or `Esc` to cancel.

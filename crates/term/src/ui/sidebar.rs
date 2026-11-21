@@ -2,6 +2,7 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet},
+    num::NonZeroUsize,
     path::PathBuf,
 };
 
@@ -9,9 +10,15 @@ use view::{graphics::Rect, info::Info, Editor};
 
 use crate::{
     compositor::{Component, Context, Cursor, DeferredEvent, DrawContext, Event, EventResult},
-    keymap::component::{ComponentKeymaps, PickerAction, SidebarAction},
+    keymap::{
+        component::{ComponentKeymaps, PickerAction, SidebarAction},
+        consume_count_key,
+    },
 };
-use ui_core::keymap::{Binding, Keymap, KeymapState, Lookup};
+use ui_core::{
+    input::KeyEvent,
+    keymap::{Binding, Keymap, KeymapState, Lookup},
+};
 
 use super::{editor::EditorView, layout::ApplicationLayout, FileExplorer};
 
@@ -28,6 +35,7 @@ pub(super) struct Sidebar {
     state: State,
     active_path: Option<PathBuf>,
     keys: KeymapState,
+    pub(super) count: Option<NonZeroUsize>,
     pending_action: Option<PickerAction>,
     action_scheduled: bool,
     pub(super) width: Option<u16>,
@@ -50,6 +58,7 @@ impl Sidebar {
             state: State::Navigating,
             active_path: None,
             keys: KeymapState::default(),
+            count: None,
             pending_action: None,
             action_scheduled: false,
             width: None,
@@ -88,6 +97,7 @@ impl Sidebar {
 
     fn reset_input(&mut self) {
         self.keys.clear();
+        self.count = None;
         self.picker.cancel_input();
         self.picker.set_title("File Explorer");
     }
@@ -174,6 +184,10 @@ impl Sidebar {
         self.keys.is_pending() || self.picker.has_pending_keys()
     }
 
+    pub(super) fn pending_keys(&self) -> &[KeyEvent] {
+        self.keys.pending()
+    }
+
     pub fn has_pending_render(&self) -> bool {
         self.picker.has_pending_render()
     }
@@ -231,7 +245,7 @@ impl Sidebar {
                 sidebar.action_scheduled = false;
                 let action = sidebar.pending_action.take();
                 let input = std::mem::take(&mut sidebar.pending_input);
-                let result = action.map(|action| sidebar.picker_action(action, cx));
+                let result = action.map(|action| sidebar.picker_action(action, 1, cx));
                 if let Some(EventResult::Consumed(Some(callback))) = result {
                     callback(compositor, cx);
                 }
@@ -239,8 +253,8 @@ impl Sidebar {
             }));
     }
 
-    fn picker_action(&mut self, action: PickerAction, cx: &mut Context) -> EventResult {
-        let result = self.picker.execute_actions(&[action], cx);
+    fn picker_action(&mut self, action: PickerAction, steps: u32, cx: &mut Context) -> EventResult {
+        let result = self.picker.execute_actions_with_steps(&[action], steps, cx);
         if !matches!(result, EventResult::Consumed(Some(_))) && action == PickerAction::Accept {
             self.state = State::Navigating;
             self.reset_input();
@@ -259,6 +273,7 @@ impl Sidebar {
         }
         let Event::Key(key) = event else {
             self.keys.clear();
+            self.count = None;
             return if self.state == State::Filtering || matches!(event, Event::Mouse(_)) {
                 self.picker.handle_event(event, cx)
             } else {
@@ -271,21 +286,34 @@ impl Sidebar {
             return self.picker.handle_event(event, cx);
         }
         let map = self.keymap(&cx.config.current.component_keys);
+        if self.state == State::Navigating
+            && consume_count_key(&mut self.count, *key, || {
+                !self.keys.pending_map(map).unwrap_or(map).contains_key(key)
+            })
+        {
+            return EventResult::Consumed(None);
+        }
         let actions = match self.keys.lookup(map, *key) {
             Lookup::Pending => return EventResult::Consumed(None),
-            Lookup::Unbound if self.state == State::Filtering => {
-                self.pending_action = None;
-                return self.picker.prompt_handle_event(event, cx);
+            Lookup::Unbound => {
+                self.count = None;
+                if self.state == State::Filtering {
+                    self.pending_action = None;
+                    return self.picker.prompt_handle_event(event, cx);
+                }
+                return EventResult::Consumed(None);
             }
-            Lookup::Unbound => return EventResult::Consumed(None),
             Lookup::Actions(actions) => actions.to_vec(),
         };
+        let count = self.count.take();
+        let steps = count.map_or(1, |count| count.get() as u32);
         for action in actions {
             match action {
                 SidebarAction::Resize => {
-                    return EventResult::Consumed(Some(Box::new(|compositor, cx| {
+                    return EventResult::Consumed(Some(Box::new(move |compositor, cx| {
                         if let Some(view) = compositor.find::<EditorView>() {
-                            view.start_resize(cx.editor, None);
+                            view.start_resize(cx.editor, count);
+                            cx.interaction.count = count;
                         }
                     })));
                 }
@@ -335,7 +363,7 @@ impl Sidebar {
                         self.pending_action = Some(action);
                         return EventResult::Consumed(None);
                     }
-                    let result = self.picker_action(action, cx);
+                    let result = self.picker_action(action, steps, cx);
                     if matches!(result, EventResult::Consumed(Some(_)))
                         || action == PickerAction::Accept
                     {

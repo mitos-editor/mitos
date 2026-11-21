@@ -24,7 +24,7 @@ use view::{
 
 use crate::{
     compositor::{self, Context},
-    keymap::component::PickerItemAction,
+    keymap::component::{DirectoryAction, PickerItemAction},
     ui::{
         self,
         picker::{self, PickerCallbackResult},
@@ -145,37 +145,13 @@ pub(super) fn picker(
         },
         |_, _, _| picker::PickerCallbackResult::KeepOpen,
     )
-    .with_data_callback(move |cx, (path, is_dir): &(PathBuf, bool), data, action| {
+    .with_data_callback(move |cx, item, data, action| {
+        let (path, is_dir) = item;
         if *is_dir {
-            let mut tree = data.tree.clone();
-            let new_root = if let Some(tree) = &mut tree {
-                tree.searching = false;
-                tree.reset_index();
-                tree.reveal(&data.root, path);
-                tree.expanded.toggle(path.clone());
-                data.root.clone()
+            return if data.tree.is_some() {
+                fold_directory(cx.editor, Some(item), data, DirectoryAction::Toggle)
             } else {
-                stdx::path::normalize(path)
-            };
-            return match content(
-                &new_root,
-                tree.as_ref(),
-                &cx.editor.config().file_explorer,
-                || false,
-            ) {
-                Ok(options) => picker::PickerCallbackResult::Replace {
-                    options,
-                    editor_data: ExplorerData {
-                        root: new_root,
-                        theme: Arc::new(cx.editor.theme.clone()),
-                        show_icons: cx.editor.config().icons,
-                        tree,
-                    },
-                },
-                Err(err) => {
-                    cx.editor.set_error(|| err.to_string());
-                    picker::PickerCallbackResult::KeepOpen
-                }
+                replace_directory(cx.editor, stdx::path::normalize(path), None)
             };
         }
 
@@ -301,6 +277,59 @@ fn directory_content_cancellable(
 
 type ActionResult = PickerCallbackResult<ExplorerItem, ExplorerData>;
 
+fn replace_directory(
+    editor: &mut Editor,
+    root: PathBuf,
+    tree: Option<ExplorerTree>,
+) -> ActionResult {
+    match content(&root, tree.as_ref(), &editor.config().file_explorer, || {
+        false
+    }) {
+        Ok(options) => PickerCallbackResult::Replace {
+            options,
+            editor_data: ExplorerData {
+                root,
+                theme: Arc::new(editor.theme.clone()),
+                show_icons: editor.config().icons,
+                tree,
+            },
+        },
+        Err(err) => {
+            editor.set_error(|| err.to_string());
+            PickerCallbackResult::KeepOpen
+        }
+    }
+}
+
+fn fold_directory(
+    editor: &mut Editor,
+    item: Option<&ExplorerItem>,
+    data: &ExplorerData,
+    action: DirectoryAction,
+) -> ActionResult {
+    let Some(mut tree) = data.tree.clone() else {
+        return PickerCallbackResult::KeepOpen;
+    };
+    let changed = match (action, item) {
+        (DirectoryAction::CloseAll, _) => tree.expanded.clear(),
+        (DirectoryAction::Toggle, Some((path, true))) => {
+            tree.reveal(&data.root, path);
+            tree.expanded.toggle(path.clone());
+            true
+        }
+        (DirectoryAction::Open | DirectoryAction::Close, Some((path, true))) => tree
+            .expanded
+            .set_expanded(path.clone(), action == DirectoryAction::Open),
+        _ => false,
+    };
+    if !changed {
+        return PickerCallbackResult::KeepOpen;
+    }
+    tree.searching = false;
+    tree.reset_index();
+    replace_directory(editor, data.root.clone(), Some(tree))
+}
+
 /// Run an explorer item action for the selected entry of the directory `data.root`.
 pub(super) fn action(
     cx: &mut Context,
@@ -311,6 +340,11 @@ pub(super) fn action(
     // `../` is a navigation entry, not something to move, copy or delete.
     let selected = item.filter(|(path, _)| path.file_name().is_some());
     match action {
+        PickerItemAction::Directory(action)
+            if data.tree.as_ref().is_some_and(|tree| !tree.searching) =>
+        {
+            fold_directory(cx.editor, selected, data, action)
+        }
         PickerItemAction::CreatePath => prompt(
             "create:",
             directory_prefix(if data.tree.is_some() {
