@@ -36,13 +36,14 @@ use thiserror::Error;
 use tokio::time::Instant;
 use tui::{
     buffer::Buffer as Surface,
-    layout::{Constraint, Layout, Size},
+    layout::{Constraint, Layout, Position, Size},
     text::{Line, Span},
     widgets::{Cell, Paragraph, Row, StatefulWidget, Table},
 };
 
 use tui::buffer::BufferExt as _;
 use tui::widgets::Widget;
+use ui_core::input::{MouseButton, MouseEventKind};
 use view::graphics::RectExt as _;
 
 use std::{
@@ -303,6 +304,8 @@ pub struct Picker<T: 'static + Send + Sync, D: 'static> {
 
     /// Current height of the completions box
     completion_height: u16,
+    /// Bounds and first match index of the rows shown in the last frame.
+    rendered_results: Option<(Rect, u32)>,
 
     prompt: Prompt,
     query: PickerQuery,
@@ -461,6 +464,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             on_close: None,
             default_action: Action::Replace,
             completion_height: 0,
+            rendered_results: None,
             widths,
             preview: FilePreview::default(),
             preview_scroll: FileScroll::default(),
@@ -527,6 +531,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
     /// Stop background source activity while retaining published rows and selection.
     /// Restoring the picker resumes its sources through their existing update path.
     pub(crate) fn suspend(&mut self) {
+        self.rendered_results = None;
         self.quicklist_task.cancel();
         self.query_options.needs_refresh |= self.query_options.pending.is_some()
             || (self.query_options.asynchronous.is_some() && self.results.is_refreshing())
@@ -1209,9 +1214,9 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             panel::top_border(sep_style, cx.editor.config().border_style).render(area, surface);
         }
 
-        let rows = inner.height.saturating_sub(self.header_height()) as u32;
-        self.completion_height = rows as u16;
-        let rows = rows.max(1);
+        let mut result_rows = inner.clip_top(self.header_height());
+        self.completion_height = result_rows.height;
+        let rows = u32::from(result_rows.height).max(1);
         self.results.offset = visible_offset(
             self.results.cursor,
             self.results.offset,
@@ -1223,6 +1228,10 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         let end = offset
             .saturating_add(rows)
             .min(snapshot.matched_item_count());
+        result_rows.height = result_rows.height.min(end.saturating_sub(offset) as u16);
+        if self.on_close.is_none() {
+            self.rendered_results = Some((result_rows, offset));
+        }
         let mut indices = Vec::new();
         self.highlight_matcher.set_kind(if self.file_fn.is_some() {
             fuzzy::MatchKind::Path
@@ -1786,6 +1795,7 @@ impl<I: 'static + Send + Sync, D: 'static + Send + Sync> Component for Picker<I,
     }
 
     fn update(&mut self, area: Rect, cx: &mut Context) {
+        self.rendered_results = None;
         let render_preview = self.preview_visible(area);
 
         let poll = &cx.editor.config().files.reload.poll;
@@ -1884,33 +1894,42 @@ impl<I: 'static + Send + Sync, D: 'static + Send + Sync> Component for Picker<I,
 
     fn handle_event(&mut self, event: &Event, ctx: &mut Context) -> EventResult {
         let key_event = match event {
-            Event::Key(event) => *event,
+            Event::Key(event) => {
+                self.rendered_results = None;
+                *event
+            }
             Event::Paste(..) => {
+                self.rendered_results = None;
                 self.keys.clear();
                 return self.prompt_handle_event(event, ctx);
             }
             Event::Resize(..) => {
+                self.rendered_results = None;
                 self.preview_area = None;
                 return EventResult::Consumed(None);
             }
             // Picker is a modal and should consume mouse events so clicks don't fall
             // through to the editor underneath
             Event::Mouse(mouse) => {
-                use ui_core::input::MouseEventKind;
-                if self.preview_area.is_some_and(|area| {
-                    mouse.column >= area.left()
-                        && mouse.column < area.right()
-                        && mouse.row >= area.top()
-                        && mouse.row < area.bottom()
-                }) {
+                let position = Position::new(mouse.column, mouse.row);
+                if self
+                    .preview_area
+                    .is_some_and(|area| area.contains(position))
+                {
                     let action = match mouse.kind {
                         MouseEventKind::ScrollDown => Some(PickerAction::PreviewScrollDown),
                         MouseEventKind::ScrollUp => Some(PickerAction::PreviewScrollUp),
                         _ => None,
                     };
                     if let Some(action) = action {
+                        self.rendered_results = None;
                         return self.execute_actions(&[action], ctx);
                     }
+                } else if mouse.kind == MouseEventKind::Down(MouseButton::Left)
+                    && let Some((area, first)) = self.rendered_results
+                    && area.contains(position)
+                {
+                    self.results.cursor = first + u32::from(mouse.row - area.y);
                 }
                 return EventResult::Consumed(None);
             }
@@ -2176,6 +2195,80 @@ mod tests {
         ];
 
         assert_eq!(visible_column_widths(&columns), [Constraint::Length(4)]);
+    }
+
+    #[tokio::test]
+    async fn left_click_selects_the_rendered_picker_row_after_paging() -> anyhow::Result<()> {
+        use super::{test::*, *};
+        use std::cell::Cell;
+        use std::rc::Rc;
+        use ui_core::input::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+
+        let mut app = application(false)?;
+        let config = crate::config::Config::default();
+        let accepted = Rc::new(Cell::new(None));
+        let recorded = accepted.clone();
+        let mut picker = Picker::new(
+            app.editor.redraw().clone(),
+            [
+                Column::new("name", |item: &u32, _| format!("entry-{item:02}").into()),
+                Column::new("kind", |_, _| "file".into()),
+            ],
+            0,
+            0..20,
+            (),
+            move |_, item, _| recorded.set(Some(*item)),
+        );
+        until(&mut picker, &mut app, |picker| items(picker).count() == 20).await?;
+        let area = Rect::new(3, 2, 42, 8);
+        frame_with_area(&mut picker, &mut app, &config, area);
+        event_with_config(
+            &mut picker,
+            &mut app,
+            &config,
+            Event::Key("pagedown".parse()?),
+        );
+        let surface = frame_with_area(&mut picker, &mut app, &config, area);
+        let selected = *picker.selection().unwrap();
+        assert!(selected > 0);
+
+        let target = selected + 1;
+        let row_containing = |label: &str| {
+            (area.top()..area.bottom())
+                .find(|&row| {
+                    (area.left()..area.right())
+                        .map(|column| surface[(column, row)].symbol())
+                        .collect::<String>()
+                        .contains(label)
+                })
+                .unwrap()
+        };
+        let click = |row| {
+            Event::Mouse(MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Left),
+                column: area.x + 5,
+                row,
+                modifiers: KeyModifiers::empty(),
+            })
+        };
+        event_with_config(
+            &mut picker,
+            &mut app,
+            &config,
+            click(row_containing("name")),
+        );
+        assert_eq!(picker.selection(), Some(&selected));
+        event_with_config(
+            &mut picker,
+            &mut app,
+            &config,
+            click(row_containing(&format!("entry-{target:02}"))),
+        );
+        assert_eq!(picker.selection(), Some(&target));
+        assert_eq!(accepted.get(), None);
+        event_with_config(&mut picker, &mut app, &config, Event::Key("ret".parse()?));
+        assert_eq!(accepted.get(), Some(target));
+        Ok(())
     }
 
     #[tokio::test(flavor = "multi_thread")]
