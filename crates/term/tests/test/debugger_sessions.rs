@@ -295,3 +295,54 @@ async fn canceling_tcp_startup_releases_the_adapter_process() -> anyhow::Result<
     assert!(app.close().await.is_empty());
     Ok(())
 }
+#[tokio::test(flavor = "multi_thread")]
+async fn mouse_breakpoints_use_the_configured_diagnostics_column() -> anyhow::Result<()> {
+    #[cfg(windows)]
+    use crossterm::event::{
+        Event, KeyModifiers as Modifiers, MouseButton, MouseEvent, MouseEventKind,
+    };
+    use editor_config::GutterType::{Diagnostics, Diff, LineNumbers, Spacer};
+    #[cfg(not(windows))]
+    use termina::event::{Event, Modifiers, MouseButton, MouseEvent, MouseEventKind};
+
+    let file = super::helpers::temp_file_with_contents("first\nsecond\nthird\n")?;
+    let mut config = term::config::Config::default();
+    config.editor.gutters.layout = vec![LineNumbers, Spacer, Diagnostics, Diff];
+    let mut app = super::helpers::AppBuilder::new()
+        .with_config(config)
+        .with_file(file.path(), None)
+        .build()?;
+    super::helpers::run_event_loop_until_idle(&mut app).await;
+    let (view, doc) = view::current_ref!(app.editor);
+    let path = doc.path().unwrap().to_owned();
+    let selection = doc.selection(view.id).clone();
+    let row = view.inner_area(doc).top() + 1;
+    let number = view.area.left();
+    let marker = number + view::gutter::width(LineNumbers, view, doc) as u16 + 1;
+    let mouse = |kind, column| {
+        Ok(Event::Mouse(MouseEvent {
+            kind,
+            column,
+            row,
+            modifiers: Modifiers::empty(),
+        }))
+    };
+
+    for column in [number, marker - 1, marker + 1] {
+        app.handle_terminal_events(mouse(MouseEventKind::Down(MouseButton::Left), column))
+            .await;
+        assert!(app.editor.debugger().breakpoints(&path).is_empty());
+    }
+    app.handle_terminal_events(mouse(MouseEventKind::Down(MouseButton::Left), marker))
+        .await;
+    assert!(app.editor.debugger().breakpoint_at_line(&path, 1).is_some());
+    app.handle_terminal_events(mouse(MouseEventKind::Up(MouseButton::Right), number))
+        .await;
+    let (view, doc) = view::current_ref!(app.editor);
+    assert_eq!(doc.selection(view.id), &selection);
+    app.handle_terminal_events(mouse(MouseEventKind::Up(MouseButton::Right), marker))
+        .await;
+    run_event_loop_until_idle(&mut app).await;
+    assert!(screen(&app).contains("condition:"));
+    Ok(())
+}
