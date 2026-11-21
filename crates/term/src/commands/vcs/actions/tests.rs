@@ -155,9 +155,8 @@ async fn stash_inspection_opens_native_review_without_changing_git_state() -> an
     until(&mut picker, &mut app, |picker| picker.selection().is_some()).await?;
     compositor.push(Box::new(overlaid(picker)));
     key(&mut app, &mut compositor, &mut jobs, "ret");
-    let layer = compositor.pop().unwrap();
+    let layer: Box<dyn std::any::Any> = compositor.pop().unwrap();
     let mut files = layer
-        .as_boxed_any()
         .downcast::<ui::overlay::Overlay<Picker<StashFile, StashFiles>>>()
         .map_err(|_| anyhow::anyhow!("Expected stash files picker"))?;
     until(&mut files.content, &mut app, |picker| {
