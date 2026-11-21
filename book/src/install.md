@@ -169,6 +169,30 @@ For package-manager availability, check the Mitos package's source and version.
 The release `.deb` is described above; the hosted installers and release
 archives are the installation methods maintained in this repository.
 
+## Nix
+
+Install the default flake package from `main`:
+
+```sh
+nix profile install github:mitos-editor/mitos/main
+```
+
+Nix must have the `nix-command` and `flakes` experimental features enabled.
+The package includes the runtime and compiled grammars.
+
+Once the project's public Cachix cache is enabled, configure it before
+installing to download prebuilt packages for x86_64 and ARM64 Linux and macOS.
+Replace `CACHE_NAME` with the cache name configured by the maintainers:
+
+```sh
+nix run nixpkgs#cachix -- use CACHE_NAME
+```
+
+On NixOS, follow the command's instructions to add the cache URL and public
+signing key to your system configuration, then rebuild your system. A package
+is available from the cache after CI has finished building that revision.
+Older revisions, overridden packages, and other systems may build from source.
+
 ## Configuration after upgrading
 
 Mitos loads known legacy settings without rewriting your configuration. Use
