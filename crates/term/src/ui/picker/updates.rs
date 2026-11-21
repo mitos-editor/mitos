@@ -103,10 +103,6 @@ pub(super) struct SourceUpdates<T, D> {
 }
 
 impl<T, D> SourceUpdates<T, D> {
-    pub fn is_pending(&self) -> bool {
-        self.source.is_pending()
-    }
-
     pub fn invalidate(&mut self, reason: Invalidation) {
         if self.kind != SourceKind::Files {
             return;
@@ -238,7 +234,9 @@ impl<T: Send + Sync + 'static, D: Send + Sync + 'static> Picker<T, D> {
     }
 
     pub(super) fn source_pending(&self) -> bool {
-        self.updates.as_ref().is_some_and(SourceUpdates::is_pending)
+        self.updates
+            .as_ref()
+            .is_some_and(|updates| updates.source.is_pending())
     }
 
     /// Start an owner-scoped read when the initial rows have not been loaded.
@@ -370,7 +368,7 @@ impl<T: Send + Sync + 'static, D: Send + Sync + 'static> Picker<T, D> {
     where
         T: PartialEq,
     {
-        let mut pages = super::paged::Paged::new(
+        let pages = super::paged::Paged::new(
             Some(()),
             ["Results available", "Loading results…", "Complete results"],
             |_| std::mem::size_of::<T>(),
@@ -384,12 +382,7 @@ impl<T: Send + Sync + 'static, D: Send + Sync + 'static> Picker<T, D> {
                 })
             },
         );
-        self.with_paged_updates(move |cx: UpdateContext<'_, T>| {
-            pages.update(cx).map(|update| match update {
-                Update::Append(rows) => Update::Replace(rows),
-                update => update,
-            })
-        })
+        self.with_paged_updates(pages.replace_initial())
     }
 
     /// Identify rows independently of their displayed metadata. If the selected row

@@ -72,6 +72,11 @@ impl<T: Send + 'static, C: Clone + Send + 'static> Paged<T, C> {
         self
     }
 
+    pub(super) fn replace_initial(mut self) -> Self {
+        self.replacement = Some((0, Vec::new()));
+        self
+    }
+
     pub fn suspend(&mut self) {
         self.pending = None;
         if self.state == State::Loading {
@@ -108,12 +113,6 @@ impl<T: Send + 'static, C: Clone + Send + 'static> Paged<T, C> {
     }
 
     pub fn update(&mut self, cx: UpdateContext<'_, T>) -> Option<Update<T>> {
-        if cx.resumed {
-            self.pending = None;
-            if self.state == State::Loading {
-                self.state = State::More;
-            }
-        }
         let mut force = false;
         if self.loading_controls && cx.toggle_loading && self.cursor.is_some() {
             match self.state {
@@ -234,6 +233,10 @@ impl<T: Send + 'static, C: Clone + Send + 'static, D> super::PickerSource<T, D> 
     fn suspend(&mut self) {
         Paged::suspend(self);
     }
+
+    fn is_pending(&self) -> bool {
+        Paged::is_pending(self)
+    }
 }
 
 #[cfg(test)]
@@ -281,7 +284,6 @@ mod tests {
             pages: &mut Paged<u32, usize>,
             query: &str,
             toggle: bool,
-            resumed: bool,
         ) -> Option<Update<u32>> {
             pages.update(UpdateContext {
                 editor: &mut self.app.editor,
@@ -293,14 +295,14 @@ mod tests {
                 incomplete: &mut self.incomplete,
                 selected: None,
                 task: &mut self.task,
-                resumed,
+                resumed: false,
                 toggle_loading: toggle,
             })
         }
         async fn next(&mut self, pages: &mut Paged<u32, usize>) -> Update<u32> {
             tokio::time::timeout(std::time::Duration::from_secs(5), async {
                 loop {
-                    if let Some(update) = self.poll(pages, "needle", false, false) {
+                    if let Some(update) = self.poll(pages, "needle", false) {
                         return update;
                     }
                     tokio::task::yield_now().await;
@@ -320,9 +322,9 @@ mod tests {
         assert_eq!(p.state, State::Paused);
         assert_eq!(p.cursor, Some(2));
         assert!(h.incomplete);
-        assert!(h.poll(&mut p, "needle", false, false).is_none());
+        assert!(h.poll(&mut p, "needle", false).is_none());
         assert!(!p.is_pending());
-        h.poll(&mut p, "needle", true, false);
+        h.poll(&mut p, "needle", true);
         assert!(p.budget > 20);
         assert!(matches!(h.next(&mut p).await, Update::Append(rows) if rows == [2, 3]));
         assert!(matches!(h.next(&mut p).await, Update::Append(rows) if rows == [4, 5]));
@@ -334,8 +336,8 @@ mod tests {
         let mut h = Harness::new();
         let mut p = pages().automatic();
         p.budget = 20;
-        h.poll(&mut p, "needle", false, false);
-        h.poll(&mut p, "needle", true, false);
+        h.poll(&mut p, "needle", false);
+        h.poll(&mut p, "needle", true);
         assert!(matches!(h.next(&mut p).await, Update::Append(rows) if rows == [0, 1]));
         assert_eq!(p.state, State::More);
         assert!(matches!(h.next(&mut p).await, Update::Append(rows) if rows == [2, 3]));
@@ -367,7 +369,7 @@ mod tests {
         assert!(matches!(h.next(&mut p).await, Update::Append(rows) if rows == [0]));
         tokio::time::timeout(std::time::Duration::from_secs(5), async {
             while p.state != State::Failed {
-                assert!(h.poll(&mut p, "needle", false, false).is_none());
+                assert!(h.poll(&mut p, "needle", false).is_none());
                 tokio::task::yield_now().await;
             }
         })
@@ -378,8 +380,9 @@ mod tests {
             h.status.as_deref(),
             Some("Results incomplete; loading failed")
         );
-        assert!(h.poll(&mut p, "needle", true, false).is_none());
-        assert!(h.poll(&mut p, "needle", false, true).is_none());
+        assert!(h.poll(&mut p, "needle", true).is_none());
+        p.suspend();
+        assert!(h.poll(&mut p, "needle", false).is_none());
         assert_eq!(p.state, State::Failed);
         assert!(!p.is_pending());
         assert_eq!(attempts.load(Ordering::Relaxed), 2);
@@ -389,9 +392,9 @@ mod tests {
     async fn canceled_page_is_retried_from_the_same_cursor() {
         let mut h = Harness::new();
         let mut p = pages();
-        h.poll(&mut p, "needle", false, false);
+        h.poll(&mut p, "needle", false);
         h.task.cancel();
-        h.poll(&mut p, "needle", false, true);
+        p.suspend();
         assert!(matches!(h.next(&mut p).await, Update::Append(rows) if rows == [0, 1]));
         assert!(matches!(h.next(&mut p).await, Update::Append(rows) if rows == [2, 3]));
     }
@@ -400,13 +403,14 @@ mod tests {
     async fn manual_pause_cancels_pending_work_and_resumes_with_empty_query() {
         let mut h = Harness::new();
         let mut p = pages();
-        h.poll(&mut p, "", false, false);
-        h.poll(&mut p, "", true, false);
+        h.poll(&mut p, "", false);
+        h.poll(&mut p, "", true);
         assert_eq!(p.state, State::Paused);
         assert!(!p.is_pending());
-        h.poll(&mut p, "", false, true);
+        p.suspend();
+        h.poll(&mut p, "", false);
         assert_eq!(p.state, State::Paused);
-        h.poll(&mut p, "", true, false);
+        h.poll(&mut p, "", true);
         assert!(matches!(h.next(&mut p).await, Update::Append(rows) if rows == [0, 1]));
     }
 
@@ -434,7 +438,7 @@ mod tests {
         );
         tokio::time::timeout(std::time::Duration::from_secs(5), async {
             while p.state != State::Failed {
-                h.poll(&mut p, "needle", false, false);
+                h.poll(&mut p, "needle", false);
                 tokio::task::yield_now().await;
             }
         })
@@ -442,7 +446,7 @@ mod tests {
         .unwrap();
         assert!(h.incomplete);
         assert_eq!(p.cursor, Some(0));
-        h.poll(&mut p, "needle", true, false);
+        h.poll(&mut p, "needle", true);
         assert!(matches!(h.next(&mut p).await, Update::Append(rows) if rows == [0]));
         assert_eq!(attempts.load(Ordering::Relaxed), 2);
         assert!(!h.incomplete);
@@ -466,7 +470,7 @@ mod tests {
         h.next(&mut p).await;
         p.reset(None, &mut h.task);
         assert!(
-            matches!(h.poll(&mut p, "", false, false), Some(Update::Replace(rows)) if rows.is_empty())
+            matches!(h.poll(&mut p, "", false), Some(Update::Replace(rows)) if rows.is_empty())
         );
         assert!(!h.incomplete);
     }
