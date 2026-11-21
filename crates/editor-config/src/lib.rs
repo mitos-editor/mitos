@@ -990,6 +990,41 @@ pub enum StatusLineElement {
     DebugSession,
 }
 
+impl StatusLineElement {
+    /// The name used in statusline configuration and theme scopes.
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Activity => "activity",
+            Self::Mode => "mode",
+            Self::Spinner => "spinner",
+            Self::FileBaseName => "file-base-name",
+            Self::FileName => "file-name",
+            Self::FileAbsolutePath => "file-absolute-path",
+            Self::FileModificationIndicator => "file-modification-indicator",
+            Self::ReadOnlyIndicator => "read-only-indicator",
+            Self::FileEncoding => "file-encoding",
+            Self::FileLineEnding => "file-line-ending",
+            Self::FileIndentStyle => "file-indent-style",
+            Self::FileType => "file-type",
+            Self::Diagnostics => "diagnostics",
+            Self::WorkspaceDiagnostics => "workspace-diagnostics",
+            Self::Selections => "selections",
+            Self::PrimarySelectionLength => "primary-selection-length",
+            Self::Position => "position",
+            Self::Separator => "separator",
+            Self::PositionPercentage => "position-percentage",
+            Self::TotalLineNumbers => "total-line-numbers",
+            Self::Spacer => "spacer",
+            Self::Branch => "branch",
+            Self::Register => "register",
+            Self::SearchPosition => "search-position",
+            Self::CurrentWorkingDirectory => "current-working-directory",
+            Self::CodeActionHint => "code-action-hint",
+            Self::DebugSession => "debug-session",
+        }
+    }
+}
+
 /// Cursor shapes for each editor mode.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]

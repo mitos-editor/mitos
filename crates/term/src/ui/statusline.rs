@@ -28,7 +28,6 @@ pub struct RenderContext<'a> {
     pub doc: &'a Document,
     pub view: &'a View,
     pub spinners: &'a ProgressSpinners,
-    base_style: Style,
     parts: Line<'a>,
     animation_deadline: Option<Instant>,
 }
@@ -47,14 +46,12 @@ impl<'a> RenderContext<'a> {
             doc,
             view,
             spinners,
-            base_style: Style::default(),
             parts: Line::default(),
             animation_deadline: None,
         }
     }
 
-    fn push_span(&mut self, mut span: Span<'a>) {
-        span.style = self.base_style.patch(span.style);
+    fn push_span(&mut self, span: Span<'a>) {
         self.parts.spans.push(span);
     }
 
@@ -65,6 +62,7 @@ impl<'a> RenderContext<'a> {
 
 struct Part<'a> {
     element: StatusLineElementID,
+    style: Style,
     line: Line<'a>,
     compact: Option<Line<'a>>,
 }
@@ -79,17 +77,18 @@ pub fn render(
         return;
     }
 
-    context.base_style = context.editor.theme.get(if context.is_focused() {
+    let row_scope = if context.is_focused() {
         "ui.statusline"
     } else {
         "ui.statusline.inactive"
-    });
-    surface.set_style(viewport.with_height(1), context.base_style);
+    };
+    let row_style = context.editor.theme.get(row_scope);
+    surface.set_style(viewport.with_height(1), row_style);
 
     context.animation_deadline = None;
     let config = context.editor.config();
-    let mut left = render_parts(context, &config.statusline.left);
-    let mut right = render_parts(context, &config.statusline.right);
+    let mut left = render_parts(context, &config.statusline.left, row_scope, row_style);
+    let mut right = render_parts(context, &config.statusline.right, row_scope, row_style);
     fit_parts(&mut left, &mut right, viewport.width as usize);
 
     let left = join_parts(left);
@@ -106,21 +105,33 @@ pub fn render(
 fn render_parts<'a>(
     context: &mut RenderContext<'a>,
     elements: &[StatusLineElementID],
+    row_scope: &str,
+    row_style: Style,
 ) -> Vec<Part<'a>> {
+    let theme = &context.editor.theme;
+    let mut scope = format!("{row_scope}.");
+    let prefix_len = scope.len();
     elements
         .iter()
         .map(|&element| {
+            scope.truncate(prefix_len);
+            scope.push_str(element.name());
+            let element_style = theme.try_get_exact(&scope).or_else(|| {
+                // The separator scope predates per-element styles and applies in both views.
+                if element == StatusLineElementID::Separator {
+                    theme.try_get_exact("ui.statusline.separator")
+                } else {
+                    None
+                }
+            });
+            let style = row_style.patch(element_style.unwrap_or_default());
             render_element(context, element);
             let line = std::mem::take(&mut context.parts);
             let compact = if is_filename(element) {
-                let mut compact = Line::from(Span::styled(
-                    format!(" {} ", filename(context, FileNameFormat::Base)),
-                    context.base_style,
-                ));
+                let mut compact =
+                    Line::raw(format!(" {} ", filename(context, FileNameFormat::Base)));
                 if context.doc.review().is_some() {
-                    compact
-                        .spans
-                        .push(Span::styled("DIFF ", context.base_style));
+                    compact.spans.push(Span::raw("DIFF "));
                 }
                 Some(compact)
             } else {
@@ -128,6 +139,7 @@ fn render_parts<'a>(
             };
             Part {
                 element,
+                style,
                 line,
                 compact,
             }
@@ -139,7 +151,12 @@ fn join_parts(parts: Vec<Part<'_>>) -> Line<'_> {
     Line::from(
         parts
             .into_iter()
-            .flat_map(|part| part.line.spans)
+            .flat_map(|Part { line, style, .. }| {
+                line.spans.into_iter().map(move |mut span| {
+                    span.style = style.patch(span.style);
+                    span
+                })
+            })
             .collect::<Vec<_>>(),
     )
 }
@@ -308,23 +325,22 @@ fn render_mode(context: &mut RenderContext<'_>) {
     }
 
     let config = context.editor.config();
-    let modenames = &config.statusline.mode;
-    let mode_str = match context.editor.mode() {
-        Mode::Insert => &modenames.insert,
-        Mode::Select => &modenames.select,
-        Mode::Normal => &modenames.normal,
+    let mode = &config.statusline.mode;
+    let (label, scope) = match context.editor.mode() {
+        Mode::Insert => (&mode.insert, "ui.statusline.insert"),
+        Mode::Select => (&mode.select, "ui.statusline.select"),
+        Mode::Normal => (&mode.normal, "ui.statusline.normal"),
     };
-    let content = format!(" {mode_str} ");
-    let style = if config.statusline.mode.color {
-        match context.editor.mode() {
-            Mode::Insert => context.editor.theme.get("ui.statusline.insert"),
-            Mode::Select => context.editor.theme.get("ui.statusline.select"),
-            Mode::Normal => context.editor.theme.get("ui.statusline.normal"),
-        }
+    let style = if mode.color {
+        context
+            .editor
+            .theme
+            .try_get_exact(scope)
+            .unwrap_or_default()
     } else {
         Style::default()
     };
-    context.push_span(Span::styled(content, style));
+    context.push_span(Span::styled(format!(" {label} "), style));
 }
 
 fn render_activity(context: &mut RenderContext<'_>) {
@@ -663,13 +679,7 @@ fn render_review_status(context: &mut RenderContext<'_>) {
 
 fn render_separator(context: &mut RenderContext<'_>) {
     let sep = &context.editor.config().statusline.separator;
-    let style = context
-        .editor
-        .theme
-        .try_get_exact("ui.statusline.separator")
-        .unwrap_or_default();
-
-    context.push_span(Span::styled(sep.to_string(), style));
+    context.push_span(sep.to_string().into());
 }
 
 fn render_spacer(context: &mut RenderContext<'_>) {
@@ -755,26 +765,40 @@ mod tests {
         use tui::style::Color;
 
         let mut app = crate::ui::picker::test::application(false)?;
-        for (separator_scope, expected_fg) in [
+        for (separator_scopes, expected_fg) in [
             ("", Color::DarkGray),
             (
                 r#""ui.statusline.separator" = { fg = "yellow" }"#,
                 Color::Yellow,
+            ),
+            (
+                r#"
+"ui.statusline.separator" = { fg = "yellow" }
+"ui.statusline.inactive.separator" = { fg = "red" }
+"#,
+                Color::Red,
             ),
         ] {
             app.editor.theme = toml::from_str(&format!(
                 r#"
 "ui.statusline" = {{ fg = "white", bg = "blue" }}
 "ui.statusline.inactive" = {{ fg = "gray", bg = "black" }}
-{separator_scope}
+{separator_scopes}
 "#,
             ))?;
+            let row_scope = "ui.statusline.inactive";
+            let row_style = app.editor.theme.get(row_scope);
             let (view, doc) = view::current_ref!(app.editor);
             let spinners = ProgressSpinners::default();
             let mut context = RenderContext::new(&app.editor, doc, view, &spinners, None);
-            context.base_style = app.editor.theme.get("ui.statusline.inactive");
-            let parts = render_parts(&mut context, &[StatusLineElementID::Separator]);
-            let separator = &parts[0].line.spans[0];
+            let parts = render_parts(
+                &mut context,
+                &[StatusLineElementID::Separator],
+                row_scope,
+                row_style,
+            );
+            let line = join_parts(parts);
+            let separator = &line.spans[0];
             assert_eq!(separator.style.fg, Some(expected_fg));
             assert_eq!(separator.style.bg, Some(Color::Black));
         }
@@ -893,6 +917,7 @@ mod tests {
     fn part(element: StatusLineElementID, text: &str, compact: Option<&str>) -> Part<'static> {
         Part {
             element,
+            style: Style::default(),
             line: Line::raw(text.to_owned()),
             compact: compact.map(|text| Line::raw(text.to_owned())),
         }
@@ -962,6 +987,7 @@ mod tests {
 
     #[test]
     fn long_basenames_keep_the_extension_and_file_state() {
+        use tui::style::Color;
         use StatusLineElementID as E;
         let mut left = vec![
             part(E::Mode, " NOR ", None),
@@ -973,10 +999,15 @@ mod tests {
             part(E::ReadOnlyIndicator, " [readonly] ", None),
             part(E::FileModificationIndicator, "[+]", None),
         ];
+        let filename_style = Style::default().bg(Color::Blue);
+        left[1].style = filename_style;
         let mut right = vec![part(E::Position, " 1:1 ", None)];
         fit_parts(&mut left, &mut right, 34);
         assert!(parts_width(&left, &right) <= 34);
-        let text = format!("{}{}", join_parts(left), join_parts(right));
+        let left = join_parts(left);
+        let ellipsis = left.spans.iter().find(|span| span.content == "…").unwrap();
+        assert_eq!(ellipsis.style, filename_style);
+        let text = format!("{}{}", left, join_parts(right));
         for essential in ["NOR", "…", ".rs", "[readonly]", "[+]", "1:1"] {
             assert!(text.contains(essential), "{text:?}");
         }
