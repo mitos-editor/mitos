@@ -306,7 +306,8 @@ impl View {
         self.text_rows(doc).height.into()
     }
 
-    fn text_rows(&self, doc: &Document) -> Rect {
+    /// The rows occupied by text and gutters, excluding breadcrumbs and the statusline.
+    pub fn text_rows(&self, doc: &Document) -> Rect {
         self.content_area(doc)
             .clip_top(u16::from(doc.breadcrumb_enabled()))
     }
