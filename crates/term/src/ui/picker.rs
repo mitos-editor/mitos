@@ -291,6 +291,12 @@ fn visible_column_widths<T, D>(columns: &[Column<T, D>]) -> Vec<Constraint> {
 type DynQueryCallback<T, D> =
     fn(&str, &mut Editor, Arc<D>, &Injector<T, D>) -> BoxFuture<'static, anyhow::Result<()>>;
 
+struct RenderedResults {
+    area: Rect,
+    first_match: u32,
+    snapshot_revision: u64,
+}
+
 pub struct Picker<T: 'static + Send + Sync, D: 'static> {
     keys: KeymapState,
     keymap: fn(&ComponentKeymaps) -> &Keymap<PickerAction>,
@@ -304,8 +310,7 @@ pub struct Picker<T: 'static + Send + Sync, D: 'static> {
 
     /// Current height of the completions box
     completion_height: u16,
-    /// Bounds and first match index of the rows shown in the last frame.
-    rendered_results: Option<(Rect, u32)>,
+    rendered_results: Option<RenderedResults>,
 
     prompt: Prompt,
     query: PickerQuery,
@@ -1230,7 +1235,11 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             .min(snapshot.matched_item_count());
         result_rows.height = result_rows.height.min(end.saturating_sub(offset) as u16);
         if self.on_close.is_none() {
-            self.rendered_results = Some((result_rows, offset));
+            self.rendered_results = Some(RenderedResults {
+                area: result_rows,
+                first_match: offset,
+                snapshot_revision: self.results.snapshot_revision,
+            });
         }
         let mut indices = Vec::new();
         self.highlight_matcher.set_kind(if self.file_fn.is_some() {
@@ -1800,7 +1809,6 @@ impl<I: 'static + Send + Sync, D: 'static + Send + Sync> Component for Picker<I,
     }
 
     fn update(&mut self, area: Rect, cx: &mut Context) {
-        self.rendered_results = None;
         let render_preview = self.preview_visible(area);
 
         let poll = &cx.editor.config().files.reload.poll;
@@ -1931,10 +1939,11 @@ impl<I: 'static + Send + Sync, D: 'static + Send + Sync> Component for Picker<I,
                         return self.execute_actions(&[action], ctx);
                     }
                 } else if mouse.kind == MouseEventKind::Down(MouseButton::Left)
-                    && let Some((area, first)) = self.rendered_results
-                    && area.contains(position)
+                    && let Some(rows) = &self.rendered_results
+                    && rows.snapshot_revision == self.results.snapshot_revision
+                    && rows.area.contains(position)
                 {
-                    self.results.cursor = first + u32::from(mouse.row - area.y);
+                    self.results.cursor = rows.first_match + u32::from(mouse.row - rows.area.y);
                 }
                 return EventResult::Consumed(None);
             }
@@ -2224,7 +2233,10 @@ mod tests {
             (),
             move |_, item, _| recorded.set(Some(*item)),
         );
-        until(&mut picker, &mut app, |picker| items(picker).count() == 20).await?;
+        until(&mut picker, &mut app, |picker| {
+            !picker.matching && items(picker).count() == 20
+        })
+        .await?;
         let area = Rect::new(3, 2, 42, 8);
         frame_with_area(&mut picker, &mut app, &config, area);
         event_with_config(
@@ -2263,6 +2275,8 @@ mod tests {
             click(row_containing("name")),
         );
         assert_eq!(picker.selection(), Some(&selected));
+        // Background redraws can prepare a frame before the terminal draws it.
+        with_context(&mut app, &config, |cx| picker.update(area, cx));
         event_with_config(
             &mut picker,
             &mut app,

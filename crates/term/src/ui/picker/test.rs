@@ -83,7 +83,7 @@ pub(crate) fn event_with_config<T: Send + Sync, D: Send + Sync>(
     });
 }
 
-fn with_context<R>(
+pub(super) fn with_context<R>(
     app: &mut TestApplication,
     config: &AppConfig,
     run: impl FnOnce(&mut Context) -> R,

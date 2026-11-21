@@ -31,6 +31,8 @@ pub(super) struct Results<T: Send + Sync + 'static, D> {
     pub version: Arc<AtomicUsize>,
     pub cursor: u32,
     pub offset: u32,
+    /// Revision of the published match order and items.
+    pub snapshot_revision: u64,
     pub preserve_selection: bool,
     pub source: super::source::Progress,
     pub pending_options: Option<PendingOptions<T, D>>,
@@ -45,6 +47,7 @@ impl<T: Send + Sync + 'static, D: Send + Sync + 'static> Results<T, D> {
             version,
             cursor: 0,
             offset: 0,
+            snapshot_revision: 0,
             preserve_selection: true,
             source: Default::default(),
             spare_matcher: None,
@@ -90,6 +93,7 @@ impl<T: Send + Sync + 'static, D: Send + Sync + 'static> Results<T, D> {
         let selected = self.append_selection();
         let status = self.matcher.tick(timeout);
         if status.changed {
+            self.snapshot_revision += 1;
             self.restore_append_selection(selected);
         }
         self.preserve_selection |= !status.running;
@@ -138,6 +142,7 @@ impl<T: Send + Sync + 'static, D: Send + Sync + 'static> Results<T, D> {
         self.invalidate();
         self.preserve_selection = false;
         self.matcher.restart(true);
+        self.snapshot_revision += 1;
         self.editor_data = editor_data;
 
         let injector = self.matcher.injector();
@@ -257,6 +262,7 @@ impl<T: Send + Sync + 'static, D: Send + Sync + 'static> Results<T, D> {
             .clamp(0, i64::from(u32::MAX)) as u32;
         self.cursor = cursor;
         self.spare_matcher = Some(std::mem::replace(&mut self.matcher, pending.matcher));
+        self.snapshot_revision += 1;
         self.editor_data = pending.data;
         // Preview invalidation follows document/filesystem changes, not row changes.
         self.version
