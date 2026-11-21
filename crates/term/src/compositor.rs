@@ -83,6 +83,10 @@ pub struct DrawContext<'a> {
 }
 
 impl DrawContext<'_> {
+    pub(crate) fn request_animation_at(&mut self, due: tokio::time::Instant) {
+        self.animation_deadline = Some(self.animation_deadline.map_or(due, |old| old.min(due)));
+    }
+
     /// Hide the active cursor where an opaque overlay covers its layer.
     pub fn exclude_cursor(&mut self, area: Rect) {
         self.cursor_exclusions.push(area);

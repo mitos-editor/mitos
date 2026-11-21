@@ -1131,11 +1131,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         let total = if searching {
             let now = Instant::now();
             let started = *self.search_started.get_or_insert(now);
-            let next_frame = now + spinner::FRAME_INTERVAL;
-            cx.animation_deadline = Some(
-                cx.animation_deadline
-                    .map_or(next_frame, |due| due.min(next_frame)),
-            );
+            cx.request_animation_at(now + spinner::FRAME_INTERVAL);
             Cow::Borrowed(spinner::frame(now - started))
         } else {
             self.search_started = None;

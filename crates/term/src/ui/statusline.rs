@@ -10,8 +10,9 @@ use view::document::DEFAULT_LANGUAGE_NAME;
 use view::graphics::RectExt as _;
 use view::{document::Mode, graphics::Rect, Document, Editor, View};
 
-use crate::ui::ProgressSpinners;
+use crate::{compositor::DrawContext, ui::ProgressSpinners};
 use std::{borrow::Cow, collections::HashSet, path::Path};
+use tokio::time::Instant;
 
 use editor_config::StatusLineElement as StatusLineElementID;
 use tui::buffer::Buffer as Surface;
@@ -21,23 +22,15 @@ use tui::widgets::Widget;
 
 pub(crate) const ACTIVITY_DELAY: std::time::Duration = std::time::Duration::from_millis(200);
 
-pub(crate) fn activity_matches(
-    activity: view::activity::Activity,
-    doc: &Document,
-    focused: bool,
-) -> bool {
-    activity
-        .document
-        .map_or(focused, |document| document == doc.id())
-}
-
 pub struct RenderContext<'a> {
     pub editor: &'a Editor,
     pub selected_register: Option<char>,
     pub doc: &'a Document,
     pub view: &'a View,
     pub spinners: &'a ProgressSpinners,
+    base_style: Style,
     parts: Line<'a>,
+    animation_deadline: Option<Instant>,
 }
 
 impl<'a> RenderContext<'a> {
@@ -54,8 +47,15 @@ impl<'a> RenderContext<'a> {
             doc,
             view,
             spinners,
+            base_style: Style::default(),
             parts: Line::default(),
+            animation_deadline: None,
         }
+    }
+
+    fn push_span(&mut self, mut span: Span<'a>) {
+        span.style = self.base_style.patch(span.style);
+        self.parts.spans.push(span);
     }
 
     fn is_focused(&self) -> bool {
@@ -69,21 +69,27 @@ struct Part<'a> {
     compact: Option<Line<'a>>,
 }
 
-pub fn render(context: &mut RenderContext, viewport: Rect, surface: &mut Surface) {
+pub fn render(
+    context: &mut RenderContext,
+    viewport: Rect,
+    surface: &mut Surface,
+    draw: &mut DrawContext,
+) {
     if viewport.is_empty() {
         return;
     }
 
-    let base_style = context.editor.theme.get(if context.is_focused() {
+    context.base_style = context.editor.theme.get(if context.is_focused() {
         "ui.statusline"
     } else {
         "ui.statusline.inactive"
     });
-    surface.set_style(viewport.with_height(1), base_style);
+    surface.set_style(viewport.with_height(1), context.base_style);
 
+    context.animation_deadline = None;
     let config = context.editor.config();
-    let mut left = render_parts(context, &config.statusline.left, base_style);
-    let mut right = render_parts(context, &config.statusline.right, base_style);
+    let mut left = render_parts(context, &config.statusline.left);
+    let mut right = render_parts(context, &config.statusline.right);
     fit_parts(&mut left, &mut right, viewport.width as usize);
 
     let left = join_parts(left);
@@ -92,28 +98,29 @@ pub fn render(context: &mut RenderContext, viewport: Rect, surface: &mut Surface
         statusline_areas(viewport, right.width().min(viewport.width as usize) as u16);
     left.render(left_area, surface);
     right.right_aligned().render(right_area, surface);
+    if let Some(due) = context.animation_deadline {
+        draw.request_animation_at(due);
+    }
 }
 
 fn render_parts<'a>(
     context: &mut RenderContext<'a>,
     elements: &[StatusLineElementID],
-    base_style: Style,
 ) -> Vec<Part<'a>> {
     elements
         .iter()
         .map(|&element| {
-            let render = get_render_function(element);
-            render(context, |context, span| {
-                append(&mut context.parts, span, base_style)
-            });
+            render_element(context, element);
             let line = std::mem::take(&mut context.parts);
             let compact = if is_filename(element) {
                 let mut compact = Line::from(Span::styled(
                     format!(" {} ", filename(context, FileNameFormat::Base)),
-                    base_style,
+                    context.base_style,
                 ));
                 if context.doc.review().is_some() {
-                    compact.spans.push(Span::styled("DIFF ", base_style));
+                    compact
+                        .spans
+                        .push(Span::styled("DIFF ", context.base_style));
                 }
                 Some(compact)
             } else {
@@ -241,50 +248,41 @@ fn statusline_areas(viewport: Rect, right_width: u16) -> [Rect; 2] {
     Layout::horizontal([Constraint::Min(0), Constraint::Length(right_width)]).areas(viewport)
 }
 
-fn append<'a>(buffer: &mut Line<'a>, mut span: Span<'a>, base_style: Style) {
-    span.style = base_style.patch(span.style);
-    buffer.spans.push(span);
-}
-
-fn get_render_function<'a, F>(element_id: StatusLineElementID) -> impl Fn(&mut RenderContext<'a>, F)
-where
-    F: Fn(&mut RenderContext<'a>, Span<'a>) + Copy,
-{
+fn render_element(context: &mut RenderContext<'_>, element_id: StatusLineElementID) {
     match element_id {
-        StatusLineElementID::Activity => render_activity,
-        StatusLineElementID::Mode => render_mode,
-        StatusLineElementID::Spinner => render_lsp_spinner,
-        StatusLineElementID::FileBaseName => render_file_base_name,
-        StatusLineElementID::FileName => render_file_name,
-        StatusLineElementID::FileAbsolutePath => render_file_absolute_path,
-        StatusLineElementID::FileModificationIndicator => render_file_modification_indicator,
-        StatusLineElementID::ReadOnlyIndicator => render_read_only_indicator,
-        StatusLineElementID::FileEncoding => render_file_encoding,
-        StatusLineElementID::FileLineEnding => render_file_line_ending,
-        StatusLineElementID::FileIndentStyle => render_file_indent_style,
-        StatusLineElementID::FileType => render_file_type,
-        StatusLineElementID::Diagnostics => render_diagnostics,
-        StatusLineElementID::WorkspaceDiagnostics => render_workspace_diagnostics,
-        StatusLineElementID::Selections => render_selections,
-        StatusLineElementID::PrimarySelectionLength => render_primary_selection_length,
-        StatusLineElementID::Position => render_position,
-        StatusLineElementID::PositionPercentage => render_position_percentage,
-        StatusLineElementID::TotalLineNumbers => render_total_line_numbers,
-        StatusLineElementID::Separator => render_separator,
-        StatusLineElementID::Spacer => render_spacer,
-        StatusLineElementID::Branch => render_branch,
-        StatusLineElementID::Register => render_register,
-        StatusLineElementID::SearchPosition => render_search_position,
-        StatusLineElementID::CurrentWorkingDirectory => render_cwd,
-        StatusLineElementID::CodeActionHint => render_code_action_hint,
-        StatusLineElementID::DebugSession => render_debug_session,
+        StatusLineElementID::Activity => render_activity(context),
+        StatusLineElementID::Mode => render_mode(context),
+        StatusLineElementID::Spinner => render_lsp_spinner(context),
+        StatusLineElementID::FileBaseName => render_file_base_name(context),
+        StatusLineElementID::FileName => render_file_name(context),
+        StatusLineElementID::FileAbsolutePath => render_file_absolute_path(context),
+        StatusLineElementID::FileModificationIndicator => {
+            render_file_modification_indicator(context)
+        }
+        StatusLineElementID::ReadOnlyIndicator => render_read_only_indicator(context),
+        StatusLineElementID::FileEncoding => render_file_encoding(context),
+        StatusLineElementID::FileLineEnding => render_file_line_ending(context),
+        StatusLineElementID::FileIndentStyle => render_file_indent_style(context),
+        StatusLineElementID::FileType => render_file_type(context),
+        StatusLineElementID::Diagnostics => render_diagnostics(context),
+        StatusLineElementID::WorkspaceDiagnostics => render_workspace_diagnostics(context),
+        StatusLineElementID::Selections => render_selections(context),
+        StatusLineElementID::PrimarySelectionLength => render_primary_selection_length(context),
+        StatusLineElementID::Position => render_position(context),
+        StatusLineElementID::PositionPercentage => render_position_percentage(context),
+        StatusLineElementID::TotalLineNumbers => render_total_line_numbers(context),
+        StatusLineElementID::Separator => render_separator(context),
+        StatusLineElementID::Spacer => render_spacer(context),
+        StatusLineElementID::Branch => render_branch(context),
+        StatusLineElementID::Register => render_register(context),
+        StatusLineElementID::SearchPosition => render_search_position(context),
+        StatusLineElementID::CurrentWorkingDirectory => render_cwd(context),
+        StatusLineElementID::CodeActionHint => render_code_action_hint(context),
+        StatusLineElementID::DebugSession => render_debug_session(context),
     }
 }
 
-fn render_debug_session<'a, F>(context: &mut RenderContext<'a>, write: F)
-where
-    F: Fn(&mut RenderContext<'a>, Span<'a>) + Copy,
-{
+fn render_debug_session(context: &mut RenderContext<'_>) {
     if !context.is_focused() {
         return;
     }
@@ -301,13 +299,10 @@ where
         count,
         if count == 1 { "session" } else { "sessions" }
     );
-    write(context, Span::raw(content));
+    context.push_span(Span::raw(content));
 }
 
-fn render_mode<'a, F>(context: &mut RenderContext<'a>, write: F)
-where
-    F: Fn(&mut RenderContext<'a>, Span<'a>) + Copy,
-{
+fn render_mode(context: &mut RenderContext<'_>) {
     if !context.is_focused() {
         return;
     }
@@ -329,28 +324,32 @@ where
     } else {
         Style::default()
     };
-    write(context, Span::styled(content, style));
+    context.push_span(Span::styled(content, style));
 }
 
-fn render_activity<'a, F>(context: &mut RenderContext<'a>, write: F)
-where
-    F: Fn(&mut RenderContext<'a>, Span<'a>) + Copy,
-{
-    if let Some(activity) = context.editor.activities().find(|activity| {
-        activity_matches(*activity, context.doc, context.is_focused())
-            && activity.started.elapsed() >= ACTIVITY_DELAY
-    }) {
-        let frame = super::spinner::frame(activity.started.elapsed());
-        write(context, format!(" {frame} {} ", activity.label).into());
+fn render_activity(context: &mut RenderContext<'_>) {
+    let Some(activity) = context.editor.activities().find(|activity| {
+        activity.document.map_or_else(
+            || context.is_focused(),
+            |document| document == context.doc.id(),
+        )
+    }) else {
+        return;
+    };
+
+    let now = Instant::now();
+    let visible_at = activity.started + ACTIVITY_DELAY;
+    if now < visible_at {
+        context.animation_deadline = Some(visible_at);
+    } else {
+        let frame = super::spinner::frame(now - activity.started);
+        context.push_span(format!(" {frame} {} ", activity.label).into());
+        context.animation_deadline = Some(now + super::spinner::FRAME_INTERVAL);
     }
 }
 
-fn render_lsp_spinner<'a, F>(context: &mut RenderContext<'a>, write: F)
-where
-    F: Fn(&mut RenderContext<'a>, Span<'a>) + Copy,
-{
-    write(
-        context,
+fn render_lsp_spinner(context: &mut RenderContext<'_>) {
+    context.push_span(
         context
             .doc
             .language_servers()
@@ -361,10 +360,7 @@ where
     );
 }
 
-fn render_diagnostics<'a, F>(context: &mut RenderContext<'a>, write: F)
-where
-    F: Fn(&mut RenderContext<'a>, Span<'a>) + Copy,
-{
+fn render_diagnostics(context: &mut RenderContext<'_>) {
     use ::diagnostics::Severity;
     let (hints, info, warnings, errors) =
         context
@@ -386,14 +382,10 @@ where
         (hints, info, warnings, errors),
         &context.editor.config().statusline.diagnostics,
         "",
-        write,
     );
 }
 
-fn render_workspace_diagnostics<'a, F>(context: &mut RenderContext<'a>, write: F)
-where
-    F: Fn(&mut RenderContext<'a>, Span<'a>) + Copy,
-{
+fn render_workspace_diagnostics(context: &mut RenderContext<'_>) {
     use ::diagnostics::Severity;
     let editor = context.editor;
     let (mut hints, mut info, mut warnings, mut errors) = (0u32, 0u32, 0u32, 0u32);
@@ -437,19 +429,15 @@ where
         (hints, info, warnings, errors),
         &context.editor.config().statusline.workspace_diagnostics,
         " W ",
-        write,
     );
 }
 
-fn render_diagnostic_counts<'a, F>(
-    context: &mut RenderContext<'a>,
+fn render_diagnostic_counts(
+    context: &mut RenderContext<'_>,
     (hints, info, warnings, errors): (u32, u32, u32, u32),
     severities: &[::diagnostics::Severity],
     prefix: &str,
-    write: F,
-) where
-    F: Fn(&mut RenderContext<'a>, Span<'a>) + Copy,
-{
+) {
     use ::diagnostics::Severity;
     let mut needs_prefix = !prefix.is_empty();
     for severity in severities {
@@ -463,7 +451,7 @@ fn render_diagnostic_counts<'a, F>(
             continue;
         }
         if needs_prefix {
-            write(context, prefix.to_owned().into());
+            context.push_span(prefix.to_owned().into());
             needs_prefix = false;
         }
         let icon = if context.editor.config().icons {
@@ -471,37 +459,25 @@ fn render_diagnostic_counts<'a, F>(
         } else {
             icon.with_no_padding()
         };
-        write(
-            context,
-            Span::styled(icon.to_string(), context.editor.theme.get(style)),
-        );
-        write(context, format!(" {count} ").into());
+        context.push_span(Span::styled(
+            icon.to_string(),
+            context.editor.theme.get(style),
+        ));
+        context.push_span(format!(" {count} ").into());
     }
 }
 
-fn render_selections<'a, F>(context: &mut RenderContext<'a>, write: F)
-where
-    F: Fn(&mut RenderContext<'a>, Span<'a>) + Copy,
-{
+fn render_selections(context: &mut RenderContext<'_>) {
     let selection = context.doc.selection(context.view.id);
     let count = selection.len();
     if count > 1 {
-        write(
-            context,
-            format!(" {}/{count} sels ", selection.primary_index() + 1).into(),
-        );
+        context.push_span(format!(" {}/{count} sels ", selection.primary_index() + 1).into());
     }
 }
 
-fn render_primary_selection_length<'a, F>(context: &mut RenderContext<'a>, write: F)
-where
-    F: Fn(&mut RenderContext<'a>, Span<'a>) + Copy,
-{
+fn render_primary_selection_length(context: &mut RenderContext<'_>) {
     let tot_sel = context.doc.selection(context.view.id).primary().len();
-    write(
-        context,
-        format!(" {} char{} ", tot_sel, if tot_sel == 1 { "" } else { "s" }).into(),
-    );
+    context.push_span(format!(" {} char{} ", tot_sel, if tot_sel == 1 { "" } else { "s" }).into());
 }
 
 fn get_position(context: &RenderContext) -> Position {
@@ -515,53 +491,32 @@ fn get_position(context: &RenderContext) -> Position {
     )
 }
 
-fn render_position<'a, F>(context: &mut RenderContext<'a>, write: F)
-where
-    F: Fn(&mut RenderContext<'a>, Span<'a>) + Copy,
-{
+fn render_position(context: &mut RenderContext<'_>) {
     let position = get_position(context);
-    write(
-        context,
-        format!(" {}:{} ", position.row + 1, position.col + 1).into(),
-    );
+    context.push_span(format!(" {}:{} ", position.row + 1, position.col + 1).into());
 }
 
-fn render_total_line_numbers<'a, F>(context: &mut RenderContext<'a>, write: F)
-where
-    F: Fn(&mut RenderContext<'a>, Span<'a>) + Copy,
-{
+fn render_total_line_numbers(context: &mut RenderContext<'_>) {
     let total_line_numbers = context.doc.text().len_lines(stdx::rope::LINE_TYPE);
 
-    write(context, format!(" {} ", total_line_numbers).into());
+    context.push_span(format!(" {} ", total_line_numbers).into());
 }
 
-fn render_position_percentage<'a, F>(context: &mut RenderContext<'a>, write: F)
-where
-    F: Fn(&mut RenderContext<'a>, Span<'a>) + Copy,
-{
+fn render_position_percentage(context: &mut RenderContext<'_>) {
     let position = get_position(context);
     let maxrows = context.doc.text().len_lines(stdx::rope::LINE_TYPE);
-    write(
-        context,
-        format!("{}%", (position.row + 1) * 100 / maxrows).into(),
-    );
+    context.push_span(format!("{}%", (position.row + 1) * 100 / maxrows).into());
 }
 
-fn render_file_encoding<'a, F>(context: &mut RenderContext<'a>, write: F)
-where
-    F: Fn(&mut RenderContext<'a>, Span<'a>) + Copy,
-{
+fn render_file_encoding(context: &mut RenderContext<'_>) {
     let enc = context.doc.encoding();
 
     if enc != encoding::UTF_8 {
-        write(context, format!(" {} ", enc.name()).into());
+        context.push_span(format!(" {} ", enc.name()).into());
     }
 }
 
-fn render_file_line_ending<'a, F>(context: &mut RenderContext<'a>, write: F)
-where
-    F: Fn(&mut RenderContext<'a>, Span<'a>) + Copy,
-{
+fn render_file_line_ending(context: &mut RenderContext<'_>) {
     use editor_core::LineEnding::*;
     let line_ending = match context.doc.line_ending {
         Crlf => "CRLF",
@@ -580,74 +535,53 @@ where
         PS => "PS", // U+2029 -- ParagraphSeparator
     };
 
-    write(context, format!(" {} ", line_ending).into());
+    context.push_span(format!(" {} ", line_ending).into());
 }
 
-fn render_file_type<'a, F>(context: &mut RenderContext<'a>, write: F)
-where
-    F: Fn(&mut RenderContext<'a>, Span<'a>) + Copy,
-{
+fn render_file_type(context: &mut RenderContext<'_>) {
     let file_type = context.doc.language_name().unwrap_or(DEFAULT_LANGUAGE_NAME);
 
     if context.editor.config().icons
         && let Some(path) = context.doc.path()
     {
-        write(
-            context,
-            icon_span(
-                ICONS
-                    .fs()
-                    .file()
-                    .get_with_style_or_default(path, &context.editor.theme),
-            ),
-        );
-        write(context, format!("{file_type} ").into());
+        context.push_span(icon_span(
+            ICONS
+                .fs()
+                .file()
+                .get_with_style_or_default(path, &context.editor.theme),
+        ));
+        context.push_span(format!("{file_type} ").into());
         return;
     }
 
-    write(context, format!(" {} ", file_type).into());
+    context.push_span(format!(" {} ", file_type).into());
 }
 
-fn render_file_name<'a, F>(context: &mut RenderContext<'a>, write: F)
-where
-    F: Fn(&mut RenderContext<'a>, Span<'a>) + Copy,
-{
-    render_filename(context, write, FileNameFormat::Relative);
+fn render_file_name(context: &mut RenderContext<'_>) {
+    render_filename(context, FileNameFormat::Relative);
 }
 
-fn render_file_absolute_path<'a, F>(context: &mut RenderContext<'a>, write: F)
-where
-    F: Fn(&mut RenderContext<'a>, Span<'a>) + Copy,
-{
-    render_filename(context, write, FileNameFormat::Absolute);
+fn render_file_absolute_path(context: &mut RenderContext<'_>) {
+    render_filename(context, FileNameFormat::Absolute);
 }
 
-fn render_file_modification_indicator<'a, F>(context: &mut RenderContext<'a>, write: F)
-where
-    F: Fn(&mut RenderContext<'a>, Span<'a>) + Copy,
-{
+fn render_file_modification_indicator(context: &mut RenderContext<'_>) {
     let title = if context.doc.is_modified() { "[+]" } else { "" };
 
-    write(context, title.into());
+    context.push_span(title.into());
 }
 
-fn render_read_only_indicator<'a, F>(context: &mut RenderContext<'a>, write: F)
-where
-    F: Fn(&mut RenderContext<'a>, Span<'a>) + Copy,
-{
+fn render_read_only_indicator(context: &mut RenderContext<'_>) {
     let title = if context.doc.is_readonly() {
         " [readonly] "
     } else {
         ""
     };
-    write(context, title.into());
+    context.push_span(title.into());
 }
 
-fn render_file_base_name<'a, F>(context: &mut RenderContext<'a>, write: F)
-where
-    F: Fn(&mut RenderContext<'a>, Span<'a>) + Copy,
-{
-    render_filename(context, write, FileNameFormat::Base);
+fn render_file_base_name(context: &mut RenderContext<'_>) {
+    render_filename(context, FileNameFormat::Base);
 }
 
 enum FileNameFormat {
@@ -656,12 +590,9 @@ enum FileNameFormat {
     Base,
 }
 
-fn render_filename<'a, F>(context: &mut RenderContext<'a>, write: F, format: FileNameFormat)
-where
-    F: Fn(&mut RenderContext<'a>, Span<'a>) + Copy,
-{
-    write(context, format!(" {} ", filename(context, format)).into());
-    render_review_status(context, write);
+fn render_filename(context: &mut RenderContext<'_>, format: FileNameFormat) {
+    context.push_span(format!(" {} ", filename(context, format)).into());
+    render_review_status(context);
 }
 
 fn filename(context: &RenderContext<'_>, format: FileNameFormat) -> String {
@@ -696,10 +627,7 @@ fn filename(context: &RenderContext<'_>, format: FileNameFormat) -> String {
     name.into_owned()
 }
 
-fn render_review_status<'a, F>(context: &mut RenderContext<'a>, write: F)
-where
-    F: Fn(&mut RenderContext<'a>, Span<'a>) + Copy,
-{
+fn render_review_status(context: &mut RenderContext<'_>) {
     let Some(review) = context.doc.review() else {
         return;
     };
@@ -708,8 +636,7 @@ where
     } else {
         String::new()
     };
-    write(
-        context,
+    context.push_span(
         format!(
             " DIFF {}{number} ",
             review
@@ -718,49 +645,34 @@ where
         )
         .into(),
     );
-    write(
-        context,
-        Span::styled(
-            format!("+{} ", review.review().additions),
-            context.editor.theme.get("diff.plus"),
-        ),
-    );
-    write(
-        context,
-        Span::styled(
-            format!("−{} ", review.review().deletions),
-            context.editor.theme.get("diff.minus"),
-        ),
-    );
+    context.push_span(Span::styled(
+        format!("+{} ", review.review().additions),
+        context.editor.theme.get("diff.plus"),
+    ));
+    context.push_span(Span::styled(
+        format!("−{} ", review.review().deletions),
+        context.editor.theme.get("diff.minus"),
+    ));
     if review.review().layout_only {
-        write(context, "layout only ".into());
+        context.push_span("layout only ".into());
     }
     if review.is_loading() {
-        write(context, "loading ".into());
+        context.push_span("loading ".into());
     }
 }
 
-fn render_separator<'a, F>(context: &mut RenderContext<'a>, write: F)
-where
-    F: Fn(&mut RenderContext<'a>, Span<'a>) + Copy,
-{
+fn render_separator(context: &mut RenderContext<'_>) {
     let sep = &context.editor.config().statusline.separator;
     let style = context.editor.theme.get("ui.statusline.separator");
 
-    write(context, Span::styled(sep.to_string(), style));
+    context.push_span(Span::styled(sep.to_string(), style));
 }
 
-fn render_spacer<'a, F>(context: &mut RenderContext<'a>, write: F)
-where
-    F: Fn(&mut RenderContext<'a>, Span<'a>) + Copy,
-{
-    write(context, " ".into());
+fn render_spacer(context: &mut RenderContext<'_>) {
+    context.push_span(" ".into());
 }
 
-fn render_branch<'a, F>(context: &mut RenderContext<'a>, write: F)
-where
-    F: Fn(&mut RenderContext<'a>, Span<'a>) + Copy,
-{
+fn render_branch(context: &mut RenderContext<'_>) {
     let head = context
         .doc
         .version_control_head()
@@ -768,29 +680,23 @@ where
         .to_string();
 
     if context.editor.config().icons && !head.is_empty() {
-        write(context, icon_span(ICONS.vcs().branch()));
-        write(context, format!("{head} ").into());
+        context.push_span(icon_span(ICONS.vcs().branch()));
+        context.push_span(format!("{head} ").into());
         return;
     }
 
     if !head.is_empty() {
-        write(context, format!(" {head} ").into());
+        context.push_span(format!(" {head} ").into());
     }
 }
 
-fn render_register<'a, F>(context: &mut RenderContext<'a>, write: F)
-where
-    F: Fn(&mut RenderContext<'a>, Span<'a>) + Copy,
-{
+fn render_register(context: &mut RenderContext<'_>) {
     if let Some(reg) = context.selected_register {
-        write(context, format!(" reg={} ", reg).into())
+        context.push_span(format!(" reg={} ", reg).into())
     }
 }
 
-fn render_search_position<'a, F>(context: &mut RenderContext<'a>, write: F)
-where
-    F: Fn(&mut RenderContext<'a>, Span<'a>) + Copy,
-{
+fn render_search_position(context: &mut RenderContext<'_>) {
     let Some(position) = context.doc.search_position(context.view.id) else {
         return;
     };
@@ -799,8 +705,7 @@ where
         Count::MoreThan(n) => format!(">{n}"),
         Count::Unknown => unknown.to_owned(),
     };
-    write(
-        context,
+    context.push_span(
         format!(
             " [{}/{}] ",
             count(position.current, "?"),
@@ -810,42 +715,30 @@ where
     );
 }
 
-fn render_file_indent_style<'a, F>(context: &mut RenderContext<'a>, write: F)
-where
-    F: Fn(&mut RenderContext<'a>, Span<'a>) + Copy,
-{
+fn render_file_indent_style(context: &mut RenderContext<'_>) {
     let style = context.doc.indent_style;
 
-    write(
-        context,
-        match style {
-            IndentStyle::Tabs => " tabs ".into(),
-            IndentStyle::Spaces(indent) => {
-                format!(" {} space{} ", indent, if indent == 1 { "" } else { "s" }).into()
-            }
-        },
-    );
+    context.push_span(match style {
+        IndentStyle::Tabs => " tabs ".into(),
+        IndentStyle::Spaces(indent) => {
+            format!(" {} space{} ", indent, if indent == 1 { "" } else { "s" }).into()
+        }
+    });
 }
 
-fn render_cwd<'a, F>(context: &mut RenderContext<'a>, write: F)
-where
-    F: Fn(&mut RenderContext<'a>, Span<'a>) + Copy,
-{
+fn render_cwd(context: &mut RenderContext<'_>) {
     let cwd = stdx::env::current_working_dir();
     let cwd = cwd
         .file_name()
         .unwrap_or_default()
         .to_string_lossy()
         .to_string();
-    write(context, cwd.into())
+    context.push_span(cwd.into())
 }
 
-fn render_code_action_hint<'a, F>(context: &mut RenderContext<'a>, write: F)
-where
-    F: Fn(&mut RenderContext<'a>, Span<'a>) + Copy,
-{
+fn render_code_action_hint(context: &mut RenderContext<'_>) {
     if context.doc.code_action_hints(context.view.id) {
-        write(context, " ⋮ ".into())
+        context.push_span(" ⋮ ".into())
     }
 }
 
@@ -888,7 +781,7 @@ mod tests {
             let (view, doc) = view::current_ref!(app.editor);
             let spinners = ProgressSpinners::default();
             let mut context = RenderContext::new(&app.editor, doc, view, &spinners, None);
-            render_file_name(&mut context, |context, span| context.parts.spans.push(span));
+            render_file_name(&mut context);
             assert_eq!(
                 context.parts.to_string(),
                 format!(" {} ", expected.display())
@@ -909,7 +802,7 @@ mod tests {
         let doc = editor.document(view.document_id()).unwrap();
         let spinners = ProgressSpinners::default();
         let mut context = RenderContext::new(editor, doc, view, &spinners, None);
-        render_activity(&mut context, |context, span| context.parts.spans.push(span));
+        render_activity(&mut context);
         context.parts.to_string()
     }
 

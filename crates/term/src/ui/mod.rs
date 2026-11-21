@@ -27,7 +27,8 @@ mod select;
 mod sidebar;
 pub(crate) mod spinner;
 mod statusline;
-pub(crate) use statusline::{activity_matches, ACTIVITY_DELAY};
+#[cfg(test)]
+pub(crate) use statusline::ACTIVITY_DELAY;
 mod text;
 mod text_decorations;
 
