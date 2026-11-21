@@ -446,8 +446,16 @@ single statusline at the bottom of the editor for the focused view.
 | `diagnostics` | severity array | `["warning", "error"]` |
 | `workspace-diagnostics` | severity array | `["warning", "error"]` |
 
-Add `"separator"` to the `left` or `right` list to place a separator. Style it
-with `ui.statusline.separator` in your theme.
+Add `"separator"` to the `left` or `right` list to place a separator.
+
+Theme scopes use the element names below. For example, use
+`ui.statusline.file-name` for the filename in the focused view and
+`ui.statusline.inactive.file-name` for the filename in an unfocused split.
+Element styles inherit unspecified properties from the statusline row. With
+`mode.color = true`, the current mode's style takes precedence over
+`ui.statusline.mode`.
+The separator uses `ui.statusline.separator` in both views unless
+`ui.statusline.inactive.separator` is set for unfocused splits.
 
 When space is limited, the statusline hides the file type first, shortens paths,
 branch names, and debug details, then hides optional fields. It keeps the mode,

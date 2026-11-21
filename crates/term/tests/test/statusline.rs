@@ -93,7 +93,21 @@ fn assert_per_view(app: &TestApplication) {
         let doc = app.editor.document(view.document_id()).unwrap();
         let area = view.statusline_area(doc);
         let text = row(buffer, area);
-        assert!(text.contains(doc.path().unwrap().file_name().unwrap().to_str().unwrap()));
+        let filename = doc.path().unwrap().file_name().unwrap().to_str().unwrap();
+        let file_column = area.x + text.find(filename).unwrap() as u16;
+        let file_cell = &buffer[(file_column, area.y)];
+        assert_eq!(
+            file_cell.fg,
+            if focused { Color::Yellow } else { Color::Cyan }
+        );
+        assert_eq!(
+            file_cell.bg,
+            if focused {
+                Color::Black
+            } else {
+                Color::DarkGray
+            }
+        );
         assert_eq!(text.contains("NOR"), focused);
         assert_eq!(
             buffer[(area.x, area.y)].bg,
@@ -102,6 +116,11 @@ fn assert_per_view(app: &TestApplication) {
             } else {
                 Color::DarkGray
             }
+        );
+        let position_column = area.x + text.find("1:1").unwrap() as u16;
+        assert_eq!(
+            buffer[(position_column, area.y)].fg,
+            if focused { Color::Red } else { Color::Green },
         );
         assert_eq!(view.inner_area(doc).bottom(), area.y);
     }
@@ -123,10 +142,19 @@ fn assert_global(app: &TestApplication) {
     } else {
         "first.txt"
     };
-    assert!(text.contains(filename));
+    let file_column = text.find(filename).unwrap() as u16;
+    let file_cell = &buffer[(file_column, area.y)];
+    assert_eq!(file_cell.fg, Color::Yellow);
+    assert_eq!(file_cell.bg, Color::Black);
     assert!(!text.contains(other_filename));
-    assert!(text.contains("NOR"));
-    assert_eq!(buffer[(area.x, area.y)].bg, Color::Blue);
+    let insert = app.editor.mode() == view::document::Mode::Insert;
+    assert!(text.contains(if insert { "INS" } else { "NOR" }));
+    let mode_cell = &buffer[(area.x, area.y)];
+    assert_eq!(
+        mode_cell.fg,
+        if insert { Color::Red } else { Color::Yellow }
+    );
+    assert_eq!(mode_cell.bg, Color::Blue);
     for (view, _) in app.editor.tree.views() {
         let doc = app.editor.document(view.document_id()).unwrap();
         assert!(view.statusline_area(doc).is_empty());
@@ -160,8 +188,13 @@ async fn split_statuslines_default_to_each_view_and_can_toggle_global() -> anyho
             "ui.text" = { fg = "white" }
             "ui.selection" = { bg = "green" }
             "ui.cursor" = { bg = "yellow" }
-            "ui.statusline" = { bg = "blue" }
-            "ui.statusline.inactive" = { bg = "gray" }
+            "ui.statusline" = { fg = "white", bg = "blue" }
+            "ui.statusline.inactive" = { fg = "green", bg = "gray" }
+            "ui.statusline.file-base-name" = { fg = "yellow", bg = "black" }
+            "ui.statusline.inactive.file-base-name" = { fg = "cyan" }
+            "ui.statusline.position" = { fg = "red" }
+            "ui.statusline.mode" = { fg = "yellow" }
+            "ui.statusline.insert" = { fg = "red" }
         "#,
         )?);
         app.editor.open(&second, action)?;
@@ -171,6 +204,12 @@ async fn split_statuslines_default_to_each_view_and_can_toggle_global() -> anyho
                 (Some("<esc>"), Some(&assert_per_view)),
                 (Some(":toggle statusline.global<ret>"), Some(&assert_global)),
                 (Some("<C-w>w"), Some(&assert_global)),
+                (
+                    Some(":toggle statusline.mode.color<ret>"),
+                    Some(&assert_global),
+                ),
+                (Some("i"), Some(&assert_global)),
+                (Some("<esc>"), Some(&assert_global)),
                 (
                     Some(":toggle statusline.global<ret>"),
                     Some(&assert_per_view),

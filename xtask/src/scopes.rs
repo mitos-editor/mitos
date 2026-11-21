@@ -1,6 +1,8 @@
 //! Scope inventory generation and spelling checks, independent of native grammars.
 
 use crate::DynError;
+use editor_config::StatusLineElement;
+use serde::{de::value::StrDeserializer, Deserialize};
 use std::{collections::BTreeSet, fs, path::Path};
 
 /// Scan query tokens, skipping strings and comments so predicate text cannot
@@ -133,6 +135,7 @@ fn check_theme(file: &Path) -> Result<(), DynError> {
     for key in value.keys() {
         if !matches!(key.as_str(), "palette" | "inherits" | "rainbow")
             && !theme::scopes::is_known(key)
+            && !is_statusline_element_scope(key)
         {
             return Err(format!("{}: unknown theme scope {key:?}", file.display()).into());
         }
@@ -140,9 +143,37 @@ fn check_theme(file: &Path) -> Result<(), DynError> {
     Ok(())
 }
 
+fn is_statusline_element_scope(scope: &str) -> bool {
+    let Some(element) = scope.strip_prefix("ui.statusline.") else {
+        return false;
+    };
+    let element = element.strip_prefix("inactive.").unwrap_or(element);
+    StatusLineElement::deserialize(StrDeserializer::<serde::de::value::Error>::new(element)).is_ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bundled_themes_can_style_known_statusline_elements() -> Result<(), DynError> {
+        let theme = tempfile::NamedTempFile::new()?;
+        fs::write(
+            theme.path(),
+            r#"
+"ui.statusline.file-base-name" = "white"
+"ui.statusline.inactive.position" = "white"
+"#,
+        )?;
+        check_theme(theme.path())?;
+        fs::write(
+            theme.path(),
+            r#""ui.statusline.inactive.file-basename" = "white""#,
+        )?;
+        assert!(check_theme(theme.path()).is_err());
+        Ok(())
+    }
+
     #[test]
     fn scanner_ignores_predicate_strings_comments_and_structural_captures() {
         let found = captures(
