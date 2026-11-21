@@ -398,6 +398,12 @@ pub struct Config {
     pub continue_comments: bool,
     /// Whether to display infoboxes. Defaults to true.
     pub auto_info: bool,
+    /// Delay in milliseconds before showing help for a pending key sequence.
+    #[serde(
+        serialize_with = "serialize_duration_millis",
+        deserialize_with = "deserialize_duration_millis"
+    )]
+    pub auto_info_delay: Duration,
     /// Whether to show icons in the user interface. Defaults to false.
     pub icons: bool,
     pub border_style: BorderStyle,
@@ -1322,6 +1328,7 @@ impl Default for Config {
             idle_timeout: Duration::from_millis(250),
             continue_comments: true,
             auto_info: true,
+            auto_info_delay: Duration::ZERO,
             icons: false,
             border_style: BorderStyle::default(),
             info: PopupConfig::default(),
