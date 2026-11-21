@@ -4,6 +4,7 @@ mod navigation;
 mod requests;
 mod state;
 
+pub(super) use requests::refresh;
 pub(crate) use requests::register_hooks;
 pub use requests::DocumentLinksHandler;
 pub use state::DocumentLink;

@@ -1,9 +1,9 @@
-//! Document colors state, request coordination, and lifecycle hooks.
+//! LSP document colors and their cached rendering annotations.
 
 mod requests;
 mod state;
 
-pub(crate) use requests::register_hooks;
+pub(super) use requests::refresh;
 pub use requests::DocumentColorsHandler;
 pub use state::DocumentColorSwatches;
 pub(crate) use state::DocumentColors;

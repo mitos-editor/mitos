@@ -6,15 +6,12 @@ use language_config::LanguageServerFeature;
 
 use crate::{
     callbacks::EditorCallbackSender,
-    events::{
-        DocumentDidChange, DocumentDidOpen, DocumentFocusLost, DocumentLanguageDidChange,
-        LanguageServerExited, LanguageServerInitialized, SelectionDidChange,
-    },
+    events::{DocumentFocusLost, SelectionDidChange},
     features::{
         debounce::debounce_documents,
         request::{collect_responses, DocumentRequest},
     },
-    DocumentId, Editor,
+    Document, DocumentId, Editor,
 };
 
 use super::DocumentLink;
@@ -29,30 +26,36 @@ pub struct DocumentLinksHandler {
 impl DocumentLinksHandler {
     pub fn new(callbacks: EditorCallbackSender) -> Self {
         let events = debounce_documents(callbacks.clone(), |editor, doc| {
-            request_document_links(editor, doc, None);
+            refresh(editor, doc, false);
         });
         Self { callbacks, events }
+    }
+
+    pub(in crate::features) fn refresh_after_edit(doc: &mut Document, handler: Option<&Self>) {
+        doc.document_links.request.cancel();
+        if let Some(handler) = handler {
+            event::send_blocking(&handler.events, doc.id());
+        }
     }
 }
 
 /// Request document links for a specific document and cache them for navigation.
-fn request_document_links(
-    editor: &mut Editor,
-    doc_id: DocumentId,
-    exited_server: Option<lsp_client::LanguageServerId>,
-) {
+pub(in crate::features) fn refresh(editor: &mut Editor, doc_id: DocumentId, server_exited: bool) {
     let callbacks = editor.handlers.document_links.callbacks.clone();
-    let Some(doc) = editor.document_mut(doc_id) else {
+    let registry = &editor.language_servers;
+    let Some(doc) = editor.documents.get_mut(&doc_id) else {
         return;
     };
+    if server_exited {
+        doc.document_links.clear_cache();
+    }
 
     let cancel = doc.document_links.request.restart();
 
-    // Exit hooks run before the server is removed from the registry.
     let mut servers = Vec::new();
     let futures: FuturesUnordered<_> = doc
         .language_servers_with_feature(LanguageServerFeature::DocumentLinks)
-        .filter(|ls| Some(ls.id()) != exited_server)
+        .filter(|server| registry.is_ready(server.id()))
         .inspect(|server| servers.push(server.id()))
         .filter_map(|language_server| {
             let text = doc.text().clone();
@@ -127,11 +130,7 @@ fn attach_document_links(editor: &mut Editor, doc_id: DocumentId, mut links: Vec
     doc.document_links.cache = links;
 }
 
-pub(crate) fn register_hooks(events: &event::EventHub, hooks: crate::handlers::DocumentHooks) {
-    register_hook!(events => move |event: &mut DocumentLanguageDidChange<'_>| {
-        request_document_links(event.editor, event.doc, None);
-        Ok(())
-    });
+pub(crate) fn register_hooks(events: &event::EventHub) {
     register_hook!(events => move |event: &mut SelectionDidChange<'_>| {
         event.doc.document_links.cancel_navigation_for(event.view);
         Ok(())
@@ -140,49 +139,6 @@ pub(crate) fn register_hooks(events: &event::EventHub, hooks: crate::handlers::D
         if let Some(doc) = event.editor.document_mut(event.doc) {
             doc.document_links.cancel_navigation_for(event.view);
         }
-        Ok(())
-    });
-    register_hook!(events => move |event: &mut DocumentDidOpen<'_>| {
-        request_document_links(event.editor, event.doc, None);
-        Ok(())
-    });
-
-    register_hook!(events => move |event: &mut DocumentDidChange<'_>| {
-        event.doc.document_links.request.cancel();
-        if !event.doc.is_content_readonly()
-            && let Some(services) = hooks.upgrade()
-            && let Some(services) = services.get()
-        {
-            let handler = &services.document_links;
-            event::send_blocking(&handler.events, event.doc.id());
-        }
-
-        Ok(())
-    });
-
-    register_hook!(events => move |event: &mut LanguageServerInitialized<'_>| {
-        let doc_ids: Vec<_> = event.editor.documents().map(|doc| doc.id()).collect();
-
-        for doc_id in doc_ids {
-            request_document_links(event.editor, doc_id, None);
-        }
-
-        Ok(())
-    });
-
-    register_hook!(events => move |event: &mut LanguageServerExited<'_>| {
-        for doc in event.editor.documents_mut() {
-            if doc.supports_language_server(event.server_id) {
-                doc.document_links.clear_cache();
-            }
-        }
-
-        let doc_ids: Vec<_> = event.editor.documents().map(|doc| doc.id()).collect();
-
-        for doc_id in doc_ids {
-            request_document_links(event.editor, doc_id, Some(event.server_id));
-        }
-
         Ok(())
     });
 }

@@ -143,26 +143,17 @@ impl Fixture {
             // Opening a document and each server initialization can restart feature
             // requests. Release one server only after the preceding batch has arrived,
             // so no startup response can leak into a later edit's batch.
-            self.gates[index].release()?;
-            let (server_id, call) = tokio::time::timeout(
-                Duration::from_secs(10),
-                self.app.editor.next_language_server_message(),
-            )
-            .await?
-            .context("LSP message stream closed")?;
-            anyhow::ensure!(
-                matches!(&call, lsp_client::Call::Notification(message)
-                if message.method == "initialized"),
-                "expected initialization notification"
-            );
-            self.app
-                .handle_language_server_message(call, server_id)
-                .await;
+            self.initialize_server(index).await?;
             // Earlier batches are superseded by the next initialization. Leave the
             // final batch unpublished so tests can exercise stale-result rejection.
             responses = self.batch(ALL).await?;
         }
         Ok(responses)
+    }
+
+    async fn initialize_server(&mut self, index: usize) -> anyhow::Result<()> {
+        self.gates[index].release()?;
+        lsp::initialize(&mut self.app, 1).await
     }
 
     async fn batch(&mut self, expected: &[Feature]) -> anyhow::Result<Vec<EditorCallback>> {
@@ -502,6 +493,55 @@ async fn remaining_servers_refresh_document_features_after_an_exit() -> anyhow::
     assert_eq!(doc.color_swatches().unwrap().color_swatches.len(), 1);
     assert_eq!(doc.code_lenses().len(), 1);
     assert_ne!(doc.code_lenses()[0].language_server_id, server_id);
+    assert!(fixture.app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn unrelated_server_lifecycle_preserves_queued_colors_and_links() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let mut fixture = Fixture::with_servers(
+        &dir.path().join("primary.feature-test"),
+        "😀 primary\n",
+        &["primary", "other"],
+    )?;
+    let primary = current_ref!(fixture.app.editor).1.id();
+    let other_path = dir.path().join("other.feature-test");
+    std::fs::write(&other_path, "😀 other\n")?;
+    let other = fixture.app.editor.open(&other_path, Action::Load)?;
+    for (doc, unrelated) in [(primary, "other"), (other, "primary")] {
+        fixture
+            .app
+            .editor
+            .document_mut(doc)
+            .unwrap()
+            .remove_language_server_by_name(unrelated)
+            .unwrap();
+    }
+    fixture.initialize_server(0).await?;
+    let queued = fixture.batch(ALL).await?;
+
+    fixture.initialize_server(1).await?;
+    let other_doc = fixture.app.editor.document(other).unwrap();
+    assert!(other_doc
+        .language_servers()
+        .any(|server| server.name() == "other"));
+    fixture
+        .app
+        .editor
+        .stop_language_servers(other, &["other"])?;
+
+    fixture.apply(queued);
+    let doc = fixture.app.editor.document(primary).unwrap();
+    assert!(
+        doc.color_swatches().is_some(),
+        "the color fetch is still current"
+    );
+    assert_eq!(
+        doc.document_links().len(),
+        1,
+        "the link fetch is still current"
+    );
     assert!(fixture.app.close().await.is_empty());
     Ok(())
 }

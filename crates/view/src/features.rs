@@ -16,6 +16,7 @@ pub mod conflicts;
 pub(crate) mod debounce;
 pub mod diagnostics;
 pub mod document_colors;
+pub(crate) mod document_decorations;
 pub mod document_highlight;
 pub mod document_links;
 pub mod document_symbols;

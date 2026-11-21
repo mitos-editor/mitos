@@ -4,8 +4,9 @@ use crate::{
     features::{
         auto_reload, auto_save, blame, buffer_search, code_action_hint, code_actions, code_lenses,
         completion::{self, CompletionEvent, CompletionHandler},
-        diagnostics, document_colors, document_highlight, document_links, document_symbols, hover,
-        inlay_hints, inline_completion, navigation, rename, semantic_tokens,
+        diagnostics, document_colors, document_decorations, document_highlight, document_links,
+        document_symbols, hover, inlay_hints, inline_completion, navigation, rename,
+        semantic_tokens,
         signature_help::{self, SignatureHelpInvoked},
         spelling::{self, SpellingHandler},
         syntax, word_index, workspace_symbols, workspace_trust,
@@ -272,10 +273,10 @@ fn register_hooks(events: &event::EventHub, document_hooks: DocumentHooks) {
     document_symbols::register_hooks(events, document_hooks.clone());
     diagnostics::pull::register_hooks(events, document_hooks.clone());
     snippet::register_hooks(events);
-    document_colors::register_hooks(events, document_hooks.clone());
+    document_decorations::register_hooks(events, document_hooks.clone());
     code_lenses::register_hooks(events, document_hooks.clone());
     semantic_tokens::register_hooks(events, document_hooks.clone());
-    document_links::register_hooks(events, document_hooks.clone());
+    document_links::register_hooks(events);
     inline_completion::register_hooks(events);
     spelling::register_hooks(events, document_hooks);
     workspace_trust::register_hooks(events);
