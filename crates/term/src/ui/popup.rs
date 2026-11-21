@@ -246,7 +246,8 @@ impl<T: Component> Popup<T> {
             ..
         }: &MouseEvent,
     ) -> EventResult {
-        if self.auto_close && matches!(kind, MouseEventKind::Down(_)) {
+        let inside = self.area.contains(tui::layout::Position::new(x, y));
+        if !inside && self.auto_close && matches!(kind, MouseEventKind::Down(_)) {
             let close_fn: Callback = Box::new(|compositor, _| {
                 // remove the layer
                 compositor.remove(self.id.as_ref());
@@ -255,16 +256,14 @@ impl<T: Component> Popup<T> {
             return EventResult::Ignored(Some(close_fn));
         }
 
-        let mouse_is_within_popup = x >= self.area.left()
-            && x < self.area.right()
-            && y >= self.area.top()
-            && y < self.area.bottom();
-
-        if !mouse_is_within_popup {
+        if !inside {
             return EventResult::Ignored(None);
         }
 
         match kind {
+            MouseEventKind::Down(_) | MouseEventKind::Up(_) | MouseEventKind::Drag(_) => {
+                EventResult::Consumed(None)
+            }
             MouseEventKind::ScrollDown if self.has_scrollbar => {
                 self.scroll_half_page_down();
                 EventResult::Consumed(None)
@@ -446,7 +445,37 @@ fn clamp_scroll(half_pages: &mut usize, half_page_size: usize, max_offset: usize
 
 #[cfg(test)]
 mod tests {
-    use super::clamp_scroll;
+    use super::*;
+    use crate::ui::Text;
+    use ui_core::input::{KeyModifiers, MouseButton};
+
+    #[test]
+    fn popup_owns_clicks_inside_and_dismisses_on_outside_press() {
+        let mut popup = Popup::new("test-popup", Text::new("Message".into())).auto_close(true);
+        popup.area = Rect::new(4, 2, 10, 6);
+
+        let mut mouse = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: 4,
+            row: 2,
+            modifiers: KeyModifiers::empty(),
+        };
+        assert!(matches!(
+            popup.handle_mouse_event(&mouse),
+            EventResult::Consumed(None)
+        ));
+        mouse.kind = MouseEventKind::Up(MouseButton::Left);
+        assert!(matches!(
+            popup.handle_mouse_event(&mouse),
+            EventResult::Consumed(None)
+        ));
+        mouse.kind = MouseEventKind::Down(MouseButton::Left);
+        mouse.column -= 1;
+        assert!(matches!(
+            popup.handle_mouse_event(&mouse),
+            EventResult::Ignored(Some(_))
+        ));
+    }
 
     #[test]
     fn clamped_scroll_is_stable_across_frames() {
