@@ -6,6 +6,7 @@ use super::super::{
     image::{render_placeholder, ImageDocumentView},
     layout::ApplicationLayout,
     statusline,
+    text::visible_grapheme_widths,
     text_decorations::{self, Decoration, DecorationManager},
     ProgressSpinners,
 };
@@ -586,12 +587,19 @@ impl PaneRenderer {
     }
 
     fn render_bufferline(editor: &Editor, viewport: Rect, surface: &mut Surface) {
-        surface.clear_with(
-            viewport,
-            editor
-                .theme
-                .try_get("ui.bufferline.background")
-                .unwrap_or_else(|| editor.theme.get("ui.statusline")),
+        let config = editor.config();
+        let row_style = editor
+            .theme
+            .try_get("ui.bufferline.background")
+            .unwrap_or_else(|| editor.theme.get("ui.statusline"));
+        surface.clear_with(viewport, row_style);
+        let separator_style = editor
+            .theme
+            .try_get_exact("ui.bufferline.separator")
+            .unwrap_or_default();
+        let separator = Span::styled(
+            config.bufferline.separator.as_str(),
+            row_style.patch(separator_style),
         );
 
         let bufferline_active = editor
@@ -626,7 +634,7 @@ impl PaneRenderer {
                 };
 
                 let source_path = doc.display_metadata().source_path;
-                let show_file_icon = editor.config().icons && source_path.is_some();
+                let show_file_icon = config.icons && source_path.is_some();
                 let modified = if doc.is_modified() { "[+]" } else { "" };
 
                 if show_file_icon && let Some(path) = source_path {
@@ -645,7 +653,7 @@ impl PaneRenderer {
             })
             .collect();
 
-        super::super::bufferline::render(&titles, current_tab, viewport, surface);
+        super::super::bufferline::render(&titles, current_tab, separator, viewport, surface);
     }
 
     #[allow(clippy::too_many_lines)]
@@ -658,25 +666,7 @@ impl PaneRenderer {
     ) {
         use editor_config::BreadcrumbPathOptions::{File, Full};
 
-        #[inline]
-        #[must_use]
-        fn draw_element(
-            surface: &mut Surface,
-            viewport: Rect,
-            x: u16,
-            content: &str,
-            style: Style,
-        ) -> u16 {
-            let remaining = viewport.right().saturating_sub(x) as usize;
-            surface
-                .set_stringn(x, viewport.y, content, remaining, style)
-                .0
-        }
-
         let config = editor.config();
-
-        // PERF: Render directly into the surface to avoid allocating a span list every frame.
-
         let style = editor
             .theme
             .try_get_exact("ui.breadcrumb")
@@ -684,11 +674,44 @@ impl PaneRenderer {
 
         surface.clear_with(viewport, style);
 
-        let mut x = viewport.x.saturating_add(1);
+        let start_x = viewport.x.saturating_add(1);
+        let mut x = start_x;
+        let separator = &config.breadcrumb.separator;
+        let separator_width = visible_grapheme_widths(separator).sum::<usize>();
+        let separator_style = style.patch(
+            editor
+                .theme
+                .try_get_exact("ui.breadcrumb.separator")
+                .unwrap_or_default(),
+        );
 
-        let separator = config.breadcrumb.separator.as_deref().unwrap_or(" > ");
-        let separator_style = editor.theme.get("ui.breadcrumb.separator");
-        let mut draw_separator = false;
+        // Render directly into the surface. A separator and the first visible
+        // grapheme of the next crumb must fit together.
+        let mut draw_segment = |content: &str, style| {
+            let mut widths = visible_grapheme_widths(content);
+            let Some(first_width) = widths.next() else {
+                return true;
+            };
+            let gap = if x == start_x { 0 } else { separator_width };
+            let available = usize::from(viewport.right().saturating_sub(x));
+            if gap.saturating_add(first_width) > available {
+                return false;
+            }
+            if gap > 0 {
+                x = surface
+                    .set_stringn(x, viewport.y, separator, gap, separator_style)
+                    .0;
+            }
+            let remaining = available - gap;
+            x = surface
+                .set_stringn(x, viewport.y, content, remaining, style)
+                .0;
+            // Stop the trail when the current crumb was clipped, even if a
+            // wide grapheme left an unused cell at the right edge.
+            widths
+                .try_fold(remaining - first_width, usize::checked_sub)
+                .is_some()
+        };
 
         if matches!(config.breadcrumb.path, Full | File) {
             if let Some(path) = doc.source().display_path() {
@@ -704,12 +727,6 @@ impl PaneRenderer {
                     let Some(component) = component else {
                         break;
                     };
-                    if draw_separator {
-                        x = draw_element(surface, viewport, x, separator, separator_style);
-                    } else {
-                        draw_separator = true;
-                    }
-
                     let segment = component.as_os_str().to_string_lossy();
                     let is_directory = !file_only && components.peek().is_some();
 
@@ -719,32 +736,28 @@ impl PaneRenderer {
                         style
                     };
 
-                    x = draw_element(surface, viewport, x, &segment, style);
-
+                    if !draw_segment(&segment, style) {
+                        return;
+                    }
                     if file_only {
                         break;
                     }
                 }
-            } else {
-                // Handle `[scratch]`
-                x = draw_element(surface, viewport, x, &doc.source().display_name(), style);
+            } else if !draw_segment(&doc.source().display_name(), style) {
+                return;
             }
         }
 
         // Draw symbols, if any.
         if let Some(breadcrumb) = doc.breadcrumbs(view.id) {
             for symbol in breadcrumb.iter() {
-                if draw_separator {
-                    x = draw_element(surface, viewport, x, separator, separator_style);
-                } else {
-                    draw_separator = true;
-                }
-
                 let style = editor
                     .theme
                     .get(crate::ui::lsp::symbol_kind_scope(symbol.kind));
 
-                x = draw_element(surface, viewport, x, symbol.name.as_ref(), style);
+                if !draw_segment(symbol.name.as_ref(), style) {
+                    break;
+                }
             }
         }
     }
@@ -968,5 +981,54 @@ impl PaneRenderer {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn breadcrumb_clips_at_segment_boundaries() -> anyhow::Result<()> {
+        let mut app = crate::ui::picker::test::application(false)?;
+        let workspace = tempfile::tempdir()?;
+        let root = stdx::path::canonicalize(workspace.path());
+        std::fs::create_dir(root.join(".git"))?;
+        std::fs::create_dir(root.join("a"))?;
+
+        let mut config = (*app.editor.config()).clone();
+        config.breadcrumb = toml::from_str("enable = true\nseparator = '界'")?;
+        app.apply_config_update(crate::config::ConfigEvent::UpdateEditor(Box::new(config)));
+        let document = view::current_ref!(app.editor).1.id();
+
+        for (file, width, expected) in [
+            ("b.rs", 3, " a "),
+            ("b.rs", 4, " a  "),
+            ("b.rs", 5, " a界 b"),
+            ("語.rs", 5, " a   "),
+            ("語.rs", 6, " a界 語 "),
+        ] {
+            app.editor
+                .set_doc_path(document, &root.join("a").join(file));
+            let (view, doc) = view::current_ref!(app.editor);
+            assert_eq!(
+                doc.display_path().unwrap(),
+                std::path::Path::new("a").join(file)
+            );
+            let viewport = Rect::new(2, 1, width, 1);
+            let mut surface = Surface::empty(Rect::new(0, 0, 10, 3));
+            surface[(1, 1)].set_symbol("L");
+            surface[(viewport.right(), 1)].set_symbol("R");
+
+            PaneRenderer::render_breadcrumb(&app.editor, doc.into(), view, viewport, &mut surface);
+
+            let text: String = (viewport.left()..viewport.right())
+                .map(|x| surface[(x, viewport.y)].symbol())
+                .collect();
+            assert_eq!(text, expected, "file={file}, width={width}");
+            assert_eq!(surface[(1, 1)].symbol(), "L");
+            assert_eq!(surface[(viewport.right(), 1)].symbol(), "R");
+        }
+        Ok(())
     }
 }

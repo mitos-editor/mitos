@@ -330,6 +330,7 @@ Saving, autosave, reloads, and native watching are configured in the
 | Key | Type / accepted values | Default | Description |
 | --- | --- | --- | --- |
 | `show` | `"never"`, `"always"`, or `"multiple"` | `"never"` | When to show open buffers at the top of the editor. |
+| `separator` | string | `""` | Text to display between visible tabs. Style it with `ui.bufferline.separator` in your theme. |
 
 The bufferline scrolls horizontally to keep the active buffer visible when the tabs exceed the window width.
 
@@ -381,7 +382,7 @@ The `smart-tab` subsection controls syntax-aware Tab behavior.
 | --- | --- | --- | --- |
 | `enable` | boolean | `false` | Show the breadcrumb bar. |
 | `path` | `"full"`, `"file"`, or `"none"` | `"full"` | Include the full path, only the file name, or no path before symbols. |
-| `separator` | string | `" > "` | The string used to separate each segment in the breadcrumb trail. |
+| `separator` | string | `" > "` | Text to display between path and symbol segments. Use `""` to hide the separator and `ui.breadcrumb.separator` to style it in your theme. |
 
 ### `[editor.clipboard.provider]`
 
@@ -444,6 +445,9 @@ single statusline at the bottom of the editor for the focused view.
 | `mode.select` | string | `"SEL"` |
 | `diagnostics` | severity array | `["warning", "error"]` |
 | `workspace-diagnostics` | severity array | `["warning", "error"]` |
+
+Add `"separator"` to the `left` or `right` list to place a separator. Style it
+with `ui.statusline.separator` in your theme.
 
 When space is limited, the statusline hides the file type first, shortens paths,
 branch names, and debug details, then hides optional fields. It keeps the mode,
