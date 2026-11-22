@@ -4,14 +4,29 @@ use diagnostics::Severity;
 use editor_core::{movement::Direction, Selection};
 
 impl Editor {
+    /// Select any diagnostic, committing pending edits before recording a jump.
+    pub fn goto_diagnostic(&mut self, direction: Direction, boundary: bool) {
+        self.goto_diagnostic_matching(direction, boundary, None);
+    }
+
     /// Select a diagnostic of exactly the requested severity in document order.
     /// Boundary jumps select the first/last match; relative jumps keep the current
-    /// selection when no further match exists. Diagnostics without severity are skipped.
+    /// selection when no further match exists. Severity-specific jumps keep the
+    /// current undo group open.
     pub fn goto_diagnostic_severity(
         &mut self,
         direction: Direction,
         boundary: bool,
         severity: Severity,
+    ) {
+        self.goto_diagnostic_matching(direction, boundary, Some(severity));
+    }
+
+    fn goto_diagnostic_matching(
+        &mut self,
+        direction: Direction,
+        boundary: bool,
+        severity: Option<Severity>,
     ) {
         let (view, doc) = current!(self);
         let cursor = doc
@@ -19,7 +34,7 @@ impl Editor {
             .primary()
             .cursor(doc.text().slice(..));
         let eligible = |diag: &&diagnostics::Diagnostic| {
-            diag.severity == Some(severity)
+            severity.is_none_or(|severity| diag.severity == Some(severity))
                 && (boundary
                     || match direction {
                         Direction::Forward => diag.range.start > cursor,
@@ -38,6 +53,9 @@ impl Editor {
         } else {
             Selection::single(diag.range.start, diag.range.end)
         };
+        if severity.is_none() {
+            doc.commit_changes();
+        }
         view.push_jump(doc, (doc.id(), doc.selection(view.id).clone()));
         doc.set_selection(view.id, selection);
         view.diagnostics_handler
@@ -116,6 +134,50 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[tokio::test]
+    async fn diagnostic_jumps_preserve_boundaries_and_backward_selection() {
+        let (mut editor, _store) = crate::editor::tests::editor("first #[|]#second third\n");
+        current!(editor).1.replace_diagnostics(
+            [
+                diagnostic(0, Some(Severity::Error)),
+                diagnostic(6, None),
+                diagnostic(13, Some(Severity::Warning)),
+            ],
+            &[],
+            None,
+        );
+        for (direction, boundary, anchor, head) in [
+            (Direction::Forward, false, 13, 14),
+            (Direction::Forward, false, 13, 14),
+            (Direction::Backward, false, 7, 6),
+            (Direction::Backward, true, 13, 14),
+            (Direction::Forward, true, 0, 1),
+        ] {
+            editor.goto_diagnostic(direction, boundary);
+            let (view, doc) = current_ref!(editor);
+            assert_eq!(doc.selection(view.id), &Selection::single(anchor, head));
+        }
+    }
+
+    #[tokio::test]
+    async fn only_successful_generic_jumps_commit_pending_edits() {
+        let (mut editor, _store) = crate::editor::tests::editor("#[|]#one two\n");
+        editor.enter_insert_mode();
+        editor.insert_char('!').unwrap();
+        let doc = current!(editor).1;
+        let revision = doc.get_current_revision();
+        doc.replace_diagnostics([diagnostic(5, Some(Severity::Warning))], &[], None);
+
+        editor.goto_diagnostic(Direction::Backward, false);
+        assert_eq!(current_ref!(editor).1.get_current_revision(), revision);
+        editor.goto_diagnostic_severity(Direction::Forward, false, Severity::Warning);
+        let (view, doc) = current_ref!(editor);
+        assert_eq!(doc.selection(view.id), &Selection::single(5, 6));
+        assert_eq!(doc.get_current_revision(), revision);
+        editor.goto_diagnostic(Direction::Forward, true);
+        assert_ne!(current_ref!(editor).1.get_current_revision(), revision);
     }
 
     #[tokio::test]
