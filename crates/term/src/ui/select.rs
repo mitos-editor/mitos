@@ -113,20 +113,17 @@ impl<T: Item> Component for Select<T> {
         // Message
         let background = cx.editor.theme.get("ui.background");
         let text = cx.editor.theme.get("ui.text");
-        cx.hyperlinks.borrow_mut().clear(message_box);
-        surface.clear_with(message_box, background.patch(text));
+        cx.clear_area(surface, message_box, background.patch(text));
         let block = panel::horizontally_padded(&cx.editor.theme, cx.editor.config().border_style);
         let message_area = block.inner(message_box);
         block.render(message_box, surface);
         self.message.render(message_area, surface, cx);
 
         // Options menu
-        cx.hyperlinks.borrow_mut().clear(menu_area);
-        surface.clear_with(menu_area, background.patch(text));
+        cx.clear_area(surface, menu_area, background.patch(text));
         let block = panel::bordered(&cx.editor.theme, cx.editor.config().border_style);
         let options_area = block.inner(menu_area);
         block.render(menu_area, surface);
         self.options.render(options_area, surface, cx);
     }
 }
-use tui::buffer::BufferExt as _;

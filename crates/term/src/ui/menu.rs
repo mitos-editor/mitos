@@ -345,8 +345,7 @@ impl<T: Item + 'static> Component for Menu<T> {
             .unwrap_or_else(|| theme.get("ui.text"));
         let selected = theme.get("ui.menu.selected");
 
-        cx.hyperlinks.borrow_mut().clear(area);
-        surface.clear_with(area, style);
+        cx.clear_area(surface, area, style);
 
         let scroll = self.scroll;
 
@@ -397,5 +396,4 @@ impl<T: Item + 'static> Component for Menu<T> {
         }
     }
 }
-use tui::buffer::BufferExt as _;
 use view::graphics::RectExt as _;

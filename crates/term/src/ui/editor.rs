@@ -31,7 +31,7 @@ use view::{
 };
 
 use tui::{
-    buffer::{Buffer as Surface, BufferExt as _},
+    buffer::Buffer as Surface,
     layout::{Alignment, Constraint, Layout},
     widgets::{Paragraph, Widget},
 };
@@ -914,8 +914,7 @@ impl Component for EditorView {
         // their own cells so an idle command line leaves the statusline visible.
         if overlay && cx.editor.status_msg.is_some() {
             cx.exclude_cursor(layout.commandline);
-            cx.hyperlinks.borrow_mut().clear(layout.commandline);
-            surface.clear_with(layout.commandline, background);
+            cx.clear_area(surface, layout.commandline, background);
         }
 
         // render status msg
@@ -959,8 +958,7 @@ impl Component for EditorView {
             if !overlay || !disp.is_empty() {
                 if overlay {
                     cx.exclude_cursor(pending_area);
-                    cx.hyperlinks.borrow_mut().clear(pending_area);
-                    surface.clear_with(pending_area, background);
+                    cx.clear_area(surface, pending_area, background);
                 }
                 Paragraph::new(disp)
                     .style(style)
@@ -971,8 +969,7 @@ impl Component for EditorView {
             if restricted {
                 if overlay {
                     cx.exclude_cursor(trust_area);
-                    cx.hyperlinks.borrow_mut().clear(trust_area);
-                    surface.clear_with(trust_area, background);
+                    cx.clear_area(surface, trust_area, background);
                 }
                 let style = style
                     .fg(view::graphics::Color::Yellow)
@@ -984,8 +981,7 @@ impl Component for EditorView {
             if let Some((reg, _)) = cx.interaction.macro_recording {
                 if overlay {
                     cx.exclude_cursor(macro_area);
-                    cx.hyperlinks.borrow_mut().clear(macro_area);
-                    surface.clear_with(macro_area, background);
+                    cx.clear_area(surface, macro_area, background);
                 }
                 let disp = format!("[{}]", reg);
                 let style = style
