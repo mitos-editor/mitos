@@ -232,10 +232,8 @@ pub(crate) fn register_hooks(events: &event::EventHub, hooks: crate::handlers::D
     });
 
     register_hook!(events => move |event: &mut LanguageServerExited<'_>| {
-        for doc in event.editor.documents_mut() {
-            if doc.supports_language_server(event.server_id) {
-                doc.clear_all_document_highlights();
-            }
+        for doc in event.editor.lsp_documents_mut(event.server_id) {
+            doc.clear_all_document_highlights();
         }
         Ok(())
     });

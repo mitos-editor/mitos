@@ -128,11 +128,7 @@ fn request_document_code_lenses(
 
 /// Handle workspace/codeLens/refresh for documents attached to its sender.
 pub fn refresh_for_language_server(editor: &mut Editor, server: LanguageServerId) {
-    let docs: Vec<_> = editor
-        .documents()
-        .filter(|doc| doc.supports_language_server(server))
-        .map(|doc| doc.id())
-        .collect();
+    let docs = editor.lsp_document_ids(server);
     for doc in docs {
         request_document_code_lenses(editor, doc, None);
     }
@@ -423,8 +419,7 @@ pub(crate) fn register_hooks(events: &event::EventHub, hooks: crate::handlers::D
     register_hook!(events => move |event: &mut LanguageServerExited<'_>| {
         let docs: Vec<_> = event
             .editor
-            .documents_mut()
-            .filter(|doc| doc.supports_language_server(event.server_id))
+            .lsp_documents_mut(event.server_id)
             .map(|doc| {
                 doc.code_lenses
                     .cache

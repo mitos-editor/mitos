@@ -263,10 +263,8 @@ fn group_lsp_actions(
 
 pub(crate) fn register_hooks(events: &event::EventHub) {
     register_hook!(events => move |event: &mut LanguageServerExited<'_>| {
-        for doc in event.editor.documents_mut() {
-            if doc.supports_language_server(event.server_id) {
-                doc.cancel_view_requests(|state| &mut state.code_actions);
-            }
+        for doc in event.editor.lsp_documents_mut(event.server_id) {
+            doc.cancel_view_requests(|state| &mut state.code_actions);
         }
         Ok(())
     });

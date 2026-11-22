@@ -284,11 +284,7 @@ pub fn request_all_document_diagnostics_for_language_server(
     editor: &mut Editor,
     server_id: LanguageServerId,
 ) {
-    let documents: Vec<_> = editor
-        .documents()
-        .filter(|doc| doc.supports_language_server(server_id))
-        .map(|doc| doc.id())
-        .collect();
+    let documents = editor.lsp_document_ids(server_id);
     let servers = HashSet::from([server_id]);
     for document in documents {
         request_document_diagnostics_for_language_servers(editor, document, &servers);

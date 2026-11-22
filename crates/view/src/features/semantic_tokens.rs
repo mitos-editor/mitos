@@ -357,11 +357,7 @@ pub fn refresh_after_config_reload(editor: &mut Editor) {
 }
 
 pub fn refresh_for_language_server(editor: &mut Editor, server: LanguageServerId) {
-    let docs: Vec<_> = editor
-        .documents()
-        .filter(|doc| doc.supports_language_server(server))
-        .map(|doc| doc.id())
-        .collect();
+    let docs = editor.lsp_document_ids(server);
     for doc in docs {
         request(editor, doc, None);
     }
@@ -381,7 +377,7 @@ pub(crate) fn register_hooks(events: &event::EventHub, hooks: crate::handlers::D
     });
     register_hook!(events => move |event: &mut LanguageServerInitialized<'_>| { refresh_for_language_server(event.editor, event.server_id); Ok(()) });
     register_hook!(events => move |event: &mut LanguageServerExited<'_>| {
-        let docs: Vec<_> = event.editor.documents_mut().filter(|doc| doc.supports_language_server(event.server_id)).map(|doc| {
+        let docs: Vec<_> = event.editor.lsp_documents_mut(event.server_id).map(|doc| {
             doc.semantic_tokens.invalidate(); doc.id()
         }).collect();
         for doc in docs { request(event.editor, doc, Some(event.server_id)); }

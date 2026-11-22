@@ -556,7 +556,7 @@ pub(crate) fn register_hooks(events: &event::EventHub) {
         Ok(())
     });
     register_hook!(events => move |event: &mut LanguageServerExited<'_>| {
-        for doc in event.editor.documents_mut().filter(|doc| doc.supports_language_server(event.server_id)) {
+        for doc in event.editor.lsp_documents_mut(event.server_id) {
             cancel(doc);
         }
         Ok(())
