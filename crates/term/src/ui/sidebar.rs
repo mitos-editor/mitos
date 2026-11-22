@@ -123,9 +123,7 @@ impl Sidebar {
         if layout.editor.width < 45 || layout.editor.height < 4 {
             return None;
         }
-        let width = width
-            .unwrap_or_else(|| (layout.editor.width / 3).clamp(20, 36))
-            .clamp(20, layout.editor.width - 24);
+        let width = Self::fitted_width(layout.editor.width, width, 0);
         let top = layout.bufferline.map_or(layout.editor.y, |rect| rect.y);
         let area = Rect::new(layout.editor.x, top, width, layout.editor.bottom() - top);
         layout.editor.x += width;
@@ -138,12 +136,14 @@ impl Sidebar {
     }
 
     pub(super) fn resize_width(&mut self, total: u16, delta: isize) {
-        let max = total.saturating_sub(24).max(20);
-        let width = self
-            .width
-            .unwrap_or_else(|| (total / 3).clamp(20, 36))
-            .clamp(20, max);
-        self.width = Some(((width as isize).saturating_add(delta)).clamp(20, max as isize) as u16);
+        self.width = Some(Self::fitted_width(total, self.width, delta));
+    }
+
+    fn fitted_width(total: u16, width: Option<u16>, delta: isize) -> u16 {
+        let max = total.saturating_sub(24).max(20) as isize;
+        let width = width.unwrap_or_else(|| (total / 3).clamp(20, 36)) as isize;
+        let visible_width = width.clamp(20, max);
+        visible_width.saturating_add(delta).clamp(20, max) as u16
     }
 
     fn keymap<'a>(&self, maps: &'a ComponentKeymaps) -> &'a Keymap<SidebarAction> {
