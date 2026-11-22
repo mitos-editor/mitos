@@ -171,22 +171,18 @@ pub(crate) fn register_hooks(events: &event::EventHub, hooks: crate::handlers::D
     });
     let initialized_hooks = hooks.clone();
     register_hook!(events => move |event: &mut LanguageServerInitialized<'_>| {
-        for doc in event.editor.documents_mut() {
-            if doc.supports_language_server(event.server_id) {
-                schedule_document(doc, &initialized_hooks);
-            }
+        for doc in event.editor.lsp_documents_mut(event.server_id) {
+            schedule_document(doc, &initialized_hooks);
         }
         Ok(())
     });
     let exited_hooks = hooks.clone();
     register_hook!(events => move |event: &mut LanguageServerExited<'_>| {
-        for doc in event.editor.documents_mut() {
-            if doc.supports_language_server(event.server_id) {
-                doc.clear_all_code_action_hints();
-                // Debounced work runs after removal from the registry and
-                // recomputes availability from the remaining providers.
-                schedule_document(doc, &exited_hooks);
-            }
+        for doc in event.editor.lsp_documents_mut(event.server_id) {
+            doc.clear_all_code_action_hints();
+            // Debounced work runs after removal from the registry and
+            // recomputes availability from the remaining providers.
+            schedule_document(doc, &exited_hooks);
         }
         Ok(())
     });

@@ -4,6 +4,7 @@ use std::{io::stdin, path::Path};
 
 use anyhow::Error;
 use editor_core::Selection;
+use lsp_client::LanguageServerId;
 use workspace::trust::TrustQuery;
 
 use crate::{
@@ -415,6 +416,23 @@ impl Editor {
     #[inline]
     pub fn documents_mut(&mut self) -> impl Iterator<Item = &mut Document> {
         self.documents.values_mut()
+    }
+
+    /// Snapshot the IDs of documents opened on this server, including hidden buffers.
+    pub(crate) fn lsp_document_ids(&self, server: LanguageServerId) -> Vec<DocumentId> {
+        self.documents()
+            .filter(|doc| doc.supports_language_server(server))
+            .map(Document::id)
+            .collect()
+    }
+
+    /// Mutably visit documents opened on this server, including during exit hooks.
+    pub(crate) fn lsp_documents_mut(
+        &mut self,
+        server: LanguageServerId,
+    ) -> impl Iterator<Item = &mut Document> {
+        self.documents_mut()
+            .filter(move |doc| doc.supports_language_server(server))
     }
 
     pub fn document_by_path<P: AsRef<Path>>(&self, path: P) -> Option<&Document> {

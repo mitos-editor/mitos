@@ -185,10 +185,8 @@ pub(crate) fn register_hooks(events: &event::EventHub, hooks: crate::handlers::D
 
     register_hook!(events => move |event: &mut LanguageServerExited<'_>| {
         // Clear and re-request all color swatches when a server exits.
-        for doc in event.editor.documents_mut() {
-            if doc.supports_language_server(event.server_id) {
-                doc.document_colors.clear_cache();
-            }
+        for doc in event.editor.lsp_documents_mut(event.server_id) {
+            doc.document_colors.clear_cache();
         }
 
         let doc_ids: Vec<_> = event.editor.documents().map(|doc| doc.id()).collect();
