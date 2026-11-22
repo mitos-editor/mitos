@@ -122,7 +122,7 @@ pub(super) fn quicklist_picker(cx: &mut Context) {
         0,
         quicklist_items(cx.editor),
         PathStyleConfig::new(cx.editor),
-        |cx, meta, action| {
+        |cx, meta, _, action| {
             // A resumed picker or a replaced quicklist may still have an old row.
             if cx.editor.quicklist.entries().get(meta.index) != Some(&meta.entry) {
                 return refreshed_quicklist(cx.editor);

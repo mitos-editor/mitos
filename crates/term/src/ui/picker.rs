@@ -375,7 +375,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             primary_column,
             options,
             editor_data,
-            move |cx, item, action| {
+            move |cx, item, _, action| {
                 callback_fn(cx, item, action);
                 PickerCallbackResult::Close
             },
@@ -393,7 +393,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
     where
         C: IntoIterator<Item = Column<T, D>>,
         O: IntoIterator<Item = T>,
-        F: Fn(&mut Context, &T, Action) -> PickerCallbackResult<T, D> + 'static,
+        F: Fn(&mut Context, &T, &D, Action) -> PickerCallbackResult<T, D> + 'static,
     {
         let columns: Arc<[_]> = columns.into_iter().collect();
         let matcher_columns = columns
@@ -429,7 +429,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         default_column: usize,
         editor_data: Arc<D>,
         version: Arc<AtomicUsize>,
-        callback_fn: impl Fn(&mut Context, &T, Action) -> PickerCallbackResult<T, D> + 'static,
+        callback_fn: impl Fn(&mut Context, &T, &D, Action) -> PickerCallbackResult<T, D> + 'static,
     ) -> Self {
         assert!(!columns.is_empty());
 
@@ -459,7 +459,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             truncate_start: true,
             show_preview: true,
             preview_area: None,
-            callback_fn: Box::new(move |cx, item, _, action| callback_fn(cx, item, action)),
+            callback_fn: Box::new(callback_fn),
             on_close: None,
             default_action: Action::Replace,
             completion_height: 0,
@@ -510,14 +510,6 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         callback: impl Fn(&Editor, &str, &D, Option<&T>) -> anyhow::Result<(Vec<T>, D, usize)> + 'static,
     ) -> Self {
         self.query_options.synchronous = Some(Box::new(callback));
-        self
-    }
-
-    pub(super) fn with_data_callback(
-        mut self,
-        callback: impl Fn(&mut Context, &T, &D, Action) -> PickerCallbackResult<T, D> + 'static,
-    ) -> Self {
-        self.callback_fn = Box::new(callback);
         self
     }
 
@@ -2308,7 +2300,7 @@ mod tests {
             0,
             [1, 2, 3],
             (),
-            move |_, item, _| {
+            move |_, item, _, _| {
                 recorded.borrow_mut().push(*item);
                 PickerCallbackResult::Refresh {
                     options: vec![1, 2],
@@ -2458,7 +2450,7 @@ mod tests {
             0,
             Arc::new(()),
             Arc::new(AtomicUsize::new(0)),
-            move |_, item, _| {
+            move |_, item, _, _| {
                 accepted.borrow_mut().push(*item);
                 PickerCallbackResult::KeepOpen
             },

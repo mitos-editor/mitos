@@ -74,8 +74,6 @@ fn browser(
         paths: Arc::new(crate::commands::picker::PathStyleConfig::new(editor)),
     };
     let preview_repo = data.repo.clone();
-    let accept = data.clone();
-    let actions = data.clone();
     let pager = crate::ui::picker::paged::Paged::new(
         cursor,
         [
@@ -119,9 +117,9 @@ fn browser(
         3,
         [],
         data,
-        move |cx, commit, action| {
+        |cx, commit, data, action| {
             if let Some(file) = &commit.file {
-                match review_request(cx.editor, &accept.repo, commit, file, 0) {
+                match review_request(cx.editor, &data.repo, commit, file, 0) {
                     Ok(request) => {
                         cx.editor.open_historical_review(request, action);
                     }
@@ -132,7 +130,7 @@ fn browser(
                 }
                 PickerCallbackResult::Close
             } else {
-                let data = accept.clone();
+                let data = data.clone();
                 let commit = commit.clone();
                 PickerCallbackResult::CloseWithCallback(Box::new(move |compositor, cx| {
                     let parent = compositor.last_picker.take();
@@ -147,16 +145,16 @@ fn browser(
     .with_help(|maps| super::actions::help(&maps.history_picker))
     .with_item_key(|c| c.id.as_str().to_owned())
     .with_paged_updates(pager)
-    .with_item_actions(
+    .with_item_data_actions(
         |maps| &maps.history_picker,
-        move |_, row, action| {
+        |_, row, data, action| {
             if action != PickerItemAction::Actions {
                 return PickerCallbackResult::KeepOpen;
             }
             let Some(commit) = row else {
                 return PickerCallbackResult::KeepOpen;
             };
-            let data = actions.clone();
+            let data = data.clone();
             let commit = commit.clone();
             PickerCallbackResult::KeepOpenWithCallback(Box::new(move |compositor, cx| {
                 compositor.push(Box::new(overlaid(action_picker(
@@ -283,7 +281,7 @@ fn action_picker(
         0,
         choices,
         (),
-        move |cx, choice, action| {
+        move |cx, choice, _, action| {
             let result = (|| -> Result<bool> {
                 match choice.kind {
                     ChoiceKind::Review(parent) => {
@@ -381,10 +379,6 @@ fn files_picker(
     );
     let preview_repo = data.repo.clone();
     let preview_commit = commit.clone();
-    let accept = data.clone();
-    let selected = commit.clone();
-    let menu_data = data.clone();
-    let menu_commit = commit.clone();
     let load = Files {
         data: data.clone(),
         commit: commit.clone(),
@@ -416,12 +410,12 @@ fn files_picker(
             parent,
             path,
         },
-        move |cx, file, action| match review_request(
+        |cx, file, data, action| match review_request(
             cx.editor,
-            &accept.repo,
-            &selected,
+            &data.data.repo,
+            &data.commit,
             file,
-            parent,
+            data.parent,
         ) {
             Ok(request) => {
                 cx.editor.open_historical_review(request, action);
@@ -449,9 +443,9 @@ fn files_picker(
         ));
         hints
     })
-    .with_item_actions(
+    .with_item_data_actions(
         |maps| &maps.history_picker,
-        move |_, file, action| {
+        move |_, file, data, action| {
             if action == PickerItemAction::HistoryBack {
                 if browser.borrow().is_none() {
                     return PickerCallbackResult::KeepOpen;
@@ -469,8 +463,9 @@ fn files_picker(
             let Some(file) = file else {
                 return PickerCallbackResult::KeepOpen;
             };
-            let data = menu_data.clone();
-            let mut commit = menu_commit.clone();
+            let parent = data.parent;
+            let mut commit = data.commit.clone();
+            let data = data.data.clone();
             Arc::make_mut(&mut commit).file = Some(file.clone());
             PickerCallbackResult::KeepOpenWithCallback(Box::new(move |compositor, cx| {
                 let mut data = data;

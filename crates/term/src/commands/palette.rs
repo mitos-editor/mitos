@@ -102,7 +102,7 @@ pub fn command_palette(cx: &mut Context) {
                 0,
                 commands,
                 data,
-                move |cx, command, _action| {
+                move |cx, command, _, _| {
                     let mut ctx = Context::from_ui(cx);
                     ctx.register = register;
                     ctx.count = count;

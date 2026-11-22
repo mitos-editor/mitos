@@ -560,7 +560,7 @@ mod deferred_refresh_tests {
             0,
             Arc::new(()),
             Arc::new(AtomicUsize::new(0)),
-            |_, _, _| PickerCallbackResult::Close,
+            |_, _, _, _| PickerCallbackResult::Close,
         )
         .with_initial_options(|_| Box::pin(async { Ok(vec![7]) }));
         picker.results.spare_matcher = Some(matcher());

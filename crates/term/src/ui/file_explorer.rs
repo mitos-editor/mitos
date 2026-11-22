@@ -17,7 +17,7 @@ use editor_core::unicode::segmentation::UnicodeSegmentation;
 use theme::{icons::ICONS, Theme};
 use tui::text::Span;
 use view::{
-    editor::FileOperation,
+    editor::{Action, FileOperation},
     quicklist::{QuicklistEntry, QuicklistPosition, QuicklistTarget},
     Editor,
 };
@@ -25,12 +25,7 @@ use view::{
 use crate::{
     compositor::{self, Context},
     keymap::component::{DirectoryAction, PickerItemAction},
-    ui::{
-        self,
-        picker::{self, PickerCallbackResult},
-        prompt::Movement,
-        Prompt, PromptEvent,
-    },
+    ui::{self, picker::PickerCallbackResult, prompt::Movement, Prompt, PromptEvent},
 };
 
 mod tree;
@@ -143,30 +138,8 @@ pub(super) fn picker(
             show_icons: editor.config().icons,
             tree,
         },
-        |_, _, _| picker::PickerCallbackResult::KeepOpen,
+        accept,
     )
-    .with_data_callback(move |cx, item, data, action| {
-        let (path, is_dir) = item;
-        if *is_dir {
-            return if data.tree.is_some() {
-                fold_directory(cx.editor, Some(item), data, DirectoryAction::Toggle)
-            } else {
-                replace_directory(cx.editor, stdx::path::normalize(path), None)
-            };
-        }
-
-        if let Err(err) = cx.editor.open(path, action) {
-            cx.editor.set_error(|| {
-                if let Some(err) = err.source() {
-                    format!("{}", err)
-                } else {
-                    format!("unable to open \"{}\"", path.display())
-                }
-            });
-            return picker::PickerCallbackResult::KeepOpen;
-        }
-        picker::PickerCallbackResult::Close
-    })
     .with_title("File Explorer")
     .with_preview(|_editor, (path, _is_dir)| Some((path.as_path().into(), None)))
     .with_quicklist(|_editor, (path, is_dir)| {
@@ -276,6 +249,34 @@ fn directory_content_cancellable(
 }
 
 type ActionResult = PickerCallbackResult<ExplorerItem, ExplorerData>;
+
+fn accept(
+    cx: &mut Context,
+    item: &ExplorerItem,
+    data: &ExplorerData,
+    action: Action,
+) -> ActionResult {
+    let (path, is_dir) = item;
+    if *is_dir {
+        return if data.tree.is_some() {
+            fold_directory(cx.editor, Some(item), data, DirectoryAction::Toggle)
+        } else {
+            replace_directory(cx.editor, stdx::path::normalize(path), None)
+        };
+    }
+
+    if let Err(err) = cx.editor.open(path, action) {
+        cx.editor.set_error(|| {
+            if let Some(err) = err.source() {
+                format!("{}", err)
+            } else {
+                format!("unable to open \"{}\"", path.display())
+            }
+        });
+        return PickerCallbackResult::KeepOpen;
+    }
+    PickerCallbackResult::Close
+}
 
 fn replace_directory(
     editor: &mut Editor,
