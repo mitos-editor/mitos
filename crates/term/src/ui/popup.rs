@@ -6,7 +6,6 @@ use crate::{
     key,
     ui::panel::{self, PopupBorder},
 };
-use tui::buffer::BufferExt as _;
 use tui::{buffer::Buffer as Surface, scrollbar, widgets::Widget};
 use ui_core::keymap::{Binding, KeymapState, Lookup};
 
@@ -382,8 +381,7 @@ impl<T: Component> Component for Popup<T> {
         if !self.contents.owns_cursor() {
             cx.exclude_cursor(area);
         }
-        cx.hyperlinks.borrow_mut().clear(area);
-        surface.clear_with(area, background);
+        cx.clear_area(surface, area, background);
 
         let mut inner = area;
         if render_borders {

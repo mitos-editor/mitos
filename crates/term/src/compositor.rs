@@ -4,7 +4,7 @@
 pub use tui::terminal::Cursor;
 use view::graphics::Rect;
 
-use tui::buffer::Buffer as Surface;
+use tui::buffer::{Buffer as Surface, BufferExt as _};
 
 pub type Callback = Box<dyn FnOnce(&mut Compositor, &mut Context)>;
 
@@ -88,6 +88,12 @@ pub struct DrawContext<'a> {
 impl DrawContext<'_> {
     pub(crate) fn request_animation_at(&mut self, due: tokio::time::Instant) {
         self.animation_deadline = Some(self.animation_deadline.map_or(due, |old| old.min(due)));
+    }
+
+    /// Clear the cells and any hyperlinks left underneath them.
+    pub(crate) fn clear_area(&self, surface: &mut Surface, area: Rect, style: theme::Style) {
+        self.hyperlinks.borrow_mut().clear(area);
+        surface.clear_with(area, style);
     }
 
     /// Hide the active cursor where an opaque overlay covers its layer.

@@ -41,7 +41,6 @@ use tui::{
     widgets::{Cell, Paragraph, Row, StatefulWidget, Table},
 };
 
-use tui::buffer::BufferExt as _;
 use tui::widgets::Widget;
 use ui_core::input::{MouseButton, MouseEventKind};
 use view::graphics::RectExt as _;
@@ -1101,8 +1100,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         // -- Render the frame:
         // clear area
         let background = cx.editor.theme.get("ui.background");
-        cx.hyperlinks.borrow_mut().clear(area);
-        surface.clear_with(area, background);
+        cx.clear_area(surface, area, background);
 
         let mut block = self.frame(&cx.editor.theme, cx.editor.config().border_style);
         if let Some(title) = &self.title {
@@ -1387,8 +1385,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
 
     fn render_preview(&mut self, area: Rect, surface: &mut Surface, cx: &mut DrawContext) {
         let background = cx.editor.theme.get("ui.background");
-        cx.hyperlinks.borrow_mut().clear(area);
-        surface.clear_with(area, background);
+        cx.clear_area(surface, area, background);
 
         let block = panel::horizontally_padded(&cx.editor.theme, cx.editor.config().border_style);
         let inner = block.inner(area);

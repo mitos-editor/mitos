@@ -492,8 +492,7 @@ impl Component for Completion {
         // clear area
         let background = cx.editor.theme.get("ui.popup");
         cx.exclude_cursor(doc_area);
-        cx.hyperlinks.borrow_mut().clear(doc_area);
-        surface.clear_with(doc_area, background);
+        cx.clear_area(surface, doc_area, background);
 
         use tui::widgets::Widget;
         let block = panel::bordered(
@@ -506,7 +505,6 @@ impl Component for Completion {
         markdown_doc.render(markdown_area, surface, cx);
     }
 }
-use tui::buffer::BufferExt as _;
 
 #[cfg(test)]
 mod tests {

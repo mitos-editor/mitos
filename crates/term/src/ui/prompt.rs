@@ -704,8 +704,7 @@ impl Prompt {
                 .map(|selection| selection / items * items)
                 .unwrap_or_default();
 
-            cx.hyperlinks.borrow_mut().clear(area);
-            surface.clear_with(area, background);
+            cx.clear_area(surface, area, background);
             // PERF: Ratatui tables require temporary row/cell vectors instead of writing the
             // completion grid directly. Cache this page if prompt rendering becomes measurable.
             let rows = (0..height).map(|row| {
@@ -756,8 +755,7 @@ impl Prompt {
             ));
 
             let background = theme.get("ui.help");
-            cx.hyperlinks.borrow_mut().clear(area);
-            surface.clear_with(area, background);
+            cx.clear_area(surface, area, background);
 
             let block = ui::panel::horizontally_padded(
                 theme,
@@ -770,8 +768,7 @@ impl Prompt {
         }
 
         let line = area.height - 1;
-        cx.hyperlinks.borrow_mut().clear(area.clip_top(line));
-        surface.clear_with(area.clip_top(line), background);
+        cx.clear_area(surface, area.clip_top(line), background);
         // render buffer text
         let label = self.label();
         surface.set_string(area.x, area.y + line, &label, prompt_color);
