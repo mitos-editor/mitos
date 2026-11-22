@@ -4,7 +4,8 @@ use std::{path::PathBuf, sync::Arc};
 
 use event::{cancelable_future, TaskController, TaskHandle};
 use tokio::sync::Semaphore;
-use vcs::FileBlame;
+use vcs::{DiffProviderRegistry, FileBlame};
+use workspace::trust::{TrustQuery, WorkspaceTrust};
 
 use crate::features::blame::BlameHandler;
 use crate::Document;
@@ -114,6 +115,25 @@ pub enum LineBlameError<'a> {
 }
 
 impl Document {
+    pub(super) fn git_trusted(&self, trust: &WorkspaceTrust) -> bool {
+        trust
+            .query(self.workspace_root(), TrustQuery::Git)
+            .is_trusted()
+    }
+
+    /// Refresh repository state when the effective trust decision changes.
+    pub(super) fn sync_blame_trust(
+        &mut self,
+        trust: &WorkspaceTrust,
+        providers: &DiffProviderRegistry,
+    ) -> bool {
+        let trust_full = self.git_trusted(trust);
+        if self.update_blame_trust(trust_full) {
+            self.refresh_vcs(providers, trust_full);
+        }
+        trust_full
+    }
+
     /// Discard cached and pending blame after path or trust changes.
     pub(crate) fn invalidate_blame(&mut self) {
         self.blame.clear();
