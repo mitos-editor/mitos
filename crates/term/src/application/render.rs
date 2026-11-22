@@ -65,19 +65,8 @@ where
 
     fn prepare_components(&mut self, area: Rect) {
         let config = self.config.load();
-        let mut cx = compositor::Context {
-            config: crate::config::Context {
-                current: &config,
-                updates: &self.config_updates.0,
-            },
-            editor: &mut self.editor,
-            interaction: &mut self.interaction,
-            jobs: &mut self.jobs,
-            scroll: None,
-            image_picker: self.image_picker.as_ref(),
-            is_cursor_owner: false,
-        };
-        self.compositor.update(area, &mut cx);
+        let (compositor, mut cx) = self.compositor_with_context(&config);
+        compositor.update(area, &mut cx);
         view::features::code_lenses::prepare_visible_code_lenses(cx.editor);
     }
 

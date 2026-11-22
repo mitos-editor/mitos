@@ -16,7 +16,11 @@ mod render;
 mod signals;
 mod startup;
 
-use crate::{compositor::Compositor, config::Config, job::Jobs};
+use crate::{
+    compositor::{self, Compositor},
+    config::Config,
+    job::Jobs,
+};
 
 use std::sync::Arc;
 
@@ -83,6 +87,25 @@ where
     /// Queue a completion for this application's editor and compositor.
     pub fn job_sender(&self) -> crate::job::JobSender {
         self.jobs.sender()
+    }
+
+    fn compositor_with_context<'a>(
+        &'a mut self,
+        config: &'a Config,
+    ) -> (&'a mut Compositor, compositor::Context<'a>) {
+        let context = compositor::Context {
+            config: crate::config::Context {
+                current: config,
+                updates: &self.config_updates.0,
+            },
+            editor: &mut self.editor,
+            interaction: &mut self.interaction,
+            jobs: &mut self.jobs,
+            scroll: None,
+            image_picker: self.image_picker.as_ref(),
+            is_cursor_owner: false,
+        };
+        (&mut self.compositor, context)
     }
 
     pub async fn event_loop<S>(&mut self, input_stream: &mut S)

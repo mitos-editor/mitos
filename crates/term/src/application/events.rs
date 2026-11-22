@@ -11,20 +11,8 @@ where
 {
     pub async fn handle_idle_timeout(&mut self) {
         let config = self.config.load();
-        let mut cx = crate::compositor::Context {
-            config: crate::config::Context {
-                current: &config,
-                updates: &self.config_updates.0,
-            },
-            editor: &mut self.editor,
-            interaction: &mut self.interaction,
-            jobs: &mut self.jobs,
-            scroll: None,
-            image_picker: self.image_picker.as_ref(),
-            is_cursor_owner: false,
-        };
-        let should_render = self.compositor.handle_event(&Event::IdleTimeout, &mut cx);
-        if should_render {
+        let (compositor, mut cx) = self.compositor_with_context(&config);
+        if compositor.handle_event(&Event::IdleTimeout, &mut cx) {
             self.request_redraw();
         }
     }
@@ -173,19 +161,6 @@ where
         use termina::escape::csi;
 
         let mut should_redraw = self.apply_pending_config_updates();
-        let config = self.config.load();
-        let mut cx = crate::compositor::Context {
-            config: crate::config::Context {
-                current: &config,
-                updates: &self.config_updates.0,
-            },
-            editor: &mut self.editor,
-            interaction: &mut self.interaction,
-            jobs: &mut self.jobs,
-            scroll: None,
-            image_picker: self.image_picker.as_ref(),
-            is_cursor_owner: false,
-        };
         should_redraw |= match event.unwrap() {
             #[cfg(not(windows))]
             // Ignore keyboard release events.
@@ -235,7 +210,9 @@ where
                         Rect::from(self.terminal.size().expect("failed to read terminal size"));
                     self.compositor.resize(area);
                 }
-                self.compositor.handle_event(&event, &mut cx)
+                let config = self.config.load();
+                let (compositor, mut cx) = self.compositor_with_context(&config);
+                compositor.handle_event(&event, &mut cx)
             }
         };
 
