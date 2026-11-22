@@ -52,10 +52,7 @@ impl BlameHandler {
                     let Some(doc) = editor.documents.get_mut(&doc_id) else {
                         return;
                     };
-                    let trust_full = editor
-                        .workspace_trust
-                        .query(doc.workspace_root(), workspace::trust::TrustQuery::Git)
-                        .is_trusted();
+                    let trust_full = doc.git_trusted(&editor.workspace_trust);
                     if let Some(line) = request.complete(doc, result, trust_full) {
                         editor.show_line_blame(doc_id, line);
                     }
@@ -76,13 +73,7 @@ impl Editor {
             self.set_error(|| "Git blame requires a text file with a path");
             return;
         }
-        let trust_full = self
-            .workspace_trust
-            .query(doc.workspace_root(), workspace::trust::TrustQuery::Git)
-            .is_trusted();
-        if doc.update_blame_trust(trust_full) {
-            doc.refresh_vcs(&self.diff_providers, trust_full);
-        }
+        let trust_full = doc.sync_blame_trust(&self.workspace_trust, &self.diff_providers);
         if doc.file_blame().is_none() {
             handler.request(doc, trust_full, Some(line));
             self.set_status("Requested blame for this file...");
@@ -127,13 +118,7 @@ fn request_blame(editor: &mut Editor, doc_id: DocumentId) {
     let Some(doc) = editor.documents.get_mut(&doc_id) else {
         return;
     };
-    let trust_full = editor
-        .workspace_trust
-        .query(doc.workspace_root(), workspace::trust::TrustQuery::Git)
-        .is_trusted();
-    if doc.update_blame_trust(trust_full) {
-        doc.refresh_vcs(&editor.diff_providers, trust_full);
-    }
+    let trust_full = doc.sync_blame_trust(&editor.workspace_trust, &editor.diff_providers);
     handler.request(doc, trust_full, None);
 }
 
@@ -176,14 +161,7 @@ pub(crate) fn register_hooks(events: &event::EventHub) {
         // Grants, exclusions, and stale workspace configuration can change the
         // effective decision even when the serialized settings stay the same.
         for doc in event.editor.documents.values_mut() {
-            let trust_full = event
-                .editor
-                .workspace_trust
-                .query(doc.workspace_root(), workspace::trust::TrustQuery::Git)
-                .is_trusted();
-            if doc.update_blame_trust(trust_full) {
-                doc.refresh_vcs(&event.editor.diff_providers, trust_full);
-            }
+            doc.sync_blame_trust(&event.editor.workspace_trust, &event.editor.diff_providers);
         }
         request_visible_blame(event.editor);
         Ok(())

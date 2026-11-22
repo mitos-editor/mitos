@@ -24,10 +24,7 @@ struct Target {
 impl Target {
     fn document<'a>(&self, editor: &'a Editor) -> Option<&'a crate::Document> {
         let (view, doc) = self.selection.get(editor)?;
-        let trust_full = editor
-            .workspace_trust
-            .query(doc.workspace_root(), workspace::trust::TrustQuery::Git)
-            .is_trusted();
+        let trust_full = doc.git_trusted(&editor.workspace_trust);
         (editor.tree.focus() == view.id && trust_full == self.trust_full).then_some(doc)
     }
 }
@@ -43,13 +40,7 @@ pub fn request_details(editor: &mut Editor) {
         editor.set_error(|| "Git blame requires a text file with a path");
         return;
     }
-    let trust_full = editor
-        .workspace_trust
-        .query(doc.workspace_root(), workspace::trust::TrustQuery::Git)
-        .is_trusted();
-    if doc.update_blame_trust(trust_full) {
-        doc.refresh_vcs(&editor.diff_providers, trust_full);
-    }
+    let trust_full = doc.sync_blame_trust(&editor.workspace_trust, &editor.diff_providers);
     session.target = Some(Target {
         line: doc.cursor_line(view.id) as u32,
         selection: SelectionRequest::new(doc, view.id, session.cancel.restart(), Vec::new()),
