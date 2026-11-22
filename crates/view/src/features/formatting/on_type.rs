@@ -2,13 +2,11 @@
 
 use std::time::Duration;
 
-use editor_core::indent::IndentStyle;
 use event::cancelable_future;
 use futures_util::FutureExt as _;
 use language_config::LanguageServerFeature;
-use lsp_client::lsp;
 
-use super::{prepare_target, FormatKind, FormattingTask};
+use super::{formatting_options, prepare_target, FormatKind, FormattingTask};
 use crate::{document::Mode, Editor};
 
 /// Called only after successful user input, never after programmatic edits or paste.
@@ -31,13 +29,7 @@ pub(crate) fn request(editor: &mut Editor, character: Option<char>) {
     }
     let ch = character.to_string();
     let Some(server) = doc
-        .language_config()
-        .into_iter()
-        .flat_map(|config| &config.language_servers)
-        .filter(|config| config.has_feature(LanguageServerFeature::Format))
-        .filter_map(|config| doc.language_servers.get(&config.name))
-        .filter(|attachment| attachment.opened)
-        .map(|attachment| &attachment.client)
+        .language_servers_matching_config(Some(LanguageServerFeature::Format))
         .find(|server| {
             server
                 .capabilities()
@@ -59,11 +51,7 @@ pub(crate) fn request(editor: &mut Editor, character: Option<char>) {
         doc.identifier(),
         doc.position(view_id, encoding),
         ch,
-        lsp::FormattingOptions {
-            tab_size: doc.indent_width() as u32,
-            insert_spaces: matches!(doc.indent_style, IndentStyle::Spaces(_)),
-            ..Default::default()
-        },
+        formatting_options(doc),
     ) else {
         return;
     };

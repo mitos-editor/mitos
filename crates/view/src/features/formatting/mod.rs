@@ -167,6 +167,14 @@ fn prepare_target(
     Ok((target, doc))
 }
 
+fn formatting_options(doc: &Document) -> lsp::FormattingOptions {
+    lsp::FormattingOptions {
+        tab_size: doc.indent_width() as u32,
+        insert_spaces: matches!(doc.indent_style, IndentStyle::Spaces(_)),
+        ..Default::default()
+    }
+}
+
 /// Prepare whole-document formatting using the document's configured formatter.
 pub fn prepare_document(editor: &Editor, view: ViewId) -> anyhow::Result<FormattingTask> {
     let (mut target, doc) = prepare_target(editor, view, FormatKind::Document)?;
@@ -190,13 +198,7 @@ pub fn prepare_selections(editor: &Editor, view: ViewId) -> anyhow::Result<Forma
     // Range-only servers need not advertise whole-document formatting. Honor
     // the configured Format feature, then check this operation's capability.
     let server = doc
-        .language_config()
-        .into_iter()
-        .flat_map(|config| &config.language_servers)
-        .filter(|config| config.has_feature(LanguageServerFeature::Format))
-        .filter_map(|config| doc.language_servers.get(&config.name))
-        .filter(|attachment| attachment.opened)
-        .map(|attachment| &attachment.client)
+        .language_servers_matching_config(Some(LanguageServerFeature::Format))
         .find(|server| {
             (!multiple || server.supports_ranges_formatting())
                 && matches!(
@@ -219,11 +221,7 @@ pub fn prepare_selections(editor: &Editor, view: ViewId) -> anyhow::Result<Forma
             lsp_client::util::range_to_lsp_range(target.snapshot.buffer.text(), *range, encoding)
         })
         .collect();
-    let options = lsp::FormattingOptions {
-        tab_size: doc.indent_width() as u32,
-        insert_spaces: matches!(doc.indent_style, IndentStyle::Spaces(_)),
-        ..Default::default()
-    };
+    let options = formatting_options(doc);
     let request = if multiple {
         server
             .text_document_ranges_formatting(doc.identifier(), ranges, options, None)

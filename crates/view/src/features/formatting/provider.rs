@@ -2,11 +2,12 @@
 use std::{path::Path, sync::Arc};
 
 use command_line::Token;
-use editor_core::{indent::IndentStyle, Rope, Transaction};
+use editor_core::{Rope, Transaction};
 use futures_util::{future::BoxFuture, FutureExt};
 use language_config::LanguageServerFeature;
-use lsp_client::{lsp, LanguageServerId};
+use lsp_client::LanguageServerId;
 
+use super::formatting_options;
 use crate::{
     expansion,
     features::process::{self, Error as ProcessError},
@@ -167,11 +168,7 @@ impl Document {
         let server = language_server.name().to_owned();
         let request = language_server.text_document_formatting(
             self.identifier(),
-            lsp::FormattingOptions {
-                tab_size: self.indent_width() as u32,
-                insert_spaces: matches!(self.indent_style, IndentStyle::Spaces(_)),
-                ..Default::default()
-            },
+            formatting_options(self),
             None,
         )?;
 

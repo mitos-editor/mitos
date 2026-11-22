@@ -11,8 +11,19 @@ pub(crate) struct Attachment {
 impl Document {
     /// Maintains the order and feature routing configured in the language-server array.
     pub fn language_servers(&self) -> impl Iterator<Item = &lsp_client::Client> {
+        self.language_servers_matching_config(None)
+    }
+
+    /// Opened servers in configured order, optionally filtered by the language's feature list.
+    pub(crate) fn language_servers_matching_config(
+        &self,
+        feature: Option<LanguageServerFeature>,
+    ) -> impl Iterator<Item = &Client> {
         self.language_config().into_iter().flat_map(move |config| {
             config.language_servers.iter().filter_map(move |features| {
+                if feature.is_some_and(|feature| !features.has_feature(feature)) {
+                    return None;
+                }
                 let attachment = self.language_servers.get(&features.name)?;
                 attachment.opened.then_some(&*attachment.client)
             })
@@ -52,22 +63,11 @@ impl Document {
         feature: LanguageServerFeature,
     ) -> impl Iterator<Item = &lsp_client::Client> {
         let mut seen = std::collections::HashSet::new();
-        self.language_config()
-            .into_iter()
-            .flat_map(move |config| {
-                config.language_servers.iter().filter_map(move |features| {
-                    let attachment = self.language_servers.get(&features.name)?;
-                    let client = &*attachment.client;
-                    (attachment.opened
-                        && features.has_feature(feature)
-                        && crate::language_servers::supports_feature(
-                            client.capabilities(),
-                            feature,
-                        ))
-                    .then_some(client)
-                })
+        self.language_servers_matching_config(Some(feature))
+            .filter(move |client| {
+                crate::language_servers::supports_feature(client.capabilities(), feature)
+                    && seen.insert(client.id())
             })
-            .filter(move |client| seen.insert(client.id()))
     }
 
     /// Wire synchronization visits each opened binding once, independently of
