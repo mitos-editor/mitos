@@ -109,13 +109,15 @@ pub(super) fn execute(cx: &mut Context, args: Args, command: Command) -> Result<
 
 struct RepositoryData {
     repo: GitRepository,
+    workspace: PathBuf,
     theme: Arc<theme::Theme>,
 }
 
 impl RepositoryData {
-    fn new(editor: &Editor, repo: GitRepository) -> Self {
+    fn new(editor: &Editor, repo: GitRepository, workspace: PathBuf) -> Self {
         Self {
             repo,
+            workspace,
             theme: Arc::new(editor.theme.clone()),
         }
     }
@@ -177,10 +179,7 @@ fn branches(
     repo: GitRepository,
     workspace: PathBuf,
 ) -> Picker<Arc<Branch>, RepositoryData> {
-    let actions = repo.clone();
     let pager = BranchPager::new(editor, repo.clone());
-    let action_repo = repo.clone();
-    let action_workspace = workspace.clone();
     Picker::new_with_callback_result(
         editor.redraw().clone(),
         [
@@ -196,15 +195,15 @@ fn branches(
         ],
         0,
         Vec::<Arc<Branch>>::new(),
-        RepositoryData::new(editor, repo),
-        move |_, branch, _| {
+        RepositoryData::new(editor, repo, workspace),
+        |_, branch, data, _| {
             let action = GitAction::Repository(
-                actions.clone(),
+                data.repo.clone(),
                 RepositoryOperation::SwitchBranch {
                     name: branch.name.clone(),
                 },
             );
-            let workspace = workspace.clone();
+            let workspace = data.workspace.clone();
             PickerCallbackResult::CloseWithCallback(Box::new(move |_, cx| {
                 super::actions::start(cx, workspace, action)
             }))
@@ -221,12 +220,12 @@ fn branches(
             ],
         )
     })
-    .with_item_actions(
+    .with_item_data_actions(
         |maps| &maps.branch_picker,
-        move |_, branch, action| {
+        |_, branch, data, action| {
             branch_action(
-                &action_repo,
-                &action_workspace,
+                &data.repo,
+                &data.workspace,
                 branch.map(AsRef::as_ref),
                 action,
             )
@@ -241,8 +240,6 @@ fn worktrees(
     repo: GitRepository,
     workspace: PathBuf,
 ) -> Picker<Worktree, RepositoryData> {
-    let open = repo.clone();
-    let action_repo = repo.clone();
     Picker::new_with_callback_result(
         editor.redraw().clone(),
         [
@@ -274,10 +271,10 @@ fn worktrees(
         ],
         3,
         Vec::<Worktree>::new(),
-        RepositoryData::new(editor, repo),
-        move |_, tree, _| {
+        RepositoryData::new(editor, repo, workspace),
+        |_, tree, data, _| {
             let path = tree.path.clone();
-            let repo = open.clone();
+            let repo = data.repo.clone();
             PickerCallbackResult::CloseWithCallback(Box::new(move |_, cx| {
                 request_open_worktree(cx, repo, path);
             }))
@@ -305,9 +302,9 @@ fn worktrees(
             ],
         )
     })
-    .with_item_actions(
+    .with_item_data_actions(
         |maps| &maps.worktree_picker,
-        move |_, tree, action| worktree_action(&action_repo, &workspace, tree, action),
+        |_, tree, data, action| worktree_action(&data.repo, &data.workspace, tree, action),
     )
     .with_file_updates(
         editor,

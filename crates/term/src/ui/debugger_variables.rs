@@ -102,7 +102,7 @@ impl Page {
             0,
             rows,
             (),
-            move |_, row, _| {
+            move |_, row, _, _| {
                 action.set(Some(row.action));
                 PickerCallbackResult::KeepOpen
             },

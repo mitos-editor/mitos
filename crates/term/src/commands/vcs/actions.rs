@@ -372,9 +372,6 @@ fn stash_picker(
     workspace: PathBuf,
     entries: Vec<StashEntry>,
 ) -> Picker<StashEntry, StashData> {
-    let inspect_repo = repo.clone();
-    let action_repo = repo.clone();
-    let action_workspace = workspace.clone();
     Picker::new_with_callback_result(
         editor.redraw().clone(),
         [
@@ -398,8 +395,8 @@ fn stash_picker(
             repo,
             theme: Arc::new(editor.theme.clone()),
         },
-        move |_, entry, _| {
-            let repo = inspect_repo.clone();
+        |_, entry, data, _| {
+            let repo = data.repo.clone();
             let entry = entry.clone();
             PickerCallbackResult::CloseWithCallback(Box::new(move |compositor, cx| {
                 compositor.push(Box::new(overlaid(stash_files_picker(
@@ -420,15 +417,15 @@ fn stash_picker(
     )
     .with_refresh_generation(editor, generation)
     .with_item_key(|entry| entry.id().to_owned())
-    .with_item_actions(
+    .with_item_data_actions(
         |maps| &maps.stash_picker,
-        move |_, entry, action| {
+        move |_, entry, data, action| {
             let Some(entry) = entry else {
                 return PickerCallbackResult::KeepOpen;
             };
             let apply =
-                |index| Command::Run(GitAction::Apply(action_repo.clone(), entry.clone(), index));
-            let workspace = action_workspace.clone();
+                |index| Command::Run(GitAction::Apply(data.repo.clone(), entry.clone(), index));
+            let workspace = workspace.clone();
             let command = match action {
                 PickerItemAction::ApplyStash => apply(false),
                 PickerItemAction::ApplyStashWithIndex => apply(true),

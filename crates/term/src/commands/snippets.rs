@@ -60,7 +60,7 @@ fn picker(
         0,
         candidates,
         (),
-        |cx, candidate, _| match cx.editor.insert_user_snippet(candidate) {
+        |cx, candidate, _, _| match cx.editor.insert_user_snippet(candidate) {
             Ok(()) => PickerCallbackResult::Close,
             Err(error) => {
                 cx.editor.set_error(|| error.to_string());

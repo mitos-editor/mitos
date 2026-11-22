@@ -62,7 +62,7 @@ impl Frames {
             0,
             Self::rows(&data),
             (),
-            move |_, row, _| {
+            move |_, row, _, _| {
                 selected.set(Some(row.action));
                 PickerCallbackResult::KeepOpen
             },
