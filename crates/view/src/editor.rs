@@ -223,7 +223,7 @@ impl Editor {
         // Initialize file watcher and diff providers
         let workspace = workspace::ResolvedWorkspace::current();
         let file_watcher = Watcher::new(&conf.files.watch, &workspace, handlers.callbacks.clone());
-        let diff_providers = DiffProviderRegistry::default();
+        let diff_providers = DiffProviderRegistry::with_workspace_trust(workspace_trust.clone());
 
         // The frontend refines this area with its remaining application chrome.
         area.height = area

@@ -46,7 +46,7 @@ use std::{
 };
 
 use globset::{Glob, GlobSet, GlobSetBuilder};
-use parking_lot::Mutex;
+use parking_lot::{Mutex, RwLock};
 use sha2::{Digest, Sha256};
 
 /// Checks whether a specific capability is trusted
@@ -150,7 +150,7 @@ pub struct ConfigMigration<'a> {
 #[derive(Clone)]
 pub struct WorkspaceTrust {
     inner: Arc<Mutex<HashMap<PathBuf, CacheEntry>>>,
-    config: Config,
+    config: Arc<RwLock<Config>>,
     store: PathBuf,
 }
 
@@ -167,7 +167,7 @@ impl WorkspaceTrust {
     pub fn new(config: Config, store: PathBuf) -> Self {
         Self {
             inner: Arc::new(Mutex::new(HashMap::new())),
-            config,
+            config: Arc::new(RwLock::new(config)),
             store,
         }
     }
@@ -185,13 +185,13 @@ impl WorkspaceTrust {
     }
 
     pub fn implicit_level(&self) -> ImplicitTrustLevel {
-        self.config.level
+        self.config.read().level
     }
 
     /// Whether the trust modal should be surfaced on `DocumentDidOpen`. When false the user is
     /// only informed via the statusline indicator and acts explicitly via `:workspace-trust`.
     pub fn prompts_enabled(&self) -> bool {
-        self.config.prompt
+        self.config.read().prompt
     }
 
     /// Replace the configuration in-place. Clears the trust cache so the next query re-reads from
@@ -202,7 +202,8 @@ impl WorkspaceTrust {
     /// Session-only decisions made via [`Self::deny_once`] are discarded as part of the cache
     /// clear; the editor-owned prompt history suppresses re-prompting across the reload.
     pub fn set_config(&mut self, config: Config) {
-        self.config = config;
+        let mut current = self.config.write();
+        *current = config;
         self.inner.lock().clear();
     }
 
@@ -230,6 +231,7 @@ impl WorkspaceTrust {
 
     /// Query trust for `workspace` from the perspective of a specific subsystem.
     pub fn query(&self, workspace: &Path, query: TrustQuery) -> TrustStatus {
+        let config = self.config.read();
         let raw = self.status(workspace);
 
         // Explicit excludes always win.
@@ -238,25 +240,20 @@ impl WorkspaceTrust {
         }
 
         // Implicit-trust shortcuts only apply once we've ruled out excludes.
-        if self.config.level == ImplicitTrustLevel::Insecure {
+        if config.level == ImplicitTrustLevel::Insecure {
             return TrustStatus::Trusted;
         }
         // A config-listed glob grants full implicit trust to the matching workspace.
-        if self.is_glob_trusted(workspace) {
+        if config.trusted_globs.is_match(workspace) {
             return TrustStatus::Trusted;
         }
-        if self.config.level == ImplicitTrustLevel::Servers
+        if config.level == ImplicitTrustLevel::Servers
             && matches!(query, TrustQuery::Lsp | TrustQuery::Dap)
         {
             return TrustStatus::Trusted;
         }
 
         demote_for_query(raw, query)
-    }
-
-    /// Whether `workspace` matches one of the configured trust globs. Empty glob set never matches.
-    fn is_glob_trusted(&self, workspace: &Path) -> bool {
-        !self.config.trusted_globs.is_empty() && self.config.trusted_globs.is_match(workspace)
     }
 
     /// Workspace-wide "is this workspace in restricted mode and would running `trust`
@@ -266,8 +263,10 @@ impl WorkspaceTrust {
     /// `Untrusted` branch's `has_local_config` snapshot is consistent with the status read). Cheap
     /// on the hot render path after the first query.
     pub fn workspace_restricted(&self, workspace: &Path) -> bool {
+        let config = self.config.read();
         // If the workspace is fully trusted there's no restrictions.
-        if self.config.level == ImplicitTrustLevel::Insecure || self.is_glob_trusted(workspace) {
+        if config.level == ImplicitTrustLevel::Insecure || config.trusted_globs.is_match(workspace)
+        {
             return false;
         }
         let entry = self.entry(workspace);

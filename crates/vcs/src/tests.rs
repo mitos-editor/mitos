@@ -137,3 +137,32 @@ fn watch_refresh_inspects_each_directory_and_trust_pair_once() {
     });
     assert_eq!(inspected.len(), 8);
 }
+
+#[cfg(feature = "jj")]
+#[test]
+fn jujutsu_checks_the_repository_roots_live_trust_policy() {
+    use workspace::trust::{Config, ImplicitTrustLevel, WorkspaceTrust};
+
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("parent");
+    let nested = root.join("nested");
+    std::fs::create_dir_all(root.join(".jj")).unwrap();
+    std::fs::create_dir_all(nested.join(".mitos")).unwrap();
+
+    let mut trust = WorkspaceTrust::new(Config::default(), temp.path().join("trust"));
+    trust.trust(&nested).unwrap();
+    let providers = DiffProviderRegistry::with_workspace_trust(trust.clone());
+    assert!(providers.repository_watches(&nested, true).paths.is_empty());
+
+    trust.set_config(Config {
+        level: ImplicitTrustLevel::Insecure,
+        ..Config::default()
+    });
+    assert_eq!(
+        providers.repository_watches(&nested, true).paths,
+        [root.join(".jj/working_copy/checkout")]
+    );
+
+    trust.set_config(Config::default());
+    assert!(providers.repository_watches(&nested, true).paths.is_empty());
+}

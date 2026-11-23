@@ -10,12 +10,11 @@ use std::path::Path;
 #[cfg(test)]
 use std::sync::Arc;
 
-#[derive(Clone, Copy)]
 pub(super) enum DiffProvider {
     #[cfg(feature = "git")]
     Git,
     #[cfg(feature = "jj")]
-    Jj,
+    Jj(workspace::WorkspaceTrust),
     #[cfg(test)]
     Test(Option<&'static str>),
 }
@@ -31,7 +30,7 @@ impl DiffProvider {
             #[cfg(feature = "git")]
             Self::Git => crate::git::inspect_file(_file, _trust_full, _read_diff),
             #[cfg(feature = "jj")]
-            Self::Jj => crate::jj::inspect_file(_file, _trust_full, _read_diff),
+            Self::Jj(ref trust) => crate::jj::inspect_file(_file, trust, _read_diff),
             #[cfg(test)]
             Self::Test(name) => {
                 let name = test_name(name)?;
@@ -52,7 +51,7 @@ impl DiffProvider {
             #[cfg(feature = "git")]
             Self::Git => crate::repository::repository_watches(_path, _trust_full),
             #[cfg(feature = "jj")]
-            Self::Jj => crate::jj::repository_watches(_path, _trust_full),
+            Self::Jj(ref trust) => crate::jj::repository_watches(_path, trust),
             #[cfg(test)]
             Self::Test(name) => {
                 let name = test_name(name)?;
@@ -74,7 +73,7 @@ impl DiffProvider {
             #[cfg(feature = "git")]
             Self::Git => crate::git::for_each_file_status(_scope, _trust_full, _f),
             #[cfg(feature = "jj")]
-            Self::Jj => crate::jj::for_each_file_status(_scope, _trust_full, _f),
+            Self::Jj(ref trust) => crate::jj::for_each_file_status(_scope, trust, _f),
             #[cfg(test)]
             Self::Test(name) => {
                 let name = test_name(name)?;
@@ -105,7 +104,7 @@ impl DiffProvider {
             #[cfg(feature = "git")]
             Self::Git => crate::review::read_git_comparison(_status, _kind, _trust_full),
             #[cfg(feature = "jj")]
-            Self::Jj => crate::jj::read_comparison(_status, _kind, _trust_full),
+            Self::Jj(ref trust) => crate::jj::read_comparison(_status, _kind, trust),
             #[cfg(test)]
             Self::Test(name) => Ok(Comparison {
                 before: test_name(name)?.as_bytes().to_vec(),

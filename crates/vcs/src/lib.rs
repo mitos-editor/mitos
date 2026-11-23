@@ -79,14 +79,25 @@ pub struct DiffProviderRegistry {
 
 impl Default for DiffProviderRegistry {
     fn default() -> Self {
+        Self::new(None)
+    }
+}
+
+impl DiffProviderRegistry {
+    /// Enable Jujutsu with the editor's live workspace trust policy.
+    pub fn with_workspace_trust(trust: workspace::WorkspaceTrust) -> Self {
+        Self::new(Some(trust))
+    }
+
+    fn new(_workspace_trust: Option<workspace::WorkspaceTrust>) -> Self {
+        let providers: [Option<DiffProvider>; _] = [
+            #[cfg(feature = "jj")]
+            _workspace_trust.map(DiffProvider::Jj),
+            #[cfg(feature = "git")]
+            Some(DiffProvider::Git),
+        ];
         Self {
-            providers: vec![
-                #[cfg(feature = "jj")]
-                DiffProvider::Jj,
-                #[cfg(feature = "git")]
-                DiffProvider::Git,
-            ]
-            .into(),
+            providers: providers.into_iter().flatten().collect(),
         }
     }
 }

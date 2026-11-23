@@ -5480,6 +5480,7 @@ dependencies = [
  "tempfile",
  "text-diff",
  "tokio",
+ "workspace",
 ]
 
 [[package]]

@@ -16,6 +16,7 @@ use std::{
 
 use anyhow::{ensure, Context, Result};
 use arc_swap::ArcSwap;
+use workspace::{trust::TrustQuery, WorkspaceTrust};
 
 use crate::{
     ChangedFileScope, Comparison, ComparisonKind, DocumentVcs, FileChange, FileStatus,
@@ -23,14 +24,16 @@ use crate::{
 };
 
 /// Root of the workspace containing `path`.
-fn workspace_root(path: &Path, trust_full: bool) -> Result<&Path> {
+fn workspace_root<'a>(path: &'a Path, trust: &WorkspaceTrust) -> Result<&'a Path> {
+    let root = path
+        .ancestors()
+        .find(|path| path.join(".jj").is_dir())
+        .context("not in a Jujutsu workspace")?;
     ensure!(
-        trust_full,
+        trust.query(root, TrustQuery::Git).is_trusted(),
         "Jujutsu repositories require a trusted workspace"
     );
-    path.ancestors()
-        .find(|path| path.join(".jj").is_dir())
-        .context("not in a Jujutsu workspace")
+    Ok(root)
 }
 
 /// Rewritten by every operation, including revision switches made outside the editor.
@@ -61,8 +64,12 @@ fn run(command: &mut Command) -> Result<Vec<u8>> {
     Ok(output.stdout)
 }
 
-pub(super) fn inspect_file(file: &Path, trust_full: bool, read_diff: bool) -> Result<DocumentVcs> {
-    let root = workspace_root(file, trust_full)?;
+pub(super) fn inspect_file(
+    file: &Path,
+    trust: &WorkspaceTrust,
+    read_diff: bool,
+) -> Result<DocumentVcs> {
+    let root = workspace_root(file, trust)?;
     Ok(DocumentVcs {
         diff_base: read_diff
             .then(|| {
@@ -77,9 +84,9 @@ pub(super) fn inspect_file(file: &Path, trust_full: bool, read_diff: bool) -> Re
     })
 }
 
-pub(super) fn repository_watches(path: &Path, trust_full: bool) -> Result<RepositoryWatches> {
+pub(super) fn repository_watches(path: &Path, trust: &WorkspaceTrust) -> Result<RepositoryWatches> {
     Ok(RepositoryWatches {
-        paths: vec![checkout_marker(workspace_root(path, trust_full)?)],
+        paths: vec![checkout_marker(workspace_root(path, trust)?)],
         files: Vec::new(),
     })
 }
@@ -148,10 +155,10 @@ fn head_name(root: &Path) -> Result<Arc<ArcSwap<Box<str>>>> {
 /// Jujutsu has no staging area: every change is reported as unstaged.
 pub(super) fn for_each_file_status(
     scope: &ChangedFileScope,
-    trust_full: bool,
+    trust: &WorkspaceTrust,
     f: impl Fn(&Path, Result<FileStatus>) -> bool,
 ) -> Result<()> {
-    let root = workspace_root(scope.path(), trust_full)?;
+    let root = workspace_root(scope.path(), trust)?;
     // Fields end with NUL, which no path contains. A conflicted file is reported once,
     // as a conflict, even when the working copy also changes it.
     let template = r#"concat(
@@ -239,14 +246,14 @@ fn diff_entry(
 pub(super) fn read_comparison(
     status: &FileStatus,
     kind: ComparisonKind,
-    trust_full: bool,
+    trust: &WorkspaceTrust,
 ) -> Result<Comparison> {
     ensure!(
         kind != ComparisonKind::Staged,
         "Jujutsu has no staging area"
     );
     let path = status.path();
-    let root = workspace_root(path, trust_full)?;
+    let root = workspace_root(path, trust)?;
     let source = match status.change() {
         FileChange::Renamed { from_path, .. } => from_path,
         change => change.path(),
@@ -301,8 +308,9 @@ mod tests {
     fn reads_bases_statuses_and_comparisons_from_a_workspace() {
         let Some(dir) = workspace() else { return };
         let root = dir.path();
+        let trust = WorkspaceTrust::fully_trusted(root.join(".jj/test-trust"));
         let path = |name: &str| root.join(name);
-        let base = |name: &str| inspect_file(&path(name), true, true).unwrap().diff_base;
+        let base = |name: &str| inspect_file(&path(name), &trust, true).unwrap().diff_base;
 
         assert_eq!(base("kept.txt").unwrap(), b"kept.txt\nbase\n");
         std::fs::write(path("kept.txt"), "changed\n").unwrap();
@@ -312,15 +320,14 @@ mod tests {
         assert_eq!(base("kept.txt").unwrap(), b"kept.txt\nbase\n");
         assert_eq!(base("sub dir's \"new\".txt").unwrap(), b"");
 
-        let vcs = inspect_file(&path("kept.txt"), true, false).unwrap();
+        let vcs = inspect_file(&path("kept.txt"), &trust, false).unwrap();
         assert!(vcs.diff_base.is_none());
         let head = vcs.head_name.unwrap().load().to_string();
         assert_eq!(head, "[topic]");
-        assert!(inspect_file(&path("kept.txt"), false, true).is_err());
 
         let statuses = std::cell::RefCell::new(Vec::new());
         let scope = ChangedFileScope::Repository(root.into());
-        for_each_file_status(&scope, true, |workspace, status| {
+        for_each_file_status(&scope, &trust, |workspace, status| {
             assert_eq!(workspace, root);
             statuses.borrow_mut().push(status.unwrap());
             true
@@ -357,7 +364,7 @@ mod tests {
                 .iter()
                 .find(|status| status.path() == path(name))
                 .unwrap();
-            let comparison = read_comparison(status, kind, true).unwrap();
+            let comparison = read_comparison(status, kind, &trust).unwrap();
             (
                 String::from_utf8(comparison.before).unwrap(),
                 String::from_utf8(comparison.after).unwrap(),
@@ -378,7 +385,7 @@ mod tests {
         );
 
         // Reading must not record operations: that would retrigger the watcher forever.
-        let watches = repository_watches(&path("kept.txt"), true).unwrap();
+        let watches = repository_watches(&path("kept.txt"), &trust).unwrap();
         assert_eq!(watches.paths, [root.join(".jj/working_copy/checkout")]);
         let marker = || std::fs::read(&watches.paths[0]).unwrap();
         let before = marker();
