@@ -70,17 +70,22 @@ pub(super) fn inspect_file(
     read_diff: bool,
 ) -> Result<DocumentVcs> {
     let root = workspace_root(file, trust)?;
-    Ok(DocumentVcs {
-        diff_base: read_diff
-            .then(|| {
-                diff_base(root, file)
-                    .inspect_err(|error| log::debug!("Diff base for {}: {error:#}", file.display()))
-                    .ok()
-            })
-            .flatten(),
-        head_name: head_name(root)
+    let diff_base = read_diff
+        .then(|| {
+            diff_base(root, file)
+                .inspect_err(|error| log::debug!("Diff base for {}: {error:#}", file.display()))
+                .ok()
+        })
+        .flatten();
+    let head_name = match head_name(root) {
+        Err(error) if diff_base.is_none() => return Err(error),
+        result => result
             .inspect_err(|error| log::debug!("Head name for {}: {error:#}", file.display()))
             .ok(),
+    };
+    Ok(DocumentVcs {
+        diff_base,
+        head_name,
     })
 }
 

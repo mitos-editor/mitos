@@ -166,3 +166,23 @@ fn jujutsu_checks_the_repository_roots_live_trust_policy() {
     trust.set_config(Config::default());
     assert!(providers.repository_watches(&nested, true).paths.is_empty());
 }
+
+#[cfg(all(feature = "git", feature = "jj"))]
+#[test]
+fn unusable_jujutsu_workspace_keeps_git_decorations() {
+    use crate::git::test::{empty_git_repo, exec_git_cmd};
+
+    let repo = empty_git_repo();
+    let path = repo.path().join("file.txt");
+    std::fs::write(&path, b"before").unwrap();
+    exec_git_cmd(&["add", "file.txt"], repo.path());
+    exec_git_cmd(&["commit", "-m", "initial"], repo.path());
+    std::fs::create_dir(repo.path().join(".jj")).unwrap();
+    std::fs::write(&path, b"after").unwrap();
+
+    let trust = workspace::WorkspaceTrust::fully_trusted(repo.path().join(".jj/test-trust"));
+    let providers = DiffProviderRegistry::with_workspace_trust(trust);
+    let decoration = providers.inspect_file(&path, true, true);
+    assert_eq!(decoration.diff_base.as_deref(), Some(b"before".as_slice()));
+    assert_eq!(&***decoration.head_name.unwrap().load(), "main");
+}
