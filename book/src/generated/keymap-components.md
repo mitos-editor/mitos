@@ -17,8 +17,6 @@
 | `` <C-d> ``, `` <pagedown> `` | `` page_down `` |
 | `` <C-u> ``, `` <pageup> `` | `` page_up `` |
 | `` <C-q> `` | `` populate_quicklist `` |
-| `` <A-right> `` | `` preview_next `` |
-| `` <A-left> `` | `` preview_previous `` |
 | `` <A-j> ``, `` <A-down> `` | `` preview_scroll_down `` |
 | `` <A-k> ``, `` <A-up> `` | `` preview_scroll_up `` |
 | `` <C-ret> ``, `` <Meta-ret> `` | `` replace_all `` |
@@ -44,8 +42,6 @@
 | `` <C-d> ``, `` <pagedown> `` | `` page_down `` |
 | `` <C-u> ``, `` <pageup> `` | `` page_up `` |
 | `` <C-q> `` | `` populate_quicklist `` |
-| `` <A-right> `` | `` preview_next `` |
-| `` <A-left> `` | `` preview_previous `` |
 | `` <A-j> ``, `` <A-down> `` | `` preview_scroll_down `` |
 | `` <A-k> ``, `` <A-up> `` | `` preview_scroll_up `` |
 | `` <C-ret> ``, `` <Meta-ret> `` | `` replace_all `` |
@@ -71,8 +67,6 @@
 | `` <C-d> ``, `` <pagedown> `` | `` page_down `` |
 | `` <C-u> ``, `` <pageup> `` | `` page_up `` |
 | `` <C-q> `` | `` populate_quicklist `` |
-| `` <A-right> `` | `` preview_next `` |
-| `` <A-left> `` | `` preview_previous `` |
 | `` <A-j> ``, `` <A-down> `` | `` preview_scroll_down `` |
 | `` <A-k> ``, `` <A-up> `` | `` preview_scroll_up `` |
 | `` <C-x> `` | `` remove_entry `` |
@@ -100,8 +94,8 @@
 | `` <C-d> ``, `` <pagedown> `` | `` page_down `` |
 | `` <C-u> ``, `` <pageup> `` | `` page_up `` |
 | `` <C-q> `` | `` populate_quicklist `` |
-| `` <A-n> ``, `` <A-right> `` | `` preview_next `` |
-| `` <A-p> ``, `` <A-left> `` | `` preview_previous `` |
+| `` <A-n> `` | `` preview_next `` |
+| `` <A-p> `` | `` preview_previous `` |
 | `` <A-j> ``, `` <A-down> `` | `` preview_scroll_down `` |
 | `` <A-k> ``, `` <A-up> `` | `` preview_scroll_up `` |
 | `` <C-ret> ``, `` <Meta-ret> `` | `` replace_all `` |
@@ -133,8 +127,6 @@
 | `` <C-d> ``, `` <pagedown> `` | `` page_down `` |
 | `` <C-u> ``, `` <pageup> `` | `` page_up `` |
 | `` <C-q> `` | `` populate_quicklist `` |
-| `` <A-right> `` | `` preview_next `` |
-| `` <A-left> `` | `` preview_previous `` |
 | `` <A-j> ``, `` <A-down> `` | `` preview_scroll_down `` |
 | `` <A-k> ``, `` <A-up> `` | `` preview_scroll_up `` |
 | `` <C-ret> ``, `` <Meta-ret> `` | `` replace_all `` |
@@ -161,8 +153,6 @@
 | `` <C-d> ``, `` <pagedown> `` | `` page_down `` |
 | `` <C-u> ``, `` <pageup> `` | `` page_up `` |
 | `` <C-q> `` | `` populate_quicklist `` |
-| `` <A-right> `` | `` preview_next `` |
-| `` <A-left> `` | `` preview_previous `` |
 | `` <A-j> ``, `` <A-down> `` | `` preview_scroll_down `` |
 | `` <A-k> ``, `` <A-up> `` | `` preview_scroll_up `` |
 | `` <A-d> `` | `` remove_worktree `` |
@@ -192,8 +182,6 @@
 | `` <C-d> ``, `` <pagedown> `` | `` page_down `` |
 | `` <C-u> ``, `` <pageup> `` | `` page_up `` |
 | `` <C-q> `` | `` populate_quicklist `` |
-| `` <A-right> `` | `` preview_next `` |
-| `` <A-left> `` | `` preview_previous `` |
 | `` <A-j> ``, `` <A-down> `` | `` preview_scroll_down `` |
 | `` <A-k> ``, `` <A-up> `` | `` preview_scroll_up `` |
 | `` <C-ret> ``, `` <Meta-ret> `` | `` replace_all `` |
@@ -221,8 +209,6 @@
 | `` <C-d> ``, `` <pagedown> `` | `` page_down `` |
 | `` <C-u> ``, `` <pageup> `` | `` page_up `` |
 | `` <C-q> `` | `` populate_quicklist `` |
-| `` <A-right> `` | `` preview_next `` |
-| `` <A-left> `` | `` preview_previous `` |
 | `` <A-j> ``, `` <A-down> `` | `` preview_scroll_down `` |
 | `` <A-k> ``, `` <A-up> `` | `` preview_scroll_up `` |
 | `` <C-ret> ``, `` <Meta-ret> `` | `` replace_all `` |
@@ -252,8 +238,6 @@
 | `` <C-d> ``, `` <pagedown> `` | `` page_down `` |
 | `` <C-u> ``, `` <pageup> `` | `` page_up `` |
 | `` <C-q> `` | `` populate_quicklist `` |
-| `` <A-right> `` | `` preview_next `` |
-| `` <A-left> `` | `` preview_previous `` |
 | `` <A-j> ``, `` <A-down> `` | `` preview_scroll_down `` |
 | `` <A-k> ``, `` <A-up> `` | `` preview_scroll_up `` |
 | `` <C-ret> ``, `` <Meta-ret> `` | `` replace_all `` |
@@ -291,8 +275,6 @@
 | `` <C-d> ``, `` <pagedown> `` | `` page_down `` |
 | `` <C-u> ``, `` <pageup> `` | `` page_up `` |
 | `` <C-q> `` | `` populate_quicklist `` |
-| `` <A-right> `` | `` preview_next `` |
-| `` <A-left> `` | `` preview_previous `` |
 | `` <A-j> ``, `` <A-down> `` | `` preview_scroll_down `` |
 | `` <A-k> ``, `` <A-up> `` | `` preview_scroll_up `` |
 | `` <C-w>W `` | `` previous_view `` |
@@ -325,8 +307,6 @@
 | `` <C-d> ``, `` <pagedown> `` | `` page_down `` |
 | `` <C-u> ``, `` <pageup> `` | `` page_up `` |
 | `` <C-q> `` | `` populate_quicklist `` |
-| `` <A-right> `` | `` preview_next `` |
-| `` <A-left> `` | `` preview_previous `` |
 | `` <A-j> ``, `` <A-down> `` | `` preview_scroll_down `` |
 | `` <A-k> ``, `` <A-up> `` | `` preview_scroll_up `` |
 | `` <C-ret> ``, `` <Meta-ret> `` | `` replace_all `` |
@@ -346,7 +326,7 @@
 | `` <C-h> ``, `` <backspace> ``, `` <S-backspace> `` | `` delete_backward `` |
 | `` <C-d> ``, `` <del> `` | `` delete_forward `` |
 | `` <C-k> `` | `` delete_to_end `` |
-| `` <C-u> `` | `` delete_to_start `` |
+| `` <C-u> ``, `` <Meta-backspace> `` | `` delete_to_start `` |
 | `` <C-w> ``, `` <A-backspace> ``, `` <C-backspace> `` | `` delete_word_backward `` |
 | `` <A-d> ``, `` <A-del> ``, `` <C-del> `` | `` delete_word_forward `` |
 | `` <C-q> `` | `` exit_selection `` |
@@ -354,11 +334,12 @@
 | `` <up> ``, `` <C-p> `` | `` history_previous `` |
 | `` <C-r> `` | `` insert_register `` |
 | `` <C-s> `` | `` insert_word `` |
-| `` <C-e> ``, `` <end> `` | `` move_end `` |
+| `` <C-e> ``, `` <end> ``, `` <C-end> ``, `` <Meta-right> `` | `` move_end `` |
 | `` <C-b> ``, `` <left> `` | `` move_left `` |
 | `` <C-f> ``, `` <right> `` | `` move_right `` |
-| `` <C-a> ``, `` <home> `` | `` move_start `` |
-| `` <A-b> ``, `` <C-left> `` | `` move_word_left `` |
+| `` <C-a> ``, `` <home> ``, `` <C-home> ``, `` <Meta-left> `` | `` move_start `` |
+| `` <A-right> `` | `` move_word_end `` |
+| `` <A-b> ``, `` <A-left> ``, `` <C-left> `` | `` move_word_left `` |
 | `` <A-f> ``, `` <C-right> `` | `` move_word_right `` |
 | `` <A-r> `` | `` toggle_search_syntax `` |
 
