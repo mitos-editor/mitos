@@ -109,9 +109,9 @@
   },
   "c-sharp": {
     "git": "https://github.com/tree-sitter/tree-sitter-c-sharp",
-    "rev": "8c0abe0b84a3681d3e6852ce2e2a1eecb4f731c5",
-    "url": "https://github.com/tree-sitter/tree-sitter-c-sharp/archive/8c0abe0b84a3681d3e6852ce2e2a1eecb4f731c5.tar.gz",
-    "hash": "sha256-7LwDmmpFG/FNUxy+8AKPxiJNr/7aMlx5Fz4iPgCAXnE="
+    "rev": "e3971fcb53bf5573a7e0d4ff6db46d2a77a4bf71",
+    "url": "https://github.com/tree-sitter/tree-sitter-c-sharp/archive/e3971fcb53bf5573a7e0d4ff6db46d2a77a4bf71.tar.gz",
+    "hash": "sha256-gUJPZYwi6hBQ2NM0EmseqidvlKjegTyM5FfjGOmEzn0="
   },
   "c3": {
     "git": "https://github.com/c3lang/tree-sitter-c3",
@@ -121,9 +121,9 @@
   },
   "caddyfile": {
     "git": "https://github.com/caddyserver/tree-sitter-caddyfile",
-    "rev": "0be921fae0bcf9b163645899db0db730afae8aee",
-    "url": "https://github.com/caddyserver/tree-sitter-caddyfile/archive/0be921fae0bcf9b163645899db0db730afae8aee.tar.gz",
-    "hash": "sha256-XAAo+TReOa9hItG7j2W3f/cHqGRh2CNF5rwzpOrG7u4="
+    "rev": "d3028c25872c8fbe90ae5949245034e6d8545ad7",
+    "url": "https://github.com/caddyserver/tree-sitter-caddyfile/archive/d3028c25872c8fbe90ae5949245034e6d8545ad7.tar.gz",
+    "hash": "sha256-MAAlaSMMiZciYWorWo6QssPVf1bnVPTjEB8Bg79e/r8="
   },
   "cairo": {
     "git": "https://github.com/starkware-libs/tree-sitter-cairo",
@@ -163,9 +163,9 @@
   },
   "clojure": {
     "git": "https://github.com/sogaiu/tree-sitter-clojure",
-    "rev": "e43eff80d17cf34852dcd92ca5e6986d23a7040f",
-    "url": "https://github.com/sogaiu/tree-sitter-clojure/archive/e43eff80d17cf34852dcd92ca5e6986d23a7040f.tar.gz",
-    "hash": "sha256-Ya2VEHNZCOamWIs6iaWvVlnYk5LitIZjl3tfoC6mRSI="
+    "rev": "56a4c9de7940d18bad086cce0815544e0ac2b7f6",
+    "url": "https://github.com/sogaiu/tree-sitter-clojure/archive/56a4c9de7940d18bad086cce0815544e0ac2b7f6.tar.gz",
+    "hash": "sha256-8iqRB3u7bbzpa1YE6KQJxMuvw7OrBjqKF61Xx0AVB5Y="
   },
   "cmake": {
     "git": "https://github.com/uyha/tree-sitter-cmake",
@@ -457,9 +457,9 @@
   },
   "fsharp": {
     "git": "https://github.com/ionide/tree-sitter-fsharp",
-    "rev": "aefd0c8741bdf3aeb827a228aa4a996a6536697e",
-    "url": "https://github.com/ionide/tree-sitter-fsharp/archive/aefd0c8741bdf3aeb827a228aa4a996a6536697e.tar.gz",
-    "hash": "sha256-XECxJunEZBrId10s2dOQUD/T7BMHUxQSFDlp8mOw8K0="
+    "rev": "a19412828aec9150b8696cb6597396092b36336e",
+    "url": "https://github.com/ionide/tree-sitter-fsharp/archive/a19412828aec9150b8696cb6597396092b36336e.tar.gz",
+    "hash": "sha256-t7otMqiKLSgO03wq4zbsYELsxW2H0bndls/mlPdtbII="
   },
   "gas": {
     "git": "https://github.com/sirius94/tree-sitter-gas",
@@ -883,9 +883,9 @@
   },
   "lean": {
     "git": "https://github.com/Julian/tree-sitter-lean",
-    "rev": "0d28e5d6e8c4755f5df7ef9bde3b6ec6f59fae94",
-    "url": "https://github.com/Julian/tree-sitter-lean/archive/0d28e5d6e8c4755f5df7ef9bde3b6ec6f59fae94.tar.gz",
-    "hash": "sha256-O2yirpBeWR89/7T6Vvk+X8cLHs49HsZdSQ7vlnM7AvI="
+    "rev": "fefc2eff9a83eeb72cda44646709e40e33e09175",
+    "url": "https://github.com/Julian/tree-sitter-lean/archive/fefc2eff9a83eeb72cda44646709e40e33e09175.tar.gz",
+    "hash": "sha256-LAKWrCwguQIBuc5CaLZF8tDHKZFGdisgRe6FyMvwagY="
   },
   "ledger": {
     "git": "https://github.com/cbarrete/tree-sitter-ledger",
@@ -979,9 +979,9 @@
   },
   "matlab": {
     "git": "https://github.com/acristoffers/tree-sitter-matlab",
-    "rev": "ff2f83da49bb06128c4cfd055e7c95c05c77cded",
-    "url": "https://github.com/acristoffers/tree-sitter-matlab/archive/ff2f83da49bb06128c4cfd055e7c95c05c77cded.tar.gz",
-    "hash": "sha256-BDlxfGEWst7zEOtRtJJDJQ3ZVATEyT60yDr9w2ODY+c="
+    "rev": "1bdb8cf5e73620892a199f659ceb9c06d02e4b2f",
+    "url": "https://github.com/acristoffers/tree-sitter-matlab/archive/1bdb8cf5e73620892a199f659ceb9c06d02e4b2f.tar.gz",
+    "hash": "sha256-BJUgN7vMBmAwcQ9q2ezArNJYemxeDZpuUAPnILW5h8E="
   },
   "mermaid": {
     "git": "https://github.com/monaqa/tree-sitter-mermaid",
@@ -1003,15 +1003,15 @@
   },
   "mojo": {
     "git": "https://github.com/lsh/tree-sitter-mojo",
-    "rev": "e5905c480b9ebbeb4195032805781a5e535547f7",
-    "url": "https://github.com/lsh/tree-sitter-mojo/archive/e5905c480b9ebbeb4195032805781a5e535547f7.tar.gz",
-    "hash": "sha256-ZNRJS77YfD4Z3oilj6KWtIK0vMXb5wYhHbsAFQ1tC54="
+    "rev": "25d997674f83f082a0e39e67396e8a72a5388115",
+    "url": "https://github.com/lsh/tree-sitter-mojo/archive/25d997674f83f082a0e39e67396e8a72a5388115.tar.gz",
+    "hash": "sha256-nEEUnGMsZCqx8Ka3NMGf1IR4PXaUtaW2pwSpl2RxYIo="
   },
   "moonbit": {
     "git": "https://github.com/moonbitlang/tree-sitter-moonbit",
-    "rev": "5435c307c6cf2ef0d508a99047b06f35a4308444",
-    "url": "https://github.com/moonbitlang/tree-sitter-moonbit/archive/5435c307c6cf2ef0d508a99047b06f35a4308444.tar.gz",
-    "hash": "sha256-KwsYihe8uCsqn+Hn+IsE9sN2P+rSHnPw9DtRi33ZHmQ="
+    "rev": "dd8c9ebab659cf5cd039342704e42aca88b2b34a",
+    "url": "https://github.com/moonbitlang/tree-sitter-moonbit/archive/dd8c9ebab659cf5cd039342704e42aca88b2b34a.tar.gz",
+    "hash": "sha256-UCmCjl5htH+ucSCcKPRCK3/ilZVtGFl2Hu8vSdRZWvE="
   },
   "move": {
     "git": "https://github.com/tzakian/tree-sitter-move",
@@ -1111,9 +1111,9 @@
   },
   "pascal": {
     "git": "https://github.com/Isopod/tree-sitter-pascal",
-    "rev": "042119eca2e18a60e56317fb06ee3ba5c32cb447",
-    "url": "https://github.com/Isopod/tree-sitter-pascal/archive/042119eca2e18a60e56317fb06ee3ba5c32cb447.tar.gz",
-    "hash": "sha256-WjRSlwTp4ImTDSeNhnnINx8+4oh5sguN2gtdQLn1OCA="
+    "rev": "3a274dce7346b7d5e3238ff7450e0a45c0701d78",
+    "url": "https://github.com/Isopod/tree-sitter-pascal/archive/3a274dce7346b7d5e3238ff7450e0a45c0701d78.tar.gz",
+    "hash": "sha256-xf/r55gthASEPxXngQZ3upZk8CkTqdsGCagfdJmrx6Y="
   },
   "passwd": {
     "git": "https://github.com/ath3/tree-sitter-passwd",
@@ -1147,15 +1147,15 @@
   },
   "php": {
     "git": "https://github.com/tree-sitter/tree-sitter-php",
-    "rev": "58d5643086ae60e93a3746cca648363ee97c8761",
-    "url": "https://github.com/tree-sitter/tree-sitter-php/archive/58d5643086ae60e93a3746cca648363ee97c8761.tar.gz",
-    "hash": "sha256-E5cBsYVpG2+C2B72OH3lz+I7eDOnX6HuypuAQWqlgDk="
+    "rev": "c1e13490bd656b8869cd47e6f74997ed46750a08",
+    "url": "https://github.com/tree-sitter/tree-sitter-php/archive/c1e13490bd656b8869cd47e6f74997ed46750a08.tar.gz",
+    "hash": "sha256-hqwgMIunddl3SUuVRqdPmRoYIfEJRmQ+/IIHArsjE9M="
   },
   "php-only": {
     "git": "https://github.com/tree-sitter/tree-sitter-php",
-    "rev": "58d5643086ae60e93a3746cca648363ee97c8761",
-    "url": "https://github.com/tree-sitter/tree-sitter-php/archive/58d5643086ae60e93a3746cca648363ee97c8761.tar.gz",
-    "hash": "sha256-E5cBsYVpG2+C2B72OH3lz+I7eDOnX6HuypuAQWqlgDk="
+    "rev": "c1e13490bd656b8869cd47e6f74997ed46750a08",
+    "url": "https://github.com/tree-sitter/tree-sitter-php/archive/c1e13490bd656b8869cd47e6f74997ed46750a08.tar.gz",
+    "hash": "sha256-hqwgMIunddl3SUuVRqdPmRoYIfEJRmQ+/IIHArsjE9M="
   },
   "picat": {
     "git": "https://github.com/dlr-ft/tree-sitter-picat",
@@ -1375,9 +1375,9 @@
   },
   "scala": {
     "git": "https://github.com/tree-sitter/tree-sitter-scala",
-    "rev": "91cdff7829b1e49567379aa0c2200cf2366faed1",
-    "url": "https://github.com/tree-sitter/tree-sitter-scala/archive/91cdff7829b1e49567379aa0c2200cf2366faed1.tar.gz",
-    "hash": "sha256-WNjJtR5ei+0kGiL7Imki/ga3pRve7NqK/C/LzTm1I2A="
+    "rev": "0ffd19a382217047ff3bd9aa3b09cc26e1ed9ce0",
+    "url": "https://github.com/tree-sitter/tree-sitter-scala/archive/0ffd19a382217047ff3bd9aa3b09cc26e1ed9ce0.tar.gz",
+    "hash": "sha256-IdOZdeow+wYs+lPFmSbhsY1z/oKpXc5+Vc4vvmnz2MU="
   },
   "scfg": {
     "git": "https://github.com/rockorager/tree-sitter-scfg",
@@ -1483,9 +1483,9 @@
   },
   "ssh_client_config": {
     "git": "https://github.com/metio/tree-sitter-ssh-client-config",
-    "rev": "23c00eb36c3658b428433a1d1139fb120d0539ac",
-    "url": "https://github.com/metio/tree-sitter-ssh-client-config/archive/23c00eb36c3658b428433a1d1139fb120d0539ac.tar.gz",
-    "hash": "sha256-h96WjNlZYbG/5H5+GJ22lKvEkClK0/cyujdHPPUNUWM="
+    "rev": "4f2a11d286a9b1e963a1ef50cdd405dcef06afff",
+    "url": "https://github.com/metio/tree-sitter-ssh-client-config/archive/4f2a11d286a9b1e963a1ef50cdd405dcef06afff.tar.gz",
+    "hash": "sha256-4tbeK29IRH9/BvKWtRZh5Sf2mzVMO9LkMSZanh2ZYAk="
   },
   "strace": {
     "git": "https://github.com/sigmaSd/tree-sitter-strace",
@@ -1537,9 +1537,9 @@
   },
   "systemverilog": {
     "git": "https://github.com/gmlarumbe/tree-sitter-systemverilog",
-    "rev": "73d7620ffdc467aab3c2089be9be5cbbc1be2eaa",
-    "url": "https://github.com/gmlarumbe/tree-sitter-systemverilog/archive/73d7620ffdc467aab3c2089be9be5cbbc1be2eaa.tar.gz",
-    "hash": "sha256-1aEMosljSpAysrVm9Kdzsv3gsBB/psIgcz0Igd2PsOs="
+    "rev": "ad3921ba232ba50cf95935bf07554b63b39a1e39",
+    "url": "https://github.com/gmlarumbe/tree-sitter-systemverilog/archive/ad3921ba232ba50cf95935bf07554b63b39a1e39.tar.gz",
+    "hash": "sha256-3137v/V8frWCnj6UBKF3JbD18/5qIxMGYO35fbAnmOo="
   },
   "t32": {
     "git": "https://gitlab.com/xasc/tree-sitter-t32",
@@ -1687,9 +1687,9 @@
   },
   "vala": {
     "git": "https://github.com/vala-lang/tree-sitter-vala",
-    "rev": "97e6db3c8c73b15a9541a458d8e797a07f588ef4",
-    "url": "https://github.com/vala-lang/tree-sitter-vala/archive/97e6db3c8c73b15a9541a458d8e797a07f588ef4.tar.gz",
-    "hash": "sha256-pTA3pii0zyQhtAJlgkvbCzgsgVQmCW0tB8tnGLpcCaA="
+    "rev": "dff1b1cf0c80ce625902b90359dbd50be6bfdbde",
+    "url": "https://github.com/vala-lang/tree-sitter-vala/archive/dff1b1cf0c80ce625902b90359dbd50be6bfdbde.tar.gz",
+    "hash": "sha256-nDuPuSy/siT6V5T0OCvQflD7Jxd+F8kslBX8HbwrN8Y="
   },
   "varlink": {
     "git": "https://github.com/bachorp/tree-sitter-varlink",

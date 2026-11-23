@@ -638,7 +638,7 @@ formatter = { command = "pixi", args = ["run", "mojo" , "format", "-q", "-"]}
 
 [[grammar]]
 name = "mojo"
-source = { git = "https://github.com/lsh/tree-sitter-mojo", rev = "e5905c480b9ebbeb4195032805781a5e535547f7" }
+source = { git = "https://github.com/lsh/tree-sitter-mojo", rev = "25d997674f83f082a0e39e67396e8a72a5388115" }
 
 [[language]]
 name = "janet"
@@ -893,7 +893,7 @@ args = { processId = "{0}" }
 
 [[grammar]]
 name = "c-sharp"
-source = { git = "https://github.com/tree-sitter/tree-sitter-c-sharp", rev = "8c0abe0b84a3681d3e6852ce2e2a1eecb4f731c5" }
+source = { git = "https://github.com/tree-sitter/tree-sitter-c-sharp", rev = "e3971fcb53bf5573a7e0d4ff6db46d2a77a4bf71" }
 
 [[language]]
 name = "c3"
@@ -1467,7 +1467,7 @@ indent = { tab-width = 4, unit = "    " }
 
 [[grammar]]
 name = "php"
-source = { git = "https://github.com/tree-sitter/tree-sitter-php", rev = "58d5643086ae60e93a3746cca648363ee97c8761", subpath = "php" }
+source = { git = "https://github.com/tree-sitter/tree-sitter-php", rev = "c1e13490bd656b8869cd47e6f74997ed46750a08", subpath = "php" }
 
 [[language]]
 name = "php-only"
@@ -1479,7 +1479,7 @@ roots = ["composer.json", "index.php"]
 
 [[grammar]]
 name = "php-only"
-source = { git = "https://github.com/tree-sitter/tree-sitter-php", rev = "58d5643086ae60e93a3746cca648363ee97c8761", subpath = "php_only" }
+source = { git = "https://github.com/tree-sitter/tree-sitter-php", rev = "c1e13490bd656b8869cd47e6f74997ed46750a08", subpath = "php_only" }
 
 [[language]]
 name = "blade"
@@ -1567,7 +1567,7 @@ text-width = 100
 
 [[grammar]]
 name = "lean"
-source = { git = "https://github.com/Julian/tree-sitter-lean", rev = "0d28e5d6e8c4755f5df7ef9bde3b6ec6f59fae94" }
+source = { git = "https://github.com/Julian/tree-sitter-lean", rev = "fefc2eff9a83eeb72cda44646709e40e33e09175" }
 
 [[language]]
 name = "lpf"
@@ -2315,7 +2315,7 @@ language-servers = [ "metals" ]
 
 [[grammar]]
 name = "scala"
-source = { git = "https://github.com/tree-sitter/tree-sitter-scala", rev = "91cdff7829b1e49567379aa0c2200cf2366faed1" }
+source = { git = "https://github.com/tree-sitter/tree-sitter-scala", rev = "0ffd19a382217047ff3bd9aa3b09cc26e1ed9ce0" }
 
 [[language]]
 name = "dockerfile"
@@ -2839,7 +2839,7 @@ language-servers = [ "vala-language-server" ]
 
 [[grammar]]
 name = "vala"
-source = { git = "https://github.com/vala-lang/tree-sitter-vala", rev = "97e6db3c8c73b15a9541a458d8e797a07f588ef4" }
+source = { git = "https://github.com/vala-lang/tree-sitter-vala", rev = "dff1b1cf0c80ce625902b90359dbd50be6bfdbde" }
 
 [[language]]
 name = "hare"
@@ -2959,7 +2959,7 @@ comment-token = "#"
 
 [[grammar]]
 name = "ssh_client_config"
-source = { git = "https://github.com/metio/tree-sitter-ssh-client-config", rev = "23c00eb36c3658b428433a1d1139fb120d0539ac" }
+source = { git = "https://github.com/metio/tree-sitter-ssh-client-config", rev = "4f2a11d286a9b1e963a1ef50cdd405dcef06afff" }
 
 [[language]]
 name = "scheme"
@@ -3022,7 +3022,7 @@ language-servers = ["svlangserver", "verible-verilog-ls"]
 
 [[grammar]]
 name = "systemverilog"
-source = { git = "https://github.com/gmlarumbe/tree-sitter-systemverilog", rev = "73d7620ffdc467aab3c2089be9be5cbbc1be2eaa" }
+source = { git = "https://github.com/gmlarumbe/tree-sitter-systemverilog", rev = "ad3921ba232ba50cf95935bf07554b63b39a1e39" }
 
 [[language]]
 name = "edoc"
@@ -3090,7 +3090,7 @@ formatter = { command = "cljfmt", args = ["fix", "-"] }
 
 [[grammar]]
 name = "clojure"
-source = { git = "https://github.com/sogaiu/tree-sitter-clojure", rev = "e43eff80d17cf34852dcd92ca5e6986d23a7040f" }
+source = { git = "https://github.com/sogaiu/tree-sitter-clojure", rev = "56a4c9de7940d18bad086cce0815544e0ac2b7f6" }
 
 [[language]]
 name = "starlark"
@@ -3270,7 +3270,7 @@ language-servers = [ "pasls" ]
 
 [[grammar]]
 name = "pascal"
-source = { git = "https://github.com/Isopod/tree-sitter-pascal", rev = "042119eca2e18a60e56317fb06ee3ba5c32cb447" }
+source = { git = "https://github.com/Isopod/tree-sitter-pascal", rev = "3a274dce7346b7d5e3238ff7450e0a45c0701d78" }
 
 [[language]]
 name = "sml"
@@ -3727,7 +3727,7 @@ language-servers = ["matlab-language-server"]
 
 [[grammar]]
 name = "matlab"
-source = { git = "https://github.com/acristoffers/tree-sitter-matlab", rev = "ff2f83da49bb06128c4cfd055e7c95c05c77cded" }
+source = { git = "https://github.com/acristoffers/tree-sitter-matlab", rev = "1bdb8cf5e73620892a199f659ceb9c06d02e4b2f" }
 
 [[language]]
 name = "ponylang"
@@ -4110,7 +4110,7 @@ language-servers = ["fsharp-ls"]
 
 [[grammar]]
 name = "fsharp"
-source = { git = "https://github.com/ionide/tree-sitter-fsharp", rev = "aefd0c8741bdf3aeb827a228aa4a996a6536697e", subpath = "fsharp" }
+source = { git = "https://github.com/ionide/tree-sitter-fsharp", rev = "a19412828aec9150b8696cb6597396092b36336e", subpath = "fsharp" }
 
 [[language]]
 name = "t32"
@@ -5285,7 +5285,7 @@ auto-format = true
 
 [[grammar]]
 name = "caddyfile"
-source = { git = "https://github.com/caddyserver/tree-sitter-caddyfile", rev = "0be921fae0bcf9b163645899db0db730afae8aee" }
+source = { git = "https://github.com/caddyserver/tree-sitter-caddyfile", rev = "d3028c25872c8fbe90ae5949245034e6d8545ad7" }
 
 [[language]]
 name = "properties"
@@ -5751,7 +5751,7 @@ auto-format = true
 
 [[grammar]]
 name = "moonbit"
-source = { git = "https://github.com/moonbitlang/tree-sitter-moonbit", rev = "5435c307c6cf2ef0d508a99047b06f35a4308444" }
+source = { git = "https://github.com/moonbitlang/tree-sitter-moonbit", rev = "dd8c9ebab659cf5cd039342704e42aca88b2b34a" }
 
 [[language]]
 name = "concerto"
