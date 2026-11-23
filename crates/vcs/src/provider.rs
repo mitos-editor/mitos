@@ -73,7 +73,7 @@ impl DiffProvider {
             #[cfg(feature = "git")]
             Self::Git => crate::git::for_each_file_status(_scope, _trust_full, _f),
             #[cfg(feature = "jj")]
-            Self::Jj(ref trust) => crate::jj::for_each_file_status(_scope, trust, _f),
+            Self::Jj(_) => anyhow::bail!("Changed-file enumeration requires Git"),
             #[cfg(test)]
             Self::Test(name) => {
                 let name = test_name(name)?;
@@ -99,12 +99,32 @@ impl DiffProvider {
         _status: &FileStatus,
         _kind: ComparisonKind,
         _trust_full: bool,
+        _fresh_status: bool,
     ) -> Result<Comparison> {
         match *self {
             #[cfg(feature = "git")]
-            Self::Git => crate::review::read_git_comparison(_status, _kind, _trust_full),
+            Self::Git => {
+                let status = if _fresh_status {
+                    self.file_status(_status.path(), _trust_full)?
+                        .unwrap_or_else(|| FileStatus {
+                            staged: None,
+                            unstaged: Some(crate::FileChange::Modified {
+                                path: _status.path().into(),
+                            }),
+                        })
+                } else {
+                    return crate::review::read_git_comparison(_status, _kind, _trust_full);
+                };
+                crate::review::read_git_comparison(&status, _kind, _trust_full)
+            }
             #[cfg(feature = "jj")]
-            Self::Jj(ref trust) => crate::jj::read_comparison(_status, _kind, trust),
+            Self::Jj(ref trust) => {
+                anyhow::ensure!(
+                    matches!(_status.change(), crate::FileChange::Modified { .. }),
+                    "Jujutsu supports direct file comparisons"
+                );
+                crate::jj::read_comparison(_status.path(), _kind, trust)
+            }
             #[cfg(test)]
             Self::Test(name) => Ok(Comparison {
                 before: test_name(name)?.as_bytes().to_vec(),

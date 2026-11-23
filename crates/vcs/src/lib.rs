@@ -7,10 +7,8 @@
 //! decoration. Changed-file enumeration reports a terminal error through its
 //! callback when no provider can serve the query.
 //!
-//! Jujutsu is tried before Git so that it serves colocated repositories. The
-//! `trust_full` argument on registry operations controls whether repository-local
-//! configuration and the features it enables may be trusted; preserve it when
-//! adding new entry points.
+//! Jujutsu supplies the working-copy parent for file diffs. Git supplies the
+//! branch name and index-based operations. Each provider applies its trust policy.
 
 use anyhow::{anyhow, Result};
 use arc_swap::ArcSwap;
@@ -70,8 +68,8 @@ impl ChangedFileScope {
 
 /// Ordered access to the VCS providers compiled into this editor.
 ///
-/// Watch inputs are combined across providers. Other queries use the first
-/// provider that succeeds, including a successful empty status listing.
+/// File decorations and watches can use multiple providers. Each comparison or
+/// status listing uses the first provider that can serve it.
 #[derive(Clone)]
 pub struct DiffProviderRegistry {
     providers: Arc<[DiffProvider]>,
@@ -133,20 +131,26 @@ fn collect_repository_watches<'a>(
 }
 
 impl DiffProviderRegistry {
-    /// Read one provider's independent decorations with one discovery and current trust/configuration.
+    /// Read the available diff base and branch name using current trust and configuration.
     /// Binary documents skip blob reads and worktree filters.
     pub fn inspect_file(&self, file: &Path, trust_full: bool, read_diff: bool) -> DocumentVcs {
-        self.providers
-            .iter()
-            .find_map(|provider| {
-                provider
-                    .inspect_file(file, trust_full, read_diff)
-                    .inspect_err(|error| {
-                        log::debug!("VCS inspection for {}: {error:#}", file.display())
-                    })
-                    .ok()
-            })
-            .unwrap_or_default()
+        let mut decoration = DocumentVcs::default();
+        for provider in self.providers.iter() {
+            let needs_diff = read_diff && decoration.diff_base.is_none();
+            match provider.inspect_file(file, trust_full, needs_diff) {
+                Ok(vcs) => {
+                    decoration.diff_base = decoration.diff_base.or(vcs.diff_base);
+                    decoration.head_name = decoration.head_name.or(vcs.head_name);
+                    if decoration.head_name.is_some()
+                        && (!read_diff || decoration.diff_base.is_some())
+                    {
+                        break;
+                    }
+                }
+                Err(error) => log::debug!("VCS inspection for {}: {error:#}", file.display()),
+            }
+        }
+        decoration
     }
 
     /// Collect every provider's watch inputs, sharing discovery within each provider.
@@ -195,7 +199,17 @@ impl DiffProviderRegistry {
         kind: ComparisonKind,
         trust_full: bool,
     ) -> Result<Comparison> {
-        self.query(|provider| provider.read_comparison(status, kind, trust_full))
+        self.query(|provider| provider.read_comparison(status, kind, trust_full, false))
+    }
+
+    /// Refresh status within the provider that serves the comparison.
+    pub fn read_current_comparison(
+        &self,
+        status: &FileStatus,
+        kind: ComparisonKind,
+        trust_full: bool,
+    ) -> Result<Comparison> {
+        self.query(|provider| provider.read_comparison(status, kind, trust_full, true))
     }
 
     /// Resolve current staged/unstaged paths, including rename chains, on a blocking worker.

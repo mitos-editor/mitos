@@ -88,11 +88,9 @@ filter programs are ignored until you trust the workspace.
 
 ### Jujutsu
 
-Jujutsu has no equivalent restricted mode: its repository configuration can name
-external programs, and Mitos cannot ask `jj` to ignore them. Jujutsu workspaces
-are therefore only read once you trust the workspace. Until then, a workspace
-that is also a Git repository is read as a Git repository, and any other
-Jujutsu workspace shows no change markers, status line revision, or changed files.
+Mitos runs `jj` only after you trust the Jujutsu workspace root. The executable
+loads Jujutsu configuration, which can enable external programs. A colocated
+Git repository still provides change markers in restricted mode.
 
 ## Storage
 

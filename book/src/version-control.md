@@ -8,9 +8,8 @@ For a walkthrough from an edit to a staged change, start with
 Version-control commands use the `vcs_` prefix in keybindings and `vcs-` in command mode.
 Commands that open pickers use the `_picker` suffix in keybindings.
 
-Git is the main provider. In a [Jujutsu](https://jj-vcs.dev) workspace, change
-markers, the status line, changed files, and change review compare against the
-parents of the working-copy commit instead; see [Jujutsu](#jujutsu).
+Git provides the full set of version-control commands.
+[Jujutsu](#jujutsu) also supports per-file diffs.
 
 | Key or command | Action |
 | --- | --- |
@@ -538,19 +537,11 @@ yourself.
 
 ## Jujutsu
 
-Mitos reads Jujutsu workspaces by running the `jj` executable from your `PATH`,
-so any storage backend your `jj` supports works. In a workspace that is also a
-Git repository, Jujutsu takes precedence.
+Mitos uses `jj` from your `PATH` to read the parent of the working-copy commit.
+In a [trusted workspace](./workspace-trust.md#jujutsu) with a single parent,
+gutter markers, `:vcs-diff head` (the default), and `:vcs-show-change` compare
+the current file with that parent. Markers refresh when another `jj` command
+changes the working-copy commit.
 
-- Change markers and `:vcs-diff` compare a file with the parents of the
-  working-copy commit, merged when there are several.
-- The status line shows the title of the working-copy commit, or else its bookmarks.
-  For an undescribed commit without bookmarks it shows, in brackets, the bookmarks
-  or title of its parent, or the number of parents it merges.
-- `:vcs-changes` lists the files changed by the working-copy commit. Jujutsu has
-  no staging area, so every change is unstaged and new files appear as untracked.
-- Markers refresh when another `jj` command changes the working-copy commit.
-
-Jujutsu support requires a [trusted workspace](./workspace-trust.md#jujutsu).
-Staging, stashes, branches, history, and blame remain Git commands: they work in
-a workspace that is also a Git repository and operate on the Git repository directly.
+Changed-file browsing, staging, stashes, branches, history, and blame use Git
+in colocated workspaces.

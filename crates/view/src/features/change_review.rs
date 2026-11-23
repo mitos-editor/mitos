@@ -327,21 +327,13 @@ impl ReviewRequest {
                 ComparisonKind::HeadToWorktree
             }
         };
-        let status = if self.fresh_status {
+        let comparison = if self.fresh_status {
             self.providers
-                .file_status(self.status.path(), self.trust_full)?
-                .unwrap_or_else(|| FileStatus {
-                    staged: None,
-                    unstaged: Some(vcs::FileChange::Modified {
-                        path: self.status.path().to_owned(),
-                    }),
-                })
+                .read_current_comparison(&self.status, kind, self.trust_full)?
         } else {
-            self.status.clone()
+            self.providers
+                .read_comparison(&self.status, kind, self.trust_full)?
         };
-        let comparison = self
-            .providers
-            .read_comparison(&status, kind, self.trust_full)?;
         let (before, after) = if let Some(buffer) = self.buffer.clone() {
             ensure!(
                 buffer.len() <= MAX_REVIEW_BYTES,
