@@ -173,6 +173,7 @@
   "as"
   "assert"
   "await"
+  "__await"
   "from"
   "pass"
   "with"
@@ -183,6 +184,7 @@
   "elif"
   "else"
   "case"
+  "__guard"
 ] @keyword.control.conditional
 
 [
@@ -214,10 +216,11 @@
 (for_in_clause "in" @keyword.control)
 
 [
-  "alias"
   "async"
+  "__async"
   "class"
   "struct"
+  "__union"
   "trait"
   "comptime"
   "where"

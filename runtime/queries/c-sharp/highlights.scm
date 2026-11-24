@@ -232,6 +232,18 @@
   "#pragma"
 ] @keyword.directive
 
+;; File-based app directives
+
+[
+  (shebang_directive)
+  (directive_kind)
+  "#:"
+] @keyword.directive
+
+(directive_name) @variable
+(directive_separator) @punctuation.delimiter
+(directive_value) @string
+
 ;; Attribute
 
 (attribute name: (identifier) @attribute)
