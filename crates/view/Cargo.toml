@@ -18,6 +18,7 @@ bench = false
 default = []
 integration = ["lsp/test-support"]
 git = ["vcs/git"]
+jj = ["vcs/jj"]
 unicode-lines = ["editor-config/unicode-lines"]
 
 [dependencies]

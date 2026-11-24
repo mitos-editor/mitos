@@ -6,8 +6,10 @@ For a walkthrough from an edit to a staged change, start with
 [Review and stage changes](./editing-effectively/version-control.md).
 
 Version-control commands use the `vcs_` prefix in keybindings and `vcs-` in command mode.
-Commands that open pickers use the `_picker` suffix in keybindings. Git is
-currently the only supported provider.
+Commands that open pickers use the `_picker` suffix in keybindings.
+
+Git provides the full set of version-control commands.
+[Jujutsu](#jujutsu) also supports per-file diffs.
 
 | Key or command | Action |
 | --- | --- |
@@ -532,3 +534,14 @@ version. Each version opens in a read-only split. Close it with `:q`.
 
 If Mitos cannot recognize a conflict, edit the file and remove the marker lines
 yourself.
+
+## Jujutsu
+
+Mitos uses `jj` from your `PATH` to read the parent of the working-copy commit.
+In a [trusted workspace](./workspace-trust.md#jujutsu) with a single parent,
+gutter markers, `:vcs-diff head` (the default), and `:vcs-show-change` compare
+the current file with that parent. Markers refresh when another `jj` command
+changes the working-copy commit.
+
+Changed-file browsing, staging, stashes, branches, history, and blame use Git
+in colocated workspaces.

@@ -78,7 +78,7 @@ async fn empty_or_unavailable_registries_report_one_terminal_error() {
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].as_ref().unwrap_err().to_string(), expected);
     }
-    #[cfg(not(feature = "git"))]
+    #[cfg(not(any(feature = "git", feature = "jj")))]
     assert!(DiffProviderRegistry::default().providers.is_empty());
 }
 
@@ -136,4 +136,53 @@ fn watch_refresh_inspects_each_directory_and_trust_pair_once() {
         RepositoryWatches::default()
     });
     assert_eq!(inspected.len(), 8);
+}
+
+#[cfg(feature = "jj")]
+#[test]
+fn jujutsu_checks_the_repository_roots_live_trust_policy() {
+    use workspace::trust::{Config, ImplicitTrustLevel, WorkspaceTrust};
+
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("parent");
+    let nested = root.join("nested");
+    std::fs::create_dir_all(root.join(".jj")).unwrap();
+    std::fs::create_dir_all(nested.join(".mitos")).unwrap();
+
+    let mut trust = WorkspaceTrust::new(Config::default(), temp.path().join("trust"));
+    trust.trust(&nested).unwrap();
+    let providers = DiffProviderRegistry::with_workspace_trust(trust.clone());
+    assert!(providers.repository_watches(&nested, true).paths.is_empty());
+
+    trust.set_config(Config {
+        level: ImplicitTrustLevel::Insecure,
+        ..Config::default()
+    });
+    assert_eq!(
+        providers.repository_watches(&nested, true).paths,
+        [root.join(".jj/working_copy/checkout")]
+    );
+
+    trust.set_config(Config::default());
+    assert!(providers.repository_watches(&nested, true).paths.is_empty());
+}
+
+#[cfg(all(feature = "git", feature = "jj"))]
+#[test]
+fn unusable_jujutsu_workspace_keeps_git_decorations() {
+    use crate::git::test::{empty_git_repo, exec_git_cmd};
+
+    let repo = empty_git_repo();
+    let path = repo.path().join("file.txt");
+    std::fs::write(&path, b"before").unwrap();
+    exec_git_cmd(&["add", "file.txt"], repo.path());
+    exec_git_cmd(&["commit", "-m", "initial"], repo.path());
+    std::fs::create_dir(repo.path().join(".jj")).unwrap();
+    std::fs::write(&path, b"after").unwrap();
+
+    let trust = workspace::WorkspaceTrust::fully_trusted(repo.path().join(".jj/test-trust"));
+    let providers = DiffProviderRegistry::with_workspace_trust(trust);
+    let decoration = providers.inspect_file(&path, true, true);
+    assert_eq!(decoration.diff_base.as_deref(), Some(b"before".as_slice()));
+    assert_eq!(&***decoration.head_name.unwrap().load(), "main");
 }

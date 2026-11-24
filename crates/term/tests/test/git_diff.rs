@@ -69,6 +69,50 @@ async fn preview_contains(app: &mut TestApplication, needle: &str) -> anyhow::Re
     Ok(())
 }
 
+#[cfg(feature = "jj")]
+#[tokio::test(flavor = "multi_thread")]
+async fn jujutsu_diff_command_compares_parent_with_unsaved_buffer() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let jj = |args: &[&str]| {
+        std::process::Command::new("jj")
+            .current_dir(dir.path())
+            .args([
+                "--config=user.name=Test",
+                "--config=user.email=test@example.invalid",
+            ])
+            .args(args)
+            .output()
+    };
+    let init = match jj(&["git", "init", "--no-colocate"]) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        result => result?,
+    };
+    assert!(
+        init.status.success(),
+        "{}",
+        String::from_utf8_lossy(&init.stderr)
+    );
+    let path = dir.path().join("file.txt");
+    std::fs::write(&path, "jj-parent\n")?;
+    let commit = jj(&["commit", "-m", "parent"])?;
+    assert!(
+        commit.status.success(),
+        "{}",
+        String::from_utf8_lossy(&commit.stderr)
+    );
+    std::fs::write(&path, "jj-worktree\n")?;
+
+    let mut app = AppBuilder::new().with_file(&path, None).build()?;
+    assert!(current_ref!(app.editor).1.diff_handle().is_some());
+    keys(&mut app, "0iunsaved-<esc>:vcs-diff<ret>").await?;
+    ready(&mut app).await?;
+    preview_contains(&mut app, "jj-parent").await?;
+    preview_contains(&mut app, "unsaved-jj-worktree").await?;
+    assert_eq!(std::fs::read_to_string(path)?, "jj-worktree\n");
+    assert!(app.close().await.is_empty());
+    Ok(())
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn native_review_reopens_picker_and_opens_another_diff_in_a_split() -> anyhow::Result<()> {
     let Some(root) = isolation::workspace(
