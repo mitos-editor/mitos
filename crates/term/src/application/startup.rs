@@ -19,7 +19,7 @@ use crate::{
 use anyhow::Context as _;
 use anyhow::Error;
 use arc_swap::{access::Map, ArcSwap};
-use editor_core::{pos_at_coords, Range, Selection};
+use editor_core::{pos_at_coords, Selection};
 use futures_util::StreamExt;
 use language::syntax;
 #[cfg(not(windows))]
@@ -221,7 +221,7 @@ where
             if files_it.peek().is_some() {
                 let mut nr_of_files = 0;
                 let mut first_view = None;
-                for (file, pos) in files_it {
+                for (file, selections) in files_it {
                     nr_of_files += 1;
                     if file.is_dir() {
                         return Err(anyhow::anyhow!(
@@ -258,11 +258,10 @@ where
                         let view_id = current_ref!(editor).0.id;
                         first_view.get_or_insert(view_id);
                         let doc = doc_mut!(editor, &doc_id);
-                        let selection = pos
+                        let text = doc.text().slice(..);
+                        let selection = selections
                             .into_iter()
-                            .map(|coords| {
-                                Range::point(pos_at_coords(doc.text().slice(..), coords, true))
-                            })
+                            .map(|selection| selection.into_range(text))
                             .collect();
                         doc.set_selection(view_id, selection);
                     }

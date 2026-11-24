@@ -14,7 +14,12 @@ use anyhow::bail;
 use editor_config::ImplicitTrustLevelConfig;
 use editor_core::{test, Selection, Transaction};
 use tempfile::NamedTempFile;
-use term::{application::TestApplication, args::Args, config::Config, keymap::merge_keys};
+use term::{
+    application::TestApplication,
+    args::{Args, FileSelection},
+    config::Config,
+    keymap::merge_keys,
+};
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use ui_core::input::parse_macro;
 use view::{current_ref, doc, Editor};
@@ -407,9 +412,10 @@ impl AppBuilder {
         path: P,
         pos: Option<editor_core::Position>,
     ) -> Self {
-        self.args
-            .files
-            .insert(path.into(), vec![pos.unwrap_or_default()]);
+        self.args.files.insert(
+            path.into(),
+            vec![FileSelection::Point(pos.unwrap_or_default())],
+        );
 
         self
     }

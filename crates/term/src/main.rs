@@ -42,7 +42,8 @@ USAGE:
     mitos [FLAGS] [files]...
 
 ARGS:
-    <files>...    Set the input file to use, position can also be specified via file[:row[:col]]
+    <files>...    Set the input file to use, with an optional position file:row[:col]
+                 or an inclusive line range file:start-end
 
 FLAGS:
     -h, --help                     Print help information
