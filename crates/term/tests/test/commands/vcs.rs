@@ -812,7 +812,7 @@ async fn picker_reviews_toggle_comparisons_open_buffers_and_keep_invalid_syntax_
     wait_for_review_buffer(&mut app, "\"value\": 3").await?;
     press_keys(&mut app, "<space>'").await?;
     wait_for_review_screen(&mut app, "Unstaged", "\"value\": 3").await?;
-    press_keys(&mut app, "<A-left>").await?;
+    press_keys(&mut app, "<A-p>").await?;
     wait_for_review_screen(&mut app, "Staged", "\"value\": 1").await?;
     press_keys(&mut app, "<A-o>").await?;
     wait_for_review_buffer(&mut app, "\"value\": 2").await?;
@@ -855,16 +855,16 @@ async fn changed_file_review_switches_layers_opens_deletions_and_preserves_the_i
     wait_for_review_screen(&mut app, "Staged · HEAD", "head contents").await?;
     press_keys(&mut app, "<A-p>").await?;
     wait_for_review_screen(&mut app, "Unsaved · index", "unsaved-working contents").await?;
-    press_keys(&mut app, "<A-right>").await?;
+    press_keys(&mut app, "<A-n>").await?;
     wait_for_review_screen(&mut app, "Staged · HEAD", "head contents").await?;
     let screen = review_screen(&app);
     assert!(screen.contains("staged contents"));
     assert!(!screen.contains("working contents"));
     press_keys(&mut app, "<A-n>").await?;
     wait_for_review_screen(&mut app, "Unstaged · index", "working contents").await?;
-    press_keys(&mut app, "<A-left>").await?;
+    press_keys(&mut app, "<A-p>").await?;
     wait_for_review_screen(&mut app, "Staged · HEAD", "head contents").await?;
-    press_keys(&mut app, "<A-right>").await?;
+    press_keys(&mut app, "<A-n>").await?;
     wait_for_review_screen(&mut app, "Unstaged · index", "working contents").await?;
     assert!(review_screen(&app).contains("staged contents"));
     press_keys(&mut app, "<A-o>").await?;

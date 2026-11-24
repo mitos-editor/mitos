@@ -68,8 +68,7 @@ versions to compare:
 
 The unsaved comparison is available for listed files with a modified text buffer.
 The preview starts with unsaved edits when available, then unstaged changes, then
-staged changes. `Alt-Left` / `Alt-Right` also switch comparisons, but some
-terminals use those keys for word movement.
+staged changes.
 
 Conflicts with marker lines appear as labeled sections in the preview, including
 unsaved edits. Press `Enter` to open the file and

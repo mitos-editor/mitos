@@ -115,6 +115,7 @@ pub enum Movement {
     BackwardWord(usize),
     ForwardChar(usize),
     ForwardWord(usize),
+    ForwardWordEnd,
     StartOfLine,
     EndOfLine,
     None,
@@ -499,6 +500,12 @@ impl Prompt {
                         .trim_start_matches(|ch| !is_word_sep(ch))
                         .trim_start_matches(is_word_sep);
                 }
+                self.line.len() - rest.len()
+            }
+            Movement::ForwardWordEnd => {
+                let rest = self.line[self.cursor..]
+                    .trim_start_matches(is_word_sep)
+                    .trim_start_matches(|ch| !is_word_sep(ch));
                 self.line.len() - rest.len()
             }
             Movement::ForwardChar(rep) => {
@@ -909,6 +916,7 @@ impl Prompt {
                 }
                 PromptAction::MoveWordLeft => self.move_cursor(Movement::BackwardWord(1)),
                 PromptAction::MoveWordRight => self.move_cursor(Movement::ForwardWord(1)),
+                PromptAction::MoveWordEnd => self.move_cursor(Movement::ForwardWordEnd),
                 PromptAction::MoveLeft => self.move_cursor(Movement::BackwardChar(1)),
                 PromptAction::MoveRight => {
                     if self.line.is_empty()

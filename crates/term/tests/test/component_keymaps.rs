@@ -70,6 +70,31 @@ fn closes(result: EventResult) {
     assert!(matches!(result, EventResult::Consumed(Some(_))));
 }
 
+#[tokio::test(flavor = "multi_thread")]
+async fn native_editing_keys_work_in_picker_and_command_inputs() -> anyhow::Result<()> {
+    use super::helpers::{keys, screen};
+
+    let mut app = AppBuilder::new().build()?;
+    for open in ["<space>b", ":"] {
+        keys(&mut app, open).await?;
+        keys(&mut app, "discard keep<A-left><Cmd-backspace>").await?;
+        let rendered = screen(&app);
+        assert!(rendered.contains("keep"), "{open}");
+        assert!(!rendered.contains("discard"), "{open}");
+
+        keys(&mut app, "<Cmd-right> tail<Cmd-left><A-right>X").await?;
+        assert!(screen(&app).contains("keepX tail"), "{open}");
+        keys(&mut app, "<C-home><C-del><C-end><C-backspace>done").await?;
+        let rendered = screen(&app);
+        assert!(!rendered.contains("keepX"), "{open}");
+        assert!(!rendered.contains("tail"), "{open}");
+        assert!(rendered.contains("done"), "{open}");
+        keys(&mut app, "<esc>").await?;
+    }
+    assert!(app.close().await.is_empty());
+    Ok(())
+}
+
 #[derive(Clone, PartialEq)]
 struct OptionItem(&'static str);
 
