@@ -108,7 +108,7 @@ editor-config = { path = "crates/editor-config" }
 
 # Runtime and diagnostics
 anyhow = "1"
-jiff = { version = "0.2.27", default-features = false, features = ["std"] }
+jiff = { version = "1.0.2", default-features = false, features = ["std"] }
 log = "0.4"
 thiserror = "2.0"
 
