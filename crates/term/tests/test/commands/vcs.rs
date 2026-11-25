@@ -953,12 +953,22 @@ async fn review_refreshes_after_external_staging_and_edits_without_polling() -> 
         .build()?;
     press_keys(&mut app, "<space>gswatched.txt").await?;
     wait_for_review_screen(&mut app, "Unstaged · index", "first edit").await?;
+    let index = repo.join(".git/index");
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while !app.editor.file_watcher.is_watching(&index)
+            || !app.editor.file_watcher.is_watching(&path)
+        {
+            run_event_loop_until_idle(&mut app).await;
+        }
+    })
+    .await
+    .map_err(|_| anyhow::anyhow!("native Git index and worktree watches did not become ready"))?;
     git(&repo, &["add", "watched.txt"]);
     wait_for_review_screen(&mut app, "Staged · HEAD", "first edit").await?;
     std::fs::write(&path, "second edit\n")?;
     wait_for_review_screen(&mut app, "Unstaged · index", "second edit").await?;
     assert!(review_screen(&app).contains("first edit"));
-    assert!(review_screen(&app).contains("1/1"));
+    wait_for_review_screen(&mut app, "Unstaged · index", "1/1").await?;
     press_keys(&mut app, "<esc>").await?;
     assert!(app.close().await.is_empty());
     Ok(())
