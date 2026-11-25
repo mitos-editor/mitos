@@ -70,6 +70,27 @@ fn sidebar_fixture(
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn alt_a_opens_matches_from_the_sidebar_filter() -> anyhow::Result<()> {
+    if super::helpers::isolation::workspace(
+        "test::sidebar::alt_a_opens_matches_from_the_sidebar_filter",
+    )?
+    .is_none()
+    {
+        return Ok(());
+    }
+    let (mut app, _dir, root) = sidebar_fixture(test_config())?;
+    app.editor.open(&root.join("a.txt"), Action::Replace)?;
+    keys(&mut app, "<C-w>e/.txt<A-a>").await?;
+    for name in ["b.txt", "sub/c.txt", "sub/deep/d.txt"] {
+        assert!(app.editor.document_id_by_path(&root.join(name)).is_some());
+    }
+    assert_eq!(app.editor.documents().count(), 4);
+    assert_eq!(app.editor.tree.views().count(), 1);
+    assert!(!screen(&app).contains("File Explorer (filter)"));
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn counted_motions_and_goto_jumps_select_sidebar_rows() -> anyhow::Result<()> {
     if super::helpers::isolation::workspace(
         "test::sidebar::counted_motions_and_goto_jumps_select_sidebar_rows",

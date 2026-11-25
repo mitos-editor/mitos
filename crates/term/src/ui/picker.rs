@@ -6,6 +6,7 @@ mod handlers;
 mod help;
 #[cfg(test)]
 mod matching_tests;
+mod open_all;
 #[cfg(any(feature = "git", test))]
 pub(crate) mod paged;
 #[cfg(test)]
@@ -79,6 +80,7 @@ pub(crate) use updates::UpdateContext;
 pub(crate) use updates::{PickerSource, SourceInput};
 
 type FileCallback<T> = Box<dyn for<'a> Fn(&'a Editor, &'a T) -> Option<FileLocation<'a>>>;
+type OpenTargetFn<T> = for<'a> fn(&'a Editor, &'a T) -> Option<PathOrId<'a>>;
 type QuicklistCallback<T> = Box<dyn Fn(&Editor, &T) -> Option<QuicklistEntry>>;
 type QuicklistBatchCallback<T> = Box<dyn Fn(&mut Context, Vec<&T>, event::TaskHandle)>;
 type SelectedPreview<'picker, 'editor> = (
@@ -316,6 +318,7 @@ pub struct Picker<T: 'static + Send + Sync, D: 'static> {
     widths: Vec<Constraint>,
 
     callback_fn: PickerCallback<T, D>,
+    open_all_target: Option<OpenTargetFn<T>>,
     /// Embedded pickers return focus to their parent instead of popping a layer.
     on_close: Option<fn(&mut Compositor, &mut Context)>,
     default_action: Action,
@@ -460,6 +463,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             show_preview: true,
             preview_area: None,
             callback_fn: Box::new(callback_fn),
+            open_all_target: None,
             on_close: None,
             default_action: Action::Replace,
             completion_height: 0,
@@ -652,6 +656,12 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
 
     pub fn with_default_action(mut self, action: Action) -> Self {
         self.default_action = action;
+        self
+    }
+
+    /// Override the preview target for bulk opening.
+    pub(crate) fn with_open_all_target(mut self, target: OpenTargetFn<T>) -> Self {
+        self.open_all_target = Some(target);
         self
     }
 
@@ -1421,6 +1431,31 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         }
     }
 
+    fn close_callback(&mut self, after: Option<compositor::Callback>) -> compositor::Callback {
+        let close: compositor::Callback = if let Some(on_close) = self.on_close {
+            Box::new(on_close)
+        } else {
+            self.suspend();
+            // if the picker is very large don't store it as last_picker to avoid
+            // excessive memory consumption
+            if self.results.matcher.snapshot().item_count() > 1_000_000 {
+                Box::new(|compositor, _| {
+                    compositor.pop();
+                })
+            } else {
+                Box::new(|compositor, _| {
+                    compositor.last_picker = compositor.pop();
+                })
+            }
+        };
+        Box::new(move |compositor, cx| {
+            close(compositor, cx);
+            if let Some(after) = after {
+                after(compositor, cx);
+            }
+        })
+    }
+
     fn execute_actions(&mut self, actions: &[PickerAction], ctx: &mut Context) -> EventResult {
         self.execute_actions_with_steps(actions, 1, ctx)
     }
@@ -1431,37 +1466,8 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         steps: u32,
         ctx: &mut Context,
     ) -> EventResult {
-        let close_fn = |picker: &mut Self, after: Option<compositor::Callback>| {
-            if let Some(on_close) = picker.on_close {
-                return EventResult::Consumed(Some(Box::new(move |compositor, cx| {
-                    on_close(compositor, cx);
-                    if let Some(after) = after {
-                        after(compositor, cx);
-                    }
-                })));
-            }
-            picker.suspend();
-            // if the picker is very large don't store it as last_picker to avoid
-            // excessive memory consumption
-            let callback: compositor::Callback =
-                if picker.results.matcher.snapshot().item_count() > 1_000_000 {
-                    Box::new(|compositor: &mut Compositor, _ctx| {
-                        // remove the layer
-                        compositor.pop();
-                    })
-                } else {
-                    Box::new(|compositor: &mut Compositor, _ctx| {
-                        // remove the layer
-                        compositor.last_picker = compositor.pop();
-                    })
-                };
-            EventResult::Consumed(Some(Box::new(move |compositor, cx| {
-                callback(compositor, cx);
-                if let Some(after) = after {
-                    after(compositor, cx);
-                }
-            })))
-        };
+        let close_fn =
+            |picker: &mut Self, after| EventResult::Consumed(Some(picker.close_callback(after)));
 
         // A restored picker can receive input before its first redraw.
         // Resume its query before any action can use the previous published rows.
@@ -1507,6 +1513,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                         | PickerAction::AcceptKeepOpen
                         | PickerAction::AcceptHorizontalSplit
                         | PickerAction::AcceptVerticalSplit
+                        | PickerAction::OpenAll
                         | PickerAction::Item(_)
                         | PickerAction::PopulateQuicklist
                 )
@@ -1611,6 +1618,8 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                             .set_status(format!("Quicklist populated with {count} entries"));
                     }
                 }
+                PickerAction::OpenAll if self.supports_open_all() => return self.open_all(ctx),
+                PickerAction::OpenAll => {}
                 PickerAction::AcceptKeepOpen => {
                     if let Some(option) = self.selection() {
                         let result = (self.callback_fn)(
@@ -1939,6 +1948,9 @@ impl<I: 'static + Send + Sync, D: 'static + Send + Sync> Component for Picker<I,
             .keys
             .lookup((self.keymap)(&ctx.config.current.component_keys), key_event)
         {
+            Lookup::Actions([PickerAction::OpenAll]) if !self.supports_open_all() => {
+                return self.prompt_handle_event(event, ctx);
+            }
             Lookup::Actions(actions) => actions,
             Lookup::Pending => return EventResult::Consumed(None),
             Lookup::Unbound => return self.prompt_handle_event(event, ctx),

@@ -356,6 +356,7 @@ impl Sidebar {
                                 | PickerAction::AcceptKeepOpen
                                 | PickerAction::AcceptHorizontalSplit
                                 | PickerAction::AcceptVerticalSplit
+                                | PickerAction::OpenAll
                                 | PickerAction::Item(_)
                                 | PickerAction::PopulateQuicklist
                         )

@@ -69,14 +69,19 @@ async fn file_pickers_show_scroll_hints_without_losing_result_space() -> anyhow:
     for generic in ["<ret> open", "split below", "split right", "quicklist"] {
         assert!(!visible.contains(generic), "unexpected {generic:?}");
     }
-    assert!(visible.contains("<A-j> scroll preview down"));
-    assert!(visible.contains("<A-k> scroll preview up"));
+    assert!(visible.contains("<A-a> open all"));
+    assert!(visible.contains("<A-j> preview down"));
+    assert!(visible.contains("<A-k> preview up"));
     let visible_rows = picker.completion_height;
     picker.toggle_preview();
-    assert!(!frame(&mut picker, &mut app, &config).contains("scroll preview"));
+    let without_preview = frame(&mut picker, &mut app, &config);
+    assert!(without_preview.contains("<A-a> open all"));
+    assert!(!without_preview.contains("preview down"));
     picker.toggle_preview();
     set_hints(&mut app, false);
-    assert!(!frame(&mut picker, &mut app, &config).contains("scroll preview"));
+    let without_hints = frame(&mut picker, &mut app, &config);
+    assert!(!without_hints.contains("open all"));
+    assert!(!without_hints.contains("preview down"));
     assert_eq!(picker.completion_height, visible_rows);
     Ok(())
 }

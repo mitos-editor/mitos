@@ -69,6 +69,37 @@ impl Fixture {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn alt_a_opens_distinct_quicklist_targets_including_unsaved_buffers() -> anyhow::Result<()> {
+    let mut f = Fixture::new(&["first.txt", "second.txt"])?;
+    f.keys("iunsaved<esc>").await?;
+    let scratch = current_ref!(f.app.editor).1.id();
+    let entries = std::iter::once(QuicklistEntry {
+        target: QuicklistTarget::Document(scratch),
+        position: QuicklistPosition::None,
+    })
+    .chain((0..51).map(|line| QuicklistEntry {
+        target: QuicklistTarget::Path(f.paths[0].clone()),
+        position: QuicklistPosition::LineRange {
+            start: line,
+            end: line,
+        },
+    }))
+    .chain(std::iter::once(QuicklistEntry {
+        target: QuicklistTarget::Path(f.paths[1].clone()),
+        position: QuicklistPosition::None,
+    }))
+    .collect();
+    f.app.editor.replace_quicklist(entries);
+    f.keys("<space>q").await?;
+    f.keys("<A-a>").await?;
+    assert_eq!(f.app.editor.documents().count(), 3);
+    assert_eq!(current_ref!(f.app.editor).1.id(), scratch);
+    assert!(current_ref!(f.app.editor).1.is_modified());
+    assert_eq!(f.app.editor.quicklist.entries().len(), 53);
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn quicklist_picker_and_activation_handle_a_shortened_buffer() -> anyhow::Result<()> {
     let mut f = Fixture::new(&[])?;
     f.keys("ialpha<ret>beta<ret>gamma<esc><A-q>").await?;

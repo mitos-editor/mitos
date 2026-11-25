@@ -63,6 +63,74 @@ fn names(root: &Path) -> Vec<String> {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn alt_a_opens_matching_files_from_either_picker() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let root = stdx::path::canonicalize(dir.path());
+    for name in ["start.txt", "match-a.txt", "match-b.txt", "other.txt"] {
+        std::fs::write(root.join(name), name)?;
+    }
+    std::fs::create_dir(root.join("match-dir"))?;
+
+    for (open, title) in [("<space>F", "Files"), ("<space>E", "File Explorer")] {
+        let mut app = AppBuilder::new().with_config(test_config()).build()?;
+        app.editor.open(&root.join("start.txt"), Action::Replace)?;
+        keys(&mut app, open).await?;
+        keys(&mut app, "match").await?;
+        wait_for(&mut app, |screen| {
+            screen.contains("match-a.txt")
+                && screen.contains("match-b.txt")
+                && !screen.contains("other.txt")
+        })
+        .await?;
+        keys(&mut app, "<A-a>").await?;
+        assert!(app
+            .editor
+            .document_id_by_path(&root.join("match-a.txt"))
+            .is_some());
+        assert!(app
+            .editor
+            .document_id_by_path(&root.join("match-b.txt"))
+            .is_some());
+        assert!(app
+            .editor
+            .document_id_by_path(&root.join("other.txt"))
+            .is_none());
+        assert_eq!(app.editor.documents().count(), 3);
+        let (_, doc) = current_ref!(app.editor);
+        assert!(["match-a.txt", "match-b.txt"]
+            .iter()
+            .any(|name| doc.path() == Some(root.join(name).as_path())));
+        assert_eq!(app.editor.tree.views().count(), 1);
+        assert!(!screen(&app).contains(title));
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn alt_a_confirms_large_batches_before_opening_files() -> anyhow::Result<()> {
+    let (mut app, _dir, root) = explorer().await?;
+    keys(&mut app, "<esc>").await?;
+    for i in 0..51 {
+        std::fs::write(root.join(format!("batch-{i:02}.txt")), "")?;
+    }
+    keys(&mut app, "<space>Ebatch").await?;
+    wait_for(&mut app, |screen| screen.contains("51/55")).await?;
+    keys(&mut app, "<A-a>").await?;
+    assert!(screen(&app).contains("Open 51 buffers?"));
+    assert_eq!(app.editor.documents().count(), 1);
+    keys(&mut app, "<esc>").await?;
+    assert!(screen(&app).contains("batch-00.txt"));
+    assert_eq!(app.editor.documents().count(), 1);
+
+    keys(&mut app, "<A-a>y<ret>").await?;
+    assert_eq!(app.editor.documents().count(), 52);
+    assert!(!screen(&app).contains("File Explorer"));
+    keys(&mut app, "<space>'").await?;
+    assert!(screen(&app).contains("batch-00.txt"));
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn alt_n_creates_files_and_directories_in_the_shown_directory() -> anyhow::Result<()> {
     let (mut app, _dir, root) = explorer().await?;
     keys(&mut app, "<A-n>new.txt<ret>").await?;

@@ -13,6 +13,7 @@
 | `` <end> `` | `` move_end `` |
 | `` <home> `` | `` move_start `` |
 | `` <up> ``, `` <C-p> ``, `` <S-tab> `` | `` move_up `` |
+| `` <A-a> `` | `` open_all `` |
 | `` <A-o> `` | `` open_preview `` |
 | `` <C-d> ``, `` <pagedown> `` | `` page_down `` |
 | `` <C-u> ``, `` <pageup> `` | `` page_up `` |
@@ -38,6 +39,7 @@
 | `` <end> `` | `` move_end `` |
 | `` <home> `` | `` move_start `` |
 | `` <up> ``, `` <C-p> ``, `` <S-tab> `` | `` move_up `` |
+| `` <A-a> `` | `` open_all `` |
 | `` <A-o> `` | `` open_preview `` |
 | `` <C-d> ``, `` <pagedown> `` | `` page_down `` |
 | `` <C-u> ``, `` <pageup> `` | `` page_up `` |
@@ -63,6 +65,7 @@
 | `` <end> `` | `` move_end `` |
 | `` <home> `` | `` move_start `` |
 | `` <up> ``, `` <C-p> ``, `` <S-tab> `` | `` move_up `` |
+| `` <A-a> `` | `` open_all `` |
 | `` <A-o> `` | `` open_preview `` |
 | `` <C-d> ``, `` <pagedown> `` | `` page_down `` |
 | `` <C-u> ``, `` <pageup> `` | `` page_up `` |
@@ -90,6 +93,7 @@
 | `` <end> `` | `` move_end `` |
 | `` <home> `` | `` move_start `` |
 | `` <up> ``, `` <C-p> ``, `` <S-tab> `` | `` move_up `` |
+| `` <A-A> `` | `` open_all `` |
 | `` <A-o> `` | `` open_preview `` |
 | `` <C-d> ``, `` <pagedown> `` | `` page_down `` |
 | `` <C-u> ``, `` <pageup> `` | `` page_up `` |
@@ -123,6 +127,7 @@
 | `` <end> `` | `` move_end `` |
 | `` <home> `` | `` move_start `` |
 | `` <up> ``, `` <C-p> ``, `` <S-tab> `` | `` move_up `` |
+| `` <A-a> `` | `` open_all `` |
 | `` <A-o> `` | `` open_preview `` |
 | `` <C-d> ``, `` <pagedown> `` | `` page_down `` |
 | `` <C-u> ``, `` <pageup> `` | `` page_up `` |
@@ -149,6 +154,7 @@
 | `` <end> `` | `` move_end `` |
 | `` <home> `` | `` move_start `` |
 | `` <up> ``, `` <C-p> ``, `` <S-tab> `` | `` move_up `` |
+| `` <A-a> `` | `` open_all `` |
 | `` <A-o> `` | `` open_preview `` |
 | `` <C-d> ``, `` <pagedown> `` | `` page_down `` |
 | `` <C-u> ``, `` <pageup> `` | `` page_up `` |
@@ -234,6 +240,7 @@
 | `` <A-m> `` | `` move_path `` |
 | `` <home> `` | `` move_start `` |
 | `` <up> ``, `` <C-p> ``, `` <S-tab> `` | `` move_up `` |
+| `` <A-a> `` | `` open_all `` |
 | `` <A-o> `` | `` open_preview `` |
 | `` <C-d> ``, `` <pagedown> `` | `` page_down `` |
 | `` <C-u> ``, `` <pageup> `` | `` page_up `` |
@@ -271,6 +278,7 @@
 | `` gg ``, `` <home> `` | `` move_start `` |
 | `` k ``, `` <up> ``, `` <C-p> ``, `` <S-tab> `` | `` move_up `` |
 | `` <C-w>w ``, `` <C-w><C-w> `` | `` next_view `` |
+| `` <A-a> `` | `` open_all `` |
 | `` <A-o> `` | `` open_preview `` |
 | `` <C-d> ``, `` <pagedown> `` | `` page_down `` |
 | `` <C-u> ``, `` <pageup> `` | `` page_up `` |
@@ -303,6 +311,7 @@
 | `` <A-m> `` | `` move_path `` |
 | `` <home> `` | `` move_start `` |
 | `` <up> ``, `` <C-p> ``, `` <S-tab> `` | `` move_up `` |
+| `` <A-a> `` | `` open_all `` |
 | `` <A-o> `` | `` open_preview `` |
 | `` <C-d> ``, `` <pagedown> `` | `` page_down `` |
 | `` <C-u> ``, `` <pageup> `` | `` page_up `` |
