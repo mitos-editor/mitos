@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use gix::bstr::{BString, ByteSlice, ByteVec};
+use gix::bstr::{BStr, BString, ByteSlice, ByteVec};
 use gix::diff::{index::Change as IndexChange, Rewrites};
 use gix::dir::entry::Status;
 use gix::objs::tree::EntryKind;
@@ -102,6 +102,7 @@ fn status(
         repo.workdir()
             .ok_or_else(|| anyhow::anyhow!("working tree not found"))?,
     );
+    let colocated_jj = work_dir.join(".jj").is_dir();
 
     let rewrites = Rewrites {
         copies: None,
@@ -178,9 +179,14 @@ fn status(
             StatusItem::TreeIndex(IndexChange::Addition { location, .. }) => FileChange::Added {
                 path: work_dir.join(location.to_path()?),
             },
-            StatusItem::TreeIndex(IndexChange::Deletion { location, .. }) => FileChange::Deleted {
-                path: work_dir.join(location.to_path()?),
-            },
+            StatusItem::TreeIndex(IndexChange::Deletion { location, .. }) => {
+                if colocated_jj && is_jj_conflict_metadata(location.as_bstr()) {
+                    continue;
+                }
+                FileChange::Deleted {
+                    path: work_dir.join(location.to_path()?),
+                }
+            }
             StatusItem::TreeIndex(IndexChange::Modification { location, .. }) => {
                 FileChange::Modified {
                     path: work_dir.join(location.to_path()?),
@@ -190,10 +196,21 @@ fn status(
                 source_location,
                 location,
                 ..
-            }) => FileChange::Renamed {
-                from_path: work_dir.join(source_location.to_path()?),
-                to_path: work_dir.join(location.to_path()?),
-            },
+            }) => {
+                if colocated_jj && is_jj_conflict_metadata(location.as_bstr()) {
+                    continue;
+                }
+                if colocated_jj && is_jj_conflict_metadata(source_location.as_bstr()) {
+                    FileChange::Added {
+                        path: work_dir.join(location.to_path()?),
+                    }
+                } else {
+                    FileChange::Renamed {
+                        from_path: work_dir.join(source_location.to_path()?),
+                        to_path: work_dir.join(location.to_path()?),
+                    }
+                }
+            }
             _ => continue,
         };
         let entry = changes
@@ -236,6 +253,26 @@ fn status(
     }
 
     Ok(())
+}
+
+/// Jujutsu stores conflicted commits in Git by writing `JJ-CONFLICT-README`,
+/// `.jjconflict-base-N/`, and `.jjconflict-side-N/` entries into the root of
+/// `HEAD` while omitting them from the Git index it maintains for the working
+/// copy.
+fn is_jj_conflict_metadata(path: &BStr) -> bool {
+    if path == b"JJ-CONFLICT-README" {
+        return true;
+    }
+    let Some((top, _)) = path.split_once_str(b"/") else {
+        return false;
+    };
+    let Some(suffix) = top
+        .strip_prefix(b".jjconflict-base-")
+        .or_else(|| top.strip_prefix(b".jjconflict-side-"))
+    else {
+        return false;
+    };
+    !suffix.is_empty() && suffix.iter().all(u8::is_ascii_digit)
 }
 
 fn status_patterns(work_dir: &Path, scope: &ChangedFileScope) -> Result<Vec<BString>> {

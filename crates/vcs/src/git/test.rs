@@ -313,6 +313,154 @@ fn changed_files_keep_conflicts_alongside_staged_changes() {
     ));
 }
 
+#[test]
+fn colocated_jj_hides_conflict_metadata_staged_deletions() {
+    let repo = empty_git_repo();
+    let root = repo.path();
+    std::fs::create_dir(root.join(".jj")).unwrap();
+    for (rel, content) in [
+        ("JJ-CONFLICT-README", "This commit was made by jj\n"),
+        (".jjconflict-base-0/conflict.txt", "base\n"),
+        (".jjconflict-side-0/conflict.txt", "side 0\n"),
+        (".jjconflict-side-1/conflict.txt", "side 1\n"),
+        (
+            ".jjconflict-side-1/modify_delete.txt",
+            "unique content from conflict side 1\n",
+        ),
+        ("conflict.txt", "side 0\n"),
+        ("real_deleted.txt", "deleted\n"),
+        ("sub/JJ-CONFLICT-README", "nested readme\n"),
+        ("sub/.jjconflict-base-0/nested.txt", "nested\n"),
+    ] {
+        let path = root.join(rel);
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).unwrap();
+        }
+        std::fs::write(path, content).unwrap();
+    }
+    create_commit(root, true);
+
+    // jj omits conflict metadata from the index it writes for the working copy.
+    exec_git_cmd(
+        &[
+            "rm",
+            "-r",
+            "JJ-CONFLICT-README",
+            ".jjconflict-base-0",
+            ".jjconflict-side-0",
+            ".jjconflict-side-1",
+        ],
+        root,
+    );
+    // Real deletions (including similarly named nested files) must remain visible.
+    exec_git_cmd(
+        &[
+            "rm",
+            "real_deleted.txt",
+            "sub/JJ-CONFLICT-README",
+            "sub/.jjconflict-base-0/nested.txt",
+        ],
+        root,
+    );
+    std::fs::write(
+        root.join("conflict.txt"),
+        "<<<<<<< Conflict 1 of 1\nside 0\n=======\nside 1\n>>>>>>>\n",
+    )
+    .unwrap();
+    // An added file matching a conflict side must not be reported as renamed from .jjconflict-*.
+    std::fs::write(
+        root.join("modify_delete.txt"),
+        "unique content from conflict side 1\n",
+    )
+    .unwrap();
+    exec_git_cmd(&["add", "modify_delete.txt"], root);
+
+    let statuses = RefCell::new(Vec::new());
+    git::for_each_file_status(
+        &ChangedFileScope::Repository(root.into()),
+        true,
+        |_, status| {
+            statuses.borrow_mut().push(status.unwrap());
+            true
+        },
+    )
+    .unwrap();
+    let statuses = statuses.into_inner();
+    let mut paths: Vec<_> = statuses
+        .iter()
+        .map(|status| status.path().strip_prefix(root).unwrap().to_path_buf())
+        .collect();
+    paths.sort();
+    assert_eq!(
+        paths,
+        [
+            std::path::PathBuf::from("conflict.txt"),
+            std::path::PathBuf::from("modify_delete.txt"),
+            std::path::PathBuf::from("real_deleted.txt"),
+            std::path::PathBuf::from("sub/.jjconflict-base-0/nested.txt"),
+            std::path::PathBuf::from("sub/JJ-CONFLICT-README"),
+        ]
+    );
+    assert!(statuses.iter().any(|status| matches!(
+        status,
+        crate::FileStatus {
+            staged: None,
+            unstaged: Some(FileChange::Modified { path }),
+        } if path == &root.join("conflict.txt")
+    )));
+    assert!(statuses.iter().any(|status| matches!(
+        status,
+        crate::FileStatus {
+            staged: Some(FileChange::Added { path }),
+            unstaged: None,
+        } if path == &root.join("modify_delete.txt")
+    )));
+}
+
+#[test]
+fn plain_git_repo_keeps_jj_named_staged_deletions() {
+    let repo = empty_git_repo();
+    let root = repo.path();
+    for (rel, content) in [
+        ("JJ-CONFLICT-README", "readme\n"),
+        (".jjconflict-base-0/file.txt", "base\n"),
+        (".jjconflict-side-0/file.txt", "side\n"),
+    ] {
+        let path = root.join(rel);
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).unwrap();
+        }
+        std::fs::write(path, content).unwrap();
+    }
+    create_commit(root, true);
+    exec_git_cmd(
+        &[
+            "rm",
+            "-r",
+            "JJ-CONFLICT-README",
+            ".jjconflict-base-0",
+            ".jjconflict-side-0",
+        ],
+        root,
+    );
+
+    let changes = RefCell::new(Vec::new());
+    git::for_each_file_status(
+        &ChangedFileScope::Repository(root.into()),
+        true,
+        |_, status| {
+            changes.borrow_mut().push(status.unwrap().change().clone());
+            true
+        },
+    )
+    .unwrap();
+    let changes = changes.into_inner();
+    assert_eq!(changes.len(), 3);
+    assert!(changes
+        .iter()
+        .all(|change| matches!(change, FileChange::Deleted { .. })));
+}
+
 /// Test that `get_file_head` does not return content for a directory.
 /// This is important to correctly cover cases where a directory is removed and replaced by a file.
 /// If the contents of the directory object were returned a diff between a path and the directory children would be produced.
