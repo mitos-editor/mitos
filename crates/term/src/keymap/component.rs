@@ -45,6 +45,7 @@ pub enum PickerAction {
     AcceptKeepOpen,
     AcceptHorizontalSplit,
     AcceptVerticalSplit,
+    OpenAll,
     TogglePreview,
     ToggleLoading,
     ToggleReplacement,
@@ -144,6 +145,7 @@ impl PickerAction {
             Self::AcceptKeepOpen => "Open selection and keep explorer focused",
             Self::AcceptHorizontalSplit => "Open in horizontal split",
             Self::AcceptVerticalSplit => "Open in vertical split",
+            Self::OpenAll => "Open all matching files",
             Self::TogglePreview => "Toggle preview",
             Self::ToggleLoading => "Pause loading, continue, or retry",
             Self::ToggleReplacement => "Toggle replacement input",
@@ -234,6 +236,7 @@ pub enum DiffAction {
 pub struct ComponentKeymaps {
     pub prompt: Keymap<PromptAction>,
     pub picker: Keymap<PickerAction>,
+    pub file_picker: Keymap<PickerAction>,
     pub buffer_picker: Keymap<PickerAction>,
     pub quicklist_picker: Keymap<PickerAction>,
     pub git_picker: Keymap<PickerAction>,
@@ -339,8 +342,14 @@ impl ComponentKeymaps {
         shared
     }
 
-    pub fn file_explorer(mut shared: Keymap<PickerAction>) -> Keymap<PickerAction> {
+    pub fn file_picker(mut shared: Keymap<PickerAction>) -> Keymap<PickerAction> {
+        shared.merge(bindings(&[("A-a", PickerAction::OpenAll)]));
+        shared
+    }
+
+    pub fn file_explorer(shared: Keymap<PickerAction>) -> Keymap<PickerAction> {
         use PickerItemAction as I;
+        let mut shared = Self::file_picker(shared);
         shared.merge(bindings(&[
             ("A-n", PickerAction::Item(I::CreatePath)),
             ("A-m", PickerAction::Item(I::MovePath)),
@@ -473,6 +482,7 @@ impl Default for ComponentKeymaps {
                 ("C-r", P::InsertRegister),
                 ("A-r", P::ToggleSearchSyntax),
             ]),
+            file_picker: Self::file_picker(picker.clone()),
             buffer_picker: picker.clone(),
             quicklist_picker: quicklist_picker_keymap(&picker),
             git_picker: Self::git_picker(picker.clone()),

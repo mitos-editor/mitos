@@ -40,6 +40,9 @@ impl<T: Send + Sync + 'static, D: Send + Sync + 'static> Picker<T, D> {
         {
             actions.push((PickerAction::ToggleLoading, "pause / continue / retry"));
         }
+        if self.open_all_path.is_some() {
+            actions.push((PickerAction::OpenAll, "open all"));
+        }
         if self.item_action_fn.is_some() {
             actions.extend([
                 (
@@ -59,8 +62,8 @@ impl<T: Send + Sync + 'static, D: Send + Sync + 'static> Picker<T, D> {
         }
         if self.show_preview && self.file_fn.is_some() && self.custom_preview.is_none() {
             actions.extend([
-                (PickerAction::PreviewScrollDown, "scroll preview down"),
-                (PickerAction::PreviewScrollUp, "scroll preview up"),
+                (PickerAction::PreviewScrollDown, "preview down"),
+                (PickerAction::PreviewScrollUp, "preview up"),
             ]);
         }
         let mut hints = self

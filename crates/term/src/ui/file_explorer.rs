@@ -141,6 +141,7 @@ pub(super) fn picker(
         accept,
     )
     .with_title("File Explorer")
+    .with_open_all(|(path, is_dir)| (!is_dir).then_some(path.as_path()))
     .with_preview(|_editor, (path, _is_dir)| Some((path.as_path().into(), None)))
     .with_quicklist(|_editor, (path, is_dir)| {
         if *is_dir {

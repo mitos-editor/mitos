@@ -25,6 +25,32 @@
 | `` <C-t> `` | `` toggle_preview `` |
 | `` <A-r> `` | `` toggle_replacement `` |
 
+## File picker
+
+| Key | Action |
+| --- | --- |
+| `` <ret> `` | `` accept `` |
+| `` <C-s> `` | `` accept_horizontal_split `` |
+| `` <A-ret> `` | `` accept_keep_open `` |
+| `` <C-v> `` | `` accept_vertical_split `` |
+| `` <C-c> ``, `` <esc> `` | `` cancel `` |
+| `` <C-n> ``, `` <tab> ``, `` <down> `` | `` move_down `` |
+| `` <end> `` | `` move_end `` |
+| `` <home> `` | `` move_start `` |
+| `` <up> ``, `` <C-p> ``, `` <S-tab> `` | `` move_up `` |
+| `` <A-a> `` | `` open_all `` |
+| `` <A-o> `` | `` open_preview `` |
+| `` <C-d> ``, `` <pagedown> `` | `` page_down `` |
+| `` <C-u> ``, `` <pageup> `` | `` page_up `` |
+| `` <C-q> `` | `` populate_quicklist `` |
+| `` <A-j> ``, `` <A-down> `` | `` preview_scroll_down `` |
+| `` <A-k> ``, `` <A-up> `` | `` preview_scroll_up `` |
+| `` <C-ret> ``, `` <Meta-ret> `` | `` replace_all `` |
+| `` <A-c> `` | `` toggle_case_sensitive `` |
+| `` <C-l> `` | `` toggle_loading `` |
+| `` <C-t> `` | `` toggle_preview `` |
+| `` <A-r> `` | `` toggle_replacement `` |
+
 ## Buffer picker
 
 | Key | Action |
@@ -234,6 +260,7 @@
 | `` <A-m> `` | `` move_path `` |
 | `` <home> `` | `` move_start `` |
 | `` <up> ``, `` <C-p> ``, `` <S-tab> `` | `` move_up `` |
+| `` <A-a> `` | `` open_all `` |
 | `` <A-o> `` | `` open_preview `` |
 | `` <C-d> ``, `` <pagedown> `` | `` page_down `` |
 | `` <C-u> ``, `` <pageup> `` | `` page_up `` |
@@ -271,6 +298,7 @@
 | `` gg ``, `` <home> `` | `` move_start `` |
 | `` k ``, `` <up> ``, `` <C-p> ``, `` <S-tab> `` | `` move_up `` |
 | `` <C-w>w ``, `` <C-w><C-w> `` | `` next_view `` |
+| `` <A-a> `` | `` open_all `` |
 | `` <A-o> `` | `` open_preview `` |
 | `` <C-d> ``, `` <pagedown> `` | `` page_down `` |
 | `` <C-u> ``, `` <pageup> `` | `` page_up `` |
@@ -303,6 +331,7 @@
 | `` <A-m> `` | `` move_path `` |
 | `` <home> `` | `` move_start `` |
 | `` <up> ``, `` <C-p> ``, `` <S-tab> `` | `` move_up `` |
+| `` <A-a> `` | `` open_all `` |
 | `` <A-o> `` | `` open_preview `` |
 | `` <C-d> ``, `` <pagedown> `` | `` page_down `` |
 | `` <C-u> ``, `` <pageup> `` | `` page_up `` |

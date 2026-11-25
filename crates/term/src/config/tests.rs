@@ -428,6 +428,35 @@ fn picker_keys_inherit_shared_bindings_with_context_specific_overrides() {
 }
 
 #[test]
+fn open_all_defaults_to_alt_a_in_file_pickers_and_can_be_remapped() {
+    use crate::keymap::component::PickerAction;
+    use ui_core::keymap::{KeymapState, Lookup};
+
+    let config = Config::load(
+        Ok(&"[keys.file-picker]\nA-a = 'unbound'\nF2 = 'open_all'".to_owned()),
+        Ok(String::new()),
+    )
+    .unwrap();
+    let defaults = Config::default().component_keys;
+    let keys = config.component_keys;
+    let mut state = KeymapState::default();
+    let alt_a = "A-a".parse().unwrap();
+    for map in [&defaults.file_picker, &keys.file_explorer] {
+        assert_eq!(
+            state.lookup(map, alt_a),
+            Lookup::Actions(&[PickerAction::OpenAll])
+        );
+    }
+    for map in [&keys.picker, &keys.file_picker] {
+        assert_eq!(state.lookup(map, alt_a), Lookup::Unbound);
+    }
+    assert_eq!(
+        state.lookup(&keys.file_picker, "F2".parse().unwrap()),
+        Lookup::Actions(&[PickerAction::OpenAll])
+    );
+}
+
+#[test]
 fn file_explorer_keys_default_to_alt_actions_and_can_be_remapped() {
     use crate::keymap::component::{PickerAction as P, PickerItemAction as I};
     use ui_core::keymap::{KeymapState, Lookup};
