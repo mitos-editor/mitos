@@ -116,7 +116,7 @@ async fn alt_a_confirms_large_batches_before_opening_files() -> anyhow::Result<(
     keys(&mut app, "<space>Ebatch").await?;
     wait_for(&mut app, |screen| screen.contains("51/55")).await?;
     keys(&mut app, "<A-a>").await?;
-    assert!(screen(&app).contains("Open 51 files?"));
+    assert!(screen(&app).contains("Open 51 buffers?"));
     assert_eq!(app.editor.documents().count(), 1);
     keys(&mut app, "<esc>").await?;
     assert!(screen(&app).contains("batch-00.txt"));

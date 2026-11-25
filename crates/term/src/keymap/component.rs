@@ -236,7 +236,6 @@ pub enum DiffAction {
 pub struct ComponentKeymaps {
     pub prompt: Keymap<PromptAction>,
     pub picker: Keymap<PickerAction>,
-    pub file_picker: Keymap<PickerAction>,
     pub buffer_picker: Keymap<PickerAction>,
     pub quicklist_picker: Keymap<PickerAction>,
     pub git_picker: Keymap<PickerAction>,
@@ -327,6 +326,7 @@ impl ComponentKeymaps {
             ("A-p", PickerAction::PreviewPrevious),
             ("A-n", PickerAction::PreviewNext),
             ("A-a", PickerAction::Item(I::Actions)),
+            ("A-A", PickerAction::OpenAll),
             ("A-s", PickerAction::Item(I::Stage)),
             ("A-u", PickerAction::Item(I::Unstage)),
             ("A-z", PickerAction::Item(I::Stash)),
@@ -342,14 +342,8 @@ impl ComponentKeymaps {
         shared
     }
 
-    pub fn file_picker(mut shared: Keymap<PickerAction>) -> Keymap<PickerAction> {
-        shared.merge(bindings(&[("A-a", PickerAction::OpenAll)]));
-        shared
-    }
-
-    pub fn file_explorer(shared: Keymap<PickerAction>) -> Keymap<PickerAction> {
+    pub fn file_explorer(mut shared: Keymap<PickerAction>) -> Keymap<PickerAction> {
         use PickerItemAction as I;
-        let mut shared = Self::file_picker(shared);
         shared.merge(bindings(&[
             ("A-n", PickerAction::Item(I::CreatePath)),
             ("A-m", PickerAction::Item(I::MovePath)),
@@ -418,6 +412,7 @@ impl Default for ComponentKeymaps {
             ("esc", K::Cancel),
             ("C-c", K::Cancel),
             ("C-q", K::PopulateQuicklist),
+            ("A-a", K::OpenAll),
             ("A-ret", K::AcceptKeepOpen),
             ("ret", K::Accept),
             ("C-s", K::AcceptHorizontalSplit),
@@ -482,7 +477,6 @@ impl Default for ComponentKeymaps {
                 ("C-r", P::InsertRegister),
                 ("A-r", P::ToggleSearchSyntax),
             ]),
-            file_picker: Self::file_picker(picker.clone()),
             buffer_picker: picker.clone(),
             quicklist_picker: quicklist_picker_keymap(&picker),
             git_picker: Self::git_picker(picker.clone()),

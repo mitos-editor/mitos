@@ -323,7 +323,6 @@ pub fn component_keymaps() -> Result<String, DynError> {
         };
     }
     section!("Picker", picker);
-    section!("File picker", file_picker);
     section!("Buffer picker", buffer_picker);
     section!("Quicklist picker", quicklist_picker);
     section!("Git picker", git_picker);

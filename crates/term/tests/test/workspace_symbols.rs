@@ -579,6 +579,38 @@ async fn lazy_symbol_resolutions_keep_their_originating_provider_after_focus_mov
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn alt_a_opens_workspace_symbol_files_without_resolving_locations() -> anyhow::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let gate = Gate::new(dir.path().join("symbol-query-ready"));
+    let mut app = fixture(
+        dir.path(),
+        &[
+            "--lazy-symbols",
+            "--symbol-query-gate",
+            gate.path().to_str().unwrap(),
+        ],
+    )
+    .await?;
+    super::helpers::keys(&mut app, "<space>S<C-t>").await?;
+    gate.release()?;
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while !screen(&app).contains("symbols:other") {
+            super::helpers::keys(&mut app, "").await?;
+        }
+        anyhow::Ok(())
+    })
+    .await??;
+    super::helpers::keys(&mut app, "<A-a>").await?;
+    assert!(!screen(&app).contains("Workspace Symbols"));
+    let messages = lsp::read_log(&lsp::log_path(dir.path(), "symbols"))?;
+    assert!(!messages
+        .iter()
+        .any(|message| message["method"] == "workspaceSymbol/resolve"));
+    assert!(app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn hidden_symbol_previews_resolve_only_on_accept_and_keep_split_navigation(
 ) -> anyhow::Result<()> {
     let dir = tempfile::tempdir()?;

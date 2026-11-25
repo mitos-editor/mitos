@@ -28,7 +28,7 @@ use lsp_client::{lsp, OffsetEncoding};
 use std::path::{Path, PathBuf};
 
 /// The destination referenced by a quicklist entry.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum QuicklistTarget {
     /// A file on disk.
     Path(PathBuf),

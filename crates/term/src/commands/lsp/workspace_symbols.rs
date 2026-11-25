@@ -176,6 +176,11 @@ pub(super) fn picker(cx: &mut Context) {
         },
     )
     .with_preview(|editor, item| item.location(editor).and_then(location_to_file_location))
+    .with_open_all_target(|editor, item| {
+        item.is_current(editor)
+            .then(|| item.uri.as_path().map(Into::into))
+            .flatten()
+    })
     .with_quicklist_batch(|cx, items, cancel| {
         let requests = items
             .into_iter()

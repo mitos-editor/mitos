@@ -224,6 +224,7 @@ workspace.
 
 | Key | Action |
 | --- | --- |
+| `Alt-Shift-a` | Open the working copies of all matching files |
 | `Alt-s` | Stage the selected file as it exists on disk |
 | `Alt-u` | Unstage the selected file, keeping its working copy |
 | `Alt-z` | Stash all repository changes, after confirmation |

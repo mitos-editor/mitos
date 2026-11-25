@@ -40,7 +40,7 @@ impl<T: Send + Sync + 'static, D: Send + Sync + 'static> Picker<T, D> {
         {
             actions.push((PickerAction::ToggleLoading, "pause / continue / retry"));
         }
-        if self.open_all_path.is_some() {
+        if self.supports_open_all() {
             actions.push((PickerAction::OpenAll, "open all"));
         }
         if self.item_action_fn.is_some() {

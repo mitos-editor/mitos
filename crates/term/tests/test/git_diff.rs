@@ -114,6 +114,32 @@ async fn jujutsu_diff_command_compares_parent_with_unsaved_buffer() -> anyhow::R
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn alt_shift_a_opens_all_matching_git_changed_files() -> anyhow::Result<()> {
+    let Some(root) =
+        isolation::workspace("test::git_diff::alt_shift_a_opens_all_matching_git_changed_files")?
+    else {
+        return Ok(());
+    };
+    let workspace = root.join("workspace");
+    git(&workspace, &["init"]);
+    for name in ["first.txt", "second.txt"] {
+        std::fs::write(workspace.join(name), name)?;
+    }
+    let mut app = AppBuilder::new().with_config(test_config()).build()?;
+    keys(&mut app, "<space>gs").await?;
+    preview_contains(&mut app, "2/2").await?;
+    keys(&mut app, "<A-A>").await?;
+    for name in ["first.txt", "second.txt"] {
+        assert!(app
+            .editor
+            .document_id_by_path(&workspace.join(name))
+            .is_some());
+    }
+    assert_eq!(app.editor.tree.views().count(), 1);
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn native_review_reopens_picker_and_opens_another_diff_in_a_split() -> anyhow::Result<()> {
     let Some(root) = isolation::workspace(
         "test::git_diff::native_review_reopens_picker_and_opens_another_diff_in_a_split",

@@ -65,7 +65,7 @@ pub const MAX_FILE_SIZE_FOR_PREVIEW: u64 = 10 * 1024 * 1024;
 #[path = "syntax_preview_tests.rs"]
 mod syntax_preview_tests;
 
-#[derive(PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub enum PathOrId<'a> {
     Id(DocumentId),
     Path(&'a Path),

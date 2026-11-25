@@ -138,7 +138,6 @@ belong in `keys.normal`, `keys.insert`, and `keys.select`.
 | --- | --- |
 | `keys.prompt` | `accept`, `cancel`, `move_left`, `move_right`, `move_word_left`, `move_word_right`, `move_word_end`, `move_start`, `move_end`, `delete_backward`, `delete_forward`, `delete_word_backward`, `delete_word_forward`, `delete_to_start`, `delete_to_end`, `insert_word`, `insert_register`, `history_previous`, `history_next`, `complete_previous`, `complete_next`, `exit_selection`, `toggle_search_syntax` |
 | `keys.picker` | `accept`, `accept_keep_open`, `accept_horizontal_split`, `accept_vertical_split`, `open_all`, `cancel`, `move_up`, `move_down`, `move_start`, `move_end`, `page_up`, `page_down`, `toggle_preview`, `toggle_loading`, `populate_quicklist`, `toggle_replacement`, `toggle_case_sensitive`, `replace_all`, `preview_scroll_up`, `preview_scroll_down`, `preview_previous`, `preview_next`, `open_preview` |
-| `keys.file-picker` | All `keys.picker` actions |
 | `keys.buffer-picker` | All `keys.picker` actions, plus `close_buffer` |
 | `keys.quicklist-picker` | All `keys.picker` actions, plus `remove_entry` |
 | `keys.git-picker` | All `keys.picker` actions, plus `stage`, `unstage`, `stash`, `actions`, `stashes` |
@@ -157,7 +156,7 @@ belong in `keys.normal`, `keys.insert`, and `keys.select`.
 All component tables also accept `no_op` and `unbound`. Popup scrolling and menu
 paging move by half a page. Picker paging moves by a full page.
 
-`keys.file-picker`, `keys.buffer-picker`, `keys.quicklist-picker`, `keys.git-picker`,
+`keys.buffer-picker`, `keys.quicklist-picker`, `keys.git-picker`,
 `keys.branch-picker`, `keys.worktree-picker`, `keys.stash-picker`,
 `keys.history-picker`, and `keys.file-explorer` inherit
 `keys.picker`.
@@ -165,8 +164,9 @@ Picker-specific bindings take priority over shared picker bindings, including
 ones from project configuration. The quicklist picker also binds `Ctrl-x` to
 `remove_entry` by default.
 
-`open_all` opens every matching file in the file picker or explorer. It skips
-directories and asks for confirmation above 50 files. The default key is `Alt-a`.
+`open_all` opens each distinct file or buffer referenced by the current matches.
+It skips directories and asks for confirmation above 50 targets. The default
+key is `Alt-a`, or `Alt-Shift-a` in the Git changed-files picker.
 
 `close_buffer` closes the selected buffer while keeping the picker open. It
 waits for pending saves and refuses to discard unsaved changes. After closing,

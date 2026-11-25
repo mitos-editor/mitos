@@ -399,6 +399,10 @@ impl Compositor {
             .find_map(|component| (component.as_mut() as &mut dyn Any).downcast_mut())
     }
 
+    pub(crate) fn top_mut<T: 'static>(&mut self) -> Option<&mut T> {
+        (self.layers.last_mut()?.as_mut() as &mut dyn Any).downcast_mut()
+    }
+
     pub fn find_id<T: 'static>(&mut self, id: &'static str) -> Option<&mut T> {
         self.layers
             .iter_mut()

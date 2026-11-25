@@ -347,8 +347,6 @@ pub fn file_picker(editor: &Editor, root: PathBuf) -> FilePicker {
         },
     )
     .with_title("Files")
-    .with_keymap(|maps| &maps.file_picker)
-    .with_open_all(|path| Some(path))
     .with_preview(|_editor, path| Some((path.as_path().into(), None)))
     .with_file_updates(
         editor,

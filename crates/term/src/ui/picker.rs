@@ -48,7 +48,6 @@ use view::graphics::RectExt as _;
 
 use std::{
     borrow::Cow,
-    path::Path,
     sync::{
         atomic::{self, AtomicUsize},
         Arc,
@@ -81,6 +80,7 @@ pub(crate) use updates::UpdateContext;
 pub(crate) use updates::{PickerSource, SourceInput};
 
 type FileCallback<T> = Box<dyn for<'a> Fn(&'a Editor, &'a T) -> Option<FileLocation<'a>>>;
+type OpenTargetFn<T> = for<'a> fn(&'a Editor, &'a T) -> Option<PathOrId<'a>>;
 type QuicklistCallback<T> = Box<dyn Fn(&Editor, &T) -> Option<QuicklistEntry>>;
 type QuicklistBatchCallback<T> = Box<dyn Fn(&mut Context, Vec<&T>, event::TaskHandle)>;
 type SelectedPreview<'picker, 'editor> = (
@@ -318,7 +318,7 @@ pub struct Picker<T: 'static + Send + Sync, D: 'static> {
     widths: Vec<Constraint>,
 
     callback_fn: PickerCallback<T, D>,
-    open_all_path: Option<fn(&T) -> Option<&Path>>,
+    open_all_target: Option<OpenTargetFn<T>>,
     /// Embedded pickers return focus to their parent instead of popping a layer.
     on_close: Option<fn(&mut Compositor, &mut Context)>,
     default_action: Action,
@@ -463,7 +463,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             show_preview: true,
             preview_area: None,
             callback_fn: Box::new(callback_fn),
-            open_all_path: None,
+            open_all_target: None,
             on_close: None,
             default_action: Action::Replace,
             completion_height: 0,
@@ -659,16 +659,9 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         self
     }
 
-    pub(super) fn with_keymap(
-        mut self,
-        keymap: fn(&ComponentKeymaps) -> &Keymap<PickerAction>,
-    ) -> Self {
-        self.keymap = keymap;
-        self
-    }
-
-    pub(super) fn with_open_all(mut self, path: fn(&T) -> Option<&Path>) -> Self {
-        self.open_all_path = Some(path);
+    /// Override the preview target for bulk opening.
+    pub(crate) fn with_open_all_target(mut self, target: OpenTargetFn<T>) -> Self {
+        self.open_all_target = Some(target);
         self
     }
 
@@ -1625,7 +1618,8 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                             .set_status(format!("Quicklist populated with {count} entries"));
                     }
                 }
-                PickerAction::OpenAll => return self.open_all(ctx),
+                PickerAction::OpenAll if self.supports_open_all() => return self.open_all(ctx),
+                PickerAction::OpenAll => {}
                 PickerAction::AcceptKeepOpen => {
                     if let Some(option) = self.selection() {
                         let result = (self.callback_fn)(
@@ -1954,6 +1948,9 @@ impl<I: 'static + Send + Sync, D: 'static + Send + Sync> Component for Picker<I,
             .keys
             .lookup((self.keymap)(&ctx.config.current.component_keys), key_event)
         {
+            Lookup::Actions([PickerAction::OpenAll]) if !self.supports_open_all() => {
+                return self.prompt_handle_event(event, ctx);
+            }
             Lookup::Actions(actions) => actions,
             Lookup::Pending => return EventResult::Consumed(None),
             Lookup::Unbound => return self.prompt_handle_event(event, ctx),
