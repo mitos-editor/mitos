@@ -189,7 +189,8 @@ impl Sidebar {
     }
 
     pub fn has_pending_render(&self) -> bool {
-        self.picker.has_pending_render()
+        // The picker can settle while its deferred input still needs to run.
+        self.action_scheduled || self.picker.has_pending_render()
     }
 
     fn clear_pending_input(&mut self) {

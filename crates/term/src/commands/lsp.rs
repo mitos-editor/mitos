@@ -289,25 +289,32 @@ fn display_symbol_kind(kind: lsp::SymbolKind) -> &'static str {
     }
 }
 
-fn symbol_kind_cell<'a>(item: &'a SymbolInformationItem, data: &'a SymbolPickerData) -> Cell<'a> {
-    Span::styled(
-        display_symbol_kind(item.symbol.kind),
-        data.theme.get("ui.text.inactive"),
-    )
-    .into()
-}
-
-fn symbol_kind_icon(
-    item: &SymbolInformationItem,
-    data: &SymbolPickerData,
-) -> Option<Span<'static>> {
-    if !data.show_icons {
-        return None;
+impl SymbolPickerData {
+    fn kind_cell(&self, kind: lsp::SymbolKind) -> Cell<'static> {
+        Span::styled(
+            display_symbol_kind(kind),
+            self.theme.get("ui.text.inactive"),
+        )
+        .into()
     }
-    ICONS
-        .kind()
-        .get(symbol_kind_icon_name(item.symbol.kind))
-        .map(|icon| ui::icon_span(icon.with_no_left_padding()))
+
+    fn kind_icon(&self, kind: lsp::SymbolKind) -> Option<Span<'static>> {
+        if !self.show_icons {
+            return None;
+        }
+        ICONS
+            .kind()
+            .get(symbol_kind_icon_name(kind))
+            .map(|icon| ui::icon_span(icon.with_no_left_padding()))
+    }
+
+    fn name_span<'a>(&self, name: &'a str, kind: lsp::SymbolKind) -> Span<'a> {
+        Span::styled(name, self.theme.get(symbol_kind_scope(kind)))
+    }
+
+    fn container_cell<'a>(&self, name: Option<&'a str>) -> Cell<'a> {
+        Span::styled(name.unwrap_or_default(), self.theme.get("ui.text.inactive")).into()
+    }
 }
 
 fn symbol_name_cell<'a>(item: &'a SymbolInformationItem, data: &'a SymbolPickerData) -> Cell<'a> {
@@ -318,22 +325,8 @@ fn symbol_name_cell<'a>(item: &'a SymbolInformationItem, data: &'a SymbolPickerD
             data.theme.get("ui.text.inactive"),
         ));
     }
-    spans.push(Span::styled(
-        item.symbol.name.as_str(),
-        data.theme.get(symbol_kind_scope(item.symbol.kind)),
-    ));
+    spans.push(data.name_span(&item.symbol.name, item.symbol.kind));
     Line::from(spans).into()
-}
-
-fn symbol_container_cell<'a>(
-    item: &'a SymbolInformationItem,
-    data: &'a SymbolPickerData,
-) -> Cell<'a> {
-    Span::styled(
-        item.symbol.container_name.as_deref().unwrap_or_default(),
-        data.theme.get("ui.text.inactive"),
-    )
-    .into()
 }
 
 fn symbol_path_cell<'a>(uri: &editor_core::Uri, data: &'a SymbolPickerData) -> Cell<'a> {
@@ -420,9 +413,9 @@ mod symbol_picker_tests {
             theme: DEFAULT_THEME.clone(),
         };
 
-        let kind = symbol_kind_cell(&item, &data);
+        let kind = data.kind_cell(item.symbol.kind);
         let name = symbol_name_cell(&item, &data);
-        let container = symbol_container_cell(&item, &data);
+        let container = data.container_cell(item.symbol.container_name.as_deref());
         let path = symbol_path_cell(&item.symbol.location.uri, &data);
 
         assert_eq!(
@@ -468,10 +461,12 @@ mod symbol_picker_tests {
             theme: DEFAULT_THEME.clone(),
         };
 
-        let icon = symbol_kind_icon(&item, &data).expect("function icons are bundled");
+        let icon = data
+            .kind_icon(item.symbol.kind)
+            .expect("function icons are bundled");
 
         assert!(!icon.content.starts_with(' '));
-        let kind = symbol_kind_cell(&item, &data);
+        let kind = data.kind_cell(item.symbol.kind);
         assert_eq!(kind.content.lines[0].spans[0].content.as_ref(), "function");
     }
 
@@ -523,12 +518,16 @@ pub fn symbol_picker(cx: &mut Context) {
         return;
     }
     let (document, view) = (doc.id(), view.id);
+    type Column = ui::PickerColumn<SymbolInformationItem, SymbolPickerData>;
     let columns = [
-        ui::PickerColumn::new("kind", symbol_kind_cell).with_prefix(symbol_kind_icon),
+        Column::new("kind", |item, data| data.kind_cell(item.symbol.kind))
+            .with_prefix(|item, data| data.kind_icon(item.symbol.kind)),
         // Nested document symbols include their fully expanded tree guide in
         // the name column. Legacy flat responses remain unprefixed.
-        ui::PickerColumn::new("name", symbol_name_cell),
-        ui::PickerColumn::new("container", symbol_container_cell),
+        Column::new("name", symbol_name_cell),
+        Column::new("container", |item, data| {
+            data.container_cell(item.symbol.container_name.as_deref())
+        }),
     ];
     let picker = Picker::new(
         cx.editor.redraw().clone(),

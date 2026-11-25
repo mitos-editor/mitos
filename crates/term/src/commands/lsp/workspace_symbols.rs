@@ -75,37 +75,18 @@ pub(super) fn picker(cx: &mut Context) {
         .boxed()
     };
     let session = Arc::new(arc_swap::ArcSwap::from_pointee(session));
+    type Column = ui::PickerColumn<Item, WorkspaceSymbolPickerData>;
     let columns = [
-        ui::PickerColumn::new("kind", |item: &Item, data: &WorkspaceSymbolPickerData| {
-            Cell::from(Span::styled(
-                display_symbol_kind(item.kind),
-                data.style.theme.get("ui.text.inactive"),
-            ))
-        })
-        .with_prefix(|item, data| {
-            data.style
-                .show_icons
-                .then(|| ICONS.kind().get(symbol_kind_icon_name(item.kind)))
-                .flatten()
-                .map(|icon| ui::icon_span(icon.with_no_left_padding()))
-        }),
-        ui::PickerColumn::new("name", |item: &Item, data: &WorkspaceSymbolPickerData| {
-            Cell::from(Span::styled(
-                item.name.as_str(),
-                data.style.theme.get(symbol_kind_scope(item.kind)),
-            ))
+        Column::new("kind", |item, data| data.style.kind_cell(item.kind))
+            .with_prefix(|item, data| data.style.kind_icon(item.kind)),
+        Column::new("name", |item, data| {
+            data.style.name_span(&item.name, item.kind).into()
         })
         .without_filtering(),
-        ui::PickerColumn::new(
-            "container",
-            |item: &Item, data: &WorkspaceSymbolPickerData| {
-                Cell::from(Span::styled(
-                    item.container_name.as_deref().unwrap_or_default(),
-                    data.style.theme.get("ui.text.inactive"),
-                ))
-            },
-        ),
-        ui::PickerColumn::new("path", |item: &Item, data: &WorkspaceSymbolPickerData| {
+        Column::new("container", |item, data| {
+            data.style.container_cell(item.container_name.as_deref())
+        }),
+        Column::new("path", |item, data| {
             symbol_path_cell(&item.uri, &data.style)
         }),
     ];
