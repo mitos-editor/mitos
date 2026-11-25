@@ -19,6 +19,16 @@ impl Editor {
             .as_path()
             .context("document location requires a local file URI")?;
         let document = self.open(path, action)?;
+        self.position_document_location(document, selection, encoding);
+        Ok(document)
+    }
+
+    pub(crate) fn position_document_location(
+        &mut self,
+        document: DocumentId,
+        selection: Option<lsp::Range>,
+        encoding: OffsetEncoding,
+    ) {
         // Prefer the focused destination, otherwise an existing split. A hidden
         // buffer has no displayed selection to position.
         let target = self
@@ -42,6 +52,5 @@ impl Editor {
                 log::warn!("LSP document position out of bounds: {range:?}");
             }
         }
-        Ok(document)
     }
 }

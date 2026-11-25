@@ -747,10 +747,13 @@ async fn failed_search_discards_input_queued_for_its_result() -> anyhow::Result<
         return Ok(());
     }
     let (mut app, _dir, _root) = sidebar().await?;
+    // Clear the previous filter while its synchronous directory listing can
+    // succeed. Only the following background search should fail.
+    keys(&mut app, "/").await?;
     let workspace = workspace::ResolvedWorkspace::current().into_root();
     let moved = workspace.with_file_name("moved-workspace");
     std::fs::rename(&workspace, &moved)?;
-    queued_keys(&mut app, "/b.txt<ret><ret><C-e>").await?;
+    queued_keys(&mut app, "b.txt<ret><ret><C-e>").await?;
     let result = keys(&mut app, "").await;
     std::fs::rename(&moved, &workspace)?;
     result?;

@@ -15,6 +15,7 @@ use super::Document;
 pub(super) enum DocumentSource {
     FileOrScratch,
     Virtual { name: String },
+    LanguageServer(crate::features::virtual_documents::DocumentSource),
     Revision(HistoricalDocument),
     Review(Box<ReviewDocument>),
 }
@@ -27,6 +28,7 @@ impl Document {
         match &self.source {
             DocumentSource::FileOrScratch => self.path(),
             DocumentSource::Virtual { .. } => self.path(),
+            DocumentSource::LanguageServer(_) => None,
             DocumentSource::Revision(source) => Some(&source.path),
             DocumentSource::Review(review) => Some(review.path()),
         }
@@ -38,7 +40,9 @@ impl Document {
     pub fn is_content_readonly(&self) -> bool {
         matches!(
             self.source,
-            DocumentSource::Revision(_) | DocumentSource::Review(_)
+            DocumentSource::Revision(_)
+                | DocumentSource::Review(_)
+                | DocumentSource::LanguageServer(_)
         )
     }
 
@@ -96,14 +100,35 @@ impl Document {
     }
 
     pub(crate) fn is_virtual(&self) -> bool {
-        matches!(self.source, DocumentSource::Virtual { .. })
+        matches!(
+            self.source,
+            DocumentSource::Virtual { .. } | DocumentSource::LanguageServer(_)
+        )
     }
 
     pub(super) fn virtual_name(&self) -> Option<&str> {
         match &self.source {
             DocumentSource::Virtual { name } => Some(name),
+            DocumentSource::LanguageServer(source) => Some(source.uri.as_str()),
             _ => None,
         }
+    }
+
+    pub(crate) fn language_server_source(
+        &self,
+    ) -> Option<&crate::features::virtual_documents::DocumentSource> {
+        match &self.source {
+            DocumentSource::LanguageServer(source) => Some(source),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn with_language_server_source(
+        mut self,
+        source: crate::features::virtual_documents::DocumentSource,
+    ) -> Self {
+        self.source = DocumentSource::LanguageServer(source);
+        self
     }
 }
 

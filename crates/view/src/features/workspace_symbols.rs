@@ -131,8 +131,21 @@ impl Drop for PendingQuery {
 }
 
 impl Query {
+    fn uri(&self, uri: &lsp::Uri) -> Option<editor_core::Uri> {
+        if let Ok(uri) = uri.to_editor_uri() {
+            return Some(uri);
+        }
+        let server = self.server.upgrade()?;
+        if !server.supports_text_document_content(uri) {
+            return None;
+        }
+        Some(editor_core::Uri::Virtual(uri.to_editor_url().ok()?))
+    }
+
     fn location(&self, location: lsp::Location) -> Option<Location> {
-        Location::from_lsp(location, self.encoding)
+        self.uri(&location.uri)?;
+        let server = self.server.upgrade()?;
+        Location::from_server(location, self.encoding, server.id())
     }
 
     fn is_current(&self, editor: &Editor) -> bool {
@@ -314,7 +327,7 @@ fn normalize_symbols(
                     let location = query.location(location.clone())?;
                     (location.uri.clone(), Some(location))
                 }
-                lsp::OneOf::Right(location) => (location.uri.to_editor_uri().ok()?, None),
+                lsp::OneOf::Right(location) => (query.uri(&location.uri)?, None),
             };
             let cache = OnceLock::new();
             if let Some(location) = location {

@@ -50,6 +50,9 @@ impl Editor {
         let Some(doc) = self.documents.get_mut(&doc_id) else {
             return;
         };
+        if doc.language_server_source().is_some() {
+            return;
+        }
         let Some(_) = doc.url() else {
             return;
         };

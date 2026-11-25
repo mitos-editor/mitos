@@ -61,6 +61,7 @@ use serde::de::{self, Deserialize, Deserializer};
 use serde::Serialize;
 use std::collections::HashMap;
 use std::fmt::Display;
+use std::path::Path;
 use std::str::FromStr;
 use std::sync::Arc;
 
@@ -363,9 +364,13 @@ impl Document {
         if self.is_binary() || self.review().is_some() {
             return None;
         }
-        let language = loader
-            .language_for_filename(self.source_path()?)
-            .or_else(|| loader.language_for_shebang(self.text().slice(..)))?;
+        let language = if let Some(source) = self.language_server_source() {
+            loader.language_for_filename(Path::new(source.uri.path().as_str()))
+        } else {
+            loader
+                .language_for_filename(self.source_path()?)
+                .or_else(|| loader.language_for_shebang(self.text().slice(..)))
+        }?;
 
         Some(loader.language(language).config().clone())
     }
