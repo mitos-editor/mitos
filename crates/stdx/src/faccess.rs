@@ -66,7 +66,7 @@ mod imp {
     }
 }
 
-// Licensed under MIT from faccess except for `chown`, `copy_metadata` and `is_acl_inherited`
+// Adapted from faccess, licensed under MIT.
 #[cfg(windows)]
 mod imp {
 
@@ -75,13 +75,13 @@ mod imp {
         GetNamedSecurityInfoW, SetNamedSecurityInfoW, SE_FILE_OBJECT,
     };
     use windows_sys::Win32::Security::{
-        AccessCheck, AclSizeInformation, GetAce, GetAclInformation, GetSidIdentifierAuthority,
-        ImpersonateSelf, IsValidAcl, IsValidSid, MapGenericMask, RevertToSelf,
-        SecurityImpersonation, ACCESS_ALLOWED_CALLBACK_ACE, ACL, ACL_SIZE_INFORMATION,
-        DACL_SECURITY_INFORMATION, GENERIC_MAPPING, GROUP_SECURITY_INFORMATION, INHERITED_ACE,
+        AccessCheck, GetSecurityDescriptorControl, GetSidIdentifierAuthority, ImpersonateSelf,
+        IsValidSid, MapGenericMask, RevertToSelf, SecurityImpersonation, ACL,
+        DACL_SECURITY_INFORMATION, GENERIC_MAPPING, GROUP_SECURITY_INFORMATION,
         LABEL_SECURITY_INFORMATION, OBJECT_SECURITY_INFORMATION, OWNER_SECURITY_INFORMATION,
         PRIVILEGE_SET, PROTECTED_DACL_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR, PSID,
-        SID_IDENTIFIER_AUTHORITY, TOKEN_DUPLICATE, TOKEN_QUERY,
+        SECURITY_DESCRIPTOR_CONTROL, SE_DACL_PRESENT, SE_DACL_PROTECTED, SID_IDENTIFIER_AUTHORITY,
+        TOKEN_DUPLICATE, TOKEN_QUERY, UNPROTECTED_DACL_SECURITY_INFORMATION,
     };
     use windows_sys::Win32::Storage::FileSystem::{
         GetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION, FILE_ALL_ACCESS,
@@ -90,8 +90,6 @@ mod imp {
     use windows_sys::Win32::System::Threading::{GetCurrentThread, OpenThreadToken};
 
     use super::*;
-
-    use std::ffi::c_void;
 
     use std::os::windows::{
         ffi::OsStrExt,
@@ -159,29 +157,14 @@ mod imp {
             }
         }
 
-        fn is_acl_inherited(&self) -> bool {
-            let mut acl_info: ACL_SIZE_INFORMATION = unsafe { ::core::mem::zeroed() };
-            let acl_info_ptr: *mut c_void = &mut acl_info as *mut _ as *mut c_void;
-            let mut ace: ACCESS_ALLOWED_CALLBACK_ACE = unsafe { ::core::mem::zeroed() };
-
-            unsafe {
-                GetAclInformation(
-                    self.dacl,
-                    acl_info_ptr,
-                    std::mem::size_of_val(&acl_info) as u32,
-                    AclSizeInformation,
-                )
-            };
-
-            for i in 0..acl_info.AceCount {
-                let mut ptr = &mut ace as *mut _ as *mut c_void;
-                unsafe { GetAce(self.dacl, i, &mut ptr) };
-                if (ace.Header.AceFlags as u32 & INHERITED_ACE) != 0 {
-                    return true;
-                }
+        fn control(&self) -> io::Result<SECURITY_DESCRIPTOR_CONTROL> {
+            let mut control = 0;
+            let mut revision = 0;
+            // SAFETY: The descriptor returned by GetNamedSecurityInfoW is owned by self.
+            if unsafe { GetSecurityDescriptorControl(self.sd, &mut control, &mut revision) } == 0 {
+                return Err(io::Error::last_os_error());
             }
-
-            false
+            Ok(control)
         }
 
         fn descriptor(&self) -> &PSECURITY_DESCRIPTOR {
@@ -333,12 +316,16 @@ mod imp {
             group = sd.group;
         }
 
-        if unsafe { IsValidAcl(sd.dacl) } != 0 {
+        let control = sd.control()?;
+        // A null DACL can be present and must be passed through as null.
+        if control & SE_DACL_PRESENT != 0 {
             si |= DACL_SECURITY_INFORMATION;
-            if !sd.is_acl_inherited() {
-                si |= PROTECTED_DACL_SECURITY_INFORMATION;
-            }
-            dacl = sd.dacl as *const _;
+            si |= if control & SE_DACL_PROTECTED != 0 {
+                PROTECTED_DACL_SECURITY_INFORMATION
+            } else {
+                UNPROTECTED_DACL_SECURITY_INFORMATION
+            };
+            dacl = sd.dacl.cast_const();
         }
 
         let err = unsafe {
@@ -385,6 +372,46 @@ mod imp {
             Err(std::io::Error::last_os_error())
         } else {
             Ok(info.nNumberOfLinks as u64)
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn copy_metadata_preserves_dacl_inheritance() {
+            let directory = tempfile::tempdir().unwrap();
+            let inherited = directory.path().join("inherited.txt");
+            let protected = directory.path().join("protected.txt");
+            let target = directory.path().join("target.txt");
+            for path in [&inherited, &protected, &target] {
+                File::create(path).unwrap();
+            }
+
+            let output = std::process::Command::new("icacls")
+                .arg(&protected)
+                .arg("/inheritancelevel:d")
+                .output()
+                .unwrap();
+            assert!(output.status.success(), "{output:?}");
+
+            let is_protected = |path: &Path| {
+                SecurityDescriptor::for_path(path)
+                    .unwrap()
+                    .control()
+                    .unwrap()
+                    & SE_DACL_PROTECTED
+                    != 0
+            };
+            assert!(is_protected(&protected));
+            assert!(!is_protected(&inherited));
+            assert!(!is_protected(&target));
+
+            copy_metadata(&protected, &target).unwrap();
+            assert!(is_protected(&target));
+            copy_metadata(&inherited, &target).unwrap();
+            assert!(!is_protected(&target));
         }
     }
 }
