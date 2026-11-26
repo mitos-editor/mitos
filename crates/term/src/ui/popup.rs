@@ -37,6 +37,7 @@ pub struct Popup<T: Component> {
     keys: KeymapState,
     contents: T,
     position: Option<DisplayPosition>,
+    follow_cursor: bool,
     area: Rect,
     inner_area: Rect,
     position_bias: Open,
@@ -55,6 +56,7 @@ impl<T: Component> Popup<T> {
             contents,
             keys: KeymapState::default(),
             position: None,
+            follow_cursor: true,
             position_bias: Open::Below,
             area: Rect::new(0, 0, 0, 0),
             inner_area: Rect::default(),
@@ -74,6 +76,14 @@ impl<T: Component> Popup<T> {
     /// but rather the screen-space position of the information to which the popup refers.
     pub fn position(mut self, pos: Option<DisplayPosition>) -> Self {
         self.position = pos;
+        self
+    }
+
+    /// Mouse interactions stay anchored to the hit cell, including a hit in an
+    /// unfocused split. None retains the existing caret-following behavior.
+    pub(crate) fn anchor(mut self, pos: Option<DisplayPosition>) -> Self {
+        self.position = pos;
+        self.follow_cursor = pos.is_none();
         self
     }
 
@@ -158,11 +168,22 @@ impl<T: Component> Popup<T> {
     ) -> RenderInfo {
         if let Some(old_position) = self
             .position
-            .filter(|old_position| old_position.row == position.row)
+            .filter(|old_position| !self.follow_cursor || old_position.row == position.row)
         {
             position = old_position;
         } else {
             self.position = Some(position);
+        }
+        if !self.follow_cursor {
+            // A mouse-anchored explicit menu may remain open during a resize.
+            // Keep its placement inside the new screen without changing the
+            // existing caret-following policy for keyboard popups.
+            position.row = position
+                .row
+                .min(usize::from(viewport.height.saturating_sub(1)));
+            position.col = position
+                .col
+                .min(usize::from(viewport.width.saturating_sub(1)));
         }
 
         // -- make sure frame doesn't stick out of bounds
@@ -473,6 +494,37 @@ mod tests {
             popup.handle_mouse_event(&mouse),
             EventResult::Ignored(Some(_))
         ));
+    }
+
+    #[test]
+    fn fixed_screen_anchors_do_not_follow_a_different_caret_row() {
+        use super::*;
+        let viewport = Rect::new(0, 0, 80, 24);
+        let mut fixed = Popup::new("fixed", crate::ui::Text::new("tooltip".into()))
+            .anchor(Some(DisplayPosition::new(2, 4)));
+        let hit = fixed
+            .render_info(viewport, DisplayPosition::new(12, 50))
+            .area;
+        assert_eq!((hit.y, hit.x), (3, 4));
+        let mut keyboard = Popup::new("keyboard", crate::ui::Text::new("tooltip".into()));
+        keyboard.render_info(viewport, DisplayPosition::new(2, 4));
+        let caret = keyboard
+            .render_info(viewport, DisplayPosition::new(12, 50))
+            .area;
+        assert_eq!((caret.y, caret.x), (13, 50));
+    }
+
+    #[test]
+    fn fixed_screen_anchors_remain_visible_after_the_terminal_shrinks() {
+        use super::*;
+        let mut popup = Popup::new("fixed", crate::ui::Text::new("tooltip".into()))
+            .anchor(Some(DisplayPosition::new(22, 70)));
+        popup.render_info(Rect::new(0, 0, 80, 24), DisplayPosition::default());
+        let viewport = Rect::new(0, 0, 30, 10);
+        let area = popup.render_info(viewport, DisplayPosition::default()).area;
+        assert!(!area.is_empty());
+        assert!(area.right() <= viewport.right());
+        assert!(area.bottom() <= viewport.bottom());
     }
 
     #[test]

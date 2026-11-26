@@ -1,5 +1,11 @@
 //! Details and explicit actions for complete, structured inlay hints.
 
+mod mouse;
+pub(crate) use mouse::{
+    clicked as mouse_clicked, hit_at as mouse_hit_at, moved as mouse_moved, remove_hover,
+    MouseHints,
+};
+
 use std::sync::Arc;
 
 use crate::{
@@ -21,19 +27,42 @@ use view::{
 };
 
 pub(crate) fn request(compositor: &mut Compositor, cx: &mut Context, target: InlayHintTarget) {
+    request_with(
+        compositor,
+        cx,
+        target,
+        PendingHint::ID,
+        None,
+        false,
+        |compositor, cx, resolved| present(compositor, cx, resolved, None),
+    );
+}
+
+fn request_with(
+    compositor: &mut Compositor,
+    cx: &mut Context,
+    target: InlayHintTarget,
+    id: &'static str,
+    anchor: Option<text_layout::DisplayPosition>,
+    passive: bool,
+    ready: impl FnOnce(&mut Compositor, &mut Context, Arc<ResolvedInlayHint>) + Send + 'static,
+) {
     let Some(future) = inlay_hints::resolve(cx.editor, target.clone()) else {
         return;
     };
     let mut lifetime = event::TaskController::new();
     let pending = lifetime.restart();
     let loading = PendingHint {
+        id,
         target,
         _lifetime: lifetime,
         text: ui::Text::new("Loading inlay hint…".into()),
     };
     compositor.replace_or_push(
-        PendingHint::ID,
-        Popup::new(PendingHint::ID, loading)
+        id,
+        Popup::new(id, loading)
+            .anchor(anchor)
+            .ignore_escape_key(passive)
             .with_border(ui::PopupBorder::Hover)
             .auto_close(true),
     );
@@ -46,19 +75,20 @@ pub(crate) fn request(compositor: &mut Compositor, cx: &mut Context, target: Inl
             if pending.is_canceled() {
                 return;
             }
-            compositor.remove(PendingHint::ID);
+            compositor.remove(id);
             let Some(resolved) = resolved else { return };
             if !resolved.is_current(cx.editor) {
                 return;
             }
             resolved.cache(cx.editor);
-            present(compositor, cx, Arc::new(resolved), None);
+            ready(compositor, cx, Arc::new(resolved));
         }))
         .await;
     });
 }
 
 struct PendingHint {
+    id: &'static str,
     target: InlayHintTarget,
     // This frontend input lifetime ends on Escape, unbound input, replacement,
     // or application shutdown, independently of the document's request lifetime.
@@ -73,14 +103,17 @@ impl PendingHint {
 impl Component for PendingHint {
     fn update(&mut self, _: Rect, cx: &mut Context) {
         if !self.target.is_current(cx.editor) {
-            cx.jobs.sender().enqueue(Callback::ui(|compositor, cx| {
-                if compositor
-                    .find_id::<Popup<PendingHint>>(PendingHint::ID)
-                    .is_some_and(|popup| !popup.contents().target.is_current(cx.editor))
-                {
-                    compositor.remove(PendingHint::ID);
-                }
-            }));
+            let id = self.id;
+            cx.jobs
+                .sender()
+                .enqueue(Callback::ui(move |compositor, cx| {
+                    if compositor
+                        .find_id::<Popup<PendingHint>>(id)
+                        .is_some_and(|popup| !popup.contents().target.is_current(cx.editor))
+                    {
+                        compositor.remove(id);
+                    }
+                }));
         }
     }
 
@@ -106,6 +139,16 @@ pub(crate) fn present(
     resolved: Arc<ResolvedInlayHint>,
     part: Option<usize>,
 ) {
+    present_at(compositor, cx, resolved, part, None);
+}
+
+fn present_at(
+    compositor: &mut Compositor,
+    cx: &mut Context,
+    resolved: Arc<ResolvedInlayHint>,
+    part: Option<usize>,
+    anchor: Option<text_layout::DisplayPosition>,
+) {
     if !resolved.is_current(cx.editor) {
         return;
     }
@@ -120,7 +163,7 @@ pub(crate) fn present(
         })
         .collect();
     if actions.is_empty() {
-        show_details(compositor, cx.editor, resolved);
+        show_details_at(compositor, cx.editor, resolved, part, anchor);
         return;
     }
     let mut items = vec![HintMenuItem {
@@ -167,7 +210,7 @@ pub(crate) fn present(
                 let result = result.clone();
                 jobs.enqueue(Callback::ui(move |compositor, cx| {
                     if result.is_current(cx.editor) {
-                        show_details(compositor, cx.editor, result);
+                        show_details_at(compositor, cx.editor, result, part, anchor);
                     }
                 }));
             }
@@ -178,6 +221,7 @@ pub(crate) fn present(
     compositor.replace_or_push(
         HintActions::ID,
         Popup::new(HintActions::ID, contents)
+            .anchor(anchor)
             .with_border(ui::PopupBorder::Hover)
             .with_scrollbar(false)
             .auto_close(true),
@@ -191,12 +235,22 @@ fn part_label(hint: &ResolvedInlayHint, index: usize) -> &str {
     }
 }
 
-fn show_details(compositor: &mut Compositor, editor: &Editor, resolved: Arc<ResolvedInlayHint>) {
+fn show_details_at(
+    compositor: &mut Compositor,
+    editor: &Editor,
+    resolved: Arc<ResolvedInlayHint>,
+    part: Option<usize>,
+    anchor: Option<text_layout::DisplayPosition>,
+) {
     compositor.replace_or_push(
         HintDetails::ID,
-        Popup::new(HintDetails::ID, HintDetails::new(resolved, editor))
-            .with_border(ui::PopupBorder::Hover)
-            .auto_close(true),
+        Popup::new(
+            HintDetails::ID,
+            HintDetails::new(resolved, editor, part, HintDetails::ID),
+        )
+        .anchor(anchor)
+        .with_border(ui::PopupBorder::Hover)
+        .auto_close(true),
     );
 }
 
@@ -258,6 +312,7 @@ enum Content {
 }
 
 struct HintDetails {
+    id: &'static str,
     resolved: Arc<ResolvedInlayHint>,
     sections: Vec<Content>,
 }
@@ -265,7 +320,12 @@ struct HintDetails {
 impl HintDetails {
     const ID: &'static str = "inlay-hint-details";
 
-    fn new(resolved: Arc<ResolvedInlayHint>, editor: &Editor) -> Self {
+    fn new(
+        resolved: Arc<ResolvedInlayHint>,
+        editor: &Editor,
+        selected_part: Option<usize>,
+        id: &'static str,
+    ) -> Self {
         let mut sections = vec![Content::Plain(inlay_hints::label(&resolved.hint().label))];
         let content = |kind, value: String| {
             if kind == lsp::MarkupKind::Markdown {
@@ -283,7 +343,10 @@ impl HintDetails {
             });
         }
         if let lsp::InlayHintLabel::LabelParts(parts) = &resolved.hint().label {
-            for part in parts {
+            for (index, part) in parts.iter().enumerate() {
+                if selected_part.is_some_and(|selected| selected != index) {
+                    continue;
+                }
                 if let Some(tooltip) = &part.tooltip {
                     sections.push(Content::Plain(part.value.clone()));
                     sections.push(match tooltip {
@@ -297,7 +360,11 @@ impl HintDetails {
                 }
             }
         }
-        Self { resolved, sections }
+        Self {
+            id,
+            resolved,
+            sections,
+        }
     }
 
     fn text(&self, theme: Option<&theme::Theme>) -> Text<'_> {
@@ -321,14 +388,17 @@ impl HintDetails {
 impl Component for HintDetails {
     fn update(&mut self, _: Rect, cx: &mut crate::compositor::Context) {
         if !self.resolved.is_current(cx.editor) {
-            cx.jobs.sender().enqueue(Callback::ui(|compositor, cx| {
-                if compositor
-                    .find_id::<Popup<HintDetails>>(HintDetails::ID)
-                    .is_some_and(|popup| !popup.contents().resolved.is_current(cx.editor))
-                {
-                    compositor.remove(HintDetails::ID);
-                }
-            }));
+            let id = self.id;
+            cx.jobs
+                .sender()
+                .enqueue(Callback::ui(move |compositor, cx| {
+                    if compositor
+                        .find_id::<Popup<HintDetails>>(id)
+                        .is_some_and(|popup| !popup.contents().resolved.is_current(cx.editor))
+                    {
+                        compositor.remove(id);
+                    }
+                }));
         }
     }
 

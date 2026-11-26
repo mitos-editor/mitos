@@ -17,7 +17,10 @@ mod requests;
 mod state;
 
 pub use actions::InlayHintAction;
-pub use details::{hints_on_line, resolve, InlayHintItem, InlayHintTarget, ResolvedInlayHint};
+pub use details::{
+    hint_at_screen_coords, hints_on_line, resolve, InlayHintHit, InlayHintItem, InlayHintTarget,
+    ResolvedInlayHint,
+};
 pub use requests::refresh;
 pub(crate) use state::HintStyle;
 pub(crate) use state::InlayHintsState;
