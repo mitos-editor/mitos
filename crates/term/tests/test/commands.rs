@@ -110,6 +110,7 @@ async fn select_all_diagnostics_inside_selection() -> anyhow::Result<()> {
                     tags: Vec::<DiagnosticTag>::new(),
                     source: None,
                     data: None,
+                    details: None,
                 },
                 Diagnostic {
                     range: DiagnosticRange { start: 8, end: 11 },
@@ -124,6 +125,7 @@ async fn select_all_diagnostics_inside_selection() -> anyhow::Result<()> {
                     tags: Vec::<DiagnosticTag>::new(),
                     source: None,
                     data: None,
+                    details: None,
                 },
             ],
             &[],

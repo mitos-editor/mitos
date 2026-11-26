@@ -379,6 +379,7 @@ async fn narrow_views_keep_error_diagnostics_ahead_of_inline_blame() -> anyhow::
             tags: vec![],
             source: None,
             data: None,
+            details: None,
         }],
         &[],
         None,

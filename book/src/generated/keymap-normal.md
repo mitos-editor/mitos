@@ -305,6 +305,7 @@
 | `` <space>s `` | Open symbol picker from LSP or syntax information | `` lsp_or_syntax_symbol_picker `` |
 | `` <space>S `` | Open workspace symbol picker from LSP or syntax information | `` lsp_or_syntax_workspace_symbol_picker `` |
 | `` <space>d `` | Open diagnostic picker | `` diagnostics_picker `` |
+| `` <space><A-d> `` | Read the full diagnostic at the selection in a buffer | `` diagnostic_details `` |
 | `` <space>D `` | Open workspace diagnostic picker | `` workspace_diagnostics_picker `` |
 | `` <space>g `` | Version control | Prefix |
 | `` <space>a `` | Perform code action | `` code_action `` |

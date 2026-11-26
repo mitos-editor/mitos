@@ -21,6 +21,7 @@ fn diagnostic(provider: DiagnosticProvider, message: &str) -> Diagnostic {
         tags: Vec::new(),
         source: None,
         data: None,
+        details: None,
     }
 }
 

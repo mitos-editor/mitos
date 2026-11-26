@@ -272,6 +272,7 @@ fn spelling_diagnostic(text: RopeSlice, start: usize, end: usize, word: &str) ->
         tags: Vec::new(),
         source: Some("spelling".into()),
         data: None,
+        details: None,
     }
 }
 

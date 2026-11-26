@@ -71,6 +71,32 @@ fn open_navigation_target(
     use view::features::document_links::NavigationTarget;
 
     let (path, open_binary_externally) = match target {
+        NavigationTarget::Location {
+            uri,
+            range,
+            offset_encoding,
+        } => {
+            let Ok(path) = uri.to_file_path() else {
+                editor.set_error(|| {
+                    format!(
+                        "Cannot open related location with URI scheme '{}': {uri}",
+                        uri.scheme()
+                    )
+                });
+                return None;
+            };
+            let (view, doc) = current!(editor);
+            let origin_view = view.id;
+            let origin = (doc.id(), doc.selection(view.id).clone());
+            super::navigation::push_jump(view, doc);
+            super::lsp::jump_to_position(editor, &path, range, offset_encoding, action);
+            let focused = editor.tree.focus();
+            if focused != origin_view {
+                let doc = editor.documents.get(&origin.0).unwrap();
+                editor.tree.get_mut(focused).push_jump(doc, origin);
+            }
+            return None;
+        }
         NavigationTarget::Path(path) => (path, false),
         NavigationTarget::Url(url) if url.scheme().eq_ignore_ascii_case("file") => {
             match url.to_file_path() {

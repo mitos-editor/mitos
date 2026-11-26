@@ -65,10 +65,30 @@ pub fn diagnostic_to_lsp_diagnostic(
         code,
         source: diag.source.clone().map(|source| source.into_string()),
         message: diag.message.clone().into_string().into(),
-        related_information: None,
+        code_description: diag.details.as_ref().and_then(|details| {
+            Some(lsp::CodeDescription {
+                href: details.documentation.as_ref()?.as_str().parse().ok()?,
+            })
+        }),
+        related_information: diag.details.as_ref().and_then(|details| {
+            (!details.related_information.is_empty()).then(|| {
+                details
+                    .related_information
+                    .iter()
+                    .filter_map(|related| {
+                        Some(lsp::DiagnosticRelatedInformation {
+                            location: lsp::Location {
+                                uri: related.uri.as_str().parse().ok()?,
+                                range: related_range(related),
+                            },
+                            message: related.message.to_string(),
+                        })
+                    })
+                    .collect()
+            })
+        }),
         tags,
         data: diag.data.clone(),
-        ..Default::default()
     }
 }
 
@@ -147,8 +167,65 @@ fn convert_diagnostic(
         tags,
         source: diagnostic.source.clone().map(|source| source.into()),
         data: diagnostic.data.clone(),
+        details: diagnostic_details(diagnostic, offset_encoding),
         provider,
     })
+}
+
+/// Metadata shared by document conversion and diagnostics for unopened files.
+pub fn diagnostic_details(
+    diagnostic: &lsp::Diagnostic,
+    offset_encoding: OffsetEncoding,
+) -> Option<std::sync::Arc<::diagnostics::DiagnosticDetails>> {
+    use ::diagnostics::{DiagnosticDetails, RelatedInformation};
+    use editor_core::Position;
+    let details = DiagnosticDetails {
+        documentation: diagnostic
+            .code_description
+            .as_ref()
+            .and_then(|description| description.href.to_editor_url().ok()),
+        related_information: diagnostic
+            .related_information
+            .iter()
+            .flatten()
+            .filter_map(|related| {
+                let range = related.location.range;
+                Some(RelatedInformation {
+                    uri: related.location.uri.to_editor_url().ok()?,
+                    range: ::diagnostics::Range {
+                        start: Position {
+                            row: range.start.line as usize,
+                            col: range.start.character as usize,
+                        },
+                        end: Position {
+                            row: range.end.line as usize,
+                            col: range.end.character as usize,
+                        },
+                    },
+                    offset_encoding,
+                    message: related.message.clone().into(),
+                })
+            })
+            .collect(),
+        rendered: diagnostic
+            .data
+            .as_ref()
+            .and_then(|data| data.get("rendered")?.as_str())
+            .filter(|text| !text.trim().is_empty())
+            .map(Into::into),
+    };
+    (details != DiagnosticDetails::default()).then(|| std::sync::Arc::new(details))
+}
+
+/// Restore a related range in its reporting server's original position encoding.
+pub fn related_range(related: &::diagnostics::RelatedInformation) -> lsp::Range {
+    lsp::Range::new(
+        lsp::Position::new(
+            related.range.start.row as u32,
+            related.range.start.col as u32,
+        ),
+        lsp::Position::new(related.range.end.row as u32, related.range.end.col as u32),
+    )
 }
 
 impl Editor {
@@ -372,8 +449,17 @@ mod tests {
             source: Some("analyzer".into()),
             message: "message".into(),
             tags: Some(vec![lsp::DiagnosticTag::DEPRECATED]),
-            data: Some(serde_json::json!({"id": 1})),
-            ..Default::default()
+            data: Some(serde_json::json!({"id": 1, "rendered": "full compiler output\n"})),
+            code_description: Some(lsp::CodeDescription {
+                href: "https://example.com/E1".parse().unwrap(),
+            }),
+            related_information: Some(vec![lsp::DiagnosticRelatedInformation {
+                location: lsp::Location {
+                    uri: "untitled:dependency".parse().unwrap(),
+                    range: lsp::Range::new(lsp::Position::new(2, 3), lsp::Position::new(2, 9)),
+                },
+                message: "declared here".into(),
+            }]),
         };
         let provider = DiagnosticProvider::Lsp {
             server_id: LanguageServerId::null(),
@@ -393,6 +479,16 @@ mod tests {
         assert_eq!(converted.code, Some(NumberOrString::String("code".into())));
         assert_eq!(converted.source.as_deref(), Some("analyzer"));
         assert_eq!(converted.data, diagnostic.data);
+        let details = converted.details.as_ref().unwrap();
+        assert_eq!(details.rendered.as_deref(), Some("full compiler output\n"));
+        assert_eq!(
+            details.related_information[0].offset_encoding,
+            OffsetEncoding::Utf16
+        );
+        assert_eq!(
+            details.related_information[0].uri.as_str(),
+            "untitled:dependency"
+        );
         assert!(matches!(
             converted.tags.as_slice(),
             [DiagnosticTag::Deprecated]

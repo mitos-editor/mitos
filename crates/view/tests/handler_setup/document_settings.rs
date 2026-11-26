@@ -98,6 +98,7 @@ async fn dictionary_overrides_disable_and_restore_inheritance_and_invalidate_che
             tags: Vec::new(),
             source: None,
             data: None,
+            details: None,
         }],
         &[],
         Some(&provider),

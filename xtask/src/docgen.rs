@@ -325,6 +325,7 @@ pub fn component_keymaps() -> Result<String, DynError> {
     section!("Picker", picker);
     section!("Buffer picker", buffer_picker);
     section!("Quicklist picker", quicklist_picker);
+    section!("Diagnostics picker", diagnostics_picker);
     section!("Git picker", git_picker);
     section!("Branch picker", branch_picker);
     section!("Worktree picker", worktree_picker);

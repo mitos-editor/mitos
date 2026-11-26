@@ -46,6 +46,7 @@ their batches before publishing the completed result.
 | --- | --- |
 | Next / previous error or warning | `]d` / `[d` |
 | File / workspace diagnostics | `Space d` / `Space D` |
+| Read the full diagnostic at the selection | `Space Alt-d` |
 | Completion | Automatic while typing; `Ctrl-x` opens it manually |
 | Documentation at the cursor | `Space k` |
 | Parameter hints | Automatic while typing arguments |
@@ -95,6 +96,35 @@ let total = missing;
 Use [`editor.diagnostics`](./configuration.md#editordiagnostics) to choose
 which severities appear inline or at the end of a line. The diagnostic
 pickers provide a list even when inline display is disabled.
+
+Press `Space Alt-d` to read the full diagnostic in a named, read-only buffer.
+The command uses diagnostics overlapping the primary selection, or the cursor
+line if none overlap. When several match, choose one from the picker.
+In the file or workspace diagnostics picker, `Alt-d` opens the selected
+diagnostic; `Alt-s` opens it in a horizontal split. `Space '` restores the
+picker with its query and selection.
+
+The buffer contains the complete message, or richer compiler output when the
+server supplies it. Use normal movement, search, and yank commands to read or
+copy it. Enable `editor.soft-wrap.enable` to wrap long lines. `Ctrl-o` returns
+to the previous location, and `:buffer-close` closes the reference without
+saving. The buffer is a snapshot and remains available if diagnostics change.
+
+The source location, related locations, and documentation URL are links.
+Put the cursor on a location or URL and use `gf` to follow it. `Ctrl-w f` and
+`Ctrl-w F` open source locations in horizontal and vertical splits. Related
+locations use the server's last reported positions; they do not follow later
+edits to the referenced files. Unsupported resource URIs remain visible,
+and opening them reports the unsupported scheme.
+
+The `diagnostic_details` and `diagnostic_details_split` commands can be rebound.
+Picker actions are configured under `[keys.diagnostics-picker]`:
+
+```toml
+[keys.diagnostics-picker]
+A-d = "diagnostic_details"
+A-s = "diagnostic_details_split"
+```
 
 Code lens labels, such as run or test actions, appear beside code when the
 server provides them. Press `Space l` for the commands on the current line.

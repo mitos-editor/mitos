@@ -67,6 +67,14 @@ impl DocumentLink {
     }
 }
 
+/// A fully resolved link in an immutable reference document, independent of LSP.
+#[derive(Debug, Clone)]
+pub struct ReferenceLink {
+    pub start: usize,
+    pub end: usize,
+    pub target: super::NavigationTarget,
+}
+
 impl Document {
     /// Cached LSP links for navigation and rendering, ordered by document position.
     pub fn document_links(&self) -> &[DocumentLink] {

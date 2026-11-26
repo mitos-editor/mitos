@@ -326,6 +326,7 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
             "s" => lsp_or_syntax_symbol_picker,
             "S" => lsp_or_syntax_workspace_symbol_picker,
             "d" => diagnostics_picker,
+            "A-d" => diagnostic_details,
             "D" => workspace_diagnostics_picker,
             "g" => { "Version control"
                 "s" => vcs_changed_file_picker,
