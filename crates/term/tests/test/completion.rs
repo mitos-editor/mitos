@@ -389,6 +389,77 @@ async fn completion_preview_preserves_text_history_and_protocol_updates() -> any
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn completion_command_applies_server_edits_and_keeps_insert_mode() -> anyhow::Result<()> {
+    use serde_json::json;
+
+    let dir = tempfile::tempdir()?;
+    let response = dir.path().join("response.json");
+    let position = json!({"line": 0, "character": 8});
+    let range = json!({"start": position, "end": position});
+    std::fs::write(
+        &response,
+        serde_json::to_vec(&json!([{
+            "label": "LocalDate",
+            "textEdit": {"newText": "", "insert": range, "replace": range},
+            "command": {"title": "Apply Completion", "command": "fixture.complete", "arguments": [1]}
+        }]))?,
+    )?;
+    let mut f = Fixture::uninitialized_with_response(
+        dir.path(),
+        "LocalDat\n",
+        &["alpha"],
+        test_config(),
+        Some(&response),
+    )?;
+    f.initialize().await?;
+    let protocol = dir.path().join("alpha-protocol.jsonl");
+
+    f.show().await?;
+    f.key("<C-n>").await?;
+    assert_eq!(f.text(), "LocalDat\n");
+    assert!(!lsp::read_log(&protocol)?
+        .iter()
+        .any(|message| message["method"] == "workspace/executeCommand"));
+    f.key("<ret>").await?;
+    let request = lsp::wait_message(&protocol, "workspace/executeCommand").await?;
+    assert_eq!(request["params"]["command"], "fixture.complete");
+    assert_eq!(request["params"]["arguments"], json!([1]));
+
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            f.app.editor.reset_idle_timer();
+            super::helpers::run_event_loop_until_idle(&mut f.app).await;
+            let messages = lsp::read_log(&protocol)?;
+            if let Some(reply) = messages.iter().find(|msg| msg["id"] == "completion-cursor") {
+                assert_eq!(reply["result"]["success"], true);
+                assert_eq!(
+                    messages
+                        .iter()
+                        .filter(|msg| msg["method"] == "workspace/executeCommand")
+                        .count(),
+                    1
+                );
+                return anyhow::Ok(());
+            }
+        }
+    })
+    .await
+    .context("server cursor request did not complete")??;
+    let expected = "import java.time.LocalDate\nLocalDate";
+    assert_eq!(f.text(), format!("{expected}\n"));
+    let (view, doc) = current_ref!(f.app.editor);
+    assert_eq!(
+        doc.selection(view.id)
+            .primary()
+            .cursor(doc.text().slice(..)),
+        expected.len()
+    );
+    assert_eq!(f.app.editor.mode(), Mode::Insert);
+    assert!(f.app.close().await.is_empty());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn accepted_completions_resolve_imports_without_blocking_typing_or_resurrecting_undo(
 ) -> anyhow::Result<()> {
     for action in ["typing", "undo", "close", "preview", "reload"] {

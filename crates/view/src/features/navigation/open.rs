@@ -18,7 +18,23 @@ impl Editor {
         let path = uri
             .as_path()
             .context("document location requires a local file URI")?;
-        let document = self.open(path, action)?;
+        // A server can reposition the cursor in the focused document while typing.
+        // Reopening that document would switch the editor to normal mode.
+        let focused = self
+            .tree
+            .try_get(self.tree.focus())
+            .and_then(|view| self.document(view.document_id()));
+        let document = match focused {
+            Some(doc)
+                if matches!(action, Action::Replace)
+                    && doc
+                        .path()
+                        .is_some_and(|p| p == stdx::path::canonicalize(path)) =>
+            {
+                doc.id()
+            }
+            _ => self.open(path, action)?,
+        };
         // Prefer the focused destination, otherwise an existing split. A hidden
         // buffer has no displayed selection to position.
         let target = self
