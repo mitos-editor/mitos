@@ -12,6 +12,7 @@ pub(crate) mod highlights;
 mod icons;
 pub(crate) mod image;
 mod info;
+pub(crate) mod inlay_hints;
 mod layout;
 mod list;
 pub mod lsp;

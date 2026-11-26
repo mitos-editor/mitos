@@ -162,6 +162,23 @@ impl Client {
         Some(self.call::<lsp::request::InlayHintRequest>(params))
     }
 
+    /// Resolve only when the originating server advertises lazy inlay hints.
+    pub fn resolve_inlay_hint(
+        &self,
+        hint: lsp::InlayHint,
+    ) -> Option<impl Future<Output = Result<lsp::InlayHint>> + use<>> {
+        let resolve = match self.capabilities().inlay_hint_provider.as_ref()? {
+            lsp::OneOf::Right(lsp::InlayHintServerCapabilities::Options(options)) => {
+                options.resolve_provider
+            }
+            lsp::OneOf::Right(lsp::InlayHintServerCapabilities::RegistrationOptions(options)) => {
+                options.inlay_hint_options.resolve_provider
+            }
+            _ => None,
+        };
+        (resolve == Some(true)).then(|| self.call::<lsp::request::InlayHintResolveRequest>(hint))
+    }
+
     pub fn inline_values(
         &self,
         params: lsp::InlineValueParams,

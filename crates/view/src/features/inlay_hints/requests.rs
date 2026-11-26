@@ -8,7 +8,7 @@ use language_config::LanguageServerFeature;
 use lsp_client::{lsp, OffsetEncoding};
 use text_layout::text_annotations::InlineAnnotation;
 
-use super::state::{CacheKey, DocumentInlayHints, DocumentInlayHintsId};
+use super::state::{CacheKey, CachedHint, DocumentInlayHints, DocumentInlayHintsId, HintStyle};
 use crate::{
     callbacks::EditorCallbackSender, features::request::ViewRequest, Document, Editor, View,
 };
@@ -122,7 +122,8 @@ pub fn refresh(editor: &mut Editor) {
                     let doc = editor.document_mut(request.target.document_id()).unwrap();
                     match result {
                         Ok(hints) => {
-                            let hints = annotations(
+                            let snapshot = doc.snapshot();
+                            let (hints, retained) = annotations(
                                 doc.text(),
                                 request.key.viewport,
                                 encoding,
@@ -133,7 +134,13 @@ pub fn refresh(editor: &mut Editor) {
                                 .get_mut(&view_id)
                                 .expect("validated inlay request owns its view state")
                                 .inlay_hints
-                                .complete(hints);
+                                .complete(
+                                    hints,
+                                    retained,
+                                    snapshot,
+                                    encoding,
+                                    request.owner.clone(),
+                                );
                             editor.redraw().request();
                         }
                         Err(error) => {
@@ -157,7 +164,7 @@ fn annotations(
     offset_encoding: OffsetEncoding,
     length_limit: Option<std::num::NonZeroU8>,
     mut hints: Vec<lsp::InlayHint>,
-) -> DocumentInlayHints {
+) -> (DocumentInlayHints, Vec<CachedHint>) {
     // Most language servers will already send them sorted but ensure this is the case to
     // avoid errors on our end.
     hints.sort_by_key(|inlay_hint| inlay_hint.position);
@@ -167,6 +174,9 @@ fn annotations(
     let mut parameter_inlay_hints = Vec::new();
     let mut other_inlay_hints = Vec::new();
     let mut padding_after_inlay_hints = Vec::new();
+    let mut retained = Vec::new();
+    let mut ordered = Vec::new();
+    let mut styles = Vec::new();
 
     for hint in hints {
         let char_idx = match lsp_client::util::lsp_pos_to_pos(text, hint.position, offset_encoding)
@@ -176,10 +186,7 @@ fn annotations(
             None => continue,
         };
 
-        let mut label = match hint.label {
-            lsp::InlayHintLabel::String(s) => s,
-            lsp::InlayHintLabel::LabelParts(parts) => parts.into_iter().map(|p| p.value).collect(),
-        };
+        let mut label = super::label(&hint.label);
         // Truncate the hint if too long
         if let Some(limit) = length_limit {
             // Limit on displayed width
@@ -214,20 +221,40 @@ fn annotations(
 
         if let Some(true) = hint.padding_left {
             padding_before_inlay_hints.push(InlineAnnotation::new(char_idx, " "));
+            ordered.push(InlineAnnotation::new(char_idx, " "));
+            styles.push(HintStyle::Padding);
         }
 
+        ordered.push(InlineAnnotation::new(char_idx, label.clone()));
+        styles.push(match hint.kind {
+            Some(lsp::InlayHintKind::TYPE) => HintStyle::Type,
+            Some(lsp::InlayHintKind::PARAMETER) => HintStyle::Parameter,
+            _ => HintStyle::Other,
+        });
         inlay_hints_vec.push(InlineAnnotation::new(char_idx, label));
 
         if let Some(true) = hint.padding_right {
             padding_after_inlay_hints.push(InlineAnnotation::new(char_idx, " "));
+            ordered.push(InlineAnnotation::new(char_idx, " "));
+            styles.push(HintStyle::Padding);
         }
+        retained.push(CachedHint {
+            char_idx,
+            hint,
+            resolved: false,
+        });
     }
-    DocumentInlayHints {
-        id,
-        type_inlay_hints,
-        parameter_inlay_hints,
-        other_inlay_hints,
-        padding_before_inlay_hints,
-        padding_after_inlay_hints,
-    }
+    (
+        DocumentInlayHints {
+            id,
+            type_inlay_hints,
+            parameter_inlay_hints,
+            other_inlay_hints,
+            padding_before_inlay_hints,
+            padding_after_inlay_hints,
+            ordered,
+            styles,
+        },
+        retained,
+    )
 }
