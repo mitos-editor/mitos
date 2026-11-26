@@ -204,16 +204,20 @@ pub fn resolve(
         if let Some(future) = future {
             match cancelable_future(future, result.request.cancel_handle()).await? {
                 Ok(hint) if same_label(&result.hint, &hint) => {
-                    // Resolution changes only the advertised lazy fields. In
-                    // particular, keep data and eager action metadata unchanged.
-                    result.hint.tooltip = hint.tooltip;
+                    // Only advertised lazy fields may change. Omitted optional
+                    // fields retain eager information; data and display fields
+                    // always keep their original values.
+                    result.hint.tooltip = hint.tooltip.or(result.hint.tooltip);
+                    result.hint.text_edits = hint.text_edits.or(result.hint.text_edits);
                     if let (
                         lsp::InlayHintLabel::LabelParts(original),
                         lsp::InlayHintLabel::LabelParts(resolved),
                     ) = (&mut result.hint.label, hint.label)
                     {
                         for (original, resolved) in original.iter_mut().zip(resolved) {
-                            original.tooltip = resolved.tooltip;
+                            original.tooltip = resolved.tooltip.or(original.tooltip.take());
+                            original.location = resolved.location.or(original.location.take());
+                            original.command = resolved.command.or(original.command.take());
                         }
                     }
                     result.resolved = true;

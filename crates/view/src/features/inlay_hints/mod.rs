@@ -11,10 +11,12 @@ use crate::{
     events::{ConfigDidChange, DocumentFocusLost, LanguageServerExited, SelectionDidChange},
 };
 
+mod actions;
 mod details;
 mod requests;
 mod state;
 
+pub use actions::InlayHintAction;
 pub use details::{hints_on_line, resolve, InlayHintItem, InlayHintTarget, ResolvedInlayHint};
 pub use requests::refresh;
 pub(crate) use state::HintStyle;
