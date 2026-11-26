@@ -418,6 +418,7 @@ dependencies = [
  "memchr",
  "quickcheck",
  "regex",
+ "regex-syntax",
  "ropey",
  "serde",
  "smallvec",
