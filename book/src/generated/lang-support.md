@@ -260,7 +260,7 @@
 | rshtml | ✓ | ✓ |  |  |  |  | `rshtml-analyzer`, first available: `vscode-html-language-server` → `superhtml` |
 | rst | ✓ |  |  | ✓ |  |  | `esbonio` |
 | ruby | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | first available: `ruby-lsp` → `solargraph` |
-| rust | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | `rust-analyzer` |
+| rust | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | first available: `rust-analyzer` → `rust-glancer` |
 | rust-format-args | ✓ |  |  |  |  |  |  |
 | rust-format-args-macro | ✓ | ✓ | ✓ |  | ✓ |  |  |
 | sage | ✓ | ✓ |  |  |  | ✓ |  |

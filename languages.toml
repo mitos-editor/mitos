@@ -150,6 +150,9 @@ ruff = { command = "ruff", args = ["server"] }
 ruby-lsp = { command = "ruby-lsp" }
 rshtml-analyzer = { command = "rshtml-analyzer", args = ["--stdio"] }
 rumdl = { command = "rumdl", args = ["server"] }
+# https://rust-glancer.github.io/docs/usage/INSTALL.html#installing-the-server
+# https://rust-glancer.github.io/docs/usage/CONFIGURE.html
+rust-glancer = { command = "rust-glancer", args = ["lsp"] }
 serve-d = { command = "serve-d" }
 slangd = { command = "slangd" }
 slint-lsp = { command = "slint-lsp", args = [] }
@@ -416,7 +419,7 @@ block-comment-tokens = [
   { start = "/**", end = "*/" },
   { start = "/*!", end = "*/" },
 ]
-language-servers = [ "rust-analyzer" ]
+language-servers = [{ alternatives = ["rust-analyzer", "rust-glancer"] }]
 indent = { tab-width = 4, unit = "    " }
 persistent-diagnostic-sources = ["rustc", "clippy"]
 
