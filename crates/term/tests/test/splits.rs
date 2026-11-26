@@ -352,6 +352,61 @@ async fn mouse_wheel_scrolls_the_hovered_split_without_changing_focus() -> anyho
     Ok(())
 }
 
+#[tokio::test(flavor = "multi_thread")]
+async fn mouse_selection_requires_a_text_press_before_dragging_or_yanking() -> anyhow::Result<()> {
+    #[cfg(windows)]
+    use crossterm::event::{
+        Event, KeyModifiers as Modifiers, MouseButton, MouseEvent, MouseEventKind,
+    };
+    #[cfg(not(windows))]
+    use termina::event::{Event, Modifiers, MouseButton, MouseEvent, MouseEventKind};
+
+    let mut config = term::config::Config::default();
+    config.editor.mouse.yank_register = 'a';
+    let mut app = helpers::AppBuilder::new()
+        .with_config(config)
+        .with_input_text("#[abc|]#def\n")
+        .build()?;
+    app.editor.registers.write('a', vec!["original".into()])?;
+    let (view, doc) = view::current_ref!(app.editor);
+    let (view_id, doc_id) = (view.id, doc.id());
+    let area = view.inner_area(doc);
+    let selected = doc.selection(view_id).clone();
+    let mouse = |kind, column| {
+        Ok(Event::Mouse(MouseEvent {
+            kind,
+            column,
+            row: area.y,
+            modifiers: Modifiers::empty(),
+        }))
+    };
+    let down = MouseEventKind::Down(MouseButton::Left);
+    let drag = MouseEventKind::Drag(MouseButton::Left);
+    let up = MouseEventKind::Up(MouseButton::Left);
+
+    app.handle_terminal_events(mouse(down, area.x - 1)).await;
+    app.handle_terminal_events(mouse(up, area.x - 1)).await;
+    assert_eq!(
+        app.editor.registers.read('a').unwrap().next().as_deref(),
+        Some("original")
+    );
+
+    app.handle_terminal_events(mouse(drag, area.x + 4)).await;
+    assert_eq!(
+        app.editor.document(doc_id).unwrap().selection(view_id),
+        &selected
+    );
+
+    app.handle_terminal_events(mouse(down, area.x)).await;
+    app.handle_terminal_events(mouse(drag, area.x + 3)).await;
+    app.handle_terminal_events(mouse(up, area.x + 3)).await;
+    assert_eq!(
+        app.editor.registers.read('a').unwrap().next().as_deref(),
+        Some("abcd")
+    );
+    Ok(())
+}
+
 async fn assert_rotate_view_reverse_binding(
     keys: &str,
     expected_line: usize,

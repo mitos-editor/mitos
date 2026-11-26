@@ -20,7 +20,8 @@ use std::{
     any::Any,
     sync::{Arc, Mutex},
 };
-use view::Editor;
+use ui_core::input::{MouseButton, MouseEvent, MouseEventKind};
+use view::{DocumentId, Editor, ViewId};
 
 pub use ui_core::input::Event;
 
@@ -33,7 +34,14 @@ pub struct InteractionState {
     pub selected_register: Option<char>,
     pub macro_recording: Option<(char, Vec<ui_core::input::KeyEvent>)>,
     pub macro_replaying: Vec<char>,
-    pub mouse_down_range: Option<editor_core::Range>,
+    pub(crate) mouse_selection: Option<MouseSelection>,
+}
+
+pub(crate) struct MouseSelection {
+    pub view: ViewId,
+    pub doc: DocumentId,
+    pub initial: editor_core::Range,
+    pub dragged: bool,
 }
 
 /// Input held until a component's asynchronous action establishes its target.
@@ -317,6 +325,17 @@ impl Compositor {
 
     /// Dispatch input that has already passed through macro playback.
     pub(crate) fn replay_event(&mut self, event: &Event, cx: &mut Context) -> bool {
+        if matches!(
+            event,
+            Event::Mouse(MouseEvent {
+                kind: MouseEventKind::Down(_),
+                ..
+            }) | Event::FocusLost
+                | Event::Key(_)
+                | Event::Paste(_)
+        ) {
+            cx.interaction.mouse_selection = None;
+        }
         let mut callbacks = Vec::new();
         let mut consumed = false;
 
@@ -339,6 +358,16 @@ impl Compositor {
                 }
                 EventResult::Ignored(None) => {}
             };
+        }
+
+        if matches!(
+            event,
+            Event::Mouse(MouseEvent {
+                kind: MouseEventKind::Up(MouseButton::Left),
+                ..
+            })
+        ) {
+            cx.interaction.mouse_selection = None;
         }
 
         for callback in callbacks {
