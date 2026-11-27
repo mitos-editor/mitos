@@ -3,6 +3,8 @@ use std::{cell::RefCell, fs::File, io::Write, path::Path, process::Command};
 use tempfile::TempDir;
 
 use super::EntryKind;
+use crate::operations::{FileOperation, GitRepository};
+use crate::review::{read_git_comparison, ComparisonKind};
 use crate::{git, ChangedFileScope, DiffProviderRegistry, FileChange};
 
 pub(crate) fn exec_git_cmd(args: &[&str], git_dir: &Path) {
@@ -314,14 +316,16 @@ fn changed_files_keep_conflicts_alongside_staged_changes() {
     ));
 }
 
-#[test]
-fn colocated_jj_uses_the_first_conflict_side_for_staged_changes() {
+#[tokio::test]
+async fn colocated_jj_uses_the_first_conflict_side_for_staged_changes() {
     let repo = empty_git_repo();
     let root = repo.path();
+    std::fs::write(root.join(".gitattributes"), "* text eol=lf\n").unwrap();
     std::fs::create_dir(root.join(".jj")).unwrap();
     for (rel, content) in [
         ("conflict.txt", "side 0\n"),
         ("real-old.txt", "renamed\n"),
+        ("JJ-CONFLICT-README", "ordinary readme\n"),
         ("real_deleted.txt", "deleted\n"),
         ("sub/JJ-CONFLICT-README", "nested readme\n"),
         ("sub/.jjconflict-base-0/nested.txt", "nested\n"),
@@ -448,6 +452,65 @@ fn colocated_jj_uses_the_first_conflict_side_for_staged_changes() {
             unstaged: None,
         } if path == &root.join("modify_delete.txt")
     )));
+
+    // Exercise native Unstage and the Git fallback when the index has unmerged entries.
+    for unmerged_index in [false, true] {
+        if unmerged_index {
+            exec_git_cmd(&["read-tree", "--reset", &first_side.id.to_string()], root);
+            exec_git_cmd(
+                &[
+                    "read-tree",
+                    "-i",
+                    "-m",
+                    &base.to_string(),
+                    &first_side.id.to_string(),
+                    &second_side.to_string(),
+                ],
+                root,
+            );
+        }
+        let name = "JJ-CONFLICT-README";
+        let path = root.join(name);
+        exec_git_cmd(&["rm", "--force", name], root);
+        let mut deletion = RefCell::new(None);
+        git::for_each_file_status(
+            &ChangedFileScope::Repository(root.into()),
+            true,
+            |_, status| {
+                let status = status.unwrap();
+                if status.path() == path {
+                    deletion.replace(Some(status));
+                    return false;
+                }
+                true
+            },
+        )
+        .unwrap();
+        let deletion = deletion.get_mut().take().unwrap();
+        assert!(matches!(deletion.staged, Some(FileChange::Deleted { .. })));
+        let comparison = read_git_comparison(&deletion, ComparisonKind::Staged, true).unwrap();
+        assert_eq!(comparison.before, b"ordinary readme\n");
+        assert!(comparison.after.is_empty());
+
+        GitRepository::discover(root)
+            .unwrap()
+            .prepare_file(&deletion, FileOperation::Unstage, true)
+            .unwrap()
+            .execute()
+            .await
+            .unwrap();
+        let index = git_repo.open_index().unwrap();
+        let restored = index.entry_by_path(name.into()).unwrap();
+        let original = first_side.find_entry(name).unwrap();
+        assert_eq!(restored.id, original.object_id());
+        assert_eq!(
+            index
+                .entry_by_path_and_stage("conflict.txt".into(), gix::index::entry::Stage::Base)
+                .is_some(),
+            unmerged_index
+        );
+        assert!(!path.exists());
+    }
 }
 
 #[test]

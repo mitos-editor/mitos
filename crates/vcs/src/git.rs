@@ -109,7 +109,7 @@ fn status(
         limit: 1000,
         ..Default::default()
     };
-    let mut status_platform = repo
+    let status_platform = repo
         .status(gix::progress::Discard)?
         // Here we discard the `status.showUntrackedFiles` config, as it makes little sense in
         // our case to not list new (untracked) files. We could have respected this config
@@ -118,12 +118,8 @@ fn status(
         .untracked_files(UntrackedFiles::Files)
         // Detect renames in both the staging area and the working tree.
         .index_worktree_rewrites(Some(rewrites))
-        .tree_index_track_renames(TrackRenames::Given(rewrites));
-    if work_dir.join(".jj").is_dir()
-        && let Some(tree) = jj_conflict_first_side_tree(repo)
-    {
-        status_platform = status_platform.head_tree(tree);
-    }
+        .tree_index_track_renames(TrackRenames::Given(rewrites))
+        .head_tree(staged_base_tree(repo)?);
 
     let patterns = status_patterns(&work_dir, scope)?;
 
@@ -241,6 +237,16 @@ fn status(
     }
 
     Ok(())
+}
+
+pub(crate) fn staged_base_tree(repo: &Repository) -> gix::Result<ObjectId> {
+    if repo.workdir().is_some_and(|root| root.join(".jj").is_dir())
+        && let Some(tree) = jj_conflict_first_side_tree(repo)
+    {
+        return Ok(tree);
+    }
+
+    Ok(repo.head_tree_id_or_empty()?.detach())
 }
 
 /// Jujutsu builds a conflicted Git HEAD tree from the first side of the

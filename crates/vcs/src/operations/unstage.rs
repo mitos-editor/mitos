@@ -1,4 +1,4 @@
-//! Restore selected index entries from HEAD without changing working files.
+//! Restore selected index entries from the staged comparison tree.
 use super::*;
 use gix::bstr::{BString, ByteSlice};
 use std::collections::BTreeMap;
@@ -6,7 +6,12 @@ use std::collections::BTreeMap;
 impl PreparedOperation {
     /// Return Unsupported for index shapes the native writer cannot round-trip yet.
     pub(super) fn unstage(&self) -> Result<NativeOutcome> {
-        let Operation::File { paths, unborn, .. } = &self.operation else {
+        let Operation::File {
+            paths,
+            unstage_tree,
+            ..
+        } = &self.operation
+        else {
             unreachable!()
         };
         let repo = self.repository.open_read(true)?;
@@ -21,11 +26,7 @@ impl PreparedOperation {
         if !index::can_write(&repo, &index) {
             return Ok(NativeOutcome::Unsupported("index format"));
         }
-        let tree = if *unborn {
-            None
-        } else {
-            Some(repo.head_commit()?.tree()?)
-        };
+        let tree = unstage_tree.map(|tree| repo.find_tree(tree)).transpose()?;
         let mut replacements = BTreeMap::new();
         let mut selected = Vec::new();
         for path in paths {
