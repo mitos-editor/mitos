@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use gix::bstr::{BStr, BString, ByteSlice, ByteVec};
+use gix::bstr::{BString, ByteSlice, ByteVec};
 use gix::diff::{index::Change as IndexChange, Rewrites};
 use gix::dir::entry::Status;
 use gix::objs::tree::EntryKind;
@@ -102,7 +102,6 @@ fn status(
         repo.workdir()
             .ok_or_else(|| anyhow::anyhow!("working tree not found"))?,
     );
-    let colocated_jj = work_dir.join(".jj").is_dir();
 
     let rewrites = Rewrites {
         copies: None,
@@ -110,7 +109,7 @@ fn status(
         limit: 1000,
         ..Default::default()
     };
-    let status_platform = repo
+    let mut status_platform = repo
         .status(gix::progress::Discard)?
         // Here we discard the `status.showUntrackedFiles` config, as it makes little sense in
         // our case to not list new (untracked) files. We could have respected this config
@@ -120,6 +119,11 @@ fn status(
         // Detect renames in both the staging area and the working tree.
         .index_worktree_rewrites(Some(rewrites))
         .tree_index_track_renames(TrackRenames::Given(rewrites));
+    if work_dir.join(".jj").is_dir()
+        && let Some(tree) = jj_conflict_first_side_tree(repo)
+    {
+        status_platform = status_platform.head_tree(tree);
+    }
 
     let patterns = status_patterns(&work_dir, scope)?;
 
@@ -179,14 +183,9 @@ fn status(
             StatusItem::TreeIndex(IndexChange::Addition { location, .. }) => FileChange::Added {
                 path: work_dir.join(location.to_path()?),
             },
-            StatusItem::TreeIndex(IndexChange::Deletion { location, .. }) => {
-                if colocated_jj && is_jj_conflict_metadata(location.as_bstr()) {
-                    continue;
-                }
-                FileChange::Deleted {
-                    path: work_dir.join(location.to_path()?),
-                }
-            }
+            StatusItem::TreeIndex(IndexChange::Deletion { location, .. }) => FileChange::Deleted {
+                path: work_dir.join(location.to_path()?),
+            },
             StatusItem::TreeIndex(IndexChange::Modification { location, .. }) => {
                 FileChange::Modified {
                     path: work_dir.join(location.to_path()?),
@@ -196,21 +195,10 @@ fn status(
                 source_location,
                 location,
                 ..
-            }) => {
-                if colocated_jj && is_jj_conflict_metadata(location.as_bstr()) {
-                    continue;
-                }
-                if colocated_jj && is_jj_conflict_metadata(source_location.as_bstr()) {
-                    FileChange::Added {
-                        path: work_dir.join(location.to_path()?),
-                    }
-                } else {
-                    FileChange::Renamed {
-                        from_path: work_dir.join(source_location.to_path()?),
-                        to_path: work_dir.join(location.to_path()?),
-                    }
-                }
-            }
+            }) => FileChange::Renamed {
+                from_path: work_dir.join(source_location.to_path()?),
+                to_path: work_dir.join(location.to_path()?),
+            },
             _ => continue,
         };
         let entry = changes
@@ -255,24 +243,19 @@ fn status(
     Ok(())
 }
 
-/// Jujutsu stores conflicted commits in Git by writing `JJ-CONFLICT-README`,
-/// `.jjconflict-base-N/`, and `.jjconflict-side-N/` entries into the root of
-/// `HEAD` while omitting them from the Git index it maintains for the working
-/// copy.
-fn is_jj_conflict_metadata(path: &BStr) -> bool {
-    if path == b"JJ-CONFLICT-README" {
-        return true;
-    }
-    let Some((top, _)) = path.split_once_str(b"/") else {
-        return false;
-    };
-    let Some(suffix) = top
-        .strip_prefix(b".jjconflict-base-")
-        .or_else(|| top.strip_prefix(b".jjconflict-side-"))
-    else {
-        return false;
-    };
-    !suffix.is_empty() && suffix.iter().all(u8::is_ascii_digit)
+/// Jujutsu builds a conflicted Git HEAD tree from the first side of the
+/// conflict, with extra entries to preserve the other trees. Compare against
+/// that original side so the metadata never enters staged rename detection.
+fn jj_conflict_first_side_tree(repo: &Repository) -> Option<ObjectId> {
+    let head = repo.head_commit().ok()?;
+    let commit = head.decode().ok()?;
+    let trees = commit.extra_headers().find("jj:trees")?;
+    let (first, _) = trees.split_once_str(b" ")?;
+    let first_side = ObjectId::from_hex(first).ok()?;
+
+    let tree = head.tree().ok()?;
+    let entry = tree.find_entry(".jjconflict-side-0")?;
+    (entry.mode().is_tree() && entry.object_id() == first_side).then_some(first_side)
 }
 
 fn status_patterns(work_dir: &Path, scope: &ChangedFileScope) -> Result<Vec<BString>> {

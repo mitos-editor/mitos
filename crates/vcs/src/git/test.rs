@@ -2,6 +2,7 @@ use std::{cell::RefCell, fs::File, io::Write, path::Path, process::Command};
 
 use tempfile::TempDir;
 
+use super::EntryKind;
 use crate::{git, ChangedFileScope, DiffProviderRegistry, FileChange};
 
 pub(crate) fn exec_git_cmd(args: &[&str], git_dir: &Path) {
@@ -314,20 +315,13 @@ fn changed_files_keep_conflicts_alongside_staged_changes() {
 }
 
 #[test]
-fn colocated_jj_hides_conflict_metadata_staged_deletions() {
+fn colocated_jj_uses_the_first_conflict_side_for_staged_changes() {
     let repo = empty_git_repo();
     let root = repo.path();
     std::fs::create_dir(root.join(".jj")).unwrap();
     for (rel, content) in [
-        ("JJ-CONFLICT-README", "This commit was made by jj\n"),
-        (".jjconflict-base-0/conflict.txt", "base\n"),
-        (".jjconflict-side-0/conflict.txt", "side 0\n"),
-        (".jjconflict-side-1/conflict.txt", "side 1\n"),
-        (
-            ".jjconflict-side-1/modify_delete.txt",
-            "unique content from conflict side 1\n",
-        ),
         ("conflict.txt", "side 0\n"),
+        ("real-old.txt", "renamed\n"),
         ("real_deleted.txt", "deleted\n"),
         ("sub/JJ-CONFLICT-README", "nested readme\n"),
         ("sub/.jjconflict-base-0/nested.txt", "nested\n"),
@@ -340,18 +334,51 @@ fn colocated_jj_hides_conflict_metadata_staged_deletions() {
     }
     create_commit(root, true);
 
-    // jj omits conflict metadata from the index it writes for the working copy.
+    let git_repo = gix::open(root).unwrap();
+    let head = git_repo.head_commit().unwrap();
+    let first_side = head.tree().unwrap();
+    let base_blob = git_repo.write_blob(b"base\n").unwrap();
+    let second_blob = git_repo.write_blob(b"side 1\n").unwrap();
+    let added_blob = git_repo
+        .write_blob(b"unique content from conflict side 1\n")
+        .unwrap();
+    let readme = git_repo
+        .write_blob(b"This commit was made by jj\n")
+        .unwrap();
+
+    let mut side = first_side.edit().unwrap();
+    side.upsert("conflict.txt", EntryKind::Blob, base_blob)
+        .unwrap();
+    let base = side.write().unwrap();
+    side.upsert("conflict.txt", EntryKind::Blob, second_blob)
+        .unwrap();
+    side.upsert("modify_delete.txt", EntryKind::Blob, added_blob)
+        .unwrap();
+    let second_side = side.write().unwrap();
+
+    // jj adds conflict metadata to Git's HEAD tree but leaves it out of the index.
+    let mut tree = first_side.edit().unwrap();
+    tree.upsert(".jjconflict-base-0", EntryKind::Tree, base)
+        .unwrap();
+    tree.upsert(".jjconflict-side-0", EntryKind::Tree, first_side.id)
+        .unwrap();
+    tree.upsert(".jjconflict-side-1", EntryKind::Tree, second_side)
+        .unwrap();
+    tree.upsert("JJ-CONFLICT-README", EntryKind::Blob, readme)
+        .unwrap();
+    let mut conflict: gix::objs::Commit = head.decode().unwrap().try_into().unwrap();
+    conflict.tree = tree.write().unwrap().detach();
+    conflict.extra_headers.push((
+        "jj:trees".into(),
+        format!("{} {base} {second_side}", first_side.id).into(),
+    ));
+    let conflict = git_repo.write_object(conflict).unwrap();
     exec_git_cmd(
-        &[
-            "rm",
-            "-r",
-            "JJ-CONFLICT-README",
-            ".jjconflict-base-0",
-            ".jjconflict-side-0",
-            ".jjconflict-side-1",
-        ],
+        &["update-ref", "--no-deref", "HEAD", &conflict.to_string()],
         root,
     );
+
+    exec_git_cmd(&["mv", "real-old.txt", "real-new.txt"], root);
     // Real deletions (including similarly named nested files) must remain visible.
     exec_git_cmd(
         &[
@@ -396,11 +423,17 @@ fn colocated_jj_hides_conflict_metadata_staged_deletions() {
         [
             std::path::PathBuf::from("conflict.txt"),
             std::path::PathBuf::from("modify_delete.txt"),
+            std::path::PathBuf::from("real-new.txt"),
             std::path::PathBuf::from("real_deleted.txt"),
             std::path::PathBuf::from("sub/.jjconflict-base-0/nested.txt"),
             std::path::PathBuf::from("sub/JJ-CONFLICT-README"),
         ]
     );
+    assert!(statuses.iter().any(|status| matches!(
+        &status.staged,
+        Some(FileChange::Renamed { from_path, to_path })
+            if from_path == &root.join("real-old.txt") && to_path == &root.join("real-new.txt")
+    )));
     assert!(statuses.iter().any(|status| matches!(
         status,
         crate::FileStatus {
@@ -418,7 +451,7 @@ fn colocated_jj_hides_conflict_metadata_staged_deletions() {
 }
 
 #[test]
-fn plain_git_repo_keeps_jj_named_staged_deletions() {
+fn conflict_free_repos_keep_jj_named_staged_deletions() {
     let repo = empty_git_repo();
     let root = repo.path();
     for (rel, content) in [
@@ -444,21 +477,26 @@ fn plain_git_repo_keeps_jj_named_staged_deletions() {
         root,
     );
 
-    let changes = RefCell::new(Vec::new());
-    git::for_each_file_status(
-        &ChangedFileScope::Repository(root.into()),
-        true,
-        |_, status| {
-            changes.borrow_mut().push(status.unwrap().change().clone());
-            true
-        },
-    )
-    .unwrap();
-    let changes = changes.into_inner();
-    assert_eq!(changes.len(), 3);
-    assert!(changes
-        .iter()
-        .all(|change| matches!(change, FileChange::Deleted { .. })));
+    for colocated in [false, true] {
+        if colocated {
+            std::fs::create_dir(root.join(".jj")).unwrap();
+        }
+        let changes = RefCell::new(Vec::new());
+        git::for_each_file_status(
+            &ChangedFileScope::Repository(root.into()),
+            true,
+            |_, status| {
+                changes.borrow_mut().push(status.unwrap().change().clone());
+                true
+            },
+        )
+        .unwrap();
+        let changes = changes.into_inner();
+        assert_eq!(changes.len(), 3);
+        assert!(changes
+            .iter()
+            .all(|change| matches!(change, FileChange::Deleted { .. })));
+    }
 }
 
 /// Test that `get_file_head` does not return content for a directory.
