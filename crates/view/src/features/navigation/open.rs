@@ -24,16 +24,16 @@ impl Editor {
             .tree
             .try_get(self.tree.focus())
             .and_then(|view| self.document(view.document_id()));
-        let document = match focused {
+        let (document, in_place) = match focused {
             Some(doc)
                 if matches!(action, Action::Replace)
                     && doc
                         .path()
                         .is_some_and(|p| p == stdx::path::canonicalize(path)) =>
             {
-                doc.id()
+                (doc.id(), true)
             }
-            _ => self.open(path, action)?,
+            _ => (self.open(path, action)?, false),
         };
         // Prefer the focused destination, otherwise an existing split. A hidden
         // buffer has no displayed selection to position.
@@ -50,7 +50,12 @@ impl Editor {
                 let selection = Selection::single(range.head, range.anchor);
                 if let Some(view) = target {
                     doc.set_selection(view, selection);
-                    align_view(doc, self.tree.get_mut(view), Align::Center);
+                    if in_place {
+                        // Keep the user's scroll position. Only scroll if the cursor would leave the view.
+                        self.ensure_cursor_in_view(view);
+                    } else {
+                        align_view(doc, self.tree.get_mut(view), Align::Center);
+                    }
                 } else {
                     doc.pending_navigation = Some(selection);
                 }
