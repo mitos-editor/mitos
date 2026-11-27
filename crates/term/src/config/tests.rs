@@ -1000,3 +1000,48 @@ fn separators_are_runtime_strings() {
     assert_eq!(config.editor.breadcrumb.separator, "");
     assert_eq!(config.editor.bufferline.separator, " 界· ");
 }
+
+#[test]
+fn hierarchy_keys_inherit_picker_bindings_and_allow_branch_actions() {
+    use crate::keymap::component::{PickerAction as P, PickerItemAction as I};
+    use ui_core::keymap::{KeymapState, Lookup};
+    let defaults = Config::default().component_keys;
+    let mut state = KeymapState::default();
+    for (key, action) in [
+        ("tab", P::MoveDown),
+        ("S-tab", P::MoveUp),
+        ("A-right", P::PreviewNext),
+        ("A-left", P::PreviewPrevious),
+        ("A-e", P::Item(I::ToggleExpanded)),
+    ] {
+        assert_eq!(
+            state.lookup(&defaults.hierarchy_picker, key.parse().unwrap()),
+            Lookup::Actions(&[action])
+        );
+    }
+    let config = Config::load_test(
+        "[keys.picker]\nC-j='move_down'\n[keys.hierarchy-picker]\nA-e='unbound'\nC-e='expand'",
+    );
+    assert_eq!(
+        state.lookup(
+            &config.component_keys.hierarchy_picker,
+            "C-j".parse().unwrap()
+        ),
+        Lookup::Actions(&[P::MoveDown])
+    );
+    assert_eq!(
+        state.lookup(
+            &config.component_keys.hierarchy_picker,
+            "A-e".parse().unwrap()
+        ),
+        Lookup::Unbound
+    );
+    assert_eq!(
+        state.lookup(
+            &config.component_keys.hierarchy_picker,
+            "C-e".parse().unwrap()
+        ),
+        Lookup::Actions(&[P::Item(I::Expand)])
+    );
+    assert!(Config::load_test_result("[keys.picker]\nC-e='expand'").is_err());
+}

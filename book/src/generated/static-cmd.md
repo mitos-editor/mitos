@@ -177,6 +177,9 @@
 | `goto_file` | Go to files/URLs in selections | normal: `` gf ``, select: `` gf `` |
 | `goto_file_in_horizontal_split` | Open files in selections in a horizontal split | normal: `` <C-w>f ``, `` <space>wf ``, select: `` <C-w>f ``, `` <space>wf `` |
 | `goto_file_in_vertical_split` | Open files in selections in a vertical split | normal: `` <C-w>F ``, `` <space>wF ``, select: `` <C-w>F ``, `` <space>wF `` |
+| `incoming_calls` | Show incoming calls |  |
+| `outgoing_calls` | Show outgoing calls |  |
+| `type_hierarchy` | Show type hierarchy | normal: `` gT ``, select: `` gT `` |
 | `goto_reference` | Go to references | normal: `` gr ``, select: `` gr `` |
 | `goto_window_top` | Go to window top | normal: `` gt ``, select: `` gt `` |
 | `goto_window_center` | Go to window center | normal: `` gc ``, select: `` gc `` |

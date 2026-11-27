@@ -509,7 +509,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
     }
 
     /// Let a hierarchical source retain context rows that do not themselves match.
-    pub(super) fn with_query_options(
+    pub(crate) fn with_query_options(
         mut self,
         callback: impl Fn(&Editor, &str, &D, Option<&T>) -> anyhow::Result<(Vec<T>, D, usize)> + 'static,
     ) -> Self {

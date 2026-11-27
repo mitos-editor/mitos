@@ -145,6 +145,7 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
             "D" => goto_declaration,
             "y" => goto_type_definition,
             "r" => goto_reference,
+            "T" => type_hierarchy,
             "i" => goto_implementation,
             "t" => goto_window_top,
             "c" => goto_window_center,

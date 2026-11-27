@@ -67,6 +67,7 @@ pub fn run() -> anyhow::Result<()> {
     let file_operations = args.first().is_some_and(|arg| arg == "--file-operations");
     let rename = args.first().is_some_and(|arg| arg == "--rename");
     let workspace_symbols = args.first().is_some_and(|arg| arg == "--workspace-symbols");
+    let hierarchy = args.first().is_some_and(|arg| arg == "--hierarchy");
     let document_symbols = args.first().is_some_and(|arg| arg == "--document-symbols");
     let formatting = args.first().is_some_and(|arg| arg == "--formatting");
     let editing_hooks = args.first().is_some_and(|arg| arg == "--editing-hooks");
@@ -111,6 +112,7 @@ pub fn run() -> anyhow::Result<()> {
         || inline_values
         || semantic_tokens
         || structural_ranges
+        || hierarchy
         || linked_editing
     {
         Some(std::fs::File::create(&args[2])?)
@@ -161,6 +163,7 @@ pub fn run() -> anyhow::Result<()> {
             || inline_values
             || semantic_tokens
             || structural_ranges
+            || hierarchy
             || linked_editing
             || language_features
             || navigation
@@ -1011,7 +1014,100 @@ pub fn run() -> anyhow::Result<()> {
             respond_result(&mut output, id, result)?;
             continue;
         }
+        if hierarchy
+            && (method.contains("Hierarchy")
+                || method.starts_with("callHierarchy/")
+                || method.starts_with("typeHierarchy/"))
+        {
+            if let Some(index) = args.iter().position(|arg| arg == "--response-gate") {
+                while !std::path::Path::new(&args[index + 1]).exists() {
+                    std::thread::sleep(std::time::Duration::from_millis(5));
+                }
+            }
+            if !method.starts_with("textDocument/")
+                && let Some(index) = args.iter().position(|arg| arg == "--children-gate")
+            {
+                while !std::path::Path::new(&args[index + 1]).exists() {
+                    std::thread::sleep(std::time::Duration::from_millis(5));
+                }
+            }
+            if args.iter().any(|arg| arg == "--hierarchy-error")
+                || (!method.starts_with("textDocument/")
+                    && args.iter().any(|arg| arg == "--children-error"))
+            {
+                respond(
+                    &mut output,
+                    json!({"jsonrpc":"2.0", "id":id, "error":{"code":-32603,"message":"hierarchy fixture error"}}),
+                )?;
+                continue;
+            }
+            let prepare = method.starts_with("textDocument/");
+            let root_uri = if prepare {
+                uri
+            } else {
+                params["item"]["data"]["root"].as_str().unwrap_or_default()
+            };
+            if !prepare && params["item"]["data"]["provider"] != args[1] {
+                anyhow::bail!("hierarchy item lost its provider data");
+            }
+            if !prepare && params["item"]["tags"] != json!([1]) {
+                anyhow::bail!("hierarchy item lost its tags");
+            }
+            let item = |name: &str, target: String| {
+                json!({
+                    "name":name, "kind":12, "tags":[1], "uri":target, "range":range(0, 12), "selectionRange":range(3, 9),
+                    "detail":format!("{} detail", args[1]), "data":{"provider":args[1], "root":root_uri,"token":[1,{"opaque":true}]}
+                })
+            };
+            let result = if args.iter().any(|arg| arg == "--null-hierarchy") {
+                Value::Null
+            } else if prepare {
+                json!([item("target", root_uri.into())])
+            } else if args.iter().any(|arg| arg == "--empty-hierarchy") {
+                json!([])
+            } else if params["item"]["name"] != "target" {
+                let root = item("target", root_uri.into());
+                match method {
+                    "callHierarchy/incomingCalls" => {
+                        json!([{"from":root,"fromRanges":[range(3, 9)]}])
+                    }
+                    "callHierarchy/outgoingCalls" => {
+                        json!([{"to":root,"fromRanges":[range(3, 9)]}])
+                    }
+                    _ => json!([root]),
+                }
+            } else {
+                let (name, suffix) = match method {
+                    "callHierarchy/incomingCalls" => ("caller", "caller"),
+                    "callHierarchy/outgoingCalls" => ("callee", "callee"),
+                    "typeHierarchy/supertypes" => ("parent", "parent"),
+                    "typeHierarchy/subtypes" => ("child", "child"),
+                    _ => anyhow::bail!("unexpected hierarchy method {method}"),
+                };
+                let child = item(name, format!("{root_uri}.{suffix}"));
+                match method {
+                    "callHierarchy/incomingCalls" => {
+                        json!([{"from":child,"fromRanges":[range(3, 9)]}])
+                    }
+                    "callHierarchy/outgoingCalls" => {
+                        json!([{"to":child,"fromRanges":[range(3, 9)]}])
+                    }
+                    _ => json!([child]),
+                }
+            };
+            respond(
+                &mut output,
+                json!({"jsonrpc":"2.0", "id":id, "result":result}),
+            )?;
+            continue;
+        }
+
         let mut result = match method {
+            "initialize" if hierarchy => json!({"capabilities":{
+                "textDocumentSync":1,"positionEncoding":"utf-16",
+                "callHierarchyProvider":!args.iter().any(|arg| arg == "--no-hierarchy"),
+                "typeHierarchyProvider":if args.iter().any(|arg| arg == "--no-hierarchy") {json!(false)} else {json!({})}
+            }}),
             "initialize" if editing_hooks => json!({"capabilities": {
                 "positionEncoding": "utf-16",
                 "textDocumentSync": {

@@ -57,6 +57,82 @@ impl Client {
         })
     }
 
+    pub fn prepare_call_hierarchy(
+        &self,
+        text_document: lsp::TextDocumentIdentifier,
+        position: lsp::Position,
+    ) -> impl Future<Output = Result<Option<Vec<lsp::CallHierarchyItem>>>> + use<> {
+        self.call::<lsp::request::CallHierarchyPrepare>(lsp::CallHierarchyPrepareParams {
+            text_document_position_params: lsp::TextDocumentPositionParams {
+                text_document,
+                position,
+            },
+            work_done_progress_params: Default::default(),
+        })
+    }
+
+    pub fn prepare_type_hierarchy(
+        &self,
+        text_document: lsp::TextDocumentIdentifier,
+        position: lsp::Position,
+    ) -> impl Future<Output = Result<Option<Vec<lsp::TypeHierarchyItem>>>> + use<> {
+        self.call::<lsp::request::TypeHierarchyPrepare>(lsp::TypeHierarchyPrepareParams {
+            text_document_position_params: lsp::TextDocumentPositionParams {
+                text_document,
+                position,
+            },
+            work_done_progress_params: Default::default(),
+        })
+    }
+
+    pub fn incoming_calls(
+        &self,
+        item: lsp::CallHierarchyItem,
+    ) -> impl Future<Output = Result<Option<Vec<lsp::CallHierarchyIncomingCall>>>> + use<> {
+        self.call::<lsp::request::CallHierarchyIncomingCalls>(
+            lsp::CallHierarchyIncomingCallsParams {
+                item,
+                work_done_progress_params: Default::default(),
+                partial_result_params: Default::default(),
+            },
+        )
+    }
+
+    pub fn outgoing_calls(
+        &self,
+        item: lsp::CallHierarchyItem,
+    ) -> impl Future<Output = Result<Option<Vec<lsp::CallHierarchyOutgoingCall>>>> + use<> {
+        self.call::<lsp::request::CallHierarchyOutgoingCalls>(
+            lsp::CallHierarchyOutgoingCallsParams {
+                item,
+                work_done_progress_params: Default::default(),
+                partial_result_params: Default::default(),
+            },
+        )
+    }
+
+    pub fn supertypes(
+        &self,
+        item: lsp::TypeHierarchyItem,
+    ) -> impl Future<Output = Result<Option<Vec<lsp::TypeHierarchyItem>>>> + use<> {
+        self.call::<lsp::request::TypeHierarchySupertypes>(lsp::TypeHierarchySupertypesParams {
+            item,
+            work_done_progress_params: Default::default(),
+            partial_result_params: Default::default(),
+        })
+    }
+
+    pub fn subtypes(
+        &self,
+        item: lsp::TypeHierarchyItem,
+    ) -> impl Future<Output = Result<Option<Vec<lsp::TypeHierarchyItem>>>> + use<> {
+        self.call::<lsp::request::TypeHierarchySubtypes>(lsp::TypeHierarchySubtypesParams {
+            item,
+            work_done_progress_params: Default::default(),
+            partial_result_params: Default::default(),
+        })
+    }
+
     pub fn completion(
         &self,
         text_document: lsp::TextDocumentIdentifier,

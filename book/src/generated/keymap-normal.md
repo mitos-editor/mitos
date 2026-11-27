@@ -165,6 +165,7 @@
 | `` gD `` | Go to declaration | `` goto_declaration `` |
 | `` gy `` | Go to type definition | `` goto_type_definition `` |
 | `` gr `` | Go to references | `` goto_reference `` |
+| `` gT `` | Show type hierarchy | `` type_hierarchy `` |
 | `` gi `` | Go to implementation | `` goto_implementation `` |
 | `` gt `` | Go to window top | `` goto_window_top `` |
 | `` gc `` | Go to window center | `` goto_window_center `` |

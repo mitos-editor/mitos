@@ -19,6 +19,7 @@ pub(crate) struct DocumentViewState {
     pub hover: Option<event::TaskController>,
     pub(crate) structural_request: event::TaskController,
     pub(crate) structural_repeat: Option<crate::features::structural_ranges::PendingSelection>,
+    pub hierarchy: Option<event::TaskController>,
     pub navigation: Option<event::TaskController>,
     pub code_actions: Option<event::TaskController>,
     pub shell_filters: Option<event::TaskController>,
@@ -44,6 +45,7 @@ impl DocumentViewState {
             selection_shown: true,
             hover: Default::default(),
             navigation: Default::default(),
+            hierarchy: Default::default(),
             structural_request: Default::default(),
             structural_repeat: None,
             code_actions: Default::default(),
@@ -150,6 +152,7 @@ impl super::Document {
             state.hover = None;
             state.navigation = None;
             state.on_type_formatting = None;
+            state.hierarchy = None;
         }
     }
 

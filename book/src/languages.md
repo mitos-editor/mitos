@@ -226,7 +226,7 @@ Available feature names:
 | Purpose | Names |
 | --- | --- |
 | Formatting | `format` |
-| Navigation | `goto-declaration`, `goto-definition`, `goto-type-definition`, `goto-reference`, `goto-implementation`, `call-hierarchy` |
+| Navigation | `goto-declaration`, `goto-definition`, `goto-type-definition`, `goto-reference`, `goto-implementation`, `call-hierarchy`, `type-hierarchy` |
 | Hints and documentation | `hover`, `signature-help`, `document-highlight`, `inlay-hints`, `inline-values`, `document-colors` |
 | Completion | `completion`, `inline-completion` |
 | Actions | `code-action`, `code-lens`, `rename-symbol`, `workspace-command`, `document-links` |

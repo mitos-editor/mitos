@@ -64,6 +64,13 @@ impl DocumentSelectors {
                 &options.registration_options.document_selector,
             );
         }
+        if let Some(TypeHierarchyServerCapabilities::RegistrationOptions(options)) =
+            &capabilities.type_hierarchy_provider
+        {
+            selectors.insert::<request::TypeHierarchyPrepare>(
+                &options.text_document_registration_options.document_selector,
+            );
+        }
         if let Some(CallHierarchyServerCapability::RegistrationOptions(options)) =
             &capabilities.call_hierarchy_provider
         {
