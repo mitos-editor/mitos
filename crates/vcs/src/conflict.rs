@@ -22,6 +22,14 @@ pub struct Section {
     /// its first side with the opening marker.
     pub marker: Range<usize>,
     pub content: Range<usize>,
+    // Jujutsu uses this line ending to separate the text from the next marker.
+    separator_len: usize,
+}
+
+impl Section {
+    fn resolution_range(&self) -> Range<usize> {
+        self.content.start..self.content.end - self.separator_len
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -90,11 +98,9 @@ impl Conflict {
             Resolution::Incoming => self.sides().next_back(),
             Resolution::Base => self.base(),
             Resolution::Section(index) => self.sections.get(index),
-            Resolution::Both => {
-                return Some(self.sides().map(|side| side.content.clone()).collect())
-            }
+            Resolution::Both => return Some(self.sides().map(Section::resolution_range).collect()),
         };
-        Some(vec![section?.content.clone()])
+        Some(vec![section?.resolution_range()])
     }
 }
 
@@ -163,32 +169,42 @@ pub fn read_source(path: &std::path::Path, side: &str, trusted: bool) -> Result<
     ))
 }
 
+fn is_jujutsu_label(suffix: &str) -> bool {
+    suffix
+        .strip_prefix(" conflict ")
+        .or_else(|| suffix.strip_prefix(" Conflict "))
+        .and_then(|label| label.split_once(" of "))
+        .is_some_and(|(index, count)| {
+            matches!((index.parse::<usize>(), count.parse::<usize>()),
+                (Ok(index), Ok(count)) if (1..=count).contains(&index))
+        })
+}
+
 /// Reject incomplete/nested markers instead of offering destructive resolution of an
 /// ambiguous region. Marker widths follow Git's configurable conflict-marker-size.
 pub fn parse(text: &str) -> Result<Vec<Conflict>> {
-    struct Open {
+    struct Open<'a> {
         opening: Range<usize>,
         width: usize,
-        /// Decided by the line after the opening marker, so that `+++++++` and
-        /// `-------` lines remain ordinary text in Git's format.
-        jujutsu: bool,
+        jujutsu_label: Option<&'a str>,
         separated: bool,
         sections: Vec<Section>,
         section: Option<(SectionKind, Range<usize>)>,
     }
-    impl Open {
+    impl Open<'_> {
         fn start(&mut self, kind: SectionKind, marker: Range<usize>) {
             if let Some((kind, previous)) = self.section.replace((kind, marker.clone())) {
                 self.sections.push(Section {
                     kind,
                     content: previous.end..marker.start,
                     marker: previous,
+                    separator_len: 0,
                 });
             }
         }
     }
     let mut result = Vec::new();
-    let mut open: Option<Open> = None;
+    let mut open: Option<Open<'_>> = None;
     let mut offset = 0;
     for line in text.split_inclusive('\n') {
         let content = line.trim_end_matches(['\r', '\n']);
@@ -212,13 +228,16 @@ pub fn parse(text: &str) -> Result<Vec<Conflict>> {
         let Some(region) = open.as_mut() else {
             match marker {
                 b'<' => {
+                    let jujutsu_label = is_jujutsu_label(suffix).then_some(suffix);
                     open = Some(Open {
                         opening: range.clone(),
                         width,
-                        jujutsu: false,
+                        jujutsu_label,
                         separated: false,
                         sections: Vec::new(),
-                        section: Some((SectionKind::Side, range)),
+                        section: jujutsu_label
+                            .is_none()
+                            .then_some((SectionKind::Side, range)),
                     })
                 }
                 b'|' | b'=' | b'>' => {
@@ -228,17 +247,19 @@ pub fn parse(text: &str) -> Result<Vec<Conflict>> {
             }
             continue;
         };
+        let jujutsu = region.jujutsu_label.is_some();
+        // Jujutsu uses wider markers when the content contains marker-like text.
+        if jujutsu && width < region.width {
+            continue;
+        }
         if matches!(marker, b'+' | b'-' | b'%') {
-            if width != region.width {
+            if !jujutsu || width != region.width {
                 continue;
             }
-            if range.start == region.opening.end {
-                region.jujutsu = true;
-                region.section = None;
-            }
-            if !region.jujutsu {
-                continue;
-            }
+            ensure!(
+                region.section.is_some() || range.start == region.opening.end,
+                "Expected a Jujutsu section after the opening marker"
+            );
             ensure!(
                 marker != b'%',
                 "Jujutsu diff-style conflict; resolve it manually or set \
@@ -257,7 +278,7 @@ pub fn parse(text: &str) -> Result<Vec<Conflict>> {
             "Nested conflict markers; resolve this region manually"
         );
         // Jujutsu separates sections with its own markers only.
-        if region.jujutsu && matches!(marker, b'|' | b'=') {
+        if jujutsu && matches!(marker, b'|' | b'=') {
             continue;
         }
         ensure!(width == region.width, "Mismatched conflict marker widths");
@@ -276,12 +297,27 @@ pub fn parse(text: &str) -> Result<Vec<Conflict>> {
             }
             _ => {
                 let mut region = open.take().unwrap();
-                ensure!(
-                    region.jujutsu || region.separated,
-                    "Conflict has no separator"
-                );
+                ensure!(jujutsu || region.separated, "Conflict has no separator");
                 // The closing marker ends the last section without starting another.
                 region.start(SectionKind::Side, range.clone());
+                if let Some(label) = region.jujutsu_label {
+                    ensure!(
+                        suffix.strip_suffix(" ends") == Some(label),
+                        "Mismatched Jujutsu conflict labels"
+                    );
+                    // Without an ending on the closing marker, Jujutsu adds a
+                    // separator to each section. The opening marker records its style.
+                    if !line.ends_with('\n') {
+                        let crlf = text[region.opening.clone()].ends_with("\r\n");
+                        for section in &mut region.sections {
+                            if let Some(content) = text[section.content.clone()].strip_suffix('\n')
+                            {
+                                section.separator_len =
+                                    1 + usize::from(crlf && content.ends_with('\r'));
+                            }
+                        }
+                    }
+                }
                 ensure!(
                     region
                         .sections
@@ -489,17 +525,101 @@ three
         );
         assert_eq!(conflict.resolution(Resolution::Base), None);
         // A longer or shorter run is not one of this conflict's markers.
-        let text = "<<<<<<< c\n+++++++ one\n--------\n>>>>>>> end\n";
+        let text = "<<<<<<< conflict 1 of 1\n+++++++ one\n--------\n>>>>>>> conflict 1 of 1 ends\n";
         assert_eq!(parse(text)?[0].sections.len(), 1);
         let conflict = &parse(text)?[0];
         assert_eq!(&text[conflict.sections[0].content.clone()], "--------\n");
         for text in [
-            "<<<<<<< c\n%%%%%%% diff\n-a\n+b\n+++++++ side\nc\n>>>>>>> end\n",
-            "<<<<<<< c\n+++++++ side\nc\n%%%%%%% diff\n-a\n+b\n>>>>>>> end\n",
-            "<<<<<<< c\n------- base\nold\n>>>>>>> end\n",
+            "<<<<<<< conflict 1 of 1\n%%%%%%% diff\n-a\n+b\n+++++++ side\nc\n>>>>>>> conflict 1 of 1 ends\n",
+            "<<<<<<< conflict 1 of 1\n+++++++ side\nc\n%%%%%%% diff\n-a\n+b\n>>>>>>> conflict 1 of 1 ends\n",
         ] {
-            assert!(parse(text).is_err(), "{text}");
+            assert!(parse(text)
+                .unwrap_err()
+                .to_string()
+                .contains("Jujutsu diff-style conflict"));
         }
+        assert!(parse(
+            "<<<<<<< conflict 1 of 1\n------- base\nold\n>>>>>>> conflict 1 of 1 ends\n"
+        )
+        .is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn git_conflict_can_start_with_literal_jujutsu_section_markers() -> Result<()> {
+        for literal in ["+++++++ literal", "-------", "%%%%%%% literal"] {
+            let ours = format!("{literal}\nours\n");
+            let text =
+                format!("<<<<<<< HEAD\n{ours}||||||| base\nold\n=======\ntheirs\n>>>>>>> topic\n");
+            assert_eq!(
+                sections(&text, &parse(&text)?[0]),
+                [
+                    (SectionKind::Side, "<<<<<<< HEAD\n", ours.as_str()),
+                    (SectionKind::Base, "||||||| base\n", "old\n"),
+                    (SectionKind::Side, "=======\n", "theirs\n"),
+                ]
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn jujutsu_resolution_preserves_trailing_line_endings() -> Result<()> {
+        for eol in ["\n", "\r\n"] {
+            // The CR at the end of the current side is part of the original text.
+            let text = format!(
+                "<<<<<<< Conflict 1 of 1{eol}+++++++ side #1{eol}ours\r{eol}------- base{eol}{eol}+++++++ side #2{eol}theirs{eol}{eol}>>>>>>> Conflict 1 of 1 ends"
+            );
+            let conflict = &parse(&text)?[0];
+            let incoming = format!("theirs{eol}");
+            let both = format!("ours\r{incoming}");
+            for (choice, expected) in [
+                (Resolution::Current, "ours\r"),
+                (Resolution::Base, ""),
+                (Resolution::Incoming, incoming.as_str()),
+                (Resolution::Both, both.as_str()),
+                (Resolution::Section(0), "ours\r"),
+            ] {
+                let replacement: String = conflict
+                    .resolution(choice)
+                    .unwrap()
+                    .into_iter()
+                    .map(|range| &text[range])
+                    .collect();
+                assert_eq!(replacement, expected, "{choice:?} with {eol:?}");
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn long_jujutsu_markers_allow_shorter_literal_markers_in_sections() -> Result<()> {
+        let text = concat!(
+            "<<<<<<<<<<< conflict 1 of 1\n",
+            "+++++++++++ side #1\n",
+            "<<<<<<< literal\n",
+            "----------- base\n",
+            "old\n",
+            "+++++++++++ side #2\n",
+            ">>>>>>> literal\n",
+            ">>>>>>>>>>> conflict 1 of 1 ends\n",
+        );
+        assert_eq!(
+            sections(text, &parse(text)?[0]),
+            [
+                (
+                    SectionKind::Side,
+                    "+++++++++++ side #1\n",
+                    "<<<<<<< literal\n"
+                ),
+                (SectionKind::Base, "----------- base\n", "old\n"),
+                (
+                    SectionKind::Side,
+                    "+++++++++++ side #2\n",
+                    ">>>>>>> literal\n"
+                ),
+            ]
+        );
         Ok(())
     }
 
@@ -517,7 +637,7 @@ three
         assert_eq!(at(">>>>>>>"), Some(2));
         assert_eq!(at("after"), None);
 
-        let text = "<<<<<<< c\n+++++++ one\na\n------- base\nb\n+++++++ two\nc\n>>>>>>> end\n";
+        let text = "<<<<<<< conflict 1 of 1\n+++++++ one\na\n------- base\nb\n+++++++ two\nc\n>>>>>>> conflict 1 of 1 ends\n";
         let conflict = &parse(text)?[0];
         let at = |needle: &str| conflict.section_at(text.find(needle).unwrap());
         assert_eq!(at("<<<<<<<"), None);
