@@ -9,7 +9,7 @@ use editor_core::{
 };
 use stdx::rope::{Regex, RopeExt as _, RopeSliceExt as _};
 use text_layout::text_annotations::{InlineAnnotation, TextAnnotations};
-use vcs::conflict::{self, Conflict};
+use vcs::conflict::{self, Conflict, SectionKind};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ConflictSide {
@@ -44,14 +44,13 @@ impl ConflictSide {
 
 pub struct ConflictMarker {
     pub line: usize,
-    pub side: ConflictSide,
     /// Source character offsets, excluding the line ending.
     pub range: Range<usize>,
 }
 
 struct ConflictLineNumbers {
     lines: Range<usize>,
-    sections: [Range<usize>; 3],
+    sections: Vec<Range<usize>>,
     display_start: usize,
     removed_lines: usize,
 }
@@ -96,17 +95,13 @@ impl ConflictPresentation {
         let mut line_numbers = Vec::with_capacity(regions.len());
         let mut removed_lines = 0;
         for region in &regions {
-            let section_lines = |range: &Range<usize>| {
-                text.byte_to_line_idx(range.start, stdx::rope::LINE_TYPE)
-                    ..text.byte_to_line_idx(range.end, stdx::rope::LINE_TYPE)
-            };
-            let sections = [
-                section_lines(&region.current),
-                region.base.as_ref().map_or(0..0, section_lines),
-                section_lines(&region.incoming),
-            ];
-            let lines = text.byte_to_line_idx(region.whole.start, stdx::rope::LINE_TYPE)
-                ..text.byte_to_line_idx(region.markers.end.start, stdx::rope::LINE_TYPE) + 1;
+            let line = |byte| text.byte_to_line_idx(byte, stdx::rope::LINE_TYPE);
+            let sections: Vec<_> = region
+                .sections
+                .iter()
+                .map(|section| line(section.content.start)..line(section.content.end))
+                .collect();
+            let lines = line(region.whole.start)..line(region.closing.start) + 1;
             let display_start = lines.start - removed_lines;
             let longest = sections
                 .iter()
@@ -120,31 +115,28 @@ impl ConflictPresentation {
                 display_start,
                 removed_lines,
             });
-            let items = [
-                (Some(&region.markers.current), ConflictSide::Current),
-                (region.markers.base.as_ref(), ConflictSide::Base),
-                (Some(&region.markers.incoming), ConflictSide::Incoming),
-                (Some(&region.markers.end), ConflictSide::End),
-            ];
-            for (range, side) in items {
-                let Some(range) = range else {
-                    continue;
-                };
+            // Jujutsu describes each section on its own marker line.
+            let labeled = git_format(region);
+            let ranges = std::iter::once(&region.opening)
+                .chain(region.sections.iter().map(|section| &section.marker))
+                .chain([&region.closing]);
+            for range in ranges {
                 let start = text.byte_to_char_idx(range.start);
+                if markers
+                    .last()
+                    .is_some_and(|marker: &ConflictMarker| marker.range.start == start)
+                {
+                    continue;
+                }
                 let content = source[range.clone()].trim_end_matches(['\r', '\n']);
                 let range = start..start + content.chars().count();
-                match side {
-                    ConflictSide::Current => {
-                        labels[0].push(InlineAnnotation::new(range.end, " (Current Change)"))
-                    }
-                    ConflictSide::End => {
-                        labels[1].push(InlineAnnotation::new(range.end, " (Incoming Change)"))
-                    }
-                    _ => {}
+                if labeled && range.start == text.byte_to_char_idx(region.opening.start) {
+                    labels[0].push(InlineAnnotation::new(range.end, " (Current Change)"));
+                } else if labeled && range.start == text.byte_to_char_idx(region.closing.start) {
+                    labels[1].push(InlineAnnotation::new(range.end, " (Incoming Change)"));
                 }
                 markers.push(ConflictMarker {
                     line: text.char_to_line_idx(start),
-                    side,
                     range,
                 });
             }
@@ -207,26 +199,44 @@ impl ConflictPresentation {
         if !region.whole.contains(&pos) {
             return None;
         }
+        let git = git_format(region);
+        if region.closing.contains(&pos) {
+            return git.then_some(ConflictSide::End);
+        }
+        let section = region
+            .sections
+            .iter()
+            .position(|section| section.marker.contains(&pos) || section.content.contains(&pos))?;
+        // Sides alternate between the two side colors.
+        let side = match region.sections[section].kind {
+            SectionKind::Base => ConflictSide::Base,
+            SectionKind::Side => {
+                let earlier = region.sections[..section]
+                    .iter()
+                    .filter(|section| section.kind == SectionKind::Side)
+                    .count();
+                if earlier % 2 == 0 {
+                    ConflictSide::Current
+                } else {
+                    ConflictSide::Incoming
+                }
+            }
+        };
         // In diff3, only the outer markers belong to the colored blocks.
-        if let Some(base) = &region.markers.base
-            && (base.contains(&pos) || region.markers.incoming.contains(&pos))
+        if git
+            && section > 0
+            && region.base().is_some()
+            && !region.sections[section].content.contains(&pos)
         {
             return None;
         }
-        if region.current.contains(&pos) || region.markers.current.contains(&pos) {
-            Some(ConflictSide::Current)
-        } else if region
-            .base
-            .as_ref()
-            .is_some_and(|range| range.contains(&pos))
-        {
-            Some(ConflictSide::Base)
-        } else if region.incoming.contains(&pos) || region.markers.incoming.contains(&pos) {
-            Some(ConflictSide::Incoming)
-        } else {
-            Some(ConflictSide::End)
-        }
+        Some(side)
     }
+}
+
+/// Git introduces its first side with the opening marker.
+fn git_format(region: &Conflict) -> bool {
+    region.sections[0].marker == region.opening
 }
 
 impl Document {
@@ -509,7 +519,7 @@ mod tests {
                 let model = ConflictPresentation::new(&text);
                 assert!(model.error.is_none());
                 assert_eq!(model.regions.len(), 1);
-                assert!(model.regions[0].base.is_none());
+                assert!(model.regions[0].base().is_none());
                 assert_eq!(model.markers.len(), 3);
                 for (start, length) in [(2, current), (3 + current, incoming)] {
                     for offset in 0..length {
@@ -551,13 +561,14 @@ mod tests {
                 .collect::<Vec<_>>(),
             [1, 2, 4, 6]
         );
-        for marker in &model.markers {
+        let expected = [
+            (Some(" (Current Change)"), Some(ConflictSide::Current)),
+            (None, None),
+            (None, None),
+            (Some(" (Incoming Change)"), Some(ConflictSide::End)),
+        ];
+        for (marker, (label, side)) in model.markers.iter().zip(expected) {
             let source = text.slice_chars(marker.range.clone()).to_string();
-            let label = match marker.side {
-                ConflictSide::Current => Some(" (Current Change)"),
-                ConflictSide::End => Some(" (Incoming Change)"),
-                _ => None,
-            };
             let annotation = model
                 .labels
                 .iter()
@@ -566,14 +577,68 @@ mod tests {
             assert_eq!(annotation.map(|label| label.text.as_str()), label);
             assert!(!source.contains(['\r', '\n']));
             assert!(source.len() >= 8);
-            let side = match marker.side {
-                ConflictSide::Base | ConflictSide::Incoming => None,
-                side => Some(side),
-            };
             assert_eq!(model.side_at_line(&text, marker.line), side);
         }
         assert_eq!(model.side_at_line(&text, 5), Some(ConflictSide::Incoming));
         assert_eq!(model.side_at_line(&text, 0), None);
+    }
+
+    #[test]
+    fn jujutsu_sections_alternate_side_colors_and_share_line_numbers() {
+        let text = Rope::from(
+            [
+                "préfix",
+                "<<<<<<< conflict 1 of 1",
+                "+++++++ side #1",
+                "a",
+                "------- base #1",
+                "b",
+                "c",
+                "+++++++ side #2",
+                "------- base #2",
+                "d",
+                "+++++++ side #3",
+                "e",
+                ">>>>>>> conflict 1 of 1 ends",
+                "suffix",
+            ]
+            .join("\n"),
+        );
+        let model = ConflictPresentation::new(&text);
+        assert!(model.error.is_none());
+        assert!(model.labels.iter().all(|labels| labels.is_empty()));
+        assert_eq!(
+            model
+                .markers
+                .iter()
+                .map(|marker| marker.line)
+                .collect::<Vec<_>>(),
+            [1, 2, 4, 7, 8, 10, 12]
+        );
+        use ConflictSide::{Base, Current, Incoming};
+        let sides = [
+            None,
+            None,
+            Some(Current),
+            Some(Current),
+            Some(Base),
+            Some(Base),
+            Some(Base),
+            Some(Incoming),
+            Some(Base),
+            Some(Base),
+            Some(Current),
+            Some(Current),
+            None,
+            None,
+        ];
+        for (line, side) in sides.into_iter().enumerate() {
+            assert_eq!(model.side_at_line(&text, line), side, "line {line}");
+        }
+        for (physical, displayed) in [(0, 0), (3, 1), (5, 1), (6, 2), (9, 1), (11, 1), (13, 3)] {
+            assert_eq!(model.line_number(physical), displayed, "line {physical}");
+        }
+        assert_eq!(model.line_count(14), 4);
     }
 
     #[test]
