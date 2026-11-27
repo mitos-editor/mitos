@@ -1,6 +1,7 @@
 //! Editor variables are captured only for bodies that reference them.
 use crate::{Document, Editor};
 use editor_core::{Rope, Selection};
+use jiff::ZonedDateTime;
 use snippets::{Snippet, SnippetRenderCtx};
 use std::{borrow::Cow, collections::HashMap};
 
@@ -42,7 +43,7 @@ fn with_editor_variables(
     clipboard: Option<String>,
 ) -> SnippetRenderCtx {
     let mut document = context.resolve_var;
-    let now = jiff::Zoned::now();
+    let now = ZonedDateTime::now();
     let mut random = HashMap::<(usize, String), String>::new();
     context.resolve_var = Box::new(move |name, index| {
         let value = match name {
@@ -72,7 +73,7 @@ fn with_editor_variables(
     context
 }
 
-fn time_variable(name: &str, now: &jiff::Zoned) -> Option<String> {
+fn time_variable(name: &str, now: &ZonedDateTime) -> Option<String> {
     let format = match name {
         "CURRENT_YEAR" => "%Y",
         "CURRENT_YEAR_SHORT" => "%y",
@@ -100,7 +101,7 @@ mod tests {
     use super::*;
     #[test]
     fn time_variables_have_stable_formats() {
-        let now: jiff::Zoned = "2024-02-03T04:05:06.078Z[UTC]".parse().unwrap();
+        let now: ZonedDateTime = "2024-02-03T04:05:06.078Z[UTC]".parse().unwrap();
         for (name, expected) in [
             ("CURRENT_YEAR", "2024"),
             ("CURRENT_MONTH", "02"),
