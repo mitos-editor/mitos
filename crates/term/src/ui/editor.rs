@@ -15,7 +15,7 @@ use crate::{
 use render::{PaneOptions, PaneRenderer};
 use stdx::rope::RopeExt as _;
 
-use editor_config::BufferLine;
+use editor_config::{BufferLine, GutterType};
 use editor_core::{movement::Direction, unicode::width::UnicodeWidthStr, Range, Selection};
 use std::num::NonZeroUsize;
 use tokio::time::Instant;
@@ -373,20 +373,43 @@ impl EditorView {
             })
         };
 
-        let gutter_coords_and_view = |editor: &Editor, row, column| {
+        let breakpoint_row_and_view = |editor: &Editor, row: u16, column: u16| {
             editor.tree.views().find_map(|(view, _focus)| {
-                view.gutter_coords_at_screen_coords(
-                    &editor.documents[&view.document_id()],
-                    row,
-                    column,
-                )
-                .map(|coords| (coords, view.id))
+                let doc = &editor.documents[&view.document_id()];
+                if doc.is_binary() {
+                    return None;
+                }
+                let presented = editor.completion_presentation(doc);
+                let coords = view.gutter_coords_at_screen_coords(presented, row, column)?;
+                let mut end = 0;
+                for &gutter in view.gutters_for(doc) {
+                    end += view::gutter::width(gutter, view, presented);
+                    if coords.col < end {
+                        return (gutter == GutterType::Diagnostics)
+                            .then_some((coords.row as u16, view.id));
+                    }
+                }
+                None
             })
         };
 
         match kind {
             MouseEventKind::Down(MouseButton::Left) => {
                 let editor = &mut cxt.editor;
+
+                if let Some((row, view_id)) = breakpoint_row_and_view(editor, row, column) {
+                    editor.focus(view_id);
+
+                    let (view, doc) = current!(cxt.editor);
+                    if let Some(path) = doc.path().map(ToOwned::to_owned)
+                        && let Some(char_idx) = view.pos_at_visual_coords(doc, row, 0, true)
+                    {
+                        let line = doc.text().char_to_line_idx(char_idx);
+                        commands::dap_toggle_breakpoints_impl(cxt, path, &[line]);
+                        return EventResult::Consumed(None);
+                    }
+                    return EventResult::Ignored(None);
+                }
 
                 if let Some((pos, view_id)) = pos_and_view(editor, row, column, true) {
                     editor.focus(view_id);
@@ -418,24 +441,6 @@ impl EditorView {
                     editor.ensure_cursor_in_view(view_id);
 
                     return EventResult::Consumed(None);
-                }
-
-                if let Some((coords, view_id)) = gutter_coords_and_view(editor, row, column) {
-                    editor.focus(view_id);
-
-                    let (view, doc) = current!(cxt.editor);
-
-                    let Some(path) = doc.path().map(ToOwned::to_owned) else {
-                        return EventResult::Ignored(None);
-                    };
-
-                    if let Some(char_idx) =
-                        view.pos_at_visual_coords(doc, coords.row as u16, coords.col as u16, true)
-                    {
-                        let line = doc.text().char_to_line_idx(char_idx);
-                        commands::dap_toggle_breakpoints_impl(cxt, path, &[line]);
-                        return EventResult::Consumed(None);
-                    }
                 }
 
                 EventResult::Ignored(None)
@@ -516,24 +521,20 @@ impl EditorView {
             }
 
             MouseEventKind::Up(MouseButton::Right) => {
-                if let Some((pos, view_id)) = gutter_coords_and_view(cxt.editor, row, column) {
+                if let Some((row, view_id)) = breakpoint_row_and_view(cxt.editor, row, column) {
                     cxt.editor.focus(view_id);
 
-                    if let Some((pos, _)) = pos_and_view(cxt.editor, row, column, true) {
-                        doc_mut!(cxt.editor).set_selection(view_id, Selection::point(pos));
-                    } else {
-                        let (view, doc) = current!(cxt.editor);
+                    let (view, doc) = current!(cxt.editor);
 
-                        if let Some(pos) = view.pos_at_visual_coords(doc, pos.row as u16, 0, true) {
-                            doc.set_selection(view_id, Selection::point(pos));
-                            match modifiers {
-                                KeyModifiers::ALT => {
-                                    commands::MappableCommand::debug_edit_breakpoint_log_message
-                                        .execute(cxt)
-                                }
-                                _ => commands::MappableCommand::debug_edit_breakpoint_condition
-                                    .execute(cxt),
-                            };
+                    if let Some(pos) = view.pos_at_visual_coords(doc, row, 0, true) {
+                        doc.set_selection(view_id, Selection::point(pos));
+                        match modifiers {
+                            KeyModifiers::ALT => {
+                                commands::MappableCommand::debug_edit_breakpoint_log_message
+                                    .execute(cxt)
+                            }
+                            _ => commands::MappableCommand::debug_edit_breakpoint_condition
+                                .execute(cxt),
                         }
                     }
 
