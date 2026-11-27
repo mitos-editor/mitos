@@ -933,6 +933,29 @@ pub fn run() -> anyhow::Result<()> {
                 respond_result(&mut output, &message["id"], lens)?;
             }
         }
+        if method == "workspace/executeCommand"
+            && completion
+            && params["command"] == "fixture.complete"
+        {
+            let (uri, text) = documents.iter().next().expect("open completion document");
+            let end = text.trim_end().encode_utf16().count();
+            respond(
+                &mut output,
+                json!({"jsonrpc": "2.0", "id": "completion-edit", "method": "workspace/applyEdit",
+                "params": {"edit": {"changes": {uri: [
+                    {"range": range(0, 0), "newText": "import java.time.LocalDate\n"},
+                    {"range": range(end, end), "newText": "e"}
+                ]}}}}),
+            )?;
+            respond(
+                &mut output,
+                json!({"jsonrpc": "2.0", "id": "completion-cursor", "method": "window/showDocument",
+                "params": {"uri": uri, "takeFocus": true, "selection": {
+                    "start": {"line": 1, "character": end + 1},
+                    "end": {"line": 1, "character": end + 1}
+                }}}),
+            )?;
+        }
         if method == "documentLink/resolve"
             && let Some(index) = args.iter().position(|arg| arg == "--resolve-link-gate")
         {
@@ -1233,7 +1256,8 @@ pub fn run() -> anyhow::Result<()> {
             }}),
             "initialize" if completion => json!({"capabilities": {
                 "positionEncoding": "utf-16", "textDocumentSync": 1,
-                "completionProvider": {"triggerCharacters": ["."], "resolveProvider": true}
+                "completionProvider": {"triggerCharacters": ["."], "resolveProvider": true},
+                "executeCommandProvider": {"commands": ["fixture.complete"]}
             }}),
             "initialize" if navigation => json!({"capabilities": {
                 "textDocumentSync": 1,

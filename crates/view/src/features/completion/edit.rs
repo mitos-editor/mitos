@@ -345,8 +345,8 @@ impl Editor {
         }
     }
 
-    /// Insert the selected text and snippet, then apply or resolve additional
-    /// edits. The primary edit and ready additional edits share an undo group.
+    /// Apply the selected completion and its available edits, run its command,
+    /// and resolve any missing additional edits. Available edits share an undo group.
     pub fn accept_completion(
         &mut self,
         session: &CompletionSession,
@@ -397,15 +397,18 @@ impl Editor {
             })?;
         self.handlers.completions.edit = Some(CompletionEdit::Applied(applied));
         let document = doc.id();
-        if let CompletionItem::Lsp(item) = item
-            && !item.resolved
-        {
-            self.resolve_accepted_completion(AcceptedCompletion {
-                document,
-                item: item.clone(),
-                before,
-                savepoint,
-            });
+        if let CompletionItem::Lsp(item) = item {
+            if let Some(command) = &item.item.command {
+                self.execute_lsp_command(command.clone(), item.provider);
+            }
+            if !item.resolved {
+                self.resolve_accepted_completion(AcceptedCompletion {
+                    document,
+                    item: item.clone(),
+                    before,
+                    savepoint,
+                });
+            }
         }
         // An accepted item can itself end in a completion trigger, such as `::`.
         trigger_auto_completion(self, true);
