@@ -45,6 +45,50 @@ pub(super) fn git_file_history(cx: &mut Context) {
         .set_error(|| "No Git support included in this build");
 }
 
+pub(super) fn blamed_commit(cx: &mut Context) {
+    #[cfg(feature = "git")]
+    {
+        let (view, doc) = view::current_ref!(cx.editor);
+        let Ok(blame) = doc.line_blame_details(doc.cursor_line(view.id) as u32) else {
+            cx.editor
+                .set_error(|| "No committed blame for the current line");
+            return;
+        };
+        match open_commit(cx.editor, &blame.commit_id) {
+            Ok(picker) => cx.push_layer(picker),
+            Err(error) => cx.editor.set_error(|| error.to_string()),
+        }
+    }
+    #[cfg(not(feature = "git"))]
+    cx.editor
+        .set_error(|| "No Git support included in this build");
+}
+
+#[cfg(feature = "git")]
+pub(crate) fn open_commit(
+    editor: &Editor,
+    id: &str,
+) -> anyhow::Result<Box<dyn crate::compositor::Component>> {
+    use ::vcs::operations::{history::RevisionId, GitRepository};
+
+    let (_, doc) = view::current_ref!(editor);
+    let revision = RevisionId::parse(id)?;
+    let path = doc
+        .display_metadata()
+        .source_path
+        .ok_or_else(|| anyhow::anyhow!("A file is required to inspect a commit"))?;
+    let repo = GitRepository::discover(path)?;
+    Ok(history::commit_files(editor, repo, revision))
+}
+
+#[cfg(not(feature = "git"))]
+pub(crate) fn open_commit(
+    _editor: &Editor,
+    _id: &str,
+) -> anyhow::Result<Box<dyn crate::compositor::Component>> {
+    anyhow::bail!("No Git support included in this build");
+}
+
 pub(super) fn git_stash_picker(cx: &mut Context) {
     #[cfg(feature = "git")]
     {

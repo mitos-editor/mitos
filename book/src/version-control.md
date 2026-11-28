@@ -448,14 +448,19 @@ name and email, date, and commit message. Lines with uncommitted changes report
 
 | Key | Action |
 | --- | --- |
+| `Enter` | Open the displayed commit's changed files directly, with diff previews |
 | `y` | Copy the full commit ID to the clipboard |
 | `Y` | Copy the commit message to the clipboard |
 | `Ctrl-d`, `Page Down` | Scroll down |
 | `Ctrl-u`, `Page Up` | Scroll up |
 | `Esc` | Close |
 
-Copy actions use `[keys.blame]` with `copy_commit_id` and `copy_message`.
-Scrolling and closing use `[keys.popup]`.
+Blame popup actions use `[keys.blame]`: `open_commit`, `copy_commit_id`,
+and `copy_message`. Scrolling and closing use `[keys.popup]`.
+
+Use `:vcs-blame-commit` to open the current line's commit without opening the
+popup. The command needs blame data for that line; unlike `Enter` in the popup,
+it follows the current cursor rather than the commit shown in a popup.
 
 ### Ignored revisions
 

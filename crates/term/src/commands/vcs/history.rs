@@ -8,7 +8,7 @@ use anyhow::Result;
 use std::{cell::RefCell, path::PathBuf, rc::Rc, sync::Arc};
 use tui::text::Span;
 use vcs::operations::{
-    history::{CommitEntry, HistoryFile, RevisionFile},
+    history::{CommitEntry, HistoryFile, RevisionFile, RevisionId},
     GitRepository,
 };
 use view::{features::change_review::HistoricalReviewRequest, DocumentId, Editor};
@@ -182,6 +182,39 @@ fn browser(
         ))
     };
     Ok(picker)
+}
+
+pub(super) fn commit_files(
+    editor: &Editor,
+    repo: GitRepository,
+    revision: RevisionId,
+) -> Box<dyn Component> {
+    let worker = repo.clone();
+    Box::new(crate::ui::Pending::new(
+        "commit-files",
+        "Loading commit…",
+        editor.redraw().clone(),
+        async move { worker.commit_entry(&revision).await },
+        move |compositor, cx, result| {
+            let commit = match result {
+                Ok(commit) => Arc::new(commit),
+                Err(error) => {
+                    cx.editor.set_error(|| error.to_string());
+                    return false;
+                }
+            };
+            let data = Data {
+                repo,
+                buffer: None,
+                theme: Arc::new(cx.editor.theme.clone()),
+                paths: Arc::new(crate::commands::picker::PathStyleConfig::new(cx.editor)),
+            };
+            compositor.push(Box::new(overlaid(files_picker(
+                cx.editor, data, commit, 0, None, None,
+            ))));
+            true
+        },
+    ))
 }
 
 /// Conservative retained metadata and matching-text estimate, excluding Git's

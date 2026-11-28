@@ -513,6 +513,66 @@ async fn blame_popup_copies_the_full_id_and_message_from_both_command_surfaces(
     assert!(app.close().await.is_empty());
     Ok(())
 }
+#[tokio::test(flavor = "multi_thread")]
+async fn leader_g_b_enter_opens_the_blamed_commit_and_its_files() -> anyhow::Result<()> {
+    open_blame_commit_files(true).await
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn vcs_blame_commit_command_opens_the_current_lines_commit_files() -> anyhow::Result<()> {
+    open_blame_commit_files(false).await
+}
+
+async fn open_blame_commit_files(from_popup: bool) -> anyhow::Result<()> {
+    let (_dir, path) = committed_file()?;
+    let mut app = AppBuilder::new().with_file(path, None).build()?;
+    press_keys(&mut app, "<space>gb").await?;
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while !app
+            .editor
+            .get_status()
+            .is_some_and(|(message, _)| message.starts_with("Blame:"))
+        {
+            run_event_loop_until_idle(&mut app).await;
+        }
+    })
+    .await?;
+    let id = current_ref!(app.editor)
+        .1
+        .line_blame_details(0)
+        .unwrap()
+        .commit_id
+        .clone();
+    if from_popup {
+        // Moving the document cursor must not change the popup's captured commit.
+        let (view, doc) = current!(app.editor);
+        doc.set_selection(view.id, editor_core::Selection::point(10));
+        press_keys(&mut app, "<ret>").await?;
+    } else {
+        press_keys(&mut app, "<esc><space>?vcs_blame_commit<ret>").await?;
+    }
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            run_event_loop_until_idle(&mut app).await;
+            let screen: String = app
+                .terminal_backend()
+                .buffer()
+                .content
+                .iter()
+                .map(|cell| cell.symbol())
+                .collect();
+            if screen.contains("file.txt")
+                && screen.contains(&id[..12])
+                && screen.contains("Enter review")
+            {
+                break;
+            }
+        }
+    })
+    .await?;
+    assert!(app.close().await.is_empty());
+    Ok(())
+}
 
 #[tokio::test(flavor = "multi_thread")]
 async fn restore_change_restores_only_the_buffer_and_is_undoable() -> anyhow::Result<()> {

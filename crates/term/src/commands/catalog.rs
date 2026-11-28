@@ -171,6 +171,7 @@ impl MappableCommand {
         vcs_goto_next_conflict => super::conflicts::next, "Go to the next unresolved conflict",
         vcs_goto_previous_conflict => super::conflicts::previous, "Go to the previous unresolved conflict",
         vcs_blame_line => super::vcs::blame_line, "Show line blame",
+        vcs_blame_commit => super::vcs::blamed_commit, "Browse files in the current line's commit",
         vcs_toggle_inline_blame => super::vcs::toggle_inline_blame, "Toggle inline blame",
         vcs_history_picker => super::vcs::git_history, "Browse commits",
         vcs_file_history_picker => super::vcs::git_file_history, "Browse file history",
