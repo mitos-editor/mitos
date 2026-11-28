@@ -70,4 +70,5 @@ pub use syntax::{
     extend_parent_node_end, extend_parent_node_start, move_parent_node_end, move_parent_node_start,
     syntax_symbol_picker, syntax_workspace_symbol_picker,
 };
+pub(crate) use vcs::open_commit;
 pub use view::save::{WriteAllOptions, WriteOptions};

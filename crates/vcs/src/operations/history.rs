@@ -139,6 +139,39 @@ impl GitRepository {
             }),
         })
     }
+    /// Load a commit directly by its full ID, including commits outside HEAD history.
+    pub async fn commit_entry(&self, revision: &RevisionId) -> Result<CommitEntry> {
+        let repository = self.clone();
+        let revision = revision.clone();
+        tokio::time::timeout(
+            std::time::Duration::from_secs(15),
+            tokio::task::spawn_blocking(move || {
+                let repo = repository.open_read(false)?;
+                let commit =
+                    repo.find_commit(gix::ObjectId::from_hex(revision.as_str().as_bytes())?)?;
+                let parents = commit
+                    .parent_ids()
+                    .map(|id| RevisionId::parse(&id.to_string()))
+                    .collect::<Result<Vec<_>>>()?;
+                let author = literal(commit.author()?.name.as_ref());
+                let time = commit.committer()?.time.parse::<gix::date::Time>()?;
+                let date = gix::date::Time::new(time.seconds, 0)
+                    .format(gix::date::time::format::ISO8601_STRICT)?;
+                let subject = literal(commit.message()?.summary().as_ref());
+                Ok(CommitEntry {
+                    id: revision,
+                    parents,
+                    author,
+                    date,
+                    subject,
+                    file: None,
+                })
+            }),
+        )
+        .await
+        .context("Git commit query timed out")?
+        .context("History commit worker stopped")?
+    }
 
     /// Load the selected commit's full message without retaining bodies in history pages.
     pub async fn commit_message(&self, revision: &RevisionId) -> Result<String> {

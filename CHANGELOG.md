@@ -3,6 +3,7 @@
 [Unreleased]: https://github.com/mitos-editor/mitos/commits/main
 
 ## [Unreleased]
+- Press `Enter` in the `Space g b` blame popup to open that commit's changed files directly, with diff previews.
 
 - Remove the `Space i` and `Space B` Git aliases. Use `Space g i` to inspect the current change and `Space g t` to toggle inline blame.
 

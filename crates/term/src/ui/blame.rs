@@ -92,6 +92,20 @@ impl BlameDetails {
         }
         Text::from(lines)
     }
+
+    fn open_commit(&self, cx: &mut Context) -> EventResult {
+        let picker = match crate::commands::open_commit(cx.editor, &self.commit_id) {
+            Ok(picker) => picker,
+            Err(error) => {
+                cx.editor.set_error(|| error.to_string());
+                return EventResult::Consumed(None);
+            }
+        };
+        EventResult::Consumed(Some(Box::new(move |compositor, _| {
+            compositor.remove(BlameDetails::ID);
+            compositor.push(picker);
+        })))
+    }
 }
 
 pub fn show(
@@ -111,7 +125,8 @@ pub fn show(
             compositor.replace_or_push(BlameDetails::ID, popup);
             let keys = &config.component_keys;
             editor.set_status(format!(
-                "Blame: {} copies commit ID; {} copies message; {} closes",
+                "Blame: {} opens commit; {} copies commit ID; {} copies message; {} closes",
+                action_hint(&keys.blame, &BlameAction::OpenCommit),
                 action_hint(&keys.blame, &BlameAction::CopyCommitId),
                 action_hint(&keys.blame, &BlameAction::CopyMessage),
                 action_hint(&keys.popup, &PopupAction::Cancel),
@@ -141,6 +156,7 @@ impl Component for BlameDetails {
                     let (text, label) = match action {
                         BlameAction::CopyCommitId => (&self.commit_id, "commit ID"),
                         BlameAction::CopyMessage => (&self.message, "commit message"),
+                        BlameAction::OpenCommit => return self.open_commit(cx),
                     };
                     match cx.editor.registers.write('+', vec![text.clone()]) {
                         Ok(()) => cx.editor.set_status(format!("Copied {label}")),
