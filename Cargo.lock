@@ -6241,6 +6241,7 @@ name = "xtask"
 version = "0.2.1"
 dependencies = [
  "core",
+ "editor-config",
  "gix",
  "grammar-build",
  "language",
