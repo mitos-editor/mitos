@@ -88,6 +88,27 @@ preserved. Once it is merged or closed, a later run can propose another batch.
 The workflow uses the existing `RELEASE_PAT` secret only for PR creation, so
 the PR triggers normal CI without GitHub Actions token approval requirements.
 
+# Nix binary cache
+
+The `Nix binary cache` workflow builds the default flake package for x86_64 and
+ARM64 Linux and macOS. Pushes to `main` publish the package and its runtime
+closure to Cachix. Pull requests that change Nix configuration build the package
+without upload credentials.
+
+To enable publishing:
+
+1. Create a public Cachix cache owned by the Mitos organization, using Cachix's
+   managed signing key.
+2. Set the repository Actions variable `CACHIX_CACHE_NAME` to its name.
+3. Add a cache-scoped write token as the Actions secret `CACHIX_AUTH_TOKEN`.
+4. Run the workflow on `main` and check that all four builds and uploads succeed.
+
+Publishing jobs stay disabled until `CACHIX_CACHE_NAME` is set. Manual runs on
+other branches build without publishing. Keep the cache name in the
+[installation instructions](./book/src/install.md#nix) up to date when enabling
+the cache. Monitor storage usage and configure retention in Cachix to keep
+recent `main` builds available within the cache's quota.
+
 # Testing
 
 ## Unit Tests/Documentation Tests
