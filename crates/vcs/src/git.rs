@@ -118,7 +118,8 @@ fn status(
         .untracked_files(UntrackedFiles::Files)
         // Detect renames in both the staging area and the working tree.
         .index_worktree_rewrites(Some(rewrites))
-        .tree_index_track_renames(TrackRenames::Given(rewrites));
+        .tree_index_track_renames(TrackRenames::Given(rewrites))
+        .head_tree(staged_base_tree(repo)?);
 
     let patterns = status_patterns(&work_dir, scope)?;
 
@@ -236,6 +237,31 @@ fn status(
     }
 
     Ok(())
+}
+
+pub(crate) fn staged_base_tree(repo: &Repository) -> gix::Result<ObjectId> {
+    if repo.workdir().is_some_and(|root| root.join(".jj").is_dir())
+        && let Some(tree) = jj_conflict_first_side_tree(repo)
+    {
+        return Ok(tree);
+    }
+
+    Ok(repo.head_tree_id_or_empty()?.detach())
+}
+
+/// Jujutsu builds a conflicted Git HEAD tree from the first side of the
+/// conflict, with extra entries to preserve the other trees. Compare against
+/// that original side so the metadata never enters staged rename detection.
+fn jj_conflict_first_side_tree(repo: &Repository) -> Option<ObjectId> {
+    let head = repo.head_commit().ok()?;
+    let commit = head.decode().ok()?;
+    let trees = commit.extra_headers().find("jj:trees")?;
+    let (first, _) = trees.split_once_str(b" ")?;
+    let first_side = ObjectId::from_hex(first).ok()?;
+
+    let tree = head.tree().ok()?;
+    let entry = tree.find_entry(".jjconflict-side-0")?;
+    (entry.mode().is_tree() && entry.object_id() == first_side).then_some(first_side)
 }
 
 fn status_patterns(work_dir: &Path, scope: &ChangedFileScope) -> Result<Vec<BString>> {

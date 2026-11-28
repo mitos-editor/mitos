@@ -56,7 +56,7 @@ pub(crate) fn read_git_comparison(
         if repo.head()?.is_unborn() {
             return Ok(Vec::new());
         }
-        let tree = repo.head_commit()?.tree()?;
+        let tree = repo.find_tree(crate::git::staged_base_tree(&repo)?)?;
         let Some(entry) = tree.lookup_entry_by_path(path.strip_prefix(root)?)? else {
             return Ok(Vec::new());
         };

@@ -71,7 +71,7 @@ enum Operation {
     File {
         kind: FileOperation,
         paths: Vec<PathBuf>,
-        unborn: bool,
+        unstage_tree: Option<gix::ObjectId>,
     },
     Stash,
     Apply {
@@ -221,15 +221,15 @@ impl PreparedOperation {
             Operation::File {
                 kind: FileOperation::Unstage,
                 paths,
-                unborn,
+                unstage_tree,
             } => {
-                if *unborn {
+                if let Some(tree) = unstage_tree {
                     command
-                        .args(["rm", "--cached", "--force", "--ignore-unmatch", "--"])
+                        .args(["reset", "--quiet", &tree.to_string(), "--"])
                         .args(paths.iter().map(literal_pathspec));
                 } else {
                     command
-                        .args(["reset", "--quiet", "HEAD", "--"])
+                        .args(["rm", "--cached", "--force", "--ignore-unmatch", "--"])
                         .args(paths.iter().map(literal_pathspec));
                 }
             }
@@ -317,12 +317,17 @@ impl GitRepository {
             watched.push(full);
         }
         let expected = self.stamp(watched);
+        let unstage_tree = if kind == FileOperation::Unstage && !repo.head()?.is_unborn() {
+            Some(crate::git::staged_base_tree(&repo)?)
+        } else {
+            None
+        };
         Ok(PreparedOperation {
             repository: self.clone(),
             operation: Operation::File {
                 kind,
                 paths,
-                unborn: repo.head()?.is_unborn(),
+                unstage_tree,
             },
             expected,
         })
