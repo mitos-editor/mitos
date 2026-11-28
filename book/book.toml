@@ -29,3 +29,6 @@ use-boolean-and = true
 optional = true
 follow-web-links = false
 warning-policy = "error"
+
+[output.epub]
+cname = "mitos.epub"
