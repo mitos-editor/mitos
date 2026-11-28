@@ -455,6 +455,8 @@ name and email, date, and commit message. Lines with uncommitted changes report
 | `Ctrl-u`, `Page Up` | Scroll up |
 | `Esc` | Close |
 
+The changed-file browser shows the commit ID, author, and date in its title.
+
 Blame popup actions use `[keys.blame]`: `open_commit`, `copy_commit_id`,
 and `copy_message`. Scrolling and closing use `[keys.popup]`.
 

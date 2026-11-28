@@ -406,8 +406,10 @@ fn files_picker(
 ) -> Picker<HistoryFile, Files> {
     let browser = Rc::new(RefCell::new(browser));
     let title = format!(
-        "{} · parent {} · Enter review",
+        "{} · {} · {} · parent {} · Enter review",
         commit.id.short(),
+        commit.author,
+        commit.date.get(..10).unwrap_or(&commit.date),
         parent + 1
     );
     let preview_repo = data.repo.clone();

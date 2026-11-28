@@ -543,6 +543,11 @@ async fn open_blame_commit_files(from_popup: bool) -> anyhow::Result<()> {
         .unwrap()
         .commit_id
         .clone();
+    let revision = vcs::operations::history::RevisionId::parse(&id)?;
+    let commit = vcs::operations::GitRepository::discover(_dir.path())?
+        .commit_entry(&revision)
+        .await?;
+    let heading = format!("{} · Test Author · {}", &id[..12], &commit.date[..10]);
     if from_popup {
         // Moving the document cursor must not change the popup's captured commit.
         let (view, doc) = current!(app.editor);
@@ -551,6 +556,8 @@ async fn open_blame_commit_files(from_popup: bool) -> anyhow::Result<()> {
     } else {
         press_keys(&mut app, "<esc><space>?vcs_blame_commit<ret>").await?;
     }
+    // Use the full picker width so the complete metadata title is visible.
+    press_keys(&mut app, "<C-t>").await?;
     tokio::time::timeout(Duration::from_secs(10), async {
         loop {
             run_event_loop_until_idle(&mut app).await;
@@ -563,6 +570,7 @@ async fn open_blame_commit_files(from_popup: bool) -> anyhow::Result<()> {
                 .collect();
             if screen.contains("file.txt")
                 && screen.contains(&id[..12])
+                && screen.contains(&heading)
                 && screen.contains("Enter review")
             {
                 break;
